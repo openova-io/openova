@@ -145,8 +145,13 @@ flowchart LR
 | cert-manager | TLS certificates | [platform/security/cert-manager](../platform/security/cert-manager/) |
 | External Secrets (ESO) | Secrets operator | [platform/security/external-secrets](../platform/security/external-secrets/) |
 | Vault | Secrets backend (per cluster) | [platform/security/vault](../platform/security/vault/) |
-| Kyverno | Policy engine | [platform/security/kyverno](../platform/security/kyverno/) |
 | Trivy | Security scanning | [platform/security/trivy](../platform/security/trivy/) |
+
+### Policy
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Kyverno | Policy engine (validation, mutation, generation) | [platform/policy/kyverno](../platform/policy/kyverno/) |
 
 ### Scaling
 
@@ -166,11 +171,16 @@ flowchart LR
 | Grafana | Visualization | [platform/observability/grafana](../platform/observability/grafana/) |
 | OpenTelemetry | Application tracing | - |
 
-### Storage & Registry
+### Registry
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Harbor | Container registry + Trivy | [platform/storage/harbor](../platform/storage/harbor/) |
+| Harbor | Container/artifact registry | [platform/registry/harbor](../platform/registry/harbor/) |
+
+### Storage
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
 | MinIO | Object storage | [platform/storage/minio](../platform/storage/minio/) |
 | Velero | Backup/restore | [platform/storage/velero](../platform/storage/velero/) |
 

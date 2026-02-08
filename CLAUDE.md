@@ -18,9 +18,11 @@ openova/
 ├── core/                    # Bootstrap + Lifecycle Manager application
 ├── platform/                # Individual component blueprints
 │   ├── networking/          # Cilium, k8gb, ExternalDNS, STUNner
-│   ├── security/            # cert-manager, ESO, Vault, Kyverno, Trivy
+│   ├── security/            # cert-manager, ESO, Vault, Trivy
+│   ├── policy/              # Kyverno
 │   ├── observability/       # Grafana Stack (Alloy, Loki, Mimir, Tempo)
-│   ├── storage/             # MinIO, Harbor, Velero
+│   ├── registry/            # Harbor
+│   ├── storage/             # MinIO, Velero
 │   ├── scaling/             # KEDA, VPA
 │   ├── failover/            # Failover Controller
 │   ├── gitops/              # Flux, Gitea

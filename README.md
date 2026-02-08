@@ -22,9 +22,11 @@ openova/
 ├── core/                    # Bootstrap + Lifecycle Manager application
 ├── platform/                # Individual component blueprints
 │   ├── networking/          # Cilium, k8gb, ExternalDNS, STUNner
-│   ├── security/            # cert-manager, ESO, Vault, Kyverno, Trivy
+│   ├── security/            # cert-manager, ESO, Vault, Trivy
+│   ├── policy/              # Kyverno
 │   ├── observability/       # Grafana Stack (Loki, Mimir, Tempo)
-│   ├── storage/             # MinIO, Harbor, Velero
+│   ├── registry/            # Harbor
+│   ├── storage/             # MinIO, Velero
 │   ├── scaling/             # KEDA, VPA
 │   ├── failover/            # Failover Controller
 │   ├── gitops/              # Flux, Gitea
@@ -84,9 +86,11 @@ The [core/](core/) directory contains the Bootstrap wizard and Lifecycle Manager
 | Category | Components |
 |----------|------------|
 | **Networking** | [Cilium](platform/networking/cilium/), [k8gb](platform/networking/k8gb/), [ExternalDNS](platform/networking/external-dns/) |
-| **Security** | [cert-manager](platform/security/cert-manager/), [External Secrets](platform/security/external-secrets/), [Vault](platform/security/vault/), [Kyverno](platform/security/kyverno/) |
+| **Security** | [cert-manager](platform/security/cert-manager/), [External Secrets](platform/security/external-secrets/), [Vault](platform/security/vault/) |
+| **Policy** | [Kyverno](platform/policy/kyverno/) |
 | **Observability** | [Grafana Stack](platform/observability/grafana/) (Alloy, Loki, Mimir, Tempo) |
-| **Storage** | [MinIO](platform/storage/minio/), [Harbor](platform/storage/harbor/), [Velero](platform/storage/velero/) |
+| **Storage** | [MinIO](platform/storage/minio/), [Velero](platform/storage/velero/) |
+| **Registry** | [Harbor](platform/registry/harbor/) |
 | **Scaling** | [KEDA](platform/scaling/keda/), [VPA](platform/scaling/vpa/) |
 | **Failover** | [Failover Controller](platform/failover/failover-controller/) |
 | **GitOps** | [Flux](platform/gitops/flux/), [Gitea](platform/gitops/gitea/) |
