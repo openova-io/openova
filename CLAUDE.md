@@ -16,24 +16,10 @@ OpenOva is an **enterprise-grade support provider for open-source K8s ecosystems
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager application
-├── platform/                # Individual component blueprints
-│   ├── networking/          # Cilium, k8gb, ExternalDNS, STUNner
-│   ├── security/            # cert-manager, ESO, Vault, Trivy
-│   ├── policy/              # Kyverno
-│   ├── observability/       # Grafana Stack (Alloy, Loki, Mimir, Tempo)
-│   ├── registry/            # Harbor
-│   ├── storage/             # MinIO, Velero
-│   ├── scaling/             # KEDA, VPA
-│   ├── failover/            # Failover Controller
-│   ├── gitops/              # Flux, Gitea
-│   ├── idp/                 # Backstage
-│   ├── data/                # CNPG, MongoDB, Valkey, Redpanda
-│   ├── communication/       # Stalwart
-│   ├── iac/                 # Terraform, Crossplane
-│   └── identity/            # Keycloak
+├── platform/                # All 41 component blueprints (flat structure)
 ├── meta-platforms/          # Bundled vertical solutions
-│   ├── ai-hub/              # Enterprise AI platform
-│   └── open-banking/        # PSD2/FAPI fintech sandbox
+│   ├── ai-hub/              # Enterprise AI platform (README only)
+│   └── open-banking/        # PSD2/FAPI fintech sandbox (+ 6 services)
 └── docs/                    # Platform documentation
 ```
 
@@ -47,6 +33,19 @@ The `core/` directory contains a single Go application with two deployment modes
 | **Manager** | Inside cluster | Day-2 operations | Crossplane |
 
 See [core/README.md](core/README.md) for detailed architecture.
+
+## Platform Components (41)
+
+All components are flat under `platform/`:
+
+anthropic-adapter, backstage, bge, cert-manager, cilium, cnpg, crossplane, external-dns, external-secrets, failover-controller, flux, gitea, grafana, harbor, k8gb, keda, keycloak, knative, kserve, kyverno, lago, langserve, librechat, llm-gateway, milvus, minio, mongodb, n8n, neo4j, openmeter, redpanda, searxng, stalwart, stunner, terraform, trivy, valkey, vault, velero, vllm, vpa
+
+## Meta-Platforms
+
+Meta-platforms reference components from `platform/`:
+
+- **ai-hub**: Uses kserve, knative, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter
+- **open-banking**: Uses keycloak, openmeter, lago + 6 custom services (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
 
 ## Key Principles
 

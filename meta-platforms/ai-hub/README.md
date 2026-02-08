@@ -60,27 +60,22 @@ flowchart TB
 
 ## Components
 
-### Custom Services (Your IP)
+All components are in `platform/` (flat structure):
 
-| Service | Purpose | Repository |
-|---------|---------|------------|
-| **LLM Gateway** | Subscription-based LLM access | openova-io/llm-gateway |
-| **Anthropic Adapter** | Claude API translation | openova-io/anthropic-adapter |
-
-### A La Carte Components
-
-| Component | Purpose | Repository |
-|-----------|---------|------------|
-| **Knative** | Serverless platform | openova-io/knative |
-| **KServe** | Model serving | openova-io/kserve |
-| **vLLM** | LLM inference | openova-io/vllm |
-| **Milvus** | Vector database | openova-io/milvus |
-| **Neo4j** | Graph database | openova-io/neo4j |
-| **LangServe** | RAG service | openova-io/langserve |
-| **LibreChat** | Chat UI | openova-io/librechat |
-| **n8n** | Workflow automation | openova-io/n8n |
-| **SearXNG** | Web search | openova-io/searxng |
-| **BGE** | Embeddings + reranking | openova-io/bge |
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| [llm-gateway](../../platform/llm-gateway/) | Subscription-based LLM access | platform/llm-gateway |
+| [anthropic-adapter](../../platform/anthropic-adapter/) | Claude API translation | platform/anthropic-adapter |
+| [knative](../../platform/knative/) | Serverless platform | platform/knative |
+| [kserve](../../platform/kserve/) | Model serving | platform/kserve |
+| [vllm](../../platform/vllm/) | LLM inference | platform/vllm |
+| [milvus](../../platform/milvus/) | Vector database | platform/milvus |
+| [neo4j](../../platform/neo4j/) | Graph database | platform/neo4j |
+| [langserve](../../platform/langserve/) | RAG service | platform/langserve |
+| [librechat](../../platform/librechat/) | Chat UI | platform/librechat |
+| [n8n](../../platform/n8n/) | Workflow automation | platform/n8n |
+| [searxng](../../platform/searxng/) | Web search | platform/searxng |
+| [bge](../../platform/bge/) | Embeddings + reranking | platform/bge |
 
 ---
 

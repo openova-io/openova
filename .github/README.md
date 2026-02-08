@@ -26,48 +26,21 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 
 ---
 
-## Platform Architecture
-
-```
-Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
-                 → OpenOva Blueprints (stays in picture)
-```
-
----
-
 ## Repository Structure
-
-This is a monorepo containing all OpenOva platform components:
 
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager
-├── platform/                # Individual component blueprints
-│   ├── networking/          # Cilium, k8gb, ExternalDNS, STUNner
-│   ├── security/            # cert-manager, ESO, Vault, Trivy
-│   ├── policy/              # Kyverno
-│   ├── observability/       # Grafana Stack
-│   ├── registry/            # Harbor
-│   ├── storage/             # MinIO, Velero
-│   ├── scaling/             # KEDA, VPA
-│   ├── failover/            # Failover Controller
-│   ├── gitops/              # Flux, Gitea
-│   ├── idp/                 # Backstage
-│   ├── data/                # CNPG, MongoDB, Valkey, Redpanda
-│   ├── communication/       # Stalwart
-│   ├── iac/                 # Terraform, Crossplane
-│   └── identity/            # Keycloak
+├── platform/                # All 41 component blueprints (flat)
 ├── meta-platforms/          # Bundled vertical solutions
 │   ├── ai-hub/              # Enterprise AI platform
-│   └── open-banking/        # PSD2/FAPI fintech sandbox
+│   └── open-banking/        # PSD2/FAPI fintech sandbox (+ 6 services)
 └── docs/                    # Platform documentation
 ```
 
 ---
 
 ## Core Application
-
-The [core/](../core/) directory contains:
 
 | Mode | Purpose |
 |------|---------|
@@ -76,31 +49,53 @@ The [core/](../core/) directory contains:
 
 ---
 
-## Platform Components
+## Platform Components (41)
 
-### Mandatory
+All components flat under `platform/`:
 
-| Category | Components |
-|----------|------------|
-| Networking | [Cilium](../platform/networking/cilium/), [k8gb](../platform/networking/k8gb/), [ExternalDNS](../platform/networking/external-dns/) |
-| Security | [cert-manager](../platform/security/cert-manager/), [External Secrets](../platform/security/external-secrets/), [Vault](../platform/security/vault/) |
-| Policy | [Kyverno](../platform/policy/kyverno/) |
-| Observability | [Grafana Stack](../platform/observability/grafana/) |
-| Storage | [MinIO](../platform/storage/minio/), [Velero](../platform/storage/velero/) |
-| Registry | [Harbor](../platform/registry/harbor/) |
-| Scaling | [KEDA](../platform/scaling/keda/), [VPA](../platform/scaling/vpa/) |
-| Failover | [Failover Controller](../platform/failover/failover-controller/) |
-| GitOps | [Flux](../platform/gitops/flux/), [Gitea](../platform/gitops/gitea/) |
-| IDP | [Backstage](../platform/idp/backstage/) |
-| IaC | [Terraform](../platform/iac/terraform/), [Crossplane](../platform/iac/crossplane/) |
-
-### A La Carte
-
-| Category | Components |
-|----------|------------|
-| Data | [CNPG](../platform/data/cnpg/), [MongoDB](../platform/data/mongodb/), [Valkey](../platform/data/valkey/), [Redpanda](../platform/data/redpanda/) |
-| Communication | [Stalwart](../platform/communication/stalwart/), [STUNner](../platform/networking/stunner/) |
-| Identity | [Keycloak](../platform/identity/keycloak/) |
+| Component | Purpose |
+|-----------|---------|
+| [anthropic-adapter](../platform/anthropic-adapter/) | OpenAI ↔ Anthropic translation |
+| [backstage](../platform/backstage/) | Internal Developer Platform |
+| [bge](../platform/bge/) | Embeddings + reranking |
+| [cert-manager](../platform/cert-manager/) | TLS certificate automation |
+| [cilium](../platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
+| [cnpg](../platform/cnpg/) | PostgreSQL operator |
+| [crossplane](../platform/crossplane/) | Day-2 cloud resource provisioning |
+| [external-dns](../platform/external-dns/) | DNS synchronization |
+| [external-secrets](../platform/external-secrets/) | Secrets management (ESO) |
+| [failover-controller](../platform/failover-controller/) | Multi-region failover |
+| [flux](../platform/flux/) | GitOps configuration |
+| [gitea](../platform/gitea/) | Self-hosted Git + CI/CD |
+| [grafana](../platform/grafana/) | LGTM stack |
+| [harbor](../platform/harbor/) | Container registry |
+| [k8gb](../platform/k8gb/) | Global Server Load Balancing |
+| [keda](../platform/keda/) | Event-driven autoscaling |
+| [keycloak](../platform/keycloak/) | FAPI Authorization Server |
+| [knative](../platform/knative/) | Serverless platform |
+| [kserve](../platform/kserve/) | Model serving |
+| [kyverno](../platform/kyverno/) | Policy engine |
+| [lago](../platform/lago/) | Billing and invoicing |
+| [langserve](../platform/langserve/) | LangChain RAG service |
+| [librechat](../platform/librechat/) | Chat UI |
+| [llm-gateway](../platform/llm-gateway/) | LLM subscription proxy |
+| [milvus](../platform/milvus/) | Vector database |
+| [minio](../platform/minio/) | S3-compatible storage |
+| [mongodb](../platform/mongodb/) | Document database |
+| [n8n](../platform/n8n/) | Workflow automation |
+| [neo4j](../platform/neo4j/) | Graph database |
+| [openmeter](../platform/openmeter/) | Usage metering |
+| [redpanda](../platform/redpanda/) | Kafka-compatible streaming |
+| [searxng](../platform/searxng/) | Web search |
+| [stalwart](../platform/stalwart/) | Email server |
+| [stunner](../platform/stunner/) | WebRTC gateway |
+| [terraform](../platform/terraform/) | IaC (bootstrap) |
+| [trivy](../platform/trivy/) | Security scanning |
+| [valkey](../platform/valkey/) | Redis-compatible cache |
+| [vault](../platform/vault/) | Secrets backend |
+| [velero](../platform/velero/) | Kubernetes backup |
+| [vllm](../platform/vllm/) | LLM inference |
+| [vpa](../platform/vpa/) | Vertical Pod Autoscaler |
 
 ---
 
@@ -110,13 +105,13 @@ The [core/](../core/) directory contains:
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
-See [meta-platforms/ai-hub/](../meta-platforms/ai-hub/)
+**Uses:** kserve, knative, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter
 
 ### Open Banking
 
 Fintech sandbox with PSD2/FAPI compliance.
 
-See [meta-platforms/open-banking/](../meta-platforms/open-banking/)
+**Uses:** keycloak, openmeter, lago + 6 custom services
 
 ---
 
@@ -139,12 +134,6 @@ See [meta-platforms/open-banking/](../meta-platforms/open-banking/)
 # Self-Hosted Bootstrap
 docker run -p 8080:8080 ghcr.io/openova-io/bootstrap:latest
 ```
-
----
-
-## Hosted Products
-
-- [TalentMesh](https://github.com/talentmesh-io) - AI-powered talent assessment platform
 
 ---
 

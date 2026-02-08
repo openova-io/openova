@@ -12,6 +12,7 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 |----------|-------------|
 | [Platform Tech Stack](docs/PLATFORM-TECH-STACK.md) | Technology stack and architecture |
 | [SRE Handbook](docs/SRE.md) | Site reliability practices |
+| [Core Application](core/README.md) | Bootstrap + Lifecycle Manager |
 
 ---
 
@@ -19,25 +20,11 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 
 ```
 openova/
-├── core/                    # Bootstrap + Lifecycle Manager application
-├── platform/                # Individual component blueprints
-│   ├── networking/          # Cilium, k8gb, ExternalDNS, STUNner
-│   ├── security/            # cert-manager, ESO, Vault, Trivy
-│   ├── policy/              # Kyverno
-│   ├── observability/       # Grafana Stack (Loki, Mimir, Tempo)
-│   ├── registry/            # Harbor
-│   ├── storage/             # MinIO, Velero
-│   ├── scaling/             # KEDA, VPA
-│   ├── failover/            # Failover Controller
-│   ├── gitops/              # Flux, Gitea
-│   ├── idp/                 # Backstage
-│   ├── data/                # CNPG, MongoDB, Valkey, Redpanda
-│   ├── communication/       # Stalwart
-│   ├── iac/                 # Terraform, Crossplane
-│   └── identity/            # Keycloak
+├── core/                    # Bootstrap + Lifecycle Manager
+├── platform/                # All 41 component blueprints (flat)
 ├── meta-platforms/          # Bundled vertical solutions
 │   ├── ai-hub/              # Enterprise AI platform
-│   └── open-banking/        # PSD2/FAPI fintech sandbox
+│   └── open-banking/        # PSD2/FAPI fintech sandbox (+ 6 services)
 └── docs/                    # Platform documentation
 ```
 
@@ -64,78 +51,77 @@ Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
 - **Bootstrap (Terraform)**: Initial cluster + core components
 - **Lifecycle Manager (Crossplane)**: Day-2 operations + a la carte components
 
-See [core/README.md](core/README.md) for Bootstrap and Lifecycle Manager architecture.
-
 ---
 
-## Core Application
+## Platform Components (41)
 
-The [core/](core/) directory contains the Bootstrap wizard and Lifecycle Manager:
+All components are in `platform/` with a flat structure:
 
-| Mode | Location | Purpose |
-|------|----------|---------|
-| **Bootstrap** | Outside cluster | Initial provisioning via Terraform |
-| **Manager** | Inside cluster | Day-2 operations via Crossplane |
-
----
-
-## Platform Components
-
-### Mandatory (Always Installed)
-
-| Category | Components |
-|----------|------------|
-| **Networking** | [Cilium](platform/networking/cilium/), [k8gb](platform/networking/k8gb/), [ExternalDNS](platform/networking/external-dns/) |
-| **Security** | [cert-manager](platform/security/cert-manager/), [External Secrets](platform/security/external-secrets/), [Vault](platform/security/vault/) |
-| **Policy** | [Kyverno](platform/policy/kyverno/) |
-| **Observability** | [Grafana Stack](platform/observability/grafana/) (Alloy, Loki, Mimir, Tempo) |
-| **Storage** | [MinIO](platform/storage/minio/), [Velero](platform/storage/velero/) |
-| **Registry** | [Harbor](platform/registry/harbor/) |
-| **Scaling** | [KEDA](platform/scaling/keda/), [VPA](platform/scaling/vpa/) |
-| **Failover** | [Failover Controller](platform/failover/failover-controller/) |
-| **GitOps** | [Flux](platform/gitops/flux/), [Gitea](platform/gitops/gitea/) |
-| **IDP** | [Backstage](platform/idp/backstage/) |
-| **IaC** | [Terraform](platform/iac/terraform/) (bootstrap), [Crossplane](platform/iac/crossplane/) (day-2) |
-
-### A La Carte (Optional)
-
-| Category | Components |
-|----------|------------|
-| **Data** | [CNPG](platform/data/cnpg/), [MongoDB](platform/data/mongodb/), [Valkey](platform/data/valkey/), [Redpanda](platform/data/redpanda/) |
-| **Communication** | [Stalwart](platform/communication/stalwart/), [STUNner](platform/networking/stunner/) |
-| **Identity** | [Keycloak](platform/identity/keycloak/) |
+| Component | Purpose |
+|-----------|---------|
+| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI ↔ Anthropic translation |
+| [backstage](platform/backstage/) | Internal Developer Platform |
+| [bge](platform/bge/) | Embeddings + reranking |
+| [cert-manager](platform/cert-manager/) | TLS certificate automation |
+| [cilium](platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
+| [cnpg](platform/cnpg/) | PostgreSQL operator |
+| [crossplane](platform/crossplane/) | Day-2 cloud resource provisioning |
+| [external-dns](platform/external-dns/) | DNS synchronization |
+| [external-secrets](platform/external-secrets/) | Secrets management (ESO) |
+| [failover-controller](platform/failover-controller/) | Multi-region failover orchestration |
+| [flux](platform/flux/) | GitOps configuration |
+| [gitea](platform/gitea/) | Self-hosted Git + CI/CD |
+| [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
+| [harbor](platform/harbor/) | Container registry |
+| [k8gb](platform/k8gb/) | Global Server Load Balancing |
+| [keda](platform/keda/) | Event-driven autoscaling |
+| [keycloak](platform/keycloak/) | FAPI Authorization Server |
+| [knative](platform/knative/) | Serverless platform |
+| [kserve](platform/kserve/) | Model serving |
+| [kyverno](platform/kyverno/) | Policy engine |
+| [lago](platform/lago/) | Billing and invoicing |
+| [langserve](platform/langserve/) | LangChain RAG service |
+| [librechat](platform/librechat/) | Chat UI |
+| [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
+| [milvus](platform/milvus/) | Vector database |
+| [minio](platform/minio/) | S3-compatible object storage |
+| [mongodb](platform/mongodb/) | Document database |
+| [n8n](platform/n8n/) | Workflow automation |
+| [neo4j](platform/neo4j/) | Graph database |
+| [openmeter](platform/openmeter/) | Usage metering |
+| [redpanda](platform/redpanda/) | Kafka-compatible streaming |
+| [searxng](platform/searxng/) | Privacy-respecting web search |
+| [stalwart](platform/stalwart/) | Self-hosted email server |
+| [stunner](platform/stunner/) | K8s-native TURN server |
+| [terraform](platform/terraform/) | Infrastructure as Code (bootstrap) |
+| [trivy](platform/trivy/) | Security scanning |
+| [valkey](platform/valkey/) | Redis-compatible cache |
+| [vault](platform/vault/) | Secrets backend |
+| [velero](platform/velero/) | Kubernetes backup |
+| [vllm](platform/vllm/) | LLM inference engine |
+| [vpa](platform/vpa/) | Vertical Pod Autoscaler |
 
 ---
 
 ## Meta-Platforms
 
-Bundled vertical solutions that combine platform components with custom services:
+Bundled vertical solutions that reference components from `platform/`:
 
 ### AI Hub
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
-| Component | Purpose |
-|-----------|---------|
-| [KServe](meta-platforms/ai-hub/components/kserve/) | Model serving |
-| [vLLM](meta-platforms/ai-hub/components/vllm/) | LLM inference |
-| [Milvus](meta-platforms/ai-hub/components/milvus/) | Vector database |
-| [LangServe](meta-platforms/ai-hub/components/langserve/) | RAG service |
-| [LibreChat](meta-platforms/ai-hub/components/librechat/) | Chat UI |
+**Uses:** kserve, knative, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter
 
-See [meta-platforms/ai-hub/README.md](meta-platforms/ai-hub/README.md)
+See [meta-platforms/ai-hub/](meta-platforms/ai-hub/)
 
 ### Open Banking
 
 Fintech sandbox with PSD2/FAPI compliance.
 
-| Component | Purpose |
-|-----------|---------|
-| Keycloak | FAPI Authorization Server |
-| [OpenMeter](meta-platforms/open-banking/components/openmeter/) | Usage metering |
-| [Lago](meta-platforms/open-banking/components/lago/) | Billing |
+**Uses:** keycloak, openmeter, lago + 6 custom services
 
-See [meta-platforms/open-banking/README.md](meta-platforms/open-banking/README.md)
+See [meta-platforms/open-banking/](meta-platforms/open-banking/)
 
 ---
 
@@ -151,20 +137,13 @@ See [meta-platforms/open-banking/README.md](meta-platforms/open-banking/README.m
 
 ## Getting Started
 
-### Option 1: Managed Bootstrap (Recommended)
-
-Visit [bootstrap.openova.io](https://bootstrap.openova.io) to provision your platform using the wizard UI.
-
-### Option 2: Self-Hosted Bootstrap
-
 ```bash
-# Run bootstrap locally
+# Managed Bootstrap (recommended)
+# Visit https://bootstrap.openova.io
+
+# Self-Hosted Bootstrap
 docker run -p 8080:8080 ghcr.io/openova-io/bootstrap:latest
-
-# Access wizard at http://localhost:8080
 ```
-
-See [core/README.md](core/README.md) for details.
 
 ---
 
@@ -178,14 +157,7 @@ GitHub (monorepo)                    Customer Gitea (multi-repo)
 openova/core/              ──sync──> openova-core/
 openova/platform/cilium/   ──sync──> openova-cilium/
 openova/platform/flux/     ──sync──> openova-flux/
-openova/meta-platforms/    ──sync──> openova-ai-hub/
 ```
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 

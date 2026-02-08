@@ -61,8 +61,8 @@ flowchart TB
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Terraform | Bootstrap IaC (initial cluster only) | [platform/iac/terraform](../platform/iac/terraform/) |
-| Crossplane | Day-2 cloud resource provisioning | [platform/iac/crossplane](../platform/iac/crossplane/) |
+| Terraform | Bootstrap IaC (initial cluster only) | [platform/iac/terraform](terraform/) |
+| Crossplane | Day-2 cloud resource provisioning | [platform/iac/crossplane](crossplane/) |
 
 #### Terraform → Crossplane Handoff
 
@@ -125,70 +125,70 @@ flowchart LR
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Cilium | CNI + Service Mesh (eBPF, mTLS, L7) | [platform/networking/cilium](../platform/networking/cilium/) |
+| Cilium | CNI + Service Mesh (eBPF, mTLS, L7) | [platform/networking/cilium](cilium/) |
 | Coraza | WAF (OWASP CRS) | - |
-| ExternalDNS | DNS sync to provider | [platform/networking/external-dns](../platform/networking/external-dns/) |
-| k8gb | GSLB (authoritative DNS) | [platform/networking/k8gb](../platform/networking/k8gb/) |
+| ExternalDNS | DNS sync to provider | [platform/networking/external-dns](external-dns/) |
+| k8gb | GSLB (authoritative DNS) | [platform/networking/k8gb](k8gb/) |
 
 ### GitOps, Git & IDP
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Flux | GitOps engine | [platform/gitops/flux](../platform/gitops/flux/) |
-| Gitea | Internal Git + CI/CD | [platform/gitops/gitea](../platform/gitops/gitea/) |
-| Backstage | Developer portal | [platform/idp/backstage](../platform/idp/backstage/) |
+| Flux | GitOps engine | [platform/gitops/flux](flux/) |
+| Gitea | Internal Git + CI/CD | [platform/gitops/gitea](gitea/) |
+| Backstage | Developer portal | [platform/idp/backstage](backstage/) |
 
 ### Security
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| cert-manager | TLS certificates | [platform/security/cert-manager](../platform/security/cert-manager/) |
-| External Secrets (ESO) | Secrets operator | [platform/security/external-secrets](../platform/security/external-secrets/) |
-| Vault | Secrets backend (per cluster) | [platform/security/vault](../platform/security/vault/) |
-| Trivy | Security scanning | [platform/security/trivy](../platform/security/trivy/) |
+| cert-manager | TLS certificates | [platform/security/cert-manager](cert-manager/) |
+| External Secrets (ESO) | Secrets operator | [platform/security/external-secrets](external-secrets/) |
+| Vault | Secrets backend (per cluster) | [platform/security/vault](vault/) |
+| Trivy | Security scanning | [platform/security/trivy](trivy/) |
 
 ### Policy
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Kyverno | Policy engine (validation, mutation, generation) | [platform/policy/kyverno](../platform/policy/kyverno/) |
+| Kyverno | Policy engine (validation, mutation, generation) | [platform/policy/kyverno](kyverno/) |
 
 ### Scaling
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| VPA | Vertical autoscaling | [platform/scaling/vpa](../platform/scaling/vpa/) |
-| KEDA | Event-driven horizontal autoscaling | [platform/scaling/keda](../platform/scaling/keda/) |
+| VPA | Vertical autoscaling | [platform/scaling/vpa](vpa/) |
+| KEDA | Event-driven horizontal autoscaling | [platform/scaling/keda](keda/) |
 
 ### Observability
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Grafana Alloy | Telemetry collector | [platform/observability/grafana](../platform/observability/grafana/) |
-| Loki | Log aggregation | [platform/observability/grafana](../platform/observability/grafana/) |
-| Mimir | Metrics storage | [platform/observability/grafana](../platform/observability/grafana/) |
-| Tempo | Distributed tracing | [platform/observability/grafana](../platform/observability/grafana/) |
-| Grafana | Visualization | [platform/observability/grafana](../platform/observability/grafana/) |
+| Grafana Alloy | Telemetry collector | [platform/observability/grafana](grafana/) |
+| Loki | Log aggregation | [platform/observability/grafana](grafana/) |
+| Mimir | Metrics storage | [platform/observability/grafana](grafana/) |
+| Tempo | Distributed tracing | [platform/observability/grafana](grafana/) |
+| Grafana | Visualization | [platform/observability/grafana](grafana/) |
 | OpenTelemetry | Application tracing | - |
 
 ### Registry
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Harbor | Container/artifact registry | [platform/registry/harbor](../platform/registry/harbor/) |
+| Harbor | Container/artifact registry | [platform/registry/harbor](harbor/) |
 
 ### Storage
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| MinIO | Object storage | [platform/storage/minio](../platform/storage/minio/) |
-| Velero | Backup/restore | [platform/storage/velero](../platform/storage/velero/) |
+| MinIO | Object storage | [platform/storage/minio](minio/) |
+| Velero | Backup/restore | [platform/storage/velero](velero/) |
 
 ### Failover & Resilience
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Failover Controller | Failover orchestration | [platform/failover/failover-controller](../platform/failover/failover-controller/) |
+| Failover Controller | Failover orchestration | [platform/failover/failover-controller](failover-controller/) |
 
 ---
 
@@ -245,10 +245,10 @@ flowchart LR
 
 | Component | Purpose | DR Strategy | Location |
 |-----------|---------|-------------|----------|
-| CNPG | PostgreSQL | WAL streaming | [platform/data/cnpg](../platform/data/cnpg/) |
-| MongoDB | Document database | CDC via Debezium | [platform/data/mongodb](../platform/data/mongodb/) |
-| Redpanda | Event streaming | MirrorMaker2 | [platform/data/redpanda](../platform/data/redpanda/) |
-| Valkey | Redis-compatible cache | REPLICAOF | [platform/data/valkey](../platform/data/valkey/) |
+| CNPG | PostgreSQL | WAL streaming | [platform/data/cnpg](cnpg/) |
+| MongoDB | Document database | CDC via Debezium | [platform/data/mongodb](mongodb/) |
+| Redpanda | Event streaming | MirrorMaker2 | [platform/data/redpanda](redpanda/) |
+| Valkey | Redis-compatible cache | REPLICAOF | [platform/data/valkey](valkey/) |
 
 ---
 
@@ -256,8 +256,8 @@ flowchart LR
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Stalwart | Email server | [platform/communication/stalwart](../platform/communication/stalwart/) |
-| STUNner | WebRTC gateway | [platform/networking/stunner](../platform/networking/stunner/) |
+| Stalwart | Email server | [platform/communication/stalwart](stalwart/) |
+| STUNner | WebRTC gateway | [platform/networking/stunner](stunner/) |
 
 ---
 
@@ -318,18 +318,18 @@ flowchart TB
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
 | **ai-hub** | Meta blueprint | Blueprint | [meta-platforms/ai-hub](../meta-platforms/ai-hub/) |
-| **llm-gateway** | Subscription proxy for Claude Code | Custom | [meta-platforms/ai-hub/components/llm-gateway](../meta-platforms/ai-hub/components/llm-gateway/) |
-| **anthropic-adapter** | OpenAI ↔ Anthropic translation | Custom | [meta-platforms/ai-hub/components/anthropic-adapter](../meta-platforms/ai-hub/components/anthropic-adapter/) |
-| knative | Serverless platform | A La Carte | [meta-platforms/ai-hub/components/knative](../meta-platforms/ai-hub/components/knative/) |
-| kserve | Model serving | A La Carte | [meta-platforms/ai-hub/components/kserve](../meta-platforms/ai-hub/components/kserve/) |
-| vllm | LLM inference (PagedAttention) | A La Carte | [meta-platforms/ai-hub/components/vllm](../meta-platforms/ai-hub/components/vllm/) |
-| langserve | LangChain RAG service | A La Carte | [meta-platforms/ai-hub/components/langserve](../meta-platforms/ai-hub/components/langserve/) |
-| milvus | Vector database | A La Carte | [meta-platforms/ai-hub/components/milvus](../meta-platforms/ai-hub/components/milvus/) |
-| neo4j | Graph database | A La Carte | [meta-platforms/ai-hub/components/neo4j](../meta-platforms/ai-hub/components/neo4j/) |
-| librechat | Chat UI | A La Carte | [meta-platforms/ai-hub/components/librechat](../meta-platforms/ai-hub/components/librechat/) |
-| n8n | Workflow automation | A La Carte | [meta-platforms/ai-hub/components/n8n](../meta-platforms/ai-hub/components/n8n/) |
-| searxng | Privacy-respecting web search | A La Carte | [meta-platforms/ai-hub/components/searxng](../meta-platforms/ai-hub/components/searxng/) |
-| bge | Embeddings + reranking | A La Carte | [meta-platforms/ai-hub/components/bge](../meta-platforms/ai-hub/components/bge/) |
+| **llm-gateway** | Subscription proxy for Claude Code | Custom | [meta-platforms/ai-hub/components/llm-gateway](llm-gateway/) |
+| **anthropic-adapter** | OpenAI ↔ Anthropic translation | Custom | [meta-platforms/ai-hub/components/anthropic-adapter](anthropic-adapter/) |
+| knative | Serverless platform | A La Carte | [meta-platforms/ai-hub/components/knative](knative/) |
+| kserve | Model serving | A La Carte | [meta-platforms/ai-hub/components/kserve](kserve/) |
+| vllm | LLM inference (PagedAttention) | A La Carte | [meta-platforms/ai-hub/components/vllm](vllm/) |
+| langserve | LangChain RAG service | A La Carte | [meta-platforms/ai-hub/components/langserve](langserve/) |
+| milvus | Vector database | A La Carte | [meta-platforms/ai-hub/components/milvus](milvus/) |
+| neo4j | Graph database | A La Carte | [meta-platforms/ai-hub/components/neo4j](neo4j/) |
+| librechat | Chat UI | A La Carte | [meta-platforms/ai-hub/components/librechat](librechat/) |
+| n8n | Workflow automation | A La Carte | [meta-platforms/ai-hub/components/n8n](n8n/) |
+| searxng | Privacy-respecting web search | A La Carte | [meta-platforms/ai-hub/components/searxng](searxng/) |
+| bge | Embeddings + reranking | A La Carte | [meta-platforms/ai-hub/components/bge](bge/) |
 
 #### AI Hub Resource Requirements
 
@@ -385,9 +385,9 @@ flowchart LR
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
 | **open-banking** | Meta blueprint | Blueprint | [meta-platforms/open-banking](../meta-platforms/open-banking/) |
-| keycloak | FAPI Authorization Server | A La Carte | [platform/identity/keycloak](../platform/identity/keycloak/) |
-| openmeter | Usage metering | A La Carte | [meta-platforms/open-banking/components/openmeter](../meta-platforms/open-banking/components/openmeter/) |
-| lago | Billing and invoicing | A La Carte | [meta-platforms/open-banking/components/lago](../meta-platforms/open-banking/components/lago/) |
+| keycloak | FAPI Authorization Server | A La Carte | [platform/identity/keycloak](keycloak/) |
+| openmeter | Usage metering | A La Carte | [meta-platforms/open-banking/components/openmeter](openmeter/) |
+| lago | Billing and invoicing | A La Carte | [meta-platforms/open-banking/components/lago](lago/) |
 
 ---
 
