@@ -55,51 +55,127 @@ Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
 
 ## Platform Components (41)
 
-All components are in `platform/` with a flat structure:
+All components under `platform/` (flat structure):
+
+### Mandatory (Core Platform)
+
+#### Infrastructure & Provisioning
 
 | Component | Purpose |
 |-----------|---------|
-| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI ↔ Anthropic translation |
-| [backstage](platform/backstage/) | Internal Developer Platform |
-| [bge](platform/bge/) | Embeddings + reranking |
-| [cert-manager](platform/cert-manager/) | TLS certificate automation |
-| [cilium](platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
-| [cnpg](platform/cnpg/) | PostgreSQL operator |
+| [terraform](platform/terraform/) | Infrastructure as Code (bootstrap) |
 | [crossplane](platform/crossplane/) | Day-2 cloud resource provisioning |
-| [external-dns](platform/external-dns/) | DNS synchronization |
-| [external-secrets](platform/external-secrets/) | Secrets management (ESO) |
-| [failover-controller](platform/failover-controller/) | Multi-region failover orchestration |
+
+#### GitOps & IDP
+
+| Component | Purpose |
+|-----------|---------|
 | [flux](platform/flux/) | GitOps configuration |
 | [gitea](platform/gitea/) | Self-hosted Git + CI/CD |
-| [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
-| [harbor](platform/harbor/) | Container registry |
+| [backstage](platform/backstage/) | Internal Developer Platform |
+
+#### Networking
+
+| Component | Purpose |
+|-----------|---------|
+| [cilium](platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
+| [external-dns](platform/external-dns/) | DNS synchronization |
 | [k8gb](platform/k8gb/) | Global Server Load Balancing |
+| [stunner](platform/stunner/) | K8s-native TURN server |
+
+#### Security
+
+| Component | Purpose |
+|-----------|---------|
+| [cert-manager](platform/cert-manager/) | TLS certificate automation |
+| [external-secrets](platform/external-secrets/) | Secrets management (ESO) |
+| [vault](platform/vault/) | Secrets backend |
+| [trivy](platform/trivy/) | Security scanning |
+
+#### Policy
+
+| Component | Purpose |
+|-----------|---------|
+| [kyverno](platform/kyverno/) | Policy engine (validation, mutation, generation) |
+
+#### Observability
+
+| Component | Purpose |
+|-----------|---------|
+| [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
+
+#### Scaling
+
+| Component | Purpose |
+|-----------|---------|
+| [vpa](platform/vpa/) | Vertical Pod Autoscaler |
 | [keda](platform/keda/) | Event-driven autoscaling |
+
+#### Storage
+
+| Component | Purpose |
+|-----------|---------|
+| [minio](platform/minio/) | S3-compatible object storage |
+| [velero](platform/velero/) | Kubernetes backup |
+
+#### Registry
+
+| Component | Purpose |
+|-----------|---------|
+| [harbor](platform/harbor/) | Container registry |
+
+#### Failover
+
+| Component | Purpose |
+|-----------|---------|
+| [failover-controller](platform/failover-controller/) | Multi-region failover orchestration |
+
+### A La Carte (Optional)
+
+#### Data
+
+| Component | Purpose |
+|-----------|---------|
+| [cnpg](platform/cnpg/) | PostgreSQL operator |
+| [mongodb](platform/mongodb/) | Document database |
+| [valkey](platform/valkey/) | Redis-compatible cache |
+| [redpanda](platform/redpanda/) | Kafka-compatible streaming |
+
+#### Identity
+
+| Component | Purpose |
+|-----------|---------|
 | [keycloak](platform/keycloak/) | FAPI Authorization Server |
+
+#### Communication
+
+| Component | Purpose |
+|-----------|---------|
+| [stalwart](platform/stalwart/) | Self-hosted email server |
+
+#### Monetization
+
+| Component | Purpose |
+|-----------|---------|
+| [openmeter](platform/openmeter/) | Usage metering |
+| [lago](platform/lago/) | Billing and invoicing |
+
+#### AI/ML
+
+| Component | Purpose |
+|-----------|---------|
 | [knative](platform/knative/) | Serverless platform |
 | [kserve](platform/kserve/) | Model serving |
-| [kyverno](platform/kyverno/) | Policy engine |
-| [lago](platform/lago/) | Billing and invoicing |
+| [vllm](platform/vllm/) | LLM inference engine |
+| [milvus](platform/milvus/) | Vector database |
+| [neo4j](platform/neo4j/) | Graph database |
 | [langserve](platform/langserve/) | LangChain RAG service |
 | [librechat](platform/librechat/) | Chat UI |
-| [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
-| [milvus](platform/milvus/) | Vector database |
-| [minio](platform/minio/) | S3-compatible object storage |
-| [mongodb](platform/mongodb/) | Document database |
 | [n8n](platform/n8n/) | Workflow automation |
-| [neo4j](platform/neo4j/) | Graph database |
-| [openmeter](platform/openmeter/) | Usage metering |
-| [redpanda](platform/redpanda/) | Kafka-compatible streaming |
 | [searxng](platform/searxng/) | Privacy-respecting web search |
-| [stalwart](platform/stalwart/) | Self-hosted email server |
-| [stunner](platform/stunner/) | K8s-native TURN server |
-| [terraform](platform/terraform/) | Infrastructure as Code (bootstrap) |
-| [trivy](platform/trivy/) | Security scanning |
-| [valkey](platform/valkey/) | Redis-compatible cache |
-| [vault](platform/vault/) | Secrets backend |
-| [velero](platform/velero/) | Kubernetes backup |
-| [vllm](platform/vllm/) | LLM inference engine |
-| [vpa](platform/vpa/) | Vertical Pod Autoscaler |
+| [bge](platform/bge/) | Embeddings + reranking |
+| [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
+| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI ↔ Anthropic translation |
 
 ---
 
