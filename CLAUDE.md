@@ -10,6 +10,24 @@ OpenOva is an **enterprise-grade support provider for open-source K8s ecosystems
 - Converged blueprint ecosystem with operational guarantees
 - Transformation journey partnership for cloud-native adoption
 - Day-2 operational excellence (upgrades, safety, SLAs)
+- Both consultancy AND productized platform from day 1
+
+## Product Family (Locked 2026-02-09)
+
+| Product | Name | Description |
+|---------|------|-------------|
+| Core Platform | **OpenOva** | 41 components, turnkey K8s ecosystem |
+| AI Hub | **OpenOva Cortex** | LLM serving, RAG, agents |
+| LLM Gateway | **OpenOva Synapse** | SaaS inference gateway (neural link to Cortex) |
+| Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
+| AIOps Agents | **OpenOva Specter** | AI-powered SOC/NOC, self-healing |
+
+## Business Model
+
+- Blueprints are **FREE and open source** (always)
+- Revenue: support subscriptions, managed services, Specter (AIOps), expert network, consultancy
+- Pricing: per-vCPU-core under management (ELA with true-up or PAYG)
+- Target market: banks first (2 prospects), then regulated verticals, then broader
 
 ## Monorepo Structure
 
