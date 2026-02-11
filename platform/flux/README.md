@@ -38,7 +38,7 @@ flowchart TB
     end
 
     subgraph External["External"]
-        Vault[Vault]
+        OpenBao[OpenBao]
     end
 
     Components --> Source
@@ -48,7 +48,7 @@ flowchart TB
     Kustomize --> Resources
     Helm --> Resources
     Notify --> Gitea
-    ESOp --> Vault
+    ESOp --> OpenBao
     ESOp --> Resources
 ```
 
@@ -93,7 +93,7 @@ flux/
 │       ├── network/           # cilium, stunner, k8gb
 │       ├── security/          # kyverno, external-secrets, cert-manager
 │       ├── database/          # cnpg, mongodb, valkey
-│       ├── middleware/        # redpanda
+│       ├── middleware/        # strimzi
 │       ├── storage/           # minio, velero
 │       ├── observability/     # grafana (LGTM stack)
 │       ├── autoscaling/       # keda
@@ -110,7 +110,7 @@ flux/
 | network | cilium, stunner, k8gb | CNI + Service Mesh, TURN, GSLB |
 | security | kyverno, external-secrets, cert-manager | Policy, secrets, TLS |
 | database | cnpg, mongodb, valkey | Database operators |
-| middleware | redpanda | Event streaming |
+| middleware | strimzi | Apache Kafka streaming |
 | storage | minio, velero | Object storage, backup |
 | observability | grafana | LGTM stack |
 | autoscaling | keda | Event-driven scaling |

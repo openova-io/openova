@@ -21,10 +21,12 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager
-├── platform/                # All 41 component blueprints (flat)
-├── meta-platforms/          # Bundled vertical solutions
-│   ├── ai-hub/              # Enterprise AI platform
-│   └── open-banking/        # PSD2/FAPI fintech sandbox (+ 6 services)
+├── platform/                # All 55 component blueprints (flat)
+├── products/                # Bundled vertical solutions
+│   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
+│   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
+│   ├── titan/               # OpenOva Titan - Data Lakehouse
+│   └── fuse/                # OpenOva Fuse - Microservices Integration
 └── docs/                    # Platform documentation
 ```
 
@@ -48,12 +50,12 @@ Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
 ```
 
 **Two-Phase Provisioning:**
-- **Bootstrap (Terraform)**: Initial cluster + core components
+- **Bootstrap (OpenTofu)**: Initial cluster + core components
 - **Lifecycle Manager (Crossplane)**: Day-2 operations + a la carte components
 
 ---
 
-## Platform Components (41)
+## Platform Components (55)
 
 All components under `platform/` (flat structure):
 
@@ -63,7 +65,7 @@ All components under `platform/` (flat structure):
 
 | Component | Purpose |
 |-----------|---------|
-| [terraform](platform/terraform/) | Infrastructure as Code (bootstrap) |
+| [opentofu](platform/opentofu/) | Infrastructure as Code (bootstrap, MPL 2.0) |
 | [crossplane](platform/crossplane/) | Day-2 cloud resource provisioning |
 
 #### GitOps & IDP
@@ -89,8 +91,9 @@ All components under `platform/` (flat structure):
 |-----------|---------|
 | [cert-manager](platform/cert-manager/) | TLS certificate automation |
 | [external-secrets](platform/external-secrets/) | Secrets management (ESO) |
-| [vault](platform/vault/) | Secrets backend |
+| [openbao](platform/openbao/) | Secrets backend (MPL 2.0) |
 | [trivy](platform/trivy/) | Security scanning |
+| [falco](platform/falco/) | Runtime security (eBPF) |
 
 #### Policy
 
@@ -103,6 +106,7 @@ All components under `platform/` (flat structure):
 | Component | Purpose |
 |-----------|---------|
 | [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
+| [opensearch](platform/opensearch/) | Search and SIEM analytics |
 
 #### Scaling
 
@@ -139,7 +143,40 @@ All components under `platform/` (flat structure):
 | [cnpg](platform/cnpg/) | PostgreSQL operator |
 | [mongodb](platform/mongodb/) | Document database |
 | [valkey](platform/valkey/) | Redis-compatible cache |
-| [redpanda](platform/redpanda/) | Kafka-compatible streaming |
+| [strimzi](platform/strimzi/) | Apache Kafka streaming |
+| [rabbitmq](platform/rabbitmq/) | Message broker (AMQP) |
+| [activemq](platform/activemq/) | Message broker (JMS/AMQP) |
+| [vitess](platform/vitess/) | MySQL-compatible horizontal scaling |
+| [clickhouse](platform/clickhouse/) | Column-oriented analytics database |
+
+#### CDC
+
+| Component | Purpose |
+|-----------|---------|
+| [debezium](platform/debezium/) | Change data capture |
+
+#### Workflow
+
+| Component | Purpose |
+|-----------|---------|
+| [airflow](platform/airflow/) | Workflow orchestration (Apache 2.0) |
+| [temporal](platform/temporal/) | Durable workflow execution |
+
+#### Integration
+
+| Component | Purpose |
+|-----------|---------|
+| [camel](platform/camel/) | Integration framework (Apache Camel K) |
+| [dapr](platform/dapr/) | Distributed application runtime |
+
+#### Data Lakehouse
+
+| Component | Purpose |
+|-----------|---------|
+| [iceberg](platform/iceberg/) | Open table format |
+| [trino](platform/trino/) | Distributed SQL query engine |
+| [superset](platform/superset/) | Data visualization and BI |
+| [flink](platform/flink/) | Stream processing |
 
 #### Identity
 
@@ -171,7 +208,7 @@ All components under `platform/` (flat structure):
 | [neo4j](platform/neo4j/) | Graph database |
 | [langserve](platform/langserve/) | LangChain RAG service |
 | [librechat](platform/librechat/) | Chat UI |
-| [n8n](platform/n8n/) | Workflow automation |
+| [airflow](platform/airflow/) | Workflow orchestration |
 | [searxng](platform/searxng/) | Privacy-respecting web search |
 | [bge](platform/bge/) | Embeddings + reranking |
 | [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
@@ -179,25 +216,41 @@ All components under `platform/` (flat structure):
 
 ---
 
-## Meta-Platforms
+## Products
 
 Bundled vertical solutions that reference components from `platform/`:
 
-### AI Hub
+### OpenOva Cortex (AI Hub)
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
-**Uses:** kserve, knative, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter
+**Uses:** kserve, knative, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter
 
-See [meta-platforms/ai-hub/](meta-platforms/ai-hub/)
+See [products/cortex/](products/cortex/)
 
-### Open Banking
+### OpenOva Fingate (Open Banking)
 
 Fintech sandbox with PSD2/FAPI compliance.
 
 **Uses:** keycloak, openmeter, lago + 6 custom services
 
-See [meta-platforms/open-banking/](meta-platforms/open-banking/)
+See [products/fingate/](products/fingate/)
+
+### OpenOva Titan (Data Lakehouse)
+
+Analytics platform with open table formats and distributed SQL.
+
+**Uses:** iceberg, trino, superset, flink, airflow, clickhouse, debezium, strimzi, minio
+
+See [products/titan/](products/titan/)
+
+### OpenOva Fuse (Microservices Integration)
+
+Enterprise integration platform for microservices orchestration.
+
+**Uses:** temporal, camel, dapr, strimzi, rabbitmq, activemq
+
+See [products/fuse/](products/fuse/)
 
 ---
 

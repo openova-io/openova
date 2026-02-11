@@ -60,12 +60,12 @@ flowchart TB
 | Service | Replication Method | RPO |
 |---------|-------------------|-----|
 | CNPG (Postgres) | WAL streaming to async standby | Near-zero |
-| MongoDB | CDC via Debezium → Redpanda | Seconds |
-| Redpanda | MirrorMaker2 | Seconds |
+| MongoDB | CDC via Debezium → Kafka | Seconds |
+| Strimzi/Kafka | MirrorMaker2 | Seconds |
 | Valkey | REPLICAOF command | Seconds |
 | MinIO | Bucket replication | Minutes |
 | Harbor | Registry replication | Minutes |
-| Vault | ESO PushSecrets to both | Seconds |
+| OpenBao | ESO PushSecrets to both | Seconds |
 | Gitea | Bidirectional mirror + CNPG | Seconds |
 | Milvus | Collection sync | Minutes |
 | Neo4j | Causal cluster replication | Seconds |

@@ -2,13 +2,13 @@
 
 Technology stack for the OpenOva Kubernetes platform.
 
-**Status:** Accepted | **Updated:** 2026-02-08
+**Status:** Accepted | **Updated:** 2026-02-09
 
 ---
 
 ## Overview
 
-Components are categorized as **Mandatory** (always installed), **A La Carte** (optional services), and **Meta Blueprints** (vertical solutions bundling components with custom services).
+Components are categorized as **Mandatory** (always installed), **A La Carte** (optional services), and **Products** (vertical solutions bundling components with custom services).
 
 ---
 
@@ -27,7 +27,7 @@ flowchart TB
             Apps1[Applications]
             Data1[Data Services]
         end
-        Vault1[Vault]
+        Bao1[OpenBao]
         Harbor1[Harbor]
         MinIO1[MinIO]
         Gitea1[Gitea]
@@ -39,7 +39,7 @@ flowchart TB
             Apps2[Applications]
             Data2[Data Services]
         end
-        Vault2[Vault]
+        Bao2[OpenBao]
         Harbor2[Harbor]
         MinIO2[MinIO]
         Gitea2[Gitea]
@@ -49,7 +49,7 @@ flowchart TB
     DNS --> GW2
     Harbor1 <-->|"Replicate"| Harbor2
     MinIO1 -->|"Tier to"| Archival
-    Vault1 <-->|"PushSecrets"| Vault2
+    Bao1 <-->|"PushSecrets"| Bao2
     Gitea1 <-->|"Bidirectional Mirror"| Gitea2
 ```
 
@@ -61,17 +61,17 @@ flowchart TB
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Terraform | Bootstrap IaC (initial cluster only) | [platform/iac/terraform](terraform/) |
-| Crossplane | Day-2 cloud resource provisioning | [platform/iac/crossplane](crossplane/) |
+| OpenTofu | Bootstrap IaC (MPL 2.0, drop-in Terraform replacement) | [platform/opentofu](opentofu/) |
+| Crossplane | Day-2 cloud resource provisioning | [platform/crossplane](crossplane/) |
 
-#### Terraform → Crossplane Handoff
+#### OpenTofu → Crossplane Handoff
 
-OpenOva uses a **two-phase provisioning model** where Terraform bootstraps the initial infrastructure, then Crossplane takes over for all subsequent operations.
+OpenOva uses a **two-phase provisioning model** where OpenTofu bootstraps the initial infrastructure, then Crossplane takes over for all subsequent operations.
 
 ```mermaid
 flowchart LR
-    subgraph Phase1["Phase 1: Bootstrap (Terraform)"]
-        TF[Terraform]
+    subgraph Phase1["Phase 1: Bootstrap (OpenTofu)"]
+        TF[OpenTofu]
         VMs[VMs/Nodes]
         Net[Network]
         K8s[K8s Cluster]
@@ -84,7 +84,7 @@ flowchart LR
     end
 
     subgraph Deleted["After Bootstrap"]
-        TFState[Terraform State]
+        TFState[OpenTofu State]
     end
 
     TF --> VMs
@@ -96,12 +96,14 @@ flowchart LR
     TF -.->|"Can be deleted"| TFState
 ```
 
-**Phase 1 - Bootstrap (Terraform):**
+**Phase 1 - Bootstrap (OpenTofu):**
 - Provisions initial VMs/nodes
 - Creates network infrastructure (VPC, subnets, firewall rules)
 - Installs K3s cluster
 - Installs Flux, which then installs all platform components including Crossplane
-- **Terraform's job ends here** - state can be archived or deleted
+- **OpenTofu's job ends here** - state can be archived or deleted
+
+> **Note:** OpenTofu retains the `terraform {}` HCL block syntax for compatibility. Existing Terraform configurations work as-is.
 
 **Phase 2 - Day-2 Operations (Crossplane):**
 - All subsequent cloud resources managed via Kubernetes CRDs
@@ -111,7 +113,7 @@ flowchart LR
 
 **Why This Model:**
 
-| Aspect | Terraform | Crossplane |
+| Aspect | OpenTofu | Crossplane |
 |--------|-----------|------------|
 | When | One-time bootstrap | Ongoing operations |
 | State | External file (risk) | Kubernetes CRDs (native) |
@@ -119,7 +121,7 @@ flowchart LR
 | Access | CI/CD credentials | Kubernetes RBAC |
 | Self-service | Requires pipeline | Native via CRDs |
 
-**Key Principle:** The bootstrap wizard (Terraform) is designed to be **safely deletable** after initial provisioning. Crossplane owns all cloud resources going forward, making the platform self-sustaining without external IaC state.
+**Key Principle:** The bootstrap wizard (OpenTofu) is designed to be **safely deletable** after initial provisioning. Crossplane owns all cloud resources going forward, making the platform self-sustaining without external IaC state.
 
 ### Networking & Service Mesh
 
@@ -144,8 +146,9 @@ flowchart LR
 |-----------|---------|----------|
 | cert-manager | TLS certificates | [platform/security/cert-manager](cert-manager/) |
 | External Secrets (ESO) | Secrets operator | [platform/security/external-secrets](external-secrets/) |
-| Vault | Secrets backend (per cluster) | [platform/security/vault](vault/) |
+| OpenBao | Secrets backend (per cluster, MPL 2.0) | [platform/openbao](openbao/) |
 | Trivy | Security scanning | [platform/security/trivy](trivy/) |
+| Falco | Runtime security (eBPF) | [platform/falco](falco/) |
 
 ### Policy
 
@@ -245,10 +248,15 @@ flowchart LR
 
 | Component | Purpose | DR Strategy | Location |
 |-----------|---------|-------------|----------|
-| CNPG | PostgreSQL | WAL streaming | [platform/data/cnpg](cnpg/) |
-| MongoDB | Document database | CDC via Debezium | [platform/data/mongodb](mongodb/) |
-| Redpanda | Event streaming | MirrorMaker2 | [platform/data/redpanda](redpanda/) |
-| Valkey | Redis-compatible cache | REPLICAOF | [platform/data/valkey](valkey/) |
+| CNPG | PostgreSQL | WAL streaming | [platform/cnpg](cnpg/) |
+| MongoDB | Document database | CDC via Debezium | [platform/mongodb](mongodb/) |
+| Strimzi | Apache Kafka streaming | MirrorMaker2 | [platform/strimzi](strimzi/) |
+| Valkey | Redis-compatible cache | REPLICAOF | [platform/valkey](valkey/) |
+| RabbitMQ | Message broker (AMQP) | Shovel/Federation | [platform/rabbitmq](rabbitmq/) |
+| ActiveMQ Artemis | JMS message broker | Mirroring | [platform/activemq](activemq/) |
+| Vitess | MySQL horizontal scaling | VReplication | [platform/vitess](vitess/) |
+| ClickHouse | OLAP analytics | ReplicatedMergeTree | [platform/clickhouse](clickhouse/) |
+| OpenSearch | Search + SIEM | Cross-cluster replication | [platform/opensearch](opensearch/) |
 
 ---
 
@@ -261,11 +269,45 @@ flowchart LR
 
 ---
 
-## Meta Blueprints
+## A La Carte Workflow & Integration
 
-Meta blueprints bundle a la carte components with custom services for specific verticals.
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Airflow | Workflow orchestration (DAGs) | [platform/airflow](airflow/) |
+| Temporal | Durable workflow execution | [platform/temporal](temporal/) |
+| Camel K | Enterprise integration (300+ connectors) | [platform/camel](camel/) |
+| Dapr | Microservice building blocks | [platform/dapr](dapr/) |
+| Flink | Stream + batch processing | [platform/flink](flink/) |
+| Debezium | Change data capture (CDC) | [platform/debezium](debezium/) |
 
-### AI Hub
+---
+
+## A La Carte Analytics
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Iceberg | Open table format (data lakehouse) | [platform/iceberg](iceberg/) |
+| Trino | Distributed SQL query engine | [platform/trino](trino/) |
+| Superset | BI visualization and dashboards | [platform/superset](superset/) |
+
+---
+
+## Security & Compliance
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Falco | Runtime eBPF security (CNCF Graduated) | [platform/falco](falco/) |
+| OpenSearch | SIEM (with Falco integration) | [platform/opensearch](opensearch/) |
+
+Falco detects runtime threats via eBPF system call monitoring. Events flow through Falcosidekick to OpenSearch for SIEM correlation, alerting, and compliance dashboards.
+
+---
+
+## Products
+
+Products bundle a la carte components with custom services for specific verticals.
+
+### Cortex (OpenOva Cortex - AI Hub)
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
@@ -274,7 +316,7 @@ flowchart TB
     subgraph UI["User Interfaces"]
         LibreChat[LibreChat]
         ClaudeCode[Claude Code]
-        n8n[n8n Workflows]
+        Airflow[Airflow Workflows]
     end
 
     subgraph Gateway["Gateway Layer"]
@@ -313,25 +355,25 @@ flowchart TB
     RAG --> Search
 ```
 
-#### AI Hub Components
+#### Cortex Components
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **ai-hub** | Meta blueprint | Blueprint | [meta-platforms/ai-hub](../meta-platforms/ai-hub/) |
-| **llm-gateway** | Subscription proxy for Claude Code | Custom | [meta-platforms/ai-hub/components/llm-gateway](llm-gateway/) |
-| **anthropic-adapter** | OpenAI ↔ Anthropic translation | Custom | [meta-platforms/ai-hub/components/anthropic-adapter](anthropic-adapter/) |
-| knative | Serverless platform | A La Carte | [meta-platforms/ai-hub/components/knative](knative/) |
-| kserve | Model serving | A La Carte | [meta-platforms/ai-hub/components/kserve](kserve/) |
-| vllm | LLM inference (PagedAttention) | A La Carte | [meta-platforms/ai-hub/components/vllm](vllm/) |
-| langserve | LangChain RAG service | A La Carte | [meta-platforms/ai-hub/components/langserve](langserve/) |
-| milvus | Vector database | A La Carte | [meta-platforms/ai-hub/components/milvus](milvus/) |
-| neo4j | Graph database | A La Carte | [meta-platforms/ai-hub/components/neo4j](neo4j/) |
-| librechat | Chat UI | A La Carte | [meta-platforms/ai-hub/components/librechat](librechat/) |
-| n8n | Workflow automation | A La Carte | [meta-platforms/ai-hub/components/n8n](n8n/) |
-| searxng | Privacy-respecting web search | A La Carte | [meta-platforms/ai-hub/components/searxng](searxng/) |
-| bge | Embeddings + reranking | A La Carte | [meta-platforms/ai-hub/components/bge](bge/) |
+| **cortex** | Product blueprint | Product | [products/cortex](../products/cortex/) |
+| **llm-gateway** | Subscription proxy for Claude Code | Custom | [products/cortex/components/llm-gateway](llm-gateway/) |
+| **anthropic-adapter** | OpenAI ↔ Anthropic translation | Custom | [products/cortex/components/anthropic-adapter](anthropic-adapter/) |
+| knative | Serverless platform | A La Carte | [products/cortex/components/knative](knative/) |
+| kserve | Model serving | A La Carte | [products/cortex/components/kserve](kserve/) |
+| vllm | LLM inference (PagedAttention) | A La Carte | [products/cortex/components/vllm](vllm/) |
+| langserve | LangChain RAG service | A La Carte | [products/cortex/components/langserve](langserve/) |
+| milvus | Vector database | A La Carte | [products/cortex/components/milvus](milvus/) |
+| neo4j | Graph database | A La Carte | [products/cortex/components/neo4j](neo4j/) |
+| librechat | Chat UI | A La Carte | [products/cortex/components/librechat](librechat/) |
+| airflow | Workflow orchestration | A La Carte | [products/cortex/components/airflow](airflow/) |
+| searxng | Privacy-respecting web search | A La Carte | [products/cortex/components/searxng](searxng/) |
+| bge | Embeddings + reranking | A La Carte | [products/cortex/components/bge](bge/) |
 
-#### AI Hub Resource Requirements
+#### Cortex Resource Requirements
 
 | Component | Replicas | CPU | Memory | GPU |
 |-----------|----------|-----|--------|-----|
@@ -345,7 +387,7 @@ flowchart TB
 | LLM Gateway | 2 | 0.25 | 512Mi | - |
 | **Total** | - | ~15 | ~55Gi | 4x A10 |
 
-### Open Banking
+### Fingate (OpenOva Fingate - Open Banking)
 
 Fintech sandbox with PSD2/FAPI compliance.
 
@@ -380,14 +422,53 @@ flowchart LR
     Keycloak --> APIs
 ```
 
-#### Open Banking Components
+#### Fingate Components
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **open-banking** | Meta blueprint | Blueprint | [meta-platforms/open-banking](../meta-platforms/open-banking/) |
+| **fingate** | Product blueprint | Product | [products/fingate](../products/fingate/) |
 | keycloak | FAPI Authorization Server | A La Carte | [platform/identity/keycloak](keycloak/) |
-| openmeter | Usage metering | A La Carte | [meta-platforms/open-banking/components/openmeter](openmeter/) |
-| lago | Billing and invoicing | A La Carte | [meta-platforms/open-banking/components/lago](lago/) |
+| openmeter | Usage metering | A La Carte | [products/fingate/components/openmeter](openmeter/) |
+| lago | Billing and invoicing | A La Carte | [products/fingate/components/lago](lago/) |
+
+---
+
+### Titan (OpenOva Titan - Data Lakehouse)
+
+Enterprise data lakehouse for analytics, BI, and data engineering.
+
+#### Titan Components
+
+| Component | Purpose | Type | Location |
+|-----------|---------|------|----------|
+| **titan** | Product blueprint | Product | [products/titan](../products/titan/) |
+| iceberg | Open table format | A La Carte | [platform/iceberg](iceberg/) |
+| trino | Distributed SQL queries | A La Carte | [platform/trino](trino/) |
+| superset | BI dashboards | A La Carte | [platform/superset](superset/) |
+| flink | Stream + batch processing | A La Carte | [platform/flink](flink/) |
+| airflow | Workflow orchestration | A La Carte | [platform/airflow](airflow/) |
+| clickhouse | OLAP analytics | A La Carte | [platform/clickhouse](clickhouse/) |
+| debezium | CDC ingestion | A La Carte | [platform/debezium](debezium/) |
+| strimzi | Event streaming (Kafka) | A La Carte | [platform/strimzi](strimzi/) |
+| minio | Object storage (S3) | Mandatory | [platform/minio](minio/) |
+
+---
+
+### Fuse (OpenOva Fuse - Microservices Integration)
+
+Enterprise integration platform for microservice communication, workflow orchestration, and legacy system connectivity.
+
+#### Fuse Components
+
+| Component | Purpose | Type | Location |
+|-----------|---------|------|----------|
+| **fuse** | Product blueprint | Product | [products/fuse](../products/fuse/) |
+| temporal | Durable workflows | A La Carte | [platform/temporal](temporal/) |
+| camel | Enterprise integration (300+ connectors) | A La Carte | [platform/camel](camel/) |
+| dapr | Microservice building blocks | A La Carte | [platform/dapr](dapr/) |
+| strimzi | Event streaming (Kafka) | A La Carte | [platform/strimzi](strimzi/) |
+| rabbitmq | Message broker (AMQP) | A La Carte | [platform/rabbitmq](rabbitmq/) |
+| activemq | JMS message broker | A La Carte | [platform/activemq](activemq/) |
 
 ---
 
@@ -446,18 +527,18 @@ helm install cilium cilium/cilium \
 | Core Platform | Cilium, Flux, ESO, Kyverno | ~2GB |
 | Observability | Grafana Stack + Alloy | ~3GB |
 | Storage | Harbor, MinIO, Velero | ~4GB |
-| Security | Vault, cert-manager, Trivy | ~1GB |
+| Security | OpenBao, cert-manager, Trivy, Falco | ~1GB |
 | Git & IDP | Gitea, Backstage | ~2GB |
 | **Minimum Total** | | ~12GB |
 
 **Recommended minimum:** 3 nodes × 8GB RAM = 24GB per region
 
-### With AI Hub (Per Region)
+### With Cortex (Per Region)
 
 | Category | Components | Estimated RAM | GPU |
 |----------|------------|---------------|-----|
 | Core Platform | (as above) | ~12GB | - |
-| AI Hub | LLM Gateway, LangServe, etc. | ~55GB | 4x A10 |
+| Cortex | LLM Gateway, LangServe, etc. | ~55GB | 4x A10 |
 | **Total** | | ~67GB | 4x A10 |
 
 **Recommended:** 3 CPU nodes + 2 GPU nodes per region
@@ -471,28 +552,39 @@ flowchart TB
     subgraph Region1["Region 1 (Primary)"]
         PG1[CNPG Primary]
         MG1[MongoDB Primary]
-        RP1[Redpanda]
+        SK1[Strimzi/Kafka]
         VK1[Valkey Primary]
         GT1[Gitea]
         MV1[Milvus Primary]
+        Bao1R1[OpenBao]
+        Falco1[Falco]
     end
 
     subgraph Region2["Region 2 (DR)"]
         PG2[CNPG Standby]
         MG2[MongoDB Standby]
-        RP2[Redpanda]
+        SK2[Strimzi/Kafka]
         VK2[Valkey Replica]
         GT2[Gitea]
         MV2[Milvus Standby]
+        Bao2R2[OpenBao]
+        Falco2[Falco]
+    end
+
+    subgraph SIEM["Security"]
+        OS[OpenSearch SIEM]
     end
 
     PG1 -->|"WAL Streaming"| PG2
-    MG1 -->|"Debezium CDC"| RP1
-    RP1 -->|"MirrorMaker2"| RP2
-    RP2 -->|"Sink Connector"| MG2
+    MG1 -->|"Debezium CDC"| SK1
+    SK1 -->|"MirrorMaker2"| SK2
+    SK2 -->|"Sink Connector"| MG2
     VK1 -->|"REPLICAOF"| VK2
     GT1 <-->|"Bidirectional Mirror"| GT2
     MV1 -->|"Collection Sync"| MV2
+    Bao1R1 <-->|"PushSecrets"| Bao2R2
+    Falco1 -->|"Falcosidekick"| OS
+    Falco2 -->|"Falcosidekick"| OS
 ```
 
 ---

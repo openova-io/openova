@@ -1,21 +1,21 @@
-# AI Hub
+# OpenOva Cortex
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-02-09
 
 ---
 
 ## Overview
 
-AI Hub is a meta blueprint that bundles AI/ML infrastructure components with custom services for enterprise AI deployments.
+OpenOva Cortex is an enterprise AI product that bundles AI/ML infrastructure components with custom services for enterprise AI deployments.
 
 ```mermaid
 flowchart TB
     subgraph UI["User Interfaces"]
         LibreChat[LibreChat<br/>Chat UI]
         ClaudeCode[Claude Code]
-        n8n[n8n<br/>Workflows]
+        Airflow[Airflow<br/>Workflows]
     end
 
     subgraph Gateway["Gateway Layer"]
@@ -73,7 +73,7 @@ All components are in `platform/` (flat structure):
 | [neo4j](../../platform/neo4j/) | Graph database | platform/neo4j |
 | [langserve](../../platform/langserve/) | RAG service | platform/langserve |
 | [librechat](../../platform/librechat/) | Chat UI | platform/librechat |
-| [n8n](../../platform/n8n/) | Workflow automation | platform/n8n |
+| [airflow](../../platform/airflow/) | Workflow orchestration | platform/airflow |
 | [searxng](../../platform/searxng/) | Web search | platform/searxng |
 | [bge](../../platform/bge/) | Embeddings + reranking | platform/bge |
 
@@ -85,7 +85,7 @@ All components are in `platform/` (flat structure):
 ┌─────────────────────────────────────────────────────────────┐
 │                     User Interfaces                         │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │LibreChat │  │Claude    │  │   n8n    │  │  Custom  │    │
+│  │LibreChat │  │Claude    │  │ Airflow  │  │  Custom  │    │
 │  │  (Chat)  │  │  Code    │  │(Workflow)│  │   Apps   │    │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘    │
 └───────┼─────────────┼─────────────┼─────────────┼──────────┘
@@ -154,7 +154,7 @@ All components are in `platform/` (flat structure):
 
 ## Deployment
 
-### Enable AI Hub Blueprint
+### Enable Cortex Product
 
 ```yaml
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -244,8 +244,8 @@ https://chat.ai-hub.<domain>
 ### Workflow Automation
 
 ```bash
-# Access n8n
-https://n8n.ai-hub.<domain>
+# Access Airflow
+https://airflow.cortex.<domain>
 
 # Create workflow:
 # Webhook → Document Parse → LLM Analysis → Store in Neo4j

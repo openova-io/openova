@@ -32,7 +32,7 @@ flowchart TB
     end
 
     subgraph Storage["Storage"]
-        Kafka[Redpanda]
+        Kafka[Kafka]
         CH[ClickHouse]
     end
 
@@ -92,7 +92,7 @@ spec:
           image: openmeter/openmeter:v1.0.0
           env:
             - name: OPENMETER_KAFKA_BROKER
-              value: redpanda.databases.svc:9092
+              value: kafka-kafka-bootstrap.databases.svc:9092
             - name: OPENMETER_CLICKHOUSE_ADDRESS
               value: clickhouse.databases.svc:9000
             - name: OPENMETER_POSTGRES_URL

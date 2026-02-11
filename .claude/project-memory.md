@@ -20,7 +20,7 @@
 | Git | Gitea | Internal Git server (bidirectional mirror) |
 | TLS | cert-manager | Certificate automation |
 | Secrets | External Secrets (ESO) | Secrets operator |
-| Secrets | Vault | Backend (self-hosted or SaaS) |
+| Secrets | OpenBao | Secrets backend (MPL 2.0, drop-in Vault replacement) |
 | Policy | Kyverno | Auto-generate PDBs, NetworkPolicies |
 | Scaling | VPA | Vertical Pod Autoscaler |
 | Scaling | KEDA | Event-driven + scale-to-zero |
@@ -42,7 +42,7 @@
 | Regions | 1 or 2 | 2 recommended for DR, 1 allowed |
 | LoadBalancer | Cloud LB (~5-10/mo), k8gb DNS-based (free), Cilium L2 (free, single subnet) | Cloud LB recommended |
 | DNS Provider | Cloudflare (always), Hetzner DNS, Route53/Cloud DNS/Azure DNS (if using that cloud) | Cloudflare recommended |
-| Secrets Backend | Vault self-hosted, HCP Vault, Infisical, cloud secret managers | Self-hosted Vault recommended |
+| Secrets Backend | OpenBao self-hosted, cloud secret managers | Self-hosted OpenBao recommended |
 | Archival S3 | Cloudflare R2, AWS S3, GCP GCS, Azure Blob, OCI Object Storage, Huawei OBS | For backup + MinIO tiering |
 
 ### A La Carte Data Services
@@ -50,8 +50,8 @@
 | Component | Purpose | DR Strategy |
 |-----------|---------|-------------|
 | CNPG | PostgreSQL operator | WAL streaming (async primary-replica) |
-| MongoDB | Document database | CDC via Debezium → Redpanda |
-| Redpanda | Kafka-compatible streaming | MirrorMaker2 |
+| MongoDB | Document database | CDC via Debezium → Strimzi (Kafka) |
+| Strimzi | Apache Kafka streaming | MirrorMaker2 |
 | Valkey | Redis-compatible cache (BSD-3 OSS) | REPLICAOF |
 
 ### A La Carte Communication
@@ -175,10 +175,10 @@
 
 - **SOPS eliminated completely** - not even for bootstrap
 - **Interactive bootstrap**: Wizard generates credentials, operator saves them
-- **Architecture**: Independent Vault per cluster + ESO PushSecrets for cross-cluster sync
-- **Flow**: K8s Secret → ESO PushSecret → Both Vaults simultaneously
+- **Architecture**: Independent OpenBao per cluster + ESO PushSecrets for cross-cluster sync
+- **Flow**: K8s Secret → ESO PushSecret → Both OpenBao instances simultaneously
 - **ESO Generators**: Auto-create complex passwords/keys (no manual generation)
-- All secrets managed via K8s CRDs (no manual Vault updates)
+- All secrets managed via K8s CRDs (no manual OpenBao updates)
 
 ### Storage Architecture
 
@@ -192,7 +192,7 @@
 
 - **WireGuard mesh** for cross-region connectivity
 - OR **native cloud peering** if same provider (Hetzner vSwitch, OCI FastConnect)
-- Required for: Vault sync, k8gb coordination, data replication, Gitea mirroring
+- Required for: OpenBao sync, k8gb coordination, data replication, Gitea mirroring
 
 ### Data Replication Patterns (All Community Edition)
 
@@ -200,8 +200,8 @@
 |---------|-------------------|
 | CNPG (Postgres) | WAL streaming to standby cluster (async primary-replica) |
 | Gitea | Bidirectional mirror + CNPG for metadata |
-| MongoDB | CDC via Debezium → Redpanda → Sink Connector |
-| Redpanda | MirrorMaker2 (native) |
+| MongoDB | CDC via Debezium → Kafka → Sink Connector |
+| Strimzi (Kafka) | MirrorMaker2 (native) |
 | Valkey | REPLICAOF command (async) |
 | MinIO | Bucket replication |
 | Harbor | Registry replication |
@@ -209,7 +209,7 @@
 ### MongoDB Replication (IMPORTANT)
 
 - MongoDB Community Edition does NOT have native cross-cluster replication
-- **Only option**: CDC via Debezium + Redpanda
+- **Only option**: CDC via Debezium + Strimzi (Kafka)
 - Truly independent clusters (not stretched replica set)
 - Downsides: eventual consistency, conflict resolution needed, Debezium complexity
 
@@ -446,12 +446,12 @@ OpenOva publishes new blueprint version
 | Split-brain protection | Cloudflare Workers + KV (lease-based witness) |
 | Failover orchestration | Failover Controller (controls external, internal, stateful) |
 | DDoS protection | Cloud provider native (no Cloudflare proxy) |
-| Secrets backend | Self-hosted Vault per cluster + ESO PushSecrets (or SaaS options) |
+| Secrets backend | Self-hosted OpenBao per cluster + ESO PushSecrets |
 | SOPS | Eliminated completely |
 | Harbor | Mandatory from day 1 |
 | VPA | Mandatory |
 | Crossplane | Mandatory for post-bootstrap cloud ops |
-| MongoDB replication | CDC via Debezium + Redpanda |
+| MongoDB replication | CDC via Debezium + Strimzi (Kafka) |
 | Redis-compatible cache | Valkey (BSD-3, Linux Foundation) |
 | MinIO | Fast S3 with tiering (NOT backup target) |
 | Archival S3 | R2/S3/GCS/Blob for backup + tiering |
@@ -652,7 +652,7 @@ Cilium Ingress (Envoy)
 Backend Services (Accounts/Payments/Consents)
     |
     v
-Access Logs --> Redpanda --> OpenMeter --> Lago
+Access Logs --> Kafka --> OpenMeter --> Lago
 ```
 
 ### Monetization Models
@@ -700,7 +700,7 @@ openova-io/                    # Public blueprints org
 │   ├── failover-controller/   # Failover orchestration
 │   ├── grafana/
 │   ├── harbor/
-│   ├── vault/
+│   ├── openbao/              # Secrets backend (MPL 2.0)
 │   ├── k8gb/
 │   ├── external-dns/
 │   ├── keycloak/              # FAPI AuthZ (Open Banking)
@@ -786,10 +786,12 @@ Consolidated 45+ separate GitHub repos into a single monorepo: `openova-io/openo
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager (Go application)
-├── platform/                # All 41 component blueprints (FLAT structure)
-├── meta-platforms/          # Bundled vertical solutions (README only)
-│   ├── ai-hub/              # Enterprise AI platform
-│   └── open-banking/        # PSD2/FAPI fintech sandbox (+ 6 services)
+├── platform/                # All 55 component blueprints (FLAT structure)
+├── products/                # Bundled vertical solutions
+│   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
+│   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
+│   ├── titan/               # OpenOva Titan - Data Lakehouse
+│   └── fuse/                # OpenOva Fuse - Microservices Integration
 └── docs/                    # Platform documentation
 ```
 
@@ -799,27 +801,27 @@ openova/
 |----------|-----------|
 | Flat platform/ structure | No hierarchical subfolders (networking/, security/, etc.) |
 | Documentation shows groupings | README displays logical categories while folders stay flat |
-| Meta-platforms are README-only | Reference components from platform/, no duplication |
+| Products bundle platform components | Reference components from platform/, no duplication |
 | Core is single Go app | Bootstrap + Lifecycle Manager with mode switch |
-| 41 platform components | All flat under platform/ |
-| 6 open-banking custom services | Under meta-platforms/open-banking/ |
+| 55 platform components | All flat under platform/ |
+| 4 products | cortex, fingate (+ 6 services), titan, fuse |
 
-### Component Count (47 total)
+### Component Count (61 total)
 
-- **Platform components**: 41 (flat under platform/)
-- **Open Banking services**: 6 (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
+- **Platform components**: 55 (flat under platform/)
+- **Fingate custom services**: 6 (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
 
 ### Documentation Groupings (in READMEs)
 
 **Mandatory (Core Platform):**
 | Category | Components |
 |----------|------------|
-| Infrastructure | terraform, crossplane |
+| Infrastructure | opentofu, crossplane |
 | GitOps & IDP | flux, gitea, backstage |
 | Networking | cilium, external-dns, k8gb, stunner |
-| Security | cert-manager, external-secrets, vault, trivy |
+| Security | cert-manager, external-secrets, openbao, trivy, falco |
 | Policy | kyverno |
-| Observability | grafana |
+| Observability | grafana, opensearch |
 | Scaling | vpa, keda |
 | Storage | minio, velero |
 | Registry | harbor |
@@ -828,11 +830,15 @@ openova/
 **A La Carte (Optional):**
 | Category | Components |
 |----------|------------|
-| Data | cnpg, mongodb, valkey, redpanda |
+| Data | cnpg, mongodb, valkey, strimzi, rabbitmq, activemq, vitess, clickhouse |
+| CDC | debezium |
+| Workflow | airflow, temporal |
+| Integration | camel, dapr |
+| Data Lakehouse | iceberg, trino, superset, flink |
 | Identity | keycloak |
 | Communication | stalwart |
 | Monetization | openmeter, lago |
-| AI/ML | knative, kserve, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter |
+| AI/ML | knative, kserve, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter |
 
 ### Sync to Customer Gitea
 
@@ -877,7 +883,7 @@ The bootstrap wizard is designed to be **safely deletable** after initial provis
 
 ---
 
-## 19. AI Hub Meta-Platform (2026-02-08)
+## 19. OpenOva Cortex - AI Hub (2026-02-08)
 
 ### Overview
 
@@ -885,12 +891,12 @@ Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
 ### Components (12 from platform/)
 
-knative, kserve, vllm, milvus, neo4j, langserve, librechat, n8n, searxng, bge, llm-gateway, anthropic-adapter
+knative, kserve, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter
 
 ### Architecture
 
 ```
-User Interfaces (LibreChat, Claude Code, n8n)
+User Interfaces (LibreChat, Claude Code, Airflow)
          ↓
 Gateway Layer (LLM Gateway, Anthropic Adapter)
          ↓

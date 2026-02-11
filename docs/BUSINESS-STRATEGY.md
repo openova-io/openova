@@ -29,17 +29,17 @@
 
 ## 1. Executive Summary
 
-OpenOva is an enterprise-grade support provider for open-source Kubernetes ecosystems. We provide a converged, production-ready platform of 40+ integrated CNCF components - deployed in hours, backed by AI-powered operations, and supported by a network of deep open-source specialists.
+OpenOva is an enterprise-grade support provider for open-source Kubernetes ecosystems. We provide a converged, production-ready platform of 55+ integrated open-source components - deployed instantly, backed by AI-powered operations, and supported by a network of deep open-source specialists.
 
 We serve organizations that want the economics and freedom of open source with the confidence and operational guarantees of a vendor relationship. Our customers range from banks navigating PSD2 compliance to enterprises breaking free from proprietary platforms like OpenShift, VMware, and Datadog.
 
 **What makes us different:**
 
-- **Turnkey ecosystem, not a single tool.** 41 curated CNCF components tested and certified to work together. What takes 2-3 years to build internally, we deploy in hours.
+- **Turnkey ecosystem, not a single tool.** 55+ curated open-source components tested and certified to work together. What takes 2-3 years to build internally, we deploy instantly.
 - **Consultancy and platform from day one.** We meet customers where they are - whether they need a guide, a platform, or both.
 - **AI-powered self-healing operations.** OpenOva Specter eliminates 70%+ of traditional SOC/NOC staffing needs through autonomous monitoring, incident response, and remediation.
 - **Open source, genuinely.** Blueprints are free forever. We charge for support, managed services, and expertise - not for access to code.
-- **40+ open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more - all under one support contract.
+- **55+ open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more - all under one support contract.
 
 ---
 
@@ -47,7 +47,7 @@ We serve organizations that want the economics and freedom of open source with t
 
 ### Vision
 
-Become the definitive enterprise support company for the open-source cloud-native ecosystem - the Red Hat for the CNCF era - where any organization can adopt open source at scale with full confidence.
+Become the definitive enterprise support company for the open-source cloud-native ecosystem - where any organization can adopt open source at scale with full confidence.
 
 ### Mission
 
@@ -60,7 +60,7 @@ Give every organization the confidence to adopt and operate open-source cloud-na
 | **Open source is non-negotiable** | Blueprints are free forever. We don't create lock-in through code. |
 | **Confidence, not complexity** | We sell peace of mind, not more tools to manage. |
 | **Journey partnership** | We walk with customers from first cluster to production-grade platform. |
-| **Convergence over components** | The value is in 41 components working together, not any single one. |
+| **Convergence over components** | The value is in 55+ components working together, not any single one. |
 | **AI-first operations** | Every platform ships with intelligent agents that monitor, heal, and optimize. |
 | **Authenticity** | No corporate buzzwords, no sugar coating. Open source ethos in everything we do. |
 
@@ -112,9 +112,9 @@ OpenOva is both a **consultancy** and a **productized platform**. The customer c
 
 ```
 Need a guide?     → We consult. Assessment, architecture, roadmap, enablement.
-Need a platform?  → We deploy. 41 components, production-grade, in hours.
+Need a platform?  → We deploy. 55+ components, production-grade, instantly.
 Need both?        → We do both. And we stay for Day-2 operations.
-Need specialists? → Our expert network. 40+ OSS disciplines, one contract.
+Need specialists? → Our expert network. 55+ OSS disciplines, one contract.
 Need freedom?     → We migrate. From OpenShift, Oracle, Redis, Datadog - to open source.
 ```
 
@@ -122,24 +122,24 @@ Need freedom?     → We migrate. From OpenShift, Oracle, Redis, Datadog - to op
 
 - **Not a Kubernetes distribution.** We don't fork or rebrand Kubernetes. We curate, integrate, and support the upstream projects.
 - **Not a PaaS.** We don't abstract away Kubernetes. We make it operational.
-- **Not a consulting-only firm.** We have intellectual property: blueprints, meta-blueprints, Specter agents, and the Synapse gateway.
+- **Not a consulting-only firm.** We have intellectual property: blueprints, products (Cortex, Fingate, Titan, Fuse), Specter agents, and the Synapse gateway.
 - **Not a tool vendor.** We don't sell a single product. We sell an integrated ecosystem with operational confidence.
 
 ### 4.3 The Turnkey Value
 
-What takes organizations 2-3 years and millions of dollars to build internally, OpenOva delivers in hours. This is possible because we have already spent years building, testing, and hardening the converged ecosystem. The work is done. It is packaged as blueprints. The customer gets the result without the journey.
+What takes organizations 2-3 years and millions of dollars to build internally, OpenOva delivers instantly. This is possible because we have already spent years building, testing, and hardening the converged ecosystem. The work is done. It is packaged as blueprints. The customer gets the result without the journey.
 
 | Capability | Traditional Build Time | OpenOva |
 |------------|----------------------|---------|
-| Production K8s with GitOps | 3-6 months | Hours |
-| Full observability (logs, metrics, traces) | 2-4 months | Hours |
-| Multi-region DR with failover | 6-12 months | Hours |
-| Zero-trust security posture | 4-8 months | Hours |
-| Internal developer platform | 6-12 months | Hours |
-| AI-powered operations (SOC/NOC) | 12-24 months (if ever) | Hours |
-| Open Banking sandbox | 12-18 months | Hours |
-| Enterprise AI platform | 12-24 months | Hours |
-| **Total** | **2-3 years** | **Same day** |
+| Production K8s with GitOps | 3-6 months | Instant |
+| Full observability (logs, metrics, traces) | 2-4 months | Instant |
+| Multi-region DR with failover | 6-12 months | Instant |
+| Zero-trust security posture | 4-8 months | Instant |
+| Internal developer platform | 6-12 months | Instant |
+| AI-powered operations (SOC/NOC) | 12-24 months (if ever) | Instant |
+| Open Banking sandbox | 12-18 months | Instant |
+| Enterprise AI platform | 12-24 months | Instant |
+| **Total** | **2-3 years** | **Instant** |
 
 ---
 
@@ -151,11 +151,15 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 
 | Product | Description |
 |---------|-------------|
-| **OpenOva** | The core platform. 41 curated CNCF components deployed as a turnkey, production-grade Kubernetes ecosystem. Includes security, observability, GitOps, service mesh, policy engine, DR, and more. |
-| **OpenOva Cortex** | Enterprise AI Hub. LLM serving (vLLM), RAG pipelines (LangServe + Milvus), graph knowledge (Neo4j), chat interfaces (LibreChat), workflow automation (n8n), and web search (SearXNG). Self-hosted AI infrastructure. |
+| **OpenOva** | The core platform. 55+ curated open-source components deployed as a turnkey, production-grade Kubernetes ecosystem. Includes security, observability, GitOps, service mesh, policy engine, DR, and more. |
+| **OpenOva Cortex** | Enterprise AI Hub. LLM serving (vLLM), RAG pipelines (LangServe + Milvus), graph knowledge (Neo4j), chat interfaces (LibreChat), workflow automation (Airflow), and web search (SearXNG). Self-hosted AI infrastructure. |
 | **OpenOva Synapse** | SaaS LLM Gateway. The neural link to Cortex. Provides managed AI inference for customers who don't want to invest in GPU infrastructure. Powers Specter agents by default. Routes to Claude, GPT-4, or self-hosted vLLM. |
 | **OpenOva Fingate** | Open Banking meta-blueprint. PSD2/FAPI-compliant fintech sandbox with Keycloak (FAPI authorization), metering (OpenMeter), billing (Lago), and 6 custom banking services. Production-ready open banking in hours. |
 | **OpenOva Specter** | AI-powered SOC/NOC agents. Self-healing ecosystem that monitors, detects, correlates, and remediates issues autonomously. DevOps, DevSecOps, SRE, FinOps, and Compliance agents working 24/7. Core built-in capability - not an add-on. |
+| **OpenOva Catalyst** | Bootstrap wizard + Day-2 lifecycle manager. The lightweight shell that initiates, provisions, and manages your platform. Exits after bootstrap, continues as in-cluster lifecycle manager for upgrades, health, and operations. |
+| **OpenOva Exodus** | Structured migration program from proprietary to open source. Like an airline modernizing its fleet - you keep flying while every component gets upgraded. Not lift-and-shift. True modernization with zero downtime. |
+| **OpenOva Titan** | Data Lakehouse product. Enterprise analytics platform built on Apache Iceberg, Trino, Superset, Flink, Airflow, and ClickHouse. The heavy lifter for data engineering and BI. |
+| **OpenOva Fuse** | Microservices Integration product. Enterprise integration platform built on Temporal, Camel K, and Dapr. Connects services, orchestrates workflows, and bridges legacy systems. |
 
 ### 5.2 Architecture Relationship
 
@@ -206,7 +210,7 @@ CUSTOMER CLUSTER                          OPENOVA CLOUD
 
 These are services and capabilities described as what they are:
 
-- **Expert network** - Curated specialists across 40+ open-source disciplines
+- **Expert network** - Curated specialists across 55+ open-source disciplines
 - **Migration services** - Moving from proprietary to open-source alternatives
 - **Consultancy** - Cloud-native assessment, architecture design, transformation roadmap
 - **Managed operations** - We own the pager, full 24/7 operational responsibility
@@ -251,7 +255,7 @@ OPENOVA SERVICES
 ├── PLATFORM DEPLOYMENT
 │   │
 │   ├── OpenOva Core Deployment
-│   │   What: Full 41-component platform deployed to customer environment
+│   │   What: Full 55+ component platform deployed to customer environment
 │   │   Duration: Hours to days depending on complexity
 │   │   Outcome: Production-grade K8s ecosystem, operational from day 1
 │   │
@@ -412,7 +416,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 > We can be your consultant, your platform provider, or both. You choose.
 
 **Key metrics for this persona:**
-- 41 integrated CNCF components
+- 55+ integrated open-source components
 - Multi-region DR with tested failover
 - Platform team headcount reduction
 - Time engineers spend on features vs. infrastructure
@@ -421,7 +425,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 **They evaluate the technology. They will operate what we deploy. They care about technical depth, no lock-in, operational reality, and open-source purity.**
 
-> 41 curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Redpanda for streaming. Valkey for caching.
+> 55+ curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Strimzi/Kafka for streaming. Valkey for caching.
 >
 > Multi-region with k8gb authoritative DNS, Cloudflare-witness split-brain protection, and a Failover Controller that orchestrates external traffic, internal services, and stateful workloads.
 >
@@ -430,7 +434,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 > Plus: Specter AI agents that detect drift, correlate incidents, and remediate issues automatically. Not just alerting - actual self-healing.
 
 **Key metrics for this persona:**
-- 41 components, all upstream open source
+- 55+ components, all upstream open source
 - Kustomize-based (no proprietary abstraction)
 - Air-gap capable
 - Full source access, no vendor lock-in at the code level
@@ -441,7 +445,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 > Zero-trust from Day 1. Not aspirational - actual.
 >
-> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Vault per-cluster with ESO PushSecrets for cross-cluster secret sync. Coraza WAF with OWASP Core Rule Set.
+> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Falco for runtime eBPF threat detection. OpenBao per-cluster with ESO PushSecrets for cross-cluster secret sync. Coraza WAF with OWASP Core Rule Set.
 >
 > Air-gap capable for sovereign deployments. Compliance-ready for PSD2, DORA, NIS2, SOX.
 >
@@ -507,7 +511,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 |:-----------|:-------:|:-----------------:|:--------------:|:-------:|:---------:|:-----------------:|:---:|
 | **PLATFORM DEPLOYMENT** | | | | | | | |
 | Turnkey K8s platform (hours) | Yes | Partial (weeks) | No | No | No | No (months) | No (years) |
-| Integrated CNCF components | 41 | ~15 | ~8 | 1 | 0 | Varies | DIY |
+| Integrated open-source components | 55+ | ~15 | ~8 | 1 | 0 | Varies | DIY |
 | Components tested together | Yes | Yes (their stack) | Partial | N/A | N/A | No | No |
 | Blueprints open source & free | Yes | No | Partial | Yes | No | No | N/A |
 | Multi-cloud support | Yes | Yes | Yes | Yes | Yes | Yes | DIY |
@@ -521,7 +525,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 | Split-brain protection | Built-in | No | No | No | No | Custom | DIY |
 | Policy-as-code | Built-in (Kyverno) | Partial (SCC) | No | No | No | Custom | DIY |
 | Security scanning (CI + runtime) | Built-in (Trivy) | ACS (paid) | No | No | No | Custom | DIY |
-| Secrets management | Built-in (Vault + ESO) | Partial | No | No | No | Custom | DIY |
+| Secrets management | Built-in (OpenBao + ESO) | Partial | No | No | No | Custom | DIY |
 | **OBSERVABILITY** | | | | | | | |
 | Full stack (logs/metrics/traces) | Built-in (Grafana) | Partial | Partial | No | No | Custom | DIY |
 | OTel auto-instrumentation | Built-in | No | No | No | No | Custom | DIY |
@@ -533,7 +537,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 | **DATA SERVICES** | | | | | | | |
 | PostgreSQL operator | Yes (CNPG) | Crunchy (paid) | No | No | No | Custom | DIY |
 | MongoDB + CDC replication | Yes | No | No | No | No | Custom | DIY |
-| Kafka-compatible streaming | Yes (Redpanda) | AMQ Streams | No | No | No | Custom | DIY |
+| Apache Kafka streaming | Yes (Strimzi) | AMQ Streams | No | No | No | Custom | DIY |
 | Redis-compatible cache | Yes (Valkey) | No | No | No | No | Custom | DIY |
 | **VERTICAL SOLUTIONS** | | | | | | | |
 | Open Banking (PSD2/FAPI) | Yes (Fingate) | No | No | No | No | Custom ($$$) | No |
@@ -547,7 +551,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 | **SERVICES** | | | | | | | |
 | Transformation consultancy | Yes | Via partners | No | No | No | Yes | No |
 | Managed operations | Yes | Via partners | No | No | No | Yes | No |
-| Expert network (40+ OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
+| Expert network (55+ OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
 | SOW / T&M augmentation | Yes | No | No | No | No | Yes | N/A |
 | Skills transfer & enablement | Yes | Training courses | No | No | No | Yes | N/A |
 | **PRICING & FREEDOM** | | | | | | | |
@@ -559,13 +563,13 @@ Every organization has multiple decision-makers. Each cares about different thin
 ### 9.3 Competitive Advantages by Competitor
 
 **vs. Red Hat OpenShift:**
-OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-powered operations. And when you leave, you rebuild everything. OpenOva offers broader ecosystem support (41 vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter for autonomous operations.
+OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-powered operations. And when you leave, you rebuild everything. OpenOva offers broader ecosystem support (55+ vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter for autonomous operations.
 
 **vs. Rancher / SUSE:**
 Rancher is a cluster management tool, not an integrated platform. It helps you manage Kubernetes, but you still build the platform yourself. No integrated GitOps, no observability stack, no policy engine, no DR automation. OpenOva is the complete platform, not just the management layer.
 
 **vs. Upbound / Crossplane ecosystem:**
-Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 41 components. We don't compete with Crossplane - we include it and support it alongside 40 other projects.
+Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 55+ components. We don't compete with Crossplane - we include it and support it alongside 50+ other projects.
 
 **vs. Humanitec:**
 Humanitec is a platform orchestrator focused on developer experience and the Score specification. It does not provide infrastructure components, security, observability, or operational support. It is complementary in concept but narrow in scope.
@@ -613,6 +617,8 @@ Revenue comes from:
 - Expert access (the human network)
 - Managed services (we own the pager)
 - Transformation consulting (the journey)
+
+**All software is free.** We do not charge for any software component. The entire 55+ component platform is open source and free to deploy. Revenue is exclusively from per-vCPU-core platform support subscriptions. No per-component charges. No software licensing fees. Ever.
 
 ### 10.3 Pricing Unit: vCPU Cores Under Management
 
@@ -674,20 +680,21 @@ For ongoing embedded engineering:
 |--------|-------|-------------|
 | Managed Operations | Per-core | OpenOva owns the pager, 24/7 operational responsibility |
 | Specter Enhanced | Per-core | Custom agent training, industry-specific compliance rules |
-| Meta-Blueprint Support (Fingate) | Per-core | Open Banking specific support and upgrades |
-| Meta-Blueprint Support (Cortex) | Per-core | AI Hub specific support, model management |
+| Product Support (Fingate) | Per-core | Open Banking specific support and upgrades |
+| Product Support (Cortex) | Per-core | AI Hub specific support, model management |
 | Expert Network Hours | Block pricing | 40/80/160 hour blocks, unused hours roll 1 quarter |
 
 ### 10.6 Pricing Principles
 
 | Principle | Rationale |
 |-----------|-----------|
-| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 41 components for the price of one subscription. |
+| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 55+ components for the price of one subscription. |
 | **Minimum ELA cap** | Ensures baseline revenue per customer. Below minimum, PAYG is available. |
 | **True-up, not penalty** | Customer grows freely. True-up at renewal is a conversation, not a surprise bill. |
 | **Expert hours roll over** | Builds trust. Customer doesn't lose unused hours (within 1 quarter). |
 | **Never free, but flexible** | Early adopters get discounts. No customer gets free. Free devalues everything. |
 | **Clean exit** | If customer leaves, they keep all blueprints and code. Only lose support, Specter, and expert access. |
+| **Customer advocacy is DNA** | We never trap customers. Exit strategy = do nothing. Blueprints are open source. Walk away and everything keeps running. |
 
 ---
 
@@ -762,7 +769,7 @@ For ongoing embedded engineering:
 
 ### 12.1 Purpose
 
-The expert network is one of OpenOva's most important differentiators. Organizations adopting 40+ open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
+The expert network is one of OpenOva's most important differentiators. Organizations adopting 55+ open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
 
 OpenOva provides a single relationship that connects customers to verified specialists across the entire CNCF ecosystem and beyond.
 
@@ -780,7 +787,7 @@ EXPERT NETWORK
 ├── Contracted Specialists (Vetted Partners)
 │   ├── PostgreSQL / CNPG Deep Experts
 │   ├── Cilium / eBPF Specialists
-│   ├── Kafka / Redpanda Engineers
+│   ├── Kafka / Strimzi Engineers
 │   ├── Keycloak / Identity Architects
 │   ├── AI / ML Scientists
 │   ├── Security / Compliance Consultants
@@ -807,10 +814,10 @@ EXPERT NETWORK
 
 The expert network covers the full breadth of the OpenOva ecosystem:
 
-**Infrastructure:** Kubernetes, Terraform, Crossplane, Cilium, Calico, K3s, containerd
+**Infrastructure:** Kubernetes, OpenTofu, Crossplane, Cilium, Calico, K3s, containerd
 **GitOps:** Flux, ArgoCD, Gitea, Git workflows, CI/CD design
-**Data:** PostgreSQL (CNPG), MongoDB, Redpanda (Kafka), Valkey (Redis), Debezium
-**Security:** Vault, cert-manager, Kyverno, OPA, Trivy, Falco, zero-trust architecture
+**Data:** PostgreSQL (CNPG), MongoDB, Strimzi (Kafka), Valkey (Redis), Debezium
+**Security:** OpenBao, cert-manager, Kyverno, OPA, Trivy, Falco, OpenSearch SIEM, zero-trust architecture
 **Observability:** Grafana, Loki, Mimir, Tempo, OpenTelemetry, Prometheus, Hubble
 **Networking:** Cilium, eBPF, DNS, k8gb, load balancing, service mesh
 **Identity:** Keycloak, OIDC, OAuth 2.0, FAPI, SAML
@@ -820,6 +827,14 @@ The expert network covers the full breadth of the OpenOva ecosystem:
 ---
 
 ## 13. Migration Program
+
+### 13.0 Migration Philosophy: The Airlines Analogy
+
+Migration is not lift-and-shift. It is modernization.
+
+Think of an airline replacing its fleet. You do not ground every plane at once. You keep flying while systematically replacing older aircraft with modern ones. Passengers barely notice. Routes continue. Service improves gradually.
+
+OpenOva Exodus works the same way. We do not rip out your existing infrastructure overnight. We run new and old in parallel, migrate workloads incrementally, validate at every step, and decommission legacy only when the new platform is proven. Zero downtime. Zero disruption. Full modernization.
 
 ### 13.1 Overview
 
@@ -842,7 +857,7 @@ Many organizations are trapped in proprietary ecosystems that are expensive, res
 |------|----|----------------|
 | Oracle Database | CNPG (PostgreSQL) | Schema conversion, PL/SQL → PL/pgSQL, performance tuning |
 | Redis Enterprise | Valkey | Command compatibility (near-complete), module alternatives |
-| Confluent Kafka | Redpanda | Protocol-compatible, but configuration and tooling differences |
+| Confluent Kafka | Strimzi (Apache Kafka) | Protocol-compatible, but configuration and tooling differences |
 | MongoDB Atlas | Self-hosted MongoDB (CNPG) | Data export/import, CDC setup with Debezium, connection string changes |
 | Amazon RDS | CNPG (PostgreSQL) | WAL streaming setup, connection migration, backup strategy change |
 
@@ -859,8 +874,6 @@ Many organizations are trapped in proprietary ecosystems that are expensive, res
 
 | From | To | Annual Savings |
 |------|----|----------------|
-| Prisma Cloud | Trivy + Kyverno + Specter | €100-200K |
-| Aqua Security | Trivy + Kyverno + Specter | €80-150K |
 | Auth0 | Keycloak | €50-100K |
 | Okta | Keycloak | €50-150K |
 
@@ -872,6 +885,14 @@ Many organizations are trapped in proprietary ecosystems that are expensive, res
 | GitLab CI | Gitea Actions |
 | Jenkins | Gitea Actions |
 | CircleCI | Gitea Actions |
+
+#### Runtime Security Migrations
+
+| From | To | Annual Savings |
+|------|----|----------------|
+| Prisma Cloud | Falco + OpenSearch SIEM + Kyverno + Specter | €100-200K |
+| Aqua Security | Falco + OpenSearch SIEM + Kyverno + Specter | €80-150K |
+| CrowdStrike Falcon | Falco + OpenSearch SIEM + Specter | €100-250K |
 
 ### 13.3 Migration Methodology
 
@@ -985,7 +1006,7 @@ WITH OPENOVA (estimated annual cost):
 
 ### 15.1 Community Strategy
 
-OpenOva's open-source blueprints create a natural community funnel. The strategy follows the proven Red Hat model: community builds awareness and trust, enterprise support captures revenue.
+OpenOva's open-source blueprints create a natural community funnel. The strategy follows a proven open-source model: community builds awareness and trust, enterprise support captures revenue.
 
 ### 15.2 Platforms
 
@@ -1045,7 +1066,7 @@ ADVOCACY
 | **Seed** | Core platform deployed at 2-3 banks. Specter (basic) operational. Pricing validated. |
 | **Traction** | Fingate production-ready. Cortex available. Specter agents trained on banking patterns. Expert network formalized. |
 | **Scale** | Self-service deployment via wizard. Synapse SaaS generally available. Partner channel active. |
-| **Growth** | Blueprint marketplace. Certification program. Multiple meta-blueprints. Global partner network. |
+| **Growth** | Blueprint marketplace. Certification program. Multiple products (Titan, Fuse, and more). Global partner network. |
 
 ### 16.3 Hiring Priorities
 

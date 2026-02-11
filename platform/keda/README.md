@@ -9,7 +9,7 @@ Event-driven horizontal autoscaling for OpenOva platform.
 ## Overview
 
 KEDA (Kubernetes Event-driven Autoscaling) provides horizontal pod autoscaling based on external metrics and events:
-- Queue-based scaling (Redpanda, RabbitMQ)
+- Queue-based scaling (Kafka (Strimzi), RabbitMQ)
 - Metric-based scaling (Prometheus, custom metrics)
 - Cron-based scaling
 - Scale-to-zero capability
@@ -26,7 +26,7 @@ flowchart TB
     end
 
     subgraph Sources["Event Sources"]
-        Redpanda[Redpanda]
+        Kafka[Kafka]
         Prometheus[Prometheus/Mimir]
         Cron[Cron]
     end
@@ -48,7 +48,7 @@ flowchart TB
 
 | Scaler | Use Case |
 |--------|----------|
-| kafka | Redpanda consumer lag |
+| kafka | Kafka consumer lag |
 | prometheus | Custom metrics |
 | cron | Time-based scaling |
 | cpu/memory | Resource utilization |
@@ -74,7 +74,7 @@ spec:
   triggers:
     - type: kafka
       metadata:
-        bootstrapServers: redpanda.databases.svc:9092
+        bootstrapServers: kafka-kafka-bootstrap.databases.svc:9092
         consumerGroup: <tenant>-workers
         topic: <tenant>-jobs
         lagThreshold: "100"

@@ -1,19 +1,21 @@
-# Terraform
+# OpenTofu
 
-Infrastructure as Code for OpenOva Kubernetes platform (bootstrap only).
+Infrastructure as Code for OpenOva Kubernetes platform (bootstrap only). Drop-in replacement for Terraform with MPL 2.0 license.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-02-09
 
 ---
 
 ## Overview
 
-Terraform provisions the initial infrastructure for Kubernetes clusters. After bootstrap, **Crossplane** handles all day-2 cloud resource provisioning.
+OpenTofu is a Linux Foundation / CNCF fork of Terraform, created after HashiCorp changed Terraform's license from MPL 2.0 to the Business Source License (BSL 1.1). OpenTofu retains the MPL 2.0 license and is fully compatible with all Terraform providers and HCL syntax.
+
+OpenTofu provisions the initial infrastructure for Kubernetes clusters. After bootstrap, **Crossplane** handles all day-2 cloud resource provisioning.
 
 ```mermaid
 flowchart LR
-    subgraph Bootstrap["Bootstrap (Terraform)"]
-        TF[Terraform]
+    subgraph Bootstrap["Bootstrap (OpenTofu)"]
+        TF[OpenTofu]
         VMs[VMs + Network]
         K8s[K8s Cluster]
     end
@@ -28,6 +30,18 @@ flowchart LR
     K8s --> XP
     XP --> Cloud
 ```
+
+---
+
+## Why OpenTofu
+
+| Factor | Detail |
+|--------|--------|
+| License | MPL 2.0 (open source) |
+| Compatibility | 100% compatible with Terraform providers and HCL |
+| Governance | Linux Foundation / CNCF project |
+| Migration | Drop-in replacement, no code changes required |
+| Reason for switch | HashiCorp changed Terraform to BSL 1.1 |
 
 ---
 
@@ -49,7 +63,7 @@ OpenOva supports multiple cloud providers. Each provider has a corresponding Cro
 ## Directory Structure
 
 ```
-terraform/
+opentofu/
 ├── modules/
 │   ├── <provider>-vm/    # Provider-specific VPS provisioning
 │   ├── k3s-cluster/      # K3s installation
@@ -68,12 +82,12 @@ terraform/
 cd environments/<provider>-<region>
 
 # Bootstrap wizard handles credentials interactively
-# Creates terraform.tfvars (not committed to Git)
+# Creates tofu.tfvars (not committed to Git)
 
 # Initialize and apply
-terraform init
-terraform plan -var-file=terraform.tfvars
-terraform apply -var-file=terraform.tfvars
+tofu init
+tofu plan -var-file=tofu.tfvars
+tofu apply -var-file=tofu.tfvars
 ```
 
 ---
@@ -93,7 +107,7 @@ terraform {
 }
 
 provider "<provider>" {
-  # Credentials via terraform.tfvars or environment variables
+  # Credentials via tofu.tfvars or environment variables
 }
 
 resource "<provider>_server" "k8s_node" {
@@ -107,6 +121,8 @@ resource "<provider>_network" "k8s_network" {
   ip_range = "10.0.0.0/16"
 }
 ```
+
+> **Note:** The `terraform {}` block name is retained for HCL compatibility. OpenTofu uses the same HCL syntax.
 
 ---
 
@@ -164,10 +180,10 @@ flowchart TB
 **No SOPS:** All secrets handled via interactive bootstrap.
 
 1. **Bootstrap Wizard** prompts for cloud credentials
-2. Creates terraform.tfvars locally (not committed to Git)
+2. Creates tofu.tfvars locally (not committed to Git)
 3. Provisions infrastructure
-4. Initializes Vault with generated unseal keys
-5. ESO PushSecrets sync to both regional Vaults
+4. Initializes OpenBao with generated unseal keys
+5. ESO PushSecrets sync to both regional OpenBao instances
 
 See [External Secrets README](../external-secrets/README.md) for full details.
 
@@ -175,13 +191,13 @@ See [External Secrets README](../external-secrets/README.md) for full details.
 
 ## Post-Bootstrap
 
-After Terraform provisioning:
+After OpenTofu provisioning:
 
 1. Install Cilium CNI
 2. Bootstrap Flux (from Gitea)
 3. Flux deploys remaining components
 
-All subsequent cloud resources are managed by **Crossplane**, not Terraform.
+All subsequent cloud resources are managed by **Crossplane**, not OpenTofu.
 
 ---
 
@@ -192,6 +208,8 @@ All subsequent cloud resources are managed by **Crossplane**, not Terraform.
 - Crossplane support for Day-2
 - Native LoadBalancer support (where available)
 - Multi-region capable
+- MPL 2.0 license (fully open source)
+- Full compatibility with existing Terraform providers and modules
 
 **Negative:**
 - Provider-specific modules required

@@ -1,14 +1,14 @@
-# Open Banking
+# OpenOva Fingate
 
 Fintech sandbox environments with PSD2/FAPI compliance, TPP management, and API monetization.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-02-09
 
 ---
 
 ## Overview
 
-The Open Banking Blueprint provides a complete fintech sandbox environment leveraging existing OpenOva infrastructure (Cilium/Envoy) with purpose-built Open Banking components.
+OpenOva Fingate is a product that provides a complete fintech sandbox environment leveraging existing OpenOva infrastructure (Cilium/Envoy) with purpose-built Open Banking components.
 
 ```mermaid
 flowchart TB
@@ -65,7 +65,7 @@ ext_authz Service
     | 6. Verify consent
     | 7. Check/decrement quota
     v
-Backend Services --> Redpanda --> OpenMeter --> Lago
+Backend Services --> Kafka --> OpenMeter --> Lago
 ```
 
 ### Why Envoy (Not Kong/Tyk)
@@ -107,7 +107,7 @@ Backend Services --> Redpanda --> OpenMeter --> Lago
 | Cilium/Envoy | API Gateway (mTLS, routing, rate limiting) |
 | Coraza | WAF (OWASP CRS) |
 | Valkey | Quota cache (real-time credit tracking) |
-| Redpanda | Metering event streaming |
+| Strimzi/Kafka | Metering event streaming |
 | CNPG | Consent and TPP data storage |
 
 ---
@@ -135,7 +135,7 @@ Request --> ext_authz --> Valkey: atomic DECR
 ### Post-paid Flow
 
 ```
-Request --> Access Log --> Redpanda --> OpenMeter --> Lago invoice
+Request --> Access Log --> Kafka --> OpenMeter --> Lago invoice
 ```
 
 ---
@@ -209,7 +209,7 @@ Request --> Access Log --> Redpanda --> OpenMeter --> Lago invoice
 
 ## Deployment
 
-### Enable Blueprint
+### Enable Product
 
 ```yaml
 apiVersion: kustomize.toolkit.fluxcd.io/v1

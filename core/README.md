@@ -136,7 +136,7 @@ core/
 
 ## Zero External Dependencies
 
-OpenOva Core is designed to have **no dependencies on platform components** (no CNPG, Valkey, Redpanda for itself).
+OpenOva Core is designed to have **no dependencies on platform components** (no CNPG, Valkey, Strimzi for itself).
 
 ### Bootstrap Mode
 
@@ -278,7 +278,7 @@ func (r *PlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 4. If component has dependencies:
    - System shows required dependencies
-   - Auto-selects Debezium + Redpanda for CDC
+   - Auto-selects Debezium + Strimzi/Kafka for CDC
    - User confirms
 
 5. Lifecycle Manager creates Crossplane Composition
@@ -403,7 +403,7 @@ status:
 │  └─────────────┘ └─────────────┘ └─────────────┘           │
 │                                                             │
 │  Quick Links:                                               │
-│  [Backstage] [Grafana] [Gitea] [Vault] [Harbor]            │
+│  [Backstage] [Grafana] [Gitea] [OpenBao] [Harbor]            │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -428,7 +428,7 @@ status:
 │  │ ✓ CNPG         v1.24.0  ● Healthy                   │  │
 │  │ ✓ Valkey       v8.0.0   ● Healthy                   │  │
 │  │ ○ MongoDB      ---      [+ Install]                  │  │
-│  │ ○ Redpanda     ---      [+ Install]                  │  │
+│  │ ○ Strimzi/Kafka ---      [+ Install]                  │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  META-PLATFORMS                                             │
@@ -442,7 +442,7 @@ status:
 
 ### Dependency Resolution
 
-When installing a meta-platform with dependencies:
+When installing a product with dependencies:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

@@ -1,14 +1,16 @@
-# Vault
+# OpenBao
 
-HashiCorp Vault secrets backend for OpenOva platform.
+Secrets management backend for OpenOva platform. API-compatible fork of HashiCorp Vault with MPL 2.0 license.
 
-**Status:** Accepted | **Updated:** 2026-01-26
+**Status:** Accepted | **Updated:** 2026-02-09
 
 ---
 
 ## Overview
 
-Vault provides centralized secrets management with:
+OpenBao is a Linux Foundation project forked from HashiCorp Vault after HashiCorp changed Vault's license from MPL 2.0 to the Business Source License (BSL 1.1). OpenBao retains the MPL 2.0 license and provides API-compatible secrets management.
+
+OpenBao provides centralized secrets management with:
 - Secrets stored securely outside of Git
 - Multi-region active-active deployments
 - Integration with External Secrets Operator (ESO)
@@ -21,7 +23,7 @@ Vault provides centralized secrets management with:
 
 ### Active-Active Bidirectional Sync
 
-Both regions are identical and can independently update secrets. Updates propagate to both Vaults automatically.
+Both regions are identical and can independently update secrets. Updates propagate to both OpenBao instances automatically.
 
 ```mermaid
 flowchart TB
@@ -29,14 +31,14 @@ flowchart TB
         KS1[K8s Secrets]
         ES1[ExternalSecret]
         PS1[PushSecret]
-        V1[Vault 1]
+        V1[OpenBao 1]
     end
 
     subgraph Region2["Region 2"]
         KS2[K8s Secrets]
         ES2[ExternalSecret]
         PS2[PushSecret]
-        V2[Vault 2]
+        V2[OpenBao 2]
     end
 
     KS1 -->|"watch"| PS1
@@ -54,8 +56,8 @@ flowchart TB
 
 **Key Design:**
 - **Active-Active**: Both regions can update secrets independently
-- **Bidirectional Push**: Each region's PushSecret pushes to **both** Vaults
-- **Local Pull**: Each region's ExternalSecret pulls from its **local** Vault only
+- **Bidirectional Push**: Each region's PushSecret pushes to **both** OpenBao instances
+- **Local Pull**: Each region's ExternalSecret pulls from its **local** OpenBao only
 - **Last-Write-Wins**: Latest update overwrites all
 - **Self-Stabilizing**: ESO skips updates when values are identical
 - **No SOPS**: Secrets never stored in Git
@@ -66,19 +68,18 @@ flowchart TB
 
 | Option | Type | Notes |
 |--------|------|-------|
-| Vault Self-Hosted | Self-hosted | Full control, one per cluster |
-| HCP Vault | Managed | HashiCorp Cloud Platform |
+| OpenBao Self-Hosted | Self-hosted | Full control, one per cluster |
 | AWS Secrets Manager | Managed | If AWS chosen |
 | GCP Secret Manager | Managed | If GCP chosen |
 | Azure Key Vault | Managed | If Azure chosen |
 
-**Recommended:** Vault Self-Hosted for full control
+**Recommended:** OpenBao Self-Hosted for full control
 
 ---
 
 ## Configuration
 
-### Vault Deployment (Helm)
+### OpenBao Deployment (Helm)
 
 ```yaml
 server:
@@ -89,7 +90,7 @@ server:
       enabled: true
       config: |
         storage "raft" {
-          path = "/vault/data"
+          path = "/openbao/data"
         }
 
   dataStorage:
@@ -101,7 +102,7 @@ server:
     enabled: true
     ingressClassName: cilium
     hosts:
-      - host: vault.<domain>
+      - host: bao.<domain>
 
 injector:
   enabled: false  # Using ESO instead
@@ -109,18 +110,18 @@ injector:
 
 ### ClusterSecretStores
 
-Each region needs two ClusterSecretStores - one for local Vault, one for remote Vault.
+Each region needs two ClusterSecretStores - one for local OpenBao, one for remote OpenBao.
 
 ```yaml
-# Local Vault (for ExternalSecret pulls)
+# Local OpenBao (for ExternalSecret pulls)
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:
-  name: vault-local
+  name: bao-local
 spec:
   provider:
     vault:
-      server: "https://vault.region1.<domain>"
+      server: "https://bao.region1.<domain>"
       path: "secret"
       version: "v2"
       auth:
@@ -128,27 +129,29 @@ spec:
           mountPath: "kubernetes"
           role: "external-secrets"
 ---
-# Remote Vault (for PushSecret)
+# Remote OpenBao (for PushSecret)
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:
-  name: vault-remote
+  name: bao-remote
 spec:
   provider:
     vault:
-      server: "https://vault.region2.<domain>"
+      server: "https://bao.region2.<domain>"
       path: "secret"
       version: "v2"
       auth:
         tokenSecretRef:
-          name: vault-remote-token
+          name: bao-remote-token
           namespace: external-secrets
           key: token
 ```
 
+> **Note:** The ESO provider type remains `vault` as OpenBao is API-compatible and ESO uses the same provider configuration.
+
 ### PushSecret (Bidirectional)
 
-Pushes to **both** local and remote Vaults simultaneously.
+Pushes to **both** local and remote OpenBao instances simultaneously.
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -159,9 +162,9 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRefs:
-    - name: vault-local
+    - name: bao-local
       kind: ClusterSecretStore
-    - name: vault-remote
+    - name: bao-remote
       kind: ClusterSecretStore
   selector:
     secret:
@@ -176,7 +179,7 @@ spec:
 
 ### ExternalSecret (Local Pull)
 
-Each region pulls from its **local** Vault only.
+Each region pulls from its **local** OpenBao only.
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -187,7 +190,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: vault-local
+    name: bao-local
     kind: ClusterSecretStore
   target:
     name: db-credentials
@@ -203,10 +206,10 @@ spec:
 
 ## Bootstrap Procedure
 
-1. Bootstrap wizard deploys Vault to both regions
-2. Vault initialized with Kubernetes auth in each region
+1. Bootstrap wizard deploys OpenBao to both regions
+2. OpenBao initialized with Kubernetes auth in each region
 3. Operator saves unseal keys securely offline (per region)
-4. Cross-region auth tokens created for remote Vault access
+4. Cross-region auth tokens created for remote OpenBao access
 5. ESO configured with both local and remote ClusterSecretStores
 6. Initial secrets created via K8s + PushSecrets
 

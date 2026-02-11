@@ -10,7 +10,7 @@ Document database for OpenOva platform.
 
 MongoDB provides document database capabilities with:
 - CDC (Change Data Capture) via Debezium for DR
-- Replication through Redpanda
+- Replication through Kafka (via Strimzi)
 - Schema-flexible document storage
 - Aggregation pipeline for analytics
 
@@ -40,19 +40,19 @@ flowchart TB
     subgraph Region1["Region 1"]
         MG1[MongoDB Primary]
         Debezium[Debezium]
-        RP1[Redpanda]
+        Kafka1[Kafka]
     end
 
     subgraph Region2["Region 2"]
-        RP2[Redpanda]
+        Kafka2[Kafka]
         Sink[Sink Connector]
         MG2[MongoDB DR]
     end
 
     MG1 -->|"CDC"| Debezium
-    Debezium --> RP1
-    RP1 -->|"MirrorMaker2"| RP2
-    RP2 --> Sink
+    Debezium --> Kafka1
+    Kafka1 -->|"MirrorMaker2"| Kafka2
+    Kafka2 --> Sink
     Sink --> MG2
 ```
 
@@ -67,7 +67,7 @@ flowchart TB
 | Flexibility | MongoDB to MongoDB only | Can transform/filter |
 | Ordering | Strict global | Per-document ordering |
 
-**Decision:** Use CDC for multi-region DR to leverage existing Redpanda infrastructure and improve fault tolerance.
+**Decision:** Use CDC for multi-region DR to leverage existing Kafka (Strimzi) infrastructure and improve fault tolerance.
 
 ---
 

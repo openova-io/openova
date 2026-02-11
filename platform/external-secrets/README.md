@@ -1,6 +1,6 @@
 # External Secrets Operator
 
-Secrets management with ESO + Vault using 100% PushSecrets architecture.
+Secrets management with ESO + OpenBao using 100% PushSecrets architecture.
 
 **Status:** Accepted | **Updated:** 2026-02-07
 
@@ -21,8 +21,8 @@ flowchart LR
         ES[ExternalSecrets]
     end
 
-    subgraph Vault["Secrets Backend"]
-        VL[Vault]
+    subgraph OpenBao["Secrets Backend"]
+        VL[OpenBao]
     end
 
     Gen -->|"generate"| KS
@@ -32,7 +32,7 @@ flowchart LR
     ES -->|"sync"| KS
 ```
 
-> **See Also:** [ADR-VAULT](../vault/docs/ADR-VAULT.md) for complete secrets backend architecture including active-active multi-region sync.
+> **See Also:** [ADR-OPENBAO](../openbao/docs/ADR-OPENBAO.md) for complete secrets backend architecture including active-active multi-region sync.
 
 ---
 
@@ -43,7 +43,7 @@ flowchart LR
 | No secrets in Git | SOPS eliminated, interactive bootstrap |
 | K8s is source of truth | All secrets originate as K8s Secrets |
 | Push, not pull | PushSecrets push to backends |
-| Multi-region sync | Push to both Vaults simultaneously |
+| Multi-region sync | Push to both OpenBao instances simultaneously |
 | Auto-generation | ESO Generators create complex secrets |
 
 ---
@@ -52,8 +52,8 @@ flowchart LR
 
 | Component | Purpose |
 |-----------|---------|
-| **ExternalSecret** | Pulls secrets from Vault into K8s |
-| **PushSecret** | Pushes K8s Secrets to Vault(s) |
+| **ExternalSecret** | Pulls secrets from OpenBao into K8s |
+| **PushSecret** | Pushes K8s Secrets to OpenBao instance(s) |
 | **ClusterSecretStore** | Connection to secrets backend |
 | **Generators** | Auto-generate passwords, UUIDs, tokens |
 
@@ -65,22 +65,22 @@ flowchart LR
 sequenceDiagram
     participant Wizard as Bootstrap Wizard
     participant TF as Terraform
-    participant Vault as Vault
+    participant OpenBao as OpenBao
     participant ESO as ESO
 
     Wizard->>TF: Enter cloud credentials
     TF->>TF: Create terraform.tfvars (local only)
-    TF->>Vault: Provision & initialize
-    Vault->>Wizard: Return unseal keys
+    TF->>OpenBao: Provision & initialize
+    OpenBao->>Wizard: Return unseal keys
     Note over Wizard: Operator saves unseal keys offline
-    ESO->>Vault: Connect via K8s auth
+    ESO->>OpenBao: Connect via K8s auth
 ```
 
 ---
 
 ## Configuration
 
-### ClusterSecretStore (Vault)
+### ClusterSecretStore (OpenBao)
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -90,7 +90,7 @@ metadata:
 spec:
   provider:
     vault:
-      server: "https://vault.<domain>"
+      server: "https://openbao.<domain>"
       path: "secret"
       version: "v2"
       auth:
@@ -128,7 +128,7 @@ spec:
         property: main
 ```
 
-### PushSecret to Multiple Vaults
+### PushSecret to Multiple OpenBao Instances
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -245,7 +245,7 @@ spec:
 | `gitea-token` | Flux access to Gitea | Bootstrap |
 | `cloudflare-credentials` | ExternalDNS | Bootstrap |
 | `hetzner-credentials` | Cloud provider | Bootstrap |
-| `vault-unseal-keys` | Vault auto-unseal | Displayed once |
+| `openbao-unseal-keys` | OpenBao auto-unseal | Displayed once |
 | `db-credentials` | Database passwords | ESO Generator |
 
 ---
@@ -256,12 +256,12 @@ spec:
 |--------|-------|---------|----------|
 | Cloud credentials | Bootstrap | Interactive (never stored) | On compromise |
 | SSH keys | Bootstrap | Interactive (never stored) | On compromise |
-| Vault unseal keys | Bootstrap | Offline backup | On compromise |
-| Database passwords | K8s | ESO + Vault | 90 days |
-| API keys | K8s | ESO + Vault | On compromise |
-| JWT signing keys | K8s | ESO + Vault | 30 days |
+| OpenBao unseal keys | Bootstrap | Offline backup | On compromise |
+| Database passwords | K8s | ESO + OpenBao | 90 days |
+| API keys | K8s | ESO + OpenBao | On compromise |
+| JWT signing keys | K8s | ESO + OpenBao | 30 days |
 | TLS certificates | K8s | cert-manager | Auto |
-| Gitea tokens | K8s | ESO + Vault | 90 days |
+| Gitea tokens | K8s | ESO + OpenBao | 90 days |
 
 ---
 
@@ -270,7 +270,7 @@ spec:
 | SOPS Approach | PushSecrets Approach |
 |---------------|---------------------|
 | Secrets encrypted in Git | No secrets in Git |
-| Manual age key management | Vault handles encryption |
+| Manual age key management | OpenBao handles encryption |
 | Decrypt before apply | K8s Secret is source |
 | Risk of leaked decrypted files | Secrets never on disk |
 
@@ -282,10 +282,10 @@ spec:
 
 The ONLY manual backup required:
 
-- **Vault unseal keys** - Displayed once during bootstrap
+- **OpenBao unseal keys** - Displayed once during bootstrap
 - Backup: Password manager + physical copy
 
-**Warning:** Losing unseal keys makes Vault secrets unrecoverable.
+**Warning:** Losing unseal keys makes OpenBao secrets unrecoverable.
 
 ---
 
@@ -294,8 +294,8 @@ The ONLY manual backup required:
 If migrating from SOPS-based setup:
 
 1. Create K8s Secrets from decrypted SOPS files
-2. Create PushSecrets to sync to Vault
-3. Verify secrets in Vault
+2. Create PushSecrets to sync to OpenBao
+3. Verify secrets in OpenBao
 4. Delete SOPS-encrypted files from Git
 5. Delete local decrypted files
 
@@ -313,7 +313,7 @@ If migrating from SOPS-based setup:
 **Negative:**
 - Requires bootstrap for initial secrets
 - ESO operator dependency
-- Vault/backend operational overhead
+- OpenBao/backend operational overhead
 
 ---
 
