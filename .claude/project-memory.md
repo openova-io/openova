@@ -929,4 +929,118 @@ openova-anthropic-adapter, openova-backstage, openova-bge, openova-cert-manager,
 
 ---
 
+## 21. AI-Age Component Rationalization (2026-02-12)
+
+### Context
+
+Evaluated all 55 platform components through the lens of "in the age of AI/vibe coding (95% AI-written code), is this technology still essential or is it pre-AI era tech made redundant?"
+
+### Key Insight
+
+AI doesn't just change HOW code is written — it changes WHAT infrastructure you need:
+- **Infrastructure primitives** (networking, security, storage, databases) → Still essential. AI can't replace packets, bytes, or certificates.
+- **Complexity absorber frameworks** (integration, workflow, application runtime) → Declining. These existed because writing integration/orchestration code was hard. AI writes that code now.
+- **Developer UI tools** (portals, dashboards, search) → Declining. AI assistants replace catalog browsing and dashboard building.
+- **AI-native infrastructure** (inference, vectors, embeddings) → MORE needed.
+
+### Tier 1: Essential (85-95) — Keep
+
+cert-manager (95), cilium (95), external-secrets (95), vllm (95), openbao (93), flux (92), minio (92), velero (92), harbor (90), falco (90), trivy (90), cnpg (90), external-dns (90), grafana (88), kyverno (88), kserve (88), milvus (88), llm-gateway (87), anthropic-adapter (85), valkey (85), keycloak (85)
+
+### Tier 2: Needed (75-84) — Keep
+
+gitea (83), opentofu (82), bge (82), failover-controller (82), k8gb (80), keda (80), vpa (78), crossplane (78), knative (75), librechat (75)
+
+### Tier 3: Moderate (60-74) — Keep but Monitor
+
+langserve (73), strimzi (72), mongodb (72), debezium (70), stalwart (70), stunner (68), neo4j (65), flink (60)
+
+### Tier 4: Questionable (50-59) — Review Necessity
+
+lago (58), openmeter (55), clickhouse (55), opensearch (50), iceberg (50)
+
+### Tier 5: Declining/Redundant (12-45) — Candidates for Removal
+
+backstage (45), superset (40), searxng (40), trino (38), temporal (35), airflow (33), dapr (30), rabbitmq (25), camel (20), vitess (15), activemq (12)
+
+### Recommendation
+
+Drop ~15 components (Tier 5) → reduce from 55 to ~40 components. Replace with AI-generated custom code that's simpler to operate.
+
+### Temporal Decision
+
+**Status:** DECIDED — Make Temporal optional, not default for Fuse.
+
+Start without Temporal. Use Kafka for event-driven patterns and Dapr Workflow (if kept) for simpler orchestration. Only add Temporal when a customer needs complex sagas with compensation across 4+ services, long-running workflows (days/weeks), or workflow-level visibility at scale.
+
+### Impact on Products
+
+| Product | Impact |
+|---------|--------|
+| **Fuse** | Most affected. Camel, Dapr, Temporal, RabbitMQ, ActiveMQ all in decline tier. Rethink as Kafka + AI-generated integrations. |
+| **Titan** | Airflow, Superset, Trino, Iceberg all questionable/declining. Rethink as Flink + AI-generated pipelines + direct DB queries. |
+| **Cortex** | Mostly AI-native components. Healthy. SearXNG only declining item. |
+| **Fingate** | Mostly essential components (Keycloak). Lago/OpenMeter questionable but serve specific billing needs. |
+
+---
+
+## 22. Missing Components — AI-Age Gaps (2026-02-12)
+
+### Identified Gaps
+
+Evaluated what's MISSING from the stack that would score high in AI-age relevance.
+
+### 90+ (Essential — Add Now)
+
+| Component | Score | Why |
+|-----------|-------|-----|
+| **Sigstore/Cosign** | 92 | Container image signing. AI writes Dockerfiles — must verify provenance. Bank regulatory requirement. |
+| **Syft + Grype** | 90 | SBOM generation. AI pulls random dependencies. EU CRA + bank regulators demand it. |
+| **NeMo Guardrails** | 90 | AI safety firewall. Prompt injection, PII filtering, hallucination detection for LLM outputs. Non-negotiable for banks. |
+| **LangFuse** | 90 | LLM observability. Traces every LLM call — cost, latency, tokens, eval scores. Grafana doesn't cover this. |
+| **OpenCost** | 90 | FinOps for K8s. AI/GPU workloads are expensive. Cost visibility per namespace/team is essential. |
+
+### 80+ (Strongly Needed)
+
+| Component | Score | Why |
+|-----------|-------|-----|
+| **Flagger** | 82 | Progressive delivery (canary, blue-green). AI-generated code needs gradual rollouts. Integrates with Flux. |
+| **Ray** | 80 | Distributed AI compute. Training, batch processing, distributed fine-tuning. |
+| **MLflow** | 80 | AI model registry + experiment tracking. Audit trail for model lifecycle. |
+| **Promptfoo** | 80 | LLM evaluation/testing. Unit tests for prompts. CI/CD for AI. |
+| **Reloader** | 80 | Auto-restart pods on ConfigMap/Secret changes. Tiny operator, huge operational value. |
+
+### 70+ (Valuable)
+
+| Component | Score | Why |
+|-----------|-------|-----|
+| **Litmus Chaos** | 72 | Chaos engineering. Banks need proof of resilience. |
+| **Headscale** | 72 | Self-hosted WireGuard mesh. Zero-trust networking between clusters. |
+| **Goldilocks** | 70 | VPA recommendation dashboard. Right-sizing visibility. Feeds into FinOps. |
+| **Dagger** | 70 | CI/CD pipelines as code. AI generates pipelines better in Go/Python than YAML. |
+| **Robusta** | 70 | K8s troubleshooting automation. AI-powered alert enrichment. |
+
+### 60+ (Nice to Have)
+
+| Component | Score | Why |
+|-----------|-------|-----|
+| **Testkube** | 65 | K8s-native test orchestration. Quality gates for AI-generated code. |
+| **Descheduler** | 62 | Pod rebalancing after scaling events. |
+| **Kubeshark** | 60 | API traffic viewer. Debug AI-generated microservice interactions. |
+| **Label Studio** | 60 | Data labeling for ML. Human-in-the-loop for Cortex. |
+
+### 50+ (Situational)
+
+| Component | Score | Why |
+|-----------|-------|-----|
+| **Karpenter** | 55 | Node autoscaling. Cloud provider support dependent (Hetzner unclear). |
+| **Argo Events** | 52 | Event-driven automation. KEDA + custom code may suffice. |
+| **Kured** | 50 | Node reboot daemon after kernel updates. |
+
+### Biggest Gap Identified
+
+**AI operational tooling is completely missing.** The stack has AI inference (vLLM, KServe, Milvus) but zero AI safety, AI observability, AI testing, or AI model governance. That's like having databases without monitoring.
+
+---
+
 *This document serves as persistent context for Claude Code sessions. Update as decisions are made.*
