@@ -10,7 +10,7 @@ Unified stream and batch processing engine.
 
 Apache Flink is a distributed processing engine for stateful computations over both bounded (batch) and unbounded (streaming) data. Unlike frameworks that bolt streaming onto a batch engine, Flink was built streaming-first, making it the most capable engine for real-time data pipelines. It handles exactly-once semantics, event-time processing, and complex event processing out of the box.
 
-Within OpenOva, Flink serves as the data processing engine for the **Titan** data lakehouse product. It ingests data from Kafka topics (via Strimzi), CDC streams (via Debezium), and batch sources, transforms and enriches it, and writes the results directly into Iceberg tables on MinIO. This creates a unified architecture where a single engine handles both real-time streaming and periodic batch ETL, eliminating the need for separate processing frameworks.
+Within OpenOva, Flink serves as the data processing engine for the **Fabric** data and integration product. It ingests data from Kafka topics (via Strimzi), CDC streams (via Debezium), and batch sources, transforms and enriches it, and writes the results directly into Iceberg tables on MinIO. This creates a unified architecture where a single engine handles both real-time streaming and periodic batch ETL, eliminating the need for separate processing frameworks.
 
 Flink runs natively on Kubernetes via the official Flink Kubernetes Operator. The operator manages the full lifecycle of Flink applications: deployment, scaling, savepoints, upgrades, and failure recovery. This Kubernetes-native approach replaces Apache Spark for environments where container orchestration is the primary compute platform, avoiding the complexity of YARN or standalone cluster managers.
 
@@ -59,8 +59,8 @@ flowchart LR
     Kafka --> Flink[Apache Flink]
     Flink -->|Write| Iceberg[Iceberg Tables]
     Iceberg -->|Store| MinIO[MinIO S3]
-    MinIO --> Trino[Trino Query]
-    Trino --> Superset[Superset Dashboards]
+    MinIO --> CH[ClickHouse Query]
+    MinIO --> Grafana[Grafana Dashboards]
 ```
 
 ---
@@ -88,7 +88,7 @@ flowchart LR
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: titan-flink
+  name: fabric-flink
   namespace: data-lakehouse
 spec:
   image: flink:1.20-java17
@@ -96,8 +96,8 @@ spec:
   flinkConfiguration:
     taskmanager.numberOfTaskSlots: "4"
     state.backend: rocksdb
-    state.checkpoints.dir: s3://flink-checkpoints/titan
-    state.savepoints.dir: s3://flink-savepoints/titan
+    state.checkpoints.dir: s3://flink-checkpoints/fabric
+    state.savepoints.dir: s3://flink-savepoints/fabric
     s3.endpoint: http://minio.storage.svc:9000
     s3.access-key: ${MINIO_ACCESS_KEY}
     s3.secret-key: ${MINIO_SECRET_KEY}
@@ -128,17 +128,17 @@ metadata:
   name: cdc-to-iceberg
   namespace: data-lakehouse
 spec:
-  deploymentName: titan-flink
+  deploymentName: fabric-flink
   job:
     jarURI: s3://flink-jobs/cdc-to-iceberg-1.0.jar
-    entryClass: io.openova.titan.CDCToIcebergJob
+    entryClass: io.openova.fabric.CDCToIcebergJob
     args:
       - --kafka.bootstrap.servers
       - strimzi-kafka-bootstrap.messaging.svc:9093
       - --kafka.group.id
-      - titan-cdc-consumer
+      - fabric-cdc-consumer
       - --iceberg.catalog.uri
-      - jdbc:postgresql://titan-postgres.databases.svc:5432/iceberg_catalog
+      - jdbc:postgresql://fabric-postgres.databases.svc:5432/iceberg_catalog
       - --iceberg.warehouse
       - s3://iceberg-warehouse/
     parallelism: 4
@@ -179,9 +179,9 @@ CREATE TABLE iceberg_orders (
 ) PARTITIONED BY (order_date)
 WITH (
     'connector' = 'iceberg',
-    'catalog-name' = 'titan',
+    'catalog-name' = 'fabric',
     'catalog-type' = 'jdbc',
-    'uri' = 'jdbc:postgresql://titan-postgres.databases.svc:5432/iceberg_catalog',
+    'uri' = 'jdbc:postgresql://fabric-postgres.databases.svc:5432/iceberg_catalog',
     'warehouse' = 's3://iceberg-warehouse/',
     'write.format.default' = 'parquet',
     'write.parquet.compression-codec' = 'zstd'
@@ -214,7 +214,7 @@ kubectl patch flinksessionjob cdc-to-iceberg \
 # Resume from savepoint after upgrade
 kubectl patch flinksessionjob cdc-to-iceberg \
   --type merge \
-  -p '{"spec":{"job":{"state":"running","initialSavepointPath":"s3://flink-savepoints/titan/savepoint-abc123"}}}'
+  -p '{"spec":{"job":{"state":"running","initialSavepointPath":"s3://flink-savepoints/fabric/savepoint-abc123"}}}'
 ```
 
 ---
@@ -253,4 +253,4 @@ kubectl patch flinksessionjob cdc-to-iceberg \
 
 ---
 
-*Part of [OpenOva Titan](https://openova.io) - Data Lakehouse*
+*Part of [OpenOva Fabric](https://openova.io) - Data & Integration*

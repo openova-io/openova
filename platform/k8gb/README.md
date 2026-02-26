@@ -408,7 +408,7 @@ kubectl describe gslb <name> -n <namespace>
 | Component | Responsibility | When Active |
 |-----------|---------------|-------------|
 | **k8gb** | DNS-based traffic routing (automatic failover) | Always |
-| **Failover Controller** | Stateful service promotion (CNPG, MongoDB) | Only when region fails |
+| **Failover Controller** | Stateful service promotion (CNPG, FerretDB) | Only when region fails |
 | **ExternalDNS** | NS record delegation (one-time setup) | Initial delegation only |
 
 **Key Clarifications:**

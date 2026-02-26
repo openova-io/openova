@@ -13,6 +13,8 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 | [Platform Tech Stack](docs/PLATFORM-TECH-STACK.md) | Technology stack and architecture |
 | [SRE Handbook](docs/SRE.md) | Site reliability practices |
 | [Core Application](core/README.md) | Bootstrap + Lifecycle Manager |
+| [Business Strategy](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
+| [Technology Forecast](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027-2030 |
 
 ---
 
@@ -21,12 +23,13 @@ OpenOva provides a converged blueprint ecosystem with operational guarantees, en
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager
-├── platform/                # All 55 component blueprints (flat)
+├── platform/                # All 52 component blueprints (flat)
 ├── products/                # Bundled vertical solutions
 │   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
 │   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── titan/               # OpenOva Titan - Data Lakehouse
-│   └── fuse/                # OpenOva Fuse - Microservices Integration
+│   ├── fabric/              # OpenOva Fabric - Data & Integration
+│   ├── relay/               # OpenOva Relay - Communication
+│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
 └── docs/                    # Platform documentation
 ```
 
@@ -45,7 +48,7 @@ openova/
 ## Platform Architecture
 
 ```
-Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
+Bootstrap Wizard → Customer's K8s + Catalyst IDP + Flux + Gitea
                  → OpenOva Blueprints (stays in picture)
 ```
 
@@ -55,7 +58,7 @@ Bootstrap Wizard → Customer's K8s + Backstage + Flux + Gitea
 
 ---
 
-## Platform Components (55)
+## Platform Components (52)
 
 All components under `platform/` (flat structure):
 
@@ -68,13 +71,12 @@ All components under `platform/` (flat structure):
 | [opentofu](platform/opentofu/) | Infrastructure as Code (bootstrap, MPL 2.0) |
 | [crossplane](platform/crossplane/) | Day-2 cloud resource provisioning |
 
-#### GitOps & IDP
+#### GitOps & Git
 
 | Component | Purpose |
 |-----------|---------|
 | [flux](platform/flux/) | GitOps configuration |
 | [gitea](platform/gitea/) | Self-hosted Git + CI/CD |
-| [backstage](platform/backstage/) | Internal Developer Platform |
 
 #### Networking
 
@@ -83,7 +85,6 @@ All components under `platform/` (flat structure):
 | [cilium](platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
 | [external-dns](platform/external-dns/) | DNS synchronization |
 | [k8gb](platform/k8gb/) | Global Server Load Balancing |
-| [stunner](platform/stunner/) | K8s-native TURN server |
 
 #### Security
 
@@ -94,6 +95,19 @@ All components under `platform/` (flat structure):
 | [openbao](platform/openbao/) | Secrets backend (MPL 2.0) |
 | [trivy](platform/trivy/) | Security scanning |
 | [falco](platform/falco/) | Runtime security (eBPF) |
+
+#### Supply Chain Security
+
+| Component | Purpose |
+|-----------|---------|
+| [sigstore](platform/sigstore/) | Container image signing (Sigstore/Cosign) |
+| [syft-grype](platform/syft-grype/) | SBOM generation + vulnerability matching |
+
+#### WAF
+
+| Component | Purpose |
+|-----------|---------|
+| [coraza](platform/coraza/) | Web Application Firewall (OWASP CRS) |
 
 #### Policy
 
@@ -106,7 +120,7 @@ All components under `platform/` (flat structure):
 | Component | Purpose |
 |-----------|---------|
 | [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
-| [opensearch](platform/opensearch/) | Search and SIEM analytics |
+| [opensearch](platform/opensearch/) | Hot SIEM backend (security analytics) |
 
 #### Scaling
 
@@ -115,17 +129,18 @@ All components under `platform/` (flat structure):
 | [vpa](platform/vpa/) | Vertical Pod Autoscaler |
 | [keda](platform/keda/) | Event-driven autoscaling |
 
-#### Storage
+#### Operations
+
+| Component | Purpose |
+|-----------|---------|
+| [reloader](platform/reloader/) | Auto-restart on ConfigMap/Secret changes |
+
+#### Storage & Registry
 
 | Component | Purpose |
 |-----------|---------|
 | [minio](platform/minio/) | S3-compatible object storage |
 | [velero](platform/velero/) | Kubernetes backup |
-
-#### Registry
-
-| Component | Purpose |
-|-----------|---------|
 | [harbor](platform/harbor/) | Container registry |
 
 #### Failover
@@ -141,12 +156,9 @@ All components under `platform/` (flat structure):
 | Component | Purpose |
 |-----------|---------|
 | [cnpg](platform/cnpg/) | PostgreSQL operator |
-| [mongodb](platform/mongodb/) | Document database |
+| [ferretdb](platform/ferretdb/) | MongoDB wire protocol on PostgreSQL |
 | [valkey](platform/valkey/) | Redis-compatible cache |
 | [strimzi](platform/strimzi/) | Apache Kafka streaming |
-| [rabbitmq](platform/rabbitmq/) | Message broker (AMQP) |
-| [activemq](platform/activemq/) | Message broker (JMS/AMQP) |
-| [vitess](platform/vitess/) | MySQL-compatible horizontal scaling |
 | [clickhouse](platform/clickhouse/) | Column-oriented analytics database |
 
 #### CDC
@@ -155,28 +167,18 @@ All components under `platform/` (flat structure):
 |-----------|---------|
 | [debezium](platform/debezium/) | Change data capture |
 
-#### Workflow
+#### Workflow & Processing
 
 | Component | Purpose |
 |-----------|---------|
-| [airflow](platform/airflow/) | Workflow orchestration (Apache 2.0) |
-| [temporal](platform/temporal/) | Durable workflow execution |
-
-#### Integration
-
-| Component | Purpose |
-|-----------|---------|
-| [camel](platform/camel/) | Integration framework (Apache Camel K) |
-| [dapr](platform/dapr/) | Distributed application runtime |
+| [temporal](platform/temporal/) | Saga orchestration + compensation |
+| [flink](platform/flink/) | Stream + batch processing |
 
 #### Data Lakehouse
 
 | Component | Purpose |
 |-----------|---------|
 | [iceberg](platform/iceberg/) | Open table format |
-| [trino](platform/trino/) | Distributed SQL query engine |
-| [superset](platform/superset/) | Data visualization and BI |
-| [flink](platform/flink/) | Stream processing |
 
 #### Identity
 
@@ -184,18 +186,20 @@ All components under `platform/` (flat structure):
 |-----------|---------|
 | [keycloak](platform/keycloak/) | FAPI Authorization Server |
 
-#### Communication
-
-| Component | Purpose |
-|-----------|---------|
-| [stalwart](platform/stalwart/) | Self-hosted email server |
-
 #### Monetization
 
 | Component | Purpose |
 |-----------|---------|
 | [openmeter](platform/openmeter/) | Usage metering |
-| [lago](platform/lago/) | Billing and invoicing |
+
+#### Communication
+
+| Component | Purpose |
+|-----------|---------|
+| [stalwart](platform/stalwart/) | Self-hosted email server |
+| [stunner](platform/stunner/) | K8s-native TURN/STUN (WebRTC) |
+| [livekit](platform/livekit/) | Video/audio/data (WebRTC SFU) |
+| [matrix](platform/matrix/) | Team chat (Matrix/Synapse) |
 
 #### AI/ML
 
@@ -206,13 +210,23 @@ All components under `platform/` (flat structure):
 | [vllm](platform/vllm/) | LLM inference engine |
 | [milvus](platform/milvus/) | Vector database |
 | [neo4j](platform/neo4j/) | Graph database |
-| [langserve](platform/langserve/) | LangChain RAG service |
 | [librechat](platform/librechat/) | Chat UI |
-| [airflow](platform/airflow/) | Workflow orchestration |
-| [searxng](platform/searxng/) | Privacy-respecting web search |
 | [bge](platform/bge/) | Embeddings + reranking |
 | [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
-| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI ↔ Anthropic translation |
+| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI-to-Anthropic translation |
+
+#### AI Safety & Observability
+
+| Component | Purpose |
+|-----------|---------|
+| [nemo-guardrails](platform/nemo-guardrails/) | AI safety firewall |
+| [langfuse](platform/langfuse/) | LLM observability |
+
+#### Chaos Engineering
+
+| Component | Purpose |
+|-----------|---------|
+| [litmus](platform/litmus/) | Chaos engineering experiments |
 
 ---
 
@@ -222,9 +236,9 @@ Bundled vertical solutions that reference components from `platform/`:
 
 ### OpenOva Cortex (AI Hub)
 
-Enterprise AI platform with LLM serving, RAG, and intelligent agents.
+Enterprise AI platform with LLM serving, RAG, AI safety, and LLM observability.
 
-**Uses:** kserve, knative, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter
+**Uses:** kserve, knative, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
 
 See [products/cortex/](products/cortex/)
 
@@ -232,25 +246,31 @@ See [products/cortex/](products/cortex/)
 
 Fintech sandbox with PSD2/FAPI compliance.
 
-**Uses:** keycloak, openmeter, lago + 6 custom services
+**Uses:** keycloak, openmeter + 6 custom services
 
 See [products/fingate/](products/fingate/)
 
-### OpenOva Titan (Data Lakehouse)
+### OpenOva Fabric (Data & Integration)
 
-Analytics platform with open table formats and distributed SQL.
+Event-driven data integration and lakehouse analytics.
 
-**Uses:** iceberg, trino, superset, flink, airflow, clickhouse, debezium, strimzi, minio
+**Uses:** strimzi, flink, temporal, debezium, iceberg, clickhouse, minio
 
-See [products/titan/](products/titan/)
+See [products/fabric/](products/fabric/)
 
-### OpenOva Fuse (Microservices Integration)
+### OpenOva Relay (Communication)
 
-Enterprise integration platform for microservices orchestration.
+Enterprise communication platform with email, video, chat, and WebRTC.
 
-**Uses:** temporal, camel, dapr, strimzi, rabbitmq, activemq
+**Uses:** stalwart, livekit, stunner, matrix
 
-See [products/fuse/](products/fuse/)
+See [products/relay/](products/relay/)
+
+### OpenOva Axon (SaaS LLM Gateway)
+
+Hosted inference gateway connecting to OpenOva Cortex.
+
+See [products/axon/](products/axon/)
 
 ---
 

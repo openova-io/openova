@@ -2,7 +2,7 @@
 
 Bootstrap wizard and Lifecycle Manager for the OpenOva platform.
 
-**Status:** Development | **Updated:** 2026-02-08
+**Status:** Development | **Updated:** 2026-02-26
 
 ---
 
@@ -12,14 +12,14 @@ OpenOva Core is a single Go application with two deployment modes:
 
 | Mode | Location | Purpose | IaC Tool |
 |------|----------|---------|----------|
-| **Bootstrap** | Outside cluster (SaaS or self-hosted) | Initial provisioning | Terraform |
+| **Bootstrap** | Outside cluster (SaaS or self-hosted) | Initial provisioning | OpenTofu |
 | **Manager** | Inside customer's K8s cluster | Day-2 operations | Crossplane |
 
 ```mermaid
 flowchart TB
     subgraph Bootstrap["Bootstrap Mode (outside cluster)"]
         UI1[Web UI]
-        TF[Terraform]
+        TF[OpenTofu]
         SQLite[(SQLite)]
     end
 
@@ -51,9 +51,9 @@ core/
 │   │   ├── main.go                 # Entry point
 │   │   ├── handlers/               # HTTP handlers
 │   │   │   ├── wizard.go           # Wizard flow
-│   │   │   ├── provision.go        # Terraform execution
+│   │   │   ├── provision.go        # OpenTofu execution
 │   │   │   └── health.go           # Health checks
-│   │   ├── terraform/              # Embedded TF modules
+│   │   ├── opentofu/              # Embedded TF modules
 │   │   │   ├── hetzner/
 │   │   │   ├── huawei/
 │   │   │   └── oci/
@@ -84,7 +84,7 @@ core/
 │   │
 │   ├── adapters/                   # Infrastructure adapters
 │   │   ├── kubernetes/             # K8s client adapter
-│   │   ├── terraform/              # Terraform executor
+│   │   ├── opentofu/              # OpenTofu executor
 │   │   ├── crossplane/             # Crossplane adapter
 │   │   └── git/                    # Git operations (Gitea)
 │   │
@@ -146,7 +146,7 @@ OpenOva Core is designed to have **no dependencies on platform components** (no 
 | Event Bus | Go channels (in-memory) |
 | Caching | Go sync.Map |
 | Session | JWT + cookie (stateless) |
-| Terraform State | S3 backend (customer's archival S3) |
+| OpenTofu State | S3 backend (customer's archival S3) |
 
 ### Manager Mode
 
@@ -167,7 +167,7 @@ OpenOva Core is designed to have **no dependencies on platform components** (no 
 ```
                     +-------------------+
    HTTP Handlers -> |                   | -> Kubernetes
-   K8s Controllers->|   Domain Logic    | -> Terraform
+   K8s Controllers->|   Domain Logic    | -> OpenTofu
    Event Bus -----> |   (Pure Go)       | -> Crossplane
                     +-------------------+
                           |
@@ -241,7 +241,7 @@ func (r *PlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
    - Region selection (1 or 2)
    - Component selection (a la carte)
 
-3. Bootstrap provisions via Terraform:
+3. Bootstrap provisions via OpenTofu:
    - K8s clusters in selected regions
    - WireGuard mesh for cross-region
    - Gitea with bidirectional mirroring
@@ -259,7 +259,7 @@ func (r *PlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
    - Real-time status updates
 
 7. Lifecycle Manager provides service URLs:
-   - Backstage (developer portal)
+   - Catalyst IDP (developer portal)
    - Grafana (observability)
    - Gitea (git server)
    - All other installed services
@@ -274,11 +274,11 @@ func (r *PlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
    - Toggle: "Show installed only" (default: on)
    - Turns off toggle to see available components
 
-3. Clicks [+ Install] on desired component (e.g., MongoDB)
+3. Clicks [+ Install] on desired component (e.g., FerretDB)
 
 4. If component has dependencies:
    - System shows required dependencies
-   - Auto-selects Debezium + Strimzi/Kafka for CDC
+   - Auto-selects CNPG (PostgreSQL backend)
    - User confirms
 
 5. Lifecycle Manager creates Crossplane Composition
@@ -296,7 +296,7 @@ func (r *PlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 2. Dashboard shows: "2 upgrades available"
 
 3. Operator clicks to view upgrades:
-   - Backstage v1.30 → v1.31
+   - Cilium v1.16.2 → v1.16.3
    - Grafana v11.3 → v11.4
 
 4. Operator reviews changelog for each
@@ -333,8 +333,8 @@ spec:
     - name: eu-west
       role: standby
   components:
-    - name: backstage
-      version: v1.31.0
+    - name: cilium
+      version: v1.16.3
       enabled: true
     - name: grafana
       version: v11.4.0
@@ -345,9 +345,9 @@ spec:
 status:
   phase: Running
   components:
-    - name: backstage
+    - name: cilium
       status: Healthy
-      version: v1.31.0
+      version: v1.16.3
     - name: grafana
       status: Healthy
       version: v11.4.0
@@ -403,7 +403,7 @@ status:
 │  └─────────────┘ └─────────────┘ └─────────────┘           │
 │                                                             │
 │  Quick Links:                                               │
-│  [Backstage] [Grafana] [Gitea] [OpenBao] [Harbor]            │
+│  [Catalyst IDP] [Grafana] [Gitea] [OpenBao] [Harbor]          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -420,14 +420,14 @@ status:
 │  │ ✓ Cilium       v1.16.2  ● Healthy                   │  │
 │  │ ✓ Flux         v2.4.0   ● Healthy                   │  │
 │  │ ✓ Grafana      v11.3.0  ● Healthy   [Upgrade: 11.4] │  │
-│  │ ✓ Backstage    v1.30.0  ● Healthy   [Upgrade: 1.31] │  │
+│  │ ✓ Coraza       v0.7.0   ● Healthy                   │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  A LA CARTE (Optional)                                      │
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │ ✓ CNPG         v1.24.0  ● Healthy                   │  │
 │  │ ✓ Valkey       v8.0.0   ● Healthy                   │  │
-│  │ ○ MongoDB      ---      [+ Install]                  │  │
+│  │ ○ FerretDB     ---      [+ Install]                  │  │
 │  │ ○ Strimzi/Kafka ---      [+ Install]                  │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
@@ -461,7 +461,7 @@ When installing a product with dependencies:
 │                                                             │
 │  Optional components:                                       │
 │  [ ] Neo4j           (knowledge graph)                     │
-│  [ ] LangServe       (RAG service)                         │
+│  [ ] NeMo Guardrails (AI safety)                           │
 │                                                             │
 │                              [Cancel]  [Install AI Hub]    │
 └─────────────────────────────────────────────────────────────┘
@@ -469,18 +469,18 @@ When installing a product with dependencies:
 
 ---
 
-## No Overlap with Backstage
+## Catalyst IDP Integration
 
-Lifecycle Manager and Backstage serve different users:
+Lifecycle Manager and Catalyst IDP serve different users within the same platform:
 
-| Aspect | Lifecycle Manager | Backstage |
-|--------|-------------------|-----------|
+| Aspect | Lifecycle Manager | Catalyst IDP |
+|--------|-------------------|--------------|
 | **Users** | Platform operators | Application developers |
-| **Purpose** | Install/upgrade platform | Deploy applications |
-| **Manages** | Platform components | Application services |
-| **Examples** | "Install MongoDB", "Upgrade Grafana" | "Deploy my-app", "Create database" |
+| **Purpose** | Install/upgrade platform | Deploy applications, explore workflows |
+| **Manages** | Platform components | Application services, templates |
+| **Examples** | "Install FerretDB", "Upgrade Grafana" | "Deploy my-app", "Create database" |
 
-**Key insight:** Lifecycle Manager manages Backstage itself. To upgrade Backstage from v1.30 to v1.31, operators use Lifecycle Manager.
+**Key insight:** Catalyst IDP is part of the OpenOva Catalyst product. The Lifecycle Manager manages all platform components including Catalyst itself.
 
 ---
 

@@ -92,7 +92,7 @@ flux/
 │       ├── flux-system/       # Flux controllers
 │       ├── network/           # cilium, stunner, k8gb
 │       ├── security/          # kyverno, external-secrets, cert-manager
-│       ├── database/          # cnpg, mongodb, valkey
+│       ├── database/          # cnpg, ferretdb, valkey
 │       ├── middleware/        # strimzi
 │       ├── storage/           # minio, velero
 │       ├── observability/     # grafana (LGTM stack)
@@ -109,7 +109,7 @@ flux/
 |----------|------------|---------|
 | network | cilium, stunner, k8gb | CNI + Service Mesh, TURN, GSLB |
 | security | kyverno, external-secrets, cert-manager | Policy, secrets, TLS |
-| database | cnpg, mongodb, valkey | Database operators |
+| database | cnpg, ferretdb, valkey | Database operators |
 | middleware | strimzi | Apache Kafka streaming |
 | storage | minio, velero | Object storage, backup |
 | observability | grafana | LGTM stack |

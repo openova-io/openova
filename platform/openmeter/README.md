@@ -11,7 +11,7 @@ Usage metering for OpenOva Open Banking blueprint.
 OpenMeter provides real-time usage metering:
 - CloudEvents-based ingestion
 - ClickHouse backend for analytics
-- Integration with Lago for billing
+- Integration with customer billing systems
 - Real-time usage dashboards
 
 ---
@@ -37,8 +37,8 @@ flowchart TB
     end
 
     subgraph Consumers["Consumers"]
-        Lago[Lago Billing]
         Grafana[Grafana]
+        Billing[Customer Billing]
     end
 
     API --> Ingest
@@ -47,7 +47,7 @@ flowchart TB
     Kafka --> Process
     Process --> CH
     Query --> CH
-    Lago --> Query
+    Billing --> Query
     Grafana --> Query
 ```
 
@@ -127,43 +127,9 @@ meters:
 
 ---
 
-## Integration with Lago
+## Billing Integration
 
-OpenMeter syncs usage to Lago for billing:
-
-```mermaid
-sequenceDiagram
-    participant API as Open Banking API
-    participant OM as OpenMeter
-    participant CH as ClickHouse
-    participant Lago as Lago
-
-    API->>OM: Send CloudEvent
-    OM->>CH: Store event
-    Note over OM,Lago: Hourly sync
-    OM->>OM: Aggregate usage
-    OM->>Lago: Push usage records
-    Lago->>Lago: Update customer balance
-```
-
-### Sync Configuration
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: openmeter-lago-sync
-  namespace: open-banking
-data:
-  config.yaml: |
-    lago:
-      url: http://lago.open-banking.svc:3000
-      api_key_secret: lago-api-key
-      sync_interval: 1h
-    meters:
-      - slug: api_calls
-        lago_billable_metric_code: api_calls
-```
+OpenMeter exposes usage data via its Query API. Customer billing systems consume aggregated usage for invoicing. Billing integration is customer-specific and not bundled into the platform.
 
 ---
 
@@ -178,15 +144,15 @@ flowchart LR
         Valkey[Valkey]
     end
 
-    subgraph Billing["Billing Path"]
+    subgraph Metering["Metering Path"]
         OM[OpenMeter]
-        Lago[Lago]
+        Billing[Customer Billing]
     end
 
     API -->|"Check quota"| Valkey
     API -->|"Record event"| OM
-    OM -->|"Sync usage"| Lago
-    Lago -->|"Update credits"| Valkey
+    OM -->|"Sync usage"| Billing
+    Billing -->|"Update credits"| Valkey
 ```
 
 ---

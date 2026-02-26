@@ -161,11 +161,11 @@ spec:
       type: docker
       image: harbor.<domain>/kafka-connect:latest
     plugins:
-      - name: debezium-mongodb
+      - name: debezium-postgres
         artifacts:
           - type: maven
             group: io.debezium
-            artifact: debezium-connector-mongodb
+            artifact: debezium-connector-postgres
             version: 2.6.1.Final
 ```
 
@@ -207,7 +207,7 @@ spec:
 
 | Topic Pattern | Purpose | Retention |
 |---------------|---------|-----------|
-| `cdc.mongodb.*` | MongoDB CDC events | 7 days |
+| `cdc.postgres.*` | PostgreSQL CDC events | 7 days |
 | `events.*` | Application events | 7 days |
 | `openmeter.*` | Usage metering | 30 days |
 
@@ -231,10 +231,10 @@ Kafka (via Strimzi) serves as the transport layer for CDC:
 
 ```mermaid
 flowchart LR
-    MongoDB[MongoDB] -->|"CDC"| Debezium[Debezium]
+    CNPG[PostgreSQL - CNPG] -->|"CDC (WAL)"| Debezium[Debezium]
     Debezium --> Kafka[Kafka]
-    Kafka --> Sink[Sink Connector]
-    Sink --> MongoDBDR[MongoDB DR]
+    Kafka --> OSSink[OpenSearch Sink]
+    Kafka --> CHSink[ClickHouse Sink]
 ```
 
 ---

@@ -1,6 +1,6 @@
 # OpenOva Project Memory
 
-> Last Updated: 2026-02-08
+> Last Updated: 2026-02-26
 > Purpose: Persistent context for Claude Code sessions about OpenOva platform strategy and architecture
 
 ---
@@ -11,11 +11,14 @@
 
 | Category | Component | Purpose |
 |----------|-----------|---------|
-| IaC | Terraform | Bootstrap provisioning |
+| IaC | OpenTofu | Bootstrap provisioning (MPL 2.0) |
 | IaC | Crossplane | Day-2 cloud resources |
 | CNI | Cilium | eBPF networking + Hubble |
 | Mesh | Cilium Service Mesh | mTLS, L7 policies (replaces Istio) |
 | WAF | Coraza | OWASP CRS with Envoy Gateway |
+| Supply Chain | Sigstore/Cosign | Container image signing |
+| Supply Chain | Syft + Grype | SBOM + vulnerability matching |
+| Operations | Reloader | Auto-restart on config changes |
 | GitOps | Flux | GitOps delivery (ArgoCD future option) |
 | Git | Gitea | Internal Git server (bidirectional mirror) |
 | TLS | cert-manager | Certificate automation |
@@ -32,7 +35,6 @@
 | DNS | ExternalDNS | Sync to DNS provider |
 | GSLB | k8gb | Authoritative DNS + cross-region GSLB |
 | Failover | Failover Controller | Generic failover orchestration |
-| IDP | Backstage | Developer portal |
 
 ### User Choice Options
 
@@ -50,16 +52,19 @@
 | Component | Purpose | DR Strategy |
 |-----------|---------|-------------|
 | CNPG | PostgreSQL operator | WAL streaming (async primary-replica) |
-| MongoDB | Document database | CDC via Debezium → Strimzi (Kafka) |
+| FerretDB | MongoDB wire protocol on PostgreSQL | Via CNPG WAL streaming |
 | Strimzi | Apache Kafka streaming | MirrorMaker2 |
 | Valkey | Redis-compatible cache (BSD-3 OSS) | REPLICAOF |
+| ClickHouse | OLAP analytics | ReplicatedMergeTree |
 
 ### A La Carte Communication
 
 | Component | Purpose |
 |-----------|---------|
 | Stalwart | Email server (JMAP/IMAP/SMTP) |
-| STUNner | WebRTC gateway |
+| STUNner | K8s-native TURN/STUN (WebRTC) |
+| LiveKit | Video/audio (WebRTC SFU) |
+| Matrix/Synapse | Team chat (federation) |
 
 ---
 
@@ -206,12 +211,12 @@
 | MinIO | Bucket replication |
 | Harbor | Registry replication |
 
-### MongoDB Replication (IMPORTANT)
+### FerretDB (Replaces MongoDB)
 
-- MongoDB Community Edition does NOT have native cross-cluster replication
-- **Only option**: CDC via Debezium + Strimzi (Kafka)
-- Truly independent clusters (not stretched replica set)
-- Downsides: eventual consistency, conflict resolution needed, Debezium complexity
+- MongoDB replaced by FerretDB (Apache 2.0, MongoDB wire protocol on PostgreSQL)
+- FerretDB uses CNPG as backend - replication via standard PostgreSQL WAL streaming
+- No Debezium/Kafka CDC required for replication (uses CNPG native replication)
+- Full ACID transactions via PostgreSQL
 
 ---
 
@@ -256,7 +261,7 @@ OpenOva.io is **NOT** another Kubernetes platform or IDP. It is:
 +-------------------------------------------------------+
 | OPENOVA BOOTSTRAP WIZARD (Managed UI)                 |
 | - Hosted on OpenOva's infrastructure                  |
-| - Collects credentials, runs Terraform                |
+| - Collects credentials, runs OpenTofu                |
 | - Export option for self-hosted bootstrap             |
 | - Permanent sessions with SSO (Google/Azure)          |
 | - Exits the picture after bootstrap complete          |
@@ -265,7 +270,7 @@ OpenOva.io is **NOT** another Kubernetes platform or IDP. It is:
                          v
 +-------------------------------------------------------+
 | CUSTOMER'S ENVIRONMENT (Post-Bootstrap)               |
-| - Backstage (IDP - entry door for lifecycle)          |
+| - Catalyst IDP (IDP - entry door for lifecycle)          |
 | - Flux (GitOps delivery)                              |
 | - Gitea (internal Git with bidirectional mirror)      |
 | - Crossplane (selective - lifecycle abstraction)      |
@@ -287,9 +292,9 @@ OpenOva.io is **NOT** another Kubernetes platform or IDP. It is:
 1. **Bootstrap wizard is SEPARATE** - independent repo/application, hosted on OpenOva
 2. **Bootstrap wizard EXITS after provisioning** - must be safe to delete after day 1
 3. **First cluster inherits bootstrapping capability** via Crossplane/CAPI for expansion
-4. **Backstage becomes the entry point** for customer's lifecycle management
+4. **Catalyst IDP becomes the entry point** for customer's lifecycle management
 5. **OpenOva stays in picture via blueprints** - not runtime components
-6. **Terraform is the unified bootstrap mechanism** (SaaS or Self-Hosted)
+6. **OpenTofu is the unified bootstrap mechanism** (SaaS or Self-Hosted)
 
 ---
 
@@ -298,29 +303,29 @@ OpenOva.io is **NOT** another Kubernetes platform or IDP. It is:
 ### Mode 1: Managed Bootstrap ("OpenOva Cloud Bootstrap")
 
 - Customer uses OpenOva wizard (hosted UI)
-- OpenOva's Terraform provisions customer's cloud infrastructure
+- OpenOva's OpenTofu provisions customer's cloud infrastructure
 - After bootstrap, customer's Crossplane takes over
 - Customer provides cloud credentials to OpenOva (temporarily)
-- Redirect to Backstage after completion
+- Redirect to Catalyst IDP after completion
 
 ### Mode 2: Self-Hosted Bootstrap ("OpenOva Bring-Your-Own Bootstrap")
 
-- Customer exports Terraform manifests from wizard
-- Customer runs Terraform locally with their own credentials
+- Customer exports OpenTofu manifests from wizard
+- Customer runs OpenTofu locally with their own credentials
 - Credentials never leave customer environment
-- Same end result: Backstage + platform stack ready
+- Same end result: Catalyst IDP + platform stack ready
 
 ### Unified Approach
 
-Both modes use the same Terraform manifests - only difference is WHERE terraform apply runs.
+Both modes use the same OpenTofu manifests - only difference is WHERE terraform apply runs.
 
 ### Bootstrap Sequence
 
 ```
-Terraform → K8s Cluster → Flux (bootstrap)
+OpenTofu → K8s Cluster → Flux (bootstrap)
          → Gitea (internal Git)
          → Crossplane + Operators
-         → Backstage + Grafana Stack
+         → Catalyst IDP + Grafana Stack
          → Platform ready
 ```
 
@@ -353,7 +358,7 @@ Terraform → K8s Cluster → Flux (bootstrap)
 
 ## 6. IDP vs Crossplane Decision
 
-### With IDP (Backstage) in place:
+### With IDP (Catalyst IDP) in place:
 
 - **IDP handles**: Catalog UX, form generation, YAML templating, PR creation
 - **Crossplane needed only when**:
@@ -375,26 +380,26 @@ Terraform → K8s Cluster → Flux (bootstrap)
 ### Journey 1: Initial Bootstrap (Infra SPOC)
 
 ```
-OpenOva Wizard UI → Select cloud/options → Generate Terraform
-                  → Run Terraform (managed or self-hosted)
+OpenOva Wizard UI → Select cloud/options → Generate OpenTofu
+                  → Run OpenTofu (managed or self-hosted)
                   → Cluster + Platform ready
-                  → Redirect to Backstage URL
+                  → Redirect to Catalyst IDP URL
 ```
 
-### Journey 2: Day-2 Operations (App Teams via Backstage)
+### Journey 2: Day-2 Operations (App Teams via Catalyst IDP)
 
 ```
-Backstage → Select blueprint (e.g., "Tier-1 Postgres")
+Catalyst IDP → Select blueprint (e.g., "Tier-1 Postgres")
          → Fill minimal form (tier, ha, backup)
          → PR generated to Gitea
          → Flux applies → Operator reconciles
          → Resource ready, secret injected
 ```
 
-### Journey 3: Platform Extension (Infra SPOC via Backstage)
+### Journey 3: Platform Extension (Infra SPOC via Catalyst IDP)
 
 ```
-Backstage → Platform Admin section
+Catalyst IDP → Platform Admin section
          → "Add Cluster" or "Enable Capability Pack"
          → PR generated to Gitea
          → Flux + Crossplane/CAPI provision
@@ -404,7 +409,7 @@ Backstage → Platform Admin section
 
 ```
 OpenOva publishes new blueprint version
-         → Customer's Backstage shows notification
+         → Customer's Catalyst IDP shows notification
          → Customer reviews changelog
          → Customer clicks "Upgrade" (generates PR to Gitea)
          → Flux applies
@@ -599,9 +604,21 @@ Cluster B queries: localtargets-app.example.com from Cluster A
 | Component | Purpose | Use Cases |
 |-----------|---------|-----------|
 | OpenMeter | Usage metering | API monetization, usage tracking |
-| Lago | Billing and invoicing | Subscription billing, usage-based pricing |
 
-These are standalone a la carte components that can be used independently or bundled into meta blueprints.
+### AI Safety & Observability
+
+| Component | Purpose | Use Cases |
+|-----------|---------|-----------|
+| NeMo Guardrails | AI safety firewall | Prompt injection detection, PII filtering, topic control |
+| LangFuse | LLM observability | LLM call tracing, cost tracking, evaluation |
+
+### Chaos Engineering
+
+| Component | Purpose | Use Cases |
+|-----------|---------|-----------|
+| Litmus Chaos | Chaos engineering | Resilience testing, compliance proof |
+
+These are standalone a la carte components that can be used independently or bundled into products.
 
 ---
 
@@ -616,10 +633,9 @@ Meta blueprint that bundles a la carte components with custom services for PSD2/
 **Meta Blueprint = A La Carte Components + Custom Services**
 
 ```
-Open Banking Meta Blueprint
+Open Banking Product (Fingate)
 ├── Keycloak (a la carte)      ─► FAPI Authorization
 ├── OpenMeter (a la carte)     ─► Usage metering
-├── Lago (a la carte)          ─► Billing
 └── Custom Services            ─► Open Banking specific
     ├── ext-authz
     ├── accounts-api
@@ -719,7 +735,7 @@ acme-private/                  # Example private instance
 
 ## 14. Key Quotes & Principles
 
-> "Crossplane doesn't kill Terraform. It kills Terraform-as-a-control-plane."
+> "Crossplane doesn't kill OpenTofu. It kills OpenTofu-as-a-control-plane."
 
 > "The catalog is a contract, not a UI."
 
@@ -740,7 +756,7 @@ acme-private/                  # Example private instance
 ## 15. Technical ADRs Referenced
 
 - ADR-MULTI-REGION-STRATEGY: Independent clusters, recommended not enforced
-- ADR-PLATFORM-ENGINEERING-TOOLS: Crossplane, Backstage, Flux (mandatory)
+- ADR-PLATFORM-ENGINEERING-TOOLS: Crossplane, Catalyst IDP, Flux (mandatory)
 - ADR-IMAGE-REGISTRY: Harbor mandatory
 - ADR-SECURITY-SCANNING: Trivy CI/CD + Harbor + Runtime
 - ADR-CILIUM-SERVICE-MESH: Cilium replaces Istio
@@ -786,12 +802,13 @@ Consolidated 45+ separate GitHub repos into a single monorepo: `openova-io/openo
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager (Go application)
-├── platform/                # All 55 component blueprints (FLAT structure)
+├── platform/                # All 52 component blueprints (FLAT structure)
 ├── products/                # Bundled vertical solutions
 │   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
 │   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── titan/               # OpenOva Titan - Data Lakehouse
-│   └── fuse/                # OpenOva Fuse - Microservices Integration
+│   ├── fabric/              # OpenOva Fabric - Data & Integration
+│   ├── relay/               # OpenOva Relay - Communication
+│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
 └── docs/                    # Platform documentation
 ```
 
@@ -803,12 +820,12 @@ openova/
 | Documentation shows groupings | README displays logical categories while folders stay flat |
 | Products bundle platform components | Reference components from platform/, no duplication |
 | Core is single Go app | Bootstrap + Lifecycle Manager with mode switch |
-| 55 platform components | All flat under platform/ |
-| 4 products | cortex, fingate (+ 6 services), titan, fuse |
+| 52 platform components | All flat under platform/ |
+| 5 products | cortex, fingate (+ 6 services), fabric, relay, axon |
 
-### Component Count (61 total)
+### Component Count (58 total)
 
-- **Platform components**: 55 (flat under platform/)
+- **Platform components**: 52 (flat under platform/)
 - **Fingate custom services**: 6 (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
 
 ### Documentation Groupings (in READMEs)
@@ -817,12 +834,13 @@ openova/
 | Category | Components |
 |----------|------------|
 | Infrastructure | opentofu, crossplane |
-| GitOps & IDP | flux, gitea, backstage |
-| Networking | cilium, external-dns, k8gb, stunner |
-| Security | cert-manager, external-secrets, openbao, trivy, falco |
+| GitOps | flux, gitea |
+| Networking | cilium, external-dns, k8gb |
+| Security | cert-manager, external-secrets, openbao, trivy, falco, sigstore, syft-grype, coraza |
 | Policy | kyverno |
 | Observability | grafana, opensearch |
 | Scaling | vpa, keda |
+| Operations | reloader |
 | Storage | minio, velero |
 | Registry | harbor |
 | Failover | failover-controller |
@@ -830,15 +848,16 @@ openova/
 **A La Carte (Optional):**
 | Category | Components |
 |----------|------------|
-| Data | cnpg, mongodb, valkey, strimzi, rabbitmq, activemq, vitess, clickhouse |
+| Data | cnpg, ferretdb, valkey, strimzi, clickhouse |
 | CDC | debezium |
-| Workflow | airflow, temporal |
-| Integration | camel, dapr |
-| Data Lakehouse | iceberg, trino, superset, flink |
+| Workflow | temporal, flink |
+| Analytics | iceberg |
 | Identity | keycloak |
-| Communication | stalwart |
-| Monetization | openmeter, lago |
-| AI/ML | knative, kserve, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter |
+| Monetization | openmeter |
+| Communication | stalwart, stunner, livekit, matrix |
+| AI/ML | knative, kserve, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter |
+| AI Safety | nemo-guardrails, langfuse |
+| Chaos | litmus |
 
 ### Sync to Customer Gitea
 
@@ -858,7 +877,7 @@ openova/platform/flux/     ──sync──> openova-flux/
 
 | Mode | Location | Purpose | IaC Tool |
 |------|----------|---------|----------|
-| **Bootstrap** | Outside cluster | Initial provisioning | Terraform |
+| **Bootstrap** | Outside cluster | Initial provisioning | OpenTofu |
 | **Lifecycle Manager** | Inside cluster | Day-2 operations | Crossplane |
 
 ### Zero External Dependencies
@@ -872,9 +891,9 @@ openova/platform/flux/     ──sync──> openova-flux/
 
 The bootstrap wizard is designed to be **safely deletable** after initial provisioning. Crossplane owns all cloud resources going forward.
 
-### No Overlap with Backstage
+### No Overlap with Catalyst IDP
 
-| Concern | Backstage | Lifecycle Manager |
+| Concern | Catalyst IDP | Lifecycle Manager |
 |---------|-----------|-------------------|
 | **Audience** | Developers (internal) | Platform operators |
 | **Focus** | Service catalog, scaffolding | Platform health, upgrades |
@@ -889,24 +908,26 @@ The bootstrap wizard is designed to be **safely deletable** after initial provis
 
 Enterprise AI platform with LLM serving, RAG, and intelligent agents.
 
-### Components (12 from platform/)
+### Components (11 from platform/)
 
-knative, kserve, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter
+knative, kserve, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
 
 ### Architecture
 
 ```
-User Interfaces (LibreChat, Claude Code, Airflow)
+User Interfaces (LibreChat, Claude Code)
+         ↓
+AI Safety (NeMo Guardrails)
          ↓
 Gateway Layer (LLM Gateway, Anthropic Adapter)
-         ↓
-RAG Service (LangServe)
          ↓
 Model Serving (KServe, vLLM)
          ↓
 Knowledge Layer (Milvus vectors, Neo4j graph)
          ↓
 Embeddings (BGE-M3, BGE-Reranker)
+
+LangFuse (traces all LLM calls)
 ```
 
 ### Resource Requirements
@@ -929,11 +950,11 @@ openova-anthropic-adapter, openova-backstage, openova-bge, openova-cert-manager,
 
 ---
 
-## 21. AI-Age Component Rationalization (2026-02-12)
+## 21. AI-Age Component Rationalization (2026-02-12) — EXECUTED 2026-02-26
 
 ### Context
 
-Evaluated all 55 platform components through the lens of "in the age of AI/vibe coding (95% AI-written code), is this technology still essential or is it pre-AI era tech made redundant?"
+Evaluated all platform components through the lens of "in the age of AI/vibe coding (95% AI-written code), is this technology still essential or is it pre-AI era tech made redundant?"
 
 ### Key Insight
 
@@ -1040,6 +1061,77 @@ Evaluated what's MISSING from the stack that would score high in AI-age relevanc
 ### Biggest Gap Identified
 
 **AI operational tooling is completely missing.** The stack has AI inference (vLLM, KServe, Milvus) but zero AI safety, AI observability, AI testing, or AI model governance. That's like having databases without monitoring.
+
+---
+
+## 23. Product Family Update (Locked 2026-02-26)
+
+### Final Product Family (9 products)
+
+| Product | Name | Description |
+|---------|------|-------------|
+| Core | **OpenOva** | 52 component turnkey K8s ecosystem |
+| Bootstrap+Lifecycle+IDP | **OpenOva Catalyst** | Bootstrap wizard, Day-2 manager, IDP, Workflow Explorer |
+| AI Hub | **OpenOva Cortex** | LLM serving, RAG, AI safety, LLM observability |
+| SaaS LLM Gateway | **OpenOva Axon** | Hosted inference gateway (renamed from Synapse) |
+| Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
+| AIOps SOC/NOC | **OpenOva Specter** | AI-powered SOAR, self-healing |
+| Data & Integration | **OpenOva Fabric** | Event-driven integration + data lakehouse (merged Titan+Fuse) |
+| Communication | **OpenOva Relay** | Email, video, chat, WebRTC (NEW) |
+| Migration | **OpenOva Exodus** | Migration from proprietary to OSS |
+
+### Components Changed (2026-02-26)
+
+**Removed (13):** backstage, mongodb, activemq, vitess, airflow, camel, dapr, superset, searxng, langserve, trino, lago, rabbitmq
+
+**Added (10):** sigstore, syft-grype, nemo-guardrails, langfuse, reloader, matrix, ferretdb, litmus, livekit, coraza
+
+**Net count:** 55 - 13 + 10 = 52
+
+### Key Renames
+
+- Synapse → **Axon** (SaaS LLM Gateway)
+- Titan + Fuse → **Fabric** (Data & Integration merged)
+- Backstage → **Catalyst IDP** (integrated into Catalyst product)
+- MongoDB → **FerretDB** (MongoDB wire protocol on PostgreSQL)
+
+---
+
+## 24. SIEM/SOAR Architecture (2026-02-26)
+
+```
+Falco (eBPF) → Falcosidekick → Kafka → OpenSearch (hot SIEM)
+                                      → ClickHouse (cold storage)
+                                      → Specter (SOAR)
+```
+
+### Pipeline
+
+1. Falco detects runtime threats via eBPF
+2. Trivy provides vulnerability scan results
+3. Kyverno reports policy violations
+4. Events flow through Kafka to OpenSearch for hot SIEM analytics
+5. Aged data moves to ClickHouse for cold storage and compliance
+6. Specter provides SOAR: automated correlation, enrichment, and remediation
+
+---
+
+## 25. Communication Architecture - Relay (2026-02-26)
+
+```
+Keycloak (SSO) → Stalwart (Email)
+               → LiveKit (Video/Audio) ← STUNner (TURN/STUN)
+               → Matrix/Synapse (Chat)
+```
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| Stalwart | Email (JMAP/IMAP/SMTP) |
+| LiveKit | Video/audio (WebRTC SFU) |
+| STUNner | K8s-native TURN/STUN for NAT traversal |
+| Matrix/Synapse | Team chat with federation |
 
 ---
 

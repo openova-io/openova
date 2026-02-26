@@ -2,7 +2,7 @@
 
 Fintech sandbox environments with PSD2/FAPI compliance, TPP management, and API monetization.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-02-26
 
 ---
 
@@ -28,9 +28,8 @@ flowchart TB
         Consents[Consents API]
     end
 
-    subgraph Monetization["Metering & Billing"]
+    subgraph Metering["Metering & Quota"]
         OpenMeter[OpenMeter]
-        Lago[Lago]
         Valkey[Valkey<br/>Quota Cache]
     end
 
@@ -39,7 +38,6 @@ flowchart TB
     ExtAuth --> APIs
     ExtAuth --> Valkey
     APIs --> OpenMeter
-    OpenMeter --> Lago
 ```
 
 ---
@@ -65,7 +63,7 @@ ext_authz Service
     | 6. Verify consent
     | 7. Check/decrement quota
     v
-Backend Services --> Kafka --> OpenMeter --> Lago
+Backend Services --> Kafka --> OpenMeter
 ```
 
 ### Why Envoy (Not Kong/Tyk)
@@ -87,7 +85,6 @@ Backend Services --> Kafka --> OpenMeter --> Lago
 |-----------|---------|---------|
 | Keycloak | FAPI Authorization Server | Apache 2.0 |
 | OpenMeter | Usage metering | Apache 2.0 |
-| Lago | Billing and invoicing | AGPL-3.0 |
 
 ### Custom Services (Open Banking Specific)
 
@@ -124,7 +121,7 @@ Backend Services --> Kafka --> OpenMeter --> Lago
 ### Prepaid Flow
 
 ```
-TPP buys credits --> Lago --> Sync to Valkey
+TPP buys credits --> OpenMeter --> Sync to Valkey
                                    |
 Request --> ext_authz --> Valkey: atomic DECR
                                    |
@@ -135,7 +132,7 @@ Request --> ext_authz --> Valkey: atomic DECR
 ### Post-paid Flow
 
 ```
-Request --> Access Log --> Kafka --> OpenMeter --> Lago invoice
+Request --> Access Log --> Kafka --> OpenMeter --> Customer billing system
 ```
 
 ---
@@ -338,7 +335,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ### TPP Onboarding
 
-1. TPP submits registration via Developer Portal (Backstage)
+1. TPP submits registration via Developer Portal (Catalyst IDP)
 2. Validate eIDAS certificate
 3. Create TPP record in registry
 4. Assign billing plan
@@ -383,8 +380,7 @@ open_banking_credits_remaining
 | Payments API | 2 | 1 | 1Gi |
 | Consents API | 2 | 0.5 | 512Mi |
 | OpenMeter | 2 | 1 | 2Gi |
-| Lago | 2 | 1 | 2Gi |
-| **Total** | - | **8.5** | **12.5Gi** |
+| **Total** | - | **7.5** | **10.5Gi** |
 
 ---
 

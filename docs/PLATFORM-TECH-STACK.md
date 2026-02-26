@@ -2,13 +2,15 @@
 
 Technology stack for the OpenOva Kubernetes platform.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-02-26
 
 ---
 
 ## Overview
 
 Components are categorized as **Mandatory** (always installed), **A La Carte** (optional services), and **Products** (vertical solutions bundling components with custom services).
+
+**Total:** 52 platform components (26 mandatory + 26 a la carte)
 
 ---
 
@@ -55,16 +57,16 @@ flowchart TB
 
 ---
 
-## Mandatory Components
+## Mandatory Components (26)
 
 ### Infrastructure & Provisioning
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| OpenTofu | Bootstrap IaC (MPL 2.0, drop-in Terraform replacement) | [platform/opentofu](opentofu/) |
-| Crossplane | Day-2 cloud resource provisioning | [platform/crossplane](crossplane/) |
+| OpenTofu | Bootstrap IaC (MPL 2.0, drop-in Terraform replacement) | [platform/opentofu](../platform/opentofu/) |
+| Crossplane | Day-2 cloud resource provisioning | [platform/crossplane](../platform/crossplane/) |
 
-#### OpenTofu → Crossplane Handoff
+#### OpenTofu to Crossplane Handoff
 
 OpenOva uses a **two-phase provisioning model** where OpenTofu bootstraps the initial infrastructure, then Crossplane takes over for all subsequent operations.
 
@@ -103,13 +105,11 @@ flowchart LR
 - Installs Flux, which then installs all platform components including Crossplane
 - **OpenTofu's job ends here** - state can be archived or deleted
 
-> **Note:** OpenTofu retains the `terraform {}` HCL block syntax for compatibility. Existing Terraform configurations work as-is.
-
 **Phase 2 - Day-2 Operations (Crossplane):**
 - All subsequent cloud resources managed via Kubernetes CRDs
 - Continuous reconciliation (drift detection and correction)
 - GitOps-native (resources defined in Git, applied by Flux)
-- Self-service via Backstage templates
+- Self-service via Catalyst IDP templates
 
 **Why This Model:**
 
@@ -127,71 +127,120 @@ flowchart LR
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Cilium | CNI + Service Mesh (eBPF, mTLS, L7) | [platform/networking/cilium](cilium/) |
-| Coraza | WAF (OWASP CRS) | - |
-| ExternalDNS | DNS sync to provider | [platform/networking/external-dns](external-dns/) |
-| k8gb | GSLB (authoritative DNS) | [platform/networking/k8gb](k8gb/) |
+| Cilium | CNI + Service Mesh (eBPF, mTLS, L7) | [platform/cilium](../platform/cilium/) |
+| Coraza | WAF (OWASP CRS) | [platform/coraza](../platform/coraza/) |
+| ExternalDNS | DNS sync to provider | [platform/external-dns](../platform/external-dns/) |
+| k8gb | GSLB (authoritative DNS) | [platform/k8gb](../platform/k8gb/) |
 
-### GitOps, Git & IDP
+### GitOps & Git
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Flux | GitOps engine | [platform/gitops/flux](flux/) |
-| Gitea | Internal Git + CI/CD | [platform/gitops/gitea](gitea/) |
-| Backstage | Developer portal | [platform/idp/backstage](backstage/) |
+| Flux | GitOps engine | [platform/flux](../platform/flux/) |
+| Gitea | Internal Git + CI/CD | [platform/gitea](../platform/gitea/) |
 
 ### Security
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| cert-manager | TLS certificates | [platform/security/cert-manager](cert-manager/) |
-| External Secrets (ESO) | Secrets operator | [platform/security/external-secrets](external-secrets/) |
-| OpenBao | Secrets backend (per cluster, MPL 2.0) | [platform/openbao](openbao/) |
-| Trivy | Security scanning | [platform/security/trivy](trivy/) |
-| Falco | Runtime security (eBPF) | [platform/falco](falco/) |
+| cert-manager | TLS certificates | [platform/cert-manager](../platform/cert-manager/) |
+| External Secrets (ESO) | Secrets operator | [platform/external-secrets](../platform/external-secrets/) |
+| OpenBao | Secrets backend (per cluster, MPL 2.0) | [platform/openbao](../platform/openbao/) |
+| Trivy | Security scanning | [platform/trivy](../platform/trivy/) |
+| Falco | Runtime security (eBPF) | [platform/falco](../platform/falco/) |
+
+### Supply Chain Security
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Sigstore/Cosign | Container image signing + verification | [platform/sigstore](../platform/sigstore/) |
+| Syft + Grype | SBOM generation + vulnerability matching | [platform/syft-grype](../platform/syft-grype/) |
 
 ### Policy
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Kyverno | Policy engine (validation, mutation, generation) | [platform/policy/kyverno](kyverno/) |
+| Kyverno | Policy engine (validation, mutation, generation) | [platform/kyverno](../platform/kyverno/) |
 
 ### Scaling
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| VPA | Vertical autoscaling | [platform/scaling/vpa](vpa/) |
-| KEDA | Event-driven horizontal autoscaling | [platform/scaling/keda](keda/) |
+| VPA | Vertical autoscaling | [platform/vpa](../platform/vpa/) |
+| KEDA | Event-driven horizontal autoscaling | [platform/keda](../platform/keda/) |
+
+### Operations
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Reloader | Auto-restart on ConfigMap/Secret changes | [platform/reloader](../platform/reloader/) |
 
 ### Observability
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Grafana Alloy | Telemetry collector | [platform/observability/grafana](grafana/) |
-| Loki | Log aggregation | [platform/observability/grafana](grafana/) |
-| Mimir | Metrics storage | [platform/observability/grafana](grafana/) |
-| Tempo | Distributed tracing | [platform/observability/grafana](grafana/) |
-| Grafana | Visualization | [platform/observability/grafana](grafana/) |
+| Grafana Alloy | Telemetry collector | [platform/grafana](../platform/grafana/) |
+| Loki | Log aggregation | [platform/grafana](../platform/grafana/) |
+| Mimir | Metrics storage | [platform/grafana](../platform/grafana/) |
+| Tempo | Distributed tracing | [platform/grafana](../platform/grafana/) |
+| Grafana | Visualization | [platform/grafana](../platform/grafana/) |
 | OpenTelemetry | Application tracing | - |
+| OpenSearch | Hot SIEM backend (security analytics) | [platform/opensearch](../platform/opensearch/) |
 
 ### Registry
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Harbor | Container/artifact registry | [platform/registry/harbor](harbor/) |
+| Harbor | Container/artifact registry | [platform/harbor](../platform/harbor/) |
 
 ### Storage
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| MinIO | Object storage | [platform/storage/minio](minio/) |
-| Velero | Backup/restore | [platform/storage/velero](velero/) |
+| MinIO | Object storage | [platform/minio](../platform/minio/) |
+| Velero | Backup/restore | [platform/velero](../platform/velero/) |
 
 ### Failover & Resilience
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Failover Controller | Failover orchestration | [platform/failover/failover-controller](failover-controller/) |
+| Failover Controller | Failover orchestration | [platform/failover-controller](../platform/failover-controller/) |
+
+---
+
+## SIEM/SOAR Architecture
+
+```mermaid
+flowchart LR
+    subgraph Detection["Detection"]
+        Falco[Falco eBPF]
+        Trivy[Trivy Scans]
+        Kyverno[Kyverno Violations]
+    end
+
+    subgraph Streaming["Event Streaming"]
+        Kafka[Strimzi/Kafka]
+    end
+
+    subgraph Analytics["SIEM Analytics"]
+        OS[OpenSearch Hot]
+        CH[ClickHouse Cold]
+    end
+
+    subgraph Response["SOAR"]
+        Specter[OpenOva Specter]
+    end
+
+    Falco -->|Falcosidekick| Kafka
+    Trivy --> Kafka
+    Kyverno --> Kafka
+    Kafka --> OS
+    OS -->|Age-out| CH
+    OS --> Specter
+    Specter -->|Auto-remediate| Detection
+```
+
+Falco detects runtime threats via eBPF. Events flow through Kafka to OpenSearch (hot SIEM) for correlation and alerting. Aged data moves to ClickHouse for cold storage and compliance reporting. OpenOva Specter provides SOAR capabilities for automated incident response.
 
 ---
 
@@ -219,7 +268,7 @@ flowchart LR
 
 | Option | How It Works | Cost |
 |--------|--------------|------|
-| Cloud Provider LB | Native LB | ~€5-10/mo |
+| Cloud Provider LB | Native LB | ~EUR5-10/mo |
 | k8gb DNS-based LB | Gateway API + k8gb | Free |
 | Cilium L2 Mode | ARP-based (same subnet) | Free |
 
@@ -244,19 +293,16 @@ flowchart LR
 
 ---
 
-## A La Carte Data Services
+## A La Carte Data Services (26 components)
 
 | Component | Purpose | DR Strategy | Location |
 |-----------|---------|-------------|----------|
-| CNPG | PostgreSQL | WAL streaming | [platform/cnpg](cnpg/) |
-| MongoDB | Document database | CDC via Debezium | [platform/mongodb](mongodb/) |
-| Strimzi | Apache Kafka streaming | MirrorMaker2 | [platform/strimzi](strimzi/) |
-| Valkey | Redis-compatible cache | REPLICAOF | [platform/valkey](valkey/) |
-| RabbitMQ | Message broker (AMQP) | Shovel/Federation | [platform/rabbitmq](rabbitmq/) |
-| ActiveMQ Artemis | JMS message broker | Mirroring | [platform/activemq](activemq/) |
-| Vitess | MySQL horizontal scaling | VReplication | [platform/vitess](vitess/) |
-| ClickHouse | OLAP analytics | ReplicatedMergeTree | [platform/clickhouse](clickhouse/) |
-| OpenSearch | Search + SIEM | Cross-cluster replication | [platform/opensearch](opensearch/) |
+| CNPG | PostgreSQL | WAL streaming | [platform/cnpg](../platform/cnpg/) |
+| FerretDB | MongoDB wire protocol on PostgreSQL | Via CNPG WAL streaming | [platform/ferretdb](../platform/ferretdb/) |
+| Strimzi | Apache Kafka streaming | MirrorMaker2 | [platform/strimzi](../platform/strimzi/) |
+| Valkey | Redis-compatible cache | REPLICAOF | [platform/valkey](../platform/valkey/) |
+| ClickHouse | OLAP analytics | ReplicatedMergeTree | [platform/clickhouse](../platform/clickhouse/) |
+| OpenSearch | Search + hot SIEM | Cross-cluster replication | [platform/opensearch](../platform/opensearch/) |
 
 ---
 
@@ -264,21 +310,20 @@ flowchart LR
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Stalwart | Email server | [platform/communication/stalwart](stalwart/) |
-| STUNner | WebRTC gateway | [platform/networking/stunner](stunner/) |
+| Stalwart | Email server | [platform/stalwart](../platform/stalwart/) |
+| STUNner | K8s-native TURN/STUN (WebRTC) | [platform/stunner](../platform/stunner/) |
+| LiveKit | Video/audio/data (WebRTC SFU) | [platform/livekit](../platform/livekit/) |
+| Matrix/Synapse | Team chat (federation) | [platform/matrix](../platform/matrix/) |
 
 ---
 
-## A La Carte Workflow & Integration
+## A La Carte Workflow & Processing
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Airflow | Workflow orchestration (DAGs) | [platform/airflow](airflow/) |
-| Temporal | Durable workflow execution | [platform/temporal](temporal/) |
-| Camel K | Enterprise integration (300+ connectors) | [platform/camel](camel/) |
-| Dapr | Microservice building blocks | [platform/dapr](dapr/) |
-| Flink | Stream + batch processing | [platform/flink](flink/) |
-| Debezium | Change data capture (CDC) | [platform/debezium](debezium/) |
+| Temporal | Saga orchestration + compensation observability | [platform/temporal](../platform/temporal/) |
+| Flink | Stream + batch processing | [platform/flink](../platform/flink/) |
+| Debezium | Change data capture (CDC) | [platform/debezium](../platform/debezium/) |
 
 ---
 
@@ -286,20 +331,49 @@ flowchart LR
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Iceberg | Open table format (data lakehouse) | [platform/iceberg](iceberg/) |
-| Trino | Distributed SQL query engine | [platform/trino](trino/) |
-| Superset | BI visualization and dashboards | [platform/superset](superset/) |
+| Iceberg | Open table format (data lakehouse) | [platform/iceberg](../platform/iceberg/) |
 
 ---
 
-## Security & Compliance
+## A La Carte AI/ML
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| Falco | Runtime eBPF security (CNCF Graduated) | [platform/falco](falco/) |
-| OpenSearch | SIEM (with Falco integration) | [platform/opensearch](opensearch/) |
+| KServe | Model serving | [platform/kserve](../platform/kserve/) |
+| Knative | Serverless platform | [platform/knative](../platform/knative/) |
+| vLLM | LLM inference | [platform/vllm](../platform/vllm/) |
+| Milvus | Vector database | [platform/milvus](../platform/milvus/) |
+| Neo4j | Graph database | [platform/neo4j](../platform/neo4j/) |
+| LibreChat | Chat UI | [platform/librechat](../platform/librechat/) |
+| BGE | Embeddings + reranking | [platform/bge](../platform/bge/) |
+| LLM Gateway | Subscription proxy for Claude Code | [platform/llm-gateway](../platform/llm-gateway/) |
+| Anthropic Adapter | OpenAI-to-Anthropic translation | [platform/anthropic-adapter](../platform/anthropic-adapter/) |
 
-Falco detects runtime threats via eBPF system call monitoring. Events flow through Falcosidekick to OpenSearch for SIEM correlation, alerting, and compliance dashboards.
+---
+
+## A La Carte AI Safety & Observability
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| NeMo Guardrails | AI safety firewall (prompt injection, PII filtering) | [platform/nemo-guardrails](../platform/nemo-guardrails/) |
+| LangFuse | LLM observability (traces, cost, eval) | [platform/langfuse](../platform/langfuse/) |
+
+---
+
+## A La Carte Identity & Monetization
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Keycloak | FAPI Authorization Server | [platform/keycloak](../platform/keycloak/) |
+| OpenMeter | Usage metering | [platform/openmeter](../platform/openmeter/) |
+
+---
+
+## A La Carte Chaos Engineering
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Litmus Chaos | Chaos engineering experiments | [platform/litmus](../platform/litmus/) |
 
 ---
 
@@ -309,23 +383,22 @@ Products bundle a la carte components with custom services for specific vertical
 
 ### Cortex (OpenOva Cortex - AI Hub)
 
-Enterprise AI platform with LLM serving, RAG, and intelligent agents.
+Enterprise AI platform with LLM serving, RAG, AI safety, and LLM observability.
 
 ```mermaid
 flowchart TB
     subgraph UI["User Interfaces"]
         LibreChat[LibreChat]
         ClaudeCode[Claude Code]
-        Airflow[Airflow Workflows]
+    end
+
+    subgraph Safety["AI Safety"]
+        Guardrails[NeMo Guardrails]
     end
 
     subgraph Gateway["Gateway Layer"]
         LLMGateway[LLM Gateway]
         Adapter[Anthropic Adapter]
-    end
-
-    subgraph RAG["RAG Layer"]
-        LangServe[LangServe]
     end
 
     subgraph Serving["Model Serving"]
@@ -343,35 +416,33 @@ flowchart TB
         BGE[BGE-M3 + Reranker]
     end
 
-    subgraph Search["Web Search"]
-        SearXNG[SearXNG]
+    subgraph Observability["AI Observability"]
+        LangFuse[LangFuse]
     end
 
-    UI --> Gateway
-    Gateway --> RAG
-    RAG --> Serving
-    RAG --> Knowledge
-    RAG --> Embeddings
-    RAG --> Search
+    UI --> Safety
+    Safety --> Gateway
+    Gateway --> Serving
+    Serving --> Knowledge
+    Serving --> Embeddings
+    Gateway --> Observability
 ```
 
 #### Cortex Components
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **cortex** | Product blueprint | Product | [products/cortex](../products/cortex/) |
-| **llm-gateway** | Subscription proxy for Claude Code | Custom | [products/cortex/components/llm-gateway](llm-gateway/) |
-| **anthropic-adapter** | OpenAI ↔ Anthropic translation | Custom | [products/cortex/components/anthropic-adapter](anthropic-adapter/) |
-| knative | Serverless platform | A La Carte | [products/cortex/components/knative](knative/) |
-| kserve | Model serving | A La Carte | [products/cortex/components/kserve](kserve/) |
-| vllm | LLM inference (PagedAttention) | A La Carte | [products/cortex/components/vllm](vllm/) |
-| langserve | LangChain RAG service | A La Carte | [products/cortex/components/langserve](langserve/) |
-| milvus | Vector database | A La Carte | [products/cortex/components/milvus](milvus/) |
-| neo4j | Graph database | A La Carte | [products/cortex/components/neo4j](neo4j/) |
-| librechat | Chat UI | A La Carte | [products/cortex/components/librechat](librechat/) |
-| airflow | Workflow orchestration | A La Carte | [products/cortex/components/airflow](airflow/) |
-| searxng | Privacy-respecting web search | A La Carte | [products/cortex/components/searxng](searxng/) |
-| bge | Embeddings + reranking | A La Carte | [products/cortex/components/bge](bge/) |
+| llm-gateway | Subscription proxy for Claude Code | Custom | [platform/llm-gateway](../platform/llm-gateway/) |
+| anthropic-adapter | OpenAI-to-Anthropic translation | Custom | [platform/anthropic-adapter](../platform/anthropic-adapter/) |
+| knative | Serverless platform | A La Carte | [platform/knative](../platform/knative/) |
+| kserve | Model serving | A La Carte | [platform/kserve](../platform/kserve/) |
+| vllm | LLM inference (PagedAttention) | A La Carte | [platform/vllm](../platform/vllm/) |
+| milvus | Vector database | A La Carte | [platform/milvus](../platform/milvus/) |
+| neo4j | Graph database | A La Carte | [platform/neo4j](../platform/neo4j/) |
+| librechat | Chat UI | A La Carte | [platform/librechat](../platform/librechat/) |
+| bge | Embeddings + reranking | A La Carte | [platform/bge](../platform/bge/) |
+| nemo-guardrails | AI safety firewall | A La Carte | [platform/nemo-guardrails](../platform/nemo-guardrails/) |
+| langfuse | LLM observability | A La Carte | [platform/langfuse](../platform/langfuse/) |
 
 #### Cortex Resource Requirements
 
@@ -382,10 +453,11 @@ flowchart TB
 | BGE-Reranker | 1 | 1 | 2Gi | 1x A10 |
 | Milvus | 3 | 2 | 8Gi | - |
 | Neo4j | 1 | 2 | 4Gi | - |
-| LangServe | 2 | 1 | 2Gi | - |
 | LibreChat | 2 | 0.5 | 1Gi | - |
 | LLM Gateway | 2 | 0.25 | 512Mi | - |
-| **Total** | - | ~15 | ~55Gi | 4x A10 |
+| NeMo Guardrails | 2 | 1 | 2Gi | - |
+| LangFuse | 2 | 0.5 | 1Gi | - |
+| **Total** | - | ~16 | ~56Gi | 4x A10 |
 
 ### Fingate (OpenOva Fingate - Open Banking)
 
@@ -402,9 +474,8 @@ flowchart LR
         Keycloak[Keycloak FAPI]
     end
 
-    subgraph Monetization["Monetization"]
+    subgraph Metering["Metering"]
         OpenMeter[OpenMeter]
-        Lago[Lago Billing]
         Valkey[Valkey Quota]
     end
 
@@ -418,7 +489,6 @@ flowchart LR
     ExtAuth --> Keycloak
     ExtAuth --> Valkey
     Valkey --> OpenMeter
-    OpenMeter --> Lago
     Keycloak --> APIs
 ```
 
@@ -426,49 +496,41 @@ flowchart LR
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **fingate** | Product blueprint | Product | [products/fingate](../products/fingate/) |
-| keycloak | FAPI Authorization Server | A La Carte | [platform/identity/keycloak](keycloak/) |
-| openmeter | Usage metering | A La Carte | [products/fingate/components/openmeter](openmeter/) |
-| lago | Billing and invoicing | A La Carte | [products/fingate/components/lago](lago/) |
+| keycloak | FAPI Authorization Server | A La Carte | [platform/keycloak](../platform/keycloak/) |
+| openmeter | Usage metering | A La Carte | [platform/openmeter](../platform/openmeter/) |
 
 ---
 
-### Titan (OpenOva Titan - Data Lakehouse)
+### Fabric (OpenOva Fabric - Data & Integration)
 
-Enterprise data lakehouse for analytics, BI, and data engineering.
+Event-driven data integration and lakehouse analytics (merged from former Titan + Fuse products).
 
-#### Titan Components
+#### Fabric Components
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **titan** | Product blueprint | Product | [products/titan](../products/titan/) |
-| iceberg | Open table format | A La Carte | [platform/iceberg](iceberg/) |
-| trino | Distributed SQL queries | A La Carte | [platform/trino](trino/) |
-| superset | BI dashboards | A La Carte | [platform/superset](superset/) |
-| flink | Stream + batch processing | A La Carte | [platform/flink](flink/) |
-| airflow | Workflow orchestration | A La Carte | [platform/airflow](airflow/) |
-| clickhouse | OLAP analytics | A La Carte | [platform/clickhouse](clickhouse/) |
-| debezium | CDC ingestion | A La Carte | [platform/debezium](debezium/) |
-| strimzi | Event streaming (Kafka) | A La Carte | [platform/strimzi](strimzi/) |
-| minio | Object storage (S3) | Mandatory | [platform/minio](minio/) |
+| strimzi | Apache Kafka event streaming | A La Carte | [platform/strimzi](../platform/strimzi/) |
+| flink | Stream + batch processing | A La Carte | [platform/flink](../platform/flink/) |
+| temporal | Saga orchestration + compensation | A La Carte | [platform/temporal](../platform/temporal/) |
+| debezium | CDC ingestion | A La Carte | [platform/debezium](../platform/debezium/) |
+| iceberg | Open table format | A La Carte | [platform/iceberg](../platform/iceberg/) |
+| clickhouse | OLAP analytics | A La Carte | [platform/clickhouse](../platform/clickhouse/) |
+| minio | Object storage (S3) | Mandatory | [platform/minio](../platform/minio/) |
 
 ---
 
-### Fuse (OpenOva Fuse - Microservices Integration)
+### Relay (OpenOva Relay - Communication)
 
-Enterprise integration platform for microservice communication, workflow orchestration, and legacy system connectivity.
+Enterprise communication platform with email, video, chat, and WebRTC.
 
-#### Fuse Components
+#### Relay Components
 
 | Component | Purpose | Type | Location |
 |-----------|---------|------|----------|
-| **fuse** | Product blueprint | Product | [products/fuse](../products/fuse/) |
-| temporal | Durable workflows | A La Carte | [platform/temporal](temporal/) |
-| camel | Enterprise integration (300+ connectors) | A La Carte | [platform/camel](camel/) |
-| dapr | Microservice building blocks | A La Carte | [platform/dapr](dapr/) |
-| strimzi | Event streaming (Kafka) | A La Carte | [platform/strimzi](strimzi/) |
-| rabbitmq | Message broker (AMQP) | A La Carte | [platform/rabbitmq](rabbitmq/) |
-| activemq | JMS message broker | A La Carte | [platform/activemq](activemq/) |
+| stalwart | Email server (JMAP/IMAP/SMTP) | A La Carte | [platform/stalwart](../platform/stalwart/) |
+| livekit | Video/audio (WebRTC SFU) | A La Carte | [platform/livekit](../platform/livekit/) |
+| stunner | K8s-native TURN/STUN | A La Carte | [platform/stunner](../platform/stunner/) |
+| matrix | Team chat (Matrix/Synapse) | A La Carte | [platform/matrix](../platform/matrix/) |
 
 ---
 
@@ -527,19 +589,20 @@ helm install cilium cilium/cilium \
 | Core Platform | Cilium, Flux, ESO, Kyverno | ~2GB |
 | Observability | Grafana Stack + Alloy | ~3GB |
 | Storage | Harbor, MinIO, Velero | ~4GB |
-| Security | OpenBao, cert-manager, Trivy, Falco | ~1GB |
-| Git & IDP | Gitea, Backstage | ~2GB |
+| Security | OpenBao, cert-manager, Trivy, Falco, Sigstore, Coraza | ~1.5GB |
+| Git | Gitea | ~1GB |
+| Operations | Reloader, Syft/Grype | ~0.5GB |
 | **Minimum Total** | | ~12GB |
 
-**Recommended minimum:** 3 nodes × 8GB RAM = 24GB per region
+**Recommended minimum:** 3 nodes x 8GB RAM = 24GB per region
 
 ### With Cortex (Per Region)
 
 | Category | Components | Estimated RAM | GPU |
 |----------|------------|---------------|-----|
 | Core Platform | (as above) | ~12GB | - |
-| Cortex | LLM Gateway, LangServe, etc. | ~55GB | 4x A10 |
-| **Total** | | ~67GB | 4x A10 |
+| Cortex | LLM Gateway, NeMo Guardrails, LangFuse, etc. | ~56GB | 4x A10 |
+| **Total** | | ~68GB | 4x A10 |
 
 **Recommended:** 3 CPU nodes + 2 GPU nodes per region
 
@@ -551,7 +614,7 @@ helm install cilium cilium/cilium \
 flowchart TB
     subgraph Region1["Region 1 (Primary)"]
         PG1[CNPG Primary]
-        MG1[MongoDB Primary]
+        FDB1[FerretDB]
         SK1[Strimzi/Kafka]
         VK1[Valkey Primary]
         GT1[Gitea]
@@ -562,7 +625,7 @@ flowchart TB
 
     subgraph Region2["Region 2 (DR)"]
         PG2[CNPG Standby]
-        MG2[MongoDB Standby]
+        FDB2[FerretDB]
         SK2[Strimzi/Kafka]
         VK2[Valkey Replica]
         GT2[Gitea]
@@ -576,9 +639,8 @@ flowchart TB
     end
 
     PG1 -->|"WAL Streaming"| PG2
-    MG1 -->|"Debezium CDC"| SK1
+    FDB1 -.->|"Via CNPG WAL"| FDB2
     SK1 -->|"MirrorMaker2"| SK2
-    SK2 -->|"Sink Connector"| MG2
     VK1 -->|"REPLICAOF"| VK2
     GT1 <-->|"Bidirectional Mirror"| GT2
     MV1 -->|"Collection Sync"| MV2

@@ -25,7 +25,7 @@ flowchart LR
     end
 
     subgraph Storage["Storage"]
-        MongoDB[MongoDB]
+        FerretDB[FerretDB]
         FileStore[File Storage]
     end
 
@@ -34,7 +34,7 @@ flowchart LR
     UI --> Files
     Presets --> Backends
     Files --> FileStore
-    UI --> MongoDB
+    UI --> FerretDB
 ```
 
 ---
@@ -83,8 +83,10 @@ librechat:
             - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             - "text/plain"
 
-mongodb:
+ferretdb:
   enabled: true
+  # FerretDB provides MongoDB wire protocol compatibility
+  # backed by CNPG PostgreSQL
   auth:
     rootPassword: ""  # From ESO
   persistence:
@@ -191,7 +193,7 @@ sequenceDiagram
 
 | Variable | Purpose |
 |----------|---------|
-| `MONGO_URI` | MongoDB connection string |
+| `MONGO_URI` | FerretDB connection string (MongoDB wire protocol) |
 | `OPENID_CLIENT_ID` | SSO client ID |
 | `OPENID_CLIENT_SECRET` | SSO client secret |
 | `CREDS_KEY` | Encryption key for credentials |
@@ -241,7 +243,7 @@ endpoints:
 - Customizable presets
 
 **Negative:**
-- Requires MongoDB
+- Requires FerretDB (MongoDB wire protocol on CNPG)
 - Complex configuration
 - UI customization limited
 

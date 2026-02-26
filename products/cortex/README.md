@@ -1,31 +1,29 @@
 # OpenOva Cortex
 
-Enterprise AI platform with LLM serving, RAG, and intelligent agents.
+Enterprise AI platform with LLM serving, RAG, AI safety, and LLM observability.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-02-26
 
 ---
 
 ## Overview
 
-OpenOva Cortex is an enterprise AI product that bundles AI/ML infrastructure components with custom services for enterprise AI deployments.
+OpenOva Cortex is an enterprise AI product that bundles AI/ML infrastructure components with AI safety and observability for enterprise AI deployments.
 
 ```mermaid
 flowchart TB
     subgraph UI["User Interfaces"]
         LibreChat[LibreChat<br/>Chat UI]
         ClaudeCode[Claude Code]
-        Airflow[Airflow<br/>Workflows]
+    end
+
+    subgraph Safety["AI Safety"]
+        Guardrails[NeMo Guardrails<br/>Safety Firewall]
     end
 
     subgraph Gateway["Gateway Layer"]
         LLMGateway[LLM Gateway]
         Adapter[Anthropic Adapter]
-    end
-
-    subgraph RAG["RAG Layer"]
-        LangServe[LangServe<br/>RAG Service]
-        Retrieval[Hybrid Retrieval]
     end
 
     subgraph Serving["Model Serving"]
@@ -43,17 +41,16 @@ flowchart TB
         Reranker[BGE-Reranker]
     end
 
-    subgraph Search["Web Search"]
-        SearXNG[SearXNG]
+    subgraph Observability["AI Observability"]
+        LangFuse[LangFuse]
     end
 
-    UI --> Gateway
-    Gateway --> RAG
-    RAG --> Serving
-    RAG --> Knowledge
-    RAG --> Embeddings
-    RAG --> Search
-    Serving --> vLLM
+    UI --> Safety
+    Safety --> Gateway
+    Gateway --> Serving
+    Serving --> Knowledge
+    Serving --> Embeddings
+    Gateway --> Observability
 ```
 
 ---
@@ -71,11 +68,10 @@ All components are in `platform/` (flat structure):
 | [vllm](../../platform/vllm/) | LLM inference | platform/vllm |
 | [milvus](../../platform/milvus/) | Vector database | platform/milvus |
 | [neo4j](../../platform/neo4j/) | Graph database | platform/neo4j |
-| [langserve](../../platform/langserve/) | RAG service | platform/langserve |
 | [librechat](../../platform/librechat/) | Chat UI | platform/librechat |
-| [airflow](../../platform/airflow/) | Workflow orchestration | platform/airflow |
-| [searxng](../../platform/searxng/) | Web search | platform/searxng |
 | [bge](../../platform/bge/) | Embeddings + reranking | platform/bge |
+| [nemo-guardrails](../../platform/nemo-guardrails/) | AI safety firewall | platform/nemo-guardrails |
+| [langfuse](../../platform/langfuse/) | LLM observability | platform/langfuse |
 
 ---
 
@@ -84,31 +80,31 @@ All components are in `platform/` (flat structure):
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     User Interfaces                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │LibreChat │  │Claude    │  │ Airflow  │  │  Custom  │    │
-│  │  (Chat)  │  │  Code    │  │(Workflow)│  │   Apps   │    │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘    │
-└───────┼─────────────┼─────────────┼─────────────┼──────────┘
-        │             │             │             │
-        ▼             ▼             ▼             ▼
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│  │LibreChat │  │Claude    │  │  Custom  │                  │
+│  │  (Chat)  │  │  Code    │  │   Apps   │                  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
+└───────┼─────────────┼─────────────┼─────────────────────────┘
+        │             │             │
+        ▼             ▼             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    AI Safety Layer                           │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │           NeMo Guardrails                           │    │
+│  │  (Prompt injection, PII filter, topic control)      │    │
+│  └──────────────────────┬──────────────────────────────┘    │
+└─────────────────────────┼───────────────────────────────────┘
+                          │
+                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Gateway Layer                            │
 │  ┌─────────────────────┐  ┌─────────────────────┐          │
 │  │    LLM Gateway      │  │  Anthropic Adapter  │          │
 │  │ (Subscription Proxy)│  │  (API Translation)  │          │
 │  └──────────┬──────────┘  └──────────┬──────────┘          │
-└─────────────┼────────────────────────┼─────────────────────┘
+└─────────────┼────────────────────────┼──────────────────────┘
               │                        │
               ▼                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     RAG Service (LangServe)                 │
-│  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌─────────┐  │
-│  │  Model    │  │  Hybrid   │  │  Session  │  │Document │  │
-│  │  Router   │  │ Retrieval │  │  Cache    │  │ Ingest  │  │
-│  └─────┬─────┘  └─────┬─────┘  └───────────┘  └─────────┘  │
-└────────┼──────────────┼────────────────────────────────────┘
-         │              │
-         ▼              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Model Serving                            │
 │  ┌─────────────────────┐  ┌─────────────────────┐          │
@@ -134,6 +130,8 @@ All components are in `platform/` (flat structure):
 │  │    (Embeddings)     │  │  (Cross-Encoder)    │          │
 │  └─────────────────────┘  └─────────────────────┘          │
 └─────────────────────────────────────────────────────────────┘
+
+                  LangFuse (traces all LLM calls)
 ```
 
 ---
@@ -147,7 +145,6 @@ All components are in `platform/` (flat structure):
 | **Compliance Advisor** | Regulatory knowledge | Vector + Graph |
 | **AIOps Advisor** | Infrastructure docs | Vector |
 | **Dev Advisor** | Development standards | Vector |
-| **Internet Search** | Web research | SearXNG |
 | **CAD Advisor** | Document comparison | Ephemeral Vector |
 
 ---
@@ -200,10 +197,11 @@ spec:
 | BGE-Reranker | 1 | 1 | 2Gi | 1x A10 |
 | Milvus | 3 | 2 | 8Gi | - |
 | Neo4j | 1 | 2 | 4Gi | - |
-| LangServe | 2 | 1 | 2Gi | - |
 | LibreChat | 2 | 0.5 | 1Gi | - |
 | LLM Gateway | 2 | 0.25 | 512Mi | - |
-| **Total** | - | ~15 | ~55Gi | 4x A10 |
+| NeMo Guardrails | 2 | 1 | 2Gi | - |
+| LangFuse | 2 | 0.5 | 1Gi | - |
+| **Total** | - | ~16 | ~56Gi | 4x A10 |
 
 ---
 
@@ -241,16 +239,6 @@ https://chat.ai-hub.<domain>
 # Ask questions with citations
 ```
 
-### Workflow Automation
-
-```bash
-# Access Airflow
-https://airflow.cortex.<domain>
-
-# Create workflow:
-# Webhook → Document Parse → LLM Analysis → Store in Neo4j
-```
-
 ---
 
 ## Monitoring
@@ -261,8 +249,9 @@ https://airflow.cortex.<domain>
 |--------|-------|
 | LLM latency | `vllm_request_duration_seconds` |
 | Token throughput | `vllm_generation_tokens_total` |
-| Retrieval latency | `langserve_retrieval_duration_seconds` |
 | GPU utilization | `DCGM_FI_DEV_GPU_UTIL` |
+| Guardrail blocks | `nemo_guardrails_blocked_total` |
+| LLM cost | via LangFuse dashboard |
 
 ### Grafana Dashboards
 
@@ -271,7 +260,8 @@ https://airflow.cortex.<domain>
 | AI Hub Overview | Request rates, latencies |
 | GPU Metrics | Utilization, memory |
 | RAG Analytics | Retrieval quality, citations |
-| User Analytics | Usage by agent, user |
+| AI Safety | Guardrail activations, blocked prompts |
+| LLM Cost | Per-model, per-user cost tracking (LangFuse) |
 
 ---
 
@@ -286,20 +276,8 @@ kubectl get pods -n ai-hub
 # Check vLLM
 curl http://vllm.ai-hub.svc:8000/health
 
-# Check LangServe
-curl http://langserve.ai-hub.svc:8000/health
-
 # Check Milvus
 kubectl exec -it milvus-proxy-0 -n ai-hub -- curl localhost:9091/healthz
-```
-
-### Document Ingestion
-
-```bash
-# Ingest documents via API
-curl -X POST https://langserve.ai-hub.<domain>/ingest/file \
-  -F "file=@document.pdf" \
-  -F "source=compliance"
 ```
 
 ---
@@ -312,23 +290,7 @@ curl -X POST https://langserve.ai-hub.<domain>/ingest/file \
 | Slow retrieval | Index not optimized | Rebuild Milvus index |
 | Empty responses | No relevant chunks | Check embedding quality |
 | GPU not detected | Driver issue | Verify NVIDIA device plugin |
-
----
-
-## Consequences
-
-**Positive:**
-- Enterprise-ready AI platform
-- Claude Code with internal models
-- Hybrid RAG (vector + graph)
-- Multiple agent presets
-- GPU-accelerated inference
-
-**Negative:**
-- GPU infrastructure required
-- Complex deployment
-- Resource-intensive
-- Requires ML expertise
+| Prompt injection | Guardrails not configured | Review NeMo Guardrails rules |
 
 ---
 

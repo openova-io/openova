@@ -10,7 +10,7 @@ Durable workflow orchestration for microservices.
 
 Temporal is a durable execution platform that makes it simple to build reliable, long-running workflows and microservice orchestrations. Unlike traditional message queues or job schedulers, Temporal provides durable execution: workflow code survives process crashes, node failures, and even entire cluster restarts without losing state. Developers write workflows as ordinary code in their language of choice, and Temporal handles retries, timeouts, and state persistence transparently.
 
-Within OpenOva, Temporal serves as the workflow orchestration engine for the **Fuse** microservices integration product. It handles saga patterns for distributed transactions, long-running business processes, scheduled jobs, and any operation that needs reliable execution across multiple services. Temporal replaces fragile combinations of message queues, cron jobs, and custom state machines with a single, battle-tested platform.
+Within OpenOva, Temporal serves as the workflow orchestration engine for the **Fabric** data and integration product. It handles saga patterns for distributed transactions, long-running business processes, scheduled jobs, and any operation that needs reliable execution across multiple services. Temporal replaces fragile combinations of message queues, cron jobs, and custom state machines with a single, battle-tested platform.
 
 Temporal's architecture separates the server (which manages workflow state) from workers (which execute workflow and activity code). Workers are stateless and can be scaled independently. The server persists all workflow state to a database, ensuring that workflows survive any infrastructure failure. SDKs are available for Go, Java, Python, and TypeScript, making Temporal accessible to polyglot teams.
 
@@ -329,4 +329,4 @@ spec:
 
 ---
 
-*Part of [OpenOva Fuse](https://openova.io) - Microservices Integration*
+*Part of [OpenOva Fabric](https://openova.io) - Data & Integration*

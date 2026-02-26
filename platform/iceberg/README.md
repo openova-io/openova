@@ -10,7 +10,7 @@ Open table format for huge analytic datasets.
 
 Apache Iceberg is an open table format designed for petabyte-scale analytic datasets. It brings ACID transactions, schema evolution, and time travel to data lakes, closing the gap between traditional data warehouses and raw object storage. Iceberg has become the de facto standard for modern data lakehouse architecture, supported by every major compute engine in the ecosystem.
 
-Within OpenOva, Iceberg provides the storage layer for the **Titan** data lakehouse product. All analytic tables are stored as Iceberg tables on MinIO (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, Trino queries them with full SQL, and Superset visualises the results.
+Within OpenOva, Iceberg provides the storage layer for the **Fabric** data and integration product. All analytic tables are stored as Iceberg tables on MinIO (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, and ClickHouse queries them with full SQL for analytics and dashboarding via Grafana.
 
 Iceberg's metadata-driven design means that operations like schema changes, partition layout changes, and snapshot isolation happen without rewriting data files. This makes it safe to evolve table structures in production without downtime or data migration scripts.
 
@@ -37,8 +37,8 @@ flowchart TB
     end
 
     subgraph Readers["Read Path"]
-        Trino[Trino]
-        Superset[Superset]
+        CH[ClickHouse]
+        Grafana[Grafana]
     end
 
     Flink --> Catalog
@@ -47,8 +47,8 @@ flowchart TB
     Metadata --> Manifests
     Manifests --> Parquet
     Manifests --> Meta
-    Trino --> Catalog
-    Superset --> Trino
+    CH --> Catalog
+    Grafana --> CH
 ```
 
 ---
@@ -83,7 +83,7 @@ metadata:
 data:
   catalog.properties: |
     catalog-impl=org.apache.iceberg.jdbc.JdbcCatalog
-    uri=jdbc:postgresql://titan-postgres.databases.svc:5432/iceberg_catalog
+    uri=jdbc:postgresql://fabric-postgres.databases.svc:5432/iceberg_catalog
     warehouse=s3://iceberg-warehouse/
     io-impl=org.apache.iceberg.aws.s3.S3FileIO
     s3.endpoint=http://minio.storage.svc:9000
@@ -92,68 +92,47 @@ data:
     s3.path-style-access=true
 ```
 
-### Trino Connector
+### ClickHouse Iceberg Integration
 
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: trino-iceberg-connector
-  namespace: data-lakehouse
-data:
-  iceberg.properties: |
-    connector.name=iceberg
-    iceberg.catalog.type=jdbc
-    iceberg.jdbc-catalog.connection-url=jdbc:postgresql://titan-postgres.databases.svc:5432/iceberg_catalog
-    iceberg.jdbc-catalog.connection-user=${PG_USER}
-    iceberg.jdbc-catalog.connection-password=${PG_PASSWORD}
-    iceberg.file-format=PARQUET
-    iceberg.compression-codec=ZSTD
-    hive.s3.endpoint=http://minio.storage.svc:9000
-    hive.s3.aws-access-key=${MINIO_ACCESS_KEY}
-    hive.s3.aws-secret-key=${MINIO_SECRET_KEY}
-    hive.s3.path-style-access=true
+ClickHouse queries Iceberg tables directly via its built-in Iceberg table engine:
+
+```sql
+-- Create an Iceberg table in ClickHouse
+CREATE TABLE iceberg_events
+ENGINE = Iceberg('http://minio.storage.svc:9000/iceberg-warehouse/analytics/events/',
+    'MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY')
 ```
 
 ---
 
 ## Table Management
 
-### Create Table (via Trino)
+### Create Table (via Flink SQL)
 
 ```sql
 CREATE TABLE iceberg.analytics.events (
-    event_id    VARCHAR,
-    event_type  VARCHAR,
-    user_id     VARCHAR,
-    payload     VARCHAR,
-    created_at  TIMESTAMP(6) WITH TIME ZONE
-)
+    event_id    STRING,
+    event_type  STRING,
+    user_id     STRING,
+    payload     STRING,
+    created_at  TIMESTAMP(6),
+    event_date  DATE
+) PARTITIONED BY (event_date)
 WITH (
-    format = 'PARQUET',
-    partitioning = ARRAY['day(created_at)'],
-    sorted_by = ARRAY['event_type']
+    'write.format.default' = 'parquet',
+    'write.parquet.compression-codec' = 'zstd'
 );
 ```
 
 ### Time Travel
 
-```sql
--- Query a specific snapshot
-SELECT * FROM iceberg.analytics.events
-FOR VERSION AS OF 123456789;
-
--- Query at a point in time
-SELECT * FROM iceberg.analytics.events
-FOR TIMESTAMP AS OF TIMESTAMP '2026-02-01 00:00:00 UTC';
-```
+Iceberg supports querying historical snapshots by snapshot ID or timestamp. Access time travel via Flink SQL or the Iceberg Java API.
 
 ### Schema Evolution
 
 ```sql
--- Safe column operations (no data rewrite)
-ALTER TABLE iceberg.analytics.events ADD COLUMN region VARCHAR;
-ALTER TABLE iceberg.analytics.events RENAME COLUMN payload TO event_payload;
+-- Safe column operations via Flink SQL (no data rewrite)
+ALTER TABLE iceberg.analytics.events ADD COLUMN region STRING;
 ALTER TABLE iceberg.analytics.events DROP COLUMN region;
 ```
 
@@ -169,13 +148,7 @@ ALTER TABLE iceberg.analytics.events DROP COLUMN region;
 
 ### Compaction
 
-Iceberg tables accumulate small files from streaming writes. Periodic compaction merges them into optimally sized files.
-
-```sql
--- Trigger compaction via Trino
-ALTER TABLE iceberg.analytics.events EXECUTE optimize
-WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY;
-```
+Iceberg tables accumulate small files from streaming writes. Periodic compaction merges them into optimally sized files. Compaction can be triggered via Flink's Iceberg maintenance actions or the Iceberg Java API.
 
 ---
 
@@ -209,4 +182,4 @@ WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY;
 
 ---
 
-*Part of [OpenOva Titan](https://openova.io) - Data Lakehouse*
+*Part of [OpenOva Fabric](https://openova.io) - Data & Integration*

@@ -9,7 +9,7 @@ Event-driven horizontal autoscaling for OpenOva platform.
 ## Overview
 
 KEDA (Kubernetes Event-driven Autoscaling) provides horizontal pod autoscaling based on external metrics and events:
-- Queue-based scaling (Kafka (Strimzi), RabbitMQ)
+- Queue-based scaling (Kafka via Strimzi)
 - Metric-based scaling (Prometheus, custom metrics)
 - Cron-based scaling
 - Scale-to-zero capability

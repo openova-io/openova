@@ -33,14 +33,14 @@ flowchart TB
 
     subgraph Integrations
         Flux[Flux CD]
-        Backstage[Backstage]
+        Catalyst IDP[Catalyst IDP]
     end
 
     Web --> CNPG
     Git --> CNPG
     Actions --> MinIO
     Flux -->|"Clone"| Git
-    Backstage -->|"Discover"| Git
+    Catalyst IDP -->|"Discover"| Git
 ```
 
 ---
@@ -159,7 +159,7 @@ spec:
 | Integration | Purpose |
 |-------------|---------|
 | Flux CD | GitOps source repository |
-| Backstage | Repository discovery, templates |
+| Catalyst IDP | Repository discovery, templates |
 | External Secrets | Token management |
 | CNPG | PostgreSQL database |
 | MinIO | LFS and Actions storage |

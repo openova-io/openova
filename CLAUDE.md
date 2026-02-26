@@ -2,7 +2,7 @@
 
 ## Project Memory
 
-**IMPORTANT**: Read `.github/.internal/project-memory.md` for full strategic context about OpenOva positioning, architecture decisions, and product strategy.
+**IMPORTANT**: Read `.claude/project-memory.md` for full strategic context about OpenOva positioning, architecture decisions, and product strategy.
 
 ## Purpose
 
@@ -12,19 +12,19 @@ OpenOva is an **enterprise-grade support provider for open-source K8s ecosystems
 - Day-2 operational excellence (upgrades, safety, SLAs)
 - Both consultancy AND productized platform from day 1
 
-## Product Family (Locked 2026-02-09)
+## Product Family (Locked 2026-02-26)
 
 | Product | Name | Description |
 |---------|------|-------------|
-| Core Platform | **OpenOva** | 55 components, turnkey K8s ecosystem |
-| AI Hub | **OpenOva Cortex** | LLM serving, RAG, agents |
-| LLM Gateway | **OpenOva Synapse** | SaaS inference gateway (neural link to Cortex) |
+| Core Platform | **OpenOva** | 52 component turnkey K8s ecosystem |
+| Bootstrap+Lifecycle+IDP | **OpenOva Catalyst** | Bootstrap wizard, Day-2 manager, IDP, Workflow Explorer |
+| AI Hub | **OpenOva Cortex** | LLM serving, RAG, AI safety, LLM observability |
+| SaaS LLM Gateway | **OpenOva Axon** | Hosted inference gateway (neural link to Cortex) |
 | Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
-| AIOps Agents | **OpenOva Specter** | AI-powered SOC/NOC, self-healing |
-| Bootstrap + Lifecycle | **OpenOva Catalyst** | Bootstrap wizard + Day-2 lifecycle manager |
-| Migration Program | **OpenOva Exodus** | Structured migration from proprietary to open source |
-| Data Lakehouse | **OpenOva Titan** | Iceberg + Trino + Superset + Flink analytics |
-| Microservices Integration | **OpenOva Fuse** | Temporal + Camel K + Dapr integration platform |
+| AIOps SOC/NOC | **OpenOva Specter** | AI-powered SOAR, self-healing |
+| Data & Integration | **OpenOva Fabric** | Event-driven integration + data lakehouse |
+| Communication | **OpenOva Relay** | Email, video, chat, WebRTC |
+| Migration | **OpenOva Exodus** | Structured migration from proprietary to open source |
 
 ## Business Model
 
@@ -38,12 +38,13 @@ OpenOva is an **enterprise-grade support provider for open-source K8s ecosystems
 ```
 openova/
 ├── core/                    # Bootstrap + Lifecycle Manager application
-├── platform/                # All 55 component blueprints (flat structure)
+├── platform/                # All 52 component blueprints (flat structure)
 ├── products/                # Bundled vertical solutions
 │   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
 │   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── titan/               # OpenOva Titan - Data Lakehouse
-│   └── fuse/                # OpenOva Fuse - Microservices Integration
+│   ├── fabric/              # OpenOva Fabric - Data & Integration
+│   ├── relay/               # OpenOva Relay - Communication
+│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
 └── docs/                    # Platform documentation
 ```
 
@@ -58,26 +59,27 @@ The `core/` directory contains a single Go application with two deployment modes
 
 See [core/README.md](core/README.md) for detailed architecture.
 
-## Platform Components (55)
+## Platform Components (52)
 
 All components are flat under `platform/`:
 
-activemq, airflow, anthropic-adapter, backstage, bge, camel, cert-manager, cilium, clickhouse, cnpg, crossplane, dapr, debezium, external-dns, external-secrets, failover-controller, falco, flink, flux, gitea, grafana, harbor, iceberg, k8gb, keda, keycloak, knative, kserve, kyverno, lago, langserve, librechat, llm-gateway, milvus, minio, mongodb, neo4j, openbao, openmeter, opensearch, opentofu, rabbitmq, searxng, stalwart, strimzi, stunner, superset, temporal, trino, trivy, valkey, velero, vitess, vllm, vpa
+anthropic-adapter, bge, cert-manager, cilium, clickhouse, cnpg, coraza, crossplane, debezium, external-dns, external-secrets, failover-controller, falco, ferretdb, flink, flux, gitea, grafana, harbor, iceberg, k8gb, keda, keycloak, knative, kserve, kyverno, langfuse, librechat, litmus, livekit, llm-gateway, matrix, milvus, minio, nemo-guardrails, neo4j, openbao, openmeter, opensearch, opentofu, reloader, sigstore, stalwart, strimzi, stunner, syft-grype, temporal, trivy, valkey, velero, vllm, vpa
 
 ## Products
 
 Products bundle platform components with custom services for specific verticals:
 
-- **cortex** (OpenOva Cortex - AI Hub): Uses kserve, knative, vllm, milvus, neo4j, langserve, librechat, airflow, searxng, bge, llm-gateway, anthropic-adapter
-- **fingate** (OpenOva Fingate - Open Banking): Uses keycloak, openmeter, lago + 6 custom services (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
-- **titan** (OpenOva Titan - Data Lakehouse): Uses iceberg, trino, superset, flink, airflow, clickhouse, debezium, strimzi, minio
-- **fuse** (OpenOva Fuse - Microservices Integration): Uses temporal, camel, dapr, strimzi, rabbitmq, activemq
+- **cortex** (OpenOva Cortex - AI Hub): Uses kserve, knative, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
+- **fingate** (OpenOva Fingate - Open Banking): Uses keycloak, openmeter + 6 custom services (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
+- **fabric** (OpenOva Fabric - Data & Integration): Uses strimzi, flink, temporal, debezium, iceberg, clickhouse, minio
+- **relay** (OpenOva Relay - Communication): Uses stalwart, livekit, stunner, matrix
+- **axon** (OpenOva Axon - SaaS LLM Gateway): SaaS service, references Cortex infrastructure
 
 ## Key Principles
 
 - Bootstrap wizard EXITS after provisioning (must be safe to delete)
 - Lifecycle Manager continues inside cluster for day-2 operations
-- Backstage is for developers; Lifecycle Manager is for platform operators
+- Catalyst IDP is for developers; Lifecycle Manager is for platform operators
 - OpenOva stays in picture via blueprints, not runtime components
 - Zero external dependencies for core (no CNPG, Valkey, Strimzi for itself)
 
@@ -87,6 +89,7 @@ Products bundle platform components with custom services for specific verticals:
 - [SRE Handbook](docs/SRE.md) - Site reliability practices
 - [Core Application](core/README.md) - Bootstrap + Lifecycle Manager
 - [Business Strategy](docs/BUSINESS-STRATEGY.md) - Product strategy and GTM
+- [Technology Forecast](docs/TECHNOLOGY-FORECAST-2027-2030.md) - Component forecast
 
 ## Conventions
 

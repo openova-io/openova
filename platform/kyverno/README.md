@@ -595,7 +595,7 @@ Policies are deployed in phases to avoid disrupting existing workloads.
 | 2. Warn | `Audit` + webhook warning | Admission succeeds but user sees warning | 1 week |
 | 3. Enforce | `Enforce` | Reject non-compliant resources | Permanent |
 
-New policies always start in Phase 1. The rollout timeline per policy is tracked in the platform's Backstage catalog.
+New policies always start in Phase 1. The rollout timeline per policy is tracked in the platform's Catalyst IDP catalog.
 
 ---
 

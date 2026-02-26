@@ -163,9 +163,9 @@ spec:
 
 ---
 
-## Backstage Integration
+## Catalyst IDP Integration
 
-Crossplane compositions appear as Backstage software templates, enabling self-service infrastructure provisioning through the IDP.
+Crossplane compositions appear as Catalyst IDP software templates, enabling self-service infrastructure provisioning through the developer portal.
 
 ---
 

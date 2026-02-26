@@ -2,13 +2,13 @@
 
 Site Reliability Engineering practices for OpenOva platform operations.
 
-**Status:** Accepted | **Updated:** 2026-02-08
+**Status:** Accepted | **Updated:** 2026-02-26
 
 ---
 
 ## Overview
 
-This document covers SRE practices, multi-region strategy, progressive delivery, auto-remediation, and operational tooling for OpenOva deployments including AI Hub and Open Banking blueprints.
+This document covers SRE practices, multi-region strategy, progressive delivery, auto-remediation, and operational tooling for OpenOva deployments including AI Hub, Open Banking, Data & Integration, and Communication blueprints.
 
 ---
 
@@ -60,7 +60,7 @@ flowchart TB
 | Service | Replication Method | RPO |
 |---------|-------------------|-----|
 | CNPG (Postgres) | WAL streaming to async standby | Near-zero |
-| MongoDB | CDC via Debezium → Kafka | Seconds |
+| FerretDB | Via CNPG WAL streaming (PostgreSQL backend) | Near-zero |
 | Strimzi/Kafka | MirrorMaker2 | Seconds |
 | Valkey | REPLICAOF command | Seconds |
 | MinIO | Bucket replication | Minutes |
@@ -238,8 +238,8 @@ All mandatory components support air-gap:
 | BGE-M3 | Pre-download embedding models |
 | Milvus | No external dependencies |
 | Neo4j | No external dependencies |
-| SearXNG | Disabled (no internet access) |
-| LangServe | Configure for local models only |
+| NeMo Guardrails | No external dependencies |
+| LangFuse | No external dependencies |
 
 ### Content Transfer
 
@@ -261,16 +261,16 @@ All mandatory components support air-gap:
 | Tool | Purpose | Status |
 |------|---------|--------|
 | Crossplane | Cloud resource provisioning (day-2) | Mandatory |
-| Backstage | Internal Developer Platform (IDP) | Mandatory |
+| Catalyst IDP | Internal Developer Platform | Via OpenOva Catalyst |
 | Flux | GitOps delivery engine | Mandatory |
-| Terraform | Bootstrap IaC only | Mandatory |
+| OpenTofu | Bootstrap IaC only | Mandatory |
 
 ### Architecture
 
 ```mermaid
 flowchart TB
     subgraph IDP["Internal Developer Platform"]
-        BS[Backstage]
+        CAT[Catalyst IDP]
     end
 
     subgraph GitOps
@@ -279,11 +279,11 @@ flowchart TB
     end
 
     subgraph IaC["Infrastructure as Code"]
-        TF[Terraform Bootstrap]
+        TF[OpenTofu Bootstrap]
         CP[Crossplane Day 2+]
     end
 
-    BS -->|"Templates"| Git
+    CAT -->|"Templates"| Git
     Git -->|"Reconcile"| Flux
     Flux -->|"Apply"| CP
     CP --> Cloud
@@ -331,6 +331,25 @@ flowchart TB
 | Auth Latency (p95) | <200ms | >500ms for 5m |
 | API Availability | 99.95% | <99.5% for 5m |
 | Consent Flow Success | >99% | <95% for 5m |
+
+### Data & Integration (Fabric) SLOs
+
+| SLI | Target | Alert Threshold |
+|-----|--------|-----------------|
+| Kafka Produce Latency (p95) | <50ms | >200ms for 5m |
+| Flink Checkpoint Duration | <30s | >60s for 5m |
+| Temporal Workflow Latency (p95) | <1s | >5s for 5m |
+| CDC Lag (Debezium) | <10s | >60s for 5m |
+| ClickHouse Query Latency (p95) | <500ms | >2s for 5m |
+
+### Communication (Relay) SLOs
+
+| SLI | Target | Alert Threshold |
+|-----|--------|-----------------|
+| Email Delivery Rate | >99.5% | <98% for 15m |
+| LiveKit Call Setup (p95) | <2s | >5s for 5m |
+| Matrix Message Delivery (p95) | <500ms | >2s for 5m |
+| TURN Relay Success Rate | >99% | <95% for 5m |
 
 ---
 
