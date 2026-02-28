@@ -1,0 +1,24 @@
+{
+  "name": "@openova/axon",
+  "version": "0.1.0",
+  "description": "OpenOva Axon — OpenAI-compatible API gateway backed by Claude",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "node node_modules/tsx/dist/cli.mjs watch src/index.ts",
+    "build": "node node_modules/typescript/bin/tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2",
+    "fastify": "^5",
+    "ioredis": "^5",
+    "uuid": "^11"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/uuid": "^10",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
