@@ -88,92 +88,98 @@ const chipLabel = (name: string) => {
 };
 ---
 
-{/* ═══ INTERACTIVE MODE: Identical to static viewMode=2, hover-flip enabled ═══ */}
+{/* ═══ INTERACTIVE MODE: Toggle between concepts and tech names ═══ */}
 {!isStatic && (
-<div class:list={['arch', 'arch--view-2', 'arch--static', { 'arch--compact': compact }]}>
-  <div class="arch__body">
-    <div class="arch__side arch__side--guardian">
-      <span class="arch__side-label">GUARDIAN</span>
-      <div class="arch__side-chips">
-        {guardianComponents.map(c => (
-          <span class="arch__chip arch__chip--guardian arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-        ))}
-      </div>
-    </div>
-
-    <div class="arch__center">
-      <div class="arch__groups arch__groups--alacarte">
-        {alacarteGroups.map(g => (
-          <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
-            <span class="arch__group-label" style={`color: ${g.color};`}>{g.label}</span>
-            <div class="arch__chips arch__chips--spread">
-              {g.components.map(c => (
-                <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-              ))}
-              {g.products.map(p => (
-                <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div class="arch__group arch__group--fullwidth" data-group={relayGroup.label} style={`--gc: ${relayGroup.color}; border-color: ${relayGroup.color}30; background: ${relayGroup.color}12;`}>
-        <span class="arch__group-label" style={`color: ${relayGroup.color};`}>{relayGroup.label}</span>
-        <div class="arch__chips arch__chips--spread">
-          {relayGroup.components.map(c => (
-            <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+<div class="arch-interactive-wrapper">
+  <div class="arch__toggle">
+    <button class="arch__toggle-btn arch__toggle-btn--active" data-view="tech">Tech Names</button>
+    <button class="arch__toggle-btn" data-view="concepts">Concepts</button>
+  </div>
+  <div class:list={['arch', 'arch--view-2', 'arch--static', { 'arch--compact': compact }]}>
+    <div class="arch__body">
+      <div class="arch__side arch__side--guardian">
+        <span class="arch__side-label" data-tech="GUARDIAN" data-concept={groupConceptMap['GUARDIAN']}>GUARDIAN</span>
+        <div class="arch__side-chips">
+          {guardianComponents.map(c => (
+            <span class="arch__chip arch__chip--guardian arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
           ))}
         </div>
       </div>
 
-      <div class="arch__divider"></div>
-
-      <div class="arch__groups arch__groups--core">
-        {coreGroups.map(g => (
-          <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
-            <span class="arch__group-label" style={`color: ${g.color};`}>{g.label}</span>
-            <div class="arch__chips arch__chips--spread">
-              {g.components.map(c => (
-                <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-              ))}
-              {g.products.map(p => (
-                <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
-              ))}
+      <div class="arch__center">
+        <div class="arch__groups arch__groups--alacarte">
+          {alacarteGroups.map(g => (
+            <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
+              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{g.label}</span>
+              <div class="arch__chips arch__chips--spread">
+                {g.components.map(c => (
+                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+                ))}
+                {g.products.map(p => (
+                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+                ))}
+              </div>
             </div>
+          ))}
+        </div>
+
+        <div class="arch__group arch__group--fullwidth" data-group={relayGroup.label} style={`--gc: ${relayGroup.color}; border-color: ${relayGroup.color}30; background: ${relayGroup.color}12;`}>
+          <span class="arch__group-label" data-tech={relayGroup.label} data-concept={groupConceptMap[relayGroup.label]} style={`color: ${relayGroup.color};`}>{relayGroup.label}</span>
+          <div class="arch__chips arch__chips--spread">
+            {relayGroup.components.map(c => (
+              <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+            ))}
           </div>
+        </div>
+
+        <div class="arch__divider"></div>
+
+        <div class="arch__groups arch__groups--core">
+          {coreGroups.map(g => (
+            <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
+              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{g.label}</span>
+              <div class="arch__chips arch__chips--spread">
+                {g.components.map(c => (
+                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+                ))}
+                {g.products.map(p => (
+                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="arch__side arch__side--insights">
+        <span class="arch__side-label" data-tech="INSIGHTS" data-concept={groupConceptMap['INSIGHTS']}>INSIGHTS</span>
+        <div class="arch__side-chips">
+          <span class="arch__chip arch__chip--product arch__chip--product-insights arch__chip--flip" data-tech="Specter" data-concept={conceptMap['Specter']}>Specter</span>
+          {insightsOSS.map(c => (
+            <span class="arch__chip arch__chip--insights arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    <div class="arch__group arch__group--catalyst" style="--gc: #3B82F6; border-color: #3B82F625; background: #3B82F610;">
+      <span class="arch__group-label" data-tech="CATALYST" data-concept={groupConceptMap['CATALYST']} style="color: #3B82F6;">CATALYST</span>
+      <div class="arch__chips arch__chips--spread">
+        {catalystModules.map(m => (
+          <span class:list={['arch__chip', 'arch__chip--flip', { 'arch__chip--product': m.product }]} data-tech={m.name} data-concept={conceptMap[m.name]}>{m.name}</span>
         ))}
       </div>
     </div>
 
-    <div class="arch__side arch__side--insights">
-      <span class="arch__side-label">INSIGHTS</span>
-      <div class="arch__side-chips">
-        <span class="arch__chip arch__chip--product arch__chip--product-insights arch__chip--flip" data-tech="Specter" data-concept={conceptMap['Specter']}>Specter</span>
-        {insightsOSS.map(c => (
-          <span class="arch__chip arch__chip--insights arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-        ))}
-      </div>
+    <div class="arch__bar arch__bar--k8s">
+      <span class="arch__bar-name">Kubernetes (K3s)</span>
     </div>
-  </div>
 
-  <div class="arch__group arch__group--catalyst" style="--gc: #3B82F6; border-color: #3B82F625; background: #3B82F610;">
-    <span class="arch__group-label" style="color: #3B82F6;">CATALYST</span>
-    <div class="arch__chips arch__chips--spread">
-      {catalystModules.map(m => (
-        <span class:list={['arch__chip', 'arch__chip--flip', { 'arch__chip--product': m.product }]} data-tech={m.name} data-concept={conceptMap[m.name]}>{m.name}</span>
+    <div class="arch__clouds">
+      {clouds.map(c => (
+        <div class="arch__cloud">{c}</div>
       ))}
     </div>
-  </div>
-
-  <div class="arch__bar arch__bar--k8s">
-    <span class="arch__bar-name">Kubernetes (K3s)</span>
-  </div>
-
-  <div class="arch__clouds">
-    {clouds.map(c => (
-      <div class="arch__cloud">{c}</div>
-    ))}
   </div>
 </div>
 )}
@@ -792,6 +798,43 @@ const chipLabel = (name: string) => {
   .arch--compact .arch__divider { margin: 0.125rem 0; }
   .arch--compact .arch__cloud { padding: 0.125rem; font-size: 0.4375rem; }
 
+  /* ── Interactive toggle (platform page) ── */
+  .arch-interactive-wrapper {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+  .arch__toggle {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+    justify-content: center;
+  }
+  .arch__toggle-btn {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.375rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--color-border-primary);
+    background: transparent;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .arch__toggle-btn:hover {
+    border-color: rgba(16,185,129,0.4);
+    color: var(--color-text-secondary);
+  }
+  .arch__toggle-btn--active {
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.4);
+    color: #10B981;
+  }
+  /* Concepts mode: hover shows tech name instead */
+  .arch--concepts .arch__chip--flip:hover::after {
+    content: attr(data-tech);
+  }
+
   /* ── Mobile (static) ── */
   @media (max-width: 640px) {
     .arch { max-width: 100%; }
@@ -821,3 +864,43 @@ const chipLabel = (name: string) => {
     .arch__clouds { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
+
+<script>
+  function initArchToggle() {
+    document.querySelectorAll('.arch-interactive-wrapper').forEach(wrapper => {
+      const arch = wrapper.querySelector('.arch');
+      if (!arch) return;
+      const btns = wrapper.querySelectorAll('.arch__toggle-btn');
+
+      btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const view = btn.dataset.view;
+          btns.forEach(b => b.classList.remove('arch__toggle-btn--active'));
+          btn.classList.add('arch__toggle-btn--active');
+
+          const isConcepts = view === 'concepts';
+
+          // Swap chip text
+          arch.querySelectorAll('.arch__chip--flip').forEach(chip => {
+            chip.textContent = isConcepts
+              ? (chip.dataset.concept || chip.textContent)
+              : (chip.dataset.tech || chip.textContent);
+          });
+
+          // Swap group and side labels
+          arch.querySelectorAll('.arch__group-label[data-tech], .arch__side-label[data-tech]').forEach(label => {
+            label.textContent = isConcepts
+              ? (label.dataset.concept || label.textContent)
+              : (label.dataset.tech || label.textContent);
+          });
+
+          // Toggle class for hover CSS
+          arch.classList.toggle('arch--concepts', isConcepts);
+        });
+      });
+    });
+  }
+
+  initArchToggle();
+  document.addEventListener('astro:after-swap', initArchToggle);
+</script>

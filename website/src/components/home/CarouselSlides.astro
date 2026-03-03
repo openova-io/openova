@@ -32,8 +32,8 @@ import Button from '../shared/Button.astro';
 
           <!-- Center area (wide, matches slide 2's minmax center) -->
           <div class="lean-arch__center">
-            <!-- A la carte: Cortex | Fabric (flex:10) -->
-            <div class="lean-arch__row lean-arch__row--2col" style="flex: 10;">
+            <!-- A la carte: Cortex | Fabric — 4 chip rows in slide 2 -->
+            <div class="lean-arch__row lean-arch__row--2col" style="flex: 4;">
               <div class="lean-b" style="--bc: #F97316;">
                 <span class="lean-b__name">CORTEX</span>
                 <span class="lean-b__concept">AI Hub</span>
@@ -47,8 +47,8 @@ import Button from '../shared/Button.astro';
                 <span class="lean-b__count">10</span>
               </div>
             </div>
-            <!-- Relay (flex:5) -->
-            <div class="lean-arch__row" style="flex: 5;">
+            <!-- Relay — 1 chip row in slide 2 -->
+            <div class="lean-arch__row" style="flex: 1;">
               <div class="lean-b" style="--bc: #06B6D4;">
                 <span class="lean-b__name">RELAY</span>
                 <span class="lean-b__concept">Communication</span>
@@ -58,8 +58,8 @@ import Button from '../shared/Button.astro';
             </div>
             <!-- Divider -->
             <div class="lean-arch__divider"></div>
-            <!-- Pilot(2fr) | Spine(4fr) — flex:8 -->
-            <div class="lean-arch__row lean-arch__row--pilot-spine" style="flex: 8;">
+            <!-- Pilot(2fr) | Spine(4fr) — 2 chip rows in slide 2 -->
+            <div class="lean-arch__row lean-arch__row--pilot-spine" style="flex: 2;">
               <div class="lean-b" style="--bc: #8B5CF6;">
                 <span class="lean-b__name">PILOT</span>
                 <span class="lean-b__concept">GitOps & IaC</span>
@@ -73,8 +73,8 @@ import Button from '../shared/Button.astro';
                 <span class="lean-b__count">8</span>
               </div>
             </div>
-            <!-- Surge | Silo — flex:4 -->
-            <div class="lean-arch__row lean-arch__row--2col" style="flex: 4;">
+            <!-- Surge | Silo — 2 chip rows in slide 2 -->
+            <div class="lean-arch__row lean-arch__row--2col" style="flex: 2;">
               <div class="lean-b" style="--bc: #14B8A6;">
                 <span class="lean-b__name">SURGE</span>
                 <span class="lean-b__concept">Scaling & Resilience</span>
@@ -666,9 +666,11 @@ import Button from '../shared/Button.astro';
   .lean-b--sidebar .lean-b__name { font-size: 0.6875rem; }
   .lean-b--sidebar .lean-b__desc { max-width: 4.5rem; }
   .lean-b--sidebar .lean-b__count {
-    position: static;
-    margin-top: auto;
-    padding-top: 0.125rem;
+    top: auto;
+    bottom: 0.25rem;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
   }
   /* Guardian — matches slide 2 */
   .lean-b--guardian {
@@ -693,7 +695,8 @@ import Button from '../shared/Button.astro';
     border-bottom: none;
     flex-direction: row;
     gap: 0.375rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0.4rem 0.5rem;
+    min-height: 1.5rem;
   }
   .lean-b--catalyst .lean-b__name { font-size: 0.6875rem; }
   .lean-b--catalyst .lean-b__count { position: static; }
@@ -703,7 +706,8 @@ import Button from '../shared/Button.astro';
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.25rem 0.375rem;
+    padding: 0.4rem 0.375rem;
+    min-height: 1.5rem;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.5625rem;
     font-weight: 700;
@@ -719,7 +723,7 @@ import Button from '../shared/Button.astro';
   }
   .lean-arch__cloud {
     text-align: center;
-    padding: 0.1875rem;
+    padding: 0.375rem;
     font-size: 0.5rem;
     color: #94A3B8;
     border-right: 1px solid var(--color-border-primary);
@@ -755,9 +759,12 @@ import Button from '../shared/Button.astro';
     }
     .lean-b--sidebar .lean-b__desc { max-width: none; }
     .lean-b--sidebar .lean-b__count {
-      margin-top: 0;
-      margin-left: auto;
-      padding-top: 0;
+      position: absolute;
+      top: 0.125rem;
+      right: 0.25rem;
+      bottom: auto;
+      left: auto;
+      transform: none;
     }
     .lean-b__desc { max-width: none; }
     .lean-arch__clouds { grid-template-columns: repeat(4, 1fr); }
