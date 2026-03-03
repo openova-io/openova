@@ -5,6 +5,8 @@
   let interest = '';
   let message = '';
   let submitted = false;
+  let submitting = false;
+  let errorMsg = '';
 
   interface Errors {
     name?: string;
@@ -26,15 +28,36 @@
     return Object.keys(errors).length === 0;
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!validate()) return;
+    submitting = true;
+    errorMsg = '';
 
-    const subject = encodeURIComponent(`OpenOva inquiry: ${interest || 'General'}`);
-    const body = encodeURIComponent(
-      `Name: ${name}\nEmail: ${email}\nCompany: ${company || 'N/A'}\nInterest: ${interest || 'N/A'}\n\n${message}`
-    );
-    window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
-    submitted = true;
+    try {
+      const response = await fetch(`https://formsubmit.co/ajax/${CONTACT_EMAIL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          company: company || 'N/A',
+          interest: interest || 'General',
+          message,
+          _subject: `OpenOva inquiry: ${interest || 'General'}`,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        submitted = true;
+      } else {
+        errorMsg = 'Something went wrong. Please email us directly.';
+      }
+    } catch {
+      errorMsg = 'Something went wrong. Please email us directly.';
+    } finally {
+      submitting = false;
+    }
   }
 </script>
 
@@ -46,10 +69,10 @@
       </svg>
     </div>
     <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-      Opening your email client
+      Message sent
     </h3>
     <p class="mt-2 text-sm text-[var(--color-text-secondary)]">
-      Your email client should open with a pre-filled message. If it doesn't, email us directly at <a href="mailto:sales@openova.io" class="underline hover:text-[var(--color-text-primary)]">sales@openova.io</a>
+      We'll get back to you within one business day.
     </p>
   </div>
 {:else}
@@ -120,11 +143,16 @@
       ></textarea>
     </div>
 
+    {#if errorMsg}
+      <p class="text-sm text-red-400 text-center">{errorMsg} <a href="mailto:sales@openova.io" class="underline">sales@openova.io</a></p>
+    {/if}
+
     <button
       type="submit"
-      class="w-full rounded-lg bg-[var(--color-accent)] px-6 py-3 font-medium text-[var(--color-bg-primary)] transition-colors duration-200 hover:bg-[var(--color-accent-hover)]"
+      disabled={submitting}
+      class="w-full rounded-lg bg-[var(--color-accent)] px-6 py-3 font-medium text-[var(--color-bg-primary)] transition-colors duration-200 hover:bg-[var(--color-accent-hover)] disabled:opacity-60"
     >
-      Send message
+      {submitting ? 'Sending...' : 'Send message'}
     </button>
 
     <p class="text-xs text-[var(--color-text-tertiary)] text-center">
