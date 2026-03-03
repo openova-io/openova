@@ -98,15 +98,11 @@ import Button from '../shared/Button.astro';
           </div>
         </div>
 
-        <!-- Catalyst full-width with description + modules -->
+        <!-- Catalyst full-width with description -->
         <div class="lean-b lean-b--catalyst" style="--bc: #3B82F6;">
           <span class="lean-b__name">CATALYST</span>
           <span class="lean-b__concept">Bootstrap & Lifecycle</span>
           <span class="lean-b__desc">Bootstrap wizard + Day-2 lifecycle manager</span>
-        </div>
-        <div class="lean-arch__catalyst-modules">
-          <span class="lean-arch__module">Bootstrap Wizard</span>
-          <span class="lean-arch__module">Lifecycle Manager</span>
         </div>
 
         <!-- Kubernetes bar — separate row -->
@@ -578,6 +574,7 @@ import Button from '../shared/Button.astro';
   .lean-arch__body {
     display: grid;
     grid-template-columns: 5rem minmax(0, 1fr) 5rem;
+    min-height: 20rem;
     border-bottom: 1px solid var(--color-border-primary);
   }
 
@@ -593,7 +590,6 @@ import Button from '../shared/Button.astro';
   .lean-arch__row {
     display: grid;
     gap: 0.125rem;
-    min-height: 0;
   }
   .lean-arch__row--2col { grid-template-columns: 1fr 1fr; }
   .lean-arch__row--pilot-spine { grid-template-columns: 2fr 4fr; }
@@ -710,27 +706,6 @@ import Button from '../shared/Button.astro';
   }
   .lean-b--catalyst .lean-b__name { font-size: 0.6875rem; }
 
-  /* ── Catalyst modules: Bootstrap Wizard + Lifecycle Manager ── */
-  .lean-arch__catalyst-modules {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.125rem;
-    padding: 0 0.375rem 0.375rem;
-    background: color-mix(in srgb, #3B82F6 6%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, #3B82F6 15%, transparent);
-  }
-  .lean-arch__module {
-    text-align: center;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.4375rem;
-    font-weight: 600;
-    color: #60A5FA;
-    padding: 0.1875rem 0.25rem;
-    border-radius: 0.1875rem;
-    border: 1px solid rgba(59,130,246,0.2);
-    background: rgba(59,130,246,0.08);
-  }
-
   /* ── K8s bar — separate row, matches slide 2 ── */
   .lean-arch__k8s-bar {
     display: flex;
@@ -802,8 +777,5 @@ import Button from '../shared/Button.astro';
       flex: 0 0 auto !important;
     }
     .lean-arch__clouds { grid-template-columns: repeat(4, 1fr); }
-    .lean-arch__catalyst-modules {
-      padding: 0 0.25rem 0.25rem;
-    }
   }
 </style>
