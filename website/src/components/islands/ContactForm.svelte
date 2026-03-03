@@ -1,6 +1,7 @@
 <script lang="ts">
   let name = '';
   let email = '';
+  let phone = '';
   let company = '';
   let interest = '';
   let message = '';
@@ -14,8 +15,6 @@
   }
 
   let errors: Errors = {};
-
-  const CONTACT_EMAIL = 'sales@openova.io';
 
   function validate(): boolean {
     errors = {};
@@ -34,16 +33,16 @@
     errorMsg = '';
 
     try {
-      const response = await fetch(`https://formsubmit.co/ajax/${CONTACT_EMAIL}`, {
+      const response = await fetch('/api/contact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name,
-          email,
-          company: company || 'N/A',
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          company: company.trim() || 'N/A',
           interest: interest || 'General',
-          message,
-          _subject: `OpenOva inquiry: ${interest || 'General'}`,
+          message: message.trim(),
         }),
       });
 
@@ -51,7 +50,7 @@
       if (data.success) {
         submitted = true;
       } else {
-        errorMsg = 'Something went wrong. Please email us directly.';
+        errorMsg = data.error || 'Something went wrong. Please email us directly.';
       }
     } catch {
       errorMsg = 'Something went wrong. Please email us directly.';
@@ -105,6 +104,17 @@
       {#if errors.email}
         <p class="mt-1 text-xs text-red-400">{errors.email}</p>
       {/if}
+    </div>
+
+    <div>
+      <label for="cf-phone" class="mb-2 block text-sm font-medium text-[var(--color-text-primary)]">Phone</label>
+      <input
+        type="tel"
+        id="cf-phone"
+        bind:value={phone}
+        class="field"
+        placeholder="+1 (555) 000-0000"
+      />
     </div>
 
     <div>
