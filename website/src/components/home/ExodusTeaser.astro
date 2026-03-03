@@ -1,0 +1,60 @@
+---
+import Section from '../shared/Section.astro';
+import SectionTitle from '../shared/SectionTitle.astro';
+import Card from '../shared/Card.astro';
+import Button from '../shared/Button.astro';
+---
+
+<Section bg="secondary">
+  <SectionTitle label="Migration">
+    You wouldn&rsquo;t load a bus onto a cargo plane
+  </SectionTitle>
+
+  <div class="mb-8 reveal">
+    <p class="max-w-2xl text-lg text-text-secondary leading-relaxed">
+      Lift-and-shift takes on-premises infrastructure and forces it into the cloud without redesigning for the new medium. Exodus modernizes for cloud-native from the ground up.
+    </p>
+  </div>
+
+  <!-- Lift-and-shift vs Exodus -->
+  <div class="grid gap-6 md:grid-cols-2 mb-10 reveal-children">
+    <Card>
+      <div class="mb-3 flex items-center gap-2">
+        <span class="h-2.5 w-2.5 rounded-full bg-red-500"></span>
+        <h3 class="font-semibold text-red-400">Lift-and-shift</h3>
+      </div>
+      <ul class="space-y-2 text-sm text-text-secondary">
+        <li>Same application, different host</li>
+        <li>Technical debt migrates with you</li>
+        <li>Operations stay manual</li>
+        <li>One-time project, then alone</li>
+      </ul>
+    </Card>
+
+    <Card>
+      <div class="mb-3 flex items-center gap-2">
+        <span class="h-2.5 w-2.5 rounded-full bg-accent"></span>
+        <h3 class="font-semibold text-accent">Exodus</h3>
+      </div>
+      <ul class="space-y-2 text-sm text-text-secondary">
+        <li>Full assessment + modernization roadmap</li>
+        <li>Pre-flight medical for every workload</li>
+        <li>AI-manageable infrastructure from day 1</li>
+        <li>Transition to ongoing OpenOva support</li>
+      </ul>
+    </Card>
+  </div>
+
+  <!-- Migration path badges -->
+  <div class="mb-8 flex flex-wrap gap-2 reveal">
+    {['OpenShift', 'VMware', 'Datadog', 'Splunk', 'Oracle DB', 'Redis', 'MongoDB', 'Auth0', 'Jenkins'].map((from) => (
+      <span class="rounded-full border border-border-primary bg-bg-primary px-3 py-1 text-xs text-text-secondary">
+        {from} &rarr;
+      </span>
+    ))}
+  </div>
+
+  <div class="reveal">
+    <Button href="/exodus" variant="secondary">Learn about Exodus &rarr;</Button>
+  </div>
+</Section>

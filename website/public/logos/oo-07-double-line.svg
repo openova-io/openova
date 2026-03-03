@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <!-- Style 7: Double line - two parallel strokes per arc -->
+  <!-- Outer green -->
+  <path d="M16 12C13.5 8.5 11 6.5 8 6.5C4 6.5 1 10 1 16C1 22 4 25.5 8 25.5C11 25.5 13.5 23.5 16 20" stroke="#10B981" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <!-- Inner green -->
+  <path d="M16 14C14 11 12 9.5 9.5 9.5C6.5 9.5 4 12 4 16C4 20 6.5 22.5 9.5 22.5C12 22.5 14 21 16 18" stroke="#10B981" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <!-- Outer cyan -->
+  <path d="M16 20C18.5 23.5 21 25.5 24 25.5C28 25.5 31 22 31 16C31 10 28 6.5 24 6.5C21 6.5 18.5 8.5 16 12" stroke="#06B6D4" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <!-- Inner cyan -->
+  <path d="M16 18C18 21 20 22.5 22.5 22.5C25.5 22.5 28 20 28 16C28 12 25.5 9.5 22.5 9.5C20 9.5 18 11 16 14" stroke="#06B6D4" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+</svg>

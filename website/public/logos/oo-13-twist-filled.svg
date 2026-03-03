@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <!-- Style 13: Figure-8 with filled ribbon bands (not just stroke)
+       Creates a Mobius-like band effect with real z-twist -->
+  <!-- Cyan band (behind at crossing) -->
+  <path d="M24 7.5C20 7.5 17.5 10.5 15.5 14L16.5 18C18.5 21.5 20.5 24.5 24 24.5C28.5 24.5 31 20.5 31 16C31 11.5 28.5 7.5 24 7.5Z" fill="#06B6D4" opacity="0.25" stroke="#06B6D4" stroke-width="1.5"/>
+  <!-- Background mask at crossing -->
+  <path d="M14 12.5L18 12.5L16.5 18L15.5 18Z" fill="#0a0a0b"/>
+  <!-- Green band (in front at crossing) -->
+  <path d="M8 7.5C12 7.5 14.5 10.5 16.5 14L15.5 18C13.5 21.5 11.5 24.5 8 24.5C3.5 24.5 1 20.5 1 16C1 11.5 3.5 7.5 8 7.5Z" fill="#10B981" opacity="0.25" stroke="#10B981" stroke-width="1.5"/>
+</svg>

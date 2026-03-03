@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="32" viewBox="0 0 200 32" fill="none">
+  <!-- Infinity symbol -->
+  <!-- Left O (Open) - emerald green -->
+  <path d="M16 13C14 10 11.5 8 8.5 8C5 8 2 11 2 16C2 21 5 24 8.5 24C11.5 24 14 22 16 19" stroke="#10B981" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <!-- Right O (Ova) - cyan -->
+  <path d="M16 19C18 22 20.5 24 23.5 24C27 24 30 21 30 16C30 11 27 8 23.5 8C20.5 8 18 10 16 13" stroke="#06B6D4" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <!-- Wordmark -->
+  <text x="40" y="21.5" font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="16" font-weight="700">
+    <tspan fill="#10B981">Open</tspan><tspan fill="#06B6D4">Ova</tspan>
+  </text>
+</svg>

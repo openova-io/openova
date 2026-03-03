@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Style 26: Tube/pipe 3D infinity - circular cross-section tube
+       Highlight on top, shadow on bottom for rounded appearance -->
+
+  <defs>
+    <linearGradient id="g26-cyan" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="40%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0891B2"/>
+    </linearGradient>
+    <linearGradient id="g26-green" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="40%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Right loop tube (behind) - cyan with top-to-bottom gradient for roundness -->
+  <path d="
+    M 17.5 12.5
+    C 20 8.5  23 6.5  25.5 6.5
+    C 29 6.5  31.5 10.5  31.5 16
+    C 31.5 21.5  29 25.5  25.5 25.5
+    C 23 25.5  20 23.5  17.5 19.5
+    L 14.5 18
+    C 17 21.5  20.5 23.5  24.5 23.5
+    C 27.5 23.5  29.5 20.5  29.5 16
+    C 29.5 11.5  27.5 8.5  24.5 8.5
+    C 20.5 8.5  17 10.5  14.5 14
+    Z
+  " fill="url(#g26-cyan)"/>
+
+  <!-- Left loop tube (in front) - green with gradient -->
+  <path d="
+    M 14.5 19.5
+    C 12 23.5  9 25.5  6.5 25.5
+    C 3 25.5  0.5 21.5  0.5 16
+    C 0.5 10.5  3 6.5  6.5 6.5
+    C 9 6.5  12 8.5  14.5 12.5
+    L 17.5 14
+    C 15 10.5  11.5 8.5  7.5 8.5
+    C 4.5 8.5  2.5 11.5  2.5 16
+    C 2.5 20.5  4.5 23.5  7.5 23.5
+    C 11.5 23.5  15 21.5  17.5 18
+    Z
+  " fill="url(#g26-green)"/>
+
+  <!-- Highlight on left tube top edge for glossy tube effect -->
+  <path d="
+    M 14.5 12.5
+    C 12 8.5  9 6.5  6.5 6.5
+    C 3 6.5  0.5 10.5  0.5 16
+    L 1.5 15
+    C 1.5 10.5  3.5 7.5  6.5 7.5
+    C 9 7.5  12 9.5  14 12.5
+    Z
+  " fill="#fff" opacity="0.15"/>
+</svg>

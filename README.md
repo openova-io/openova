@@ -1,8 +1,8 @@
 # OpenOva
 
-**Enterprise-grade support provider for open-source Kubernetes ecosystems.**
+**AI-native infrastructure platform. 52 open-source components. Every one managed by AI.**
 
-OpenOva provides a converged blueprint ecosystem with operational guarantees, enabling cloud-native transformation for enterprises.
+Cloud-native is the foundation. AI-native is the differentiator. OpenOva provides 52 curated open-source components on Kubernetes — every one designed to be AI-manageable. Our AI brain (Specter) has pre-built semantic knowledge of every CRD, integration dependency, and failure mode across the entire ecosystem. It sends surgical, structured context to LLMs — not raw log dumps. Faster, cheaper, more accurate than anything bolted on after the fact.
 
 ---
 
@@ -39,9 +39,10 @@ openova/
 
 | Offering | Description |
 |----------|-------------|
-| **Converged Blueprints** | Production-ready K8s component bundles |
-| **Day-2 Operations** | Upgrades, security, SLA guarantees |
-| **Transformation Journey** | Cloud-native adoption partnership |
+| **AI-Native Operations** | Specter manages your infrastructure with pre-built semantic knowledge of all 52 components. Token-efficient, auditable, self-healing. |
+| **Turnkey Ecosystem** | 52 curated open-source components, production-grade, deployed instantly. Every one AI-manageable by design. |
+| **Comprehensive Migration (Exodus)** | Full legacy assessment, AI modernization roadmap, and structured migration. Not lift-and-shift — true modernization. |
+| **Expert Network** | 52 open-source disciplines under one support contract. Human expertise when AI needs human judgment. |
 
 ---
 
@@ -50,11 +51,21 @@ openova/
 ```
 Bootstrap Wizard → Customer's K8s + Catalyst IDP + Flux + Gitea
                  → OpenOva Blueprints (stays in picture)
+                 → Specter AI agents (pre-built semantic knowledge)
+                         │
+                         ├── Axon (SaaS LLM Gateway) ── default
+                         └── Cortex (Self-hosted AI) ── air-gap / sovereign
 ```
 
 **Two-Phase Provisioning:**
-- **Bootstrap (OpenTofu)**: Initial cluster + core components
+- **Bootstrap (OpenTofu)**: Initial cluster + core components + Specter agents
 - **Lifecycle Manager (Crossplane)**: Day-2 operations + a la carte components
+
+**AI-Native by Design:**
+- Structured CRDs across all 52 components (machine-readable configuration)
+- Unified OTel telemetry (correlated signals across the full stack)
+- Kyverno policy-as-code (machine-readable security and compliance)
+- Declarative GitOps via Flux (all state in Git, diffable by AI)
 
 ---
 
@@ -310,4 +321,4 @@ openova/platform/flux/     ──sync──> openova-flux/
 
 ---
 
-*Enterprise Kubernetes, delivered with GitOps*
+*AI-native infrastructure. Open source. Instant.*

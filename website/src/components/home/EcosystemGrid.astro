@@ -1,0 +1,31 @@
+---
+import Section from '../shared/Section.astro';
+import SectionTitle from '../shared/SectionTitle.astro';
+import Badge from '../shared/Badge.astro';
+import Button from '../shared/Button.astro';
+import BuildingBlocksDiagram from '../shared/BuildingBlocksDiagram.astro';
+import { components } from '../../data/components';
+
+const core = components.filter(c => c.type === 'core');
+const alacarte = components.filter(c => c.type === 'alacarte');
+---
+
+<Section bg="secondary">
+  <SectionTitle label="Ecosystem">
+    Platform components
+  </SectionTitle>
+
+  <div class="mb-8 flex flex-wrap items-center gap-3 reveal">
+    <Badge variant="accent">{core.length} core</Badge>
+    <Badge variant="outline">{alacarte.length} a la carte</Badge>
+    <span class="text-sm text-text-tertiary">All upstream open source</span>
+  </div>
+
+  <div class="reveal">
+    <BuildingBlocksDiagram compact />
+  </div>
+
+  <div class="mt-8 reveal">
+    <Button href="/platform" variant="secondary">Explore all components &rarr;</Button>
+  </div>
+</Section>

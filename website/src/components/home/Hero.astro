@@ -1,0 +1,48 @@
+---
+import Button from '../shared/Button.astro';
+import HeroBuildingBlocks from './HeroBuildingBlocks.astro';
+---
+
+<section class="relative flex min-h-[90vh] items-center overflow-hidden bg-bg-primary px-4">
+  <!-- Background grid -->
+  <div class="absolute inset-0 opacity-[0.03]" style="background-image: linear-gradient(var(--color-text-tertiary) 1px, transparent 1px), linear-gradient(90deg, var(--color-text-tertiary) 1px, transparent 1px); background-size: 64px 64px;"></div>
+
+  <!-- Gradient orb -->
+  <div class="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 h-[600px] w-[600px] rounded-full bg-accent/5 blur-[128px]"></div>
+
+  <div class="relative mx-auto max-w-7xl w-full">
+    <div class="grid items-center gap-12 lg:grid-cols-2">
+      <div>
+        <div class="mb-6 inline-flex items-center gap-2 rounded-full border border-border-primary bg-bg-secondary px-4 py-1.5">
+          <span class="h-2 w-2 rounded-full bg-accent animate-pulse"></span>
+          <span class="text-sm text-text-secondary">AI-native infrastructure</span>
+        </div>
+
+        <h1 class="text-4xl font-extrabold leading-tight text-text-primary md:text-6xl md:leading-[1.1]">
+          The converged<br/>
+          cloud-native<br/>
+          <span class="gradient-text">platform.</span>
+        </h1>
+
+        <p class="mt-6 max-w-lg text-lg text-text-secondary leading-relaxed">
+          Best-of-breed open-source components on Kubernetes, working together with proven blueprints. Production-grade interoperability out of the box. Every component AI-manageable by design.
+        </p>
+
+        <div class="mt-8 flex flex-wrap gap-4">
+          <Button href="/contact">Talk to us</Button>
+          <Button href="/platform" variant="secondary">Explore platform</Button>
+        </div>
+
+        <div class="mt-12 flex items-center gap-8 text-sm text-text-tertiary">
+          <span>27 core</span>
+          <span class="h-4 w-px bg-border-primary"></span>
+          <span>26 a la carte</span>
+          <span class="h-4 w-px bg-border-primary"></span>
+          <span>All upstream OSS</span>
+        </div>
+      </div>
+
+      <HeroBuildingBlocks />
+    </div>
+  </div>
+</section>

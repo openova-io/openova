@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <!-- Style 19: Tall figure-8 - more vertical ellipses, taller loops
+       Creates a more upright, elegant infinity -->
+  <!-- Cyan loop (behind) -->
+  <path d="M16 16C17.5 20 19.5 25 23 25C27 25 30 21 30 16C30 11 27 7 23 7C19.5 7 17.5 12 16 16Z" stroke="#06B6D4" stroke-width="2.5" fill="none"/>
+  <!-- Background mask -->
+  <rect x="13.5" y="12" width="5" height="8" rx="0.5" fill="#0a0a0b"/>
+  <!-- Green loop (in front) -->
+  <path d="M16 16C14.5 12 12.5 7 9 7C5 7 2 11 2 16C2 21 5 25 9 25C12.5 25 14.5 20 16 16Z" stroke="#10B981" stroke-width="2.5" fill="none"/>
+</svg>

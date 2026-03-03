@@ -1,0 +1,394 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Section from '../components/shared/Section.astro';
+import SectionTitle from '../components/shared/SectionTitle.astro';
+import Card from '../components/shared/Card.astro';
+import Badge from '../components/shared/Badge.astro';
+import Button from '../components/shared/Button.astro';
+import { migrations } from '../data/migrations';
+---
+
+<BaseLayout
+  title="Exodus — OpenOva"
+  description="You wouldn't load a bus onto a cargo plane. Exodus is comprehensive legacy assessment, AI modernization roadmap, and structured migration."
+  path="/exodus"
+>
+  <!-- Hero: Bus/Plane hook -->
+  <Section>
+    <div class="mx-auto max-w-3xl text-center">
+      <Badge variant="accent" class="mb-6" style="background: var(--color-exodus)15; color: var(--color-exodus)">Migration</Badge>
+      <h1 class="text-4xl font-extrabold text-text-primary md:text-5xl">
+        You wouldn&rsquo;t load a bus<br/>onto a cargo plane.
+      </h1>
+      <p class="mt-6 text-lg text-text-secondary leading-relaxed">
+        Yet that is exactly what lift-and-shift migration does. It takes on-premises infrastructure &mdash; designed for ground transport &mdash; and forces it into the cloud without redesigning for the new medium. Exodus takes a different approach: modernize, don&rsquo;t transplant.
+      </p>
+    </div>
+  </Section>
+
+  <!-- The Analogy: Bus Service vs Air Travel -->
+  <Section bg="secondary">
+    <SectionTitle label="The analogy">
+      Bus service vs. air travel
+    </SectionTitle>
+
+    <div class="grid gap-6 md:grid-cols-2 reveal-children">
+      <Card>
+        <div class="mb-4 flex items-center gap-3">
+          <span class="text-2xl">&#128652;</span>
+          <div>
+            <h3 class="text-lg font-bold text-red-400">Bus service</h3>
+            <p class="text-xs text-text-tertiary">On-premises / legacy</p>
+          </div>
+        </div>
+        <ul class="space-y-2 text-sm text-text-secondary">
+          <li>Fixed routes, fixed schedules</li>
+          <li>Passengers (workloads) stuck on one vehicle</li>
+          <li>Driver (ops team) handles everything manually</li>
+          <li>Road conditions (hardware) limit speed</li>
+          <li>No altitude &mdash; local reach only</li>
+          <li>Bus breaks down, everyone waits</li>
+        </ul>
+      </Card>
+
+      <Card>
+        <div class="mb-4 flex items-center gap-3">
+          <span class="text-2xl">&#9992;&#65039;</span>
+          <div>
+            <h3 class="text-lg font-bold text-accent">Air travel</h3>
+            <p class="text-xs text-text-tertiary">Cloud-native / OpenOva</p>
+          </div>
+        </div>
+        <ul class="space-y-2 text-sm text-text-secondary">
+          <li>Dynamic routing, global reach</li>
+          <li>Passengers (workloads) board any flight</li>
+          <li>Autopilot (Specter) handles operations</li>
+          <li>Altitude (cloud) removes physical limits</li>
+          <li>Global network of airports (regions)</li>
+          <li>If one plane has issues, rebook on the next</li>
+        </ul>
+      </Card>
+    </div>
+  </Section>
+
+  <!-- Pre-Flight Medical Check -->
+  <Section>
+    <SectionTitle label="Pre-flight check">
+      Five conditions that ground your workloads
+    </SectionTitle>
+
+    <p class="mb-8 max-w-2xl text-text-secondary leading-relaxed reveal">
+      Before any workload can fly, it needs a medical check. These five conditions are the most common blockers we find during assessment. Each has a treatment plan.
+    </p>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 reveal-children">
+      {[
+        {
+          condition: 'Life support dependency',
+          symptom: 'Application cannot survive without a specific proprietary runtime, driver, or OS feature',
+          treatment: 'Identify the dependency, find cloud-native equivalent, or containerize with compatibility layer',
+        },
+        {
+          condition: 'Siamese twin syndrome',
+          symptom: 'Two or more applications are so tightly coupled they cannot be deployed independently',
+          treatment: 'Map the coupling, introduce API boundaries, migrate as a unit or decouple first',
+        },
+        {
+          condition: 'Compromised immune system',
+          symptom: 'Application has no health checks, no metrics, no logs. Invisible to monitoring.',
+          treatment: 'Add OTel instrumentation, standardize health endpoints, integrate with Grafana stack',
+        },
+        {
+          condition: 'Fixed treatment protocol',
+          symptom: 'Application requires specific manual procedures for deployment, scaling, or recovery',
+          treatment: 'Codify runbooks into Kubernetes operators or Temporal workflows. Make procedures declarative.',
+        },
+        {
+          condition: 'Weak vital signs',
+          symptom: 'Application performance is unknown. No baselines. No SLOs. No capacity model.',
+          treatment: 'Establish baselines in current environment before migration. Set SLOs. Use KEDA/VPA for autoscaling.',
+        },
+      ].map((item) => (
+        <Card>
+          <h3 class="mb-2 font-semibold text-text-primary text-sm">{item.condition}</h3>
+          <p class="text-xs text-red-400/80 mb-2">{item.symptom}</p>
+          <p class="text-xs text-accent/80">{item.treatment}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Preparing for the Journey -->
+  <Section bg="secondary">
+    <SectionTitle label="Preparation">
+      Preparing for the journey
+    </SectionTitle>
+
+    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 reveal-children">
+      {[
+        {
+          stage: 'Check-in',
+          analog: 'State management',
+          desc: 'Externalize state from applications. Move session data to Valkey, files to MinIO, databases to CNPG. No carry-on luggage in the overhead bin.',
+        },
+        {
+          stage: 'Security screening',
+          analog: 'Auth & secrets',
+          desc: 'Migrate credentials to OpenBao. Replace hardcoded secrets with External Secrets Operator. Every passenger gets screened.',
+        },
+        {
+          stage: 'Gate assignment',
+          analog: 'Service discovery',
+          desc: 'Replace static IPs and hostfiles with Kubernetes services, Cilium networking, and ExternalDNS. Dynamic gate assignment.',
+        },
+        {
+          stage: 'Flight standards',
+          analog: 'Cloud-native compliance',
+          desc: 'Enforce resource limits, pod security, network policies via Kyverno. Every flight meets safety standards before takeoff.',
+        },
+      ].map((item) => (
+        <Card>
+          <div class="mb-3">
+            <h3 class="font-semibold text-text-primary text-sm">{item.stage}</h3>
+            <p class="text-xs text-accent">{item.analog}</p>
+          </div>
+          <p class="text-xs text-text-secondary">{item.desc}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- The Flight Plan: 5-Phase Methodology -->
+  <Section>
+    <SectionTitle label="Flight plan">
+      5-phase structured migration
+    </SectionTitle>
+
+    <div class="space-y-8 reveal-children">
+      {[
+        { phase: '1', name: 'ASSESS', time: 'Week 1-2', desc: 'Full inventory and pre-flight medical check. Map dependencies, identify the five conditions, evaluate AI-readiness.', outputs: ['Current state architecture', 'Dependency map', 'Risk register', 'AI-readiness scorecard'] },
+        { phase: '2', name: 'PLAN', time: 'Week 2-3', desc: 'Design the flight plan. Target architecture, migration sequence, rollback strategy, and treatment plans for each condition.', outputs: ['Target architecture blueprint', 'Migration sequence plan', 'AI modernization roadmap', 'Success criteria'] },
+        { phase: '3', name: 'PILOT', time: 'Week 3-6', desc: 'First flight. Migrate a non-critical workload end-to-end to validate the approach.', outputs: ['Pilot migration complete', 'Performance comparison', 'Team trained', 'Go/no-go decision'] },
+        { phase: '4', name: 'MIGRATE', time: 'Week 6-12', desc: 'Full fleet transition. Phased production migration with parallel running and continuous validation.', outputs: ['Production workloads migrated', 'Parallel running validated', 'Specter operational', 'Legacy ready to decommission'] },
+        { phase: '5', name: 'OPTIMIZE', time: 'Week 12+', desc: 'Cruising altitude. Performance tuning, cost optimization, and legacy decommission.', outputs: ['Optimized platform', 'Legacy decommissioned', 'Team self-sufficient', 'Support subscription active'] },
+      ].map((step) => (
+        <div class="grid gap-6 md:grid-cols-[120px_1fr]">
+          <div class="flex items-start gap-3">
+            <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-accent/30 bg-accent/10 font-mono text-xl font-bold text-accent">
+              {step.phase}
+            </div>
+          </div>
+          <div>
+            <div class="flex items-baseline gap-3 mb-2">
+              <h3 class="text-lg font-bold text-text-primary">{step.name}</h3>
+              <span class="font-mono text-xs text-text-tertiary">{step.time}</span>
+            </div>
+            <p class="text-sm text-text-secondary mb-3">{step.desc}</p>
+            <div class="flex flex-wrap gap-2">
+              {step.outputs.map((output) => (
+                <Badge variant="outline">{output}</Badge>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Migration Paths -->
+  <Section bg="secondary">
+    <SectionTitle label="Migration paths">
+      From proprietary to open source
+    </SectionTitle>
+
+    <!-- Platform -->
+    <div class="mb-12 reveal">
+      <h3 class="mb-4 font-mono text-sm text-text-tertiary uppercase tracking-wider">Platform migrations</h3>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {migrations.filter(m => m.category === 'platform').map((m) => (
+          <div class="flex items-center gap-3 rounded-lg border border-border-primary bg-bg-primary p-4">
+            <span class="text-sm text-red-400 line-through">{m.from}</span>
+            <span class="text-text-tertiary">&rarr;</span>
+            <span class="text-sm font-medium text-accent">{m.to}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Observability -->
+    <div class="mb-12 reveal">
+      <h3 class="mb-4 font-mono text-sm text-text-tertiary uppercase tracking-wider">Observability migrations</h3>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {migrations.filter(m => m.category === 'observability').map((m) => (
+          <div class="flex items-center justify-between rounded-lg border border-border-primary bg-bg-primary p-4">
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-red-400 line-through">{m.from}</span>
+              <span class="text-text-tertiary">&rarr;</span>
+              <span class="text-sm font-medium text-accent">{m.to}</span>
+            </div>
+            <Badge variant="accent">{m.savings}/yr</Badge>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Database -->
+    <div class="mb-12 reveal">
+      <h3 class="mb-4 font-mono text-sm text-text-tertiary uppercase tracking-wider">Database migrations</h3>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {migrations.filter(m => m.category === 'database').map((m) => (
+          <div class="flex items-center gap-3 rounded-lg border border-border-primary bg-bg-primary p-4">
+            <span class="text-sm text-red-400 line-through">{m.from}</span>
+            <span class="text-text-tertiary">&rarr;</span>
+            <span class="text-sm font-medium text-accent">{m.to}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="reveal">
+      <h3 class="mb-4 font-mono text-sm text-text-tertiary uppercase tracking-wider">Security &amp; identity migrations</h3>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {migrations.filter(m => m.category === 'security').map((m) => (
+          <div class="flex items-center justify-between rounded-lg border border-border-primary bg-bg-primary p-4">
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-red-400 line-through">{m.from}</span>
+              <span class="text-text-tertiary">&rarr;</span>
+              <span class="text-sm font-medium text-accent">{m.to}</span>
+            </div>
+            {m.savings && <Badge variant="accent">{m.savings}/yr</Badge>}
+          </div>
+        ))}
+      </div>
+    </div>
+  </Section>
+
+  <!-- Vendor Unchaining -->
+  <Section>
+    <SectionTitle label="Unchaining">
+      Breaking free from vendor lock-in
+    </SectionTitle>
+
+    <p class="mb-8 max-w-2xl text-text-secondary leading-relaxed reveal">
+      The most common Exodus migrations start with unchaining from proprietary platforms. Each path has been proven in production.
+    </p>
+
+    <div class="grid gap-6 md:grid-cols-3 reveal-children">
+      <Card>
+        <div class="mb-3 flex items-center gap-2">
+          <span class="text-lg text-red-400">&#10005;</span>
+          <h3 class="font-semibold text-text-primary">VMware</h3>
+        </div>
+        <p class="text-xs text-red-400/80 mb-3">vSphere tax, per-socket licensing, Broadcom uncertainty</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-accent">&#8594;</span>
+          <span class="text-sm font-medium text-accent">OpenOva on bare metal / Hetzner</span>
+        </div>
+        <p class="text-xs text-text-secondary">Eliminate hypervisor licensing entirely. K3s runs directly on bare metal. Typical savings: 60-80% on infrastructure costs.</p>
+      </Card>
+
+      <Card>
+        <div class="mb-3 flex items-center gap-2">
+          <span class="text-lg text-red-400">&#10005;</span>
+          <h3 class="font-semibold text-text-primary">Red Hat OpenShift</h3>
+        </div>
+        <p class="text-xs text-red-400/80 mb-3">Per-core subscription, forked K8s, ecosystem restrictions</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-accent">&#8594;</span>
+          <span class="text-sm font-medium text-accent">K3s + OpenOva</span>
+        </div>
+        <p class="text-xs text-text-secondary">Pure upstream Kubernetes. Every component is the actual open-source project, not a fork. No subscription lock-in.</p>
+      </Card>
+
+      <Card>
+        <div class="mb-3 flex items-center gap-2">
+          <span class="text-lg text-red-400">&#10005;</span>
+          <h3 class="font-semibold text-text-primary">Oracle</h3>
+        </div>
+        <p class="text-xs text-red-400/80 mb-3">License audits, per-processor fees, Java SE traps</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-accent">&#8594;</span>
+          <span class="text-sm font-medium text-accent">PostgreSQL (CNPG) + OpenOva data services</span>
+        </div>
+        <p class="text-xs text-text-secondary">Full database migration to CNPG. No license audits. No per-processor fees. MongoDB workloads via FerretDB.</p>
+      </Card>
+    </div>
+  </Section>
+
+  <!-- Benefits of Air Travel -->
+  <Section>
+    <SectionTitle label="Benefits">
+      Why air travel beats bus service
+    </SectionTitle>
+
+    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 reveal-children">
+      {[
+        { benefit: 'Cost efficiency', desc: 'Eliminate proprietary licensing. Pool infrastructure. Pay for what you use. 60-85% cost reduction.' },
+        { benefit: 'Global reach', desc: 'Multi-region deployment. Independent clusters in any geography. Disaster recovery built in.' },
+        { benefit: 'Speed & agility', desc: 'Deploy in minutes, not months. GitOps-native. Self-service via Catalyst IDP.' },
+        { benefit: 'Professional infrastructure', desc: 'Dedicated control tower (Specter). Standardized procedures. Continuous compliance.' },
+      ].map((item) => (
+        <Card>
+          <h3 class="mb-2 font-semibold text-text-primary text-sm">{item.benefit}</h3>
+          <p class="text-xs text-text-secondary">{item.desc}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Reference Table -->
+  <Section bg="secondary">
+    <SectionTitle label="Reference">
+      Complete analogy mapping
+    </SectionTitle>
+
+    <div class="overflow-x-auto reveal">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border-primary">
+            <th class="py-3 pr-4 text-left font-medium text-red-400">Bus service (on-prem)</th>
+            <th class="py-3 pl-4 text-left font-medium text-accent">Air travel (cloud-native)</th>
+          </tr>
+        </thead>
+        <tbody class="text-text-secondary">
+          {[
+            ['Bus service', 'On-premises infrastructure'],
+            ['Air travel', 'Cloud-native platform (OpenOva)'],
+            ['Passengers', 'Workloads / applications'],
+            ['Bus driver', 'Operations team (manual)'],
+            ['Autopilot', 'Specter (AI operations)'],
+            ['Bus routes', 'Network topology (fixed)'],
+            ['Flight routes', 'Cilium service mesh (dynamic)'],
+            ['Bus depot', 'Data center'],
+            ['Airport', 'Kubernetes cluster'],
+            ['Control tower', 'Grafana observability stack'],
+            ['Baggage handling', 'Data migration (CNPG, Valkey, Strimzi)'],
+            ['Check-in counter', 'State externalization'],
+            ['Security screening', 'OpenBao + ESO (secrets)'],
+            ['Gate assignment', 'Service discovery + DNS'],
+            ['Flight standards', 'Kyverno policies'],
+            ['Pre-flight medical', 'Workload assessment'],
+            ['Fleet modernization', 'Exodus migration program'],
+          ].map(([bus, air]) => (
+            <tr class="border-b border-border-primary/50">
+              <td class="py-2.5 pr-4">{bus}</td>
+              <td class="py-2.5 pl-4">{air}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </Section>
+
+  <!-- CTA -->
+  <Section>
+    <div class="mx-auto max-w-2xl text-center reveal">
+      <h2 class="text-3xl font-bold text-text-primary">Start your assessment</h2>
+      <p class="mt-4 text-text-secondary">The pre-flight medical check starts in week 1. Zero downtime. Full modernization. Not lift-and-shift.</p>
+      <div class="mt-8">
+        <Button href="/contact">Start your assessment</Button>
+      </div>
+    </div>
+  </Section>
+</BaseLayout>

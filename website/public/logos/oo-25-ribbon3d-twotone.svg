@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Style 25: Two-tone 3D ribbon - each side of the ribbon is a different color
+       As the ribbon twists, you see the front face (green) and back face (cyan)
+       The twist reveals both colors on each loop -->
+
+  <!-- Right loop - BACK FACE visible (cyan) + edge strip showing front face (green) -->
+  <!-- Main surface (cyan) -->
+  <path d="
+    M 17 13
+    C 19.5 9  22.5 7  25 7
+    C 28 7  31 10.5  31 16
+    C 31 21.5  28 25  25 25
+    C 22.5 25  19.5 23  17 19
+    L 15 17.5
+    C 17.5 21  21 23  24 23
+    C 27 23  29 20.5  29 16
+    C 29 11.5  27 9  24 9
+    C 21 9  17.5 11  15 14.5
+    Z
+  " fill="#06B6D4"/>
+
+  <!-- Right loop inner edge strip (green showing through twist) -->
+  <path d="
+    M 17 13
+    C 19.5 9  22.5 7  25 7
+    C 28 7  31 10.5  31 16
+    L 30 16
+    C 30 11  27.5 8  25 8
+    C 22.5 8  19.5 10  17.5 13.5
+    Z
+  " fill="#10B981" opacity="0.4"/>
+
+  <!-- Left loop - FRONT FACE visible (green) + edge strip showing back face (cyan) -->
+  <!-- Main surface (green) -->
+  <path d="
+    M 15 19
+    C 12.5 23  9.5 25  7 25
+    C 4 25  1 21.5  1 16
+    C 1 10.5  4 7  7 7
+    C 9.5 7  12.5 9  15 13
+    L 17 14.5
+    C 14.5 11  11 9  8 9
+    C 5 9  3 11.5  3 16
+    C 3 20.5  5 23  8 23
+    C 11 23  14.5 21  17 17.5
+    Z
+  " fill="#10B981"/>
+
+  <!-- Left loop inner edge strip (cyan showing through twist) -->
+  <path d="
+    M 15 19
+    C 12.5 23  9.5 25  7 25
+    C 4 25  1 21.5  1 16
+    L 2 16
+    C 2 21  4.5 24  7 24
+    C 9.5 24  12.5 22  14.5 18.5
+    Z
+  " fill="#06B6D4" opacity="0.4"/>
+</svg>

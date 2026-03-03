@@ -1,0 +1,158 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Section from '../components/shared/Section.astro';
+import SectionTitle from '../components/shared/SectionTitle.astro';
+import Card from '../components/shared/Card.astro';
+import Badge from '../components/shared/Badge.astro';
+import Button from '../components/shared/Button.astro';
+---
+
+<BaseLayout
+  title="About — OpenOva"
+  description="AI-native infrastructure platform. Open source is non-negotiable. Customer advocacy is DNA."
+  path="/about"
+>
+  <!-- Hero -->
+  <Section>
+    <div class="mx-auto max-w-3xl text-center">
+      <h1 class="text-4xl font-extrabold text-text-primary md:text-5xl">
+        Cloud-native is the foundation.<br/>
+        <span class="gradient-text">AI-native is the differentiator.</span>
+      </h1>
+      <p class="mt-6 text-lg text-text-secondary leading-relaxed">
+        We are in an AI gold rush. The companies that extract the most value are the ones with AI-native infrastructure &mdash; not AI bolted onto legacy platforms after the fact.
+      </p>
+    </div>
+  </Section>
+
+  <!-- What we are / are not -->
+  <Section bg="secondary">
+    <div class="grid gap-8 md:grid-cols-2 reveal-children">
+      <div>
+        <h2 class="mb-6 text-2xl font-bold text-text-primary">What OpenOva is</h2>
+        <ul class="space-y-4 text-sm text-text-secondary">
+          {[
+            'Both a consultancy and a productized platform',
+            'A curated ecosystem of upstream open-source components on Kubernetes',
+            'AI-native — Specter has pre-built knowledge of the entire ecosystem',
+            'A partner for the full journey, from first cluster to production-grade',
+            'A single relationship for dozens of open-source disciplines',
+          ].map((item) => (
+            <li class="flex items-start gap-3">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="mt-0.5 flex-shrink-0 text-accent"><path d="M13.3 4.3L6 11.6 2.7 8.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="mb-6 text-2xl font-bold text-text-primary">What OpenOva is not</h2>
+        <ul class="space-y-4 text-sm text-text-secondary">
+          {[
+            'Not a Kubernetes distribution — we curate upstream, not fork',
+            'Not a PaaS — we make K8s operational, not abstract it away',
+            'Not consulting-only — we have IP: blueprints, products, Specter',
+            'Not a tool vendor — we sell an integrated ecosystem',
+            'Not AI-cosmetic — not a chatbot on a dashboard',
+          ].map((item) => (
+            <li class="flex items-start gap-3">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="mt-0.5 flex-shrink-0 text-red-400"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </Section>
+
+  <!-- Principles -->
+  <Section>
+    <SectionTitle label="Principles">
+      What we believe
+    </SectionTitle>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 reveal-children">
+      {[
+        { title: 'Open source is non-negotiable', desc: 'Blueprints are free forever. We don\'t create lock-in through code.' },
+        { title: 'Confidence, not complexity', desc: 'We sell peace of mind, not more tools to manage.' },
+        { title: 'Journey partnership', desc: 'We walk with customers from first cluster to production-grade platform.' },
+        { title: 'Convergence over components', desc: 'The value is in the components working together, not any single one.' },
+        { title: 'AI-native, not AI-bolted', desc: 'Every component is designed to be AI-manageable. Specter is built in, not added as a feature.' },
+        { title: 'Token efficiency is economic advantage', desc: 'Structured CRDs + unified telemetry = surgical AI context. 10x fewer tokens than competitors.' },
+        { title: 'Authenticity', desc: 'No corporate buzzwords, no sugar coating. Open source ethos in everything we do.' },
+      ].map((p) => (
+        <Card>
+          <h3 class="mb-2 font-semibold text-text-primary text-sm">{p.title}</h3>
+          <p class="text-xs text-text-secondary leading-relaxed">{p.desc}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Expert Network -->
+  <Section bg="secondary">
+    <SectionTitle label="Expert network">
+      Every discipline. One relationship.
+    </SectionTitle>
+
+    <div class="mb-8 max-w-2xl reveal">
+      <p class="text-text-secondary leading-relaxed">
+        Organizations adopting dozens of open-source projects need access to specialists with deep expertise in each technology &mdash; not generalists with surface-level knowledge of everything. OpenOva provides a single relationship that connects customers to verified specialists across the entire ecosystem.
+      </p>
+    </div>
+
+    <div class="grid gap-3 sm:grid-cols-2 md:grid-cols-3 reveal-children">
+      {[
+        { area: 'Infrastructure', techs: 'Kubernetes, OpenTofu, Crossplane, Cilium, K3s' },
+        { area: 'Data', techs: 'PostgreSQL (CNPG), FerretDB, Kafka (Strimzi), Valkey, ClickHouse' },
+        { area: 'Security', techs: 'OpenBao, Kyverno, Trivy, Falco, zero-trust architecture' },
+        { area: 'Observability', techs: 'Grafana, Loki, Mimir, Tempo, OpenTelemetry' },
+        { area: 'AI/ML', techs: 'vLLM, KServe, Milvus, RAG architectures, model optimization' },
+        { area: 'Compliance', techs: 'PSD2, DORA, NIS2, SOX, GDPR, banking regulation' },
+      ].map((d) => (
+        <Card>
+          <h3 class="mb-2 font-semibold text-text-primary text-sm">{d.area}</h3>
+          <p class="text-xs text-text-tertiary">{d.techs}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Locations -->
+  <Section>
+    <SectionTitle label="Global presence">
+      Where we operate
+    </SectionTitle>
+
+    <div class="grid gap-4 sm:grid-cols-3 reveal-children">
+      {[
+        { city: 'Muscat', country: 'Oman', desc: 'Headquarters. Banking and regulated verticals.' },
+        { city: 'Dubai', country: 'UAE', desc: 'Regional hub. Enterprise and fintech.' },
+        { city: 'Istanbul', country: 'Turkiye', desc: 'Engineering center. Platform development.' },
+      ].map((loc) => (
+        <Card>
+          <h3 class="mb-1 font-semibold text-text-primary text-sm">{loc.city}</h3>
+          <p class="text-xs text-accent font-medium mb-2">{loc.country}</p>
+          <p class="text-xs text-text-tertiary leading-relaxed">{loc.desc}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Customer advocacy -->
+  <Section>
+    <div class="mx-auto max-w-3xl text-center reveal">
+      <p class="font-mono text-sm text-accent mb-4">Customer advocacy is DNA</p>
+      <h2 class="text-3xl font-bold text-text-primary">
+        The strongest engagement comes from choices, not mandates
+      </h2>
+      <p class="mt-4 text-lg text-text-secondary leading-relaxed">
+        Freedom to leave is confidence to stay. Every blueprint is open source. Walk away and everything keeps running. You only lose the support, the AI operations, and the expert network. That is the only honest way to sell confidence.
+      </p>
+      <div class="mt-8">
+        <Button href="/contact">Start a conversation</Button>
+      </div>
+    </div>
+  </Section>
+</BaseLayout>

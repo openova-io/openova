@@ -1,0 +1,339 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Section from '../components/shared/Section.astro';
+import SectionTitle from '../components/shared/SectionTitle.astro';
+import Card from '../components/shared/Card.astro';
+import Badge from '../components/shared/Badge.astro';
+import Button from '../components/shared/Button.astro';
+---
+
+<BaseLayout
+  title="Engagement Model — OpenOva"
+  description="Three pathways to production. Discover, Transform, Operate. All software free. Per-vCPU-core support subscription."
+  path="/engagement"
+>
+  <!-- Hero -->
+  <Section>
+    <div class="mx-auto max-w-3xl text-center">
+      <Badge variant="accent" class="mb-6">Your journey</Badge>
+      <h1 class="text-4xl font-extrabold text-text-primary md:text-5xl">
+        Your journey.<br/>
+        <span class="gradient-text">Three pathways.</span>
+      </h1>
+      <p class="mt-6 text-lg text-text-secondary leading-relaxed">
+        Every organization is different. Some need discovery first. Others are ready to transform. All need ongoing operational excellence. Pick your entry point.
+      </p>
+      <div class="mt-8 mx-auto max-w-2xl rounded-xl border border-accent/20 bg-accent/5 p-6">
+        <p class="text-sm text-text-secondary leading-relaxed">
+          <span class="font-semibold text-accent">Open-source first.</span> All software is free forever. Community edition equals enterprise edition — no feature gating, no open-core model. Every platform component ships with every deployment. You only pay for support.
+        </p>
+      </div>
+    </div>
+  </Section>
+
+  <!-- Three Pathways -->
+  <Section bg="secondary">
+    <SectionTitle label="Pathways">
+      Discover. Transform. Operate.
+    </SectionTitle>
+
+    <div class="grid gap-6 md:grid-cols-3 reveal-children">
+      <Card>
+        <div class="mb-4">
+          <Badge variant="outline">Pathway 1</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">Discover</h3>
+        <p class="text-sm text-text-tertiary mb-4">Consultancy &amp; assessment</p>
+        <ul class="space-y-2 text-sm text-text-secondary">
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Current state assessment
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Architecture review
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Migration feasibility analysis
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            AI-readiness evaluation
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            ROI projection
+          </li>
+        </ul>
+        <div class="mt-6 pt-4 border-t border-border-primary">
+          <p class="text-xs text-text-tertiary">Statement of Work or T&amp;M</p>
+        </div>
+      </Card>
+
+      <Card>
+        <div class="mb-4">
+          <Badge variant="accent">Pathway 2</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">Transform</h3>
+        <p class="text-sm text-text-tertiary mb-4">Deployment + migration</p>
+        <ul class="space-y-2 text-sm text-text-secondary">
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Platform deployment
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Exodus migration (if needed)
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Blueprint customization
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Team enablement
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Go-live support
+          </li>
+        </ul>
+        <div class="mt-6 pt-4 border-t border-border-primary">
+          <p class="text-xs text-text-tertiary">Project-based engagement</p>
+        </div>
+      </Card>
+
+      <Card>
+        <div class="mb-4">
+          <Badge variant="outline">Pathway 3</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">Operate</h3>
+        <p class="text-sm text-text-tertiary mb-4">Subscription + add-ons</p>
+        <ul class="space-y-2 text-sm text-text-secondary">
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Per-vCPU-core support
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Upgrade lifecycle management
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Incident response
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Specter AI operations
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-accent mt-0.5 flex-shrink-0">&#10003;</span>
+            Expert network access
+          </li>
+        </ul>
+        <div class="mt-6 pt-4 border-t border-border-primary">
+          <p class="text-xs text-text-tertiary">Per-vCPU-core subscription</p>
+        </div>
+      </Card>
+    </div>
+  </Section>
+
+  <!-- What's Free vs What's Paid -->
+  <Section>
+    <SectionTitle label="Transparent">
+      What&rsquo;s free vs. what&rsquo;s paid
+    </SectionTitle>
+
+    <div class="grid gap-8 md:grid-cols-2 reveal-children">
+      <div class="rounded-xl border border-accent/20 bg-bg-secondary p-8">
+        <div class="mb-6 flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-accent"></span>
+          <h3 class="text-lg font-semibold text-text-primary">Always free</h3>
+        </div>
+        <ul class="space-y-3 text-sm text-text-secondary">
+          {[
+            'Every platform component',
+            'All blueprints and manifests',
+            'Full source code access',
+            'Multi-region DR blueprints',
+            'Zero-trust security configs',
+            'Product blueprints (Cortex, Fingate, Fabric, Relay)',
+            'Self-service deployment',
+            'Community support',
+          ].map((item) => (
+            <li class="flex items-start gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="mt-0.5 flex-shrink-0 text-accent"><path d="M13.3 4.3L6 11.6 2.7 8.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="rounded-xl border border-border-primary bg-bg-secondary p-8">
+        <div class="mb-6 flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-text-tertiary"></span>
+          <h3 class="text-lg font-semibold text-text-primary">Paid (support subscription)</h3>
+        </div>
+        <ul class="space-y-3 text-sm text-text-secondary">
+          {[
+            'Platform support SLA',
+            'Upgrade lifecycle management',
+            'Incident response',
+            'Specter AI operational agents',
+            'Expert network hours',
+            'Managed operations option',
+            'Product-specific support',
+            'Custom blueprint engineering',
+          ].map((item) => (
+            <li class="flex items-start gap-2">
+              <span class="text-text-tertiary mt-0.5 flex-shrink-0">&mdash;</span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </Section>
+
+  <!-- Contract Flexibility -->
+  <Section bg="secondary">
+    <SectionTitle label="Flexibility">
+      Contract models that fit your needs
+    </SectionTitle>
+
+    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 reveal-children">
+      <Card>
+        <h3 class="mb-2 font-semibold text-text-primary">ELA</h3>
+        <p class="text-xs text-text-tertiary mb-3">Enterprise License Agreement</p>
+        <p class="text-sm text-text-secondary">Commit to minimum core count for 1-3 years. Grow freely. True-up at renewal.</p>
+      </Card>
+      <Card>
+        <h3 class="mb-2 font-semibold text-text-primary">PAYG</h3>
+        <p class="text-xs text-text-tertiary mb-3">Pay As You Go</p>
+        <p class="text-sm text-text-secondary">Monthly billing on actual cores. No commitment. Higher per-core rate for flexibility.</p>
+      </Card>
+      <Card>
+        <h3 class="mb-2 font-semibold text-text-primary">SOW</h3>
+        <p class="text-xs text-text-tertiary mb-3">Statement of Work</p>
+        <p class="text-sm text-text-secondary">Fixed-scope project. Assessment, deployment, or migration. Clear deliverables and timeline.</p>
+      </Card>
+      <Card>
+        <h3 class="mb-2 font-semibold text-text-primary">T&amp;M</h3>
+        <p class="text-xs text-text-tertiary mb-3">Time &amp; Materials</p>
+        <p class="text-sm text-text-secondary">Expert network hours in 40/80/160 blocks. Unused hours roll forward one quarter.</p>
+      </Card>
+    </div>
+  </Section>
+
+  <!-- Add-on Services -->
+  <Section>
+    <SectionTitle label="Add-ons">
+      Extend your subscription
+    </SectionTitle>
+
+    <div class="overflow-x-auto reveal">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border-primary">
+            <th class="py-3 pr-4 text-left font-medium text-text-primary">Add-on</th>
+            <th class="py-3 px-4 text-left font-medium text-text-primary">Basis</th>
+            <th class="py-3 pl-4 text-left font-medium text-text-primary">Description</th>
+          </tr>
+        </thead>
+        <tbody class="text-text-secondary">
+          {[
+            { addon: 'Managed Operations', basis: 'Per-core', desc: 'We own the pager. 24/7 operational responsibility.' },
+            { addon: 'Specter Enhanced', basis: 'Per-core', desc: 'Custom agent training, industry-specific compliance rules' },
+            { addon: 'Fingate Support', basis: 'Per-core', desc: 'Open Banking specific support and upgrades' },
+            { addon: 'Cortex Support', basis: 'Per-core', desc: 'AI Hub specific support, model management' },
+            { addon: 'Expert Network Hours', basis: 'Block pricing', desc: '40/80/160 hour blocks, unused hours roll 1 quarter' },
+          ].map((row) => (
+            <tr class="border-b border-border-primary/50">
+              <td class="py-3 pr-4 font-medium text-text-primary">{row.addon}</td>
+              <td class="py-3 px-4"><Badge variant="outline">{row.basis}</Badge></td>
+              <td class="py-3 pl-4">{row.desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </Section>
+
+  <!-- ROI -->
+  <Section bg="secondary">
+    <SectionTitle label="ROI">
+      The economics are clear
+    </SectionTitle>
+
+    <div class="grid gap-4 sm:grid-cols-3 reveal-children">
+      <div class="rounded-xl border border-border-primary bg-bg-primary p-6 text-center">
+        <p class="text-3xl font-bold text-accent">60-85%</p>
+        <p class="mt-1 text-sm text-text-tertiary">cost savings vs status quo</p>
+      </div>
+      <div class="rounded-xl border border-border-primary bg-bg-primary p-6 text-center">
+        <p class="text-3xl font-bold text-accent">&lt; 3 mo</p>
+        <p class="mt-1 text-sm text-text-tertiary">payback period</p>
+      </div>
+      <div class="rounded-xl border border-border-primary bg-bg-primary p-6 text-center">
+        <p class="text-3xl font-bold text-accent">70%+</p>
+        <p class="mt-1 text-sm text-text-tertiary">SOC/NOC team reduction</p>
+      </div>
+    </div>
+
+    <div class="mt-8 grid gap-6 md:grid-cols-2 reveal-children">
+      {[
+        { title: 'Why per-vCPU-core?', desc: 'Scales linearly with actual infrastructure. No per-component charges. No per-node gotchas. Every component for one subscription price.' },
+        { title: 'No vendor lock-in', desc: 'All software is open source. If you leave, keep everything. Only lose support. We never trap customers.' },
+        { title: 'Better than Red Hat', desc: 'You should not pay more for using more open-source tools. Our per-core model covers every platform component.' },
+        { title: 'Better than SaaS', desc: 'Datadog, Splunk, Auth0 charge per-host, per-GB, per-seat. Our single metric covers the entire platform.' },
+      ].map((item) => (
+        <Card>
+          <h3 class="mb-2 text-sm font-semibold text-text-primary">{item.title}</h3>
+          <p class="text-xs text-text-secondary">{item.desc}</p>
+        </Card>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Customer Advocacy -->
+  <Section>
+    <SectionTitle label="Advocacy">
+      Freedom to leave is confidence to stay
+    </SectionTitle>
+
+    <div class="mx-auto max-w-3xl reveal">
+      <div class="rounded-xl border border-accent/20 bg-bg-secondary p-8">
+        <p class="text-lg text-text-secondary leading-relaxed mb-6">
+          Customer advocacy is in our DNA. Every blueprint, every manifest, every configuration is yours. If you decide to leave OpenOva, the exit strategy is simple:
+        </p>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div class="text-center">
+            <p class="text-2xl font-bold text-accent mb-1">Do nothing</p>
+            <p class="text-xs text-text-tertiary">Everything keeps running</p>
+          </div>
+          <div class="text-center">
+            <p class="text-2xl font-bold text-text-primary mb-1">Keep all code</p>
+            <p class="text-xs text-text-tertiary">Full source access forever</p>
+          </div>
+          <div class="text-center">
+            <p class="text-2xl font-bold text-text-primary mb-1">Only lose support</p>
+            <p class="text-xs text-text-tertiary">No kill switch, no degradation</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Section>
+
+  <!-- CTA -->
+  <Section bg="secondary">
+    <div class="mx-auto max-w-2xl text-center reveal">
+      <h2 class="text-3xl font-bold text-text-primary">Ready to start your journey?</h2>
+      <p class="mt-4 text-text-secondary">Early adopters get discounted rates. Engagement is flexible for the first customers.</p>
+      <div class="mt-8 flex flex-wrap justify-center gap-4">
+        <Button href="/contact">Talk to us</Button>
+        <Button href="/platform" variant="secondary">Explore platform</Button>
+      </div>
+    </div>
+  </Section>
+</BaseLayout>

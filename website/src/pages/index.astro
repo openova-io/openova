@@ -1,0 +1,29 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import HomeCarousel from '../components/islands/HomeCarousel.svelte';
+import CarouselSlides from '../components/home/CarouselSlides.astro';
+import AINativePillars from '../components/home/AINativePillars.astro';
+import ProductFamily from '../components/home/ProductFamily.astro';
+import ROIHighlight from '../components/home/ROIHighlight.astro';
+import TrustSignals from '../components/home/TrustSignals.astro';
+import ExodusTeaser from '../components/home/ExodusTeaser.astro';
+import FreeSoftwarePromise from '../components/home/FreeSoftwarePromise.astro';
+import FinalCTA from '../components/home/FinalCTA.astro';
+---
+
+<BaseLayout
+  title="OpenOva — The converged cloud-native platform"
+  description="AI-native infrastructure platform. Open-source components on Kubernetes with proven interoperability. Every component AI-manageable by design."
+  path=""
+>
+  <HomeCarousel client:load slideCount={5}>
+    <CarouselSlides />
+  </HomeCarousel>
+  <AINativePillars />
+  <ProductFamily />
+  <ROIHighlight />
+  <TrustSignals />
+  <ExodusTeaser />
+  <FreeSoftwarePromise />
+  <FinalCTA />
+</BaseLayout>

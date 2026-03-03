@@ -1,0 +1,619 @@
+---
+import BuildingBlocksDiagram from '../shared/BuildingBlocksDiagram.astro';
+import Button from '../shared/Button.astro';
+
+const blocks = [
+  { name: 'GUARDIAN', concept: 'Security', color: '#EF4444', count: 9 },
+  { name: 'INSIGHTS', concept: 'AIOps', color: '#A855F7', count: 10 },
+  { name: 'PILOT', concept: 'GitOps & IaC', color: '#8B5CF6', count: 4 },
+  { name: 'SPINE', concept: 'Networking', color: '#3B82F6', count: 8 },
+  { name: 'SURGE', concept: 'Scaling', color: '#14B8A6', count: 4 },
+  { name: 'SILO', concept: 'Storage', color: '#6366F1', count: 3 },
+  { name: 'CATALYST', concept: 'Bootstrap', color: '#3B82F6', count: 2 },
+  { name: 'CORTEX', concept: 'AI Hub', color: '#F97316', count: 10 },
+  { name: 'FABRIC', concept: 'Data', color: '#EC4899', count: 10 },
+  { name: 'RELAY', concept: 'Comms', color: '#06B6D4', count: 5 },
+];
+---
+
+<!-- Slide 0: Lean building blocks overview -->
+<div class="carousel-slide carousel-slide--active" data-carousel-slide>
+  <div class="carousel-content">
+    <div class="carousel-left">
+      <h1 class="carousel-text text-3xl font-extrabold text-text-primary md:text-5xl lg:text-6xl leading-tight">
+        The converged<br/>cloud-native platform.<br/><span class="gradient-text">AI-native by design.</span>
+      </h1>
+      <p class="carousel-desc mt-6 text-lg text-text-secondary leading-relaxed md:text-xl">
+        52 open-source components. Ten building blocks. One converged ecosystem where every component is designed to be AI-manageable.
+      </p>
+      <div class="carousel-cta mt-8 flex flex-wrap gap-4">
+        <Button href="/platform">Explore platform</Button>
+        <Button href="/contact" variant="secondary">Talk to us</Button>
+      </div>
+    </div>
+    <div class="carousel-right carousel-visual">
+      <div class="lean-blocks">
+        <div class="lean-blocks__section">
+          <span class="lean-blocks__label">Core <span class="lean-blocks__badge">40</span></span>
+          <div class="lean-blocks__grid lean-blocks__grid--core">
+            {blocks.slice(0, 7).map(b => (
+              <div class="lean-block" style={`--bc: ${b.color};`}>
+                <span class="lean-block__name">{b.name}</span>
+                <span class="lean-block__concept">{b.concept}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div class="lean-blocks__section">
+          <span class="lean-blocks__label">A La Carte <span class="lean-blocks__badge">25</span></span>
+          <div class="lean-blocks__grid lean-blocks__grid--alc">
+            {blocks.slice(7).map(b => (
+              <div class="lean-block" style={`--bc: ${b.color};`}>
+                <span class="lean-block__name">{b.name}</span>
+                <span class="lean-block__concept">{b.concept}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div class="lean-blocks__footer">
+          <span class="lean-blocks__k8s">Kubernetes (K3s)</span>
+          <span class="lean-blocks__clouds">Huawei · AWS · Oracle OCI · Hetzner</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 1: Upstream CNCF — Tech names view -->
+<div class="carousel-slide" data-carousel-slide aria-hidden="true">
+  <div class="carousel-content">
+    <div class="carousel-left">
+      <h1 class="carousel-text text-3xl font-extrabold text-text-primary md:text-5xl lg:text-6xl leading-tight">
+        Upstream open source.<br/><span class="gradient-text">Production-grade convergence.</span>
+      </h1>
+      <p class="carousel-desc mt-6 text-lg text-text-secondary leading-relaxed md:text-xl">
+        We don't fork. We don't abstract away. We take 52 upstream CNCF and open-source projects and make them work together &mdash; with blueprints that are free forever.
+      </p>
+      <div class="carousel-cta mt-8 flex flex-wrap gap-4">
+        <Button href="/platform">See the components</Button>
+      </div>
+    </div>
+    <div class="carousel-right carousel-visual">
+      <BuildingBlocksDiagram viewMode={2} interactive={false} />
+    </div>
+  </div>
+</div>
+
+<!-- Slide 2: Engagement model -->
+<div class="carousel-slide" data-carousel-slide aria-hidden="true">
+  <div class="carousel-content">
+    <div class="carousel-left">
+      <h1 class="carousel-text text-3xl font-extrabold text-text-primary md:text-5xl lg:text-6xl leading-tight">
+        From self-managed to<br/><span class="gradient-text">fully supported.</span>
+      </h1>
+      <p class="carousel-desc mt-6 text-lg text-text-secondary leading-relaxed md:text-xl">
+        You choose the relationship. Deploy for free, engage when ready, scale the support as you grow. Community equals enterprise &mdash; always.
+      </p>
+      <div class="carousel-cta mt-8 flex flex-wrap gap-4">
+        <Button href="/engagement">See the model</Button>
+      </div>
+    </div>
+    <div class="carousel-right carousel-visual">
+      <div class="models-visual">
+        <div class="model-card model-card--community">
+          <div class="model-card-header">
+            <span class="model-icon">∞</span>
+            <h3 class="model-title">COMMUNITY</h3>
+          </div>
+          <p class="model-full">Full platform. Zero restrictions. Forever free.</p>
+          <p class="model-desc">Community edition equals enterprise edition. Every component, every feature. Self-manage with no dependencies, no strings attached.</p>
+        </div>
+        <div class="model-card">
+          <span class="model-icon">⟳</span>
+          <h3 class="model-title">PAYG</h3>
+          <p class="model-desc">Per-use flexibility. Scale up or down without commitment.</p>
+        </div>
+        <div class="model-card">
+          <span class="model-icon">⧖</span>
+          <h3 class="model-title">T&M</h3>
+          <p class="model-desc">Expert hours when you need them. Consultancy, migration, deep-dives.</p>
+        </div>
+        <div class="model-card">
+          <span class="model-icon">◈</span>
+          <h3 class="model-title">SOW</h3>
+          <p class="model-desc">Fixed scope, clear milestones, defined outcome.</p>
+        </div>
+        <div class="model-card model-card--highlight">
+          <span class="model-icon">⬡</span>
+          <h3 class="model-title">ESA</h3>
+          <p class="model-full">Enterprise Subscription Agreement</p>
+          <p class="model-desc">Per-vCPU-core annual. Full platform support included.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 3: Exodus -->
+<div class="carousel-slide" data-carousel-slide aria-hidden="true">
+  <div class="carousel-content">
+    <div class="carousel-left">
+      <h1 class="carousel-text text-3xl font-extrabold text-text-primary md:text-5xl lg:text-6xl leading-tight">
+        Break free from<br/><span class="gradient-text">proprietary lock-in.</span>
+      </h1>
+      <p class="carousel-desc mt-6 text-lg text-text-secondary leading-relaxed md:text-xl">
+        Full legacy assessment. AI modernization roadmap. Structured migration. Zero-downtime transition to open source.
+      </p>
+      <div class="carousel-cta mt-8 flex flex-wrap gap-4">
+        <Button href="/exodus">Explore Exodus</Button>
+      </div>
+    </div>
+    <div class="carousel-right carousel-visual">
+      <div class="exodus-cards">
+        <div class="exodus-card exodus-card--assess">
+          <span class="exodus-card-num">1</span>
+          <div class="exodus-card-body">
+            <h3 class="exodus-card-title">ASSESS</h3>
+            <p class="exodus-card-desc">Full legacy inventory, dependency mapping, risk analysis</p>
+          </div>
+        </div>
+        <div class="exodus-card exodus-card--plan">
+          <span class="exodus-card-num">2</span>
+          <div class="exodus-card-body">
+            <h3 class="exodus-card-title">PLAN</h3>
+            <p class="exodus-card-desc">AI modernization roadmap, component-by-component migration plan</p>
+          </div>
+        </div>
+        <div class="exodus-card exodus-card--pilot">
+          <span class="exodus-card-num">3</span>
+          <div class="exodus-card-body">
+            <h3 class="exodus-card-title">PILOT</h3>
+            <p class="exodus-card-desc">Non-critical workloads first, validate patterns, build confidence</p>
+          </div>
+        </div>
+        <div class="exodus-card exodus-card--migrate">
+          <span class="exodus-card-num">4</span>
+          <div class="exodus-card-body">
+            <h3 class="exodus-card-title">MIGRATE</h3>
+            <p class="exodus-card-desc">Rolling migration, zero-downtime cutover, parallel validation</p>
+          </div>
+        </div>
+        <div class="exodus-card exodus-card--optimize">
+          <span class="exodus-card-num">5</span>
+          <div class="exodus-card-body">
+            <h3 class="exodus-card-title">OPTIMIZE</h3>
+            <p class="exodus-card-desc">Performance tuning, Specter onboarding, ongoing platform support</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 4: What OpenOva is -->
+<div class="carousel-slide" data-carousel-slide aria-hidden="true">
+  <div class="carousel-content">
+    <div class="carousel-left">
+      <h1 class="carousel-text text-3xl font-extrabold text-text-primary md:text-5xl lg:text-6xl leading-tight">
+        What OpenOva is.
+      </h1>
+      <p class="carousel-desc mt-6 text-lg text-text-secondary leading-relaxed md:text-xl">
+        Not a K8s distro. Not a PaaS. A converged ecosystem with AI-native operations built in.
+      </p>
+      <div class="carousel-cta mt-8 flex flex-wrap gap-4">
+        <Button href="/about">Learn more</Button>
+      </div>
+    </div>
+    <div class="carousel-right carousel-visual">
+      <div class="identity-wrapper">
+        <div class="identity-stats">
+          <div class="identity-stat">
+            <span class="identity-stat-num">52</span>
+            <span class="identity-stat-label">Components</span>
+          </div>
+          <div class="identity-stat">
+            <span class="identity-stat-num">100%</span>
+            <span class="identity-stat-label">Open Source</span>
+          </div>
+          <div class="identity-stat">
+            <span class="identity-stat-num">Zero</span>
+            <span class="identity-stat-label">Lock-in</span>
+          </div>
+        </div>
+        <div class="identity-grid">
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">Consultancy + productized platform from day 1</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not a Kubernetes distribution</span>
+          </div>
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">52 curated upstream open-source components</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not a PaaS or serverless platform</span>
+          </div>
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">AI-native — Specter knows every CRD</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not consulting-only, not product-only</span>
+          </div>
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">Full journey: assess, migrate, operate</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not a tool vendor with lock-in</span>
+          </div>
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">One relationship, every discipline</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not AI-cosmetic — AI is architecture</span>
+          </div>
+          <div class="id-card id-card--is">
+            <span class="id-card-icon">&#10003;</span>
+            <span class="id-card-text">Community = enterprise. No feature gating.</span>
+          </div>
+          <div class="id-card id-card--not">
+            <span class="id-card-icon">&#10005;</span>
+            <span class="id-card-text">Not a gatekeeper. Everything keeps running.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  /* ── Carousel slide states ── */
+  .carousel-slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.5rem;
+  }
+  .carousel-slide--active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Staggered entrance */
+  .carousel-slide--active .carousel-text { animation: carouselSlideIn 0.5s ease-out 0.1s both; }
+  .carousel-slide--active .carousel-desc { animation: carouselSlideIn 0.5s ease-out 0.25s both; }
+  .carousel-slide--active .carousel-cta { animation: carouselSlideIn 0.5s ease-out 0.4s both; }
+  .carousel-slide--active .carousel-visual { animation: carouselFadeIn 0.6s ease-out 0.3s both; }
+
+  @media (max-width: 767px) {
+    .carousel-slide {
+      position: relative;
+      padding: 1.5rem 1rem;
+    }
+    .carousel-slide:not(.carousel-slide--active) {
+      display: none;
+    }
+  }
+
+  /* ── Shared slide layout ── */
+  .carousel-content {
+    width: 100%;
+    max-width: 80rem;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 45% 55%;
+    gap: 3rem;
+    align-items: center;
+    min-height: calc(100vh - 10rem);
+  }
+  .carousel-left { padding-right: 1rem; }
+  .carousel-right { display: flex; align-items: center; justify-content: center; }
+
+  /* ── Exodus visual (card grid) ── */
+  .exodus-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
+    width: 100%;
+    max-width: 28rem;
+  }
+  .exodus-card {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.875rem 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(239,68,68,0.15);
+    background: rgba(239,68,68,0.04);
+    transition: transform 0.3s ease, border-color 0.3s ease;
+  }
+  .exodus-card:hover { transform: translateY(-4px); border-color: rgba(239,68,68,0.35); }
+  .exodus-card:last-child {
+    grid-column: 1 / -1;
+    border-color: rgba(16,185,129,0.35);
+    background: rgba(16,185,129,0.08);
+    position: relative;
+    overflow: hidden;
+  }
+  .exodus-card:last-child::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #10B981, #34D399, #10B981);
+  }
+  .exodus-card:last-child:hover { border-color: rgba(16,185,129,0.5); }
+  .exodus-card-num {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    background: rgba(239,68,68,0.15);
+    color: #EF4444;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .exodus-card:last-child .exodus-card-num {
+    background: rgba(16,185,129,0.15);
+    color: #10B981;
+  }
+  .exodus-card-body { flex: 1; }
+  .exodus-card-title {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    letter-spacing: 0.03em;
+  }
+  .exodus-card:last-child .exodus-card-title { color: #10B981; }
+  .exodus-card-desc {
+    font-size: 0.6875rem;
+    color: var(--color-text-tertiary);
+    margin-top: 0.25rem;
+    line-height: 1.4;
+  }
+
+  /* ── Models visual ── */
+  .models-visual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
+    width: 100%;
+    max-width: 28rem;
+  }
+  .model-card {
+    padding: 0.75rem 1rem; border-radius: 0.75rem;
+    border: 1px solid rgba(16,185,129,0.15); background: rgba(16,185,129,0.04);
+    transition: transform 0.3s ease, border-color 0.3s ease;
+  }
+  .model-card:hover { transform: translateY(-4px); border-color: rgba(16,185,129,0.35); }
+  .model-card--highlight { border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.08); }
+  .model-card--community {
+    grid-column: 1 / -1;
+    border-color: #10B981;
+    background: rgba(16,185,129,0.1);
+    padding: 1rem 1.25rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .model-card--community::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #10B981, #34D399, #10B981);
+  }
+  .model-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .model-card-header .model-icon { margin-bottom: 0; }
+  .model-card-header .model-title { font-size: 1.0625rem; }
+  .model-icon { font-size: 1.25rem; color: #10B981; display: block; margin-bottom: 0.375rem; }
+  .model-title { font-family: var(--font-mono); font-size: 0.875rem; font-weight: 700; color: var(--color-text-primary); }
+  .model-full { font-size: 0.625rem; color: #10B981; margin-top: 0.25rem; font-weight: 600; }
+  .model-desc { font-size: 0.6875rem; color: var(--color-text-tertiary); margin-top: 0.25rem; line-height: 1.4; }
+
+  /* ── Identity visual ── */
+  .identity-wrapper { width: 100%; max-width: 32rem; }
+  .identity-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .identity-stat {
+    text-align: center;
+    padding: 0.75rem 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(16,185,129,0.15);
+    background: rgba(16,185,129,0.04);
+  }
+  .identity-stat-num {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #10B981;
+    line-height: 1;
+  }
+  .identity-stat-label {
+    display: block;
+    font-size: 0.625rem;
+    color: var(--color-text-tertiary);
+    margin-top: 0.25rem;
+    font-weight: 500;
+  }
+  /* Identity card grid */
+  .identity-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    width: 100%;
+  }
+  .id-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid;
+    transition: transform 0.3s ease, border-color 0.3s ease;
+  }
+  .id-card:hover { transform: translateY(-2px); }
+  .id-card--is {
+    border-color: rgba(16,185,129,0.2);
+    background: rgba(16,185,129,0.04);
+  }
+  .id-card--is:hover { border-color: rgba(16,185,129,0.4); }
+  .id-card--not {
+    border-color: rgba(239,68,68,0.2);
+    background: rgba(239,68,68,0.04);
+  }
+  .id-card--not:hover { border-color: rgba(239,68,68,0.4); }
+  .id-card-icon {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-top: 0.125rem;
+  }
+  .id-card--is .id-card-icon { color: #10B981; }
+  .id-card--not .id-card-icon { color: #EF4444; }
+  .id-card-text {
+    font-size: 0.6875rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+  }
+
+  /* ── Lean building blocks (Slide 0) ── */
+  .lean-blocks {
+    width: 100%;
+    max-width: 28rem;
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+  .lean-blocks__section {
+    padding: 0.5rem;
+  }
+  .lean-blocks__section + .lean-blocks__section {
+    border-top: 1px dashed var(--color-border-primary);
+  }
+  .lean-blocks__label {
+    display: block;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: var(--color-text-tertiary);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.375rem;
+    text-transform: uppercase;
+  }
+  .lean-blocks__badge {
+    display: inline-block;
+    font-size: 0.5625rem;
+    background: rgba(255,255,255,0.08);
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.1875rem;
+    margin-left: 0.125rem;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  .lean-blocks__grid {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .lean-blocks__grid--core {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .lean-blocks__grid--core .lean-block:nth-child(5),
+  .lean-blocks__grid--core .lean-block:nth-child(6),
+  .lean-blocks__grid--core .lean-block:nth-child(7) {
+    /* last row: 3 items across 4 cols — center them */
+  }
+  .lean-blocks__grid--alc {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .lean-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 2.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid color-mix(in srgb, var(--bc) 25%, transparent);
+    background: color-mix(in srgb, var(--bc) 6%, transparent);
+    padding: 0.25rem 0.125rem;
+    gap: 0;
+    transition: border-color 0.2s;
+  }
+  .lean-block:hover {
+    border-color: color-mix(in srgb, var(--bc) 50%, transparent);
+  }
+  .lean-block__name {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: var(--bc);
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+  }
+  .lean-block__concept {
+    font-size: 0.5625rem;
+    color: var(--color-text-tertiary);
+    line-height: 1.2;
+  }
+  .lean-blocks__footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 0.25rem 0.5rem;
+    background: var(--color-bg-secondary, #111);
+    border-top: 1px solid var(--color-border-primary);
+  }
+  .lean-blocks__k8s {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.5625rem;
+    font-weight: 700;
+    color: #94A3B8;
+  }
+  .lean-blocks__clouds {
+    font-size: 0.5rem;
+    color: var(--color-text-tertiary);
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 767px) {
+    .carousel-content { grid-template-columns: 1fr; gap: 2rem; min-height: auto; padding: 1rem 0; }
+    .carousel-left { padding-right: 0; text-align: center; }
+    .carousel-left .carousel-cta { justify-content: center; }
+    .carousel-right { order: 1; }
+    .exodus-cards { grid-template-columns: 1fr; }
+    .identity-grid { grid-template-columns: 1fr; }
+    .lean-blocks__grid--core { grid-template-columns: repeat(3, 1fr); }
+    .lean-blocks__grid--alc { grid-template-columns: repeat(3, 1fr); }
+    .lean-block { min-height: 2.25rem; }
+  }
+</style>

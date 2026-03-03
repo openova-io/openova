@@ -224,26 +224,31 @@
 
 ### Core Identity
 
-OpenOva.io is **NOT** another Kubernetes platform or IDP. It is:
-- **Enterprise-grade support provider for open-source K8s ecosystems**
-- **Transformation journey partner** for organizations adopting cloud-native
+OpenOva is an **AI-native infrastructure platform**. Cloud-native is the foundation. AI-native is the differentiator.
+
+- **AI-native infrastructure platform** — 52 open-source components, every one designed to be AI-manageable
+- **AI-powered operations built in** — Specter has pre-built semantic knowledge of the entire ecosystem
+- **Transformation journey partner** — from legacy assessment through AI modernization
 - **Converged blueprint ecosystem** with operational guarantees
 
 ### Value Proposition
 
-"We provide enterprise-grade, end-to-end support for curated open-source ecosystems on Kubernetes. We don't just deploy technologies - we optimize, harden, upgrade, and stand behind them."
+"We provide an AI-native infrastructure platform: 52 curated open-source components on Kubernetes, every one managed by AI. Specter — our AI brain — has pre-built semantic knowledge of every CRD, integration dependency, and failure mode. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on after the fact."
 
 ### Differentiator
 
-- **Operational excellence** (Day-2 safety, upgrades, SLAs) - not tooling
-- **Confidence as a service** - we own the pager, not the customer
-- **Productized blueprints** - intellectual property is in the converged, optimized configurations
+- **Specter's semantic knowledge moat** — pre-built models of every CRD schema, integration graph, failure mode, health check, upgrade path, and compliance mapping across 52 components
+- **Token efficiency as economic advantage** — competitors bolt AI onto unstructured platforms and dump massive context. Specter sends surgical context. 10x fewer tokens, 10x faster, 10x more accurate.
+- **AI-manageable by design** — structured CRDs, unified OTel telemetry, standardized health endpoints, Kyverno policy-as-code, declarative GitOps
+- **Operational excellence** (Day-2 safety, upgrades, SLAs) — not tooling
+- **Confidence as a service** — we own the pager, not the customer
 
 ### Target Market
 
 - Banks, telcos, petroleum (regulated industries)
 - Organizations scared of OSS complexity but wanting to avoid vendor lock-in
 - Teams burned by past platform attempts
+- Enterprises seeking AI-native operations without building from scratch
 
 ---
 
@@ -1075,10 +1080,10 @@ Evaluated what's MISSING from the stack that would score high in AI-age relevanc
 | AI Hub | **OpenOva Cortex** | LLM serving, RAG, AI safety, LLM observability |
 | SaaS LLM Gateway | **OpenOva Axon** | Hosted inference gateway (renamed from Synapse) |
 | Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
-| AIOps SOC/NOC | **OpenOva Specter** | AI-powered SOAR, self-healing |
+| AIOps SOC/NOC | **OpenOva Specter** | AI brain with pre-built semantic knowledge of all 52 components. AI-powered SOAR, self-healing. Token-efficient operations. |
 | Data & Integration | **OpenOva Fabric** | Event-driven integration + data lakehouse (merged Titan+Fuse) |
 | Communication | **OpenOva Relay** | Email, video, chat, WebRTC (NEW) |
-| Migration | **OpenOva Exodus** | Migration from proprietary to OSS |
+| Migration | **OpenOva Exodus** | Comprehensive legacy assessment + AI modernization roadmap + structured migration from proprietary to OSS |
 
 ### Components Changed (2026-02-26)
 
@@ -1132,6 +1137,57 @@ Keycloak (SSO) → Stalwart (Email)
 | LiveKit | Video/audio (WebRTC SFU) |
 | STUNner | K8s-native TURN/STUN for NAT traversal |
 | Matrix/Synapse | Team chat with federation |
+
+---
+
+## 26. AI-Native Positioning (2026-02-26)
+
+### Core Narrative
+
+Cloud-native is the foundation (table stakes). AI-native is the differentiator. We are in an AI gold rush — companies with AI-native infrastructure extract the most value. OpenOva is the AI-native infrastructure platform: 52 open-source components, every one designed to be AI-manageable.
+
+### What "AI-Native" Means Technically
+
+1. **Structured CRDs** — Every component exposes its configuration as typed Kubernetes Custom Resource Definitions. Specter reads CRDs, not config files.
+2. **Unified OTel telemetry** — All 52 components emit metrics, logs, and traces through OpenTelemetry. Specter correlates signals across the entire stack.
+3. **Standardized health endpoints** — Consistent liveness, readiness, and startup probes. Specter knows the health vocabulary of every component.
+4. **Kyverno policy-as-code** — Security and operational policies are declarative, auditable, and machine-readable. Specter can reason about policy compliance programmatically.
+5. **Declarative GitOps** — All state is in Git. Specter can diff actual vs desired state, detect drift, and propose reconciliation PRs.
+
+### The Moat: Token Efficiency
+
+Competitors bolt AI onto unstructured platforms and dump massive context (raw logs, unstructured configs, sprawling dashboards) into LLM prompts. This is expensive, slow, and inaccurate.
+
+Specter sends surgical, structured context: typed CRD schemas, correlated OTel signals, known integration graphs, pre-mapped failure modes. 10x fewer tokens. 10x faster. 10x more accurate.
+
+This is not a feature. It is an architectural moat. You cannot retrofit structured AI-manageability onto a platform not designed for it.
+
+### Specter's Semantic Knowledge Domains
+
+| Domain | What Specter Knows |
+|--------|-------------------|
+| CRD Schemas | Every field, validation rule, and default across 52 component CRDs |
+| Integration Graph | Which components depend on which, data flow paths, failure blast radius |
+| Failure Modes | Known failure patterns, root causes, and proven remediation steps |
+| Health Checks | What "healthy" means for each component, including edge cases |
+| Upgrade Paths | Version compatibility matrix, breaking changes, migration steps |
+| Compliance Mappings | Which controls map to PSD2, DORA, NIS2, SOX requirements |
+
+### Approved Key Phrases
+
+- "Cloud-native is the foundation. AI-native is the differentiator."
+- "AI-native, not AI-bolted" / "AI-native, not AI-cosmetic"
+- "Specter has pre-built semantic knowledge of the entire 52-component ecosystem"
+- "Token efficiency is the economic moat"
+- "Every component is designed to be AI-manageable"
+- "Structured CRDs, unified telemetry, declarative GitOps — built for AI from day one"
+
+### Phrases to Avoid
+
+- Never say "AI-powered" without grounding in what AI actually does (CRD knowledge, telemetry correlation, etc.)
+- Never say "Red Hat for the CNCF era"
+- Never float "AI-native" as abstract marketing — always attach technical specifics
+- No Ballmer-era sugar coating
 
 ---
 

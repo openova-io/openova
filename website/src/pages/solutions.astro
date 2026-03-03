@@ -1,0 +1,99 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Section from '../components/shared/Section.astro';
+import SectionTitle from '../components/shared/SectionTitle.astro';
+import Card from '../components/shared/Card.astro';
+import Badge from '../components/shared/Badge.astro';
+import Button from '../components/shared/Button.astro';
+import { products } from '../data/products';
+---
+
+<BaseLayout
+  title="Solutions — OpenOva"
+  description="Nine solutions, one ecosystem. Curated component bundles for AI infrastructure, open banking, data integration, and enterprise communication."
+  path="/solutions"
+>
+  <Section>
+    <div class="mx-auto max-w-3xl text-center">
+      <Badge variant="accent" class="mb-6">9 solutions</Badge>
+      <h1 class="text-4xl font-extrabold text-text-primary md:text-5xl">
+        One ecosystem.<br/>Every vertical covered.
+      </h1>
+      <p class="mt-6 text-lg text-text-secondary leading-relaxed">
+        Solutions are curated component bundles for specific verticals — meta-products of the ecosystem. All built on the same AI-native foundation. All blueprints free and open source.
+      </p>
+    </div>
+  </Section>
+
+  <!-- Architecture tree -->
+  <Section bg="secondary">
+    <SectionTitle label="Architecture">
+      How solutions relate
+    </SectionTitle>
+
+    <div class="mx-auto max-w-2xl reveal">
+      <div class="rounded-xl border border-border-primary bg-bg-primary p-8 font-mono text-sm">
+        <pre class="text-text-secondary overflow-x-auto"><code>                    <span class="text-accent font-bold">OPENOVA</span>
+                <span class="text-text-tertiary">(Core Platform)</span>
+                     │
+      ┌──────────┬───┼───┬──────────┐
+      │          │   │   │          │
+   <span style="color: var(--color-cortex)">Cortex</span>    <span style="color: var(--color-fingate)">Fingate</span> <span style="color: var(--color-fabric)">Fabric</span> <span style="color: var(--color-relay)">Relay</span>    <span style="color: var(--color-specter)">Specter</span>
+  <span class="text-text-tertiary">(AI Hub)</span> <span class="text-text-tertiary">(Banking)</span> <span class="text-text-tertiary">(Data)</span> <span class="text-text-tertiary">(Comms)</span>  <span class="text-text-tertiary">(AIOps)</span>
+      │                                    │
+      └──────────── <span style="color: var(--color-axon)">Axon</span> ─────────────────┘
+               <span class="text-text-tertiary">(SaaS LLM Gateway)</span></code></pre>
+      </div>
+    </div>
+  </Section>
+
+  <!-- Solution cards -->
+  <Section>
+    <SectionTitle label="Solutions">
+      The full portfolio
+    </SectionTitle>
+
+    <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 reveal-children">
+      {products.map((product) => (
+        <div class="rounded-xl border border-border-primary bg-bg-secondary p-6 transition-all duration-200 hover:border-border-hover">
+          <div class="mb-4 flex items-center gap-3">
+            <span class="flex h-12 w-12 items-center justify-center rounded-lg text-xl" style={`background: ${product.color}15; color: ${product.color}`}>
+              {product.icon}
+            </span>
+            <div>
+              <h3 class="font-bold text-text-primary">{product.name}</h3>
+              <p class="text-xs text-text-tertiary">{product.fullName}</p>
+            </div>
+          </div>
+          <p class="text-sm text-text-secondary leading-relaxed">{product.description}</p>
+          {product.components.length > 0 && (
+            <div class="mt-4 pt-4 border-t border-border-primary">
+              <p class="text-xs text-text-tertiary mb-2">Built on:</p>
+              <div class="flex flex-wrap gap-1.5">
+                {product.components.map((comp) => (
+                  <span class="rounded-md bg-bg-elevated px-2 py-0.5 text-xs text-text-tertiary">{comp}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </Section>
+
+  <!-- Specter built-in note -->
+  <Section bg="secondary">
+    <div class="mx-auto max-w-2xl text-center reveal">
+      <p class="text-sm font-mono text-specter mb-4">Built-in, not bolted on</p>
+      <h2 class="text-3xl font-bold text-text-primary">
+        Specter is included in every deployment
+      </h2>
+      <p class="mt-4 text-text-secondary leading-relaxed">
+        Every OpenOva deployment includes Specter agents. By default, Specter connects to Axon (SaaS) for AI inference. Customers who want full self-hosted capability deploy Cortex and point Specter at their own models.
+      </p>
+      <div class="mt-8">
+        <Button href="/contact">Talk to us</Button>
+      </div>
+    </div>
+  </Section>
+</BaseLayout>
