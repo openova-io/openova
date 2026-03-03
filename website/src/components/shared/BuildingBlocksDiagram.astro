@@ -88,20 +88,20 @@ const chipLabel = (name: string) => {
 };
 ---
 
-{/* ═══ INTERACTIVE MODE: Toggle between concepts and tech names ═══ */}
+{/* ═══ INTERACTIVE MODE: Toggle between concepts and products ═══ */}
 {!isStatic && (
 <div class="arch-interactive-wrapper">
   <div class="arch__toggle">
-    <button class="arch__toggle-btn arch__toggle-btn--active" data-view="tech">Tech Names</button>
-    <button class="arch__toggle-btn" data-view="concepts">Concepts</button>
+    <button class="arch__toggle-btn arch__toggle-btn--active" data-view="concepts">Concepts</button>
+    <button class="arch__toggle-btn" data-view="tech">Products</button>
   </div>
-  <div class:list={['arch', 'arch--view-2', 'arch--static', { 'arch--compact': compact }]}>
+  <div class:list={['arch', 'arch--view-2', 'arch--static', 'arch--concepts', { 'arch--compact': compact }]}>
     <div class="arch__body">
       <div class="arch__side arch__side--guardian">
-        <span class="arch__side-label" data-tech="GUARDIAN" data-concept={groupConceptMap['GUARDIAN']}>GUARDIAN</span>
+        <span class="arch__side-label" data-tech="GUARDIAN" data-concept={groupConceptMap['GUARDIAN']}>{groupConceptMap['GUARDIAN']}</span>
         <div class="arch__side-chips">
           {guardianComponents.map(c => (
-            <span class="arch__chip arch__chip--guardian arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+            <span class="arch__chip arch__chip--guardian arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{conceptMap[c]}</span>
           ))}
         </div>
       </div>
@@ -110,13 +110,13 @@ const chipLabel = (name: string) => {
         <div class="arch__groups arch__groups--alacarte">
           {alacarteGroups.map(g => (
             <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
-              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{g.label}</span>
+              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{groupConceptMap[g.label]}</span>
               <div class="arch__chips arch__chips--spread">
                 {g.components.map(c => (
-                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{conceptMap[c]}</span>
                 ))}
                 {g.products.map(p => (
-                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{conceptMap[p]}</span>
                 ))}
               </div>
             </div>
@@ -124,10 +124,10 @@ const chipLabel = (name: string) => {
         </div>
 
         <div class="arch__group arch__group--fullwidth" data-group={relayGroup.label} style={`--gc: ${relayGroup.color}; border-color: ${relayGroup.color}30; background: ${relayGroup.color}12;`}>
-          <span class="arch__group-label" data-tech={relayGroup.label} data-concept={groupConceptMap[relayGroup.label]} style={`color: ${relayGroup.color};`}>{relayGroup.label}</span>
+          <span class="arch__group-label" data-tech={relayGroup.label} data-concept={groupConceptMap[relayGroup.label]} style={`color: ${relayGroup.color};`}>{groupConceptMap[relayGroup.label]}</span>
           <div class="arch__chips arch__chips--spread">
             {relayGroup.components.map(c => (
-              <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+              <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{conceptMap[c]}</span>
             ))}
           </div>
         </div>
@@ -137,13 +137,13 @@ const chipLabel = (name: string) => {
         <div class="arch__groups arch__groups--core">
           {coreGroups.map(g => (
             <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
-              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{g.label}</span>
+              <span class="arch__group-label" data-tech={g.label} data-concept={groupConceptMap[g.label]} style={`color: ${g.color};`}>{groupConceptMap[g.label]}</span>
               <div class="arch__chips arch__chips--spread">
                 {g.components.map(c => (
-                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+                  <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{conceptMap[c]}</span>
                 ))}
                 {g.products.map(p => (
-                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+                  <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{conceptMap[p]}</span>
                 ))}
               </div>
             </div>
@@ -152,21 +152,21 @@ const chipLabel = (name: string) => {
       </div>
 
       <div class="arch__side arch__side--insights">
-        <span class="arch__side-label" data-tech="INSIGHTS" data-concept={groupConceptMap['INSIGHTS']}>INSIGHTS</span>
+        <span class="arch__side-label" data-tech="INSIGHTS" data-concept={groupConceptMap['INSIGHTS']}>{groupConceptMap['INSIGHTS']}</span>
         <div class="arch__side-chips">
-          <span class="arch__chip arch__chip--product arch__chip--product-insights arch__chip--flip" data-tech="Specter" data-concept={conceptMap['Specter']}>Specter</span>
+          <span class="arch__chip arch__chip--product arch__chip--product-insights arch__chip--flip" data-tech="Specter" data-concept={conceptMap['Specter']}>{conceptMap['Specter']}</span>
           {insightsOSS.map(c => (
-            <span class="arch__chip arch__chip--insights arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+            <span class="arch__chip arch__chip--insights arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{conceptMap[c]}</span>
           ))}
         </div>
       </div>
     </div>
 
     <div class="arch__group arch__group--catalyst" style="--gc: #3B82F6; border-color: #3B82F625; background: #3B82F610;">
-      <span class="arch__group-label" data-tech="CATALYST" data-concept={groupConceptMap['CATALYST']} style="color: #3B82F6;">CATALYST</span>
+      <span class="arch__group-label" data-tech="CATALYST" data-concept={groupConceptMap['CATALYST']} style="color: #3B82F6;">{groupConceptMap['CATALYST']}</span>
       <div class="arch__chips arch__chips--spread">
         {catalystModules.map(m => (
-          <span class:list={['arch__chip', 'arch__chip--flip', { 'arch__chip--product': m.product }]} data-tech={m.name} data-concept={conceptMap[m.name]}>{m.name}</span>
+          <span class:list={['arch__chip', 'arch__chip--flip', { 'arch__chip--product': m.product }]} data-tech={m.name} data-concept={conceptMap[m.name]}>{conceptMap[m.name]}</span>
         ))}
       </div>
     </div>
