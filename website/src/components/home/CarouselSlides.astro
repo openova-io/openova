@@ -47,11 +47,11 @@ import Button from '../shared/Button.astro';
                 <span class="lean-b__count">10</span>
               </div>
             </div>
-            <!-- Relay — minimal: 1 chip row, no flex-grow -->
+            <!-- Relay — minimal: 2 lines, no flex-grow -->
             <div class="lean-arch__row lean-arch__row--relay">
-              <div class="lean-b lean-b--relay" style="--bc: #06B6D4;">
+              <div class="lean-b lean-b--wide" style="--bc: #06B6D4;">
                 <span class="lean-b__name">RELAY</span>
-                <span class="lean-b__concept">Communication</span>
+                <span class="lean-b__sub">Communication — Email, video, chat, WebRTC</span>
                 <span class="lean-b__count">5</span>
               </div>
             </div>
@@ -96,11 +96,10 @@ import Button from '../shared/Button.astro';
           </div>
         </div>
 
-        <!-- Catalyst full-width with description -->
-        <div class="lean-b lean-b--catalyst" style="--bc: #3B82F6;">
+        <!-- Catalyst full-width — 2 lines -->
+        <div class="lean-b lean-b--wide lean-b--catalyst" style="--bc: #3B82F6;">
           <span class="lean-b__name">CATALYST</span>
-          <span class="lean-b__concept">Bootstrap & Lifecycle</span>
-          <span class="lean-b__desc">Bootstrap wizard + Day-2 lifecycle manager</span>
+          <span class="lean-b__sub">Bootstrap & Lifecycle — Bootstrap wizard + Day-2 lifecycle manager</span>
         </div>
 
         <!-- Kubernetes bar — separate row -->
@@ -650,11 +649,17 @@ import Button from '../shared/Button.astro';
     font-weight: 600;
   }
 
-  /* ── Relay: compact horizontal layout ── */
-  .lean-b--relay {
+  /* ── Wide blocks (Relay, Catalyst): 2-line layout ── */
+  .lean-b--wide {
     flex-direction: row;
+    align-items: baseline;
     gap: 0.375rem;
-    padding: 0.1875rem 0.375rem;
+    padding: 0.25rem 0.375rem;
+  }
+  .lean-b__sub {
+    font-size: 0.5rem;
+    color: var(--color-text-secondary);
+    line-height: 1.3;
   }
 
   /* ── Sidebars: Guardian (left) and Insights (right) ── */
@@ -663,7 +668,6 @@ import Button from '../shared/Button.astro';
     padding: 0.5rem 0.1875rem;
     gap: 0.125rem;
   }
-  .lean-b--sidebar .lean-b__name { font-size: 0.6875rem; }
   .lean-b--sidebar .lean-b__desc { max-width: 4.5rem; }
   .lean-b--sidebar .lean-b__count {
     top: auto;
@@ -683,13 +687,10 @@ import Button from '../shared/Button.astro';
     color: #A855F7;
   }
 
-  /* Catalyst: full-width bar with description — matches slide 2 catalyst */
+  /* Catalyst: full-width bar */
   .lean-b--catalyst {
-    border-radius: 0.25rem;
     margin-top: 0.375rem;
-    padding: 0.375rem 0.5rem 0.25rem;
   }
-  .lean-b--catalyst .lean-b__name { font-size: 0.6875rem; }
 
   /* ── K8s bar — matches slide 2: border, padding, slate bg ── */
   .lean-arch__k8s-bar {
