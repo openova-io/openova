@@ -5,8 +5,6 @@
   let interest = '';
   let message = '';
   let submitted = false;
-  let submitting = false;
-  let fallbackUsed = false;
 
   interface Errors {
     name?: string;
@@ -15,9 +13,7 @@
 
   let errors: Errors = {};
 
-  // Replace with your actual Formspree form ID
-  const FORMSPREE_ENDPOINT = 'https://formspree.io/f/YOUR_FORM_ID';
-  const CONTACT_EMAIL = 'hello@openova.io';
+  const CONTACT_EMAIL = 'sales@openova.io';
 
   function validate(): boolean {
     errors = {};
@@ -30,37 +26,15 @@
     return Object.keys(errors).length === 0;
   }
 
-  function openMailtoFallback() {
+  function handleSubmit() {
+    if (!validate()) return;
+
     const subject = encodeURIComponent(`OpenOva inquiry: ${interest || 'General'}`);
     const body = encodeURIComponent(
       `Name: ${name}\nEmail: ${email}\nCompany: ${company || 'N/A'}\nInterest: ${interest || 'N/A'}\n\n${message}`
     );
     window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
-    fallbackUsed = true;
     submitted = true;
-  }
-
-  async function handleSubmit() {
-    if (!validate()) return;
-    submitting = true;
-
-    try {
-      const response = await fetch(FORMSPREE_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ name, email, company, interest, message }),
-      });
-
-      if (response.ok) {
-        submitted = true;
-      } else {
-        openMailtoFallback();
-      }
-    } catch {
-      openMailtoFallback();
-    } finally {
-      submitting = false;
-    }
   }
 </script>
 
@@ -72,12 +46,10 @@
       </svg>
     </div>
     <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-      {fallbackUsed ? 'Opening your email client' : 'Message sent'}
+      Opening your email client
     </h3>
     <p class="mt-2 text-sm text-[var(--color-text-secondary)]">
-      {fallbackUsed
-        ? 'Form service unavailable. Your email client should open with a pre-filled message.'
-        : "We'll get back to you within one business day."}
+      Your email client should open with a pre-filled message. If it doesn't, email us directly at <a href="mailto:sales@openova.io" class="underline hover:text-[var(--color-text-primary)]">sales@openova.io</a>
     </p>
   </div>
 {:else}
@@ -150,14 +122,13 @@
 
     <button
       type="submit"
-      disabled={submitting}
-      class="w-full rounded-lg bg-[var(--color-accent)] px-6 py-3 font-medium text-[var(--color-bg-primary)] transition-colors duration-200 hover:bg-[var(--color-accent-hover)] disabled:opacity-60"
+      class="w-full rounded-lg bg-[var(--color-accent)] px-6 py-3 font-medium text-[var(--color-bg-primary)] transition-colors duration-200 hover:bg-[var(--color-accent-hover)]"
     >
-      {submitting ? 'Sending...' : 'Send message'}
+      Send message
     </button>
 
     <p class="text-xs text-[var(--color-text-tertiary)] text-center">
-      Powered by Formspree. Alternatively, email us at <a href="mailto:hello@openova.io" class="underline hover:text-[var(--color-text-secondary)]">hello@openova.io</a>
+      Or email us directly at <a href="mailto:sales@openova.io" class="underline hover:text-[var(--color-text-secondary)]">sales@openova.io</a>
     </p>
   </form>
 {/if}

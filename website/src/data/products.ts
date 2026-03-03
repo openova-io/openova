@@ -55,7 +55,7 @@ export const products: Product[] = [
     description: 'Event-driven data integration and lakehouse analytics. Kafka, Flink, Temporal, Debezium, Iceberg, ClickHouse.',
     color: 'var(--color-fabric)',
     icon: '▣',
-    components: ['strimzi', 'flink', 'temporal', 'debezium', 'iceberg', 'clickhouse'],
+    components: ['strimzi', 'flink', 'temporal', 'debezium', 'iceberg', 'clickhouse', 'superset'],
   },
   {
     name: 'Relay',

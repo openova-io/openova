@@ -226,37 +226,42 @@ import Button from '../components/shared/Button.astro';
     </div>
   </Section>
 
-  <!-- Add-on Services -->
+  <!-- Service Models -->
   <Section>
-    <SectionTitle label="Add-ons">
-      Extend your subscription
+    <SectionTitle label="Service models">
+      Three ways to work with us
     </SectionTitle>
 
-    <div class="overflow-x-auto reveal">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-border-primary">
-            <th class="py-3 pr-4 text-left font-medium text-text-primary">Add-on</th>
-            <th class="py-3 px-4 text-left font-medium text-text-primary">Basis</th>
-            <th class="py-3 pl-4 text-left font-medium text-text-primary">Description</th>
-          </tr>
-        </thead>
-        <tbody class="text-text-secondary">
-          {[
-            { addon: 'Managed Operations', basis: 'Per-core', desc: 'We own the pager. 24/7 operational responsibility.' },
-            { addon: 'Specter Enhanced', basis: 'Per-core', desc: 'Custom agent training, industry-specific compliance rules' },
-            { addon: 'Fingate Support', basis: 'Per-core', desc: 'Open Banking specific support and upgrades' },
-            { addon: 'Cortex Support', basis: 'Per-core', desc: 'AI Hub specific support, model management' },
-            { addon: 'Expert Network Hours', basis: 'Block pricing', desc: '40/80/160 hour blocks, unused hours roll 1 quarter' },
-          ].map((row) => (
-            <tr class="border-b border-border-primary/50">
-              <td class="py-3 pr-4 font-medium text-text-primary">{row.addon}</td>
-              <td class="py-3 px-4"><Badge variant="outline">{row.basis}</Badge></td>
-              <td class="py-3 pl-4">{row.desc}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div class="grid gap-6 md:grid-cols-3 reveal-children">
+      <Card>
+        <div class="mb-3">
+          <Badge variant="outline">Support</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">You run it, we support you</h3>
+        <p class="text-sm text-text-secondary leading-relaxed">
+          Platform SLA, upgrade lifecycle management, incident response. Your team operates the environment with our expertise behind them.
+        </p>
+      </Card>
+
+      <Card>
+        <div class="mb-3">
+          <Badge variant="accent">Managed</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">We run it for you</h3>
+        <p class="text-sm text-text-secondary leading-relaxed">
+          24/7 operational responsibility. We own the pager. Full platform management, monitoring, and incident resolution.
+        </p>
+      </Card>
+
+      <Card>
+        <div class="mb-3">
+          <Badge variant="outline">Expert Hours</Badge>
+        </div>
+        <h3 class="text-xl font-bold text-text-primary mb-2">We provide our experts</h3>
+        <p class="text-sm text-text-secondary leading-relaxed">
+          40, 80, or 160 hour blocks for consultancy, migration, deep-dives, or custom engineering. Unused hours roll forward one quarter.
+        </p>
+      </Card>
     </div>
   </Section>
 
@@ -285,8 +290,8 @@ import Button from '../components/shared/Button.astro';
       {[
         { title: 'Why per-vCPU-core?', desc: 'Scales linearly with actual infrastructure. No per-component charges. No per-node gotchas. Every component for one subscription price.' },
         { title: 'No vendor lock-in', desc: 'All software is open source. If you leave, keep everything. Only lose support. We never trap customers.' },
-        { title: 'Better than Red Hat', desc: 'You should not pay more for using more open-source tools. Our per-core model covers every platform component.' },
-        { title: 'Better than SaaS', desc: 'Datadog, Splunk, Auth0 charge per-host, per-GB, per-seat. Our single metric covers the entire platform.' },
+        { title: 'One subscription, every component', desc: 'Using more open-source tools shouldn\'t cost more. Our per-core model covers every platform component — no per-tool charges.' },
+        { title: 'Predictable, unified pricing', desc: 'No per-host, per-GB, or per-seat surprises. One metric covers the entire platform. You own the data.' },
       ].map((item) => (
         <Card>
           <h3 class="mb-2 text-sm font-semibold text-text-primary">{item.title}</h3>

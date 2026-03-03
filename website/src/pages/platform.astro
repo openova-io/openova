@@ -28,37 +28,39 @@ import { components, categoryLabels } from '../data/components';
     </div>
   </Section>
 
-  <!-- Architecture Overview -->
+  <!-- Catalyst Lifecycle -->
   <Section bg="secondary">
-    <SectionTitle label="Architecture">
-      Two-phase provisioning
+    <SectionTitle label="Lifecycle">
+      One tool from bootstrap to day-2
     </SectionTitle>
 
-    <div class="grid gap-8 md:grid-cols-2 reveal-children">
+    <div class="mx-auto max-w-3xl reveal">
       <Card>
         <div class="mb-3 flex items-center gap-2">
-          <Badge variant="accent">Phase 1</Badge>
-          <h3 class="font-semibold text-text-primary">Bootstrap (OpenTofu)</h3>
+          <Badge variant="accent">Catalyst</Badge>
+          <h3 class="font-semibold text-text-primary">Bootstrap, operate, evolve</h3>
         </div>
-        <ul class="space-y-2 text-sm text-text-secondary">
-          <li>Provisions initial VMs/nodes and network</li>
-          <li>Installs K3s cluster</li>
-          <li>Installs Flux, which deploys all platform components</li>
-          <li>OpenTofu exits — safe to delete</li>
-        </ul>
-      </Card>
-
-      <Card>
-        <div class="mb-3 flex items-center gap-2">
-          <Badge variant="accent">Phase 2</Badge>
-          <h3 class="font-semibold text-text-primary">Day-2 (Crossplane)</h3>
+        <p class="text-sm text-text-secondary leading-relaxed mb-4">
+          Catalyst handles the full platform lifecycle. It provisions your initial cluster, manages day-2 operations, provides an Internal Developer Platform for your teams, and gives operators a Workflow Explorer for visibility into every reconciliation.
+        </p>
+        <div class="grid gap-4 sm:grid-cols-2 mt-4">
+          <div>
+            <h4 class="text-xs font-semibold text-text-primary mb-2">Bootstrap</h4>
+            <ul class="space-y-1 text-sm text-text-secondary">
+              <li>Provisions infrastructure and K3s cluster</li>
+              <li>Deploys all platform components via GitOps</li>
+              <li>Exits cleanly — safe to remove</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-text-primary mb-2">Day-2 operations</h4>
+            <ul class="space-y-1 text-sm text-text-secondary">
+              <li>Cloud resources managed as Kubernetes CRDs</li>
+              <li>Continuous drift detection and reconciliation</li>
+              <li>Self-service via IDP templates</li>
+            </ul>
+          </div>
         </div>
-        <ul class="space-y-2 text-sm text-text-secondary">
-          <li>All cloud resources via Kubernetes CRDs</li>
-          <li>Continuous drift detection and reconciliation</li>
-          <li>GitOps-native — resources defined in Git</li>
-          <li>Self-service via Catalyst IDP templates</li>
-        </ul>
       </Card>
     </div>
   </Section>

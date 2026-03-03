@@ -73,6 +73,7 @@ export const components: Component[] = [
 
   // A La Carte - Analytics
   { name: 'Iceberg', slug: 'iceberg', purpose: 'Open table format (data lakehouse)', category: 'analytics', type: 'alacarte' },
+  { name: 'Superset', slug: 'superset', purpose: 'BI dashboards and data exploration', category: 'analytics', type: 'alacarte' },
 
   // A La Carte - AI/ML
   { name: 'KServe', slug: 'kserve', purpose: 'Model serving', category: 'ai-ml', type: 'alacarte' },

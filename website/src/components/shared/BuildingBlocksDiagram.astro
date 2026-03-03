@@ -22,7 +22,7 @@ const conceptMap: Record<string, string> = {
   'Axon': 'LLM Gateway',
   'CNPG': 'PostgreSQL', 'FerretDB': 'MongoDB Wire', 'Valkey': 'Redis Cache',
   'Strimzi': 'Event Streaming', 'ClickHouse': 'Analytics DB', 'Flink': 'Stream Processing',
-  'Temporal': 'Workflow Engine', 'Debezium': 'CDC', 'Iceberg': 'Data Lakehouse',
+  'Temporal': 'Workflow Engine', 'Debezium': 'CDC', 'Iceberg': 'Data Lakehouse', 'Superset': 'BI & Dashboards',
   'Fingate': 'Open Banking',
   'Stalwart': 'Email Server', 'LiveKit': 'Video & Audio', 'STUNner': 'WebRTC GW',
   'Matrix': 'Chat Protocol', 'Ntfy': 'Push Notify',
@@ -49,7 +49,7 @@ const groupDescMap: Record<string, string> = {
   'GUARDIAN': 'Certs, secrets, scanning, runtime security, policy, IAM',
   'INSIGHTS': 'Dashboards, metrics, logs, traces, AI ops, chaos testing',
   'CORTEX': 'LLM serving, RAG, vector search, AI safety, observability',
-  'FABRIC': 'PostgreSQL, streaming, workflows, CDC, data lakehouse',
+  'FABRIC': 'PostgreSQL, streaming, workflows, CDC, data lakehouse, BI',
   'RELAY': 'Email, video, team chat, WebRTC gateway',
   'SPINE': 'Service mesh, L7 proxy, WAF, DNS, GSLB, VPN, tunnels',
   'PILOT': 'GitOps delivery, IaC, cloud resource management',
@@ -63,7 +63,7 @@ const insightsOSS = ['Grafana', 'Alloy', 'Loki', 'Mimir', 'Tempo', 'OpenTelemetr
 
 const alacarteGroups = [
   { label: 'CORTEX', color: '#F97316', components: ['KServe', 'Knative', 'vLLM', 'Milvus', 'Neo4j', 'BGE', 'LibreChat', 'NeMo', 'LangFuse'], products: ['Axon'] },
-  { label: 'FABRIC', color: '#EC4899', components: ['CNPG', 'FerretDB', 'Valkey', 'Strimzi', 'ClickHouse', 'Flink', 'Temporal', 'Debezium', 'Iceberg'], products: ['Fingate'] },
+  { label: 'FABRIC', color: '#EC4899', components: ['CNPG', 'FerretDB', 'Valkey', 'Strimzi', 'ClickHouse', 'Flink', 'Temporal', 'Debezium', 'Iceberg', 'Superset'], products: ['Fingate'] },
 ];
 const relayGroup = { label: 'RELAY', color: '#06B6D4', components: ['Stalwart', 'LiveKit', 'STUNner', 'Matrix', 'Ntfy'], products: [] as string[] };
 
