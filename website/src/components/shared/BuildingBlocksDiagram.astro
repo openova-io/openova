@@ -88,145 +88,92 @@ const chipLabel = (name: string) => {
 };
 ---
 
-{/* ═══ INTERACTIVE MODE: 2-slide manual carousel ═══ */}
+{/* ═══ INTERACTIVE MODE: Same layout as static viewMode=2 with hover-flip ═══ */}
 {!isStatic && (
-<div class:list={['arch-carousel', { 'arch-carousel--compact': compact }]} data-arch-carousel>
-  <!-- Tab navigation -->
-  <div class="ac__tabs">
-    <button class="ac__tab ac__tab--active" data-tab="0">Core Platform <span class="ac__tab-count">40</span></button>
-    <button class="ac__tab" data-tab="1">A La Carte <span class="ac__tab-count">25</span></button>
-  </div>
-
-  <!-- Slide 0: Core Platform -->
-  <div class="ac__slide ac__slide--active" data-slide="0">
-    <div class="ac__grid ac__grid--2col">
-      <!-- GUARDIAN -->
-      <div class="ac__group" style="--gc: #EF4444;">
-        <span class="ac__group-label" style="color: #EF4444;">GUARDIAN <span class="ac__group-count">9</span></span>
-        <div class="ac__chips ac__chips--3col">
-          {guardianComponents.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-        </div>
-      </div>
-      <!-- INSIGHTS -->
-      <div class="ac__group" style="--gc: #A855F7;">
-        <span class="ac__group-label" style="color: #A855F7;">INSIGHTS <span class="ac__group-count">10</span></span>
-        <div class="ac__chips ac__chips--3col">
-          <span class="ac__chip ac__chip--flip ac__chip--product" data-tech="Specter" data-concept={conceptMap['Specter']}>Specter</span>
-          {insightsOSS.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-
-    <div class="ac__grid ac__grid--2col">
-      <!-- PILOT -->
-      <div class="ac__group" style="--gc: #8B5CF6;">
-        <span class="ac__group-label" style="color: #8B5CF6;">PILOT <span class="ac__group-count">4</span></span>
-        <div class="ac__chips ac__chips--2col">
-          {coreGroups[0].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-        </div>
-      </div>
-      <!-- SPINE -->
-      <div class="ac__group" style="--gc: #3B82F6;">
-        <span class="ac__group-label" style="color: #3B82F6;">SPINE <span class="ac__group-count">8</span></span>
-        <div class="ac__chips ac__chips--4col">
-          {coreGroups[1].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-
-    <div class="ac__grid ac__grid--2col">
-      <!-- SURGE -->
-      <div class="ac__group" style="--gc: #14B8A6;">
-        <span class="ac__group-label" style="color: #14B8A6;">SURGE <span class="ac__group-count">4</span></span>
-        <div class="ac__chips ac__chips--2col">
-          {coreGroups[2].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-          {coreGroups[2].products.map(p => (
-            <span class="ac__chip ac__chip--flip ac__chip--product" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
-          ))}
-        </div>
-      </div>
-      <!-- SILO -->
-      <div class="ac__group" style="--gc: #6366F1;">
-        <span class="ac__group-label" style="color: #6366F1;">SILO <span class="ac__group-count">3</span></span>
-        <div class="ac__chips ac__chips--2col">
-          {coreGroups[3].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-
-    <!-- CATALYST -->
-    <div class="ac__group ac__group--full" style="--gc: #3B82F6;">
-      <span class="ac__group-label" style="color: #3B82F6;">CATALYST <span class="ac__group-count">2</span></span>
-      <div class="ac__chips ac__chips--inline">
-        {catalystModules.map(m => (
-          <span class="ac__chip ac__chip--flip ac__chip--product" data-tech={m.name} data-concept={conceptMap[m.name]}>{m.name}</span>
+<div class:list={['arch', 'arch--view-2', { 'arch--compact': compact }]}>
+  <div class="arch__body">
+    <div class="arch__side arch__side--guardian">
+      <span class="arch__side-label">GUARDIAN</span>
+      <div class="arch__side-chips">
+        {guardianComponents.map(c => (
+          <span class="arch__chip arch__chip--guardian arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
         ))}
       </div>
     </div>
 
-    <!-- K8s + Clouds -->
-    <div class="ac__bar">Kubernetes (K3s)</div>
-    <div class="ac__clouds">
-      {clouds.map(c => <span class="ac__cloud">{c}</span>)}
-    </div>
-  </div>
+    <div class="arch__center">
+      <div class="arch__groups arch__groups--alacarte">
+        {alacarteGroups.map(g => (
+          <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
+            <span class="arch__group-label" style={`color: ${g.color};`}>{g.label}</span>
+            <div class="arch__chips arch__chips--spread">
+              {g.components.map(c => (
+                <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+              ))}
+              {g.products.map(p => (
+                <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
 
-  <!-- Slide 1: A La Carte -->
-  <div class="ac__slide" data-slide="1">
-    <div class="ac__grid ac__grid--2col">
-      <!-- CORTEX -->
-      <div class="ac__group" style="--gc: #F97316;">
-        <span class="ac__group-label" style="color: #F97316;">CORTEX <span class="ac__group-count">10</span></span>
-        <div class="ac__chips ac__chips--3col">
-          {alacarteGroups[0].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-          {alacarteGroups[0].products.map(p => (
-            <span class="ac__chip ac__chip--flip ac__chip--product" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+      <div class="arch__group arch__group--fullwidth" data-group={relayGroup.label} style={`--gc: ${relayGroup.color}; border-color: ${relayGroup.color}30; background: ${relayGroup.color}12;`}>
+        <span class="arch__group-label" style={`color: ${relayGroup.color};`}>{relayGroup.label}</span>
+        <div class="arch__chips arch__chips--spread">
+          {relayGroup.components.map(c => (
+            <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
           ))}
         </div>
       </div>
-      <!-- FABRIC -->
-      <div class="ac__group" style="--gc: #EC4899;">
-        <span class="ac__group-label" style="color: #EC4899;">FABRIC <span class="ac__group-count">10</span></span>
-        <div class="ac__chips ac__chips--3col">
-          {alacarteGroups[1].components.map(c => (
-            <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
-          ))}
-          {alacarteGroups[1].products.map(p => (
-            <span class="ac__chip ac__chip--flip ac__chip--product" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
-          ))}
-        </div>
+
+      <div class="arch__divider"></div>
+
+      <div class="arch__groups arch__groups--core">
+        {coreGroups.map(g => (
+          <div class="arch__group" data-group={g.label} style={`--gc: ${g.color}; border-color: ${g.color}30; background: ${g.color}12;`}>
+            <span class="arch__group-label" style={`color: ${g.color};`}>{g.label}</span>
+            <div class="arch__chips arch__chips--spread">
+              {g.components.map(c => (
+                <span class="arch__chip arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+              ))}
+              {g.products.map(p => (
+                <span class="arch__chip arch__chip--product arch__chip--flip" data-tech={p} data-concept={conceptMap[p]}>{p}</span>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
 
-    <!-- RELAY -->
-    <div class="ac__group ac__group--full" style="--gc: #06B6D4;">
-      <span class="ac__group-label" style="color: #06B6D4;">RELAY <span class="ac__group-count">5</span></span>
-      <div class="ac__chips ac__chips--5col">
-        {relayGroup.components.map(c => (
-          <span class="ac__chip ac__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
+    <div class="arch__side arch__side--insights">
+      <span class="arch__side-label">INSIGHTS</span>
+      <div class="arch__side-chips">
+        <span class="arch__chip arch__chip--product arch__chip--product-insights arch__chip--flip" data-tech="Specter" data-concept={conceptMap['Specter']}>Specter</span>
+        {insightsOSS.map(c => (
+          <span class="arch__chip arch__chip--insights arch__chip--flip" data-tech={c} data-concept={conceptMap[c]}>{c}</span>
         ))}
       </div>
     </div>
   </div>
 
-  <!-- Dot navigation -->
-  <div class="ac__dots">
-    <button class="ac__dot ac__dot--active" data-dot="0" aria-label="Core Platform"></button>
-    <button class="ac__dot" data-dot="1" aria-label="A La Carte"></button>
+  <div class="arch__group arch__group--catalyst" style="--gc: #3B82F6; border-color: #3B82F625; background: #3B82F610;">
+    <span class="arch__group-label" style="color: #3B82F6;">CATALYST</span>
+    <div class="arch__chips arch__chips--spread">
+      {catalystModules.map(m => (
+        <span class:list={['arch__chip', 'arch__chip--flip', { 'arch__chip--product': m.product }]} data-tech={m.name} data-concept={conceptMap[m.name]}>{m.name}</span>
+      ))}
+    </div>
+  </div>
+
+  <div class="arch__bar arch__bar--k8s">
+    <span class="arch__bar-name">Kubernetes (K3s)</span>
+  </div>
+
+  <div class="arch__clouds">
+    {clouds.map(c => (
+      <div class="arch__cloud">{c}</div>
+    ))}
   </div>
 </div>
 )}
@@ -380,283 +327,7 @@ const chipLabel = (name: string) => {
 )}
 
 
-<script>
-  document.querySelectorAll('[data-arch-carousel]').forEach(carousel => {
-    const tabs = carousel.querySelectorAll('[data-tab]');
-    const slides = carousel.querySelectorAll('[data-slide]');
-    const dots = carousel.querySelectorAll('[data-dot]');
-    const total = 2;
-    let current = 0;
-
-    function switchTo(idx) {
-      if (idx === current) return;
-      current = idx;
-
-      // Update tabs
-      tabs.forEach(t => t.classList.remove('ac__tab--active'));
-      if (tabs[idx]) tabs[idx].classList.add('ac__tab--active');
-
-      // Update slides
-      slides.forEach(s => s.classList.remove('ac__slide--active'));
-      if (slides[idx]) slides[idx].classList.add('ac__slide--active');
-
-      // Update dots
-      dots.forEach(d => d.classList.remove('ac__dot--active'));
-      if (dots[idx]) dots[idx].classList.add('ac__dot--active');
-    }
-
-    // Tab click
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => switchTo(Number(tab.dataset.tab)));
-    });
-
-    // Dot click
-    dots.forEach(dot => {
-      dot.addEventListener('click', () => switchTo(Number(dot.dataset.dot)));
-    });
-
-    // Touch swipe
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let swiping = false;
-
-    carousel.addEventListener('touchstart', (e) => {
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
-      swiping = true;
-    }, { passive: true });
-
-    carousel.addEventListener('touchmove', (e) => {
-      if (!swiping) return;
-      const dx = e.touches[0].clientX - touchStartX;
-      const dy = e.touches[0].clientY - touchStartY;
-      if (Math.abs(dy) > Math.abs(dx)) { swiping = false; return; }
-      if (Math.abs(dx) > 10) e.preventDefault();
-    }, { passive: false });
-
-    carousel.addEventListener('touchend', (e) => {
-      if (!swiping) return;
-      swiping = false;
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      if (Math.abs(dx) > 40) {
-        if (dx < 0 && current < total - 1) switchTo(current + 1);
-        else if (dx > 0 && current > 0) switchTo(current - 1);
-      }
-    }, { passive: true });
-  });
-</script>
-
 <style>
-  /* ══════════════════════════════════════════
-     INTERACTIVE CAROUSEL (ac__ prefix)
-     ══════════════════════════════════════════ */
-  .arch-carousel {
-    border: 1px solid var(--color-border-primary);
-    border-radius: 0.75rem;
-    overflow: hidden;
-    max-width: 40rem;
-    margin: 0 auto;
-  }
-
-  /* ── Tabs ── */
-  .ac__tabs {
-    display: flex;
-    border-bottom: 1px solid var(--color-border-primary);
-    background: var(--color-bg-secondary, #111);
-  }
-  .ac__tab {
-    flex: 1;
-    padding: 0.5rem 0.75rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--color-text-tertiary);
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition: color 0.2s, background 0.2s;
-    text-align: center;
-    border-bottom: 2px solid transparent;
-  }
-  .ac__tab:hover { color: var(--color-text-secondary); background: rgba(255,255,255,0.03); }
-  .ac__tab--active {
-    color: #10B981;
-    border-bottom-color: #10B981;
-    background: rgba(16,185,129,0.05);
-  }
-  .ac__tab-count {
-    display: inline-block;
-    font-size: 0.5625rem;
-    background: rgba(255,255,255,0.08);
-    padding: 0.0625rem 0.25rem;
-    border-radius: 0.1875rem;
-    margin-left: 0.25rem;
-    font-weight: 700;
-  }
-  .ac__tab--active .ac__tab-count {
-    background: rgba(16,185,129,0.15);
-    color: #10B981;
-  }
-
-  /* ── Slides ── */
-  .ac__slide {
-    display: none;
-    padding: 0.5rem;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-  .ac__slide--active { display: flex; }
-
-  /* ── Grid rows ── */
-  .ac__grid { display: grid; gap: 0.375rem; }
-  .ac__grid--2col { grid-template-columns: 1fr 1fr; }
-
-  /* ── Group box ── */
-  .ac__group {
-    border: 1px solid color-mix(in srgb, var(--gc) 20%, transparent);
-    background: color-mix(in srgb, var(--gc) 5%, transparent);
-    border-radius: 0.375rem;
-    padding: 0.375rem;
-    position: relative;
-  }
-  .ac__group--full { }
-  .ac__group-label {
-    display: block;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.5625rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.25rem;
-  }
-  .ac__group-count {
-    font-size: 0.5rem;
-    opacity: 0.6;
-    font-weight: 500;
-    margin-left: 0.125rem;
-  }
-
-  /* ── Chips ── */
-  .ac__chips {
-    display: grid;
-    gap: 0.1875rem;
-  }
-  .ac__chips--2col { grid-template-columns: repeat(2, 1fr); }
-  .ac__chips--3col { grid-template-columns: repeat(3, 1fr); }
-  .ac__chips--4col { grid-template-columns: repeat(4, 1fr); }
-  .ac__chips--5col { grid-template-columns: repeat(5, 1fr); }
-  .ac__chips--inline { display: flex; gap: 0.1875rem; justify-content: center; }
-
-  .ac__chip {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    min-height: 1.75rem;
-    border-radius: 0.25rem;
-    border: 1px solid var(--color-border-primary);
-    background: var(--color-bg-primary, #0a0a0b);
-    padding: 0.125rem 0.25rem;
-    font-size: 0.5625rem;
-    color: var(--color-text-secondary);
-    line-height: 1.3;
-    cursor: default;
-    position: relative;
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-  .ac__chip--product {
-    border-color: #4B8B6E;
-    border-width: 1.5px;
-    font-weight: 600;
-  }
-
-  /* ── Hover flip ── */
-  .ac__chip--flip:hover::after {
-    content: attr(data-concept);
-    position: absolute;
-    inset: -1px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #374151;
-    color: #F3F4F6;
-    border: 1px solid #6B7280;
-    border-radius: inherit;
-    font-size: inherit;
-    font-weight: 600;
-    line-height: inherit;
-    padding: 0.125rem 0.25rem;
-    white-space: nowrap;
-    z-index: 2;
-  }
-
-  /* ── K8s bar ── */
-  .ac__bar {
-    text-align: center;
-    padding: 0.25rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.5625rem;
-    font-weight: 700;
-    color: #94A3B8;
-    background: #64748B0c;
-    border-top: 1px solid #64748B20;
-  }
-
-  /* ── Clouds ── */
-  .ac__clouds {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .ac__cloud {
-    text-align: center;
-    padding: 0.1875rem;
-    font-size: 0.5rem;
-    color: #94A3B8;
-    border-right: 1px solid var(--color-border-primary);
-    background: var(--color-bg-secondary, #111);
-  }
-  .ac__cloud:last-child { border-right: none; }
-
-  /* ── Dots ── */
-  .ac__dots {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.375rem;
-    background: var(--color-bg-secondary, #111);
-    border-top: 1px solid var(--color-border-primary);
-  }
-  .ac__dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    border: 1px solid #555;
-    background: transparent;
-    cursor: pointer;
-    padding: 0;
-    transition: all 0.2s;
-  }
-  .ac__dot--active { background: #10B981; border-color: #10B981; }
-  .ac__dot:hover:not(.ac__dot--active) { border-color: #888; background: #333; }
-
-  /* ── Compact ── */
-  .arch-carousel--compact { max-width: 22rem; }
-  .arch-carousel--compact .ac__tab { font-size: 0.5625rem; padding: 0.375rem 0.5rem; }
-  .arch-carousel--compact .ac__slide { padding: 0.375rem; gap: 0.25rem; }
-  .arch-carousel--compact .ac__group { padding: 0.25rem; }
-  .arch-carousel--compact .ac__group-label { font-size: 0.4375rem; margin-bottom: 0.125rem; }
-  .arch-carousel--compact .ac__chip { font-size: 0.4375rem; min-height: 1.375rem; padding: 0.0625rem 0.125rem; }
-  .arch-carousel--compact .ac__bar { font-size: 0.4375rem; padding: 0.125rem; }
-  .arch-carousel--compact .ac__cloud { font-size: 0.375rem; padding: 0.125rem; }
-  .arch-carousel--compact .ac__grid { gap: 0.25rem; }
-
-  /* ── Mobile ── */
-  @media (max-width: 640px) {
-    .ac__grid--2col { grid-template-columns: 1fr; }
-    .ac__chips--4col { grid-template-columns: repeat(2, 1fr); }
-    .ac__chips--5col { grid-template-columns: repeat(3, 1fr); }
-    .ac__clouds { grid-template-columns: repeat(2, 1fr); }
-  }
-
   /* ══════════════════════════════════════════
      STATIC MODE (arch__ prefix — homepage)
      ══════════════════════════════════════════ */

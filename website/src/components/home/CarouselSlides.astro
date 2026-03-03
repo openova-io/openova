@@ -23,7 +23,7 @@ import Button from '../shared/Button.astro';
         <!-- 3-column body: Guardian | Center | Insights -->
         <div class="lean-arch__body">
           <!-- Guardian sidebar -->
-          <div class="lean-b lean-b--sidebar" style="--bc: #EF4444;">
+          <div class="lean-b lean-b--sidebar lean-b--guardian">
             <span class="lean-b__name">GUARDIAN</span>
             <span class="lean-b__concept">Security</span>
             <span class="lean-b__count">9</span>
@@ -31,8 +31,8 @@ import Button from '../shared/Button.astro';
 
           <!-- Center area -->
           <div class="lean-arch__center">
-            <!-- A la carte row: Cortex | Fabric -->
-            <div class="lean-arch__row lean-arch__row--2col">
+            <!-- A la carte row: Cortex | Fabric — flex:10 (10 components each) -->
+            <div class="lean-arch__row lean-arch__row--2col" style="flex: 10;">
               <div class="lean-b" style="--bc: #F97316;">
                 <span class="lean-b__name">CORTEX</span>
                 <span class="lean-b__concept">AI Hub</span>
@@ -44,16 +44,18 @@ import Button from '../shared/Button.astro';
                 <span class="lean-b__count">10</span>
               </div>
             </div>
-            <!-- Relay full-width -->
-            <div class="lean-b lean-b--wide" style="--bc: #06B6D4;">
-              <span class="lean-b__name">RELAY</span>
-              <span class="lean-b__concept">Communication</span>
-              <span class="lean-b__count">5</span>
+            <!-- Relay — flex:5 -->
+            <div class="lean-arch__row" style="flex: 5;">
+              <div class="lean-b" style="--bc: #06B6D4;">
+                <span class="lean-b__name">RELAY</span>
+                <span class="lean-b__concept">Communication</span>
+                <span class="lean-b__count">5</span>
+              </div>
             </div>
             <!-- Divider -->
             <div class="lean-arch__divider"></div>
-            <!-- Core row 1: Pilot (2/6) | Spine (4/6) -->
-            <div class="lean-arch__row lean-arch__row--pilot-spine">
+            <!-- Core row 1: Pilot (2/6) | Spine (4/6) — flex:8 -->
+            <div class="lean-arch__row lean-arch__row--pilot-spine" style="flex: 8;">
               <div class="lean-b" style="--bc: #8B5CF6;">
                 <span class="lean-b__name">PILOT</span>
                 <span class="lean-b__concept">GitOps & IaC</span>
@@ -65,8 +67,8 @@ import Button from '../shared/Button.astro';
                 <span class="lean-b__count">8</span>
               </div>
             </div>
-            <!-- Core row 2: Surge (3/6) | Silo (3/6) -->
-            <div class="lean-arch__row lean-arch__row--2col">
+            <!-- Core row 2: Surge | Silo — flex:4 -->
+            <div class="lean-arch__row lean-arch__row--2col" style="flex: 4;">
               <div class="lean-b" style="--bc: #14B8A6;">
                 <span class="lean-b__name">SURGE</span>
                 <span class="lean-b__concept">Scaling</span>
@@ -81,7 +83,7 @@ import Button from '../shared/Button.astro';
           </div>
 
           <!-- Insights sidebar -->
-          <div class="lean-b lean-b--sidebar" style="--bc: #A855F7;">
+          <div class="lean-b lean-b--sidebar lean-b--insights">
             <span class="lean-b__name">INSIGHTS</span>
             <span class="lean-b__concept">AIOps</span>
             <span class="lean-b__count">10</span>
@@ -95,10 +97,15 @@ import Button from '../shared/Button.astro';
           <span class="lean-b__count">2</span>
         </div>
 
-        <!-- K8s + Clouds -->
-        <div class="lean-arch__footer">
-          <span class="lean-arch__k8s">Kubernetes (K3s)</span>
-          <span class="lean-arch__clouds">Huawei · AWS · Oracle OCI · Hetzner</span>
+        <!-- Kubernetes bar — separate row -->
+        <div class="lean-arch__k8s-bar">Kubernetes (K3s)</div>
+
+        <!-- Cloud providers — 4 cells, separate row -->
+        <div class="lean-arch__clouds">
+          <span class="lean-arch__cloud">Huawei Cloud</span>
+          <span class="lean-arch__cloud">AWS</span>
+          <span class="lean-arch__cloud">Oracle OCI</span>
+          <span class="lean-arch__cloud">Hetzner</span>
         </div>
       </div>
     </div>
@@ -546,7 +553,7 @@ import Button from '../shared/Button.astro';
     line-height: 1.4;
   }
 
-  /* ── Lean architecture diagram (Slide 0) — mirrors slide 2 layout ── */
+  /* ── Lean architecture diagram (Slide 0) — mirrors slide 2 hierarchy ── */
   .lean-arch {
     width: 100%;
     max-width: 28rem;
@@ -555,40 +562,44 @@ import Button from '../shared/Button.astro';
     overflow: hidden;
   }
 
-  /* 3-column body: Guardian | Center | Insights */
+  /* 3-column body: Guardian | Center | Insights — matches slide 2 */
   .lean-arch__body {
     display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr) 4.5rem;
-    border-bottom: 1px solid var(--color-border-primary);
+    grid-template-columns: 5rem minmax(0, 1fr) 5rem;
+    min-height: 22rem;
   }
 
-  /* Center column */
+  /* Center column — flex rows with proportional heights */
   .lean-arch__center {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.375rem 0.25rem;
+    gap: 0.1875rem;
+    padding: 0.375rem 0.1875rem;
   }
 
-  /* Row layouts */
-  .lean-arch__row { display: grid; gap: 0.25rem; }
+  /* Rows: grid inside, flex:N for proportional height */
+  .lean-arch__row {
+    display: grid;
+    gap: 0.1875rem;
+    min-height: 0;
+  }
   .lean-arch__row--2col { grid-template-columns: 1fr 1fr; }
   .lean-arch__row--pilot-spine { grid-template-columns: 2fr 4fr; }
 
-  /* Dashed divider between a la carte and core */
+  /* Dashed divider */
   .lean-arch__divider {
     border-top: 1px dashed var(--color-border-primary);
-    margin: 0.125rem 0;
+    margin: 0.0625rem 0;
+    flex: 0;
   }
 
-  /* ── Individual block ── */
+  /* ── Block ── */
   .lean-b {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    min-height: 2.25rem;
     border-radius: 0.25rem;
     border: 1px solid color-mix(in srgb, var(--bc) 25%, transparent);
     background: color-mix(in srgb, var(--bc) 6%, transparent);
@@ -602,16 +613,16 @@ import Button from '../shared/Button.astro';
   }
   .lean-b__name {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     color: var(--bc);
     letter-spacing: 0.04em;
-    line-height: 1.2;
+    line-height: 1.3;
   }
   .lean-b__concept {
     font-size: 0.5625rem;
     color: var(--color-text-tertiary);
-    line-height: 1.2;
+    line-height: 1.3;
   }
   .lean-b__count {
     position: absolute;
@@ -623,70 +634,73 @@ import Button from '../shared/Button.astro';
     font-weight: 600;
   }
 
-  /* Sidebar blocks: full-height vertical, larger */
+  /* ── Sidebars: Guardian (left) and Insights (right) ── */
   .lean-b--sidebar {
+    --bc: currentColor;
     border-radius: 0;
-    min-height: auto;
+    border: none;
     padding: 0.5rem 0.25rem;
   }
-  .lean-b--sidebar:first-child {
-    border-right: 1px solid color-mix(in srgb, var(--bc) 20%, transparent);
-    border-top: none;
-    border-bottom: none;
-    border-left: none;
-  }
-  .lean-b--sidebar:last-child {
-    border-left: 1px solid color-mix(in srgb, var(--bc) 20%, transparent);
-    border-top: none;
-    border-bottom: none;
-    border-right: none;
-  }
-  .lean-b--sidebar .lean-b__name { font-size: 0.5625rem; }
+  .lean-b--sidebar .lean-b__name { font-size: 0.625rem; }
   .lean-b--sidebar .lean-b__count {
     position: static;
     margin-top: auto;
     padding-top: 0.25rem;
   }
+  /* Guardian sidebar — matches slide 2 colors */
+  .lean-b--guardian {
+    --bc: #EF4444;
+    background: rgba(239,68,68,0.08);
+    border-right: 1px solid rgba(239,68,68,0.2);
+    color: #EF4444;
+  }
+  /* Insights sidebar — matches slide 2 colors */
+  .lean-b--insights {
+    --bc: #A855F7;
+    background: rgba(168,85,247,0.08);
+    border-left: 1px solid rgba(168,85,247,0.2);
+    color: #A855F7;
+  }
 
-  /* Catalyst: full-width bar below body */
+  /* Catalyst: full-width bar */
   .lean-b--catalyst {
     border-radius: 0;
     border-left: none;
     border-right: none;
-    min-height: 1.75rem;
     flex-direction: row;
     gap: 0.375rem;
     padding: 0.25rem 0.5rem;
   }
-  .lean-b--catalyst .lean-b__count {
-    position: static;
-  }
+  .lean-b--catalyst .lean-b__count { position: static; }
 
-  /* Wide block (Relay) */
-  .lean-b--wide {
-    min-height: 1.75rem;
-  }
-
-  /* Footer: K8s + Clouds */
-  .lean-arch__footer {
+  /* ── K8s bar — separate row, matches slide 2 ── */
+  .lean-arch__k8s-bar {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0;
-    padding: 0.25rem 0.5rem;
-    background: var(--color-bg-secondary, #111);
-    border-top: 1px solid var(--color-border-primary);
-  }
-  .lean-arch__k8s {
+    justify-content: center;
+    padding: 0.1875rem 0.375rem;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.5625rem;
     font-weight: 700;
     color: #94A3B8;
+    background: rgba(100,116,139,0.06);
+    border-top: 1px solid rgba(100,116,139,0.15);
   }
+
+  /* ── Cloud providers — 4 cells, separate row, matches slide 2 ── */
   .lean-arch__clouds {
-    font-size: 0.5rem;
-    color: var(--color-text-tertiary);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
   }
+  .lean-arch__cloud {
+    text-align: center;
+    padding: 0.1875rem;
+    font-size: 0.5rem;
+    color: #94A3B8;
+    border-right: 1px solid var(--color-border-primary);
+    background: var(--color-bg-secondary, #111);
+  }
+  .lean-arch__cloud:last-child { border-right: none; }
 
   /* ── Mobile ── */
   @media (max-width: 767px) {
@@ -696,25 +710,27 @@ import Button from '../shared/Button.astro';
     .carousel-right { order: 1; }
     .exodus-cards { grid-template-columns: 1fr; }
     .identity-grid { grid-template-columns: 1fr; }
-    /* Lean arch mobile: sidebars become top/bottom rows */
+    /* Lean arch mobile: sidebars become horizontal rows */
     .lean-arch__body {
       grid-template-columns: 1fr;
+      min-height: auto;
     }
     .lean-b--sidebar {
       flex-direction: row;
       gap: 0.5rem;
       padding: 0.375rem 0.5rem;
       border: none !important;
-      border-bottom: 1px solid color-mix(in srgb, var(--bc) 20%, transparent) !important;
+      border-bottom: 1px solid rgba(255,255,255,0.1) !important;
     }
-    .lean-b--sidebar:last-child {
+    .lean-b--insights {
       border-bottom: none !important;
-      border-top: 1px solid color-mix(in srgb, var(--bc) 20%, transparent) !important;
+      border-top: 1px solid rgba(255,255,255,0.1) !important;
     }
     .lean-b--sidebar .lean-b__count {
       margin-top: 0;
       margin-left: auto;
       padding-top: 0;
     }
+    .lean-arch__clouds { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
