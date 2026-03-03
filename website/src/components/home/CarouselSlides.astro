@@ -20,72 +20,81 @@ import Button from '../shared/Button.astro';
     </div>
     <div class="carousel-right carousel-visual">
       <div class="lean-arch">
-        <!-- 3-column body: Guardian | Center | Insights -->
+        <!-- 3-column body matching slide 2: Guardian(1col) | Center(6col) | Insights(1col) -->
         <div class="lean-arch__body">
-          <!-- Guardian sidebar -->
+          <!-- Guardian sidebar (narrow, like slide 2's 5rem) -->
           <div class="lean-b lean-b--sidebar lean-b--guardian">
             <span class="lean-b__name">GUARDIAN</span>
             <span class="lean-b__concept">Security</span>
+            <span class="lean-b__desc">Certs, secrets, scanning, runtime security, policy, IAM</span>
             <span class="lean-b__count">9</span>
           </div>
 
-          <!-- Center area -->
+          <!-- Center area (wide, matches slide 2's minmax center) -->
           <div class="lean-arch__center">
-            <!-- A la carte row: Cortex | Fabric — flex:10 (10 components each) -->
+            <!-- A la carte: Cortex | Fabric (flex:10) -->
             <div class="lean-arch__row lean-arch__row--2col" style="flex: 10;">
               <div class="lean-b" style="--bc: #F97316;">
                 <span class="lean-b__name">CORTEX</span>
                 <span class="lean-b__concept">AI Hub</span>
+                <span class="lean-b__desc">LLM serving, RAG, vector search, AI safety, observability</span>
                 <span class="lean-b__count">10</span>
               </div>
               <div class="lean-b" style="--bc: #EC4899;">
                 <span class="lean-b__name">FABRIC</span>
-                <span class="lean-b__concept">Data</span>
+                <span class="lean-b__concept">Data & Integration</span>
+                <span class="lean-b__desc">PostgreSQL, streaming, workflows, CDC, data lakehouse</span>
                 <span class="lean-b__count">10</span>
               </div>
             </div>
-            <!-- Relay — flex:5 -->
+            <!-- Relay (flex:5) -->
             <div class="lean-arch__row" style="flex: 5;">
               <div class="lean-b" style="--bc: #06B6D4;">
                 <span class="lean-b__name">RELAY</span>
                 <span class="lean-b__concept">Communication</span>
+                <span class="lean-b__desc">Email, video, team chat, WebRTC gateway</span>
                 <span class="lean-b__count">5</span>
               </div>
             </div>
             <!-- Divider -->
             <div class="lean-arch__divider"></div>
-            <!-- Core row 1: Pilot (2/6) | Spine (4/6) — flex:8 -->
+            <!-- Pilot(2fr) | Spine(4fr) — flex:8 -->
             <div class="lean-arch__row lean-arch__row--pilot-spine" style="flex: 8;">
               <div class="lean-b" style="--bc: #8B5CF6;">
                 <span class="lean-b__name">PILOT</span>
                 <span class="lean-b__concept">GitOps & IaC</span>
+                <span class="lean-b__desc">GitOps delivery, IaC, cloud resources</span>
                 <span class="lean-b__count">4</span>
               </div>
               <div class="lean-b" style="--bc: #3B82F6;">
                 <span class="lean-b__name">SPINE</span>
-                <span class="lean-b__concept">Networking</span>
+                <span class="lean-b__concept">Networking & Mesh</span>
+                <span class="lean-b__desc">Service mesh, L7 proxy, WAF, DNS, GSLB, VPN</span>
                 <span class="lean-b__count">8</span>
               </div>
             </div>
-            <!-- Core row 2: Surge | Silo — flex:4 -->
+            <!-- Surge | Silo — flex:4 -->
             <div class="lean-arch__row lean-arch__row--2col" style="flex: 4;">
               <div class="lean-b" style="--bc: #14B8A6;">
                 <span class="lean-b__name">SURGE</span>
-                <span class="lean-b__concept">Scaling</span>
+                <span class="lean-b__concept">Scaling & Resilience</span>
+                <span class="lean-b__desc">Vertical & event scaling, config reload, HA</span>
                 <span class="lean-b__count">4</span>
               </div>
               <div class="lean-b" style="--bc: #6366F1;">
                 <span class="lean-b__name">SILO</span>
-                <span class="lean-b__concept">Storage</span>
+                <span class="lean-b__concept">Storage & Registry</span>
+                <span class="lean-b__desc">Object storage, backup, container registry</span>
                 <span class="lean-b__count">3</span>
               </div>
             </div>
           </div>
 
-          <!-- Insights sidebar -->
+          <!-- Insights sidebar (narrow, like slide 2's 5rem) -->
           <div class="lean-b lean-b--sidebar lean-b--insights">
             <span class="lean-b__name">INSIGHTS</span>
             <span class="lean-b__concept">AIOps</span>
+            <span class="lean-b__desc">Dashboards, metrics, logs, traces, chaos testing</span>
             <span class="lean-b__count">10</span>
           </div>
         </div>
@@ -553,7 +562,7 @@ import Button from '../shared/Button.astro';
     line-height: 1.4;
   }
 
-  /* ── Lean architecture diagram (Slide 0) — mirrors slide 2 hierarchy ── */
+  /* ── Lean architecture diagram (Slide 0) — proportional to slide 2 ── */
   .lean-arch {
     width: 100%;
     max-width: 28rem;
@@ -562,11 +571,12 @@ import Button from '../shared/Button.astro';
     overflow: hidden;
   }
 
-  /* 3-column body: Guardian | Center | Insights — matches slide 2 */
+  /* 3-column body: Guardian(5rem) | Center(1fr) | Insights(5rem) — matches slide 2 */
   .lean-arch__body {
     display: grid;
     grid-template-columns: 5rem minmax(0, 1fr) 5rem;
-    min-height: 22rem;
+    min-height: 24rem;
+    border-bottom: 1px solid var(--color-border-primary);
   }
 
   /* Center column — flex rows with proportional heights */
@@ -593,7 +603,7 @@ import Button from '../shared/Button.astro';
     flex: 0;
   }
 
-  /* ── Block ── */
+  /* ── Block (center blocks) ── */
   .lean-b {
     display: flex;
     flex-direction: column;
@@ -603,27 +613,39 @@ import Button from '../shared/Button.astro';
     border-radius: 0.25rem;
     border: 1px solid color-mix(in srgb, var(--bc) 25%, transparent);
     background: color-mix(in srgb, var(--bc) 6%, transparent);
-    padding: 0.25rem 0.125rem;
-    gap: 0;
+    padding: 0.25rem 0.25rem;
+    gap: 0.0625rem;
     position: relative;
     transition: border-color 0.2s;
   }
   .lean-b:hover {
     border-color: color-mix(in srgb, var(--bc) 50%, transparent);
   }
+
+  /* Product family name — larger font */
   .lean-b__name {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.6875rem;
+    font-size: 0.8125rem;
     font-weight: 700;
     color: var(--bc);
     letter-spacing: 0.04em;
-    line-height: 1.3;
+    line-height: 1.2;
   }
+  /* Concept subtitle — uniform size */
   .lean-b__concept {
     font-size: 0.5625rem;
+    color: var(--color-text-secondary);
+    line-height: 1.2;
+    font-weight: 500;
+  }
+  /* 1-line description */
+  .lean-b__desc {
+    font-size: 0.4375rem;
     color: var(--color-text-tertiary);
     line-height: 1.3;
+    max-width: 12rem;
   }
+  /* Component count badge */
   .lean-b__count {
     position: absolute;
     top: 0.125rem;
@@ -636,25 +658,26 @@ import Button from '../shared/Button.astro';
 
   /* ── Sidebars: Guardian (left) and Insights (right) ── */
   .lean-b--sidebar {
-    --bc: currentColor;
     border-radius: 0;
     border: none;
-    padding: 0.5rem 0.25rem;
+    padding: 0.5rem 0.1875rem;
+    gap: 0.125rem;
   }
-  .lean-b--sidebar .lean-b__name { font-size: 0.625rem; }
+  .lean-b--sidebar .lean-b__name { font-size: 0.6875rem; }
+  .lean-b--sidebar .lean-b__desc { max-width: 4.5rem; }
   .lean-b--sidebar .lean-b__count {
     position: static;
     margin-top: auto;
-    padding-top: 0.25rem;
+    padding-top: 0.125rem;
   }
-  /* Guardian sidebar — matches slide 2 colors */
+  /* Guardian — matches slide 2 */
   .lean-b--guardian {
     --bc: #EF4444;
     background: rgba(239,68,68,0.08);
     border-right: 1px solid rgba(239,68,68,0.2);
     color: #EF4444;
   }
-  /* Insights sidebar — matches slide 2 colors */
+  /* Insights — matches slide 2 */
   .lean-b--insights {
     --bc: #A855F7;
     background: rgba(168,85,247,0.08);
@@ -667,10 +690,12 @@ import Button from '../shared/Button.astro';
     border-radius: 0;
     border-left: none;
     border-right: none;
+    border-bottom: none;
     flex-direction: row;
     gap: 0.375rem;
     padding: 0.25rem 0.5rem;
   }
+  .lean-b--catalyst .lean-b__name { font-size: 0.6875rem; }
   .lean-b--catalyst .lean-b__count { position: static; }
 
   /* ── K8s bar — separate row, matches slide 2 ── */
@@ -678,7 +703,7 @@ import Button from '../shared/Button.astro';
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.1875rem 0.375rem;
+    padding: 0.25rem 0.375rem;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.5625rem;
     font-weight: 700;
@@ -710,14 +735,16 @@ import Button from '../shared/Button.astro';
     .carousel-right { order: 1; }
     .exodus-cards { grid-template-columns: 1fr; }
     .identity-grid { grid-template-columns: 1fr; }
-    /* Lean arch mobile: sidebars become horizontal rows */
+    /* Lean arch mobile: sidebars collapse to horizontal rows */
     .lean-arch__body {
       grid-template-columns: 1fr;
       min-height: auto;
     }
     .lean-b--sidebar {
       flex-direction: row;
-      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.25rem;
       padding: 0.375rem 0.5rem;
       border: none !important;
       border-bottom: 1px solid rgba(255,255,255,0.1) !important;
@@ -726,11 +753,13 @@ import Button from '../shared/Button.astro';
       border-bottom: none !important;
       border-top: 1px solid rgba(255,255,255,0.1) !important;
     }
+    .lean-b--sidebar .lean-b__desc { max-width: none; }
     .lean-b--sidebar .lean-b__count {
       margin-top: 0;
       margin-left: auto;
       padding-top: 0;
     }
+    .lean-b__desc { max-width: none; }
     .lean-arch__clouds { grid-template-columns: repeat(4, 1fr); }
   }
 </style>

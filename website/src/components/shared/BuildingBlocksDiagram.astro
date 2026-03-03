@@ -88,9 +88,9 @@ const chipLabel = (name: string) => {
 };
 ---
 
-{/* ═══ INTERACTIVE MODE: Same layout as static viewMode=2 with hover-flip ═══ */}
+{/* ═══ INTERACTIVE MODE: Identical to static viewMode=2, hover-flip enabled ═══ */}
 {!isStatic && (
-<div class:list={['arch', 'arch--view-2', { 'arch--compact': compact }]}>
+<div class:list={['arch', 'arch--view-2', 'arch--static', { 'arch--compact': compact }]}>
   <div class="arch__body">
     <div class="arch__side arch__side--guardian">
       <span class="arch__side-label">GUARDIAN</span>
