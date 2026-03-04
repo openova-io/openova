@@ -1,4 +1,7 @@
-# OpenOva Platform
+# OpenOva Platform (Public Repo)
+
+This is the **public, open-source** repo. No proprietary content (website, deployment configs, infra secrets).
+Website and deployment live in `openova-private`.
 
 ## Project Memory
 
