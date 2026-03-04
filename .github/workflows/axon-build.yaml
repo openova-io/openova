@@ -1,0 +1,68 @@
+name: Build Axon
+
+on:
+  push:
+    paths: ['products/axon/**']
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/axon
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-axon:
+    runs-on: ubuntu-latest
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: products/axon
+          file: products/axon/Containerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}:test
+
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 3000:3000 \
+            -e AXON_API_KEYS=sk-smoke-test \
+            ${{ env.IMAGE }}:test
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health)
+          docker stop smoke
+
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed: expected 200, got $STATUS"
+            exit 1
+          fi
+          echo "Smoke test passed: HTTP $STATUS"
+
+      - name: Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: products/axon
+          file: products/axon/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest

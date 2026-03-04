@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: axon
+  labels:
+    {{- include "axon.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: {{ .Values.axon.port }}
+      protocol: TCP
+  selector:
+    {{- include "axon.selectorLabels" . | nindent 4 }}

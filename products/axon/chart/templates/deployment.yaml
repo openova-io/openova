@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: axon
+  labels:
+    {{- include "axon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "axon.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axon.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.image.pullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecretName }}
+      {{- end }}
+      containers:
+        - name: axon
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.axon.port }}
+              protocol: TCP
+          env:
+            - name: AXON_PORT
+              value: "{{ .Values.axon.port }}"
+            - name: AXON_DEFAULT_MODEL
+              value: "{{ .Values.axon.defaultModel }}"
+            - name: AXON_POOL_SIZE
+              value: "{{ .Values.axon.poolSize }}"
+            - name: AXON_CONVERSATION_TTL
+              value: "{{ .Values.axon.conversationTtl }}"
+            {{- if .Values.valkey.enabled }}
+            - name: AXON_VALKEY_URL
+              value: "redis://axon-valkey:6379"
+            {{- end }}
+            - name: AXON_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.axon.existingSecret }}
+                  key: AXON_API_KEYS
+          volumeMounts:
+            - name: claude-auth
+              mountPath: /home/axon/.claude
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources.axon | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.axon.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.axon.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+      volumes:
+        - name: claude-auth
+          secret:
+            secretName: {{ .Values.axon.claudeAuthSecret }}

@@ -1,0 +1,17 @@
+{{- if .Values.valkey.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: axon-valkey
+  labels:
+    {{- include "axon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    {{- include "axon.valkey.selectorLabels" . | nindent 4 }}
+{{- end }}

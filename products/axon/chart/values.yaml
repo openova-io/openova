@@ -1,0 +1,44 @@
+image:
+  repository: ghcr.io/openova-io/openova/axon
+  tag: latest
+  pullPolicy: IfNotPresent
+  pullSecretName: ghcr-pull-secret
+
+axon:
+  port: 3000
+  defaultModel: claude-sonnet-4-6
+  poolSize: 2
+  conversationTtl: 604800
+  existingSecret: axon-secrets
+  claudeAuthSecret: axon-claude-auth
+
+valkey:
+  enabled: true
+  image: valkey/valkey:8-alpine
+  storage: 1Gi
+
+ingress:
+  enabled: true
+  className: traefik
+  host: api.openova.io
+  path: /axon
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
+    secretName: api-openova-io-tls
+
+resources:
+  axon:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  valkey:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

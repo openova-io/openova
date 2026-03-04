@@ -1,0 +1,15 @@
+{{- if .Values.valkey.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: axon-valkey-data
+  labels:
+    {{- include "axon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.valkey.storage }}
+{{- end }}
