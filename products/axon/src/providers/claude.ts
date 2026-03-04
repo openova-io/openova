@@ -121,33 +121,15 @@ function extractText(msg: Record<string, unknown>): string {
     .join("");
 }
 
-export interface ChatTrace {
-  formatPromptMs: number;
-  acquireMs: number;
-  sendMs: number;
-  firstMsgMs: number;
-  streamMs: number;
-  releaseMs: number;
-  totalMs: number;
-}
-
-export async function chat(opts: ChatOptions): Promise<{ text: string; trace: ChatTrace }> {
-  const t0 = performance.now();
-
+export async function chat(opts: ChatOptions): Promise<string> {
   const prompt = formatPrompt(opts);
-  const tFormat = performance.now();
-
   const session = await pool.acquire();
-  const tAcquire = performance.now();
 
   try {
     await session.send(prompt);
-    const tSend = performance.now();
 
     let resultText = "";
-    let tFirstMsg = 0;
     for await (const msg of session.stream()) {
-      if (!tFirstMsg) tFirstMsg = performance.now();
       if (msg.type === "result") {
         if (msg.subtype === "success") {
           resultText = msg.result;
@@ -160,22 +142,9 @@ export async function chat(opts: ChatOptions): Promise<{ text: string; trace: Ch
         break;
       }
     }
-    const tStream = performance.now();
 
     pool.release(session);
-    const tRelease = performance.now();
-
-    const trace: ChatTrace = {
-      formatPromptMs: Math.round(tFormat - t0),
-      acquireMs: Math.round(tAcquire - tFormat),
-      sendMs: Math.round(tSend - tAcquire),
-      firstMsgMs: Math.round((tFirstMsg || tStream) - tSend),
-      streamMs: Math.round(tStream - (tFirstMsg || tSend)),
-      releaseMs: Math.round(tRelease - tStream),
-      totalMs: Math.round(tRelease - t0),
-    };
-
-    return { text: resultText, trace };
+    return resultText;
   } catch (err) {
     pool.discard(session);
     throw err;
