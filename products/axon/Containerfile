@@ -15,8 +15,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
-# Mount point for Claude subscription auth
-VOLUME /home/axon/.claude
+# Claude SDK needs .claude/ directory tree (auth + debug logs)
+RUN mkdir -p /home/axon/.claude/debug && chown -R axon:axon /home/axon/.claude
 
 USER axon
 EXPOSE 3000
