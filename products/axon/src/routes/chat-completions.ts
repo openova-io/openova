@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { v4 as uuidv4 } from "uuid";
-import { chat, chatStream, type ChatOptions } from "../providers/claude.js";
+import { chat, chatStream, type ChatOptions, type ChatTrace } from "../providers/claude.js";
 import { trackPoolMetric } from "../providers/valkey.js";
 import type { ConversationStore } from "../providers/conversation.js";
 import type { Config } from "../config.js";
@@ -46,6 +46,7 @@ export async function chatCompletionsRoute(
       const apiKey = authHeader.replace("Bearer ", "");
 
       // Build full message list: history + new messages
+      const tConvLookup0 = performance.now();
       let allMessages: ChatMessage[];
       let convId: string;
 
@@ -69,6 +70,8 @@ export async function chatCompletionsRoute(
         allMessages = newMessages;
         convId = await conversations.create(newMessages, model, apiKey);
       }
+      const tConvLookup1 = performance.now();
+      const convLookupMs = Math.round(tConvLookup1 - tConvLookup0);
 
       // Build ChatOptions — pass all OpenAI params through
       const chatOpts: ChatOptions = {
@@ -86,11 +89,20 @@ export async function chatCompletionsRoute(
 
       if (!stream) {
         // ── Non-streaming ────────────────────────────────────────
-        const t0 = Date.now();
-        const text = await chat(chatOpts);
-        trackPoolMetric("request", Date.now() - t0);
-
+        const tRoute0 = performance.now();
+        const { text, trace } = await chat(chatOpts);
+        const tConvStore0 = performance.now();
         await conversations.append(convId, { role: "assistant", content: text });
+        const tConvStore1 = performance.now();
+
+        const routeTrace = {
+          convLookupMs,
+          ...trace,
+          convStoreMs: Math.round(tConvStore1 - tConvStore0),
+          routeTotalMs: Math.round(tConvStore1 - tRoute0),
+        };
+        app.log.info({ trace: routeTrace }, "request trace");
+        trackPoolMetric("request", routeTrace.routeTotalMs);
 
         const usage: ChatCompletionUsage = {
           prompt_tokens: 0,
