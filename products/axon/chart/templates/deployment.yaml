@@ -65,6 +65,7 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             runAsNonRoot: true
+            runAsUser: 1001
       volumes:
         - name: claude-auth
           secret:
