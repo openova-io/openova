@@ -26,6 +26,8 @@ spec:
             - containerPort: {{ .Values.axon.port }}
               protocol: TCP
           env:
+            - name: HOME
+              value: /home/axon
             - name: AXON_PORT
               value: "{{ .Values.axon.port }}"
             - name: AXON_DEFAULT_MODEL
@@ -45,7 +47,8 @@ spec:
                   key: AXON_API_KEYS
           volumeMounts:
             - name: claude-auth
-              mountPath: /home/axon/.claude
+              mountPath: /home/axon/.claude/.credentials.json
+              subPath: .credentials.json
               readOnly: true
           resources:
             {{- toYaml .Values.resources.axon | nindent 12 }}
