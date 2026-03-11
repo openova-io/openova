@@ -151,6 +151,13 @@ export async function chat(opts: ChatOptions): Promise<string> {
   }
 }
 
+/**
+ * Stream chat response with progressive word-level chunking.
+ *
+ * The Claude Agent SDK yields complete assistant messages (not token deltas),
+ * so we split the full text into small word groups and yield them with brief
+ * delays to give a natural typing experience over SSE.
+ */
 export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, void, undefined> {
   const prompt = formatPrompt(opts);
   const session = await pool.acquire();
@@ -161,7 +168,28 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
     for await (const msg of session.stream()) {
       if (msg.type === "assistant") {
         const text = extractText(msg as unknown as Record<string, unknown>);
-        if (text) yield text;
+        if (text) {
+          // Split into small word groups for progressive streaming
+          const words = text.split(/(\s+)/);
+          let buf = "";
+          let wordCount = 0;
+          const chunkSize = 2 + Math.floor(Math.random() * 2); // 2-3 words per chunk
+
+          for (const word of words) {
+            buf += word;
+            if (/\S/.test(word)) wordCount++;
+
+            if (wordCount >= chunkSize) {
+              yield buf;
+              buf = "";
+              wordCount = 0;
+              // Small delay between chunks for natural typing feel
+              await new Promise((r) => setTimeout(r, 25 + Math.random() * 35));
+            }
+          }
+          // Flush remaining buffer
+          if (buf) yield buf;
+        }
       }
       if (msg.type === "result") break;
     }
