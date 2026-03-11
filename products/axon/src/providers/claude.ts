@@ -44,29 +44,36 @@ export interface ChatOptions {
 
 /**
  * Format a self-contained prompt with full conversation context.
- * Includes response_format instructions and tool definitions when provided.
+ *
+ * Uses XML-style tags that Claude recognises as structured prompt sections
+ * (not user-injected content). The <new_conversation/> marker tells the model
+ * to treat everything that follows as a fresh request, preventing residual
+ * session context from bleeding through.
  */
 export function formatPrompt(opts: ChatOptions): string {
   const parts: string[] = [];
 
-  // System instructions from messages
+  // Session boundary — tells Claude to ignore prior turns in the reused session
+  parts.push("<new_conversation/>\n");
+
+  // System / persona context
   const systemParts = opts.messages
     .filter((m) => m.role === "system")
     .map((m) => typeof m.content === "string" ? m.content : "");
   if (systemParts.length > 0) {
-    parts.push(`[System instructions]\n${systemParts.join("\n")}\n[End system instructions]\n`);
+    parts.push(`<context>\n${systemParts.join("\n")}\n</context>\n`);
   }
 
   // Response format constraint
   if (opts.responseFormat?.type === "json_object") {
-    parts.push("[Output format]\nYou must respond with valid JSON only. No markdown, no explanation, just a JSON object.\n[End output format]\n");
+    parts.push("<output_format>\nYou must respond with valid JSON only. No markdown, no explanation, just a JSON object.\n</output_format>\n");
   } else if (opts.responseFormat?.type === "json_schema" && opts.responseFormat.json_schema) {
-    parts.push(`[Output format]\nYou must respond with valid JSON matching this schema:\n${JSON.stringify(opts.responseFormat.json_schema, null, 2)}\nNo markdown, no explanation, just a JSON object matching the schema.\n[End output format]\n`);
+    parts.push(`<output_format>\nYou must respond with valid JSON matching this schema:\n${JSON.stringify(opts.responseFormat.json_schema, null, 2)}\nNo markdown, no explanation, just a JSON object matching the schema.\n</output_format>\n`);
   }
 
   // Tool definitions
   if (opts.tools && opts.tools.length > 0) {
-    parts.push("[Available tools]");
+    parts.push("<tools>");
     for (const tool of opts.tools) {
       parts.push(`Function: ${tool.function.name}`);
       if (tool.function.description) {
@@ -78,14 +85,14 @@ export function formatPrompt(opts: ChatOptions): string {
       parts.push("");
     }
     parts.push("If you need to call a tool, respond with a JSON object: {\"tool_calls\": [{\"function\": {\"name\": \"<name>\", \"arguments\": \"<json_string>\"}}]}");
-    parts.push("[End available tools]\n");
+    parts.push("</tools>\n");
   }
 
   // Stop sequences hint
   if (opts.stop) {
     const seqs = Array.isArray(opts.stop) ? opts.stop : [opts.stop];
     if (seqs.length > 0) {
-      parts.push(`[Stop sequences: ${seqs.map(s => JSON.stringify(s)).join(", ")}]\n`);
+      parts.push(`Stop sequences: ${seqs.map(s => JSON.stringify(s)).join(", ")}\n`);
     }
   }
 
@@ -95,7 +102,7 @@ export function formatPrompt(opts: ChatOptions): string {
   if (conversation.length === 1 && conversation[0].role === "user") {
     parts.push(typeof conversation[0].content === "string" ? conversation[0].content : "");
   } else if (conversation.length > 1) {
-    parts.push("Respond based ONLY on the conversation below. Do not reference anything outside it.\n");
+    parts.push("<conversation>");
     for (const msg of conversation) {
       const content = typeof msg.content === "string" ? msg.content : "";
       if (msg.role === "tool") {
@@ -105,6 +112,7 @@ export function formatPrompt(opts: ChatOptions): string {
         parts.push(`${label}: ${content}`);
       }
     }
+    parts.push("</conversation>\n\nRespond to the last User message above based on the context and conversation provided.");
   }
 
   return parts.join("\n");
