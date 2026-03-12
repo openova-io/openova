@@ -175,17 +175,25 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
   try {
     await session.send(prompt);
 
+    let streamedViaPartial = false;
+
     for await (const msg of session.stream()) {
-      // Real token delta from includePartialMessages: true
+      // Real token delta — emitted when includePartialMessages: true is honoured
       if (msg.type === "stream_event") {
         const event = (msg as Record<string, unknown>).event as Record<string, unknown> | undefined;
         if (event?.type === "content_block_delta") {
           const delta = event.delta as Record<string, unknown> | undefined;
           if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text) {
+            streamedViaPartial = true;
             yield delta.text;
           }
         }
         continue;
+      }
+      // Fallback: complete assistant message (older SDK runtime without partial support)
+      if (msg.type === "assistant" && !streamedViaPartial) {
+        const text = extractText(msg as unknown as Record<string, unknown>);
+        if (text) yield text;
       }
       if (msg.type === "result") break;
     }
