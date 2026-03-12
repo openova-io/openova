@@ -178,7 +178,25 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
     for await (const msg of session.stream()) {
       if (msg.type === "assistant") {
         const text = extractText(msg as unknown as Record<string, unknown>);
-        if (text) yield text;
+        if (text) {
+          // Split into 2-3 word chunks with small delays to produce a
+          // natural typing effect on the client side.
+          const words = text.split(/(\s+)/);
+          let buf = "";
+          let wordCount = 0;
+          const chunkSize = 2 + Math.floor(Math.random() * 2);
+          for (const word of words) {
+            buf += word;
+            if (/\S/.test(word)) wordCount++;
+            if (wordCount >= chunkSize) {
+              yield buf;
+              buf = "";
+              wordCount = 0;
+              await new Promise((r) => setTimeout(r, 25 + Math.random() * 35));
+            }
+          }
+          if (buf) yield buf;
+        }
       }
       if (msg.type === "result") break;
     }
