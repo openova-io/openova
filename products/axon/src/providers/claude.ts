@@ -178,6 +178,7 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
     let streamedViaPartial = false;
 
     for await (const msg of session.stream()) {
+      console.log(`[stream] msg.type=${msg.type}`);
       // Real token delta — emitted when includePartialMessages: true is honoured
       if (msg.type === "stream_event") {
         const event = (msg as Record<string, unknown>).event as Record<string, unknown> | undefined;
