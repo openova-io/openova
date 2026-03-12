@@ -160,13 +160,13 @@ export async function chat(opts: ChatOptions): Promise<string> {
 }
 
 /**
- * Stream chat response using real token deltas from the Claude Agent SDK.
+ * Stream chat response.
  *
- * With includePartialMessages: true on the session, the SDK emits
- * SDKPartialAssistantMessage events (type: "stream_event") carrying
- * BetaRawMessageStreamEvent payloads — the same content_block_delta
- * events as the native Anthropic streaming API. This gives true
- * token-by-token TTFT instead of waiting for the full response.
+ * The Claude Agent SDK yields complete assistant messages rather than token
+ * deltas. We emit the full text as a single chunk so the client receives
+ * content as soon as Claude finishes generating (typically 2-4s).
+ * Real token-level streaming requires includePartialMessages support in the
+ * SDK session — to be enabled once confirmed working in this runtime version.
  */
 export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, void, undefined> {
   const prompt = formatPrompt(opts);
@@ -175,24 +175,8 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
   try {
     await session.send(prompt);
 
-    let streamedViaPartial = false;
-
     for await (const msg of session.stream()) {
-      console.log(`[stream] msg.type=${msg.type}`);
-      // Real token delta — emitted when includePartialMessages: true is honoured
-      if (msg.type === "stream_event") {
-        const event = (msg as Record<string, unknown>).event as Record<string, unknown> | undefined;
-        if (event?.type === "content_block_delta") {
-          const delta = event.delta as Record<string, unknown> | undefined;
-          if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text) {
-            streamedViaPartial = true;
-            yield delta.text;
-          }
-        }
-        continue;
-      }
-      // Fallback: complete assistant message (older SDK runtime without partial support)
-      if (msg.type === "assistant" && !streamedViaPartial) {
+      if (msg.type === "assistant") {
         const text = extractText(msg as unknown as Record<string, unknown>);
         if (text) yield text;
       }

@@ -52,10 +52,8 @@ export class SessionPool {
       model: this.opts.warmupModel,
       allowedTools: [],
       permissionMode: "dontAsk",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      includePartialMessages: true as any,
       env: this.env,
-    } as any);
+    });
 
     const entry: PoolEntry = {
       session,
