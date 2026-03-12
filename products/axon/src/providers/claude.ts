@@ -160,11 +160,13 @@ export async function chat(opts: ChatOptions): Promise<string> {
 }
 
 /**
- * Stream chat response with progressive word-level chunking.
+ * Stream chat response using real token deltas from the Claude Agent SDK.
  *
- * The Claude Agent SDK yields complete assistant messages (not token deltas),
- * so we split the full text into small word groups and yield them with brief
- * delays to give a natural typing experience over SSE.
+ * With includePartialMessages: true on the session, the SDK emits
+ * SDKPartialAssistantMessage events (type: "stream_event") carrying
+ * BetaRawMessageStreamEvent payloads — the same content_block_delta
+ * events as the native Anthropic streaming API. This gives true
+ * token-by-token TTFT instead of waiting for the full response.
  */
 export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, void, undefined> {
   const prompt = formatPrompt(opts);
@@ -174,30 +176,16 @@ export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, voi
     await session.send(prompt);
 
     for await (const msg of session.stream()) {
-      if (msg.type === "assistant") {
-        const text = extractText(msg as unknown as Record<string, unknown>);
-        if (text) {
-          // Split into small word groups for progressive streaming
-          const words = text.split(/(\s+)/);
-          let buf = "";
-          let wordCount = 0;
-          const chunkSize = 2 + Math.floor(Math.random() * 2); // 2-3 words per chunk
-
-          for (const word of words) {
-            buf += word;
-            if (/\S/.test(word)) wordCount++;
-
-            if (wordCount >= chunkSize) {
-              yield buf;
-              buf = "";
-              wordCount = 0;
-              // Small delay between chunks for natural typing feel
-              await new Promise((r) => setTimeout(r, 25 + Math.random() * 35));
-            }
+      // Real token delta from includePartialMessages: true
+      if (msg.type === "stream_event") {
+        const event = (msg as Record<string, unknown>).event as Record<string, unknown> | undefined;
+        if (event?.type === "content_block_delta") {
+          const delta = event.delta as Record<string, unknown> | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text) {
+            yield delta.text;
           }
-          // Flush remaining buffer
-          if (buf) yield buf;
         }
+        continue;
       }
       if (msg.type === "result") break;
     }

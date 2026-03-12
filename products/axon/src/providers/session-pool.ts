@@ -52,6 +52,7 @@ export class SessionPool {
       model: this.opts.warmupModel,
       allowedTools: [],
       permissionMode: "dontAsk",
+      includePartialMessages: true,
       env: this.env,
     });
 
