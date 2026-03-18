@@ -5,11 +5,14 @@ import { trackPoolMetric } from "./valkey.js";
 
 type SDKSession = ReturnType<typeof unstable_v2_createSession>;
 
+const MAX_IDLE_MS = 5 * 60 * 1000; // recycle sessions idle more than 5 minutes
+
 interface PoolEntry {
   session: SDKSession;
   ready: boolean;
   readyPromise: Promise<void>;
   turns: number;
+  lastUsed: number; // Date.now() when last released or warmed
 }
 
 export interface SessionPoolOptions {
@@ -60,6 +63,7 @@ export class SessionPool {
       ready: false,
       readyPromise: null as unknown as Promise<void>,
       turns: 0,
+      lastUsed: Date.now(),
     };
 
     this.pending.push(entry);
@@ -76,6 +80,7 @@ export class SessionPool {
       }
       entry.ready = true;
       entry.turns = 1; // warmup counts as 1 turn
+      entry.lastUsed = Date.now();
       // Move from pending to idle
       this.pending = this.pending.filter((e) => e !== entry);
       this.idle.push(entry);
@@ -90,9 +95,14 @@ export class SessionPool {
   }
 
   async acquire(): Promise<SDKSession> {
-    // Try to grab an idle session
-    const entry = this.idle.shift();
-    if (entry) {
+    // Try to grab an idle session — skip any that have been idle too long
+    while (this.idle.length > 0) {
+      const entry = this.idle.shift()!;
+      if (Date.now() - entry.lastUsed > MAX_IDLE_MS) {
+        console.log(`[pool] evicting stale idle session (idle ${Math.round((Date.now() - entry.lastUsed) / 1000)}s)`);
+        this.recycle(entry);
+        continue; // try next idle entry
+      }
       this.busy.add(entry);
       trackPoolMetric("acquire");
       console.log(`[pool] acquired session (idle: ${this.idle.length}, busy: ${this.busy.size})`);
@@ -131,6 +141,7 @@ export class SessionPool {
 
     this.busy.delete(entry);
     entry.turns++;
+    entry.lastUsed = Date.now();
 
     if (entry.turns >= this.maxTurns) {
       // Recycle: kill old, spawn replacement
