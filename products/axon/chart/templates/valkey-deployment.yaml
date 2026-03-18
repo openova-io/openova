@@ -28,13 +28,13 @@ spec:
           resources:
             {{- toYaml .Values.resources.valkey | nindent 12 }}
           livenessProbe:
-            exec:
-              command: ["valkey-cli", "ping"]
+            tcpSocket:
+              port: 6379
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
-            exec:
-              command: ["valkey-cli", "ping"]
+            tcpSocket:
+              port: 6379
             initialDelaySeconds: 3
             periodSeconds: 5
           securityContext:
