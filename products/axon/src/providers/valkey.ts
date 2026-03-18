@@ -1,34 +1,68 @@
 import { Redis } from "ioredis";
 
 let client: Redis | null = null;
+let valkeyUrl: string = "";
 
 export async function connectValkey(url: string): Promise<void> {
-  client = new Redis(url, {
-    maxRetriesPerRequest: 3,
+  valkeyUrl = url;
+  client = createValkeyClient(url);
+}
+
+function createValkeyClient(url: string): Redis {
+  const c = new Redis(url, {
+    maxRetriesPerRequest: 3, // fail commands fast; background reconnect handles recovery
     retryStrategy(times: number) {
-      if (times > 5) return null;
-      return Math.min(times * 200, 2000);
+      // Never give up — keep reconnecting with capped exponential backoff (max 30s)
+      const delay = Math.min(times * 500, 30_000);
+      console.log(`[valkey] reconnect attempt ${times}, next in ${delay}ms`);
+      return delay;
     },
     lazyConnect: true,
   });
 
-  try {
-    await client.connect();
-    console.log("[valkey] connected");
-  } catch (err) {
-    console.warn("[valkey] connection failed, metrics disabled:", (err as Error).message);
+  c.on("connect", () => console.log("[valkey] connected"));
+  c.on("error", (err: Error) => {
+    // Log but don't crash — retryStrategy handles reconnection
+    if (!err.message.includes("ECONNREFUSED") && !err.message.includes("Connection is closed")) {
+      console.warn("[valkey] error:", err.message);
+    }
+  });
+  c.on("end", () => {
+    // ioredis stopped retrying (retryStrategy returned null) — restart the client
+    console.warn("[valkey] connection ended permanently, restarting client...");
     client = null;
-  }
+    setTimeout(() => {
+      if (valkeyUrl) {
+        client = createValkeyClient(valkeyUrl);
+        client.connect().catch(() => {});
+      }
+    }, 5_000);
+  });
+
+  c.connect().catch((err: Error) => {
+    console.warn("[valkey] initial connect failed:", err.message);
+  });
+
+  return c;
 }
 
 export function getValkey(): Redis | null {
+  // Return null if client is permanently closed — callers treat null as "no persistence"
+  if (client && (client.status === "end" || client.status === "close")) {
+    return null;
+  }
   return client;
 }
 
 export async function disconnectValkey(): Promise<void> {
   if (client) {
-    await client.quit();
+    try {
+      await client.quit();
+    } catch {
+      // ignore on shutdown
+    }
     client = null;
+    valkeyUrl = "";
   }
 }
 
