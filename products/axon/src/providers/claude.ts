@@ -1,3 +1,5 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { ThinkingConfig } from "@anthropic-ai/claude-agent-sdk";
 import type { ChatMessage, ResponseFormat, Tool } from "../types/openai.js";
 import { SessionPool } from "./session-pool.js";
 
@@ -168,6 +170,117 @@ export async function chat(opts: ChatOptions): Promise<string> {
  * Real token-level streaming requires includePartialMessages support in the
  * SDK session — to be enabled once confirmed working in this runtime version.
  */
+// ── V1 query() interface ─────────────────────────────────────────────
+
+export interface ChatV1Options {
+  messages: ChatMessage[];
+  model: string;
+  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens?: number } | { type: "disabled" };
+  effort?: "low" | "medium" | "high" | "max";
+  maxTokens?: number;
+  responseFormat?: ResponseFormat;
+}
+
+function buildV1Prompt(opts: ChatV1Options): { systemPrompt: string | undefined; prompt: string } {
+  const systemParts = opts.messages
+    .filter((m) => m.role === "system")
+    .map((m) => (typeof m.content === "string" ? m.content : ""));
+
+  const systemPrompt = systemParts.length > 0 ? systemParts.join("\n") : undefined;
+
+  if (opts.responseFormat?.type === "json_object") {
+    const jsonInstruction = "You must respond with valid JSON only. No markdown, no explanation, just a JSON object.";
+    const combined = systemPrompt ? `${systemPrompt}\n\n${jsonInstruction}` : jsonInstruction;
+    return { systemPrompt: combined, prompt: buildConversationPrompt(opts.messages) };
+  }
+
+  return { systemPrompt, prompt: buildConversationPrompt(opts.messages) };
+}
+
+function buildConversationPrompt(messages: ChatMessage[]): string {
+  const conversation = messages.filter((m) => m.role !== "system");
+  if (conversation.length === 1 && conversation[0].role === "user") {
+    return typeof conversation[0].content === "string" ? conversation[0].content : "";
+  }
+  const lines: string[] = ["<conversation>"];
+  for (const msg of conversation) {
+    const content = typeof msg.content === "string" ? msg.content : "";
+    const label = msg.role === "user" ? "User" : "Assistant";
+    lines.push(`${label}: ${content}`);
+  }
+  lines.push("</conversation>\n\nRespond to the last User message.");
+  return lines.join("\n");
+}
+
+function toSDKThinking(t: ChatV1Options["thinking"]): ThinkingConfig | undefined {
+  if (!t) return undefined;
+  if (t.type === "adaptive") return { type: "adaptive" };
+  if (t.type === "disabled") return { type: "disabled" };
+  return { type: "enabled", budgetTokens: (t as { type: "enabled"; budget_tokens?: number }).budget_tokens };
+}
+
+export async function chatV1(opts: ChatV1Options): Promise<string> {
+  const { systemPrompt, prompt } = buildV1Prompt(opts);
+
+  const q = query({
+    prompt,
+    options: {
+      model: opts.model,
+      systemPrompt,
+      thinking: toSDKThinking(opts.thinking),
+      effort: opts.effort,
+      persistSession: false,
+      allowedTools: [],
+      permissionMode: "dontAsk",
+    },
+  });
+
+  let result = "";
+  for await (const msg of q) {
+    if (msg.type === "result" && msg.subtype === "success") {
+      result = msg.result;
+      break;
+    }
+    if (msg.type === "result" && msg.subtype !== "success") {
+      throw new Error(`V1 query error: ${msg.subtype}`);
+    }
+  }
+  return result;
+}
+
+export async function* chatV1Stream(opts: ChatV1Options): AsyncGenerator<string, void, undefined> {
+  const { systemPrompt, prompt } = buildV1Prompt(opts);
+
+  const q = query({
+    prompt,
+    options: {
+      model: opts.model,
+      systemPrompt,
+      thinking: toSDKThinking(opts.thinking),
+      effort: opts.effort,
+      persistSession: false,
+      allowedTools: [],
+      permissionMode: "dontAsk",
+      includePartialMessages: true,
+    },
+  });
+
+  for await (const msg of q) {
+    if (msg.type === "stream_event") {
+      const ev = msg.event as Record<string, unknown>;
+      if (ev.type === "content_block_delta") {
+        const delta = ev.delta as Record<string, unknown> | undefined;
+        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+          yield delta.text;
+        }
+      }
+    }
+    if (msg.type === "result") break;
+  }
+}
+
+// ── V2 streaming (existing) ──────────────────────────────────────────
+
 export async function* chatStream(opts: ChatOptions): AsyncGenerator<string, void, undefined> {
   const prompt = formatPrompt(opts);
   const session = await pool.acquire();

@@ -80,8 +80,13 @@ export interface ChatCompletionRequest {
   store?: boolean;
   metadata?: Record<string, string>;
 
-  // Axon extension
+  // Axon extensions
   conversation_id?: string;
+
+  // V1 routing — presence of any of these sends the request through query() instead of session pool
+  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens?: number } | { type: "disabled" };
+  effort?: "low" | "medium" | "high" | "max";
+  profile?: "fast" | "deep"; // fast = V2 session pool, deep = V1 with thinking=adaptive, effort=max
 }
 
 // ── Response ────────────────────────────────────────────────────────

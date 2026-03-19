@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { v4 as uuidv4 } from "uuid";
-import { chat, chatStream, type ChatOptions } from "../providers/claude.js";
+import { chat, chatStream, chatV1, chatV1Stream, type ChatOptions, type ChatV1Options } from "../providers/claude.js";
 import { trackPoolMetric } from "../providers/valkey.js";
 import type { ConversationStore } from "../providers/conversation.js";
 import type { Config } from "../config.js";
@@ -31,6 +31,9 @@ export async function chatCompletionsRoute(
       const conversationId = body.conversation_id;
       const maxTokens = body.max_tokens ?? body.max_completion_tokens;
       const includeUsage = stream && body.stream_options?.include_usage === true;
+
+      // Route to V1 query() if caller explicitly requests thinking, effort, or profile=deep
+      const useV1 = body.thinking !== undefined || body.effort !== undefined || body.profile === "deep";
 
       if (!newMessages || newMessages.length === 0) {
         return reply.code(400).send({
@@ -87,7 +90,20 @@ export async function chatCompletionsRoute(
       if (!stream) {
         // ── Non-streaming ────────────────────────────────────────
         const t0 = Date.now();
-        const text = await chat(chatOpts);
+        let text: string;
+        if (useV1) {
+          const v1Opts: ChatV1Options = {
+            messages: allMessages,
+            model,
+            thinking: body.thinking,
+            effort: body.effort,
+            maxTokens,
+            responseFormat: body.response_format,
+          };
+          text = await chatV1(v1Opts);
+        } else {
+          text = await chat(chatOpts);
+        }
         trackPoolMetric("request", Date.now() - t0);
 
         await conversations.append(convId, { role: "assistant", content: text });
@@ -154,8 +170,12 @@ export async function chatCompletionsRoute(
 
       let fullText = "";
 
+      const streamSource = useV1
+        ? chatV1Stream({ messages: allMessages, model, thinking: body.thinking, effort: body.effort, maxTokens, responseFormat: body.response_format })
+        : chatStream(chatOpts);
+
       try {
-        for await (const text of chatStream(chatOpts)) {
+        for await (const text of streamSource) {
           fullText += text;
           sendChunk({
             id,
