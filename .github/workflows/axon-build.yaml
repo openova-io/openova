@@ -34,7 +34,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: products/axon
           file: products/axon/Containerfile
@@ -62,7 +62,7 @@ jobs:
           docker stop smoke
 
       - name: Push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: products/axon
           file: products/axon/Containerfile
