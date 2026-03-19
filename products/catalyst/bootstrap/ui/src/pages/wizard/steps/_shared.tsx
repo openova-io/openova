@@ -26,8 +26,18 @@ export function StepShell({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h2 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">{title}</h2>
-        <p className="mt-1.5 text-sm text-[oklch(50%_0.01_250)] leading-relaxed">{description}</p>
+        <h2
+          className="text-xl font-semibold"
+          style={{ color: 'var(--color-text-primary)' }}
+        >
+          {title}
+        </h2>
+        <p
+          className="mt-1.5 text-sm leading-relaxed"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          {description}
+        </p>
       </div>
 
       <div className="flex flex-col gap-6">{children}</div>

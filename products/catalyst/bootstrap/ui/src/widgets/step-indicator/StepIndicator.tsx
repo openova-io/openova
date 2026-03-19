@@ -30,7 +30,6 @@ export function StepIndicator({
 
         return (
           <div key={step.id} className="flex items-start gap-3">
-            {/* Connector line */}
             <div className="flex flex-col items-center self-stretch">
               <button
                 onClick={() => isClickable && onStepClick(step.id)}
@@ -47,11 +46,11 @@ export function StepIndicator({
                   ],
                   isCurrent && [
                     'bg-[--color-surface-2] border-2 border-[--color-brand-500]',
-                    'text-[--color-brand-400]',
+                    'text-[--color-brand-500]',
                   ],
                   !isCompleted && !isCurrent && [
                     'bg-[--color-surface-2] border border-[--color-surface-border]',
-                    'text-[oklch(45%_0.01_250)]',
+                    'text-[--color-text-disabled]',
                     'cursor-default',
                   ]
                 )}
@@ -68,7 +67,6 @@ export function StepIndicator({
                   <span>{step.id}</span>
                 )}
 
-                {/* Active pulse ring */}
                 {isCurrent && (
                   <motion.div
                     className="absolute inset-0 rounded-full border-2 border-[--color-brand-500]"
@@ -78,13 +76,12 @@ export function StepIndicator({
                 )}
               </button>
 
-              {/* Connector */}
               {index < steps.length - 1 && (
                 <div className="relative mt-1 w-px flex-1 overflow-hidden">
                   <div className="absolute inset-0 bg-[--color-surface-border]" />
                   {isCompleted && (
                     <motion.div
-                      className="absolute inset-0 bg-[--color-brand-500]/50"
+                      className="absolute inset-0 bg-[--color-brand-500]/40"
                       initial={{ scaleY: 0, originY: 0 }}
                       animate={{ scaleY: 1 }}
                       transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -94,19 +91,25 @@ export function StepIndicator({
               )}
             </div>
 
-            {/* Label */}
             <div className={cn('pb-6 pt-0.5', index === steps.length - 1 && 'pb-0')}>
               <p
-                className={cn(
-                  'text-sm font-medium leading-tight transition-colors duration-200',
-                  isCurrent && 'text-[oklch(92%_0.01_250)]',
-                  isCompleted && 'text-[oklch(70%_0.01_250)]',
-                  !isCompleted && !isCurrent && 'text-[oklch(40%_0.01_250)]'
-                )}
+                className="text-sm font-medium leading-tight transition-colors duration-200"
+                style={{
+                  color: isCurrent
+                    ? 'var(--color-text-primary)'
+                    : isCompleted
+                    ? 'var(--color-text-secondary)'
+                    : 'var(--color-text-disabled)',
+                }}
               >
                 {step.label}
               </p>
-              <p className="mt-0.5 text-xs text-[oklch(40%_0.01_250)]">{step.description}</p>
+              <p
+                className="mt-0.5 text-xs"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                {step.description}
+              </p>
             </div>
           </div>
         )

@@ -18,7 +18,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="text-sm font-medium text-[oklch(80%_0.01_250)]"
+            className="text-sm font-medium"
+            style={{ color: 'var(--color-text-secondary)' }}
           >
             {label}
             {props.required && (
@@ -28,7 +29,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
         <div className="relative flex items-center">
           {prefix && (
-            <div className="absolute left-3 flex items-center pointer-events-none text-[oklch(55%_0.01_250)]">
+            <div
+              className="absolute left-3 flex items-center pointer-events-none"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
               {prefix}
             </div>
           )}
@@ -36,11 +40,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             className={cn(
-              'w-full h-9 bg-[--color-surface-1] rounded-[--radius-md]',
-              'border border-[--color-surface-border] text-[oklch(92%_0.01_250)]',
-              'text-sm placeholder:text-[oklch(45%_0.01_250)]',
-              'transition-all duration-150',
-              'hover:border-[oklch(30%_0.025_250)]',
+              'w-full h-9 rounded-[--radius-md]',
+              'bg-[--color-surface-1] border border-[--color-surface-border]',
+              'text-sm transition-all duration-150',
+              'hover:border-[--color-surface-border-hover]',
               'focus:outline-none focus:border-[--color-brand-500]/60 focus:ring-1 focus:ring-[--color-brand-500]/30',
               error && 'border-[--color-error]/50 focus:border-[--color-error]/70 focus:ring-[--color-error]/20',
               prefix ? 'pl-9' : 'px-3',
@@ -48,6 +51,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               'disabled:opacity-40 disabled:cursor-not-allowed',
               className,
             )}
+            style={{
+              color: 'var(--color-text-primary)',
+            }}
             aria-invalid={!!error}
             aria-describedby={
               error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined
@@ -55,7 +61,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {suffix && (
-            <div className="absolute right-3 flex items-center text-[oklch(55%_0.01_250)]">
+            <div
+              className="absolute right-3 flex items-center"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
               {suffix}
             </div>
           )}
@@ -70,7 +79,11 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           </p>
         )}
         {hint && !error && (
-          <p id={`${inputId}-hint`} className="text-xs text-[oklch(50%_0.01_250)]">
+          <p
+            id={`${inputId}-hint`}
+            className="text-xs"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
             {hint}
           </p>
         )}

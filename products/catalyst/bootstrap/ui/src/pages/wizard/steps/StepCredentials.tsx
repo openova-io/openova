@@ -79,7 +79,8 @@ export function StepCredentials() {
                 <button
                   type="button"
                   onClick={() => setShowToken((v) => !v)}
-                  className="text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors"
+                  style={{ color: 'var(--color-text-muted)' }}
+            className="hover:opacity-80 transition-opacity"
                 >
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -127,17 +128,20 @@ export function StepCredentials() {
               store.setCredentialValidated(true)
               setValidationState('valid')
             }}
-            className="self-start text-xs text-[oklch(45%_0.01_250)] hover:text-[oklch(65%_0.01_250)] underline underline-offset-2 transition-colors"
+            className="self-start text-xs underline underline-offset-2 transition-colors"
+            style={{ color: 'var(--color-brand-500)' }}
           >
-            Skip validation — explore in demo mode
+            Skip — explore in demo mode (no token needed)
           </button>
         )}
       </div>
 
       {/* How to create a token */}
       <div className="rounded-[--radius-lg] border border-[--color-surface-border] bg-[--color-surface-2] p-4">
-        <p className="text-xs font-semibold text-[oklch(70%_0.01_250)] mb-3">How to create an API token</p>
-        <ol className="flex flex-col gap-1.5 text-xs text-[oklch(50%_0.01_250)]">
+        <p className="text-xs font-semibold mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+          How to create an API token
+        </p>
+        <ol className="flex flex-col gap-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
           {[
             'Open the Hetzner Cloud Console',
             'Select your project (or create one)',
@@ -147,7 +151,7 @@ export function StepCredentials() {
             'Copy the token — it is shown once',
           ].map((step, i) => (
             <li key={i} className="flex gap-2">
-              <span className="shrink-0 font-mono text-[oklch(35%_0.01_250)]">{i + 1}.</span>
+              <span className="shrink-0 font-mono" style={{ color: 'var(--color-text-disabled)' }}>{i + 1}.</span>
               {step}
             </li>
           ))}
@@ -156,7 +160,7 @@ export function StepCredentials() {
           href="https://console.hetzner.cloud"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 text-xs text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors"
+          className="mt-3 inline-flex items-center gap-1 text-xs text-[--color-brand-500] hover:text-[--color-brand-400] transition-colors"
         >
           Open Hetzner Cloud Console
           <ExternalLink className="h-3 w-3" />

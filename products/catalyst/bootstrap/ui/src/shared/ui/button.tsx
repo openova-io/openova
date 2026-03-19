@@ -19,14 +19,14 @@ const buttonVariants = cva(
           'shadow-sm',
         ],
         secondary: [
-          'bg-[--color-surface-2] text-[oklch(85%_0.01_250)] rounded-[--radius-md]',
+          'bg-[--color-surface-2] text-[--color-text-secondary] rounded-[--radius-md]',
           'border border-[--color-surface-border]',
-          'hover:bg-[--color-surface-3] hover:border-[oklch(30%_0.025_250)]',
+          'hover:bg-[--color-surface-3] hover:border-[--color-surface-border-hover]',
           'active:bg-[--color-surface-1]',
         ],
         ghost: [
-          'text-[oklch(70%_0.01_250)] rounded-[--radius-md]',
-          'hover:bg-[--color-surface-2] hover:text-[oklch(92%_0.01_250)]',
+          'text-[--color-text-muted] rounded-[--radius-md]',
+          'hover:bg-[--color-surface-2] hover:text-[--color-text-primary]',
           'active:bg-[--color-surface-1]',
         ],
         destructive: [
@@ -35,7 +35,7 @@ const buttonVariants = cva(
           'hover:bg-[--color-error]/20',
         ],
         outline: [
-          'border border-[--color-brand-500]/40 text-[--color-brand-400] rounded-[--radius-md]',
+          'border border-[--color-brand-500]/40 text-[--color-brand-500] rounded-[--radius-md]',
           'hover:bg-[--color-brand-500]/10 hover:border-[--color-brand-500]/60',
         ],
       },
@@ -79,19 +79,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             viewBox="0 0 24 24"
             aria-hidden="true"
           >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
         )}
         {children}

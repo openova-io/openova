@@ -1,36 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand palette */
-  --color-brand-50: oklch(97% 0.012 250);
-  --color-brand-100: oklch(93% 0.03 250);
-  --color-brand-200: oklch(85% 0.06 250);
-  --color-brand-300: oklch(75% 0.1 250);
-  --color-brand-400: oklch(63% 0.14 250);
-  --color-brand-500: oklch(53% 0.18 250);
-  --color-brand-600: oklch(45% 0.18 250);
-  --color-brand-700: oklch(37% 0.15 250);
-  --color-brand-800: oklch(28% 0.1 250);
-  --color-brand-900: oklch(20% 0.06 250);
+  /* Catalyst brand — sky blue (per openova.io design system) */
+  --color-brand-300: #BAE6FD;
+  --color-brand-400: #7DD3FC;
+  --color-brand-500: #38BDF8;
+  --color-brand-600: #0EA5E9;
+  --color-brand-700: #0284C7;
 
-  /* Surface tokens (dark-first) */
-  --color-surface-0: oklch(10% 0.01 250);
-  --color-surface-1: oklch(13% 0.012 250);
-  --color-surface-2: oklch(16% 0.014 250);
-  --color-surface-3: oklch(19% 0.016 250);
-  --color-surface-border: oklch(24% 0.02 250);
+  /* Surfaces — dark-first, matching openova.io */
+  --color-surface-0: #09090B;
+  --color-surface-1: #111113;
+  --color-surface-2: #18181B;
+  --color-surface-3: #27272A;
+  --color-surface-border: #27272A;
+  --color-surface-border-hover: #3F3F46;
 
-  /* Semantic */
-  --color-success: oklch(72% 0.2 145);
-  --color-warning: oklch(78% 0.19 75);
-  --color-error: oklch(65% 0.22 25);
-  --color-info: oklch(70% 0.16 220);
+  /* Semantic text tokens */
+  --color-text-primary: #FAFAFA;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
+  --color-text-disabled: #3F3F46;
+
+  /* Status */
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error:   #EF4444;
+  --color-info:    #38BDF8;
 
   /* Typography */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 
-  /* Spacing & radius */
+  /* Radius */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -41,6 +43,28 @@
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ─── Light mode overrides ─────────────────────────────────────────────── */
+[data-theme="light"] {
+  --color-surface-0: #FFFFFF;
+  --color-surface-1: #F4F4F5;
+  --color-surface-2: #E4E4E7;
+  --color-surface-3: #D4D4D8;
+  --color-surface-border: #D4D4D8;
+  --color-surface-border-hover: #A1A1AA;
+
+  --color-brand-300: #0284C7;
+  --color-brand-400: #0EA5E9;
+  --color-brand-500: #0284C7;
+  --color-brand-600: #0369A1;
+  --color-brand-700: #075985;
+
+  --color-text-primary:   #09090B;
+  --color-text-secondary: #52525B;
+  --color-text-muted:     #A1A1AA;
+  --color-text-disabled:  #D4D4D8;
+}
+
+/* ─── Base ─────────────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after {
     box-sizing: border-box;
@@ -54,47 +78,46 @@
 
   body {
     background-color: var(--color-surface-0);
-    color: oklch(92% 0.01 250);
+    color: var(--color-text-secondary);
     font-family: var(--font-sans);
     font-size: 0.9375rem;
     line-height: 1.6;
     min-height: 100dvh;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: var(--color-surface-border);
     border-radius: 9999px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: oklch(35% 0.02 250); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-surface-border-hover); }
 
-  /* Focus ring */
   :focus-visible {
     outline: 2px solid var(--color-brand-500);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
-  /* Selection */
   ::selection {
-    background-color: oklch(53% 0.18 250 / 0.3);
+    background-color: color-mix(in srgb, var(--color-brand-500) 25%, transparent);
   }
 }
 
+/* ─── Utilities ─────────────────────────────────────────────────────────── */
 @layer utilities {
   .text-balance { text-wrap: balance; }
   .scrollbar-none { scrollbar-width: none; }
   .scrollbar-none::-webkit-scrollbar { display: none; }
 
   .glass {
-    background: oklch(16% 0.014 250 / 0.8);
+    background: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
     backdrop-filter: blur(12px);
     border: 1px solid var(--color-surface-border);
   }
 
   .glow-brand {
-    box-shadow: 0 0 24px oklch(53% 0.18 250 / 0.3);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--color-brand-500) 30%, transparent);
   }
 }
