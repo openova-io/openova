@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/products/catalyst/bootstrap/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "alierenbaysal"
+    labels:
+      - "area/catalyst"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "npm"
+    directory: "/products/axon"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "nehirbysl"
+    labels:
+      - "area/axon"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "area/ci-cd"
+    commit-message:
+      prefix: "chore(ci)"
