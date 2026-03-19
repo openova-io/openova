@@ -54,8 +54,26 @@ export function StepReview() {
 
   async function provision() {
     setProvisioning(true)
-    // TODO: POST /api/v1/deployments
-    await new Promise((r) => setTimeout(r, 800))
+    try {
+      const res = await fetch('/api/v1/deployments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgName: store.orgName,
+          orgDomain: store.orgDomain,
+          provider: store.provider,
+          region: store.regions[0]?.code ?? 'fsn',
+          nodeSize: store.controlPlaneSize,
+          workerCount: store.workerCount,
+        }),
+      })
+      if (res.ok) {
+        const { id } = await res.json()
+        store.setDeploymentId(id)
+      }
+    } catch {
+      // API unreachable — provision page will fall back to mock simulation
+    }
     await navigate({ to: '/provision' })
   }
 

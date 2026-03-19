@@ -52,6 +52,7 @@ export interface WizardState {
   // Meta
   currentStep: number
   completedSteps: number[]
+  deploymentId: string | null
 }
 
 export const INITIAL_WIZARD_STATE: WizardState = {
@@ -69,4 +70,5 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   selectedComponents: [],
   currentStep: 1,
   completedSteps: [],
+  deploymentId: null,
 }

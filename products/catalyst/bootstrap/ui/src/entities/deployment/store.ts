@@ -6,6 +6,7 @@ interface WizardActions {
   // Navigation
   setStep: (step: number) => void
   markStepComplete: (step: number) => void
+  setDeploymentId: (id: string | null) => void
   reset: () => void
 
   // Step 1 — Org
@@ -52,6 +53,7 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/markStepComplete'
           ),
+        setDeploymentId: (deploymentId) => set({ deploymentId }, false, 'wizard/setDeploymentId'),
         reset: () => set(INITIAL_WIZARD_STATE, false, 'wizard/reset'),
 
         setOrgName: (orgName) => set({ orgName }, false, 'wizard/setOrgName'),

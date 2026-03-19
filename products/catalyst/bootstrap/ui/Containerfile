@@ -1,0 +1,18 @@
+FROM docker.io/library/node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ARG VITE_APP_MODE=selfhosted
+RUN npm run build
+
+FROM docker.io/library/nginx:1-alpine
+RUN addgroup -g 1001 -S app && adduser -u 1001 -S app -G app
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN chown -R app:app /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /run && \
+    sed -i 's/user  nginx;/user  app;/' /etc/nginx/nginx.conf && \
+    sed -i 's|/run/nginx.pid|/tmp/nginx.pid|' /etc/nginx/nginx.conf
+EXPOSE 8080
+USER app
+CMD ["nginx", "-g", "daemon off;"]

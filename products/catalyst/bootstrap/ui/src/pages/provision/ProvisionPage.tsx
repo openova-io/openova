@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, Loader2, XCircle, Terminal } from 'lucide-react'
 import { Progress } from '@/shared/ui/progress'
 import { Badge } from '@/shared/ui/badge'
 import { cn } from '@/shared/lib/utils'
+import { useWizardStore } from '@/entities/deployment/store'
 
 interface LogLine {
   id: number
@@ -87,6 +88,23 @@ function PhaseRow({ phase }: { phase: Phase }) {
   )
 }
 
+// Phase detection — maps log message substrings to phase transitions
+const PHASE_RULES: Array<{ keyword: string; phaseIdx: number; action: 'start' | 'done' }> = [
+  { keyword: 'Initialising OpenTofu', phaseIdx: 0, action: 'start' },
+  { keyword: 'hcloud_network_subnet.workers: Creation complete', phaseIdx: 0, action: 'done' },
+  { keyword: 'hcloud_server', phaseIdx: 1, action: 'start' },
+  { keyword: 'K3s control-plane is ready', phaseIdx: 1, action: 'done' },
+  { keyword: 'Retrieving kubeconfig', phaseIdx: 2, action: 'done' },
+  { keyword: 'hcloud_volume.data: Creating', phaseIdx: 3, action: 'start' },
+  { keyword: 'StorageClass hcloud-volumes created', phaseIdx: 3, action: 'done' },
+  { keyword: 'Bootstrapping Flux', phaseIdx: 4, action: 'start' },
+  { keyword: 'GitRepository', phaseIdx: 4, action: 'done' },
+  { keyword: 'Deploying:', phaseIdx: 5, action: 'start' },
+  { keyword: 'All mandatory components healthy', phaseIdx: 5, action: 'done' },
+  { keyword: 'Cluster health check: PASSED', phaseIdx: 6, action: 'start' },
+  { keyword: '✓ Provisioning complete', phaseIdx: 6, action: 'done' },
+]
+
 export function ProvisionPage() {
   const [phases, setPhases] = useState<Phase[]>(INITIAL_PHASES)
   const [logs, setLogs] = useState<LogLine[]>([])
@@ -94,29 +112,72 @@ export function ProvisionPage() {
   const [done, setDone] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const logCounter = useRef(0)
+  const deploymentId = useWizardStore((s) => s.deploymentId)
 
-  // Simulate SSE stream
   useEffect(() => {
+    const addLog = (line: Omit<LogLine, 'id'>) =>
+      setLogs((prev) => [...prev, { ...line, id: logCounter.current++ }])
+
+    const applyPhaseRule = (text: string) => {
+      for (const rule of PHASE_RULES) {
+        if (text.includes(rule.keyword)) {
+          if (rule.action === 'start') {
+            setPhases((prev) => prev.map((p, i) => i === rule.phaseIdx ? { ...p, status: 'running' } : p))
+          } else {
+            setPhases((prev) => prev.map((p, i) => {
+              if (i === rule.phaseIdx) return { ...p, status: 'done' }
+              if (i === rule.phaseIdx + 1) return { ...p, status: 'running' }
+              return p
+            }))
+            setProgress(Math.round(((rule.phaseIdx + 1) / INITIAL_PHASES.length) * 100))
+          }
+          break
+        }
+      }
+    }
+
+    if (deploymentId) {
+      // Real SSE from the API
+      const es = new EventSource(`/api/v1/deployments/${deploymentId}/logs`)
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data) as { time: string; level: string; msg: string }
+          addLog({ ts: data.time, level: data.level as LogLine['level'], text: data.msg })
+          applyPhaseRule(data.msg)
+        } catch { /* ignore malformed events */ }
+      }
+      es.addEventListener('done', () => {
+        es.close()
+        setPhases((prev) => prev.map((p) => ({ ...p, status: 'done' })))
+        setProgress(100)
+        setDone(true)
+      })
+      es.onerror = () => { es.close(); setDone(true) }
+      return () => es.close()
+    }
+
+    // Mock simulation (no backend / local dev)
     const phaseTimings = [500, 2000, 3500, 5500, 6500, 8000, 9500]
     const phaseDurations = [1500, 1500, 2000, 1000, 1500, 1500, 1000]
+    const timers: ReturnType<typeof setTimeout>[] = []
 
     phaseTimings.forEach((start, i) => {
-      setTimeout(() => {
+      timers.push(setTimeout(() => {
         setPhases((prev) => prev.map((p, j) => j === i ? { ...p, status: 'running' } : p))
-        setTimeout(() => {
+        timers.push(setTimeout(() => {
           setPhases((prev) => prev.map((p, j) => j === i ? { ...p, status: 'done' } : p))
           setProgress(Math.round(((i + 1) / INITIAL_PHASES.length) * 100))
           if (i === INITIAL_PHASES.length - 1) setDone(true)
-        }, phaseDurations[i])
-      }, start)
+        }, phaseDurations[i]))
+      }, start))
     })
 
     MOCK_LOGS.forEach((line, i) => {
-      setTimeout(() => {
-        setLogs((prev) => [...prev, { ...line, id: logCounter.current++ }])
-      }, 300 + i * 430)
+      timers.push(setTimeout(() => addLog(line), 300 + i * 430))
     })
-  }, [])
+
+    return () => timers.forEach(clearTimeout)
+  }, [deploymentId])
 
   // Auto-scroll logs
   useEffect(() => {
