@@ -328,10 +328,10 @@ spec:
     name: acme-corp
     domain: acme.io
   regions:
-    - name: eu-central
-      role: primary
-    - name: eu-west
-      role: standby
+    - cluster: hz-fsn-rtz-prod
+      location: fsn
+    - cluster: hz-hel-rtz-prod
+      location: hel
   components:
     - name: cilium
       version: v1.16.3

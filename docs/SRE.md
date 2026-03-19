@@ -16,18 +16,20 @@ This document covers SRE practices, multi-region strategy, progressive delivery,
 
 ### Architecture
 
-Multi-region is strongly recommended. 2 independent clusters across regions provides true disaster recovery.
+Multi-region is strongly recommended. Two independent clusters across regions provides geographic redundancy with automatic failover. Clusters are named by **building block** (functional security zone), not by failover role — there is no "primary" or "DR" designation. Both clusters run the same building blocks symmetrically; k8gb and GSLB handle traffic distribution. After a failover event the surviving cluster serves all traffic — its name does not change.
+
+See [NAMING-CONVENTION.md](NAMING-CONVENTION.md) for the canonical cluster naming standard.
 
 ```mermaid
 flowchart TB
-    subgraph Region1["Region 1 (Primary)"]
-        K8s1[Independent K8s Cluster]
-        Stack1[Full Stack + Gitea]
+    subgraph RegionA["Region A  (e.g. hz-fsn-rtz-prod)"]
+        K8s1[Restricted Trust Zone Cluster]
+        Stack1[Full Workload Stack]
     end
 
-    subgraph Region2["Region 2 (DR)"]
-        K8s2[Independent K8s Cluster]
-        Stack2[Full Stack + Gitea]
+    subgraph RegionB["Region B  (e.g. hz-hel-rtz-prod)"]
+        K8s2[Restricted Trust Zone Cluster]
+        Stack2[Full Workload Stack]
     end
 
     subgraph GSLB["Global Load Balancing"]
@@ -42,10 +44,11 @@ flowchart TB
 
 ### Key Principles
 
-- Each cluster survives independently during network partition
+- Each cluster survives independently during network partition — no shared control plane
 - No stretched clusters (avoids split-brain)
+- Both clusters are peers — neither is designated primary or DR
 - Async data replication (eventual consistency)
-- k8gb as authoritative DNS for GSLB zone
+- k8gb as authoritative DNS for GSLB zone — removes unhealthy endpoints automatically
 - External DNS witnesses for split-brain protection
 
 ### Cross-Region Networking

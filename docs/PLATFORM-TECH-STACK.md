@@ -23,7 +23,7 @@ flowchart TB
         Archival[Archival S3]
     end
 
-    subgraph Region1["Region 1"]
+    subgraph Region1["Region A  (rtz cluster)"]
         subgraph K8s1["Kubernetes Cluster"]
             GW1[Gateway API]
             Apps1[Applications]
@@ -35,7 +35,7 @@ flowchart TB
         Gitea1[Gitea]
     end
 
-    subgraph Region2["Region 2"]
+    subgraph Region2["Region B  (rtz cluster)"]
         subgraph K8s2["Kubernetes Cluster"]
             GW2[Gateway API]
             Apps2[Applications]
@@ -261,8 +261,8 @@ Falco detects runtime threats via eBPF. Events flow through Kafka to OpenSearch 
 
 | Option | Description |
 |--------|-------------|
-| 1 region | Allowed (no DR) |
-| 2 regions | Recommended (multi-region DR) |
+| 1 region | Allowed — single rtz cluster, no geographic redundancy |
+| 2 regions | Recommended — two symmetric rtz clusters, k8gb routes between them |
 
 ### LoadBalancer
 
@@ -612,24 +612,24 @@ helm install cilium cilium/cilium \
 
 ```mermaid
 flowchart TB
-    subgraph Region1["Region 1 (Primary)"]
-        PG1[CNPG Primary]
+    subgraph Region1["Region A  (rtz cluster)"]
+        PG1[CNPG Write Node]
         FDB1[FerretDB]
         SK1[Strimzi/Kafka]
-        VK1[Valkey Primary]
+        VK1[Valkey Active]
         GT1[Gitea]
-        MV1[Milvus Primary]
+        MV1[Milvus Active]
         Bao1R1[OpenBao]
         Falco1[Falco]
     end
 
-    subgraph Region2["Region 2 (DR)"]
-        PG2[CNPG Standby]
+    subgraph Region2["Region B  (rtz cluster)"]
+        PG2[CNPG Async Replica]
         FDB2[FerretDB]
-        SK2[Strimzi/Kafka]
+        SK2[Strimzi/Kafka MirrorMaker2]
         VK2[Valkey Replica]
         GT2[Gitea]
-        MV2[Milvus Standby]
+        MV2[Milvus Replica]
         Bao2R2[OpenBao]
         Falco2[Falco]
     end
