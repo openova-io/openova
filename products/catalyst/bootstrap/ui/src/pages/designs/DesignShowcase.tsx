@@ -174,30 +174,70 @@ function StepBody({ step, theme, mono = false }: { step: number; theme: Theme; m
 function D1() {
   const [s, setS] = useState(1)
   const T: Theme = { text: 'rgba(255,255,255,0.9)', muted: 'rgba(255,255,255,0.45)', dim: 'rgba(255,255,255,0.22)', inputBg: 'rgba(255,255,255,0.06)', inputBorder: 'rgba(255,255,255,0.12)', inputText: 'rgba(255,255,255,0.5)', cardBg: 'rgba(255,255,255,0.04)', cardBorder: 'rgba(255,255,255,0.1)', accent: '#38BDF8', accentText: '#fff', radius: 8, gap: 14, font: 'Inter,sans-serif' }
+  const stepTitles = ['Your organisation','Cloud provider','Connect credentials','Infrastructure','Platform components','Review & provision']
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(ellipse at 50% 35%, #0c1e40 0%, #06080f 60%)', fontFamily: 'Inter,sans-serif', padding: 24, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(ellipse at 50% 35%, #0c1e40 0%, #06080f 60%)', fontFamily: 'Inter,sans-serif', padding: '32px 24px', position: 'relative', overflow: 'hidden' }}>
+      {/* Ambient glows — decorative only, never move */}
       <div style={{ position: 'absolute', top: '-15%', left: '10%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.07) 0%, transparent 65%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: '0%', right: '5%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.05) 0%, transparent 65%)', pointerEvents: 'none' }} />
-      <div style={{ width: '100%', maxWidth: 480, background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '2rem', boxShadow: '0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <OOLogo h={22} id="d1" />
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>OPENOVA CATALYST</span>
+
+      {/* ── Logo header — lives OUTSIDE the card so it never jumps ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28, zIndex: 1 }}>
+        <OOLogo h={26} id="d1" />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.12em' }}>OPENOVA CATALYST</span>
+      </div>
+
+      {/* ── Numbered step rail ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginBottom: 28, width: '100%', maxWidth: 480, zIndex: 1 }}>
+        {STEP_META.map((sm, i) => (
+          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+            {/* Connector line */}
+            {i < STEP_META.length - 1 && (
+              <div style={{ position: 'absolute', top: 14, left: '50%', right: '-50%', height: 1.5, background: i < s - 1 ? 'linear-gradient(90deg,#38BDF8,#818CF8)' : 'rgba(255,255,255,0.1)', zIndex: 0 }} />
+            )}
+            {/* Circle */}
+            <div
+              onClick={() => i < s && setS(i + 1)}
+              style={{
+                width: 28, height: 28, borderRadius: '50%', zIndex: 1, position: 'relative',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700,
+                background: i < s - 1
+                  ? 'linear-gradient(135deg,#38BDF8,#818CF8)'
+                  : i === s - 1
+                    ? 'rgba(56,189,248,0.12)'
+                    : 'rgba(255,255,255,0.05)',
+                border: i === s - 1
+                  ? '2px solid #38BDF8'
+                  : i < s - 1
+                    ? 'none'
+                    : '1.5px solid rgba(255,255,255,0.12)',
+                color: i < s - 1 ? '#fff' : i === s - 1 ? '#38BDF8' : 'rgba(255,255,255,0.25)',
+                boxShadow: i === s - 1 ? '0 0 0 4px rgba(56,189,248,0.12)' : 'none',
+                cursor: i < s - 1 ? 'pointer' : 'default',
+                transition: 'all 0.2s',
+              }}
+            >
+              {i < s - 1 ? <Check size={12} /> : i + 1}
+            </div>
+            {/* Label */}
+            <div style={{ marginTop: 5, fontSize: 9, fontWeight: i === s - 1 ? 600 : 400, color: i === s - 1 ? '#38BDF8' : i < s - 1 ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)', textAlign: 'center', letterSpacing: '0.04em', lineHeight: 1.3 }}>
+              {sm.label}
+            </div>
           </div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>{s}/{STEP_META.length}</span>
-        </div>
-        {/* Progress dots */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 28 }}>
-          {STEP_META.map((_, i) => <div key={i} style={{ height: 3, flex: 1, borderRadius: 2, background: i < s ? 'linear-gradient(90deg,#38BDF8,#818CF8)' : 'rgba(255,255,255,0.08)' }} />)}
-        </div>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', color: '#38BDF8', marginBottom: 6, textTransform: 'uppercase' }}>Step {s} — {STEP_META[s-1].label}</div>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.025em', color: '#fff', margin: '0 0 6px' }}>{s === 1 ? 'Your organisation' : s === 2 ? 'Cloud provider' : s === 3 ? 'Connect credentials' : s === 4 ? 'Infrastructure' : s === 5 ? 'Platform components' : 'Review & provision'}</h2>
+        ))}
+      </div>
+
+      {/* ── Glass card — step content only ── */}
+      <div style={{ width: '100%', maxWidth: 480, background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '2rem', boxShadow: '0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)', zIndex: 1 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', color: '#38BDF8', marginBottom: 6, textTransform: 'uppercase' }}>Step {s} of {STEP_META.length}</div>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.025em', color: '#fff', margin: '0 0 6px' }}>{stepTitles[s-1]}</h2>
         <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', margin: '0 0 24px', lineHeight: 1.6 }}>{STEP_META[s-1].desc}</p>
         <StepBody step={s} theme={T} />
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, alignItems: 'center' }}>
           <button onClick={() => setS(Math.max(1, s-1))} style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, visibility: s === 1 ? 'hidden' : 'visible' }}><ChevronLeft size={14} /> Back</button>
           <button onClick={() => setS(Math.min(6, s+1))} style={{ height: 40, padding: '0 24px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,#38BDF8,#818CF8)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-            {s === 6 ? '🚀 Provision cluster' : 'Continue'} {s < 6 && <ChevronRight size={13} style={{ display: 'inline', verticalAlign: 'middle' }} />}
+            {s === 6 ? 'Provision cluster' : 'Continue'} {s < 6 && <ChevronRight size={13} style={{ display: 'inline', verticalAlign: 'middle' }} />}
           </button>
         </div>
       </div>
