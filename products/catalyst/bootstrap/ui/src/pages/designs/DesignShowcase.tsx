@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Check, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check } from 'lucide-react'
 
 /* ─────────────────────────────────────────────────────────────────────────
    LOGO  — correct viewBox 0 0 700 400, strokeWidth 100, aspect 7:4
@@ -154,7 +154,7 @@ function StepBody({ step, theme, mono = false }: { step: number; theme: Theme; m
   // step 6 — review
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {REVIEW_ROWS.map(([k, v], i) => (
+      {REVIEW_ROWS.map(([k, v]) => (
         <div key={k} style={{ display: 'flex', gap: 0, padding: '10px 0', borderBottom: `1px solid ${theme.cardBorder}` }}>
           <span style={{ width: 140, fontSize: 12, color: theme.muted, fontFamily: theme.font, flexShrink: 0 }}>{k}</span>
           <span style={{ fontSize: 12, fontWeight: 500, color: theme.text, fontFamily: theme.font }}>{v}</span>
@@ -552,7 +552,7 @@ function D9() {
 ───────────────────────────────────────────────────────────────────────── */
 function D10() {
   const [s, setS] = useState(1)
-  const [fi, setFi] = useState(0)
+
   const T: Theme = { text:'#111827', muted:'#9CA3AF', dim:'#D1D5DB', inputBg:'transparent', inputBorder:'#FF6B6B', inputText:'#D1D5DB', cardBg:'#FFF5F5', cardBorder:'#FECACA', accent:'#FF6B6B', accentText:'#fff', radius:8, gap:20, font:'Inter,sans-serif' }
 
   const stepTitles = ['Your organisation','Cloud provider','Connect credentials','Infrastructure','Platform components','Review & provision']
