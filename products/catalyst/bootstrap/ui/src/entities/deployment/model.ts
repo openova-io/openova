@@ -1,14 +1,14 @@
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci'
-export type RegionRole = 'primary' | 'dr'
 export type NodeSize = 'cx22' | 'cx32' | 'cx42' | 'cx52'
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
 
 export interface Region {
   id: string
+  code: string
   name: string
   location: string
+  countryCode: string
   flag: string
-  role: RegionRole
 }
 
 export interface NodeConfig {
@@ -67,6 +67,6 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   workerCount: 0,
   haEnabled: false,
   selectedComponents: [],
-  currentStep: 0,
+  currentStep: 1,
   completedSteps: [],
 }

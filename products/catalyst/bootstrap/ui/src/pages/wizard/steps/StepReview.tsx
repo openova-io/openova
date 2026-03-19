@@ -45,11 +45,11 @@ export function StepReview() {
   const wkCost = (wkSize?.priceHour ?? 0) * store.workerCount * regionCount
   const totalHour = cpCost + wkCost
 
-  // Derived cluster context names per naming convention
+  // Derived cluster context names per naming convention: {provider}-{region}-{bb}-{env}
   const clusterContexts = store.regions.map((r) => {
     const env = 'prod'
     const bb = 'rtz'
-    return `hz-${r.id}-${bb}-${env}`
+    return `hz-${r.code}-${bb}-${env}`
   })
 
   async function provision() {

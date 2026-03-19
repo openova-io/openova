@@ -67,8 +67,7 @@ export function StepInfrastructure() {
 
   function addRegion(r: typeof HETZNER_REGIONS[number]) {
     if (store.regions.find((x) => x.id === r.id) || store.regions.length >= 2) return
-    const role: 'primary' | 'dr' = store.regions.length === 0 ? 'primary' : 'dr'
-    store.addRegion({ id: r.id, name: r.name, location: r.location, flag: r.flag, role })
+    store.addRegion({ id: r.id, code: r.code, name: r.name, location: r.location, countryCode: r.countryCode, flag: r.flag })
     setShowRegionPicker(false)
   }
 

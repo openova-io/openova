@@ -46,10 +46,10 @@ export const HETZNER_NODE_SIZES = [
 ] as const
 
 export const HETZNER_REGIONS = [
-  { id: 'fsn1', name: 'Falkenstein', location: 'Germany', flag: '🇩🇪', zone: 'eu-central' },
-  { id: 'nbg1', name: 'Nuremberg', location: 'Germany', flag: '🇩🇪', zone: 'eu-central' },
-  { id: 'hel1', name: 'Helsinki', location: 'Finland', flag: '🇫🇮', zone: 'eu-north' },
-  { id: 'ash', name: 'Ashburn', location: 'Virginia, USA', flag: '🇺🇸', zone: 'us-east' },
-  { id: 'hil', name: 'Hillsboro', location: 'Oregon, USA', flag: '🇺🇸', zone: 'us-west' },
-  { id: 'sin', name: 'Singapore', location: 'Singapore', flag: '🇸🇬', zone: 'ap-southeast' },
+  { id: 'fsn1', code: 'fsn', name: 'Falkenstein', location: 'Germany', countryCode: 'DE', flag: '🇩🇪', zone: 'eu-central' },
+  { id: 'nbg1', code: 'nbg', name: 'Nuremberg', location: 'Germany', countryCode: 'DE', flag: '🇩🇪', zone: 'eu-central' },
+  { id: 'hel1', code: 'hel', name: 'Helsinki', location: 'Finland', countryCode: 'FI', flag: '🇫🇮', zone: 'eu-north' },
+  { id: 'ash',  code: 'ash', name: 'Ashburn', location: 'Virginia, USA', countryCode: 'US', flag: '🇺🇸', zone: 'us-east' },
+  { id: 'hil',  code: 'hil', name: 'Hillsboro', location: 'Oregon, USA', countryCode: 'US', flag: '🇺🇸', zone: 'us-west' },
+  { id: 'sin',  code: 'sin', name: 'Singapore', location: 'Singapore', countryCode: 'SG', flag: '🇸🇬', zone: 'ap-southeast' },
 ] as const

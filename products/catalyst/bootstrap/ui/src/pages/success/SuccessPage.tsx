@@ -5,32 +5,7 @@ import { Link } from '@tanstack/react-router'
 import { Button } from '@/shared/ui/button'
 import { Badge } from '@/shared/ui/badge'
 import { IS_SAAS } from '@/shared/constants/env'
-
-const MOCK_RESULT = {
-  clusterContext: 'hz-fsn-rtz-prod',
-  region: 'Falkenstein, DE',
-  nodes: 1,
-  managerUrl: 'https://catalyst.hfmp.acme.io',
-  grafanaUrl: 'https://grafana.hfrp.acme.io',
-  kubeconfig: `apiVersion: v1
-clusters:
-- cluster:
-    server: https://65.21.xxx.xxx:6443
-    certificate-authority-data: <redacted>
-  name: hz-fsn-rtz-prod
-contexts:
-- context:
-    cluster: hz-fsn-rtz-prod
-    user: default
-  name: hz-fsn-rtz-prod
-current-context: hz-fsn-rtz-prod
-kind: Config
-users:
-- name: default
-  user:
-    client-certificate-data: <redacted>
-    client-key-data: <redacted>`,
-}
+import { useWizardStore } from '@/entities/deployment/store'
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -48,12 +23,43 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function SuccessPage() {
+  const store = useWizardStore()
+  const region = store.regions[0]
+  const domain = store.orgDomain || 'acme.io'
+
+  // Derive 4-char DNS location code: h(provider) + f(region first char) + r(bb) + p(env)
+  const regionChar = (region?.code ?? 'fsn')[0]
+  const locationCode = `h${regionChar}rp`
+
+  const clusterContext = region ? `hz-${region.code}-rtz-prod` : 'hz-fsn-rtz-prod'
+  const regionLabel = region ? `${region.name}, ${region.countryCode}` : 'Falkenstein, DE'
+  const managerUrl = `https://catalyst.h${regionChar}mp.${domain}`
+  const grafanaUrl = `https://grafana.${locationCode}.${domain}`
+  const kubeconfig = `apiVersion: v1
+clusters:
+- cluster:
+    server: https://65.21.xxx.xxx:6443
+    certificate-authority-data: <redacted>
+  name: ${clusterContext}
+contexts:
+- context:
+    cluster: ${clusterContext}
+    user: default
+  name: ${clusterContext}
+current-context: ${clusterContext}
+kind: Config
+users:
+- name: default
+  user:
+    client-certificate-data: <redacted>
+    client-key-data: <redacted>`
+
   function downloadKubeconfig() {
-    const blob = new Blob([MOCK_RESULT.kubeconfig], { type: 'text/yaml' })
+    const blob = new Blob([kubeconfig], { type: 'text/yaml' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${MOCK_RESULT.clusterContext}.yaml`
+    a.download = `${clusterContext}.yaml`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -90,8 +96,8 @@ export function SuccessPage() {
             <div className="flex items-center gap-3 p-4">
               <Server className="h-4 w-4 text-[--color-success] shrink-0" />
               <div className="flex-1">
-                <code className="text-sm font-mono text-[oklch(90%_0.01_250)]">{MOCK_RESULT.clusterContext}</code>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5">{MOCK_RESULT.region} · {MOCK_RESULT.nodes} node</p>
+                <code className="text-sm font-mono text-[oklch(90%_0.01_250)]">{clusterContext}</code>
+                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5">{regionLabel} · {store.workerCount + 1} node{store.workerCount + 1 > 1 ? 's' : ''}</p>
               </div>
               <Badge variant="success">Healthy</Badge>
             </div>
@@ -99,9 +105,9 @@ export function SuccessPage() {
             <div className="flex items-center justify-between p-4">
               <div>
                 <p className="text-xs font-semibold text-[oklch(60%_0.01_250)]">Lifecycle Manager</p>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{MOCK_RESULT.managerUrl}</p>
+                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{managerUrl}</p>
               </div>
-              <a href={MOCK_RESULT.managerUrl} target="_blank" rel="noopener noreferrer">
+              <a href={managerUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="secondary" size="sm">
                   Open
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -112,9 +118,9 @@ export function SuccessPage() {
             <div className="flex items-center justify-between p-4">
               <div>
                 <p className="text-xs font-semibold text-[oklch(60%_0.01_250)]">Grafana</p>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{MOCK_RESULT.grafanaUrl}</p>
+                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{grafanaUrl}</p>
               </div>
-              <a href={MOCK_RESULT.grafanaUrl} target="_blank" rel="noopener noreferrer">
+              <a href={grafanaUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="secondary" size="sm">
                   Open
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -128,7 +134,7 @@ export function SuccessPage() {
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-[oklch(70%_0.01_250)]">kubeconfig</p>
               <div className="flex items-center gap-3">
-                <CopyButton text={MOCK_RESULT.kubeconfig} />
+                <CopyButton text={kubeconfig} />
                 <button onClick={downloadKubeconfig} className="flex items-center gap-1 text-xs text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors">
                   <Download className="h-3.5 w-3.5" />
                   Download
@@ -136,7 +142,7 @@ export function SuccessPage() {
               </div>
             </div>
             <pre className="rounded-[--radius-md] bg-[oklch(8%_0.008_250)] border border-[--color-surface-border] p-4 text-[10px] font-mono text-[oklch(55%_0.01_250)] overflow-x-auto scrollbar-none max-h-36">
-              {MOCK_RESULT.kubeconfig}
+              {kubeconfig}
             </pre>
           </div>
 
@@ -159,7 +165,7 @@ export function SuccessPage() {
 
           {/* CTA */}
           <div className="flex items-center gap-3">
-            <a href={MOCK_RESULT.managerUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+            <a href={managerUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
               <Button size="lg" className="w-full">
                 Open Lifecycle Manager
                 <ArrowRight className="h-4 w-4" />
