@@ -13,6 +13,7 @@ import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
+import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -44,6 +45,9 @@ const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path:
 const provisionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/provision', component: ProvisionPage })
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
 
+// Design showcase
+const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -53,6 +57,7 @@ const routeTree = rootRoute.addChildren([
   wizardLayoutRoute.addChildren([wizardRoute]),
   provisionRoute,
   successRoute,
+  designsRoute,
 ])
 
 export const router = createRouter({ routeTree })
