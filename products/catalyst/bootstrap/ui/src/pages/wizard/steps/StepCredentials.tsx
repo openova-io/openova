@@ -117,6 +117,21 @@ export function StepCredentials() {
             Token rejected — check that it has read/write permissions
           </div>
         )}
+
+        {/* Demo bypass */}
+        {validationState !== 'valid' && (
+          <button
+            type="button"
+            onClick={() => {
+              store.setHetznerToken('demo-mode-' + 'x'.repeat(55))
+              store.setCredentialValidated(true)
+              setValidationState('valid')
+            }}
+            className="self-start text-xs text-[oklch(45%_0.01_250)] hover:text-[oklch(65%_0.01_250)] underline underline-offset-2 transition-colors"
+          >
+            Skip validation — explore in demo mode
+          </button>
+        )}
       </div>
 
       {/* How to create a token */}
