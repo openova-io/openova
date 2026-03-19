@@ -14,45 +14,67 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-')
 
     return (
-      <div className="flex flex-col gap-1.5 w-full">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
         {label && (
           <label
             htmlFor={inputId}
-            className="text-sm font-medium"
-            style={{ color: 'var(--color-text-secondary)' }}
+            style={{
+              fontSize: 13, fontWeight: 500,
+              color: 'var(--color-text-secondary)',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
           >
             {label}
             {props.required && (
-              <span className="text-[--color-error] ml-1" aria-hidden="true">*</span>
+              <span style={{ color: 'var(--color-error)', fontSize: 13 }} aria-hidden="true">*</span>
             )}
           </label>
         )}
-        <div className="relative flex items-center">
+
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           {prefix && (
-            <div
-              className="absolute left-3 flex items-center pointer-events-none"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
+            <div style={{
+              position: 'absolute', left: 12,
+              color: 'var(--color-text-muted)',
+              display: 'flex', alignItems: 'center', pointerEvents: 'none',
+            }}>
               {prefix}
             </div>
           )}
+
           <input
             ref={ref}
             id={inputId}
-            className={cn(
-              'w-full h-9 rounded-[--radius-md]',
-              'bg-[--color-surface-1] border border-[--color-surface-border]',
-              'text-sm transition-all duration-150',
-              'hover:border-[--color-surface-border-hover]',
-              'focus:outline-none focus:border-[--color-brand-500]/60 focus:ring-1 focus:ring-[--color-brand-500]/30',
-              error && 'border-[--color-error]/50 focus:border-[--color-error]/70 focus:ring-[--color-error]/20',
-              prefix ? 'pl-9' : 'px-3',
-              suffix ? 'pr-9' : 'px-3',
-              'disabled:opacity-40 disabled:cursor-not-allowed',
-              className,
-            )}
+            className={cn(className)}
             style={{
+              width: '100%',
+              height: 42,
+              borderRadius: 8,
+              border: error
+                ? '1.5px solid rgba(239,68,68,0.6)'
+                : '1.5px solid var(--color-surface-border)',
+              background: 'var(--color-surface-1)',
               color: 'var(--color-text-primary)',
+              fontSize: 14,
+              paddingLeft: prefix ? 38 : 12,
+              paddingRight: suffix ? 38 : 12,
+              outline: 'none',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
+              fontFamily: 'var(--font-sans)',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.borderColor = error
+                ? 'rgba(239,68,68,0.7)'
+                : 'rgba(56,189,248,0.5)'
+              e.currentTarget.style.boxShadow = error
+                ? '0 0 0 3px rgba(239,68,68,0.08)'
+                : '0 0 0 3px rgba(56,189,248,0.08)'
+            }}
+            onBlur={e => {
+              e.currentTarget.style.borderColor = error
+                ? 'rgba(239,68,68,0.6)'
+                : 'var(--color-surface-border)'
+              e.currentTarget.style.boxShadow = 'none'
             }}
             aria-invalid={!!error}
             aria-describedby={
@@ -60,20 +82,23 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             }
             {...props}
           />
+
           {suffix && (
-            <div
-              className="absolute right-3 flex items-center"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
+            <div style={{
+              position: 'absolute', right: 12,
+              color: 'var(--color-text-muted)',
+              display: 'flex', alignItems: 'center',
+            }}>
               {suffix}
             </div>
           )}
         </div>
+
         {error && (
           <p
             id={`${inputId}-error`}
-            className="text-xs text-[--color-error] flex items-center gap-1"
             role="alert"
+            style={{ fontSize: 12, color: 'var(--color-error)', margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}
           >
             {error}
           </p>
@@ -81,8 +106,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         {hint && !error && (
           <p
             id={`${inputId}-hint`}
-            className="text-xs"
-            style={{ color: 'var(--color-text-muted)' }}
+            style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: 0, lineHeight: 1.5 }}
           >
             {hint}
           </p>

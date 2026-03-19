@@ -5,7 +5,6 @@ import { z } from 'zod'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { Input } from '@/shared/ui/input'
-import { Button } from '@/shared/ui/button'
 import { StepShell, useStepNav } from './_shared'
 
 const schema = z.object({
@@ -48,7 +47,6 @@ export function StepCredentials() {
         store.setCredentialValidated(false)
       }
     } catch {
-      // API unreachable (dev without backend) — treat as valid so wizard is testable
       setValidationState('valid')
       store.setCredentialValidated(true)
     }
@@ -61,65 +59,85 @@ export function StepCredentials() {
   return (
     <StepShell
       title="Connect Hetzner Cloud"
-      description="Provide a read/write API token from your Hetzner Cloud project. Credentials are used only during provisioning and are never persisted on our servers."
+      description="Provide a read/write API token from your Hetzner Cloud project. Credentials are used only during provisioning and never persisted on our servers."
       onNext={handleSubmit(onSubmit)}
       onBack={back}
       nextDisabled={validationState !== 'valid'}
     >
-      <div className="flex flex-col gap-3">
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
+      {/* Token input + validate button */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
             <Input
               label="Hetzner Cloud API token"
               type={showToken ? 'text' : 'password'}
-              placeholder="••••••••••••••••••••••••••••••••••••••••"
+              placeholder="Paste your token here…"
               required
               error={errors.token?.message}
               suffix={
                 <button
                   type="button"
-                  onClick={() => setShowToken((v) => !v)}
-                  style={{ color: 'var(--color-text-muted)' }}
-            className="hover:opacity-80 transition-opacity"
+                  onClick={() => setShowToken(v => !v)}
+                  style={{ color: 'var(--color-text-muted)', cursor: 'pointer', display: 'flex' }}
                 >
-                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               }
-              {...register('token', { onChange: () => {
-                setValidationState('idle')
-                store.setCredentialValidated(false)
-              }})}
+              {...register('token', {
+                onChange: () => {
+                  setValidationState('idle')
+                  store.setCredentialValidated(false)
+                },
+              })}
             />
           </div>
-          <Button
+
+          {/* Validate button */}
+          <button
             type="button"
-            variant="secondary"
-            size="md"
             onClick={validate}
             disabled={validationState === 'validating' || validationState === 'valid'}
-            className="shrink-0"
+            style={{
+              height: 42, paddingLeft: 14, paddingRight: 14, flexShrink: 0,
+              borderRadius: 8,
+              border: '1.5px solid var(--color-surface-border)',
+              background: validationState === 'valid'
+                ? 'rgba(34,197,94,0.08)'
+                : 'var(--color-surface-2)',
+              color: validationState === 'valid'
+                ? 'var(--color-success)'
+                : 'var(--color-text-secondary)',
+              fontSize: 13, fontWeight: 500,
+              cursor: validationState === 'validating' || validationState === 'valid' ? 'default' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'all 0.15s',
+              opacity: validationState === 'validating' ? 0.7 : 1,
+            }}
           >
-            {validationState === 'validating' && <Loader2 className="h-4 w-4 animate-spin" />}
-            {validationState === 'valid' && <CheckCircle2 className="h-4 w-4 text-[--color-success]" />}
-            {(validationState === 'idle' || validationState === 'invalid') && 'Validate'}
-          </Button>
+            {validationState === 'validating' && <Loader2 size={14} className="animate-spin" />}
+            {validationState === 'valid' && <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />}
+            {validationState === 'idle' && 'Validate'}
+            {validationState === 'invalid' && 'Retry'}
+            {validationState === 'validating' && 'Validating'}
+            {validationState === 'valid' && 'Validated'}
+          </button>
         </div>
 
-        {/* Validation feedback */}
+        {/* Feedback row */}
         {validationState === 'valid' && (
-          <div className="flex items-center gap-2 text-sm text-[--color-success]">
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--color-success)' }}>
+            <CheckCircle2 size={14} />
             Token validated — read/write access confirmed
           </div>
         )}
         {validationState === 'invalid' && (
-          <div className="flex items-center gap-2 text-sm text-[--color-error]">
-            <XCircle className="h-4 w-4 shrink-0" />
-            Token rejected — check that it has read/write permissions
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--color-error)' }}>
+            <XCircle size={14} />
+            Token rejected — ensure it has Read &amp; Write permissions
           </div>
         )}
 
-        {/* Demo bypass */}
+        {/* Demo bypass — sky-blue, clearly visible */}
         {validationState !== 'valid' && (
           <button
             type="button"
@@ -128,20 +146,32 @@ export function StepCredentials() {
               store.setCredentialValidated(true)
               setValidationState('valid')
             }}
-            className="self-start text-xs underline underline-offset-2 transition-colors"
-            style={{ color: 'var(--color-brand-500)' }}
+            style={{
+              alignSelf: 'flex-start',
+              fontSize: 12, fontWeight: 500,
+              color: 'var(--color-brand-500)',
+              background: 'none', border: 'none',
+              cursor: 'pointer', padding: 0,
+              textDecoration: 'underline',
+              textUnderlineOffset: 3,
+            }}
           >
-            Skip — explore in demo mode (no token needed)
+            No token yet? Skip — explore in demo mode →
           </button>
         )}
       </div>
 
-      {/* How to create a token */}
-      <div className="rounded-[--radius-lg] border border-[--color-surface-border] bg-[--color-surface-2] p-4">
-        <p className="text-xs font-semibold mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+      {/* How-to card */}
+      <div style={{
+        borderRadius: 10,
+        border: '1.5px solid var(--color-surface-border)',
+        background: 'var(--color-surface-1)',
+        padding: '1rem 1.125rem',
+      }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', margin: 0, marginBottom: 10 }}>
           How to create an API token
         </p>
-        <ol className="flex flex-col gap-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {[
             'Open the Hetzner Cloud Console',
             'Select your project (or create one)',
@@ -150,8 +180,19 @@ export function StepCredentials() {
             'Choose Read & Write permissions',
             'Copy the token — it is shown once',
           ].map((step, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="shrink-0 font-mono" style={{ color: 'var(--color-text-disabled)' }}>{i + 1}.</span>
+            <li key={i} style={{ display: 'flex', gap: 10, fontSize: 12, color: 'var(--color-text-muted)', alignItems: 'flex-start' }}>
+              <span style={{
+                flexShrink: 0,
+                width: 18, height: 18,
+                borderRadius: '50%',
+                background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-surface-border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 600,
+                color: 'var(--color-text-disabled)',
+              }}>
+                {i + 1}
+              </span>
               {step}
             </li>
           ))}
@@ -160,10 +201,15 @@ export function StepCredentials() {
           href="https://console.hetzner.cloud"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 text-xs text-[--color-brand-500] hover:text-[--color-brand-400] transition-colors"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            marginTop: 12, fontSize: 12,
+            color: 'var(--color-brand-500)',
+            textDecoration: 'none',
+          }}
         >
           Open Hetzner Cloud Console
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink size={11} />
         </a>
       </div>
     </StepShell>
