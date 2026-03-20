@@ -88,16 +88,17 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
 }
 
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
-  security:     ['falco', 'kyverno', 'trivy', 'syft-grype', 'coraza', 'sigstore'],
-  identity:     ['keycloak', 'openbao', 'external-secrets'],
-  networking:   ['cilium', 'cert-manager', 'external-dns'],
-  gitops:       ['flux', 'crossplane', 'reloader', 'vpa'],
-  observability:['grafana', 'opentelemetry'],
-  data:         ['cnpg', 'valkey', 'minio'],
-  resilience:   ['velero', 'keda'],
-  ai:           [],
-  events:       [],
-  comms:        [],
+  // Required blocks — M + R pre-selected
+  pilot:    ['flux', 'crossplane', 'gitea', 'opentofu'],
+  spine:    ['cilium', 'coraza', 'external-dns', 'envoy', 'k8gb', 'frpc', 'netbird'],
+  surge:    ['vpa', 'keda', 'reloader', 'continuum'],
+  silo:     ['minio', 'velero', 'harbor'],
+  guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
+  insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch'],
+  // Optional blocks — empty by default
+  fabric:   [],
+  cortex:   [],
+  relay:    [],
 }
 
 export const INITIAL_WIZARD_STATE: WizardState = {

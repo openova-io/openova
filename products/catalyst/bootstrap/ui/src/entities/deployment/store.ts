@@ -172,6 +172,7 @@ export const useWizardStore = create<WizardStore>()(
         // Merge saved state with initial — handles new fields added after first install
         merge: (persisted, current) => {
           const p = { ...(persisted as Partial<WizardState>) }
+          // Sanitize stale topology values
           const validTopologies: TopologyTemplate[] = ['triangle', 'dual', 'zoned', 'compact', 'solo']
           if (p.topology && !validTopologies.includes(p.topology)) {
             p.topology = null
@@ -179,6 +180,15 @@ export const useWizardStore = create<WizardStore>()(
             p.regionCloudRegions = {}
             p.providerValidated = {}
             p.providerTokens = {}
+          }
+          // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
+          const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']
+          if (p.componentGroups) {
+            const migrated: Record<string, string[]> = {}
+            for (const [k, v] of Object.entries(p.componentGroups)) {
+              if (validGroupIds.includes(k)) migrated[k] = v as string[]
+            }
+            p.componentGroups = migrated
           }
           return { ...current, ...p }
         },

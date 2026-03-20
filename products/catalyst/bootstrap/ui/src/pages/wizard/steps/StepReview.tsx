@@ -24,16 +24,15 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
 }
 
 const GROUP_NAMES: Record<string, string> = {
-  security:     'Security & Compliance',
-  identity:     'Identity & Secrets',
-  networking:   'Networking & Ingress',
-  gitops:       'GitOps & Platform Ops',
-  observability:'Observability',
-  data:         'Data & Storage',
-  resilience:   'Resilience & Scaling',
-  ai:           'AI & Machine Learning',
-  events:       'Event & Integration',
-  comms:        'Communication',
+  pilot:    'PILOT — GitOps & IaC',
+  spine:    'SPINE — Networking & Service Mesh',
+  surge:    'SURGE — Scaling & Resilience',
+  silo:     'SILO — Storage & Registry',
+  guardian: 'GUARDIAN — Security & Identity',
+  insights: 'INSIGHTS — AIOps & Observability',
+  fabric:   'FABRIC — Data & Integration',
+  cortex:   'CORTEX — AI & Machine Learning',
+  relay:    'RELAY — Communication',
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
