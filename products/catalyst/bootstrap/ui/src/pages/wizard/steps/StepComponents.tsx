@@ -16,6 +16,7 @@ interface ComponentDef { id: string; name: string; desc: string }
 interface GroupDef {
   id: string
   name: string
+  productName: string
   tag: 'Required' | 'Recommended' | 'Optional'
   tagColor: string
   desc: string
@@ -25,7 +26,7 @@ interface GroupDef {
 
 const GROUPS: GroupDef[] = [
   {
-    id: 'security', name: 'Security & Compliance', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'security', name: 'Security & Compliance', productName: 'Platform Security', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Runtime threat detection, policy enforcement, SBOM, CVE scanning, WAF, supply chain',
     components: [
       { id: 'falco',      name: 'Falco',        desc: 'Runtime threat detection' },
@@ -37,7 +38,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'identity', name: 'Identity & Secrets', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'identity', name: 'Identity & Secrets', productName: 'Platform Identity', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Authentication, authorisation, secrets lifecycle',
     components: [
       { id: 'keycloak',         name: 'Keycloak',         desc: 'Enterprise identity provider' },
@@ -46,7 +47,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'networking', name: 'Networking & Ingress', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'networking', name: 'Networking & Ingress', productName: 'Platform Network', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'eBPF service mesh, certificates, DNS automation',
     components: [
       { id: 'cilium',        name: 'Cilium',       desc: 'eBPF networking & service mesh' },
@@ -55,7 +56,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'gitops', name: 'GitOps & Platform Ops', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'gitops', name: 'GitOps & Platform Ops', productName: 'OpenOva Catalyst', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Continuous delivery, infrastructure control, auto-reload, right-sizing',
     components: [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps continuous delivery' },
@@ -65,7 +66,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'observability', name: 'Observability', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'observability', name: 'Observability', productName: 'OpenOva Specter', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'Metrics, logs, traces, unified dashboards',
     components: [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting' },
@@ -73,7 +74,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'data', name: 'Data & Storage', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'data', name: 'Data & Storage', productName: 'OpenOva Fabric', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'PostgreSQL, caching, object storage, analytics',
     components: [
       { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator' },
@@ -84,7 +85,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'resilience', name: 'Resilience & Scaling', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'resilience', name: 'Resilience & Scaling', productName: 'Platform Resilience', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'Backup, event-driven autoscaling, chaos engineering',
     components: [
       { id: 'velero', name: 'Velero', desc: 'Cluster backup & disaster recovery' },
@@ -93,7 +94,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'ai', name: 'AI & Machine Learning', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'ai', name: 'AI & Machine Learning', productName: 'OpenOva Cortex', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'LLM serving, vector DB, embeddings, RAG, observability',
     components: [
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform' },
@@ -105,7 +106,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'events', name: 'Event & Integration', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'events', name: 'Event & Integration', productName: 'OpenOva Fabric', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'Kafka streaming, CDC, stream processing, workflow orchestration',
     components: [
       { id: 'strimzi',  name: 'Strimzi',       desc: 'Apache Kafka operator' },
@@ -115,7 +116,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'comms', name: 'Communication', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'comms', name: 'Communication', productName: 'OpenOva Relay', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'Email, WebRTC video, real-time chat, TURN relay',
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server' },
@@ -142,9 +143,8 @@ function SelectionDot({ state, color }: { state: SelectionState; color: string }
   return <span style={{ ...base, color: 'rgba(255,255,255,0.2)' }}>○</span>
 }
 
-function GroupCard({ group }: { group: GroupDef }) {
+function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; onToggle: () => void }) {
   const store = useWizardStore()
-  const [open, setOpen] = useState(false)
   const selectedIds = store.componentGroups[group.id] ?? []
   const allIds = group.components.map(c => c.id)
   const state = getState(group.id, selectedIds, group.components.length)
@@ -177,8 +177,8 @@ function GroupCard({ group }: { group: GroupDef }) {
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: state !== 'empty' ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
-              {group.name}
+            <span style={{ fontSize: 13, fontWeight: 700, color: state !== 'empty' ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
+              {group.productName}
             </span>
             <span style={{
               fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -189,15 +189,15 @@ function GroupCard({ group }: { group: GroupDef }) {
               {group.tag}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.28)', marginTop: 1, lineHeight: 1.35 }}>
-            {selectedIds.length}/{group.components.length} selected · {group.desc}
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
+            {group.name} · {selectedIds.length}/{group.components.length} selected
           </div>
         </div>
 
         {/* Expand toggle */}
         <button
           type="button"
-          onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+          onClick={e => { e.stopPropagation(); onToggle() }}
           style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
         >
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -262,6 +262,8 @@ export function StepComponents() {
 
   const groupCols = bp === 'mobile' ? '1fr' : '1fr 1fr'
 
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null)
+
   return (
     <StepShell
       title="Platform components"
@@ -281,7 +283,18 @@ export function StepComponents() {
 
       {/* Group grid: 2-col on tablet/desktop, 1-col on mobile */}
       <div style={{ display: 'grid', gridTemplateColumns: groupCols, gap: 8 }}>
-        {GROUPS.map(g => <GroupCard key={g.id} group={g} />)}
+        {GROUPS.map(g => {
+          const isOpen = openGroupId === g.id
+          return (
+            <div key={g.id} style={{ gridColumn: isOpen ? '1 / -1' : 'auto' }}>
+              <GroupCard
+                group={g}
+                open={isOpen}
+                onToggle={() => setOpenGroupId(isOpen ? null : g.id)}
+              />
+            </div>
+          )
+        })}
       </div>
     </StepShell>
   )

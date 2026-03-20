@@ -92,7 +92,6 @@ export function StepOrg() {
   const { next } = useStepNav()
   const bp = useBreakpoint()
 
-  const col3 = bp === 'desktop' ? '1fr 1fr 1fr' : '1fr 1fr'
   const col2 = '1fr 1fr'
   const col1 = '1fr'
 
@@ -110,24 +109,19 @@ export function StepOrg() {
       description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
       onNext={next}
     >
-      {/* Row 1: Name · Domain · HQ */}
-      <div style={{ display: 'grid', gridTemplateColumns: col3, gap: 14 }}>
-        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}         value={store.orgName}         onChange={store.setOrgName} />
-        <SmartField         label="Domain"             defaultValue={ORG_DEFAULTS.domain}       value={store.orgDomain}       onChange={store.setOrgDomain} />
-        {bp !== 'mobile' && (
-          <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
-        )}
+      {/* Row 1: Name · Domain (always 2-col on tablet/desktop, 1-col on mobile) */}
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
+        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}   value={store.orgName}   onChange={store.setOrgName} />
+        <SmartField         label="Domain"             defaultValue={ORG_DEFAULTS.domain} value={store.orgDomain} onChange={store.setOrgDomain} />
       </div>
 
-      {/* HQ on mobile: own row */}
-      {bp === 'mobile' && (
-        <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
-      )}
+      {/* Row 2: Email · HQ (2-col on tablet/desktop, 1-col mobile stacked) */}
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
+        <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email}         value={store.orgEmail}         onChange={store.setOrgEmail} type="email" />
+        <SmartField label="Headquarters"         defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+      </div>
 
-      {/* Email — always full width */}
-      <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email} value={store.orgEmail} onChange={store.setOrgEmail} type="email" />
-
-      {/* Industry · Size */}
+      {/* Row 3: Industry · Size */}
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
         <SelectField label="Industry"          value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
         <SelectField label="Organisation size" value={store.orgSize}     options={SIZES}      onChange={store.setOrgSize} />

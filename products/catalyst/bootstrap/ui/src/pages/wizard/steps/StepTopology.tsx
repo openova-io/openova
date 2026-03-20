@@ -32,18 +32,121 @@ const CONN = (x1: number, y1: number, x2: number, y2: number) => (
   <line key={`c${x1}${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(56,189,248,0.35)" strokeWidth={1.2} strokeDasharray="3,2" />
 )
 
-const DiagramDelta    = () => <svg viewBox="0 0 280 130" width="100%">{REGION(6,18,72,96,'CP Region')}{BOX(18,44,48,20,'MGMT','rgba(56,189,248,0.75)')}{REGION(90,18,84,96,'DP Region 1')}{BOX(98,38,34,18,'DMZ','rgba(99,102,241,0.75)')}{BOX(98,62,34,18,'RTZ','rgba(99,102,241,0.5)')}{REGION(186,18,88,96,'DP Region 2')}{BOX(194,38,34,18,'DMZ','rgba(99,102,241,0.75)')}{BOX(194,62,34,18,'RTZ','rgba(99,102,241,0.5)')}{BOX(232,38,36,16,'DR·MGMT','rgba(56,189,248,0.32)','rgba(255,255,255,0.65)')}{CONN(78,54,90,54)}{CONN(174,54,186,54)}{CONN(42,54,240,54)}</svg>
-const DiagramTriangle = () => <svg viewBox="0 0 280 130" width="100%">{REGION(6,18,72,78,'CP Region')}{BOX(18,44,48,20,'MGMT','rgba(56,189,248,0.75)')}{REGION(90,18,84,96,'DP Region 1')}{BOX(98,38,34,18,'DMZ','rgba(99,102,241,0.75)')}{BOX(98,62,34,18,'RTZ','rgba(99,102,241,0.5)')}{REGION(186,18,84,96,'DP Region 2')}{BOX(194,38,34,18,'DMZ','rgba(99,102,241,0.75)')}{BOX(194,62,34,18,'RTZ','rgba(99,102,241,0.5)')}{CONN(78,54,90,54)}{CONN(174,54,186,54)}</svg>
-const DiagramDual     = () => <svg viewBox="0 0 280 130" width="100%">{REGION(20,18,110,88,'Region 1 · Primary')}{BOX(32,44,40,20,'MGMT','rgba(56,189,248,0.75)')}{BOX(80,44,42,20,'Workload','rgba(99,102,241,0.65)')}{REGION(150,18,110,88,'Region 2 · DR')}{BOX(162,44,40,20,'MGMT','rgba(56,189,248,0.35)','rgba(255,255,255,0.6)')}{BOX(210,44,42,20,'Workload','rgba(99,102,241,0.3)','rgba(255,255,255,0.6)')}{CONN(130,54,150,54)}</svg>
-const DiagramCompact  = () => <svg viewBox="0 0 280 130" width="100%">{REGION(60,18,160,88,'Region 1')}{BOX(76,44,52,20,'MGMT','rgba(56,189,248,0.75)')}{BOX(140,44,60,20,'Workload','rgba(99,102,241,0.65)')}{CONN(128,54,140,54)}</svg>
-const DiagramSolo     = () => <svg viewBox="0 0 280 130" width="100%">{REGION(70,18,140,88,'Single region')}{BOX(90,38,100,44,'All components','rgba(56,189,248,0.55)')}</svg>
+const DiagramTriangle = () => (
+  <svg viewBox="0 0 280 170" width="100%">
+    {REGION(90, 14, 100, 56, 'CP Region')}
+    {BOX(100, 26, 80, 32, 'MGMT', 'rgba(56,189,248,0.75)')}
+    {REGION(5, 92, 120, 72, 'DP Region 1')}
+    {BOX(10, 108, 50, 48, 'DMZ', 'rgba(99,102,241,0.75)')}
+    {BOX(65, 108, 50, 48, 'RTZ', 'rgba(99,102,241,0.5)')}
+    {REGION(155, 92, 120, 72, 'DP Region 2')}
+    {BOX(160, 108, 50, 48, 'DMZ', 'rgba(99,102,241,0.75)')}
+    {BOX(215, 108, 50, 48, 'RTZ', 'rgba(99,102,241,0.5)')}
+    {CONN(140, 70, 65, 92)}
+    {CONN(140, 70, 215, 92)}
+    {CONN(125, 130, 155, 130)}
+  </svg>
+)
+
+const DiagramDual = () => (
+  <svg viewBox="0 0 280 145" width="100%">
+    {REGION(5, 10, 120, 126, 'Region 1 · Primary')}
+    {BOX(14, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.75)')}
+    {BOX(14, 58, 100, 28, 'DMZ', 'rgba(99,102,241,0.75)')}
+    {BOX(14, 90, 100, 28, 'RTZ', 'rgba(99,102,241,0.5)')}
+    {REGION(155, 10, 120, 126, 'Region 2 · DR')}
+    {BOX(164, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.3)', 'rgba(255,255,255,0.6)')}
+    {BOX(164, 58, 100, 28, 'DMZ', 'rgba(99,102,241,0.4)', 'rgba(255,255,255,0.6)')}
+    {BOX(164, 90, 100, 28, 'RTZ', 'rgba(99,102,241,0.3)', 'rgba(255,255,255,0.6)')}
+    {CONN(125, 72, 155, 72)}
+  </svg>
+)
+
+const DiagramZoned = () => (
+  <svg viewBox="0 0 280 130" width="100%">
+    {REGION(5, 14, 124, 100, 'Region 1 · Primary')}
+    {BOX(12, 32, 50, 65, 'DMZ', 'rgba(99,102,241,0.75)')}
+    {BOX(68, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.65)')}
+    {REGION(151, 14, 124, 100, 'Region 2 · DR')}
+    {BOX(158, 32, 50, 65, 'DMZ', 'rgba(99,102,241,0.45)', 'rgba(255,255,255,0.6)')}
+    {BOX(214, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.3)', 'rgba(255,255,255,0.6)')}
+    {CONN(129, 65, 151, 65)}
+  </svg>
+)
+
+const DiagramCompact = () => (
+  <svg viewBox="0 0 280 120" width="100%">
+    {REGION(10, 14, 114, 90, 'Region 1 · Primary')}
+    {BOX(22, 36, 90, 44, 'All components', 'rgba(56,189,248,0.55)')}
+    {REGION(156, 14, 114, 90, 'Region 2 · Secondary')}
+    {BOX(168, 36, 90, 44, 'All components', 'rgba(56,189,248,0.3)', 'rgba(255,255,255,0.6)')}
+    {CONN(124, 58, 156, 58)}
+  </svg>
+)
+
+const DiagramSolo = () => (
+  <svg viewBox="0 0 280 130" width="100%">
+    {REGION(70, 18, 140, 88, 'Single region')}
+    {BOX(90, 38, 100, 44, 'All components', 'rgba(56,189,248,0.55)')}
+  </svg>
+)
 
 const TOPOLOGIES: TopoConfig[] = [
-  { id:'delta',    name:'DELTA',    tagline:'Enhanced triangle — 3 regions with CP/DR isolation', clusters:6, regions:3, tag:'Tier-1 Bank',       tagColor:'#F59E0B', diagram:<DiagramDelta />,    bullets:['Dedicated bunker CP region — MGMT cluster only, air-gapped','DR-MGMT sits inside DP Region 2 — no 4th region needed','Both DP regions: independent DMZ + RTZ clusters','Strict PCI DSS / ISO 27001 / DORA posture by default'] },
-  { id:'triangle', name:'TRIANGLE', tagline:'Balanced — 3 regions, dedicated CP',                clusters:5, regions:3, tag:'Recommended',       tagColor:'#22C55E', recommended:true, diagram:<DiagramTriangle />, bullets:['Dedicated CP region (MGMT) + 2 data plane regions','Each DP region: separate DMZ and RTZ clusters','Strong isolation — no DR overhead of DELTA','Ideal starting point for regulated banks and insurance'] },
-  { id:'dual',     name:'DUAL',     tagline:'Two-region active/passive',                         clusters:4, regions:2, tag:'Mid-market',        tagColor:'#38BDF8', diagram:<DiagramDual />,     bullets:['Primary region: MGMT + Workload clusters','DR region: passive standby mirror','Lower cost, simpler ops — straightforward upgrade path','Good fit for fintechs and regional lenders'] },
-  { id:'compact',  name:'COMPACT',  tagline:'Single-region, two clusters',                       clusters:2, regions:1, tag:'Pilot / Early-stage', tagColor:'#A78BFA', diagram:<DiagramCompact />,  bullets:['One region: dedicated MGMT + Workload clusters','Clean separation without multi-region complexity','Clear upgrade path → DUAL → TRIANGLE → DELTA','Suitable for regulated pilots and platform MVPs'] },
-  { id:'solo',     name:'SOLO',     tagline:'Everything on one cluster',                         clusters:1, regions:1, tag:'Dev / POC',         tagColor:'#6B7280', diagram:<DiagramSolo />,     bullets:['Single cluster, single region — lowest cost','No isolation between management and workloads','Not suitable for production or regulated workloads','Ideal for local demos, evaluations, and training'] },
+  {
+    id: 'triangle', name: 'TRIANGLE', tagline: 'Three-region — dedicated CP + dual data plane',
+    clusters: 5, regions: 3, tag: 'Tier-1 Bank', tagColor: '#F59E0B',
+    diagram: <DiagramTriangle />,
+    bullets: [
+      'Dedicated CP region — MGMT cluster only, isolated from data plane',
+      'Two data plane regions: independent DMZ + RTZ clusters each',
+      'Triangle connectivity — CP↔DP1, CP↔DP2, DP1↔DP2',
+      'Designed for PCI DSS / DORA / ISO 27001 from day one',
+    ],
+  },
+  {
+    id: 'dual', name: 'DUAL', tagline: 'Two-region — full cluster separation (3 per region)',
+    clusters: 6, regions: 2, tag: 'Enterprise', tagColor: '#22C55E', recommended: true,
+    diagram: <DiagramDual />,
+    bullets: [
+      'Each region: MGMT, DMZ, and RTZ clusters fully separated',
+      'Primary + DR region with identical cluster topology',
+      'Strong workload isolation with a proven upgrade path to TRIANGLE',
+      'Recommended for regulated banks, insurance, and fintechs',
+    ],
+  },
+  {
+    id: 'zoned', name: 'ZONED', tagline: 'Two-region — DMZ isolated, MGMT+RTZ merged',
+    clusters: 4, regions: 2, tag: 'Mid-market', tagColor: '#38BDF8',
+    diagram: <DiagramZoned />,
+    bullets: [
+      'DMZ cluster fully isolated for ingress and edge workloads',
+      'MGMT and RTZ co-located — reduces cluster overhead',
+      'Lower cost than DUAL, higher isolation than COMPACT',
+      'Good fit for mid-market banks and regional lenders',
+    ],
+  },
+  {
+    id: 'compact', name: 'COMPACT', tagline: 'Two-region — single all-in-one cluster each',
+    clusters: 2, regions: 2, tag: 'Starter', tagColor: '#A78BFA',
+    diagram: <DiagramCompact />,
+    bullets: [
+      'Two regions, one cluster per region — geo-redundant SOLO',
+      'All platform components share a single cluster per site',
+      'Lowest cost multi-region option — clear path to ZONED or DUAL',
+      'Ideal for regulated pilots and geo-HA evaluations',
+    ],
+  },
+  {
+    id: 'solo', name: 'SOLO', tagline: 'Single region, single cluster',
+    clusters: 1, regions: 1, tag: 'Dev / POC', tagColor: '#6B7280',
+    diagram: <DiagramSolo />,
+    bullets: [
+      'Single cluster, single region — lowest cost and simplest',
+      'No isolation between management and workloads',
+      'Not suitable for production or regulated workloads',
+      'Ideal for demos, evaluations, and training environments',
+    ],
+  },
 ]
 
 /* ── Topology detail panel (shared between desktop/mobile) ─────────── */
@@ -90,7 +193,7 @@ export function StepTopology() {
   return (
     <StepShell
       title="Choose your infrastructure topology"
-      description="Your topology defines how many regions and clusters OpenOva provisions. TRIANGLE is the recommended starting point for most regulated organisations."
+      description="Your topology defines how many regions and clusters OpenOva provisions. DUAL is the recommended starting point for most regulated organisations."
       onNext={() => { if (store.topology) next() }}
       onBack={back}
       nextDisabled={!store.topology}

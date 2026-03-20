@@ -30,6 +30,7 @@ interface WizardActions {
 
   // Step 3 — Per-region provider
   setRegionProvider: (regionIndex: number, provider: CloudProvider) => void
+  setRegionCloudRegion: (regionIndex: number, cloudRegion: string) => void
   applyProviderToAll: (provider: CloudProvider, regionCount: number) => void
 
   // Step 4 — Per-provider credentials
@@ -86,15 +87,21 @@ export const useWizardStore = create<WizardStore>()(
         setOrgHeadquarters: (orgHeadquarters) => set({ orgHeadquarters }, false, 'wizard/setOrgHeadquarters'),
         setOrgCompliance: (orgCompliance) => set({ orgCompliance }, false, 'wizard/setOrgCompliance'),
 
-        // Reset regionProviders when topology changes — stale per-region data would be confusing
+        // Reset regionProviders and regionCloudRegions when topology changes
         setTopology: (topology) =>
-          set({ topology, regionProviders: {}, providerValidated: {}, providerTokens: {} }, false, 'wizard/setTopology'),
+          set({ topology, regionProviders: {}, regionCloudRegions: {}, providerValidated: {}, providerTokens: {} }, false, 'wizard/setTopology'),
 
         setRegionProvider: (regionIndex, provider) =>
           set(
             (s) => ({ regionProviders: { ...s.regionProviders, [regionIndex]: provider } }),
             false,
             'wizard/setRegionProvider'
+          ),
+        setRegionCloudRegion: (regionIndex, cloudRegion) =>
+          set(
+            (s) => ({ regionCloudRegions: { ...s.regionCloudRegions, [regionIndex]: cloudRegion } }),
+            false,
+            'wizard/setRegionCloudRegion'
           ),
         applyProviderToAll: (provider, regionCount) => {
           const regionProviders: Record<number, CloudProvider> = {}
