@@ -1,10 +1,79 @@
 import { Outlet, Link } from '@tanstack/react-router'
 import { X, Sun, Moon, Check } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { IS_SAAS } from '@/shared/constants/env'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useTheme } from '@/shared/lib/useTheme'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { OOLogo } from '@/shared/ui/OOLogo'
+
+/* ── Light mode preview options ─────────────────────────────────────── */
+const LIGHT_OPTIONS = {
+  A: {
+    label: 'A',
+    hint: 'Slate Pro — cool gradient, slate text',
+    vars: {
+      '--wiz-ch':           '15, 23, 42',
+      '--wiz-page-bg':      'linear-gradient(160deg, #f1f5f9 0%, #e2e8f0 100%)',
+      '--wiz-panel-bg':     '#ffffff',
+      '--wiz-deep-bg':      '#f8fafc',
+      '--wiz-glow-1':       'rgba(14,165,233,0.08)',
+      '--wiz-glow-2':       'rgba(99,102,241,0.05)',
+      '--color-text-primary': '#0f172a',
+    },
+    sidebarBg: null as string | null,
+  },
+  B: {
+    label: 'B',
+    hint: 'Midnight Split — dark sidebar + white content',
+    vars: {
+      '--wiz-ch':           '9, 9, 11',
+      '--wiz-page-bg':      '#ffffff',
+      '--wiz-panel-bg':     '#ffffff',
+      '--wiz-deep-bg':      '#f8fafc',
+      '--wiz-glow-1':       'rgba(14,165,233,0.06)',
+      '--wiz-glow-2':       'rgba(99,102,241,0.04)',
+      '--color-text-primary': '#09090b',
+    },
+    sidebarBg: 'linear-gradient(180deg, #0c1525 0%, #0f172a 100%)',
+  },
+  C: {
+    label: 'C',
+    hint: 'Cloud Paper — white sidebar + slate page',
+    vars: {
+      '--wiz-ch':           '15, 23, 42',
+      '--wiz-page-bg':      '#f1f5f9',
+      '--wiz-panel-bg':     '#ffffff',
+      '--wiz-deep-bg':      '#e2e8f0',
+      '--wiz-glow-1':       'rgba(14,165,233,0.10)',
+      '--wiz-glow-2':       'rgba(99,102,241,0.06)',
+      '--color-text-primary': '#0f172a',
+    },
+    sidebarBg: '#ffffff',
+  },
+} as const
+
+type LightOption = keyof typeof LIGHT_OPTIONS
+
+function applyLightOption(opt: LightOption) {
+  const { vars } = LIGHT_OPTIONS[opt]
+  for (const [k, v] of Object.entries(vars)) {
+    document.documentElement.style.setProperty(k, v)
+  }
+  localStorage.setItem('oo-light-option', opt)
+}
+
+function useLightOption() {
+  const [opt, setOpt] = useState<LightOption>(() =>
+    (localStorage.getItem('oo-light-option') as LightOption) ?? 'A'
+  )
+  function pick(o: LightOption) {
+    setOpt(o)
+    applyLightOption(o)
+  }
+  useEffect(() => { applyLightOption(opt) }, [opt])
+  return { opt, pick }
+}
 
 export const WIZARD_STEPS = [
   { id: 1, label: 'Organisation', desc: 'Name, domain, contact'    },
@@ -19,10 +88,15 @@ export function WizardLayout() {
   const { currentStep, setStep } = useWizardStore()
   const { theme, toggle } = useTheme()
   const bp = useBreakpoint()
+  const { opt, pick } = useLightOption()
 
   const isMobile  = bp === 'mobile'
   const isTablet  = bp === 'tablet'
   const isDesktop = bp === 'desktop'
+
+  const sidebarBg = theme === 'light' && LIGHT_OPTIONS[opt].sidebarBg
+    ? LIGHT_OPTIONS[opt].sidebarBg!
+    : undefined
 
   return (
     <div style={{
@@ -134,9 +208,10 @@ export function WizardLayout() {
       {isDesktop && (
         <div style={{
           width: 260, flexShrink: 0, zIndex: 10,
-          background: 'rgba(var(--wiz-ch),0.025)',
-          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(var(--wiz-ch),0.07)',
+          background: sidebarBg ?? 'rgba(var(--wiz-ch),0.025)',
+          backdropFilter: sidebarBg ? undefined : 'blur(20px)',
+          WebkitBackdropFilter: sidebarBg ? undefined : 'blur(20px)',
+          borderRight: sidebarBg ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(var(--wiz-ch),0.07)',
           display: 'flex', flexDirection: 'column',
           padding: '28px 20px',
         }}>
@@ -144,8 +219,8 @@ export function WizardLayout() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 36 }}>
             <OOLogo h={24} id="wiz-logo-d" />
             <div style={{ lineHeight: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(var(--wiz-ch),0.82)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.28)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: sidebarBg ? 'rgba(255,255,255,0.82)' : 'rgba(var(--wiz-ch),0.82)', letterSpacing: '-0.01em' }}>OpenOva</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: sidebarBg ? 'rgba(255,255,255,0.28)' : 'rgba(var(--wiz-ch),0.28)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
             </div>
           </div>
 
@@ -154,13 +229,15 @@ export function WizardLayout() {
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
+              // When sidebar has its own dark bg, use white channel for text/borders
+              const sch = sidebarBg ? '255,255,255' : 'var(--wiz-ch)'
               return (
                 <div key={step.id} style={{ position: 'relative' }}>
                   {i < WIZARD_STEPS.length - 1 && (
                     <div style={{
                       position: 'absolute', left: 19, top: 38,
                       width: 1.5, height: 10,
-                      background: done ? 'rgba(56,189,248,0.4)' : 'rgba(var(--wiz-ch),0.07)',
+                      background: done ? 'rgba(56,189,248,0.4)' : `rgba(${sch},0.07)`,
                     }} />
                   )}
                   <div
@@ -180,11 +257,11 @@ export function WizardLayout() {
                       fontSize: 10, fontWeight: 700,
                       background: done
                         ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : 'rgba(var(--wiz-ch),0.05)',
+                        : current ? 'rgba(56,189,248,0.15)' : `rgba(${sch},0.05)`,
                       border: current
                         ? '2px solid #38BDF8'
-                        : done ? 'none' : '1.5px solid rgba(var(--wiz-ch),0.1)',
-                      color: done ? '#fff' : current ? '#38BDF8' : 'rgba(var(--wiz-ch),0.2)',
+                        : done ? 'none' : `1.5px solid rgba(${sch},0.1)`,
+                      color: done ? '#fff' : current ? '#38BDF8' : `rgba(${sch},0.2)`,
                       boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
                       transition: 'all 0.25s',
                     }}>
@@ -194,13 +271,13 @@ export function WizardLayout() {
                       <div style={{
                         fontSize: 12, fontWeight: current ? 600 : 400,
                         color: current
-                          ? 'rgba(var(--wiz-ch),0.85)'
-                          : done ? 'rgba(var(--wiz-ch),0.45)' : 'rgba(var(--wiz-ch),0.2)',
+                          ? `rgba(${sch},0.85)`
+                          : done ? `rgba(${sch},0.45)` : `rgba(${sch},0.2)`,
                         lineHeight: 1.3,
                       }}>
                         {step.label}
                       </div>
-                      <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.2)', marginTop: 1 }}>
+                      <div style={{ fontSize: 10, color: `rgba(${sch},0.2)`, marginTop: 1 }}>
                         {step.desc}
                       </div>
                     </div>
@@ -211,14 +288,15 @@ export function WizardLayout() {
           </div>
 
           {/* Progress footer */}
-          <div style={{ borderTop: '1px solid rgba(var(--wiz-ch),0.06)', paddingTop: 18, marginTop: 18 }}>
+          {(() => { const sch = sidebarBg ? '255,255,255' : 'var(--wiz-ch)'; return (
+          <div style={{ borderTop: `1px solid rgba(${sch},0.06)`, paddingTop: 18, marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.25)' }}>Progress</span>
+              <span style={{ fontSize: 11, color: `rgba(${sch},0.25)` }}>Progress</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#38BDF8' }}>
                 {Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)}%
               </span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'rgba(var(--wiz-ch),0.08)' }}>
+            <div style={{ height: 3, borderRadius: 2, background: `rgba(${sch},0.08)` }}>
               <div style={{
                 height: '100%',
                 width: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
@@ -228,6 +306,7 @@ export function WizardLayout() {
               }} />
             </div>
           </div>
+          )})()}
         </div>
       )}
 
@@ -244,7 +323,28 @@ export function WizardLayout() {
       </div>
 
       {/* ── TOP-RIGHT CONTROLS ───────────────────────────────────────── */}
-      <div style={{ position: 'absolute', top: isMobile ? 12 : 18, right: 16, display: 'flex', gap: 8, zIndex: 20 }}>
+      <div style={{ position: 'absolute', top: isMobile ? 12 : 18, right: 16, display: 'flex', gap: 8, zIndex: 20, alignItems: 'center' }}>
+
+        {/* Light mode A/B/C picker — only visible in light mode */}
+        {theme === 'light' && (
+          <div style={{ display: 'flex', gap: 3, background: 'rgba(var(--wiz-ch),0.06)', border: '1px solid rgba(var(--wiz-ch),0.1)', borderRadius: 8, padding: '3px' }}>
+            {(['A', 'B', 'C'] as LightOption[]).map(o => (
+              <button
+                key={o}
+                onClick={() => pick(o)}
+                title={LIGHT_OPTIONS[o].hint}
+                style={{
+                  width: 24, height: 24, borderRadius: 6, border: 'none',
+                  background: opt === o ? '#38BDF8' : 'transparent',
+                  color: opt === o ? '#fff' : 'rgba(var(--wiz-ch),0.4)',
+                  fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                  fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
+                }}
+              >{o}</button>
+            ))}
+          </div>
+        )}
+
         <button
           onClick={toggle}
           aria-label="Toggle theme"
