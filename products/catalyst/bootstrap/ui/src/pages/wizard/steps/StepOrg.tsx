@@ -1,77 +1,170 @@
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
+import { useState } from 'react'
 import { useWizardStore } from '@/entities/deployment/store'
-import { Input } from '@/shared/ui/input'
+import { ORG_DEFAULTS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
-const schema = z.object({
-  orgName: z.string().min(2, 'Minimum 2 characters').max(48, 'Maximum 48 characters'),
-  orgDomain: z
-    .string()
-    .min(4, 'Enter a valid domain')
-    .regex(/^([a-z0-9-]+\.)+[a-z]{2,}$/, 'Enter a valid domain (e.g. acme.io)'),
-  orgEmail: z.string().email('Enter a valid email address'),
-})
-type FormValues = z.infer<typeof schema>
+const INDUSTRIES = [
+  'Financial Services', 'Banking', 'Insurance', 'Healthcare',
+  'Telecommunications', 'Energy & Utilities', 'Retail', 'Manufacturing',
+  'Government', 'Technology', 'Other',
+]
+
+const SIZES = ['Under 100', '100–500', '500–2,000', '2,000–10,000', '10,000+']
+
+const COMPLIANCE_OPTIONS = ['PCI DSS', 'ISO 27001', 'SOC 2', 'GDPR', 'HIPAA', 'DORA', 'NIS2', 'FedRAMP']
+
+/*
+ * SmartField: the store always holds a real value (default or user-set).
+ * We show a "default" badge when the value matches the original default.
+ * Clicking Next without changing anything is completely valid.
+ */
+function SmartField({
+  label, defaultValue, value, onChange, type = 'text', required = false,
+}: {
+  label: string; defaultValue: string; value: string
+  onChange: (v: string) => void; type?: string; required?: boolean
+}) {
+  const isDefault = value === defaultValue
+  const [focused, setFocused] = useState(false)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
+          {label}
+          {!required && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 5 }}>optional</span>}
+        </span>
+        {isDefault && !focused && (
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            color: 'rgba(56,189,248,0.55)', background: 'rgba(56,189,248,0.08)',
+            border: '1px solid rgba(56,189,248,0.15)', borderRadius: 4, padding: '1px 6px',
+          }}>default</span>
+        )}
+      </div>
+      <input
+        type={type}
+        value={value}
+        onFocus={() => setFocused(true)}
+        onBlur={e => {
+          setFocused(false)
+          // If cleared, restore the default so the user can always proceed
+          if (!e.target.value.trim()) onChange(defaultValue)
+        }}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          height: 40, borderRadius: 8,
+          border: `1.5px solid ${focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
+          background: 'rgba(255,255,255,0.05)',
+          color: isDefault && !focused ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.88)',
+          fontSize: 13, padding: '0 12px', outline: 'none',
+          transition: 'all 0.15s',
+          boxShadow: focused ? '0 0 0 3px rgba(56,189,248,0.08)' : 'none',
+          fontFamily: 'Inter, sans-serif',
+        }}
+      />
+    </div>
+  )
+}
+
+function SelectField({ label, value, options, onChange }: {
+  label: string; value: string; options: string[]; onChange: (v: string) => void
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
+        {label} <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional</span>
+      </span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          height: 40, borderRadius: 8,
+          border: '1.5px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.05)',
+          color: 'rgba(255,255,255,0.7)', fontSize: 13, padding: '0 12px', outline: 'none',
+          fontFamily: 'Inter, sans-serif', cursor: 'pointer',
+          appearance: 'none',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.3)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+          backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
+          paddingRight: 32,
+        }}
+      >
+        {options.map(o => <option key={o} value={o} style={{ background: '#111' }}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
 
 export function StepOrg() {
   const store = useWizardStore()
   const { next } = useStepNav()
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      orgName: store.orgName,
-      orgDomain: store.orgDomain,
-      orgEmail: store.orgEmail,
-    },
-  })
-
-  function onSubmit(data: FormValues) {
-    store.setOrgName(data.orgName)
-    store.setOrgDomain(data.orgDomain)
-    store.setOrgEmail(data.orgEmail)
-    next()
+  function toggleCompliance(tag: string) {
+    store.setOrgCompliance(
+      store.orgCompliance.includes(tag)
+        ? store.orgCompliance.filter(t => t !== tag)
+        : [...store.orgCompliance, tag]
+    )
   }
 
   return (
     <StepShell
       title="Tell us about your organisation"
-      description="This information is used to name your clusters and configure platform defaults. It stays in your environment."
-      onNext={handleSubmit(onSubmit)}
-      onBack={undefined}
+      description="We use this to recommend the right topology and component defaults. All fields have sensible defaults — you can proceed without changing anything."
+      onNext={next}
     >
-      <Input
-        label="Organisation name"
-        placeholder="Acme Corp"
-        autoFocus
-        required
-        error={errors.orgName?.message}
-        hint="Used as the cluster owner identifier"
-        {...register('orgName')}
-      />
-      <Input
-        label="Domain"
-        placeholder="acme.io"
-        required
-        error={errors.orgDomain?.message}
-        hint="Your primary domain — used for service URLs and TLS certificates"
-        {...register('orgDomain')}
-      />
-      <Input
-        label="Technical contact email"
-        type="email"
-        placeholder="platform@acme.io"
-        required
-        error={errors.orgEmail?.message}
-        hint="Receives cert-manager expiry alerts and critical notifications"
-        {...register('orgEmail')}
-      />
+      {/* Name + domain */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name} value={store.orgName} onChange={store.setOrgName} />
+        <SmartField label="Domain" defaultValue={ORG_DEFAULTS.domain} value={store.orgDomain} onChange={store.setOrgDomain} />
+      </div>
+
+      {/* Email */}
+      <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email} value={store.orgEmail} onChange={store.setOrgEmail} type="email" />
+
+      {/* Industry + size */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <SelectField label="Industry" value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
+        <SelectField label="Organisation size" value={store.orgSize} options={SIZES} onChange={store.setOrgSize} />
+      </div>
+
+      {/* HQ */}
+      <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+
+      {/* Compliance tags */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
+          Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional — shapes component defaults</span>
+        </span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {COMPLIANCE_OPTIONS.map(tag => {
+            const active = store.orgCompliance.includes(tag)
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleCompliance(tag)}
+                style={{
+                  height: 28, padding: '0 12px', borderRadius: 6,
+                  border: `1.5px solid ${active ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                  background: active ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.03)',
+                  color: active ? '#38BDF8' : 'rgba(255,255,255,0.3)',
+                  fontSize: 11, fontWeight: active ? 600 : 400,
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                {tag}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.18)', margin: 0, lineHeight: 1.6 }}>
+        Fields marked <span style={{ color: 'rgba(56,189,248,0.5)' }}>default</span> are pre-filled with realistic values and will be used as-is if you don't change them.
+      </p>
     </StepShell>
   )
 }

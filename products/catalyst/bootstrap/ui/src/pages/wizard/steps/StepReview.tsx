@@ -1,29 +1,40 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { CheckCircle2, Server, Globe, Package, Cpu, Shield } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
-import { PLATFORM_COMPONENTS } from '@/shared/constants/components'
-import { HETZNER_NODE_SIZES } from '@/shared/constants/hetzner'
-import { Badge } from '@/shared/ui/badge'
-import { Button } from '@/shared/ui/button'
+import { StepShell, useStepNav } from './_shared'
 
-function ReviewRow({ label, value }: { label: string; value: React.ReactNode }) {
+const TOPOLOGY_NAMES = {
+  titan:    'TITAN — 3 regions, 6 clusters',
+  triangle: 'TRIANGLE — 3 regions, 5 clusters',
+  dual:     'DUAL — 2 regions, 4 clusters',
+  compact:  'COMPACT — 1 region, 2 clusters',
+  solo:     'SOLO — 1 region, 1 cluster',
+}
+
+const PROVIDER_NAMES = {
+  hetzner: 'Hetzner Cloud',
+  huawei:  'Huawei Cloud',
+  oci:     'Oracle Cloud (OCI)',
+  aws:     'Amazon Web Services',
+  azure:   'Microsoft Azure',
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5">
-      <span className="text-xs text-[oklch(45%_0.01_250)] shrink-0 w-36">{label}</span>
-      <span className="text-xs text-[oklch(80%_0.01_250)] text-right flex-1">{value}</span>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <span style={{ width: 148, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4, wordBreak: 'break-all' }}>{value}</span>
     </div>
   )
 }
 
-function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[--radius-lg] border border-[--color-surface-border] bg-[--color-surface-1] overflow-hidden">
-      <div className="flex items-center gap-2.5 border-b border-[--color-surface-border] px-4 py-3">
-        <Icon className="h-4 w-4 text-[oklch(45%_0.01_250)]" />
-        <span className="text-sm font-semibold text-[oklch(80%_0.01_250)]">{title}</span>
+    <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
+      <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>{title}</span>
       </div>
-      <div className="px-4 divide-y divide-[--color-surface-border]">
+      <div style={{ padding: '0 14px' }}>
         {children}
       </div>
     </div>
@@ -32,161 +43,91 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 
 export function StepReview() {
   const store = useWizardStore()
+  const { back } = useStepNav()
   const navigate = useNavigate()
-  const [provisioning, setProvisioning] = useState(false)
-  const { back } = { back: () => store.setStep(store.currentStep - 1) }
+  const [loading, setLoading] = useState(false)
 
-  const cpSize = HETZNER_NODE_SIZES.find((s) => s.id === store.controlPlaneSize)
-  const wkSize = HETZNER_NODE_SIZES.find((s) => s.id === store.workerSize)
-  const mandatoryCount = PLATFORM_COMPONENTS.filter((c) => c.required).length
-
-  const regionCount = store.regions.length || 1
-  const cpCost = (cpSize?.priceHour ?? 0) * regionCount
-  const wkCost = (wkSize?.priceHour ?? 0) * store.workerCount * regionCount
-  const totalHour = cpCost + wkCost
-
-  // Derived cluster context names per naming convention: {provider}-{region}-{bb}-{env}
-  const clusterContexts = store.regions.map((r) => {
-    const env = 'prod'
-    const bb = 'rtz'
-    return `hz-${r.code}-${bb}-${env}`
-  })
+  const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
 
   async function provision() {
-    setProvisioning(true)
+    setLoading(true)
     try {
       const res = await fetch('/api/v1/deployments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgName: store.orgName,
-          orgDomain: store.orgDomain,
-          provider: store.provider,
-          region: store.regions[0]?.code ?? 'fsn',
-          nodeSize: store.controlPlaneSize,
-          workerCount: store.workerCount,
+          orgName:    store.orgName,
+          orgDomain:  store.orgDomain,
+          orgEmail:   store.orgEmail,
+          topology:   store.topology,
+          provider:   store.provider,
+          token:      store.hetznerToken,
+          components: store.componentGroups,
         }),
       })
-      if (res.ok) {
-        const { id } = await res.json()
-        store.setDeploymentId(id)
-      }
+      const data = await res.json()
+      store.setDeploymentId(data.deploymentId ?? 'demo-deploy')
     } catch {
-      // API unreachable — provision page will fall back to mock simulation
+      store.setDeploymentId('demo-deploy')
     }
-    await navigate({ to: '/provision' })
+    navigate({ to: '/provision' })
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Review and provision</h2>
-        <p className="mt-1.5 text-sm text-[oklch(50%_0.01_250)]">
-          Verify your configuration. Provisioning will begin immediately after confirmation.
-        </p>
-      </div>
-
-      {/* Organisation */}
-      <Section icon={Globe} title="Organisation">
-        <ReviewRow label="Name" value={store.orgName || '—'} />
-        <ReviewRow label="Domain" value={store.orgDomain || '—'} />
-        <ReviewRow label="Contact" value={store.orgEmail || '—'} />
-      </Section>
-
-      {/* Infrastructure */}
-      <Section icon={Server} title="Infrastructure">
-        <ReviewRow
-          label="Provider"
-          value={<Badge variant="brand">Hetzner Cloud</Badge>}
-        />
-        <ReviewRow
-          label="Clusters"
-          value={
-            <div className="flex flex-col items-end gap-1">
-              {clusterContexts.length > 0
-                ? clusterContexts.map((ctx) => (
-                    <code key={ctx} className="text-[10px] font-mono text-[--color-brand-300] bg-[--color-brand-500]/10 px-1.5 py-0.5 rounded">
-                      {ctx}
-                    </code>
-                  ))
-                : '—'}
-            </div>
-          }
-        />
-        <ReviewRow
-          label="Control plane"
-          value={`${cpSize?.label ?? '—'} · ${cpSize?.vcpu} vCPU · ${cpSize?.ram} GB RAM`}
-        />
-        <ReviewRow
-          label="Workers"
-          value={store.workerCount > 0 ? `${store.workerCount}× ${wkSize?.label}` : 'None (control-plane only)'}
-        />
-        <ReviewRow
-          label="HA mode"
-          value={store.haEnabled ? '3-node etcd per region' : 'Single control-plane'}
-        />
-      </Section>
-
-      {/* Components */}
-      <Section icon={Package} title="Components">
-        <ReviewRow label="Core (required)" value={`${mandatoryCount} components`} />
-        <ReviewRow label="Optional selected" value={`${store.selectedComponents.length} components`} />
-        <ReviewRow
-          label="Selected"
-          value={
-            store.selectedComponents.length > 0 ? (
-              <div className="flex flex-wrap gap-1 justify-end">
-                {store.selectedComponents.map((c) => (
-                  <Badge key={c.id} variant="default" className="text-[10px]">{c.name}</Badge>
+    <StepShell
+      title="Review & provision"
+      description="Confirm your configuration. OpenOva will provision your infrastructure exactly as shown below."
+      onNext={provision}
+      onBack={back}
+      nextLabel="🚀 Provision cluster"
+      nextLoading={loading}
+    >
+      <Section title="Organisation">
+        <Row label="Name"       value={store.orgName} />
+        <Row label="Domain"     value={store.orgDomain} />
+        <Row label="Email"      value={store.orgEmail} />
+        <Row label="Industry"   value={store.orgIndustry} />
+        <Row label="Size"       value={store.orgSize} />
+        <Row label="HQ"         value={store.orgHeadquarters} />
+        <Row label="Compliance" value={
+          store.orgCompliance.length > 0
+            ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {store.orgCompliance.map(t => (
+                  <span key={t} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38BDF8' }}>{t}</span>
                 ))}
               </div>
-            ) : 'Core only'
-          }
-        />
+            : 'None selected'
+        } />
       </Section>
 
-      {/* Cost */}
-      <div className="rounded-[--radius-lg] border border-[--color-surface-border] bg-[--color-surface-2] p-4 flex items-start gap-3">
-        <Cpu className="h-4 w-4 text-[oklch(45%_0.01_250)] mt-0.5 shrink-0" />
-        <div className="flex-1">
-          <p className="text-xs font-semibold text-[oklch(70%_0.01_250)]">Estimated running cost</p>
-          <p className="mt-1 text-lg font-bold font-mono text-[oklch(92%_0.01_250)]">
-            €{totalHour.toFixed(3)}<span className="text-sm font-normal text-[oklch(50%_0.01_250)]">/hr</span>
-          </p>
-          <p className="mt-1 text-xs text-[oklch(45%_0.01_250)]">
-            Hetzner bills hourly. Delete the cluster and billing stops at that hour.
-          </p>
-        </div>
-      </div>
+      <Section title="Infrastructure">
+        <Row label="Topology" value={store.topology ? TOPOLOGY_NAMES[store.topology] : '—'} />
+        <Row label="Cloud provider" value={store.provider ? PROVIDER_NAMES[store.provider] : '—'} />
+        <Row label="Credentials" value={
+          store.credentialValidated
+            ? <span style={{ color: '#4ADE80' }}>✓ Validated</span>
+            : store.hetznerToken.startsWith('demo-mode')
+              ? <span style={{ color: '#38BDF8' }}>Demo mode</span>
+              : <span style={{ color: '#F87171' }}>Not validated</span>
+        } />
+      </Section>
 
-      {/* Security notice */}
-      <div className="flex items-start gap-2.5 text-xs text-[oklch(45%_0.01_250)]">
-        <Shield className="h-4 w-4 shrink-0 mt-0.5" />
-        <p>
-          Your API token is used only during provisioning. It is passed directly to the OpenTofu module running in your browser session and is not stored on any server.
+      <Section title="Components">
+        <Row label="Total selected" value={`${totalComponents} components across ${Object.values(store.componentGroups).filter(g => g.length > 0).length} groups`} />
+        {Object.entries(store.componentGroups)
+          .filter(([, ids]) => ids.length > 0)
+          .map(([groupId, ids]) => (
+            <Row key={groupId} label={groupId} value={`${ids.length} selected`} />
+          ))
+        }
+      </Section>
+
+      {/* Disclaimer */}
+      <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.12)' }}>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', margin: 0, lineHeight: 1.6 }}>
+          Provisioning runs entirely within your cloud account. OpenOva never stores your credentials or accesses your infrastructure after this session.
         </p>
       </div>
-
-      {/* Actions */}
-      <div className="flex items-center justify-between pt-2">
-        <Button variant="ghost" size="md" onClick={back}>
-          Back
-        </Button>
-        <div className="flex items-center gap-3">
-          <Button variant="secondary" size="md" onClick={back}>
-            Edit
-          </Button>
-          <Button
-            size="md"
-            loading={provisioning}
-            onClick={provision}
-            className="min-w-36"
-          >
-            {!provisioning && <CheckCircle2 className="h-4 w-4" />}
-            {provisioning ? 'Starting…' : 'Provision cluster'}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </StepShell>
   )
 }
