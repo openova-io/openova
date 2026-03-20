@@ -5,68 +5,80 @@ import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Component groups — Linux-style package group selection.
-   Full ●  Partial ◑  Empty ○
-   Click group header → toggle all components in group
-   Click "›" → expand to drill into individual components
+   Component groups — each maps to one product block from the deck (page 5).
+   GUARDIAN, SURGE, SPINE, INSIGHTS, SILO, CORTEX, FABRIC, RELAY
 ─────────────────────────────────────────────────────────────────────────── */
 
-interface ComponentDef { id: string; name: string; desc: string }
+interface ComponentDef {
+  id: string
+  name: string
+  desc: string
+  required?: boolean   // per-component lock (independent of group.required)
+}
 
 interface GroupDef {
   id: string
-  name: string
   productName: string
+  name: string          // subtitle / concept description
   tag: 'Required' | 'Recommended' | 'Optional'
   tagColor: string
   desc: string
-  required?: boolean
+  required?: boolean    // locks header toggle; individual required? comps still locked inside
   components: ComponentDef[]
 }
 
 const GROUPS: GroupDef[] = [
   {
-    id: 'security', name: 'Security & Compliance', productName: 'GUARDIAN', tag: 'Required', tagColor: '#F87171', required: true,
-    desc: 'Runtime threat detection, policy enforcement, SBOM, CVE scanning, WAF, supply chain',
+    id: 'guardian',
+    productName: 'GUARDIAN',
+    name: 'Security, Identity & Core Data',
+    tag: 'Required', tagColor: '#F87171', required: true,
+    desc: 'Runtime security, policy, secrets, identity, core databases',
     components: [
-      { id: 'falco',      name: 'Falco',        desc: 'Runtime threat detection' },
-      { id: 'kyverno',    name: 'Kyverno',      desc: 'Policy as code' },
-      { id: 'trivy',      name: 'Trivy',        desc: 'Vulnerability scanning' },
-      { id: 'syft-grype', name: 'Syft + Grype', desc: 'SBOM & CVE analysis' },
-      { id: 'coraza',     name: 'Coraza WAF',   desc: 'Web application firewall' },
-      { id: 'sigstore',   name: 'Sigstore',     desc: 'Supply chain security' },
+      { id: 'falco',            name: 'Falco',          desc: 'Runtime threat detection',        required: true },
+      { id: 'kyverno',          name: 'Kyverno',        desc: 'Policy as code',                  required: true },
+      { id: 'trivy',            name: 'Trivy',          desc: 'Vulnerability scanning',          required: true },
+      { id: 'syft-grype',       name: 'Syft + Grype',   desc: 'SBOM & CVE analysis',             required: true },
+      { id: 'coraza',           name: 'Coraza WAF',     desc: 'Web application firewall',        required: true },
+      { id: 'sigstore',         name: 'Sigstore',       desc: 'Supply chain security',           required: true },
+      { id: 'keycloak',         name: 'Keycloak',       desc: 'Enterprise identity provider',    required: true },
+      { id: 'openbao',          name: 'OpenBao',        desc: 'Secrets management',              required: true },
+      { id: 'external-secrets', name: 'External Secrets', desc: 'K8s secret sync',              required: true },
+      { id: 'cnpg',             name: 'CloudNative PG', desc: 'PostgreSQL operator',             required: true },
+      { id: 'valkey',           name: 'Valkey',         desc: 'Redis-compatible cache',          required: true },
+      { id: 'ferretdb',         name: 'FerretDB',       desc: 'MongoDB-compatible DB',           required: true },
     ],
   },
   {
-    id: 'identity', name: 'Identity & Secrets', productName: 'GUARDIAN', tag: 'Required', tagColor: '#F87171', required: true,
-    desc: 'Authentication, authorisation, secrets lifecycle',
-    components: [
-      { id: 'keycloak',         name: 'Keycloak',         desc: 'Enterprise identity provider' },
-      { id: 'openbao',          name: 'OpenBao',          desc: 'Secrets management (Vault fork)' },
-      { id: 'external-secrets', name: 'External Secrets', desc: 'K8s secret synchronisation' },
-    ],
-  },
-  {
-    id: 'networking', name: 'Networking & Ingress', productName: 'SURGE', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'surge',
+    productName: 'SURGE',
+    name: 'Networking & Ingress',
+    tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'eBPF service mesh, certificates, DNS automation',
     components: [
-      { id: 'cilium',        name: 'Cilium',       desc: 'eBPF networking & service mesh' },
-      { id: 'cert-manager',  name: 'Cert-Manager', desc: 'Automated certificate management' },
-      { id: 'external-dns',  name: 'External DNS', desc: 'DNS record automation' },
+      { id: 'cilium',       name: 'Cilium',       desc: 'eBPF networking & service mesh',   required: true },
+      { id: 'cert-manager', name: 'Cert-Manager', desc: 'Automated certificate management', required: true },
+      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',            required: true },
     ],
   },
   {
-    id: 'gitops', name: 'GitOps & Platform Ops', productName: 'SPINE', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'spine',
+    productName: 'SPINE',
+    name: 'GitOps & Platform Ops',
+    tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Continuous delivery, infrastructure control, auto-reload, right-sizing',
     components: [
-      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps continuous delivery' },
-      { id: 'crossplane', name: 'Crossplane', desc: 'Infrastructure as code' },
-      { id: 'reloader',   name: 'Reloader',   desc: 'Config-change pod reload' },
-      { id: 'vpa',        name: 'VPA',        desc: 'Vertical pod autoscaling' },
+      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps continuous delivery', required: true },
+      { id: 'crossplane', name: 'Crossplane', desc: 'Infrastructure as code',     required: true },
+      { id: 'reloader',   name: 'Reloader',   desc: 'Config-change pod reload',   required: true },
+      { id: 'vpa',        name: 'VPA',        desc: 'Vertical pod autoscaling',   required: true },
     ],
   },
   {
-    id: 'observability', name: 'Observability', productName: 'INSIGHTS', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'insights',
+    productName: 'INSIGHTS',
+    name: 'Observability',
+    tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'Metrics, logs, traces, unified dashboards',
     components: [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting' },
@@ -74,28 +86,24 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'data', name: 'Data & Storage', productName: 'GUARDIAN', tag: 'Recommended', tagColor: '#38BDF8',
-    desc: 'PostgreSQL, caching, object storage, analytics',
-    components: [
-      { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator' },
-      { id: 'valkey',     name: 'Valkey',         desc: 'Redis-compatible cache (OSS)' },
-      { id: 'minio',      name: 'MinIO',          desc: 'S3-compatible object storage' },
-      { id: 'clickhouse', name: 'ClickHouse',     desc: 'Real-time analytics database' },
-      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB-compatible DB' },
-    ],
-  },
-  {
-    id: 'resilience', name: 'Resilience & Scaling', productName: 'SILO', tag: 'Recommended', tagColor: '#38BDF8',
-    desc: 'Backup, event-driven autoscaling, chaos engineering',
+    id: 'silo',
+    productName: 'SILO',
+    name: 'Resilience, Scaling & Storage',
+    tag: 'Recommended', tagColor: '#38BDF8',
+    desc: 'Backup, event-driven autoscaling, object storage, chaos engineering',
     components: [
       { id: 'velero', name: 'Velero', desc: 'Cluster backup & disaster recovery' },
       { id: 'keda',   name: 'KEDA',   desc: 'Event-driven autoscaling' },
+      { id: 'minio',  name: 'MinIO',  desc: 'S3-compatible object storage' },
       { id: 'litmus', name: 'Litmus', desc: 'Chaos engineering framework' },
     ],
   },
   {
-    id: 'ai', name: 'AI & Machine Learning', productName: 'CORTEX', tag: 'Optional', tagColor: '#A78BFA',
-    desc: 'LLM serving, vector DB, embeddings, RAG, observability',
+    id: 'cortex',
+    productName: 'CORTEX',
+    name: 'AI & Machine Learning',
+    tag: 'Optional', tagColor: '#A78BFA',
+    desc: 'LLM serving, vector DB, embeddings, RAG, AI observability',
     components: [
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform' },
       { id: 'vllm',      name: 'vLLM',      desc: 'High-throughput LLM inference' },
@@ -106,17 +114,24 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'events', name: 'Event & Integration', productName: 'FABRIC', tag: 'Optional', tagColor: '#A78BFA',
-    desc: 'Kafka streaming, CDC, stream processing, workflow orchestration',
+    id: 'fabric',
+    productName: 'FABRIC',
+    name: 'Event, Integration & Analytics',
+    tag: 'Optional', tagColor: '#A78BFA',
+    desc: 'Kafka streaming, CDC, stream processing, workflow orchestration, analytics',
     components: [
-      { id: 'strimzi',  name: 'Strimzi',       desc: 'Apache Kafka operator' },
-      { id: 'debezium', name: 'Debezium',       desc: 'Change data capture' },
-      { id: 'flink',    name: 'Apache Flink',   desc: 'Stateful stream processing' },
-      { id: 'temporal', name: 'Temporal',       desc: 'Durable workflow orchestration' },
+      { id: 'strimzi',    name: 'Strimzi',       desc: 'Apache Kafka operator' },
+      { id: 'debezium',   name: 'Debezium',       desc: 'Change data capture' },
+      { id: 'flink',      name: 'Apache Flink',   desc: 'Stateful stream processing' },
+      { id: 'temporal',   name: 'Temporal',       desc: 'Durable workflow orchestration' },
+      { id: 'clickhouse', name: 'ClickHouse',     desc: 'Real-time analytics database' },
     ],
   },
   {
-    id: 'comms', name: 'Communication', productName: 'RELAY', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'relay',
+    productName: 'RELAY',
+    name: 'Communication',
+    tag: 'Optional', tagColor: '#A78BFA',
     desc: 'Email, WebRTC video, real-time chat, TURN relay',
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server' },
@@ -129,10 +144,9 @@ const GROUPS: GroupDef[] = [
 
 type SelectionState = 'full' | 'partial' | 'empty'
 
-function getState(_groupId: string, selected: string[], total: number): SelectionState {
-  const n = selected.length
-  if (n === 0) return 'empty'
-  if (n === total) return 'full'
+function getState(selected: string[], total: number): SelectionState {
+  if (selected.length === 0) return 'empty'
+  if (selected.length === total) return 'full'
   return 'partial'
 }
 
@@ -148,7 +162,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   const bp = useBreakpoint()
   const selectedIds = store.componentGroups[group.id] ?? []
   const allIds = group.components.map(c => c.id)
-  const state = getState(group.id, selectedIds, group.components.length)
+  const state = getState(selectedIds, group.components.length)
 
   function toggleAll() {
     if (group.required) return
@@ -162,20 +176,16 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   return (
     <div style={{
       borderRadius: 10,
-      border: state !== 'empty'
-        ? '1.5px solid rgba(255,255,255,0.1)'
-        : '1.5px solid rgba(255,255,255,0.06)',
+      border: state !== 'empty' ? '1.5px solid rgba(255,255,255,0.1)' : '1.5px solid rgba(255,255,255,0.06)',
       background: state !== 'empty' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.1)',
-      overflow: 'hidden',
-      transition: 'all 0.15s',
+      overflow: 'hidden', transition: 'all 0.15s',
     }}>
-      {/* Group header */}
+      {/* Header */}
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer' }}
         onClick={() => !group.required && toggleAll()}
       >
         <SelectionDot state={state} color={group.tagColor} />
-
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: state !== 'empty' ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
@@ -186,7 +196,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
               color: group.tagColor, background: `${group.tagColor}15`,
               border: `1px solid ${group.tagColor}30`, borderRadius: 4, padding: '2px 6px',
             }}>
-              {group.required ? <Lock size={8} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} /> : null}
+              {group.required && <Lock size={8} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />}
               {group.tag}
             </span>
           </div>
@@ -194,8 +204,6 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
             {group.name} · {selectedIds.length}/{group.components.length} selected
           </div>
         </div>
-
-        {/* Expand toggle */}
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onToggle() }}
@@ -205,13 +213,13 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
         </button>
       </div>
 
-      {/* Expanded component list */}
+      {/* Expanded list */}
       {open && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 14px 12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr', gap: 4 }}>
             {group.components.map(c => {
               const on = selectedIds.includes(c.id)
-              const locked = group.required
+              const locked = !!(c.required ?? group.required)
               return (
                 <div
                   key={c.id}
@@ -224,7 +232,6 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                     transition: 'background 0.12s',
                   }}
                 >
-                  {/* Checkbox */}
                   <div style={{
                     width: 16, height: 16, borderRadius: 4, flexShrink: 0,
                     border: on ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
@@ -253,16 +260,16 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   )
 }
 
-/* ── Outer grid — defined at module level so React never remounts it ──── */
-function CardGrid({ groups, cols, onToggle }: {
+/* ── CardGrid at module level — stable type identity, never remounted ─── */
+function CardGrid({ groups, cols, onOpen }: {
   groups: GroupDef[]
   cols: string
-  onToggle: (id: string) => void
+  onOpen: (id: string) => void
 }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8 }}>
       {groups.map(g => (
-        <GroupCard key={g.id} group={g} open={false} onToggle={() => onToggle(g.id)} />
+        <GroupCard key={g.id} group={g} open={false} onToggle={() => onOpen(g.id)} />
       ))}
     </div>
   )
@@ -276,15 +283,24 @@ export function StepComponents() {
   const totalSelected = GROUPS.reduce((sum, g) => sum + (store.componentGroups[g.id]?.length ?? 0), 0)
   const totalAll = GROUPS.reduce((sum, g) => sum + g.components.length, 0)
 
+  const colCount = bp === 'mobile' ? 1 : bp === 'tablet' ? 2 : 3
   const cols = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr'
 
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
 
-  /* Split groups around the open card so ALL neighbours shift below it */
-  const openIdx     = openGroupId ? GROUPS.findIndex(g => g.id === openGroupId) : -1
-  const beforeGroups = openIdx > -1 ? GROUPS.slice(0, openIdx) : GROUPS
+  /* ── Row-boundary split ────────────────────────────────────────────────
+     All cards that share the expanded card's visual row — whether to its
+     left or right — shift below it. Only complete rows above stay above.
+  ────────────────────────────────────────────────────────────────────── */
+  const openIdx = openGroupId ? GROUPS.findIndex(g => g.id === openGroupId) : -1
+  const rowStart = openIdx > -1 ? Math.floor(openIdx / colCount) * colCount : -1
+
+  const beforeGroups = openIdx > -1 ? GROUPS.slice(0, rowStart) : GROUPS
   const openGroup    = openIdx > -1 ? GROUPS[openIdx] : null
-  const afterGroups  = openIdx > -1 ? GROUPS.slice(openIdx + 1) : []
+  // row-mates before the expanded card + everything after
+  const afterGroups  = openIdx > -1
+    ? [...GROUPS.slice(rowStart, openIdx), ...GROUPS.slice(openIdx + 1)]
+    : []
 
   return (
     <StepShell
@@ -303,9 +319,9 @@ export function StepComponents() {
         </div>
       </div>
 
-      {/* Cards before the expanded one */}
+      {/* Complete rows above expanded card */}
       {beforeGroups.length > 0 && (
-        <CardGrid groups={beforeGroups} cols={cols} onToggle={setOpenGroupId} />
+        <CardGrid groups={beforeGroups} cols={cols} onOpen={setOpenGroupId} />
       )}
 
       {/* Expanded card — full width */}
@@ -317,9 +333,9 @@ export function StepComponents() {
         />
       )}
 
-      {/* Cards after the expanded one — always below it */}
+      {/* Row-mates of expanded card + all rows below */}
       {afterGroups.length > 0 && (
-        <CardGrid groups={afterGroups} cols={cols} onToggle={setOpenGroupId} />
+        <CardGrid groups={afterGroups} cols={cols} onOpen={setOpenGroupId} />
       )}
     </StepShell>
   )
