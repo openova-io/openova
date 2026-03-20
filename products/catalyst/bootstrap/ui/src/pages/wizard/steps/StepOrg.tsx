@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { ORG_DEFAULTS } from '@/entities/deployment/model'
+import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 const INDUSTRIES = [
@@ -89,6 +90,11 @@ function SelectField({ label, value, options, onChange }: {
 export function StepOrg() {
   const store = useWizardStore()
   const { next } = useStepNav()
+  const bp = useBreakpoint()
+
+  const col3 = bp === 'desktop' ? '1fr 1fr 1fr' : '1fr 1fr'
+  const col2 = '1fr 1fr'
+  const col1 = '1fr'
 
   function toggleCompliance(tag: string) {
     store.setOrgCompliance(
@@ -104,23 +110,30 @@ export function StepOrg() {
       description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
       onNext={next}
     >
-      {/* Row 1: Name · Domain · HQ — 3 cols */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+      {/* Row 1: Name · Domain · HQ */}
+      <div style={{ display: 'grid', gridTemplateColumns: col3, gap: 14 }}>
         <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}         value={store.orgName}         onChange={store.setOrgName} />
         <SmartField         label="Domain"             defaultValue={ORG_DEFAULTS.domain}       value={store.orgDomain}       onChange={store.setOrgDomain} />
-        <SmartField         label="Headquarters"       defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+        {bp !== 'mobile' && (
+          <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+        )}
       </div>
 
-      {/* Row 2: Email — full width */}
+      {/* HQ on mobile: own row */}
+      {bp === 'mobile' && (
+        <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+      )}
+
+      {/* Email — always full width */}
       <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email} value={store.orgEmail} onChange={store.setOrgEmail} type="email" />
 
-      {/* Row 3: Industry · Size — 2 cols */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      {/* Industry · Size */}
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
         <SelectField label="Industry"          value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
         <SelectField label="Organisation size" value={store.orgSize}     options={SIZES}      onChange={store.setOrgSize} />
       </div>
 
-      {/* Row 4: Compliance tags */}
+      {/* Compliance */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
           Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional · shapes component defaults</span>
@@ -150,7 +163,7 @@ export function StepOrg() {
       </div>
 
       <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.18)', margin: 0, lineHeight: 1.6 }}>
-        Fields marked <span style={{ color: 'rgba(56,189,248,0.45)' }}>default</span> are pre-filled with realistic values.
+        Fields marked <span style={{ color: 'rgba(56,189,248,0.45)' }}>default</span> are pre-filled.
         Click to focus — all text is selected so you can type a replacement immediately.
       </p>
     </StepShell>
