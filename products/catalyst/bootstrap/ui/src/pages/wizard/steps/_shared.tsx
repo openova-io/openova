@@ -48,12 +48,12 @@ export function StepShell({
         lineHeight: 1.65,
         color: 'rgba(255,255,255,0.35)',
         margin: '0 0 24px',
-        maxWidth: 420,
+        maxWidth: 640,
       }}>
         {description}
       </p>
 
-      {/* Fields */}
+      {/* Step content */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
         {children}
       </div>
@@ -73,6 +73,7 @@ export function StepShell({
               background: 'transparent',
               color: 'rgba(255,255,255,0.3)',
               fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              fontFamily: 'Inter, sans-serif',
               transition: 'all 0.15s',
             }}
             onMouseEnter={e => {
@@ -102,6 +103,7 @@ export function StepShell({
             color: nextDisabled || nextLoading ? 'rgba(255,255,255,0.2)' : '#fff',
             fontSize: 14, fontWeight: 600,
             cursor: nextDisabled || nextLoading ? 'not-allowed' : 'pointer',
+            fontFamily: 'Inter, sans-serif',
             transition: 'all 0.15s',
             boxShadow: nextDisabled || nextLoading
               ? 'none'

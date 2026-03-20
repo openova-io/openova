@@ -15,14 +15,14 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
 }
 
 const PROVIDER_TOKEN_HINT: Record<CloudProvider, string> = {
-  hetzner: 'Starts with a 64-character alphanumeric string',
-  huawei:  'Access Key ID and Secret from IAM',
-  oci:     'OCI API private key or session token',
-  aws:     'AWS access key ID and secret access key',
-  azure:   'Service principal client ID and secret',
+  hetzner: 'Read & Write API token (64+ chars)',
+  huawei:  'Access Key ID — format: AK + secret',
+  oci:     'API private key or session token',
+  aws:     'Access Key ID + secret (paste as JSON or combined)',
+  azure:   'Service principal client ID + secret',
 }
 
-/* ── Controlled token input — no react-hook-form, just clean state ─── */
+/* ── Token section — one per provider ───────────────────────────────── */
 function TokenSection({
   provider,
   regionIndices,
@@ -63,7 +63,6 @@ function TokenSection({
       if (data.valid) {
         setState('valid')
         store.setProviderValidated(provider, true)
-        // compat
         if (provider === 'hetzner') {
           store.setHetznerToken(token)
           store.setCredentialValidated(true)
@@ -119,66 +118,64 @@ function TokenSection({
 
       {/* Token form */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>
+          API credential · {PROVIDER_TOKEN_HINT[provider]}
+        </span>
+
         {/* Input + validate row */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>
-              API token · {PROVIDER_TOKEN_HINT[provider]}
-            </span>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={show ? 'text' : 'password'}
-                value={token}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                onChange={e => handleChange(e.target.value)}
-                placeholder="Paste your token here…"
-                style={{
-                  width: '100%', height: 38, borderRadius: 7,
-                  border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
-                  background: 'rgba(255,255,255,0.05)',
-                  color: 'rgba(255,255,255,0.85)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
-                  outline: 'none', fontFamily: 'Inter, monospace',
-                  boxShadow: focused ? `0 0 0 3px ${error ? 'rgba(248,113,113,0.07)' : 'rgba(56,189,248,0.07)'}` : 'none',
-                  transition: 'all 0.15s',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShow(v => !v)}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}
-              >
-                {show ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-            {error && <span style={{ fontSize: 11, color: '#F87171' }}>{error}</span>}
+          <div style={{ flex: 1, position: 'relative' }}>
+            <input
+              type={show ? 'text' : 'password'}
+              value={token}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onChange={e => handleChange(e.target.value)}
+              placeholder="Paste your credential here…"
+              style={{
+                width: '100%', height: 38, borderRadius: 7,
+                border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                background: 'rgba(255,255,255,0.05)',
+                color: 'rgba(255,255,255,0.85)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
+                outline: 'none', fontFamily: 'Inter, monospace',
+                boxShadow: focused ? `0 0 0 3px ${error ? 'rgba(248,113,113,0.07)' : 'rgba(56,189,248,0.07)'}` : 'none',
+                transition: 'all 0.15s',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShow(v => !v)}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}
+            >
+              {show ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
           </div>
 
           {/* Validate button */}
-          <div style={{ flexShrink: 0, paddingTop: 22 }}>
-            <button
-              type="button"
-              onClick={validate}
-              disabled={state === 'validating' || state === 'valid'}
-              style={{
-                height: 38, padding: '0 14px', borderRadius: 7,
-                border: state === 'valid' ? '1.5px solid rgba(74,222,128,0.35)' : '1.5px solid rgba(255,255,255,0.1)',
-                background: state === 'valid' ? 'rgba(74,222,128,0.07)' : 'rgba(255,255,255,0.05)',
-                color: state === 'valid' ? '#4ADE80' : 'rgba(255,255,255,0.4)',
-                fontSize: 12, fontWeight: 600, cursor: state === 'validating' || state === 'valid' ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {state === 'validating' && <Loader2 size={12} className="animate-spin" />}
-              {state === 'valid'      && <CheckCircle2 size={12} />}
-              {state === 'idle'    ? 'Validate' :
-               state === 'invalid' ? 'Retry' :
-               state === 'validating' ? 'Checking…' : 'Validated'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={validate}
+            disabled={state === 'validating' || state === 'valid'}
+            style={{
+              height: 38, padding: '0 14px', borderRadius: 7, flexShrink: 0,
+              border: state === 'valid' ? '1.5px solid rgba(74,222,128,0.35)' : '1.5px solid rgba(255,255,255,0.1)',
+              background: state === 'valid' ? 'rgba(74,222,128,0.07)' : 'rgba(255,255,255,0.05)',
+              color: state === 'valid' ? '#4ADE80' : 'rgba(255,255,255,0.4)',
+              fontSize: 12, fontWeight: 600, cursor: state === 'validating' || state === 'valid' ? 'default' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5,
+              fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {state === 'validating' && <Loader2 size={12} className="animate-spin" />}
+            {state === 'valid'      && <CheckCircle2 size={12} />}
+            {state === 'idle'       ? 'Validate' :
+             state === 'invalid'    ? 'Retry' :
+             state === 'validating' ? 'Checking…' : 'Validated'}
+          </button>
         </div>
+
+        {error && <span style={{ fontSize: 11, color: '#F87171' }}>{error}</span>}
 
         {/* Feedback */}
         {state === 'valid' && (
@@ -211,10 +208,7 @@ export function StepCredentials() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
 
-  // Unique providers from per-region selections
   const uniqueProviders = [...new Set(Object.values(store.regionProviders))] as CloudProvider[]
-
-  // Fall back to single-provider mode if regionProviders is empty (compat)
   const providers: CloudProvider[] = uniqueProviders.length > 0
     ? uniqueProviders
     : store.provider ? [store.provider] : ['hetzner']
@@ -226,33 +220,45 @@ export function StepCredentials() {
       .filter(([, v]) => v === p)
       .map(([k]) => Number(k))
 
+  /* 2-col grid when 2+ providers, 1-col for single */
+  const cols = providers.length >= 2 ? '1fr 1fr' : '1fr'
+
   return (
     <StepShell
       title="Cloud credentials"
       description={providers.length > 1
-        ? `You selected ${providers.length} different cloud providers. Provide one API token per provider.`
-        : 'Provide a read/write API token. Credentials are used only during provisioning and never persisted on our servers.'}
+        ? `You selected ${providers.length} different cloud providers. Provide one API credential per provider.`
+        : 'Provide a read/write API credential. Credentials are used only during provisioning and never persisted on our servers.'}
       onNext={() => { if (allValidated) next() }}
       onBack={back}
       nextDisabled={!allValidated}
     >
-      {/* One credential section per unique provider */}
-      {providers.map(p => (
-        <TokenSection
-          key={p}
-          provider={p}
-          regionIndices={regionIndicesFor(p).length > 0 ? regionIndicesFor(p) : [0]}
-        />
-      ))}
+      {/* Credential sections */}
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 14 }}>
+        {providers.map(p => (
+          <TokenSection
+            key={p}
+            provider={p}
+            regionIndices={regionIndicesFor(p).length > 0 ? regionIndicesFor(p) : [0]}
+          />
+        ))}
+      </div>
 
-      {/* How-to for Hetzner — hidden once all providers are validated */}
+      {/* How-to for Hetzner */}
       {providers.includes('hetzner') && !allValidated && (
         <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', padding: '12px 14px' }}>
           <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.28)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             How to create a Hetzner API token
           </p>
           <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {['Open Hetzner Cloud Console', 'Select your project', 'Go to Security \u2192 API Tokens', 'Click Generate API Token', 'Choose Read & Write permissions', 'Copy the token \u2014 shown only once'].map((s, i) => (
+            {[
+              'Open Hetzner Cloud Console',
+              'Select your project',
+              'Go to Security \u2192 API Tokens',
+              'Click Generate API Token',
+              'Choose Read & Write permissions',
+              'Copy the token \u2014 shown only once',
+            ].map((s, i) => (
               <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.28)', alignItems: 'flex-start' }}>
                 <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
                 {s}

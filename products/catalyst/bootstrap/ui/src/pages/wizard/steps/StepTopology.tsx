@@ -32,7 +32,6 @@ const CONN = (x1: number, y1: number, x2: number, y2: number) => (
   <line key={`c${x1}${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(56,189,248,0.35)" strokeWidth={1.2} strokeDasharray="3,2" />
 )
 
-/* Diagrams use viewBox="0 0 280 130" for consistent large rendering */
 const DiagramDelta = () => (
   <svg viewBox="0 0 280 130" width="100%">
     {REGION(6, 18, 72, 96, 'CP Region')}
@@ -171,6 +170,8 @@ export function StepTopology() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
 
+  const selected = TOPOLOGIES.find(t => t.id === store.topology) ?? null
+
   return (
     <StepShell
       title="Choose your infrastructure topology"
@@ -179,97 +180,131 @@ export function StepTopology() {
       onBack={back}
       nextDisabled={!store.topology}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {TOPOLOGIES.map(t => {
-          const selected = store.topology === t.id
-          return (
-            <div
-              key={t.id}
-              onClick={() => store.setTopology(t.id)}
-              style={{
-                borderRadius: 10,
-                border: selected
-                  ? '1.5px solid rgba(56,189,248,0.5)'
-                  : '1.5px solid rgba(255,255,255,0.07)',
-                background: selected ? 'rgba(56,189,248,0.06)' : 'rgba(255,255,255,0.02)',
-                cursor: 'pointer',
-                overflow: 'hidden',
-                transition: 'border-color 0.2s, background 0.2s',
-                boxShadow: selected ? '0 0 0 3px rgba(56,189,248,0.07)' : 'none',
-              }}
-            >
-              {/* ── Collapsed header row — always visible ─────────────── */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
+      {/* ── 2-pane: left list · right detail ─────────────────────────── */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+
+        {/* LEFT — compact option list */}
+        <div style={{ width: '40%', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {TOPOLOGIES.map(t => {
+            const isSelected = store.topology === t.id
+            return (
+              <div
+                key={t.id}
+                onClick={() => store.setTopology(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                  border: isSelected
+                    ? '1.5px solid rgba(56,189,248,0.5)'
+                    : '1.5px solid rgba(255,255,255,0.07)',
+                  background: isSelected ? 'rgba(56,189,248,0.07)' : 'rgba(255,255,255,0.02)',
+                  boxShadow: isSelected ? '0 0 0 3px rgba(56,189,248,0.07)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
                 {/* Radio dot */}
                 <div style={{
                   width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-                  border: selected ? 'none' : '1.5px solid rgba(255,255,255,0.2)',
-                  background: selected ? '#38BDF8' : 'transparent',
+                  border: isSelected ? 'none' : '1.5px solid rgba(255,255,255,0.2)',
+                  background: isSelected ? '#38BDF8' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.15s',
                 }}>
-                  {selected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
+                  {isSelected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
                 </div>
 
-                {/* Name + tag */}
+                {/* Name + tagline */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: selected ? '#fff' : 'rgba(255,255,255,0.7)', letterSpacing: '0.02em' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? '#fff' : 'rgba(255,255,255,0.7)', letterSpacing: '0.03em' }}>
                       {t.name}
                     </span>
                     <span style={{
-                      fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                      fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
                       color: t.tagColor, background: `${t.tagColor}18`,
-                      border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '2px 7px',
+                      border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '1px 6px',
                     }}>
                       {t.tag}
                     </span>
-                    {t.recommended && !selected && (
-                      <span style={{ fontSize: 9, color: 'rgba(34,197,94,0.6)', fontWeight: 500 }}>← start here</span>
-                    )}
                   </div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2, lineHeight: 1.3 }}>{t.tagline}</div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2, lineHeight: 1.3 }}>{t.tagline}</div>
                 </div>
 
-                {/* Region + cluster stats */}
-                <div style={{ display: 'flex', gap: 12, flexShrink: 0 }}>
-                  {[{ val: t.regions, lbl: 'regions' }, { val: t.clusters, lbl: 'clusters' }].map(({ val, lbl }) => (
+                {/* Stats */}
+                <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+                  {[{ val: t.regions, lbl: 'reg' }, { val: t.clusters, lbl: 'cls' }].map(({ val, lbl }) => (
                     <div key={lbl} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: selected ? '#38BDF8' : 'rgba(255,255,255,0.45)' }}>{val}</div>
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.22)', marginTop: 2, lineHeight: 1 }}>{lbl}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, color: isSelected ? '#38BDF8' : 'rgba(255,255,255,0.4)' }}>{val}</div>
+                      <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', marginTop: 2 }}>{lbl}</div>
                     </div>
                   ))}
                 </div>
               </div>
+            )
+          })}
+        </div>
 
-              {/* ── Expanded: BIG diagram + bullets — only when selected ── */}
-              {selected && (
-                <div style={{ padding: '0 14px 14px' }}>
-                  {/* Diagram — much bigger in selected state */}
-                  <div style={{
-                    borderRadius: 8,
-                    background: 'rgba(0,0,0,0.35)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    padding: '16px 12px 10px',
-                    marginBottom: 12,
+        {/* RIGHT — selected topology detail */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {selected ? (
+            <div style={{
+              borderRadius: 12,
+              border: '1px solid rgba(56,189,248,0.15)',
+              background: 'rgba(56,189,248,0.04)',
+              overflow: 'hidden',
+            }}>
+              {/* Header */}
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: '0.04em' }}>{selected.name}</span>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
+                    color: selected.tagColor, background: `${selected.tagColor}18`,
+                    border: `1px solid ${selected.tagColor}38`, borderRadius: 4, padding: '2px 7px',
                   }}>
-                    {t.diagram}
-                  </div>
-
-                  {/* Bullets */}
-                  <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {t.bullets.map(b => (
-                      <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
-                        <span style={{ color: '#38BDF8', flexShrink: 0, marginTop: 1 }}>·</span>
-                        {b}
-                      </li>
+                    {selected.tag}
+                  </span>
+                  {/* Stats inline */}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+                    {[{ val: selected.regions, lbl: 'regions' }, { val: selected.clusters, lbl: 'clusters' }].map(({ val, lbl }) => (
+                      <div key={lbl} style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#38BDF8', lineHeight: 1 }}>{val}</div>
+                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{lbl}</div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
-              )}
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>{selected.tagline}</div>
+              </div>
+
+              {/* Diagram */}
+              <div style={{ padding: '16px 18px 10px', background: 'rgba(0,0,0,0.25)' }}>
+                {selected.diagram}
+              </div>
+
+              {/* Bullets */}
+              <div style={{ padding: '12px 18px 16px' }}>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {selected.bullets.map(b => (
+                    <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+                      <span style={{ color: '#38BDF8', flexShrink: 0, marginTop: 1 }}>·</span>
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-          )
-        })}
+          ) : (
+            <div style={{
+              height: '100%', minHeight: 200,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1.5px dashed rgba(255,255,255,0.1)',
+              borderRadius: 12, color: 'rgba(255,255,255,0.2)', fontSize: 13,
+            }}>
+              Select a topology to see the architecture diagram
+            </div>
+          )}
+        </div>
       </div>
     </StepShell>
   )

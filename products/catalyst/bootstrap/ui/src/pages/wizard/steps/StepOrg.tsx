@@ -13,12 +13,6 @@ const SIZES = ['Under 100', '100–500', '500–2,000', '2,000–10,000', '10,00
 
 const COMPLIANCE_OPTIONS = ['PCI DSS', 'ISO 27001', 'SOC 2', 'GDPR', 'HIPAA', 'DORA', 'NIS2', 'FedRAMP']
 
-/*
- * SmartField: store always holds a real value (default or user-set).
- * "default" badge shown when value matches the original default.
- * On focus → selects all text so user can immediately type a replacement.
- * On blur → if field was cleared, restores the default.
- */
 function SmartField({
   label, defaultValue, value, onChange, type = 'text', required = false,
 }: {
@@ -33,7 +27,7 @@ function SmartField({
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
           {label}
-          {!required && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}> optional</span>}
+          {!required && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}>optional</span>}
         </span>
         {isDefault && !focused && (
           <span style={{
@@ -46,15 +40,8 @@ function SmartField({
       <input
         type={type}
         value={value}
-        onFocus={e => {
-          setFocused(true)
-          // Select all so user can immediately type a replacement
-          e.target.select()
-        }}
-        onBlur={e => {
-          setFocused(false)
-          if (!e.target.value.trim()) onChange(defaultValue)
-        }}
+        onFocus={e => { setFocused(true); e.target.select() }}
+        onBlur={e => { setFocused(false); if (!e.target.value.trim()) onChange(defaultValue) }}
         onChange={e => onChange(e.target.value)}
         style={{
           height: 40, borderRadius: 8,
@@ -76,7 +63,7 @@ function SelectField({ label, value, options, onChange }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
-        {label}<span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}> optional</span>
+        {label}<span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}>optional</span>
       </span>
       <select
         value={value}
@@ -117,20 +104,23 @@ export function StepOrg() {
       description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
       onNext={next}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name} value={store.orgName} onChange={store.setOrgName} />
-        <SmartField label="Domain" defaultValue={ORG_DEFAULTS.domain} value={store.orgDomain} onChange={store.setOrgDomain} />
+      {/* Row 1: Name · Domain · HQ — 3 cols */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}         value={store.orgName}         onChange={store.setOrgName} />
+        <SmartField         label="Domain"             defaultValue={ORG_DEFAULTS.domain}       value={store.orgDomain}       onChange={store.setOrgDomain} />
+        <SmartField         label="Headquarters"       defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
       </div>
 
+      {/* Row 2: Email — full width */}
       <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email} value={store.orgEmail} onChange={store.setOrgEmail} type="email" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <SelectField label="Industry" value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
-        <SelectField label="Organisation size" value={store.orgSize} options={SIZES} onChange={store.setOrgSize} />
+      {/* Row 3: Industry · Size — 2 cols */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <SelectField label="Industry"          value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
+        <SelectField label="Organisation size" value={store.orgSize}     options={SIZES}      onChange={store.setOrgSize} />
       </div>
 
-      <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
-
+      {/* Row 4: Compliance tags */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
           Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional · shapes component defaults</span>

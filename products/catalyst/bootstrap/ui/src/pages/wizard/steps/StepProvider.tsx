@@ -1,24 +1,21 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
-/* ─────────────────────────────────────────────────────────────────────────
-   Provider catalogue
-─────────────────────────────────────────────────────────────────────────── */
+/* ── Provider catalogue — all clouds enabled ─────────────────────────── */
 interface ProviderDef {
   id: CloudProvider
   name: string
   short: string
-  available: boolean
   logo: React.ReactNode
 }
 
 const PROVIDERS: ProviderDef[] = [
   {
-    id: 'hetzner', name: 'Hetzner Cloud', short: 'Hetzner', available: true,
+    id: 'hetzner', name: 'Hetzner Cloud', short: 'Hetzner',
     logo: (
       <svg viewBox="0 0 32 32" width={22} height={22} style={{ flexShrink: 0 }}>
         <rect width={32} height={32} rx={6} fill="#D50C2D" />
@@ -27,7 +24,7 @@ const PROVIDERS: ProviderDef[] = [
     ),
   },
   {
-    id: 'huawei', name: 'Huawei Cloud', short: 'Huawei', available: false,
+    id: 'huawei', name: 'Huawei Cloud', short: 'Huawei',
     logo: (
       <svg viewBox="0 0 32 32" width={22} height={22} style={{ flexShrink: 0 }}>
         <rect width={32} height={32} rx={6} fill="#CF0A2C" />
@@ -36,7 +33,7 @@ const PROVIDERS: ProviderDef[] = [
     ),
   },
   {
-    id: 'oci', name: 'Oracle Cloud', short: 'OCI', available: false,
+    id: 'oci', name: 'Oracle Cloud', short: 'OCI',
     logo: (
       <svg viewBox="0 0 32 32" width={22} height={22} style={{ flexShrink: 0 }}>
         <rect width={32} height={32} rx={6} fill="#F80000" />
@@ -45,7 +42,7 @@ const PROVIDERS: ProviderDef[] = [
     ),
   },
   {
-    id: 'aws', name: 'Amazon Web Services', short: 'AWS', available: false,
+    id: 'aws', name: 'Amazon Web Services', short: 'AWS',
     logo: (
       <svg viewBox="0 0 32 32" width={22} height={22} style={{ flexShrink: 0 }}>
         <rect width={32} height={32} rx={6} fill="#232F3E" />
@@ -56,7 +53,7 @@ const PROVIDERS: ProviderDef[] = [
     ),
   },
   {
-    id: 'azure', name: 'Microsoft Azure', short: 'Azure', available: false,
+    id: 'azure', name: 'Microsoft Azure', short: 'Azure',
     logo: (
       <svg viewBox="0 0 32 32" width={22} height={22} style={{ flexShrink: 0 }}>
         <rect width={32} height={32} rx={6} fill="#0078D4" />
@@ -94,12 +91,12 @@ function RegionRow({
       overflow: 'hidden',
       transition: 'all 0.15s',
     }}>
-      {/* Header row */}
+      {/* Header */}
       <div
         onClick={onToggle}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
       >
-        {/* Region number */}
+        {/* Region number badge */}
         <div style={{
           width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
           background: selectedProvider ? 'linear-gradient(135deg, #38BDF8, #818CF8)' : 'rgba(255,255,255,0.06)',
@@ -111,66 +108,70 @@ function RegionRow({
           {selectedProvider ? <Check size={11} strokeWidth={2.5} /> : index + 1}
         </div>
 
-        {/* Label */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: selectedProvider ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.5)', lineHeight: 1.3 }}>
             {label}
           </div>
-          {selectedProvider && def && (
-            <div style={{ fontSize: 11, color: 'rgba(56,189,248,0.7)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-              {def.short} selected
-            </div>
-          )}
-          {!selectedProvider && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 2 }}>Select a cloud provider</div>
-          )}
+          <div style={{ fontSize: 11, marginTop: 2 }}>
+            {selectedProvider && def
+              ? <span style={{ color: 'rgba(56,189,248,0.7)' }}>{def.name} selected</span>
+              : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Select a cloud provider</span>}
+          </div>
         </div>
 
-        {/* Selected provider logo */}
         {selectedProvider && def && (
           <div style={{ flexShrink: 0, opacity: 0.8 }}>{def.logo}</div>
         )}
 
-        {/* Chevron */}
-        <div style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>
-          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </div>
+        <div style={{
+          width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'rgba(255,255,255,0.25)', flexShrink: 0, fontSize: 12,
+          transition: 'transform 0.2s',
+          transform: open ? 'rotate(180deg)' : 'none',
+        }}>▾</div>
       </div>
 
-      {/* Expanded provider picker */}
+      {/* Expanded provider grid — 3 columns */}
       {open && (
-        <div style={{ padding: '0 14px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 10 }}>
+        <div style={{ padding: '0 14px 14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 8,
+            paddingTop: 12,
+          }}>
             {PROVIDERS.map(p => {
               const active = selectedProvider === p.id
               return (
                 <div
                   key={p.id}
-                  onClick={() => { if (p.available) onSelect(p.id) }}
+                  onClick={() => onSelect(p.id)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 10px', borderRadius: 8, cursor: p.available ? 'pointer' : 'not-allowed',
-                    border: active ? '1.5px solid rgba(56,189,248,0.45)' : '1.5px solid rgba(255,255,255,0.06)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    padding: '12px 10px', borderRadius: 8, cursor: 'pointer',
+                    border: active ? '1.5px solid rgba(56,189,248,0.45)' : '1.5px solid rgba(255,255,255,0.07)',
                     background: active ? 'rgba(56,189,248,0.08)' : 'rgba(255,255,255,0.02)',
-                    opacity: p.available ? 1 : 0.4,
                     transition: 'all 0.15s',
+                    position: 'relative',
                   }}
                 >
+                  {active && (
+                    <div style={{
+                      position: 'absolute', top: 6, right: 6,
+                      width: 14, height: 14, borderRadius: '50%',
+                      background: '#38BDF8',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Check size={8} strokeWidth={3} color="#fff" />
+                    </div>
+                  )}
                   {p.logo}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#fff' : 'rgba(255,255,255,0.6)' }}>{p.name}</div>
-                    {!p.available && (
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 1 }}>Coming soon</div>
-                    )}
-                  </div>
                   <div style={{
-                    width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-                    background: active ? '#38BDF8' : 'transparent',
-                    border: active ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all 0.15s',
+                    fontSize: 11, fontWeight: active ? 600 : 400, textAlign: 'center',
+                    color: active ? '#fff' : 'rgba(255,255,255,0.55)',
+                    lineHeight: 1.2,
                   }}>
-                    {active && <Check size={9} strokeWidth={3} color="#fff" />}
+                    {p.short}
                   </div>
                 </div>
               )
@@ -190,7 +191,6 @@ export function StepProvider() {
   const regionCount = topology ? TOPOLOGY_REGION_COUNT[topology] : 1
   const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : ['Region 1']
 
-  // Lift accordion open state — start with first region open
   const [openRegion, setOpenRegion] = useState<number | null>(0)
 
   const allConfigured = Array.from({ length: regionCount }, (_, i) => i)
@@ -203,7 +203,6 @@ export function StepProvider() {
   function handleSelect(regionIndex: number, provider: CloudProvider) {
     store.setRegionProvider(regionIndex, provider)
     if (regionIndex === 0) store.setProvider(provider)
-    // Auto-collapse this region and open the next unassigned one
     const nextUnassigned = Array.from({ length: regionCount }, (_, i) => i)
       .find(i => i > regionIndex && store.regionProviders[i] == null)
     setOpenRegion(nextUnassigned ?? null)
@@ -215,8 +214,10 @@ export function StepProvider() {
     setOpenRegion(null)
   }
 
-  // Unique providers summary
   const uniqueProviders = [...new Set(Object.values(store.regionProviders))]
+
+  /* ── Layout: 1 col when 1-2 regions, 2 cols when 3+ regions ─────── */
+  const useTwoCol = regionCount >= 3
 
   return (
     <StepShell
@@ -226,8 +227,11 @@ export function StepProvider() {
       onBack={back}
       nextDisabled={!allConfigured}
     >
-      {/* Per-region accordion */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: useTwoCol ? '1fr 1fr' : '1fr',
+        gap: 8,
+      }}>
         {regionLabels.map((label, i) => (
           <RegionRow
             key={i}
@@ -241,7 +245,7 @@ export function StepProvider() {
         ))}
       </div>
 
-      {/* Apply-to-all shortcut — shown when region 0 is set and others aren't */}
+      {/* Apply-to-all shortcut */}
       {firstProvider && hasUnassigned && (
         <button
           type="button"
@@ -256,28 +260,30 @@ export function StepProvider() {
             transition: 'all 0.15s',
           }}
         >
-          Apply {PROVIDERS.find(p => p.id === firstProvider)?.short ?? firstProvider} to all regions →
+          Apply {PROVIDERS.find(p => p.id === firstProvider)?.name ?? firstProvider} to all regions →
         </button>
       )}
 
-      {/* Summary of unique providers — shown when all configured */}
+      {/* Credentials summary */}
       {allConfigured && uniqueProviders.length > 0 && (
         <div style={{ borderRadius: 8, background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.12)', padding: '10px 14px' }}>
           <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(56,189,248,0.7)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Credentials required
           </p>
-          {uniqueProviders.map(p => {
-            const def = PROVIDERS.find(d => d.id === p)
-            const regions = Object.entries(store.regionProviders).filter(([, v]) => v === p).map(([k]) => Number(k))
-            return (
-              <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-                {def?.logo}
-                <span style={{ fontWeight: 500 }}>{def?.name}</span>
-                <span style={{ color: 'rgba(255,255,255,0.25)' }}>·</span>
-                <span>Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}</span>
-              </div>
-            )
-          })}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '4px 16px' }}>
+            {uniqueProviders.map(p => {
+              const def = PROVIDERS.find(d => d.id === p)
+              const regions = Object.entries(store.regionProviders).filter(([, v]) => v === p).map(([k]) => Number(k))
+              return (
+                <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+                  {def?.logo}
+                  <span style={{ fontWeight: 500 }}>{def?.name}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.25)' }}>·</span>
+                  <span>Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </StepShell>

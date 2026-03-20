@@ -125,7 +125,6 @@ const GROUPS: GroupDef[] = [
   },
 ]
 
-/* Selection state for a group */
 type SelectionState = 'full' | 'partial' | 'empty'
 
 function getState(_groupId: string, selected: string[], total: number): SelectionState {
@@ -135,7 +134,6 @@ function getState(_groupId: string, selected: string[], total: number): Selectio
   return 'partial'
 }
 
-/* The ● ◑ ○ indicator — 18px, strong colors */
 function SelectionDot({ state, color }: { state: SelectionState; color: string }) {
   const base: React.CSSProperties = { fontSize: 18, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }
   if (state === 'full')    return <span style={{ ...base, color, filter: 'drop-shadow(0 0 4px currentColor)' }}>●</span>
@@ -227,9 +225,7 @@ function GroupCard({ group }: { group: GroupDef }) {
                   {/* Checkbox */}
                   <div style={{
                     width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-                    border: on
-                      ? 'none'
-                      : '1.5px solid rgba(255,255,255,0.15)',
+                    border: on ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
                     background: on ? group.tagColor : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.15s',
@@ -279,8 +275,10 @@ export function StepComponents() {
         </div>
       </div>
 
-      {/* Groups */}
-      {GROUPS.map(g => <GroupCard key={g.id} group={g} />)}
+      {/* 2-column group grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {GROUPS.map(g => <GroupCard key={g.id} group={g} />)}
+      </div>
     </StepShell>
   )
 }
