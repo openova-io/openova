@@ -146,16 +146,32 @@ const GROUPS: GroupDef[] = [
   },
 ]
 
+/* ── Color semantics ──────────────────────────────────────────────
+   Green  (#4ADE80) = locked / always-on (mandatory in required block)
+   Blue   (#38BDF8) = user selected (recommended / chosen)
+   Indigo (#818CF8) = optional choice
+   Red tag badge = block is Required (status label only, not selection)
+   Purple tag badge = block is Optional
+────────────────────────────────────────────────────────────────── */
+const TIER_ORDER: Record<Tier, number> = { mandatory: 0, recommended: 1, optional: 2 }
+
 const TIER_BADGE: Record<Tier, { label: string; color: string }> = {
-  mandatory:   { label: 'M', color: '#F87171' },
+  mandatory:   { label: 'M', color: '#4ADE80' },
   recommended: { label: 'R', color: '#38BDF8' },
   optional:    { label: 'O', color: '#A78BFA' },
 }
 
-function SelectionDot({ n, total, color }: { n: number; total: number; color: string }) {
+function checkboxColor(tier: Tier, locked: boolean): string {
+  if (locked)                      return '#4ADE80'   // green = always on
+  if (tier === 'recommended')      return '#38BDF8'   // blue  = chosen
+  return '#818CF8'                                    // indigo = optional pick
+}
+
+function SelectionDot({ n, total, required }: { n: number; total: number; required: boolean }) {
+  const color = required ? '#4ADE80' : '#38BDF8'
   const base: React.CSSProperties = { fontSize: 18, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }
-  if (n === 0)     return <span style={{ ...base, color: 'rgba(255,255,255,0.2)' }}>○</span>
-  if (n >= total)  return <span style={{ ...base, color, filter: 'drop-shadow(0 0 4px currentColor)' }}>●</span>
+  if (n === 0)    return <span style={{ ...base, color: 'rgba(255,255,255,0.2)' }}>○</span>
+  if (n >= total) return <span style={{ ...base, color, filter: 'drop-shadow(0 0 4px currentColor)' }}>●</span>
   return <span style={{ ...base, color: '#F59E0B' }}>◑</span>
 }
 
@@ -163,17 +179,21 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   const store = useWizardStore()
   const bp = useBreakpoint()
 
-  const storedIds  = store.componentGroups[group.id] ?? []
-  // For required groups always count mandatory components as selected even if store is fresh
+  const storedIds    = store.componentGroups[group.id] ?? []
   const mandatoryIds = group.components.filter(c => c.tier === 'mandatory').map(c => c.id)
+  // Required groups: mandatory components always counted as selected
   const selectedIds  = group.required
     ? [...new Set([...mandatoryIds, ...storedIds])]
     : storedIds
 
+  // Sort: mandatory → recommended → optional
+  const sortedComponents = [...group.components].sort(
+    (a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier]
+  )
+
   function toggleAll() {
     if (group.required) return
     if (selectedIds.length === 0) {
-      // Turn on: pre-select M + R
       const defaults = DEFAULT_COMPONENT_GROUPS[group.id]?.length
         ? DEFAULT_COMPONENT_GROUPS[group.id]
         : group.components.filter(c => c.tier !== 'optional').map(c => c.id)
@@ -184,19 +204,20 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   }
 
   function toggleOne(c: ComponentDef) {
-    const locked = group.required && c.tier === 'mandatory'
-    if (locked) return
+    if (group.required && c.tier === 'mandatory') return
     const allIds = group.components.map(x => x.id)
     store.toggleGroupComponent(group.id, c.id, allIds)
   }
 
   const colsInner = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr'
+  const active = selectedIds.length > 0
 
   return (
     <div style={{
+      height: '100%', display: 'flex', flexDirection: 'column',
       borderRadius: 10,
-      border: selectedIds.length > 0 ? '1.5px solid rgba(255,255,255,0.1)' : '1.5px solid rgba(255,255,255,0.06)',
-      background: selectedIds.length > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.1)',
+      border: active ? '1.5px solid rgba(255,255,255,0.1)' : '1.5px solid rgba(255,255,255,0.06)',
+      background: active ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.1)',
       overflow: 'hidden', transition: 'all 0.15s',
     }}>
       {/* Header */}
@@ -204,11 +225,11 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: group.required ? 'default' : 'pointer' }}
         onClick={toggleAll}
       >
-        <SelectionDot n={selectedIds.length} total={group.components.length} color={group.tagColor} />
+        <SelectionDot n={selectedIds.length} total={group.components.length} required={group.required} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: selectedIds.length > 0 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
               {group.productName}
             </span>
             <span style={{
@@ -238,10 +259,11 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
       {open && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 14px 12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: colsInner, gap: 4 }}>
-            {group.components.map(c => {
+            {sortedComponents.map(c => {
               const on     = selectedIds.includes(c.id)
               const locked = group.required && c.tier === 'mandatory'
               const badge  = TIER_BADGE[c.tier]
+              const cbColor = checkboxColor(c.tier, locked)
               return (
                 <div
                   key={c.id}
@@ -249,7 +271,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '6px 10px', borderRadius: 7,
-                    background: on ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    background: on ? (locked ? 'rgba(74,222,128,0.06)' : 'rgba(255,255,255,0.04)') : 'transparent',
                     cursor: locked ? 'default' : 'pointer',
                     transition: 'background 0.12s',
                   }}
@@ -258,7 +280,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   <div style={{
                     width: 16, height: 16, borderRadius: 4, flexShrink: 0,
                     border: on ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
-                    background: on ? group.tagColor : 'transparent',
+                    background: on ? cbColor : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.15s',
                   }}>
@@ -279,7 +301,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', lineHeight: 1.3 }}>{c.desc}</div>
                   </div>
 
-                  {locked && <Lock size={10} style={{ color: 'rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                  {locked && <Lock size={10} style={{ color: '#4ADE80', opacity: 0.5, flexShrink: 0 }} />}
                 </div>
               )
             })}
