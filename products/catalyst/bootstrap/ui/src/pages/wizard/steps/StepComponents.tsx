@@ -18,8 +18,6 @@ interface GroupDef {
   id: string
   productName: string
   subtitle: string
-  tag: 'Required' | 'Optional'
-  tagColor: string
   required: boolean
   components: ComponentDef[]
 }
@@ -28,7 +26,7 @@ const GROUPS: GroupDef[] = [
   /* ── CORE ─────────────────────────────────────────────────────── */
   {
     id: 'pilot', productName: 'PILOT', subtitle: 'GitOps & IaC',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps delivery engine',   tier: 'mandatory' },
       { id: 'crossplane', name: 'Crossplane', desc: 'Cloud CRDs / IaC',          tier: 'mandatory' },
@@ -38,7 +36,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'spine', productName: 'SPINE', subtitle: 'Networking & Service Mesh',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'cilium',       name: 'Cilium',      desc: 'CNI & eBPF service mesh',         tier: 'mandatory' },
       { id: 'coraza',       name: 'Coraza WAF',  desc: 'L7 web application firewall',     tier: 'mandatory' },
@@ -52,7 +50,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'surge', productName: 'SURGE', subtitle: 'Scaling & Resilience',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'vpa',       name: 'VPA',       desc: 'Vertical pod autoscaling',     tier: 'mandatory' },
       { id: 'keda',      name: 'KEDA',      desc: 'Event-driven autoscaling',     tier: 'mandatory' },
@@ -62,7 +60,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'silo', productName: 'SILO', subtitle: 'Storage & Registry',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'minio',  name: 'MinIO',  desc: 'S3-compatible object storage',   tier: 'mandatory' },
       { id: 'velero', name: 'Velero', desc: 'Backup & disaster recovery',     tier: 'mandatory' },
@@ -72,7 +70,7 @@ const GROUPS: GroupDef[] = [
   /* ── SIDE (cross-cutting, always present) ─────────────────────── */
   {
     id: 'guardian', productName: 'GUARDIAN', subtitle: 'Security & Identity',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'falco',            name: 'Falco',          desc: 'Runtime threat detection',        tier: 'recommended' },
       { id: 'kyverno',          name: 'Kyverno',        desc: 'Policy as code',                  tier: 'mandatory' },
@@ -87,7 +85,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'insights', productName: 'INSIGHTS', subtitle: 'AIOps & Observability',
-    tag: 'Required', tagColor: '#F87171', required: true,
+    required: true,
     components: [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',         tier: 'recommended' },
       { id: 'opentelemetry', name: 'OpenTelemetry', desc: 'Unified telemetry pipeline',    tier: 'recommended' },
@@ -104,7 +102,7 @@ const GROUPS: GroupDef[] = [
   /* ── À LA CARTE ───────────────────────────────────────────────── */
   {
     id: 'fabric', productName: 'FABRIC', subtitle: 'Data & Integration',
-    tag: 'Optional', tagColor: '#A78BFA', required: false,
+    required: false,
     components: [
       { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator',         tier: 'recommended' },
       { id: 'valkey',     name: 'Valkey',         desc: 'Redis-compatible cache',       tier: 'recommended' },
@@ -120,7 +118,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'cortex', productName: 'CORTEX', subtitle: 'AI & Machine Learning',
-    tag: 'Optional', tagColor: '#A78BFA', required: false,
+    required: false,
     components: [
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform',       tier: 'mandatory' },
       { id: 'knative',   name: 'Knative',   desc: 'Serverless runtime',           tier: 'optional' },
@@ -135,7 +133,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'relay', productName: 'RELAY', subtitle: 'Communication',
-    tag: 'Optional', tagColor: '#A78BFA', required: false,
+    required: false,
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server',    tier: 'mandatory' },
       { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC video & audio',          tier: 'recommended' },
@@ -213,29 +211,27 @@ function checkboxColor(tier: Tier, locked: boolean): string {
   return '#818CF8'                                    // indigo = optional pick
 }
 
-function SelectionDot({ n, total, required }: { n: number; total: number; required: boolean }) {
-  const color = required ? '#4ADE80' : '#38BDF8'
-  const base: React.CSSProperties = { fontSize: 18, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }
-  if (n === 0)    return <span style={{ ...base, color: 'rgba(255,255,255,0.2)' }}>○</span>
-  if (n >= total) return <span style={{ ...base, color, filter: 'drop-shadow(0 0 4px currentColor)' }}>●</span>
-  return <span style={{ ...base, color: '#F59E0B' }}>◑</span>
-}
-
 function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; onToggle: () => void }) {
   const store = useWizardStore()
   const bp = useBreakpoint()
 
   const storedIds    = store.componentGroups[group.id] ?? []
   const mandatoryIds = group.components.filter(c => c.tier === 'mandatory').map(c => c.id)
-  // Required groups: mandatory components always counted as selected
   const selectedIds  = group.required
     ? [...new Set([...mandatoryIds, ...storedIds])]
     : storedIds
 
-  // Sort: mandatory → recommended → optional
   const sortedComponents = [...group.components].sort(
     (a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier]
   )
+
+  /* Per-tier counts for header chips */
+  const mItems = group.components.filter(c => c.tier === 'mandatory')
+  const rItems = group.components.filter(c => c.tier === 'recommended')
+  const oItems = group.components.filter(c => c.tier === 'optional')
+  const mSel   = mItems.filter(c => selectedIds.includes(c.id)).length
+  const rSel   = rItems.filter(c => selectedIds.includes(c.id)).length
+  const oSel   = oItems.filter(c => selectedIds.includes(c.id)).length
 
   function toggleAll() {
     if (group.required) return
@@ -255,7 +251,6 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
     const isOn = selectedIds.includes(c.id)
     store.toggleGroupComponent(group.id, c.id, allIds)
 
-    // Auto-select transitive dependencies when turning ON
     if (!isOn) {
       const deps = allDeps(c.id)
       const byGroup: Record<string, string[]> = {}
@@ -285,36 +280,65 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
       background: active ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.1)',
       overflow: 'hidden', transition: 'all 0.15s',
     }}>
-      {/* Header */}
+      {/* Header — fixed 3-line height so all cards align */}
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: group.required ? 'default' : 'pointer' }}
+        style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 14px', cursor: group.required ? 'default' : 'pointer' }}
         onClick={toggleAll}
       >
-        <SelectionDot n={selectedIds.length} total={group.components.length} required={group.required} />
-
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)' }}>
-              {group.productName}
-            </span>
-            <span style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-              color: group.tagColor, background: `${group.tagColor}15`,
-              border: `1px solid ${group.tagColor}30`, borderRadius: 4, padding: '2px 6px',
-            }}>
-              {group.required && <Lock size={8} style={{ display: 'inline', marginRight: 3, verticalAlign: 'middle' }} />}
-              {group.tag}
-            </span>
+          {/* Line 1 — product name */}
+          <div style={{
+            fontSize: 13, fontWeight: 700, lineHeight: 1.3,
+            color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {group.productName}
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
-            {group.subtitle} · {selectedIds.length}/{group.components.length} selected
+          {/* Line 2 — conceptual subtitle, 1 line */}
+          <div style={{
+            fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 2, lineHeight: 1.3,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {group.subtitle}
+          </div>
+          {/* Line 3 — tier chips */}
+          <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'nowrap' }}>
+            {mItems.length > 0 && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                color: 'rgba(255,255,255,0.35)',
+              }}>
+                {mSel}/{mItems.length}M
+              </span>
+            )}
+            {rItems.length > 0 && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
+                background: rSel > 0 ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.04)',
+                border: rSel > 0 ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(255,255,255,0.08)',
+                color: rSel > 0 ? '#38BDF8' : 'rgba(255,255,255,0.25)',
+              }}>
+                {rSel}/{rItems.length}R
+              </span>
+            )}
+            {oItems.length > 0 && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
+                background: oSel > 0 ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)',
+                border: oSel > 0 ? '1px solid rgba(167,139,250,0.25)' : '1px solid rgba(255,255,255,0.08)',
+                color: oSel > 0 ? '#A78BFA' : 'rgba(255,255,255,0.25)',
+              }}>
+                {oSel}/{oItems.length}O
+              </span>
+            )}
           </div>
         </div>
 
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onToggle() }}
-          style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+          style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
         >
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
@@ -328,7 +352,6 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
               const on     = selectedIds.includes(c.id)
               const locked = group.required && c.tier === 'mandatory'
               const badge  = TIER_BADGE[c.tier]
-              const cbColor = checkboxColor(c.tier, locked)
               return (
                 <div
                   key={c.id}
@@ -336,29 +359,36 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '6px 10px', borderRadius: 7,
-                    background: on ? (locked ? 'rgba(74,222,128,0.06)' : 'rgba(255,255,255,0.04)') : 'transparent',
+                    background: on ? 'rgba(255,255,255,0.04)' : 'transparent',
                     cursor: locked ? 'default' : 'pointer',
+                    opacity: locked ? 0.6 : 1,
                     transition: 'background 0.12s',
                   }}
                 >
-                  {/* Checkbox */}
+                  {/* Checkbox — locked = grey checked, user-selected = colored */}
                   <div style={{
                     width: 16, height: 16, borderRadius: 4, flexShrink: 0,
                     border: on ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
-                    background: on ? cbColor : 'transparent',
+                    background: locked
+                      ? 'rgba(255,255,255,0.2)'
+                      : on
+                        ? checkboxColor(c.tier, false)
+                        : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.15s',
                   }}>
                     {on && (
                       <svg width={9} height={9} viewBox="0 0 12 12" fill="none">
-                        <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 6l3 3 5-5" stroke={locked ? 'rgba(255,255,255,0.6)' : '#fff'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     )}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ fontSize: 12, fontWeight: on ? 600 : 400, color: on ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)' }}>{c.name}</span>
+                      <span style={{ fontSize: 12, fontWeight: on ? 600 : 400, color: locked ? 'rgba(255,255,255,0.5)' : on ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)' }}>
+                        {c.name}
+                      </span>
                       <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3, background: `${badge.color}15`, border: `1px solid ${badge.color}30`, color: badge.color }}>
                         {badge.label}
                       </span>
@@ -366,7 +396,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', lineHeight: 1.3 }}>{c.desc}</div>
                   </div>
 
-                  {locked && <Lock size={10} style={{ color: '#4ADE80', opacity: 0.5, flexShrink: 0 }} />}
+                  {locked && <Lock size={10} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />}
                 </div>
               )
             })}
