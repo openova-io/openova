@@ -1,52 +1,212 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
+import type { CloudProvider } from '@/entities/deployment/model'
+import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
-const schema = z.object({ token: z.string().min(64, 'Hetzner API tokens are at least 64 characters') })
-type FormValues = z.infer<typeof schema>
 type ValidationState = 'idle' | 'validating' | 'valid' | 'invalid'
 
-/* Cosmos-themed input */
-function CosmosInput({ label, value, onChange, type, error, suffix, required }: {
-  label: string; value: string; onChange: (v: string) => void
-  type?: string; error?: string; suffix?: React.ReactNode; required?: boolean
+const PROVIDER_NAMES: Record<CloudProvider, string> = {
+  hetzner: 'Hetzner Cloud',
+  huawei:  'Huawei Cloud',
+  oci:     'Oracle Cloud (OCI)',
+  aws:     'Amazon Web Services',
+  azure:   'Microsoft Azure',
+}
+
+const PROVIDER_TOKEN_HINT: Record<CloudProvider, string> = {
+  hetzner: 'Starts with a 64-character alphanumeric string',
+  huawei:  'Access Key ID and Secret from IAM',
+  oci:     'OCI API private key or session token',
+  aws:     'AWS access key ID and secret access key',
+  azure:   'Service principal client ID and secret',
+}
+
+/* ── Controlled token input — no react-hook-form, just clean state ─── */
+function TokenSection({
+  provider,
+  regionIndices,
+  regionLabels,
+}: {
+  provider: CloudProvider
+  regionIndices: number[]
+  regionLabels: string[]
 }) {
+  const store = useWizardStore()
+  const [token, setToken] = useState(store.providerTokens[provider] ?? '')
+  const [show, setShow] = useState(false)
+  const [error, setError] = useState('')
+  const [state, setState] = useState<ValidationState>(
+    store.providerValidated[provider] ? 'valid' : 'idle'
+  )
   const [focused, setFocused] = useState(false)
+
+  function handleChange(v: string) {
+    setToken(v)
+    setError('')
+    setState('idle')
+    store.setProviderValidated(provider, false)
+  }
+
+  async function validate() {
+    if (token.trim().length < 64) {
+      setError('Token must be at least 64 characters')
+      return
+    }
+    setState('validating')
+    store.setProviderToken(provider, token)
+    try {
+      const res = await fetch('/api/v1/credentials/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, provider }),
+      })
+      const data = await res.json()
+      if (data.valid) {
+        setState('valid')
+        store.setProviderValidated(provider, true)
+        // compat
+        if (provider === 'hetzner') {
+          store.setHetznerToken(token)
+          store.setCredentialValidated(true)
+        }
+      } else {
+        setState('invalid')
+        store.setProviderValidated(provider, false)
+      }
+    } catch {
+      setState('valid')
+      store.setProviderValidated(provider, true)
+      store.setProviderToken(provider, token)
+      if (provider === 'hetzner') {
+        store.setHetznerToken(token)
+        store.setCredentialValidated(true)
+      }
+    }
+  }
+
+  function skipDemo() {
+    const demoToken = `demo-mode-${provider}-` + 'x'.repeat(50)
+    setToken(demoToken)
+    setState('valid')
+    store.setProviderToken(provider, demoToken)
+    store.setProviderValidated(provider, true)
+    if (provider === 'hetzner') {
+      store.setHetznerToken(demoToken)
+      store.setCredentialValidated(true)
+    }
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
-        {label}
-        {required && <span style={{ color: '#F87171', marginLeft: 4 }}>*</span>}
-      </span>
-      <div style={{ position: 'relative' }}>
-        <input
-          type={type ?? 'text'}
-          value={value}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onChange={e => onChange(e.target.value)}
-          style={{
-            width: '100%', height: 40, borderRadius: 8,
-            border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
-            background: 'rgba(255,255,255,0.05)',
-            color: 'rgba(255,255,255,0.85)', fontSize: 13,
-            paddingLeft: 12, paddingRight: suffix ? 42 : 12,
-            outline: 'none', fontFamily: 'Inter, monospace',
-            transition: 'all 0.15s',
-            boxShadow: focused ? `0 0 0 3px ${error ? 'rgba(248,113,113,0.08)' : 'rgba(56,189,248,0.08)'}` : 'none',
-          }}
-        />
-        {suffix && (
-          <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
-            {suffix}
+    <div style={{
+      borderRadius: 12, overflow: 'hidden',
+      border: state === 'valid'
+        ? '1.5px solid rgba(74,222,128,0.3)'
+        : '1.5px solid rgba(255,255,255,0.08)',
+      background: state === 'valid' ? 'rgba(74,222,128,0.03)' : 'rgba(255,255,255,0.02)',
+      transition: 'all 0.2s',
+    }}>
+      {/* Provider header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{PROVIDER_NAMES[provider]}</span>
+            {state === 'valid' && <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+            Covering region{regionIndices.length > 1 ? 's' : ''} {regionIndices.map(i => i + 1).join(', ')}
+            {' · '}{regionIndices.map(i => regionLabels[i]).join(', ')}
+          </div>
+        </div>
+      </div>
+
+      {/* Token form */}
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Input + validate row */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>
+              API token · {PROVIDER_TOKEN_HINT[provider]}
+            </span>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={show ? 'text' : 'password'}
+                value={token}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                onChange={e => handleChange(e.target.value)}
+                placeholder="Paste your token here…"
+                style={{
+                  width: '100%', height: 38, borderRadius: 7,
+                  border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                  background: 'rgba(255,255,255,0.05)',
+                  color: 'rgba(255,255,255,0.85)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
+                  outline: 'none', fontFamily: 'Inter, monospace',
+                  boxShadow: focused ? `0 0 0 3px ${error ? 'rgba(248,113,113,0.07)' : 'rgba(56,189,248,0.07)'}` : 'none',
+                  transition: 'all 0.15s',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShow(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                {show ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            {error && <span style={{ fontSize: 11, color: '#F87171' }}>{error}</span>}
+          </div>
+
+          {/* Validate button */}
+          <div style={{ flexShrink: 0, paddingTop: 22 }}>
+            <button
+              type="button"
+              onClick={validate}
+              disabled={state === 'validating' || state === 'valid'}
+              style={{
+                height: 38, padding: '0 14px', borderRadius: 7,
+                border: state === 'valid' ? '1.5px solid rgba(74,222,128,0.35)' : '1.5px solid rgba(255,255,255,0.1)',
+                background: state === 'valid' ? 'rgba(74,222,128,0.07)' : 'rgba(255,255,255,0.05)',
+                color: state === 'valid' ? '#4ADE80' : 'rgba(255,255,255,0.4)',
+                fontSize: 12, fontWeight: 600, cursor: state === 'validating' || state === 'valid' ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {state === 'validating' && <Loader2 size={12} className="animate-spin" />}
+              {state === 'valid'      && <CheckCircle2 size={12} />}
+              {state === 'idle'    ? 'Validate' :
+               state === 'invalid' ? 'Retry' :
+               state === 'validating' ? 'Checking…' : 'Validated'}
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback */}
+        {state === 'valid' && (
+          <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#4ADE80', alignItems: 'center' }}>
+            <CheckCircle2 size={12} /> Token validated — access confirmed
           </div>
         )}
+        {state === 'invalid' && (
+          <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#F87171', alignItems: 'center' }}>
+            <XCircle size={12} /> Token rejected — check permissions and try again
+          </div>
+        )}
+
+        {/* Demo bypass */}
+        {state !== 'valid' && (
+          <button
+            type="button"
+            onClick={skipDemo}
+            style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 500, color: 'rgba(56,189,248,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: 3, fontFamily: 'Inter, sans-serif' }}
+          >
+            No token yet? Skip — explore in demo mode →
+          </button>
+        )}
       </div>
-      {error && <p style={{ fontSize: 11, color: '#F87171', margin: 0 }}>{error}</p>}
     </div>
   )
 }
@@ -54,190 +214,64 @@ function CosmosInput({ label, value, onChange, type, error, suffix, required }: 
 export function StepCredentials() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
-  const [showToken, setShowToken] = useState(false)
-  const [validationState, setValidationState] = useState<ValidationState>(
-    store.credentialValidated ? 'valid' : 'idle'
-  )
 
-  const { register, handleSubmit, getValues, formState: { errors } } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: { token: store.hetznerToken },
-  })
+  const topology = store.topology
+  const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : ['Region 1']
 
-  async function validate() {
-    const token = getValues('token')
-    if (token.length < 64) return
-    setValidationState('validating')
-    store.setHetznerToken(token)
-    try {
-      const res = await fetch('/api/v1/credentials/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, provider: 'hetzner' }),
-      })
-      const data = await res.json()
-      if (data.valid) {
-        setValidationState('valid')
-        store.setCredentialValidated(true)
-      } else {
-        setValidationState('invalid')
-        store.setCredentialValidated(false)
-      }
-    } catch {
-      // Network error or no API in demo — pass through
-      setValidationState('valid')
-      store.setCredentialValidated(true)
-    }
-  }
+  // Unique providers from per-region selections
+  const uniqueProviders = [...new Set(Object.values(store.regionProviders))] as CloudProvider[]
 
-  function onSubmit() {
-    if (validationState === 'valid') next()
-  }
+  // Fall back to single-provider mode if regionProviders is empty (compat)
+  const providers: CloudProvider[] = uniqueProviders.length > 0
+    ? uniqueProviders
+    : store.provider ? [store.provider] : ['hetzner']
+
+  const allValidated = providers.every(p => store.providerValidated[p])
+
+  const regionIndicesFor = (p: CloudProvider) =>
+    Object.entries(store.regionProviders)
+      .filter(([, v]) => v === p)
+      .map(([k]) => Number(k))
 
   return (
     <StepShell
-      title="Connect your cloud credentials"
-      description="Provide a read/write API token from your Hetzner Cloud project. Credentials are used only during provisioning and never persisted on our servers."
-      onNext={handleSubmit(onSubmit)}
+      title="Cloud credentials"
+      description={providers.length > 1
+        ? `You selected ${providers.length} different cloud providers. Provide one API token per provider.`
+        : 'Provide a read/write API token. Credentials are used only during provisioning and never persisted on our servers.'}
+      onNext={() => { if (allValidated) next() }}
       onBack={back}
-      nextDisabled={validationState !== 'valid'}
+      nextDisabled={!allValidated}
     >
-      {/* Token field + validate button */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <div style={{ flex: 1 }}>
-            <CosmosInput
-              required
-              label="Hetzner Cloud API token"
-              type={showToken ? 'text' : 'password'}
-              value={getValues('token')}
-              onChange={() => {
-                setValidationState('idle')
-                store.setCredentialValidated(false)
-              }}
-              error={errors.token?.message}
-              suffix={
-                <button
-                  type="button"
-                  onClick={() => setShowToken(v => !v)}
-                  style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, display: 'flex' }}
-                >
-                  {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              }
-            />
-          </div>
+      {/* One credential section per unique provider */}
+      {providers.map(p => (
+        <TokenSection
+          key={p}
+          provider={p}
+          regionIndices={regionIndicesFor(p).length > 0 ? regionIndicesFor(p) : [0]}
+          regionLabels={regionLabels}
+        />
+      ))}
 
-          {/* Hidden real input for react-hook-form */}
-          <input type="hidden" {...register('token', {
-            onChange: () => { setValidationState('idle'); store.setCredentialValidated(false) },
-          })} />
-
-          {/* Validate button */}
-          <button
-            type="button"
-            onClick={validate}
-            disabled={validationState === 'validating' || validationState === 'valid'}
-            style={{
-              height: 40, padding: '0 14px', flexShrink: 0,
-              borderRadius: 8,
-              border: validationState === 'valid'
-                ? '1.5px solid rgba(74,222,128,0.4)'
-                : '1.5px solid rgba(255,255,255,0.12)',
-              background: validationState === 'valid'
-                ? 'rgba(74,222,128,0.08)'
-                : 'rgba(255,255,255,0.05)',
-              color: validationState === 'valid'
-                ? '#4ADE80'
-                : 'rgba(255,255,255,0.45)',
-              fontSize: 12, fontWeight: 600,
-              cursor: validationState === 'validating' || validationState === 'valid' ? 'default' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 5,
-              transition: 'all 0.15s',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            {validationState === 'validating' && <Loader2 size={13} className="animate-spin" />}
-            {validationState === 'valid'      && <CheckCircle2 size={13} />}
-            {validationState === 'idle'       && 'Validate'}
-            {validationState === 'invalid'    && 'Retry'}
-            {validationState === 'validating' && 'Checking'}
-            {validationState === 'valid'      && 'Validated'}
-          </button>
+      {/* How-to for Hetzner (most common) */}
+      {providers.includes('hetzner') && (
+        <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', padding: '12px 14px' }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.28)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            How to create a Hetzner API token
+          </p>
+          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {['Open Hetzner Cloud Console', 'Select your project', 'Go to Security → API Tokens', 'Click Generate API Token', 'Choose Read & Write permissions', 'Copy the token — shown only once'].map((s, i) => (
+              <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.28)', alignItems: 'flex-start' }}>
+                <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                {s}
+              </li>
+            ))}
+          </ol>
+          <a href="https://console.hetzner.cloud" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'rgba(56,189,248,0.5)', textDecoration: 'none' }}>
+            Open Hetzner Cloud Console <ExternalLink size={10} />
+          </a>
         </div>
-
-        {/* Feedback row */}
-        {validationState === 'valid' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4ADE80' }}>
-            <CheckCircle2 size={13} />
-            Token validated — read/write access confirmed
-          </div>
-        )}
-        {validationState === 'invalid' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#F87171' }}>
-            <XCircle size={13} />
-            Token rejected — ensure it has Read &amp; Write permissions
-          </div>
-        )}
-
-        {/* Demo bypass */}
-        {validationState !== 'valid' && (
-          <button
-            type="button"
-            onClick={() => {
-              store.setHetznerToken('demo-mode-' + 'x'.repeat(55))
-              store.setCredentialValidated(true)
-              setValidationState('valid')
-            }}
-            style={{
-              alignSelf: 'flex-start', fontSize: 11, fontWeight: 500,
-              color: 'rgba(56,189,248,0.55)', background: 'none', border: 'none',
-              cursor: 'pointer', padding: 0,
-              textDecoration: 'underline', textUnderlineOffset: 3,
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            No token yet? Skip — explore in demo mode →
-          </button>
-        )}
-      </div>
-
-      {/* How-to card */}
-      <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', padding: '12px 14px' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          How to create an API token
-        </p>
-        <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {[
-            'Open the Hetzner Cloud Console',
-            'Select your project (or create one)',
-            'Go to Security → API Tokens',
-            'Click Generate API Token',
-            'Choose Read & Write permissions',
-            'Copy the token — it is shown once',
-          ].map((step, i) => (
-            <li key={i} style={{ display: 'flex', gap: 10, fontSize: 11, color: 'rgba(255,255,255,0.3)', alignItems: 'flex-start' }}>
-              <span style={{
-                flexShrink: 0, width: 16, height: 16, borderRadius: '50%',
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)',
-              }}>
-                {i + 1}
-              </span>
-              {step}
-            </li>
-          ))}
-        </ol>
-        <a
-          href="https://console.hetzner.cloud"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 10, fontSize: 11, color: 'rgba(56,189,248,0.55)', textDecoration: 'none' }}
-        >
-          Open Hetzner Cloud Console <ExternalLink size={10} />
-        </a>
-      </div>
+      )}
     </StepShell>
   )
 }

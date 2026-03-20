@@ -11,13 +11,12 @@ import {
 } from './model'
 
 interface WizardActions {
-  // Navigation
   setStep: (step: number) => void
   markStepComplete: (step: number) => void
   setDeploymentId: (id: string | null) => void
   reset: () => void
 
-  // Step 1 — Org profile
+  // Step 1 — Org
   setOrgName: (name: string) => void
   setOrgDomain: (domain: string) => void
   setOrgEmail: (email: string) => void
@@ -26,13 +25,19 @@ interface WizardActions {
   setOrgHeadquarters: (hq: string) => void
   setOrgCompliance: (tags: string[]) => void
 
-  // Step 2 — Topology
+  // Step 2 — Topology (resets per-region providers when topology changes)
   setTopology: (topology: TopologyTemplate) => void
 
-  // Step 3 — Provider
-  setProvider: (provider: CloudProvider) => void
+  // Step 3 — Per-region provider
+  setRegionProvider: (regionIndex: number, provider: CloudProvider) => void
+  applyProviderToAll: (provider: CloudProvider, regionCount: number) => void
 
-  // Step 4 — Credentials
+  // Step 4 — Per-provider credentials
+  setProviderToken: (provider: CloudProvider, token: string) => void
+  setProviderValidated: (provider: CloudProvider, validated: boolean) => void
+
+  // Compat setters
+  setProvider: (provider: CloudProvider) => void
   setHetznerToken: (token: string) => void
   setCredentialValidated: (validated: boolean) => void
 
@@ -40,7 +45,7 @@ interface WizardActions {
   setGroupComponents: (groupId: string, componentIds: string[]) => void
   toggleGroupComponent: (groupId: string, componentId: string, allIds: string[]) => void
 
-  // Legacy (kept for compat)
+  // Legacy
   addRegion: (region: Region) => void
   removeRegion: (id: string) => void
   setControlPlaneSize: (size: NodeSize) => void
@@ -81,11 +86,37 @@ export const useWizardStore = create<WizardStore>()(
         setOrgHeadquarters: (orgHeadquarters) => set({ orgHeadquarters }, false, 'wizard/setOrgHeadquarters'),
         setOrgCompliance: (orgCompliance) => set({ orgCompliance }, false, 'wizard/setOrgCompliance'),
 
-        setTopology: (topology) => set({ topology }, false, 'wizard/setTopology'),
+        // Reset regionProviders when topology changes — stale per-region data would be confusing
+        setTopology: (topology) =>
+          set({ topology, regionProviders: {}, providerValidated: {}, providerTokens: {} }, false, 'wizard/setTopology'),
+
+        setRegionProvider: (regionIndex, provider) =>
+          set(
+            (s) => ({ regionProviders: { ...s.regionProviders, [regionIndex]: provider } }),
+            false,
+            'wizard/setRegionProvider'
+          ),
+        applyProviderToAll: (provider, regionCount) => {
+          const regionProviders: Record<number, CloudProvider> = {}
+          for (let i = 0; i < regionCount; i++) regionProviders[i] = provider
+          set({ regionProviders }, false, 'wizard/applyProviderToAll')
+        },
+
+        setProviderToken: (provider, token) =>
+          set(
+            (s) => ({ providerTokens: { ...s.providerTokens, [provider]: token } }),
+            false,
+            'wizard/setProviderToken'
+          ),
+        setProviderValidated: (provider, validated) =>
+          set(
+            (s) => ({ providerValidated: { ...s.providerValidated, [provider]: validated } }),
+            false,
+            'wizard/setProviderValidated'
+          ),
 
         setProvider: (provider) =>
           set({ provider, credentialValidated: false, hetznerToken: '' }, false, 'wizard/setProvider'),
-
         setHetznerToken: (hetznerToken) => set({ hetznerToken }, false, 'wizard/setHetznerToken'),
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
@@ -103,9 +134,7 @@ export const useWizardStore = create<WizardStore>()(
               const next = current.includes(componentId)
                 ? current.filter((id) => id !== componentId)
                 : [...current, componentId]
-              // preserve allIds order
-              const ordered = allIds.filter((id) => next.includes(id))
-              return { componentGroups: { ...s.componentGroups, [groupId]: ordered } }
+              return { componentGroups: { ...s.componentGroups, [groupId]: allIds.filter((id) => next.includes(id)) } }
             },
             false,
             'wizard/toggleGroupComponent'
@@ -115,8 +144,7 @@ export const useWizardStore = create<WizardStore>()(
           set((s) => ({ regions: [...s.regions, region] }), false, 'wizard/addRegion'),
         removeRegion: (id) =>
           set((s) => ({ regions: s.regions.filter((r) => r.id !== id) }), false, 'wizard/removeRegion'),
-        setControlPlaneSize: (controlPlaneSize) =>
-          set({ controlPlaneSize }, false, 'wizard/setControlPlaneSize'),
+        setControlPlaneSize: (controlPlaneSize) => set({ controlPlaneSize }, false, 'wizard/setControlPlaneSize'),
         setWorkerSize: (workerSize) => set({ workerSize }, false, 'wizard/setWorkerSize'),
         setWorkerCount: (workerCount) => set({ workerCount }, false, 'wizard/setWorkerCount'),
         setHaEnabled: (haEnabled) => set({ haEnabled }, false, 'wizard/setHaEnabled'),
@@ -130,10 +158,13 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/toggleComponent'
           ),
-        setComponents: (selectedComponents) =>
-          set({ selectedComponents }, false, 'wizard/setComponents'),
+        setComponents: (selectedComponents) => set({ selectedComponents }, false, 'wizard/setComponents'),
       }),
-      { name: 'openova-catalyst-wizard' }
+      {
+        name: 'openova-catalyst-wizard',
+        // Merge saved state with initial — handles new fields added after first install
+        merge: (persisted, current) => ({ ...current, ...(persisted as Partial<WizardState>) }),
+      }
     ),
     { name: 'CatalystWizard' }
   )

@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
+import type { CloudProvider } from '@/entities/deployment/model'
+import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
 const TOPOLOGY_NAMES = {
-  titan:    'TITAN — 3 regions, 6 clusters',
+  delta:    'DELTA — 3 regions, 6 clusters',
   triangle: 'TRIANGLE — 3 regions, 5 clusters',
   dual:     'DUAL — 2 regions, 4 clusters',
   compact:  'COMPACT — 1 region, 2 clusters',
   solo:     'SOLO — 1 region, 1 cluster',
 }
 
-const PROVIDER_NAMES = {
+const PROVIDER_NAMES: Record<CloudProvider, string> = {
   hetzner: 'Hetzner Cloud',
   huawei:  'Huawei Cloud',
   oci:     'Oracle Cloud (OCI)',
@@ -19,24 +21,35 @@ const PROVIDER_NAMES = {
   azure:   'Microsoft Azure',
 }
 
+const GROUP_NAMES: Record<string, string> = {
+  security:     'Security & Compliance',
+  identity:     'Identity & Secrets',
+  networking:   'Networking & Ingress',
+  gitops:       'GitOps & Platform Ops',
+  observability:'Observability',
+  data:         'Data & Storage',
+  resilience:   'Resilience & Scaling',
+  ai:           'AI & Machine Learning',
+  events:       'Event & Integration',
+  comms:        'Communication',
+}
+
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-      <span style={{ width: 148, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4, wordBreak: 'break-all' }}>{value}</span>
+    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <span style={{ width: 140, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.28)', lineHeight: 1.45 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45, wordBreak: 'break-all' }}>{value}</span>
     </div>
   )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
-      <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>{title}</span>
+    <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
+      <div style={{ padding: '7px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)' }}>{title}</span>
       </div>
-      <div style={{ padding: '0 14px' }}>
-        {children}
-      </div>
+      <div style={{ padding: '0 14px' }}>{children}</div>
     </div>
   )
 }
@@ -48,6 +61,9 @@ export function StepReview() {
   const [loading, setLoading] = useState(false)
 
   const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
+  const topology = store.topology
+  const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : []
+  const regionProviders = store.regionProviders
 
   async function provision() {
     setLoading(true)
@@ -56,13 +72,14 @@ export function StepReview() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgName:    store.orgName,
-          orgDomain:  store.orgDomain,
-          orgEmail:   store.orgEmail,
-          topology:   store.topology,
-          provider:   store.provider,
-          token:      store.hetznerToken,
-          components: store.componentGroups,
+          orgName:         store.orgName,
+          orgDomain:       store.orgDomain,
+          orgEmail:        store.orgEmail,
+          orgIndustry:     store.orgIndustry,
+          orgCompliance:   store.orgCompliance,
+          topology:        store.topology,
+          regionProviders: store.regionProviders,
+          components:      store.componentGroups,
         }),
       })
       const data = await res.json()
@@ -76,7 +93,7 @@ export function StepReview() {
   return (
     <StepShell
       title="Review & provision"
-      description="Confirm your configuration. OpenOva will provision your infrastructure exactly as shown below."
+      description="Confirm your configuration below. OpenOva will provision exactly what you see here."
       onNext={provision}
       onBack={back}
       nextLabel="🚀 Provision cluster"
@@ -96,35 +113,66 @@ export function StepReview() {
                   <span key={t} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38BDF8' }}>{t}</span>
                 ))}
               </div>
-            : 'None selected'
+            : <span style={{ color: 'rgba(255,255,255,0.2)' }}>None selected</span>
         } />
       </Section>
 
       <Section title="Infrastructure">
-        <Row label="Topology" value={store.topology ? TOPOLOGY_NAMES[store.topology] : '—'} />
-        <Row label="Cloud provider" value={store.provider ? PROVIDER_NAMES[store.provider] : '—'} />
+        <Row label="Topology" value={topology ? TOPOLOGY_NAMES[topology] : '—'} />
+        {regionLabels.length > 0 && (
+          <Row label="Regions" value={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {regionLabels.map((rl, i) => {
+                const p = regionProviders[i] as CloudProvider | undefined
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14 }}>{i + 1}</span>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{rl}</span>
+                    {p && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>· {PROVIDER_NAMES[p]}</span>}
+                  </div>
+                )
+              })}
+            </div>
+          } />
+        )}
         <Row label="Credentials" value={
-          store.credentialValidated
-            ? <span style={{ color: '#4ADE80' }}>✓ Validated</span>
-            : store.hetznerToken.startsWith('demo-mode')
-              ? <span style={{ color: '#38BDF8' }}>Demo mode</span>
-              : <span style={{ color: '#F87171' }}>Not validated</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {[...new Set(Object.values(regionProviders))]
+              .filter(Boolean)
+              .map((p) => {
+                const validated = store.providerValidated[p as CloudProvider]
+                const isDemo = (store.providerTokens[p as CloudProvider] ?? '').startsWith('demo-mode')
+                return (
+                  <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>{PROVIDER_NAMES[p as CloudProvider]}</span>
+                    {isDemo
+                      ? <span style={{ color: '#38BDF8' }}>Demo mode</span>
+                      : validated
+                        ? <span style={{ color: '#4ADE80' }}>✓ Validated</span>
+                        : <span style={{ color: '#F87171' }}>Not validated</span>
+                    }
+                  </div>
+                )
+              })}
+            {Object.values(regionProviders).length === 0 && store.credentialValidated && (
+              <span style={{ color: '#4ADE80', fontSize: 11 }}>✓ Validated</span>
+            )}
+          </div>
         } />
       </Section>
 
       <Section title="Components">
-        <Row label="Total selected" value={`${totalComponents} components across ${Object.values(store.componentGroups).filter(g => g.length > 0).length} groups`} />
+        <Row label="Total" value={`${totalComponents} components across ${Object.values(store.componentGroups).filter(g => g.length > 0).length} groups`} />
         {Object.entries(store.componentGroups)
           .filter(([, ids]) => ids.length > 0)
-          .map(([groupId, ids]) => (
-            <Row key={groupId} label={groupId} value={`${ids.length} selected`} />
+          .map(([gid, ids]) => (
+            <Row key={gid} label={GROUP_NAMES[gid] ?? gid} value={`${ids.length} selected`} />
           ))
         }
       </Section>
 
-      {/* Disclaimer */}
-      <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.12)' }}>
-        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', margin: 0, lineHeight: 1.6 }}>
+      <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.1)' }}>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', margin: 0, lineHeight: 1.6 }}>
           Provisioning runs entirely within your cloud account. OpenOva never stores your credentials or accesses your infrastructure after this session.
         </p>
       </div>

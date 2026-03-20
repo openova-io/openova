@@ -14,9 +14,10 @@ const SIZES = ['Under 100', '100–500', '500–2,000', '2,000–10,000', '10,00
 const COMPLIANCE_OPTIONS = ['PCI DSS', 'ISO 27001', 'SOC 2', 'GDPR', 'HIPAA', 'DORA', 'NIS2', 'FedRAMP']
 
 /*
- * SmartField: the store always holds a real value (default or user-set).
- * We show a "default" badge when the value matches the original default.
- * Clicking Next without changing anything is completely valid.
+ * SmartField: store always holds a real value (default or user-set).
+ * "default" badge shown when value matches the original default.
+ * On focus → selects all text so user can immediately type a replacement.
+ * On blur → if field was cleared, restores the default.
  */
 function SmartField({
   label, defaultValue, value, onChange, type = 'text', required = false,
@@ -37,7 +38,7 @@ function SmartField({
         {isDefault && !focused && (
           <span style={{
             fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-            color: 'rgba(56,189,248,0.55)', background: 'rgba(56,189,248,0.08)',
+            color: 'rgba(56,189,248,0.5)', background: 'rgba(56,189,248,0.08)',
             border: '1px solid rgba(56,189,248,0.15)', borderRadius: 4, padding: '1px 6px',
           }}>default</span>
         )}
@@ -45,10 +46,13 @@ function SmartField({
       <input
         type={type}
         value={value}
-        onFocus={() => setFocused(true)}
+        onFocus={e => {
+          setFocused(true)
+          // Select all so user can immediately type a replacement
+          e.target.select()
+        }}
         onBlur={e => {
           setFocused(false)
-          // If cleared, restore the default so the user can always proceed
           if (!e.target.value.trim()) onChange(defaultValue)
         }}
         onChange={e => onChange(e.target.value)}
@@ -56,11 +60,10 @@ function SmartField({
           height: 40, borderRadius: 8,
           border: `1.5px solid ${focused ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`,
           background: 'rgba(255,255,255,0.05)',
-          color: isDefault && !focused ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.88)',
+          color: isDefault && !focused ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.88)',
           fontSize: 13, padding: '0 12px', outline: 'none',
-          transition: 'all 0.15s',
           boxShadow: focused ? '0 0 0 3px rgba(56,189,248,0.08)' : 'none',
-          fontFamily: 'Inter, sans-serif',
+          transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
         }}
       />
     </div>
@@ -82,15 +85,15 @@ function SelectField({ label, value, options, onChange }: {
           height: 40, borderRadius: 8,
           border: '1.5px solid rgba(255,255,255,0.1)',
           background: 'rgba(255,255,255,0.05)',
-          color: 'rgba(255,255,255,0.7)', fontSize: 13, padding: '0 12px', outline: 'none',
+          color: 'rgba(255,255,255,0.7)', fontSize: 13,
+          paddingLeft: 12, paddingRight: 32, outline: 'none',
           fontFamily: 'Inter, sans-serif', cursor: 'pointer',
-          appearance: 'none',
+          appearance: 'none' as const,
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.3)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
-          paddingRight: 32,
         }}
       >
-        {options.map(o => <option key={o} value={o} style={{ background: '#111' }}>{o}</option>)}
+        {options.map(o => <option key={o} value={o} style={{ background: '#0f1117' }}>{o}</option>)}
       </select>
     </div>
   )
@@ -111,31 +114,26 @@ export function StepOrg() {
   return (
     <StepShell
       title="Tell us about your organisation"
-      description="We use this to recommend the right topology and component defaults. All fields have sensible defaults — you can proceed without changing anything."
+      description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
       onNext={next}
     >
-      {/* Name + domain */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name} value={store.orgName} onChange={store.setOrgName} />
         <SmartField label="Domain" defaultValue={ORG_DEFAULTS.domain} value={store.orgDomain} onChange={store.setOrgDomain} />
       </div>
 
-      {/* Email */}
       <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email} value={store.orgEmail} onChange={store.setOrgEmail} type="email" />
 
-      {/* Industry + size */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <SelectField label="Industry" value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
         <SelectField label="Organisation size" value={store.orgSize} options={SIZES} onChange={store.setOrgSize} />
       </div>
 
-      {/* HQ */}
       <SmartField label="Headquarters" defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
 
-      {/* Compliance tags */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
-          Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional — shapes component defaults</span>
+          Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional · shapes component defaults</span>
         </span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {COMPLIANCE_OPTIONS.map(tag => {
@@ -151,8 +149,7 @@ export function StepOrg() {
                   background: active ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.03)',
                   color: active ? '#38BDF8' : 'rgba(255,255,255,0.3)',
                   fontSize: 11, fontWeight: active ? 600 : 400,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                  fontFamily: 'Inter, sans-serif',
+                  cursor: 'pointer', transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
                 }}
               >
                 {tag}
@@ -163,7 +160,8 @@ export function StepOrg() {
       </div>
 
       <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.18)', margin: 0, lineHeight: 1.6 }}>
-        Fields marked <span style={{ color: 'rgba(56,189,248,0.5)' }}>default</span> are pre-filled with realistic values and will be used as-is if you don't change them.
+        Fields marked <span style={{ color: 'rgba(56,189,248,0.45)' }}>default</span> are pre-filled with realistic values.
+        Click to focus — all text is selected so you can type a replacement immediately.
       </p>
     </StepShell>
   )

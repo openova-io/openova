@@ -1,7 +1,7 @@
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
 export type NodeSize = 'cx22' | 'cx32' | 'cx42' | 'cx52'
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
-export type TopologyTemplate = 'titan' | 'triangle' | 'dual' | 'compact' | 'solo'
+export type TopologyTemplate = 'delta' | 'triangle' | 'dual' | 'compact' | 'solo'
 
 export interface Region {
   id: string
@@ -40,17 +40,22 @@ export interface WizardState {
   // Step 2 — Topology
   topology: TopologyTemplate | null
 
-  // Step 3 — Cloud Provider
-  provider: CloudProvider | null
+  // Step 3 — Provider per region (regionIndex → provider)
+  regionProviders: Record<number, CloudProvider>
 
-  // Step 4 — Credentials
+  // Step 4 — Credentials per provider
+  providerTokens: Partial<Record<CloudProvider, string>>
+  providerValidated: Partial<Record<CloudProvider, boolean>>
+
+  // Compat
+  provider: CloudProvider | null
   hetznerToken: string
   credentialValidated: boolean
 
   // Step 5 — Components (groupId → selected component ids)
   componentGroups: Record<string, string[]>
 
-  // Legacy (kept for API compat)
+  // Legacy infra fields (kept for API compat)
   regions: Region[]
   controlPlaneSize: NodeSize
   workerSize: NodeSize
@@ -64,7 +69,6 @@ export interface WizardState {
   deploymentId: string | null
 }
 
-// These ARE real values used as defaults — not just placeholder text
 export const ORG_DEFAULTS = {
   name: 'Acme Financial',
   domain: 'acme.io',
@@ -75,7 +79,22 @@ export const ORG_DEFAULTS = {
   compliance: ['PCI DSS', 'ISO 27001'],
 }
 
-// Default component group selections (pre-selected = recommended baseline)
+export const TOPOLOGY_REGION_COUNT: Record<TopologyTemplate, number> = {
+  delta:    3,
+  triangle: 3,
+  dual:     2,
+  compact:  1,
+  solo:     1,
+}
+
+export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
+  delta:    ['CP Region — MGMT (Bunker)', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ + DR-MGMT'],
+  triangle: ['CP Region — MGMT',          'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
+  dual:     ['Region 1 — Primary (MGMT + Workload)', 'Region 2 — DR (MGMT + Workload)'],
+  compact:  ['Region 1 — MGMT + Workload'],
+  solo:     ['Region 1 — Single cluster'],
+}
+
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
   security:     ['falco', 'kyverno', 'trivy', 'syft-grype', 'coraza', 'sigstore'],
   identity:     ['keycloak', 'openbao', 'external-secrets'],
@@ -98,6 +117,9 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   orgHeadquarters: ORG_DEFAULTS.headquarters,
   orgCompliance: [...ORG_DEFAULTS.compliance],
   topology: null,
+  regionProviders: {},
+  providerTokens: {},
+  providerValidated: {},
   provider: null,
   hetznerToken: '',
   credentialValidated: false,
