@@ -15,7 +15,7 @@ export const WIZARD_STEPS = [
 ]
 
 export function WizardLayout() {
-  const { currentStep, completedSteps, setStep } = useWizardStore()
+  const { currentStep, setStep } = useWizardStore()
   const { theme, toggle } = useTheme()
 
   return (
