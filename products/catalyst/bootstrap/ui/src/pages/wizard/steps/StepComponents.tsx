@@ -4,6 +4,7 @@ import { useWizardStore } from '@/entities/deployment/store'
 import { DEFAULT_COMPONENT_GROUPS, getProfileDefaults } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
+import { COMPONENT_LOGOS } from './componentLogos'
 
 type Tier = 'mandatory' | 'recommended' | 'optional'
 
@@ -393,6 +394,11 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                         <path d="M2 6l3 3 5-5" stroke={locked ? 'rgba(255,255,255,0.6)' : '#fff'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     )}
+                  </div>
+
+                  {/* Component logo */}
+                  <div style={{ flexShrink: 0, opacity: locked ? 0.5 : on ? 1 : 0.45, transition: 'opacity 0.15s' }}>
+                    {COMPONENT_LOGOS[c.id]}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
