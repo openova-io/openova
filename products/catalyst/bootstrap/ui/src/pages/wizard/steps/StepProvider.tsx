@@ -134,8 +134,8 @@ export function StepProvider() {
   const { next, back } = useStepNav()
 
   const topology = store.topology
-  const regionCount  = topology ? TOPOLOGY_REGION_COUNT[topology]  : 1
-  const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : ['Region 1']
+  const regionCount  = topology ? (TOPOLOGY_REGION_COUNT[topology]  ?? 1) : 1
+  const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? ['Region 1']) : ['Region 1']
 
   const [openRegion, setOpenRegion] = useState<number | null>(0)
 

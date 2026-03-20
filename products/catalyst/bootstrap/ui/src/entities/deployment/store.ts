@@ -170,7 +170,18 @@ export const useWizardStore = create<WizardStore>()(
       {
         name: 'openova-catalyst-wizard',
         // Merge saved state with initial — handles new fields added after first install
-        merge: (persisted, current) => ({ ...current, ...(persisted as Partial<WizardState>) }),
+        merge: (persisted, current) => {
+          const p = { ...(persisted as Partial<WizardState>) }
+          const validTopologies: TopologyTemplate[] = ['triangle', 'dual', 'zoned', 'compact', 'solo']
+          if (p.topology && !validTopologies.includes(p.topology)) {
+            p.topology = null
+            p.regionProviders = {}
+            p.regionCloudRegions = {}
+            p.providerValidated = {}
+            p.providerTokens = {}
+          }
+          return { ...current, ...p }
+        },
       }
     ),
     { name: 'CatalystWizard' }

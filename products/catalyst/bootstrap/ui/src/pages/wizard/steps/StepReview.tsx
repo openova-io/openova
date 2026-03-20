@@ -65,7 +65,7 @@ export function StepReview() {
 
   const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
   const topology = store.topology
-  const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : []
+  const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? []) : []
   const regionProviders = store.regionProviders
 
   async function provision() {
