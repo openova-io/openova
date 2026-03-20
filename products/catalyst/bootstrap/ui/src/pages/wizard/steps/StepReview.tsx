@@ -3,15 +3,15 @@ import { Zap } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
-import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
+import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 const TOPOLOGY_NAMES = {
-  delta:    'DELTA — 3 regions, 6 clusters',
   triangle: 'TRIANGLE — 3 regions, 5 clusters',
-  dual:     'DUAL — 2 regions, 4 clusters',
-  compact:  'COMPACT — 1 region, 2 clusters',
+  dual:     'DUAL — 2 regions, 6 clusters',
+  zoned:    'ZONED — 2 regions, 4 clusters',
+  compact:  'COMPACT — 2 regions, 2 clusters',
   solo:     'SOLO — 1 region, 1 cluster',
 }
 
@@ -132,11 +132,15 @@ export function StepReview() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {regionLabels.map((rl, i) => {
                     const p = regionProviders[i] as CloudProvider | undefined
+                    const cloudRegionId = store.regionCloudRegions[i]
+                    const cloudRegionDef = p && cloudRegionId ? PROVIDER_REGIONS[p].find(r => r.id === cloudRegionId) : undefined
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14 }}>{i + 1}</span>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{rl}</span>
-                        {p && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>· {PROVIDER_NAMES[p]}</span>}
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14, marginTop: 1 }}>{i + 1}</span>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{rl}</div>
+                          {p && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>{PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}</div>}
+                        </div>
                       </div>
                     )
                   })}
