@@ -145,6 +145,7 @@ function SelectionDot({ state, color }: { state: SelectionState; color: string }
 
 function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; onToggle: () => void }) {
   const store = useWizardStore()
+  const bp = useBreakpoint()
   const selectedIds = store.componentGroups[group.id] ?? []
   const allIds = group.components.map(c => c.id)
   const state = getState(group.id, selectedIds, group.components.length)
@@ -207,7 +208,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
       {/* Expanded component list */}
       {open && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 14px 12px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr', gap: 4 }}>
             {group.components.map(c => {
               const on = selectedIds.includes(c.id)
               const locked = group.required
