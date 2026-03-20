@@ -24,20 +24,20 @@ export function StepShell({
 }: StepShellProps) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.04)',
+      background: 'rgba(var(--wiz-ch),0.04)',
       backdropFilter: 'blur(28px)',
       WebkitBackdropFilter: 'blur(28px)',
-      border: '1px solid rgba(255,255,255,0.08)',
+      border: '1px solid rgba(var(--wiz-ch),0.08)',
       borderRadius: 20,
       padding: '2rem',
-      boxShadow: '0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
+      boxShadow: '0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(var(--wiz-ch),0.06)',
     }}>
       {/* Heading */}
       <h2 style={{
         fontSize: 'clamp(1.25rem, 3vw, 1.625rem)',
         fontWeight: 700,
         letterSpacing: '-0.03em',
-        color: '#fff',
+        color: 'var(--color-text-primary)',
         margin: '0 0 6px',
         lineHeight: 1.2,
       }}>
@@ -46,7 +46,7 @@ export function StepShell({
       <p style={{
         fontSize: 13,
         lineHeight: 1.65,
-        color: 'rgba(255,255,255,0.35)',
+        color: 'rgba(var(--wiz-ch),0.35)',
         margin: '0 0 24px',
         maxWidth: 640,
       }}>
@@ -69,20 +69,20 @@ export function StepShell({
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               height: 38, paddingLeft: 12, paddingRight: 14,
-              borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8, border: '1px solid rgba(var(--wiz-ch),0.1)',
               background: 'transparent',
-              color: 'rgba(255,255,255,0.3)',
+              color: 'rgba(var(--wiz-ch),0.3)',
               fontSize: 13, fontWeight: 500, cursor: 'pointer',
               fontFamily: 'Inter, sans-serif',
               transition: 'all 0.15s',
             }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.6)'
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(var(--wiz-ch),0.06)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(var(--wiz-ch),0.6)'
             }}
             onMouseLeave={e => {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.3)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(var(--wiz-ch),0.3)'
             }}
           >
             <ChevronLeft size={14} />
@@ -98,9 +98,9 @@ export function StepShell({
             height: 40, paddingLeft: 22, paddingRight: 18,
             borderRadius: 8, border: 'none',
             background: nextDisabled || nextLoading
-              ? 'rgba(255,255,255,0.06)'
+              ? 'rgba(var(--wiz-ch),0.06)'
               : 'linear-gradient(135deg, #38BDF8 0%, #0EA5E9 100%)',
-            color: nextDisabled || nextLoading ? 'rgba(255,255,255,0.2)' : '#fff',
+            color: nextDisabled || nextLoading ? 'rgba(var(--wiz-ch),0.2)' : '#fff',
             fontSize: 14, fontWeight: 600,
             cursor: nextDisabled || nextLoading ? 'not-allowed' : 'pointer',
             fontFamily: 'Inter, sans-serif',

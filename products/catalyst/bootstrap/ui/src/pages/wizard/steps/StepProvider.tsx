@@ -62,27 +62,27 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-          border: selected ? '1.5px solid rgba(56,189,248,0.35)' : '1.5px solid rgba(255,255,255,0.1)',
-          background: selected ? 'rgba(56,189,248,0.06)' : 'rgba(255,255,255,0.03)',
+          border: selected ? '1.5px solid rgba(56,189,248,0.35)' : '1.5px solid rgba(var(--wiz-ch),0.1)',
+          background: selected ? 'rgba(56,189,248,0.06)' : 'rgba(var(--wiz-ch),0.03)',
           transition: 'all 0.12s',
         }}
       >
         {selected?.logo}
-        <span style={{ flex: 1, fontSize: 12, fontWeight: selected ? 500 : 400, color: selected ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)' }}>
+        <span style={{ flex: 1, fontSize: 12, fontWeight: selected ? 500 : 400, color: selected ? 'rgba(var(--wiz-ch),0.85)' : 'rgba(var(--wiz-ch),0.3)' }}>
           {selected ? selected.label : placeholder}
         </span>
         {selected?.sublabel && (
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{selected.sublabel}</span>
+          <span style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.35)' }}>{selected.sublabel}</span>
         )}
-        <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+        <ChevronDown size={13} style={{ color: 'rgba(var(--wiz-ch),0.3)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
       </div>
 
       {/* Panel */}
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
-          borderRadius: 9, border: '1px solid rgba(255,255,255,0.1)',
-          background: '#131320', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          borderRadius: 9, border: '1px solid rgba(var(--wiz-ch),0.1)',
+          background: 'var(--wiz-panel-bg)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           overflow: 'hidden',
         }}>
           {options.map(o => {
@@ -95,14 +95,14 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '9px 12px', cursor: 'pointer',
                   background: active ? 'rgba(56,189,248,0.08)' : 'transparent',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  borderBottom: '1px solid rgba(var(--wiz-ch),0.04)',
                   transition: 'background 0.1s',
                 }}
               >
                 {o.logo}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#fff' : 'rgba(255,255,255,0.65)' }}>{o.label}</div>
-                  {o.sublabel && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>{o.sublabel}</div>}
+                  <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#fff' : 'rgba(var(--wiz-ch),0.65)' }}>{o.label}</div>
+                  {o.sublabel && <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 1 }}>{o.sublabel}</div>}
                 </div>
                 {active && <Check size={13} strokeWidth={2.5} style={{ color: '#38BDF8', flexShrink: 0 }} />}
               </div>
@@ -139,22 +139,22 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
   return (
     <div style={{
       borderRadius: 10,
-      border: isConfigured ? '1.5px solid rgba(56,189,248,0.22)' : '1.5px solid rgba(255,255,255,0.08)',
-      background: 'rgba(255,255,255,0.02)',
+      border: isConfigured ? '1.5px solid rgba(56,189,248,0.22)' : '1.5px solid rgba(var(--wiz-ch),0.08)',
+      background: 'rgba(var(--wiz-ch),0.02)',
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid rgba(var(--wiz-ch),0.06)' }}>
         <div style={{
           width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-          background: isConfigured ? 'linear-gradient(135deg,#38BDF8,#818CF8)' : 'rgba(255,255,255,0.06)',
-          border: isConfigured ? 'none' : '1px solid rgba(255,255,255,0.12)',
+          background: isConfigured ? 'linear-gradient(135deg,#38BDF8,#818CF8)' : 'rgba(var(--wiz-ch),0.06)',
+          border: isConfigured ? 'none' : '1px solid rgba(var(--wiz-ch),0.12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 9, fontWeight: 700, color: isConfigured ? '#fff' : 'rgba(255,255,255,0.3)',
+          fontSize: 9, fontWeight: 700, color: isConfigured ? '#fff' : 'rgba(var(--wiz-ch),0.3)',
         }}>
           {isConfigured ? <Check size={10} strokeWidth={2.5}/> : index + 1}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {label}
           </div>
           {isConfigured && providerDef && selectedCloudRegion && (
@@ -168,7 +168,7 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
       {/* Dropdowns */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)', marginBottom: 5 }}>Provider</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(var(--wiz-ch),0.28)', marginBottom: 5 }}>Provider</div>
           <CustomSelect
             value={selectedProvider ?? ''}
             onChange={v => onSelectProvider(v as CloudProvider)}
@@ -179,7 +179,7 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
 
         {selectedProvider && (
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)', marginBottom: 5 }}>Region</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(var(--wiz-ch),0.28)', marginBottom: 5 }}>Region</div>
             <CustomSelect
               value={selectedCloudRegion ?? ''}
               onChange={v => onSelectCloudRegion(v)}
@@ -268,10 +268,10 @@ export function StepProvider() {
               const def = PROVIDERS.find(d => d.id === p)
               const regions = Object.entries(store.regionProviders).filter(([,v]) => v === p).map(([k]) => Number(k))
               return (
-                <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+                <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(var(--wiz-ch),0.5)' }}>
                   {def?.logo}
-                  <span style={{ fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>{def?.name}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.25)' }}>·</span>
+                  <span style={{ fontWeight: 500, color: 'rgba(var(--wiz-ch),0.7)' }}>{def?.name}</span>
+                  <span style={{ color: 'rgba(var(--wiz-ch),0.25)' }}>·</span>
                   <span>Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}</span>
                 </div>
               )

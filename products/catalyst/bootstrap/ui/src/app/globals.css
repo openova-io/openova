@@ -43,6 +43,18 @@
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ─── Wizard theme channels ────────────────────────────────────────────── */
+/* rgba(var(--wiz-ch), opacity) flips white↔black automatically            */
+:root {
+  --wiz-ch:         255, 255, 255;   /* fg channel — white in dark mode  */
+  --wiz-accent-ch:  56, 189, 248;    /* brand blue rgb                   */
+  --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #0c1e40 0%, #06080f 70%);
+  --wiz-panel-bg:   #131320;
+  --wiz-deep-bg:    #1a1a1a;
+  --wiz-glow-1:     rgba(56,189,248,0.06);
+  --wiz-glow-2:     rgba(129,140,248,0.05);
+}
+
 /* ─── Light mode overrides ─────────────────────────────────────────────── */
 [data-theme="light"] {
   --color-surface-0: #FFFFFF;
@@ -62,6 +74,15 @@
   --color-text-secondary: #52525B;
   --color-text-muted:     #A1A1AA;
   --color-text-disabled:  #D4D4D8;
+
+  /* Wizard theme channels — light overrides */
+  --wiz-ch:         0, 0, 0;
+  --wiz-accent-ch:  2, 132, 199;
+  --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #e0f2fe 0%, #f0f9ff 70%);
+  --wiz-panel-bg:   #ffffff;
+  --wiz-deep-bg:    #f4f4f5;
+  --wiz-glow-1:     rgba(2,132,199,0.08);
+  --wiz-glow-2:     rgba(99,102,241,0.05);
 }
 
 /* ─── Base ─────────────────────────────────────────────────────────────── */

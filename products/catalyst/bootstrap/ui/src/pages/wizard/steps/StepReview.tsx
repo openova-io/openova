@@ -37,18 +37,18 @@ const GROUP_NAMES: Record<string, string> = {
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-      <span style={{ width: 130, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.28)', lineHeight: 1.45 }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45, wordBreak: 'break-all' }}>{value}</span>
+    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid rgba(var(--wiz-ch),0.06)' }}>
+      <span style={{ width: 130, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(var(--wiz-ch),0.28)', lineHeight: 1.45 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'rgba(var(--wiz-ch),0.72)', lineHeight: 1.45, wordBreak: 'break-all' }}>{value}</span>
     </div>
   )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden', marginBottom: 12 }}>
-      <div style={{ padding: '7px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)' }}>{title}</span>
+    <div style={{ borderRadius: 10, border: '1px solid rgba(var(--wiz-ch),0.07)', background: 'rgba(var(--wiz-ch),0.02)', overflow: 'hidden', marginBottom: 12 }}>
+      <div style={{ padding: '7px 14px', borderBottom: '1px solid rgba(var(--wiz-ch),0.06)', background: 'rgba(var(--wiz-ch),0.02)' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(var(--wiz-ch),0.28)' }}>{title}</span>
       </div>
       <div style={{ padding: '0 14px' }}>{children}</div>
     </div>
@@ -120,7 +120,7 @@ export function StepReview() {
                       <span key={t} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)', color: '#38BDF8' }}>{t}</span>
                     ))}
                   </div>
-                : <span style={{ color: 'rgba(255,255,255,0.2)' }}>None selected</span>
+                : <span style={{ color: 'rgba(var(--wiz-ch),0.2)' }}>None selected</span>
             } />
           </Section>
 
@@ -137,8 +137,8 @@ export function StepReview() {
                       <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                         <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14, marginTop: 1 }}>{i + 1}</span>
                         <div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{rl}</div>
-                          {p && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>{PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}</div>}
+                          <div style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.5)' }}>{rl}</div>
+                          {p && <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 1 }}>{PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}</div>}
                         </div>
                       </div>
                     )
@@ -159,8 +159,8 @@ export function StepReview() {
                   const validated = store.providerValidated[p as CloudProvider]
                   const isDemo = (store.providerTokens[p as CloudProvider] ?? '').startsWith('demo-mode')
                   return (
-                    <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11 }}>
-                      <span style={{ flex: 1, color: 'rgba(255,255,255,0.5)' }}>{PROVIDER_NAMES[p as CloudProvider]}</span>
+                    <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderBottom: '1px solid rgba(var(--wiz-ch),0.06)', fontSize: 11 }}>
+                      <span style={{ flex: 1, color: 'rgba(var(--wiz-ch),0.5)' }}>{PROVIDER_NAMES[p as CloudProvider]}</span>
                       {isDemo
                         ? <span style={{ color: '#38BDF8' }}>Demo mode</span>
                         : validated
@@ -192,7 +192,7 @@ export function StepReview() {
 
       {/* Privacy note */}
       <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.1)' }}>
-        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', margin: 0, lineHeight: 1.6 }}>
+        <p style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.3)', margin: 0, lineHeight: 1.6 }}>
           Provisioning runs entirely within your cloud account. OpenOva never stores your credentials or accesses your infrastructure after this session.
         </p>
       </div>

@@ -29,7 +29,7 @@ export function WizardLayout() {
       position: 'fixed', inset: 0,
       display: 'flex',
       flexDirection: isMobile ? 'column' : 'row',
-      background: 'radial-gradient(ellipse at 30% 20%, #0c1e40 0%, #06080f 70%)',
+      background: 'var(--wiz-page-bg)',
       fontFamily: 'Inter, sans-serif',
       overflow: 'hidden',
     }}>
@@ -41,17 +41,17 @@ export function WizardLayout() {
       {isMobile && (
         <div style={{
           flexShrink: 0, height: 56, zIndex: 10,
-          background: 'rgba(255,255,255,0.03)',
+          background: 'rgba(var(--wiz-ch),0.03)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          borderBottom: '1px solid rgba(var(--wiz-ch),0.07)',
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: 14,
         }}>
           <OOLogo h={20} id="wiz-logo-m" />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.28)', letterSpacing: '0.06em' }}>
               STEP {currentStep} OF {WIZARD_STEPS.length}
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.85)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {WIZARD_STEPS[currentStep - 1].label}
             </div>
           </div>
@@ -66,7 +66,7 @@ export function WizardLayout() {
                   width: s.id === currentStep ? 18 : 6,
                   background: s.id < currentStep
                     ? 'linear-gradient(90deg, #38BDF8, #818CF8)'
-                    : s.id === currentStep ? '#38BDF8' : 'rgba(255,255,255,0.12)',
+                    : s.id === currentStep ? '#38BDF8' : 'rgba(var(--wiz-ch),0.12)',
                   cursor: s.id < currentStep ? 'pointer' : 'default',
                   transition: 'all 0.3s',
                 }}
@@ -80,15 +80,15 @@ export function WizardLayout() {
       {isTablet && (
         <div style={{
           width: 52, flexShrink: 0, zIndex: 10,
-          background: 'rgba(255,255,255,0.025)',
+          background: 'rgba(var(--wiz-ch),0.025)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255,255,255,0.07)',
+          borderRight: '1px solid rgba(var(--wiz-ch),0.07)',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           padding: '20px 0 16px',
           gap: 4,
         }}>
           <OOLogo h={18} id="wiz-logo-t" />
-          <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.07)', margin: '8px 0' }} />
+          <div style={{ width: 1, height: 16, background: 'rgba(var(--wiz-ch),0.07)', margin: '8px 0' }} />
           {WIZARD_STEPS.map(step => {
             const done    = step.id < currentStep
             const current = step.id === currentStep
@@ -103,11 +103,11 @@ export function WizardLayout() {
                   fontSize: 11, fontWeight: 700,
                   background: done
                     ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                    : current ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.05)',
+                    : current ? 'rgba(56,189,248,0.15)' : 'rgba(var(--wiz-ch),0.05)',
                   border: current
                     ? '2px solid #38BDF8'
-                    : done ? 'none' : '1.5px solid rgba(255,255,255,0.1)',
-                  color: done ? '#fff' : current ? '#38BDF8' : 'rgba(255,255,255,0.25)',
+                    : done ? 'none' : '1.5px solid rgba(var(--wiz-ch),0.1)',
+                  color: done ? '#fff' : current ? '#38BDF8' : 'rgba(var(--wiz-ch),0.25)',
                   boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
                   cursor: done ? 'pointer' : 'default',
                   transition: 'all 0.25s',
@@ -119,7 +119,7 @@ export function WizardLayout() {
           })}
           {/* Progress bar at bottom */}
           <div style={{ flex: 1 }} />
-          <div style={{ width: 3, height: 60, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', margin: '0 0 8px' }}>
+          <div style={{ width: 3, height: 60, borderRadius: 2, background: 'rgba(var(--wiz-ch),0.08)', overflow: 'hidden', margin: '0 0 8px' }}>
             <div style={{
               width: '100%',
               height: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
@@ -134,9 +134,9 @@ export function WizardLayout() {
       {isDesktop && (
         <div style={{
           width: 260, flexShrink: 0, zIndex: 10,
-          background: 'rgba(255,255,255,0.025)',
+          background: 'rgba(var(--wiz-ch),0.025)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255,255,255,0.07)',
+          borderRight: '1px solid rgba(var(--wiz-ch),0.07)',
           display: 'flex', flexDirection: 'column',
           padding: '28px 20px',
         }}>
@@ -144,8 +144,8 @@ export function WizardLayout() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 36 }}>
             <OOLogo h={24} id="wiz-logo-d" />
             <div style={{ lineHeight: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.28)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(var(--wiz-ch),0.82)', letterSpacing: '-0.01em' }}>OpenOva</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.28)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
             </div>
           </div>
 
@@ -160,7 +160,7 @@ export function WizardLayout() {
                     <div style={{
                       position: 'absolute', left: 19, top: 38,
                       width: 1.5, height: 10,
-                      background: done ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.07)',
+                      background: done ? 'rgba(56,189,248,0.4)' : 'rgba(var(--wiz-ch),0.07)',
                     }} />
                   )}
                   <div
@@ -180,11 +180,11 @@ export function WizardLayout() {
                       fontSize: 10, fontWeight: 700,
                       background: done
                         ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.05)',
+                        : current ? 'rgba(56,189,248,0.15)' : 'rgba(var(--wiz-ch),0.05)',
                       border: current
                         ? '2px solid #38BDF8'
-                        : done ? 'none' : '1.5px solid rgba(255,255,255,0.1)',
-                      color: done ? '#fff' : current ? '#38BDF8' : 'rgba(255,255,255,0.2)',
+                        : done ? 'none' : '1.5px solid rgba(var(--wiz-ch),0.1)',
+                      color: done ? '#fff' : current ? '#38BDF8' : 'rgba(var(--wiz-ch),0.2)',
                       boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
                       transition: 'all 0.25s',
                     }}>
@@ -194,13 +194,13 @@ export function WizardLayout() {
                       <div style={{
                         fontSize: 12, fontWeight: current ? 600 : 400,
                         color: current
-                          ? 'rgba(255,255,255,0.85)'
-                          : done ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.2)',
+                          ? 'rgba(var(--wiz-ch),0.85)'
+                          : done ? 'rgba(var(--wiz-ch),0.45)' : 'rgba(var(--wiz-ch),0.2)',
                         lineHeight: 1.3,
                       }}>
                         {step.label}
                       </div>
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 1 }}>
+                      <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.2)', marginTop: 1 }}>
                         {step.desc}
                       </div>
                     </div>
@@ -211,14 +211,14 @@ export function WizardLayout() {
           </div>
 
           {/* Progress footer */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 18, marginTop: 18 }}>
+          <div style={{ borderTop: '1px solid rgba(var(--wiz-ch),0.06)', paddingTop: 18, marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>Progress</span>
+              <span style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.25)' }}>Progress</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#38BDF8' }}>
                 {Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)}%
               </span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+            <div style={{ height: 3, borderRadius: 2, background: 'rgba(var(--wiz-ch),0.08)' }}>
               <div style={{
                 height: '100%',
                 width: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
@@ -248,14 +248,14 @@ export function WizardLayout() {
         <button
           onClick={toggle}
           aria-label="Toggle theme"
-          style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(var(--wiz-ch),0.06)', border: '1px solid rgba(var(--wiz-ch),0.1)', color: 'rgba(var(--wiz-ch),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
         >
           {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
         </button>
         <Link to={IS_SAAS ? '/app/dashboard' : '/'}>
           <button
             aria-label="Exit wizard"
-            style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(var(--wiz-ch),0.06)', border: '1px solid rgba(var(--wiz-ch),0.1)', color: 'rgba(var(--wiz-ch),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           >
             <X size={13} />
           </button>
