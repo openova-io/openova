@@ -146,6 +146,52 @@ const GROUPS: GroupDef[] = [
   },
 ]
 
+/* ── Dependency map ───────────────────────────────────────────────
+   When a component is turned ON, its entries here are also selected.
+   Transitive: librechat→ferretdb→cnpg resolved automatically.
+────────────────────────────────────────────────────────────────── */
+const COMPONENT_DEPS: Record<string, string[]> = {
+  // CORTEX
+  kserve:     ['knative'],
+  librechat:  ['ferretdb'],
+  langfuse:   ['cnpg'],
+  // FABRIC (intra-block)
+  ferretdb:   ['cnpg'],
+  debezium:   ['strimzi', 'cnpg'],
+  flink:      ['strimzi', 'cnpg'],
+  temporal:   ['cnpg'],
+  clickhouse: ['strimzi'],
+  iceberg:    ['cnpg'],
+  // INSIGHTS → FABRIC
+  openmeter:  ['strimzi', 'clickhouse'],
+  // GUARDIAN → FABRIC
+  keycloak:   ['cnpg'],
+  // RELAY
+  livekit:    ['stunner'],
+  stalwart:   ['cnpg'],
+  matrix:     ['cnpg', 'keycloak'],
+}
+
+/** Build component-id → group-id lookup */
+const COMPONENT_GROUP: Record<string, string> = (() => {
+  const map: Record<string, string> = {}
+  for (const g of GROUPS) for (const c of g.components) map[c.id] = g.id
+  return map
+})()
+
+/** Collect all transitive dependencies (BFS) */
+function allDeps(id: string): string[] {
+  const seen = new Set<string>()
+  const queue = [id]
+  while (queue.length) {
+    const cur = queue.shift()!
+    for (const dep of COMPONENT_DEPS[cur] ?? []) {
+      if (!seen.has(dep)) { seen.add(dep); queue.push(dep) }
+    }
+  }
+  return [...seen]
+}
+
 /* ── Color semantics ──────────────────────────────────────────────
    Green  (#4ADE80) = locked / always-on (mandatory in required block)
    Blue   (#38BDF8) = user selected (recommended / chosen)
@@ -206,7 +252,26 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
   function toggleOne(c: ComponentDef) {
     if (group.required && c.tier === 'mandatory') return
     const allIds = group.components.map(x => x.id)
+    const isOn = selectedIds.includes(c.id)
     store.toggleGroupComponent(group.id, c.id, allIds)
+
+    // Auto-select transitive dependencies when turning ON
+    if (!isOn) {
+      const deps = allDeps(c.id)
+      const byGroup: Record<string, string[]> = {}
+      for (const depId of deps) {
+        const gid = COMPONENT_GROUP[depId]
+        if (gid) (byGroup[gid] ??= []).push(depId)
+      }
+      for (const [gid, depIds] of Object.entries(byGroup)) {
+        const targetGroup = GROUPS.find(g => g.id === gid)
+        if (!targetGroup) continue
+        const validIds = targetGroup.components.map(x => x.id)
+        const current = store.componentGroups[gid] ?? []
+        const merged = [...new Set([...current, ...depIds])].filter(id => validIds.includes(id))
+        store.setGroupComponents(gid, merged)
+      }
+    }
   }
 
   const colsInner = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr'
