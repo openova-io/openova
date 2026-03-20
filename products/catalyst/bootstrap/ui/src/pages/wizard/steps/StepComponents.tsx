@@ -145,7 +145,7 @@ const GROUPS: GroupDef[] = [
     description: 'Self-hosted email, WebRTC video conferencing, federated messaging, and push notifications',
     required: false,
     components: [
-      { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server',    tier: 'mandatory' },
+      { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server',    tier: 'recommended' },
       { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC video & audio',          tier: 'recommended' },
       { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes TURN/STUN gateway',  tier: 'recommended' },
       { id: 'matrix',   name: 'Matrix',   desc: 'Federated messaging',           tier: 'optional' },
