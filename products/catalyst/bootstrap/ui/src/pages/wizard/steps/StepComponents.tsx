@@ -26,7 +26,7 @@ interface GroupDef {
 
 const GROUPS: GroupDef[] = [
   {
-    id: 'security', name: 'Security & Compliance', productName: 'Platform Security', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'security', name: 'Security & Compliance', productName: 'Security', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Runtime threat detection, policy enforcement, SBOM, CVE scanning, WAF, supply chain',
     components: [
       { id: 'falco',      name: 'Falco',        desc: 'Runtime threat detection' },
@@ -38,7 +38,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'identity', name: 'Identity & Secrets', productName: 'Platform Identity', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'identity', name: 'Identity & Secrets', productName: 'Identity', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Authentication, authorisation, secrets lifecycle',
     components: [
       { id: 'keycloak',         name: 'Keycloak',         desc: 'Enterprise identity provider' },
@@ -47,7 +47,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'networking', name: 'Networking & Ingress', productName: 'Platform Network', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'networking', name: 'Networking & Ingress', productName: 'Network', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'eBPF service mesh, certificates, DNS automation',
     components: [
       { id: 'cilium',        name: 'Cilium',       desc: 'eBPF networking & service mesh' },
@@ -56,7 +56,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'gitops', name: 'GitOps & Platform Ops', productName: 'OpenOva Catalyst', tag: 'Required', tagColor: '#F87171', required: true,
+    id: 'gitops', name: 'GitOps & Platform Ops', productName: 'Catalyst', tag: 'Required', tagColor: '#F87171', required: true,
     desc: 'Continuous delivery, infrastructure control, auto-reload, right-sizing',
     components: [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps continuous delivery' },
@@ -66,7 +66,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'observability', name: 'Observability', productName: 'OpenOva Specter', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'observability', name: 'Observability', productName: 'Specter', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'Metrics, logs, traces, unified dashboards',
     components: [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting' },
@@ -74,7 +74,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'data', name: 'Data & Storage', productName: 'OpenOva Fabric', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'data', name: 'Data & Storage', productName: 'Fabric', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'PostgreSQL, caching, object storage, analytics',
     components: [
       { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator' },
@@ -85,7 +85,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'resilience', name: 'Resilience & Scaling', productName: 'Platform Resilience', tag: 'Recommended', tagColor: '#38BDF8',
+    id: 'resilience', name: 'Resilience & Scaling', productName: 'Resilience', tag: 'Recommended', tagColor: '#38BDF8',
     desc: 'Backup, event-driven autoscaling, chaos engineering',
     components: [
       { id: 'velero', name: 'Velero', desc: 'Cluster backup & disaster recovery' },
@@ -94,7 +94,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'ai', name: 'AI & Machine Learning', productName: 'OpenOva Cortex', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'ai', name: 'AI & Machine Learning', productName: 'Cortex', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'LLM serving, vector DB, embeddings, RAG, observability',
     components: [
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform' },
@@ -106,7 +106,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'events', name: 'Event & Integration', productName: 'OpenOva Fabric', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'events', name: 'Event & Integration', productName: 'Fabric', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'Kafka streaming, CDC, stream processing, workflow orchestration',
     components: [
       { id: 'strimzi',  name: 'Strimzi',       desc: 'Apache Kafka operator' },
@@ -116,7 +116,7 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: 'comms', name: 'Communication', productName: 'OpenOva Relay', tag: 'Optional', tagColor: '#A78BFA',
+    id: 'comms', name: 'Communication', productName: 'Relay', tag: 'Optional', tagColor: '#A78BFA',
     desc: 'Email, WebRTC video, real-time chat, TURN relay',
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server' },
@@ -261,9 +261,28 @@ export function StepComponents() {
   const totalSelected = GROUPS.reduce((sum, g) => sum + (store.componentGroups[g.id]?.length ?? 0), 0)
   const totalAll = GROUPS.reduce((sum, g) => sum + g.components.length, 0)
 
-  const groupCols = bp === 'mobile' ? '1fr' : '1fr 1fr'
+  const groupCols = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr'
 
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
+  const openIdx = openGroupId ? GROUPS.findIndex(g => g.id === openGroupId) : -1
+  const beforeGroups = openIdx > -1 ? GROUPS.slice(0, openIdx) : GROUPS
+  const openGroup   = openIdx > -1 ? GROUPS[openIdx] : null
+  const afterGroups = openIdx > -1 ? GROUPS.slice(openIdx + 1) : []
+
+  function GroupGrid({ groups }: { groups: GroupDef[] }) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: groupCols, gap: 8 }}>
+        {groups.map(g => (
+          <GroupCard
+            key={g.id}
+            group={g}
+            open={false}
+            onToggle={() => setOpenGroupId(g.id)}
+          />
+        ))}
+      </div>
+    )
+  }
 
   return (
     <StepShell
@@ -282,21 +301,16 @@ export function StepComponents() {
         </div>
       </div>
 
-      {/* Group grid: 2-col on tablet/desktop, 1-col on mobile */}
-      <div style={{ display: 'grid', gridTemplateColumns: groupCols, gap: 8 }}>
-        {GROUPS.map(g => {
-          const isOpen = openGroupId === g.id
-          return (
-            <div key={g.id} style={{ gridColumn: isOpen ? '1 / -1' : 'auto' }}>
-              <GroupCard
-                group={g}
-                open={isOpen}
-                onToggle={() => setOpenGroupId(isOpen ? null : g.id)}
-              />
-            </div>
-          )
-        })}
-      </div>
+      {/* Group grid — split around expanded card so all items after it sit below */}
+      {beforeGroups.length > 0 && <GroupGrid groups={beforeGroups} />}
+      {openGroup && (
+        <GroupCard
+          group={openGroup}
+          open={true}
+          onToggle={() => setOpenGroupId(null)}
+        />
+      )}
+      {afterGroups.length > 0 && <GroupGrid groups={afterGroups} />}
     </StepShell>
   )
 }
