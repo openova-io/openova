@@ -632,19 +632,312 @@ function D10() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   PICKER  — grid of 10 designs
+   DESIGN 11  —  ATLAS
+   Cosmos palette · vertical left step rail · wide 2-col content area
+───────────────────────────────────────────────────────────────────────── */
+function D11() {
+  const [s, setS] = useState(1)
+  const T: Theme = { text: 'rgba(255,255,255,0.9)', muted: 'rgba(255,255,255,0.45)', dim: 'rgba(255,255,255,0.22)', inputBg: 'rgba(255,255,255,0.06)', inputBorder: 'rgba(255,255,255,0.12)', inputText: 'rgba(255,255,255,0.5)', cardBg: 'rgba(255,255,255,0.04)', cardBorder: 'rgba(255,255,255,0.08)', accent: '#38BDF8', accentText: '#fff', radius: 8, gap: 14, font: 'Inter,sans-serif' }
+  const TITLES = ['Your organisation', 'Cloud provider', 'Connect credentials', 'Infrastructure', 'Platform components', 'Review & provision']
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'radial-gradient(ellipse at 30% 20%, #0c1e40 0%, #06080f 70%)', fontFamily: 'Inter,sans-serif', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: '-10%', left: '25%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 65%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: '-10%', right: '5%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.05) 0%, transparent 65%)', pointerEvents: 'none' }} />
+
+      {/* ── LEFT SIDEBAR ── */}
+      <div style={{ width: 280, flexShrink: 0, background: 'rgba(255,255,255,0.025)', backdropFilter: 'blur(20px)', borderRight: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', padding: '32px 24px', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 40 }}>
+          <OOLogo h={24} id="d11" />
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.8)', letterSpacing: '-0.01em' }}>OpenOva</div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.28)', letterSpacing: '0.16em', textTransform: 'uppercase', marginTop: 1 }}>Catalyst</div>
+          </div>
+        </div>
+
+        {/* Vertical step list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+          {STEP_META.map((sm, i) => {
+            const done    = i < s - 1
+            const current = i === s - 1
+            return (
+              <div key={i} style={{ position: 'relative' }}>
+                {i < STEP_META.length - 1 && (
+                  <div style={{ position: 'absolute', left: 22, top: 38, width: 1.5, height: 10, background: done ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.07)' }} />
+                )}
+                <div
+                  onClick={() => done && setS(i + 1)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 10, cursor: done ? 'pointer' : 'default', background: current ? 'rgba(56,189,248,0.08)' : 'transparent', border: current ? '1px solid rgba(56,189,248,0.2)' : '1px solid transparent', transition: 'all 0.15s' }}
+                >
+                  <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, background: done ? 'linear-gradient(135deg, #38BDF8, #818CF8)' : current ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.05)', border: current ? '2px solid #38BDF8' : done ? 'none' : '1.5px solid rgba(255,255,255,0.1)', color: done ? '#fff' : current ? '#38BDF8' : 'rgba(255,255,255,0.2)', boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none' }}>
+                    {done ? <Check size={11} strokeWidth={2.5} /> : i + 1}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: current ? 600 : 400, color: current ? 'rgba(255,255,255,0.85)' : done ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.2)', lineHeight: 1.3 }}>{sm.label}</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 1 }}>{sm.desc}</div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Progress footer */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 20, marginTop: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>Progress</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#38BDF8' }}>{Math.round(((s - 1) / STEP_META.length) * 100)}%</span>
+          </div>
+          <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+            <div style={{ height: '100%', width: `${((s - 1) / STEP_META.length) * 100}%`, borderRadius: 2, background: 'linear-gradient(90deg, #38BDF8, #818CF8)', transition: 'width 0.4s' }} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── MAIN CONTENT ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '48px 56px', zIndex: 1 }}>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', color: '#38BDF8', textTransform: 'uppercase', marginBottom: 6 }}>Step {s} of {STEP_META.length}</div>
+          <h2 style={{ fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.03em', color: '#fff', margin: 0 }}>{TITLES[s - 1]}</h2>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', margin: '6px 0 0', lineHeight: 1.6, maxWidth: 480 }}>{STEP_META[s - 1].desc}</p>
+        </div>
+
+        {/* Wide glass card */}
+        <div style={{ background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '2rem', boxShadow: '0 24px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)', maxWidth: 820 }}>
+          {(s === 1 || s === 4) ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {(s === 1 ? ORG_FIELDS : INFRA_FIELDS).map(f => (
+                <div key={f.l} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.45)' }}>{f.l}</label>
+                  <div style={{ height: 42, borderRadius: 8, border: '1.5px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', paddingLeft: 12, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>{f.p}</div>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.18)' }}>{f.h}</span>
+                </div>
+              ))}
+            </div>
+          ) : s === 2 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {PROVIDERS.map((p, i) => (
+                <div key={p} style={{ padding: '18px 22px', borderRadius: 10, border: `1.5px solid ${i === 0 ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.07)'}`, background: i === 0 ? 'rgba(56,189,248,0.08)' : 'rgba(255,255,255,0.02)', cursor: i <= 1 ? 'pointer' : 'default', opacity: i > 1 ? 0.3 : 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: i > 1 ? 4 : 0 }}>
+                    {i === 0 && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#38BDF8' }} />}
+                    <span style={{ fontSize: 13, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)' }}>{p}</span>
+                  </div>
+                  {i > 1 && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>Coming soon</div>}
+                </div>
+              ))}
+            </div>
+          ) : s === 5 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {COMPONENTS.map(c => (
+                <div key={c.g} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 10, border: `1px solid ${c.on ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.07)'}`, background: c.on ? 'rgba(56,189,248,0.07)' : 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: c.on ? '#38BDF8' : 'transparent', border: c.on ? 'none' : '1.5px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {c.on && <Check size={11} color="#fff" strokeWidth={3} />}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: c.on ? 700 : 400, color: c.on ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.35)' }}>{c.g}</div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', marginTop: 1 }}>{c.t}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <StepBody step={s} theme={T} />
+          )}
+        </div>
+
+        {/* Navigation */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 820, marginTop: 24 }}>
+          <button onClick={() => setS(Math.max(1, s - 1))} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 38, padding: '0 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 500, cursor: 'pointer', visibility: s === 1 ? 'hidden' : 'visible', fontFamily: 'inherit' }}>
+            <ChevronLeft size={14} /> Back
+          </button>
+          <button onClick={() => setS(Math.min(6, s + 1))} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 28px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {s === 6 ? 'Provision cluster' : 'Continue'} <ChevronRight size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   DESIGN 12  —  HELM
+   Cosmos palette · thin header bar · 3-pane: context left · form centre ·
+   live summary right — every pixel of horizontal space used
+───────────────────────────────────────────────────────────────────────── */
+function D12() {
+  const [s, setS] = useState(1)
+  const T: Theme = { text: 'rgba(255,255,255,0.9)', muted: 'rgba(255,255,255,0.45)', dim: 'rgba(255,255,255,0.22)', inputBg: 'rgba(255,255,255,0.06)', inputBorder: 'rgba(255,255,255,0.12)', inputText: 'rgba(255,255,255,0.5)', cardBg: 'rgba(255,255,255,0.03)', cardBorder: 'rgba(255,255,255,0.07)', accent: '#818CF8', accentText: '#fff', radius: 8, gap: 14, font: 'Inter,sans-serif' }
+  const TITLES = ['Your organisation', 'Cloud provider', 'Connect credentials', 'Infrastructure', 'Platform components', 'Review & provision']
+  const TIPS: Record<number, string[]> = {
+    1: ['Used for cluster naming', 'Domain drives TLS certs', 'Email receives alerts'],
+    2: ['Hetzner available now', 'AWS & OCI coming Q3', 'Mix providers across regions'],
+    3: ['Tokens are never stored', 'Scoped Read & Write only', 'Revoke any time in console'],
+    4: ['HA needs 3+ workers', 'cx31 fits most workloads', 'Scale up post-deploy'],
+    5: ['Required groups are locked', 'AI group for LLM ops', 'All components open source'],
+    6: ['~8 min provision time', 'Runs in your cloud account', 'Zero vendor lock-in'],
+  }
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(ellipse at 60% 10%, #0c1e40 0%, #06080f 65%)', fontFamily: 'Inter,sans-serif', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: '-20%', right: '20%', width: 700, height: 700, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.05) 0%, transparent 65%)', pointerEvents: 'none' }} />
+
+      {/* ── TOP HEADER BAR ── */}
+      <div style={{ flexShrink: 0, height: 52, background: 'rgba(255,255,255,0.025)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 20, zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <OOLogo h={20} c1="#818CF8" c2="#38BDF8" id="d12" />
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', letterSpacing: '-0.01em' }}>OpenOva Catalyst</span>
+        </div>
+        {/* Breadcrumb step trail */}
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+          {STEP_META.map((sm, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
+              <div
+                onClick={() => i < s - 1 && setS(i + 1)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 6, cursor: i < s - 1 ? 'pointer' : 'default', background: i === s - 1 ? 'rgba(129,140,248,0.12)' : 'transparent', border: i === s - 1 ? '1px solid rgba(129,140,248,0.25)' : '1px solid transparent', transition: 'all 0.15s' }}
+              >
+                <div style={{ width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, background: i < s - 1 ? 'linear-gradient(135deg, #818CF8, #38BDF8)' : i === s - 1 ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.05)', color: i < s - 1 ? '#fff' : i === s - 1 ? '#818CF8' : 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
+                  {i < s - 1 ? <Check size={8} strokeWidth={3} /> : i + 1}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: i === s - 1 ? 600 : 400, color: i === s - 1 ? '#818CF8' : i < s - 1 ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.18)', whiteSpace: 'nowrap' }}>{sm.label}</span>
+              </div>
+              {i < STEP_META.length - 1 && <ChevronRight size={10} style={{ color: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />}
+            </div>
+          ))}
+        </div>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.1em', flexShrink: 0 }}>{s} / {STEP_META.length}</span>
+      </div>
+
+      {/* ── 3-PANE BODY ── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', zIndex: 1 }}>
+
+        {/* LEFT: Context pane */}
+        <div style={{ width: 224, flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)', padding: '32px 22px', display: 'flex', flexDirection: 'column', gap: 24, overflowY: 'auto' }}>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.18)', marginBottom: 10 }}>This step</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'rgba(255,255,255,0.85)', lineHeight: 1.25, marginBottom: 8 }}>{TITLES[s - 1]}</div>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.7, margin: 0 }}>{STEP_META[s - 1].desc}</p>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.18)', marginBottom: 10 }}>Tips</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {TIPS[s].map((tip, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#818CF8', flexShrink: 0, marginTop: 5 }} />
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.55 }}>{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>Completion</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#818CF8' }}>{Math.round(((s - 1) / STEP_META.length) * 100)}%</span>
+            </div>
+            <div style={{ height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.06)' }}>
+              <div style={{ height: '100%', width: `${((s - 1) / STEP_META.length) * 100}%`, borderRadius: 1, background: 'linear-gradient(90deg, #818CF8, #38BDF8)', transition: 'width 0.4s' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* CENTER: Main form */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 40px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '28px 32px', boxShadow: '0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
+            {(s === 1 || s === 4) ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                {(s === 1 ? ORG_FIELDS : INFRA_FIELDS).map(f => (
+                  <div key={f.l} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>{f.l}</label>
+                    <div style={{ height: 42, borderRadius: 8, border: '1.5px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', paddingLeft: 12, fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>{f.p}</div>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.16)' }}>{f.h}</span>
+                  </div>
+                ))}
+              </div>
+            ) : s === 2 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {PROVIDERS.map((p, i) => (
+                  <div key={p} style={{ padding: '16px 20px', borderRadius: 10, border: `1.5px solid ${i === 0 ? 'rgba(129,140,248,0.45)' : 'rgba(255,255,255,0.06)'}`, background: i === 0 ? 'rgba(129,140,248,0.08)' : 'rgba(255,255,255,0.02)', cursor: i <= 1 ? 'pointer' : 'default', opacity: i > 1 ? 0.3 : 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: i > 1 ? 4 : 0 }}>
+                      {i === 0 && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#818CF8' }} />}
+                      <span style={{ fontSize: 13, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.35)' }}>{p}</span>
+                    </div>
+                    {i > 1 && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', marginTop: 4 }}>Coming soon</div>}
+                  </div>
+                ))}
+              </div>
+            ) : s === 5 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {COMPONENTS.map(c => (
+                  <div key={c.g} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, border: `1px solid ${c.on ? 'rgba(129,140,248,0.3)' : 'rgba(255,255,255,0.06)'}`, background: c.on ? 'rgba(129,140,248,0.07)' : 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, background: c.on ? '#818CF8' : 'transparent', border: c.on ? 'none' : '1.5px solid rgba(255,255,255,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {c.on && <Check size={10} color="#fff" strokeWidth={3} />}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: c.on ? 700 : 400, color: c.on ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)' }}>{c.g}</div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 1 }}>{c.t}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <StepBody step={s} theme={T} />
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button onClick={() => setS(Math.max(1, s - 1))} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 38, padding: '0 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.28)', fontSize: 13, cursor: 'pointer', visibility: s === 1 ? 'hidden' : 'visible', fontFamily: 'inherit' }}>
+              <ChevronLeft size={14} /> Back
+            </button>
+            <button onClick={() => setS(Math.min(6, s + 1))} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 28px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #818CF8, #38BDF8)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              {s === 6 ? 'Provision cluster' : 'Continue'} <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT: Live configuration summary */}
+        <div style={{ width: 244, flexShrink: 0, borderLeft: '1px solid rgba(255,255,255,0.06)', padding: '32px 20px', overflowY: 'auto' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.18)', marginBottom: 16 }}>Configuration so far</div>
+          {s > 1 ? (
+            REVIEW_ROWS.slice(0, Math.min(s + 1, REVIEW_ROWS.length)).map(([k, v]) => (
+              <div key={k} style={{ paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginBottom: 3 }}>{k}</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.65)', lineHeight: 1.4 }}>{v}</div>
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: '14px 16px', borderRadius: 10, background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.22)', lineHeight: 1.65 }}>
+              Complete each step to build your configuration summary here.
+            </div>
+          )}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.15)', marginBottom: 10 }}>Steps</div>
+            {STEP_META.map((sm, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: i < s - 1 ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${i < s - 1 ? 'rgba(129,140,248,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+                  {i < s - 1 && <Check size={7} style={{ color: '#818CF8' }} strokeWidth={3} />}
+                </div>
+                <span style={{ fontSize: 10, color: i < s - 1 ? 'rgba(255,255,255,0.45)' : i === s - 1 ? '#818CF8' : 'rgba(255,255,255,0.15)', fontWeight: i === s - 1 ? 600 : 400 }}>{sm.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PICKER  — grid of 12 designs
 ───────────────────────────────────────────────────────────────────────── */
 const DESIGNS = [
-  { id:1, name:'Cosmos',     tag:'Frosted glass card · dark radial gradient · progress dots',    bg:'#06080f',  ac:'#38BDF8', comp:D1 },
-  { id:2, name:'Editorial',  tag:'White · giant watermark number · serif · magazine feel',        bg:'#FAFAF9',  ac:'#0369A1', comp:D2 },
-  { id:3, name:'Terminal',   tag:'CLI prompt · monospace · green on black · developer-first',     bg:'#0A0A0A',  ac:'#4ADE80', comp:D3 },
-  { id:4, name:'Aurora',     tag:'Purple-blue gradient mesh · glassmorphism · vibrant',           bg:'#0a1628',  ac:'#A78BFA', comp:D4 },
-  { id:5, name:'Forge',      tag:'Bold 50/50 split · massive left headline · Stripe feel',        bg:'#020617',  ac:'#38BDF8', comp:D5 },
-  { id:6, name:'Workspace',  tag:'macOS chrome · toolbar tabs · VS Code sidebar',                 bg:'#1E1E2E',  ac:'#38BDF8', comp:D6 },
-  { id:7, name:'Journey',    tag:'Horizontal step rail · Airbnb booking feel · indigo',           bg:'#fff',     ac:'#6366F1', comp:D7 },
-  { id:8, name:'Paper',      tag:'GOV.UK document style · numbered margin · zero chrome',         bg:'#fff',     ac:'#0B57D0', comp:D8 },
-  { id:9, name:'Electric',   tag:'Neon cyan glow · gradient headings · cyberpunk left strip',     bg:'#050508',  ac:'#00D2FF', comp:D9 },
-  { id:10,name:'Whisper',    tag:'Typeform-inspired · one step at a time · warm coral',           bg:'#FAFAFA',  ac:'#FF6B6B', comp:D10 },
+  { id:1,  name:'Cosmos',     tag:'Frosted glass card · dark radial gradient · progress dots',          bg:'#06080f',  ac:'#38BDF8', comp:D1  },
+  { id:2,  name:'Editorial',  tag:'White · giant watermark number · serif · magazine feel',              bg:'#FAFAF9',  ac:'#0369A1', comp:D2  },
+  { id:3,  name:'Terminal',   tag:'CLI prompt · monospace · green on black · developer-first',           bg:'#0A0A0A',  ac:'#4ADE80', comp:D3  },
+  { id:4,  name:'Aurora',     tag:'Purple-blue gradient mesh · glassmorphism · vibrant',                 bg:'#0a1628',  ac:'#A78BFA', comp:D4  },
+  { id:5,  name:'Forge',      tag:'Bold 50/50 split · massive left headline · Stripe feel',              bg:'#020617',  ac:'#38BDF8', comp:D5  },
+  { id:6,  name:'Workspace',  tag:'macOS chrome · toolbar tabs · VS Code sidebar',                       bg:'#1E1E2E',  ac:'#38BDF8', comp:D6  },
+  { id:7,  name:'Journey',    tag:'Horizontal step rail · Airbnb booking feel · indigo',                 bg:'#fff',     ac:'#6366F1', comp:D7  },
+  { id:8,  name:'Paper',      tag:'GOV.UK document style · numbered margin · zero chrome',               bg:'#fff',     ac:'#0B57D0', comp:D8  },
+  { id:9,  name:'Electric',   tag:'Neon cyan glow · gradient headings · cyberpunk left strip',           bg:'#050508',  ac:'#00D2FF', comp:D9  },
+  { id:10, name:'Whisper',    tag:'Typeform-inspired · one step at a time · warm coral',                 bg:'#FAFAFA',  ac:'#FF6B6B', comp:D10 },
+  { id:11, name:'Atlas',      tag:'Cosmos palette · vertical left rail · wide 2-col form · side-by-side cards', bg:'#06080f', ac:'#38BDF8', comp:D11 },
+  { id:12, name:'Helm',       tag:'Cosmos palette · thin header · 3-pane: context · form · live summary',      bg:'#06080f', ac:'#818CF8', comp:D12 },
 ]
 
 export function DesignShowcase() {
@@ -662,7 +955,7 @@ export function DesignShowcase() {
             <span style={{ opacity:0.4 }}>#</span><span style={{ fontWeight:700 }}>{active}</span><span style={{ opacity:0.4 }}>·</span><span>{d.name}</span><span style={{ opacity:0.3 }}>— use Continue/Back within the design to walk all 6 steps</span>
           </div>
           <button onClick={()=>setActive(null)} style={{ height:32, padding:'0 12px', borderRadius:7, border:'1px solid rgba(255,255,255,0.18)', background:'rgba(0,0,0,0.75)', color:'#fff', fontSize:12, cursor:'pointer', backdropFilter:'blur(10px)' }}>All designs</button>
-          <button onClick={()=>setActive(active<10?active+1:active)} disabled={active===10} style={{ height:32, padding:'0 12px', borderRadius:7, border:'1px solid rgba(255,255,255,0.18)', background:'rgba(0,0,0,0.75)', color:'#fff', fontSize:12, cursor:'pointer', backdropFilter:'blur(10px)', opacity:active===10?0.4:1 }}>Next →</button>
+          <button onClick={()=>setActive(active<12?active+1:active)} disabled={active===12} style={{ height:32, padding:'0 12px', borderRadius:7, border:'1px solid rgba(255,255,255,0.18)', background:'rgba(0,0,0,0.75)', color:'#fff', fontSize:12, cursor:'pointer', backdropFilter:'blur(10px)', opacity:active===12?0.4:1 }}>Next →</button>
         </div>
         <Comp />
       </div>
@@ -674,7 +967,7 @@ export function DesignShowcase() {
       <div style={{ maxWidth:1080, margin:'0 auto' }}>
         <div style={{ textAlign:'center', marginBottom:44 }}>
           <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.16em', color:'#38BDF8', textTransform:'uppercase', marginBottom:10 }}>Design Concepts</div>
-          <h1 style={{ fontSize:'2.25rem', fontWeight:800, color:'#fff', letterSpacing:'-0.03em', margin:'0 0 10px' }}>10 Wizard Designs</h1>
+          <h1 style={{ fontSize:'2.25rem', fontWeight:800, color:'#fff', letterSpacing:'-0.03em', margin:'0 0 10px' }}>12 Wizard Designs</h1>
           <p style={{ fontSize:13, color:'#52525B', lineHeight:1.7 }}>Click any to preview full-screen. Use Prev/Next to compare. Continue/Back inside each design walks all 6 steps.</p>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))', gap:18 }}>

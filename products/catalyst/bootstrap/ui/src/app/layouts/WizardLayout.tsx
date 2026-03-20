@@ -53,7 +53,7 @@ export function WizardLayout() {
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', maxWidth: 580 }}>
             {WIZARD_STEPS.map((step, i) => {
-              const done    = completedSteps.includes(step.id)
+              const done    = step.id < currentStep
               const current = currentStep === step.id
               return (
                 <div key={step.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>

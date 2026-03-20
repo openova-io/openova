@@ -58,14 +58,10 @@ export function StepShell({
         {children}
       </div>
 
-      {/* Navigation — sticky so it's always visible even when content is tall */}
+      {/* Navigation */}
       <div style={{
-        position: 'sticky', bottom: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        margin: '8px -32px -32px',
-        padding: '14px 32px 28px',
-        background: 'linear-gradient(to top, rgba(6,8,15,0.98) 60%, rgba(6,8,15,0.0) 100%)',
-        zIndex: 10,
+        marginTop: 8,
       }}>
         {onBack ? (
           <button
