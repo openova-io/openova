@@ -72,15 +72,16 @@ function RegionRow({
   label,
   selectedProvider,
   onSelect,
-  autoOpenFirst,
+  open,
+  onToggle,
 }: {
   index: number
   label: string
   selectedProvider: CloudProvider | undefined
   onSelect: (p: CloudProvider) => void
-  autoOpenFirst?: boolean
+  open: boolean
+  onToggle: () => void
 }) {
-  const [open, setOpen] = useState(autoOpenFirst ?? false)
   const def = PROVIDERS.find(p => p.id === selectedProvider)
 
   return (
@@ -95,7 +96,7 @@ function RegionRow({
     }}>
       {/* Header row */}
       <div
-        onClick={() => setOpen(v => !v)}
+        onClick={onToggle}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
       >
         {/* Region number */}
@@ -145,7 +146,7 @@ function RegionRow({
               return (
                 <div
                   key={p.id}
-                  onClick={() => p.available && onSelect(p.id)}
+                  onClick={() => { if (p.available) onSelect(p.id) }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '8px 10px', borderRadius: 8, cursor: p.available ? 'pointer' : 'not-allowed',
@@ -189,6 +190,9 @@ export function StepProvider() {
   const regionCount = topology ? TOPOLOGY_REGION_COUNT[topology] : 1
   const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : ['Region 1']
 
+  // Lift accordion open state — start with first region open
+  const [openRegion, setOpenRegion] = useState<number | null>(0)
+
   const allConfigured = Array.from({ length: regionCount }, (_, i) => i)
     .every(i => store.regionProviders[i] != null)
 
@@ -198,13 +202,17 @@ export function StepProvider() {
 
   function handleSelect(regionIndex: number, provider: CloudProvider) {
     store.setRegionProvider(regionIndex, provider)
-    // Compat: set single provider field to first region's choice
     if (regionIndex === 0) store.setProvider(provider)
+    // Auto-collapse this region and open the next unassigned one
+    const nextUnassigned = Array.from({ length: regionCount }, (_, i) => i)
+      .find(i => i > regionIndex && store.regionProviders[i] == null)
+    setOpenRegion(nextUnassigned ?? null)
   }
 
   function applyToAll(provider: CloudProvider) {
     store.applyProviderToAll(provider, regionCount)
     store.setProvider(provider)
+    setOpenRegion(null)
   }
 
   // Unique providers summary
@@ -227,7 +235,8 @@ export function StepProvider() {
             label={label}
             selectedProvider={store.regionProviders[i]}
             onSelect={(p) => handleSelect(i, p)}
-            autoOpenFirst={i === 0}
+            open={openRegion === i}
+            onToggle={() => setOpenRegion(openRegion === i ? null : i)}
           />
         ))}
       </div>

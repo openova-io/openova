@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Zap } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
@@ -96,7 +97,7 @@ export function StepReview() {
       description="Confirm your configuration below. OpenOva will provision exactly what you see here."
       onNext={provision}
       onBack={back}
-      nextLabel="🚀 Provision cluster"
+      nextLabel={<><Zap size={13} style={{ marginRight: 4 }} />Provision cluster</>}
       nextLoading={loading}
     >
       <Section title="Organisation">

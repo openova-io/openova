@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
-import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
 type ValidationState = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -27,11 +26,9 @@ const PROVIDER_TOKEN_HINT: Record<CloudProvider, string> = {
 function TokenSection({
   provider,
   regionIndices,
-  regionLabels,
 }: {
   provider: CloudProvider
   regionIndices: number[]
-  regionLabels: string[]
 }) {
   const store = useWizardStore()
   const [token, setToken] = useState(store.providerTokens[provider] ?? '')
@@ -115,8 +112,7 @@ function TokenSection({
             {state === 'valid' && <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
-            Covering region{regionIndices.length > 1 ? 's' : ''} {regionIndices.map(i => i + 1).join(', ')}
-            {' · '}{regionIndices.map(i => regionLabels[i]).join(', ')}
+            Region{regionIndices.length > 1 ? 's' : ''} {regionIndices.map(i => i + 1).join(', ')}
           </div>
         </div>
       </div>
@@ -215,9 +211,6 @@ export function StepCredentials() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
 
-  const topology = store.topology
-  const regionLabels = topology ? TOPOLOGY_REGION_LABELS[topology] : ['Region 1']
-
   // Unique providers from per-region selections
   const uniqueProviders = [...new Set(Object.values(store.regionProviders))] as CloudProvider[]
 
@@ -249,18 +242,17 @@ export function StepCredentials() {
           key={p}
           provider={p}
           regionIndices={regionIndicesFor(p).length > 0 ? regionIndicesFor(p) : [0]}
-          regionLabels={regionLabels}
         />
       ))}
 
-      {/* How-to for Hetzner (most common) */}
-      {providers.includes('hetzner') && (
+      {/* How-to for Hetzner — hidden once all providers are validated */}
+      {providers.includes('hetzner') && !allValidated && (
         <div style={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', padding: '12px 14px' }}>
           <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.28)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             How to create a Hetzner API token
           </p>
           <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {['Open Hetzner Cloud Console', 'Select your project', 'Go to Security → API Tokens', 'Click Generate API Token', 'Choose Read & Write permissions', 'Copy the token — shown only once'].map((s, i) => (
+            {['Open Hetzner Cloud Console', 'Select your project', 'Go to Security \u2192 API Tokens', 'Click Generate API Token', 'Choose Read & Write permissions', 'Copy the token \u2014 shown only once'].map((s, i) => (
               <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.28)', alignItems: 'flex-start' }}>
                 <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
                 {s}

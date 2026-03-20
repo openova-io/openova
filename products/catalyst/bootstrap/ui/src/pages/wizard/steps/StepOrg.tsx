@@ -33,7 +33,7 @@ function SmartField({
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
           {label}
-          {!required && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 5 }}>optional</span>}
+          {!required && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}> optional</span>}
         </span>
         {isDefault && !focused && (
           <span style={{
@@ -76,7 +76,7 @@ function SelectField({ label, value, options, onChange }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>
-        {label} <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>optional</span>
+        {label}<span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 6 }}> optional</span>
       </span>
       <select
         value={value}

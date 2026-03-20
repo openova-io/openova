@@ -7,7 +7,7 @@ interface StepShellProps {
   children: React.ReactNode
   onNext: () => void
   onBack?: () => void
-  nextLabel?: string
+  nextLabel?: React.ReactNode
   nextDisabled?: boolean
   nextLoading?: boolean
 }
@@ -58,8 +58,15 @@ export function StepShell({
         {children}
       </div>
 
-      {/* Navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Navigation — sticky so it's always visible even when content is tall */}
+      <div style={{
+        position: 'sticky', bottom: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        margin: '8px -32px -32px',
+        padding: '14px 32px 28px',
+        background: 'linear-gradient(to top, rgba(6,8,15,0.98) 60%, rgba(6,8,15,0.0) 100%)',
+        zIndex: 10,
+      }}>
         {onBack ? (
           <button
             onClick={onBack}

@@ -118,7 +118,7 @@ export function WizardLayout() {
 
       {/* ── SCROLLABLE BODY ───────────────────────────────────────────── */}
       {/* flex: 1 + overflow-y: auto — only THIS region moves when content grows */}
-      <div style={{
+      <div id="wizard-body" style={{
         flex: 1,
         overflowY: 'auto',
         display: 'flex',

@@ -135,11 +135,12 @@ function getState(_groupId: string, selected: string[], total: number): Selectio
   return 'partial'
 }
 
-/* The ● ◑ ○ indicator */
+/* The ● ◑ ○ indicator — 18px, strong colors */
 function SelectionDot({ state, color }: { state: SelectionState; color: string }) {
-  if (state === 'full')    return <span style={{ fontSize: 14, color, lineHeight: 1 }}>●</span>
-  if (state === 'partial') return <span style={{ fontSize: 14, color: `${color}88`, lineHeight: 1 }}>◑</span>
-  return <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.15)', lineHeight: 1 }}>○</span>
+  const base: React.CSSProperties = { fontSize: 18, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }
+  if (state === 'full')    return <span style={{ ...base, color, filter: 'drop-shadow(0 0 4px currentColor)' }}>●</span>
+  if (state === 'partial') return <span style={{ ...base, color: '#F59E0B' }}>◑</span>
+  return <span style={{ ...base, color: 'rgba(255,255,255,0.2)' }}>○</span>
 }
 
 function GroupCard({ group }: { group: GroupDef }) {

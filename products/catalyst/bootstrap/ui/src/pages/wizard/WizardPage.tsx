@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useWizardStore } from '@/entities/deployment/store'
 import { StepOrg }         from './steps/StepOrg'
@@ -19,6 +20,10 @@ export function WizardPage() {
   const { currentStep } = useWizardStore()
   const idx = Math.max(0, Math.min(currentStep - 1, STEPS.length - 1))
   const StepComponent = STEPS[idx]!
+
+  useEffect(() => {
+    document.getElementById('wizard-body')?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+  }, [currentStep])
 
   return (
     <AnimatePresence mode="wait" custom={currentStep}>
