@@ -1,16 +1,18 @@
-import { useEffect } from 'react'
-import { Check } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
 import { StepShell, useStepNav } from './_shared'
 
-const PROVIDERS: { id: CloudProvider; name: string }[] = [
-  { id: 'hetzner', name: 'Hetzner Cloud' },
-  { id: 'huawei',  name: 'Huawei Cloud' },
-  { id: 'oci',     name: 'Oracle Cloud (OCI)' },
-  { id: 'aws',     name: 'Amazon Web Services' },
-  { id: 'azure',   name: 'Microsoft Azure' },
+/* ── Provider definitions with logos ─────────────────────────────── */
+interface ProviderDef { id: CloudProvider; name: string; logo: React.ReactNode }
+const PROVIDERS: ProviderDef[] = [
+  { id: 'hetzner', name: 'Hetzner Cloud',      logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#D50C2D"/><path d="M5 6h5v12H5zM14 6h5v12h-5z" fill="#fff"/></svg> },
+  { id: 'huawei',  name: 'Huawei Cloud',        logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#CF0A2C"/><path d="M12 5L14 9.5L19 9.5L15 12.5L17 17L12 14L7 17L9 12.5L5 9.5L10 9.5Z" fill="#fff"/></svg> },
+  { id: 'oci',     name: 'Oracle Cloud (OCI)',   logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#F80000"/><ellipse cx={12} cy={12} rx={7} ry={4.5} fill="none" stroke="#fff" strokeWidth={1.5}/></svg> },
+  { id: 'aws',     name: 'Amazon Web Services',  logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#232F3E"/><path d="M7 15c2.5 1.8 7.5 1.8 10 0" stroke="#FF9900" strokeWidth={1.5} fill="none" strokeLinecap="round"/><path d="M12 8v5" stroke="#FF9900" strokeWidth={1.5} strokeLinecap="round"/><path d="M10 11l2-3 2 3" stroke="#FF9900" strokeWidth={1.2} fill="none" strokeLinecap="round"/></svg> },
+  { id: 'azure',   name: 'Microsoft Azure',      logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#0078D4"/><path d="M11 7L7 17h4l2-4 2 4h4L15 7z" fill="#fff" opacity={0.9}/></svg> },
 ]
 
 /* ── HQ → nearest provider + staggered regions ───────────────────── */
@@ -28,55 +30,86 @@ const HQ_HINTS: Array<{ match: RegExp; provider: CloudProvider; regions: string[
   { match: /japan|tokyo|korea|seoul/i,                          provider: 'aws',     regions: ['ap-southeast-1', 'us-west-2',       'eu-central-1'] },
   { match: /australia|sydney|melbourne/i,                       provider: 'oci',     regions: ['ap-singapore-1', 'us-ashburn-1',    'eu-frankfurt-1'] },
 ]
+function getHqHint(hq: string) { return HQ_HINTS.find(h => h.match.test(hq)) ?? null }
 
-function getHqHint(hq: string) {
-  return HQ_HINTS.find(h => h.match.test(hq)) ?? null
-}
+/* ── Custom dropdown ─────────────────────────────────────────────── */
+interface SelectOption { value: string; label: string; sublabel?: string; logo?: React.ReactNode }
 
-/* ── Shared dropdown style ───────────────────────────────────────── */
-const selectStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 32px 8px 10px',
-  borderRadius: 7,
-  border: '1.5px solid rgba(255,255,255,0.1)',
-  background: 'rgba(255,255,255,0.04)',
-  color: 'rgba(255,255,255,0.75)',
-  fontSize: 12,
-  fontFamily: 'Inter, sans-serif',
-  appearance: 'none',
-  WebkitAppearance: 'none',
-  cursor: 'pointer',
-  outline: 'none',
-}
-
-function Dropdown({ value, onChange, children, configured }: {
+function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
   value: string
   onChange: (v: string) => void
-  children: React.ReactNode
-  configured?: boolean
+  options: SelectOption[]
+  placeholder?: string
 }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  const selected = options.find(o => o.value === value)
+
   return (
-    <div style={{ position: 'relative' }}>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
+    <div ref={ref} style={{ position: 'relative' }}>
+      {/* Trigger */}
+      <div
+        onClick={() => setOpen(v => !v)}
         style={{
-          ...selectStyle,
-          border: configured
-            ? '1.5px solid rgba(56,189,248,0.4)'
-            : '1.5px solid rgba(255,255,255,0.1)',
-          background: configured
-            ? 'rgba(56,189,248,0.06)'
-            : 'rgba(255,255,255,0.04)',
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+          border: selected ? '1.5px solid rgba(56,189,248,0.35)' : '1.5px solid rgba(255,255,255,0.1)',
+          background: selected ? 'rgba(56,189,248,0.06)' : 'rgba(255,255,255,0.03)',
+          transition: 'all 0.12s',
         }}
       >
-        {children}
-      </select>
-      {/* Chevron */}
-      <div style={{
-        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-        pointerEvents: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 10,
-      }}>▾</div>
+        {selected?.logo}
+        <span style={{ flex: 1, fontSize: 12, fontWeight: selected ? 500 : 400, color: selected ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)' }}>
+          {selected ? selected.label : placeholder}
+        </span>
+        {selected?.sublabel && (
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{selected.sublabel}</span>
+        )}
+        <ChevronDown size={13} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </div>
+
+      {/* Panel */}
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
+          borderRadius: 9, border: '1px solid rgba(255,255,255,0.1)',
+          background: '#131320', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          overflow: 'hidden',
+        }}>
+          {options.map(o => {
+            const active = o.value === value
+            return (
+              <div
+                key={o.value}
+                onClick={() => { onChange(o.value); setOpen(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '9px 12px', cursor: 'pointer',
+                  background: active ? 'rgba(56,189,248,0.08)' : 'transparent',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  transition: 'background 0.1s',
+                }}
+              >
+                {o.logo}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#fff' : 'rgba(255,255,255,0.65)' }}>{o.label}</div>
+                  {o.sublabel && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>{o.sublabel}</div>}
+                </div>
+                {active && <Check size={13} strokeWidth={2.5} style={{ color: '#38BDF8', flexShrink: 0 }} />}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -91,13 +124,23 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
   onSelectCloudRegion: (r: string) => void
 }) {
   const isConfigured = !!selectedProvider && !!selectedCloudRegion
+  const providerDef = PROVIDERS.find(p => p.id === selectedProvider)
+
+  const providerOptions: SelectOption[] = PROVIDERS.map(p => ({
+    value: p.id, label: p.name, logo: p.logo,
+  }))
+
+  const regionOptions: SelectOption[] = selectedProvider
+    ? PROVIDER_REGIONS[selectedProvider].map(r => ({
+        value: r.id, label: r.label, sublabel: r.location,
+      }))
+    : []
 
   return (
     <div style={{
       borderRadius: 10,
       border: isConfigured ? '1.5px solid rgba(56,189,248,0.22)' : '1.5px solid rgba(255,255,255,0.08)',
       background: 'rgba(255,255,255,0.02)',
-      overflow: 'hidden',
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -110,42 +153,39 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
         }}>
           {isConfigured ? <Check size={10} strokeWidth={2.5}/> : index + 1}
         </div>
-        <span style={{ fontSize: 11, fontWeight: 600, color: isConfigured ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.4)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {label}
+          </div>
+          {isConfigured && providerDef && selectedCloudRegion && (
+            <div style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', marginTop: 1 }}>
+              {providerDef.name} · {PROVIDER_REGIONS[selectedProvider!].find(r => r.id === selectedCloudRegion)?.location}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dropdowns */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Provider */}
         <div>
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)', marginBottom: 5 }}>Provider</div>
-          <Dropdown
+          <CustomSelect
             value={selectedProvider ?? ''}
-            onChange={v => v && onSelectProvider(v as CloudProvider)}
-            configured={!!selectedProvider}
-          >
-            <option value="" disabled style={{ background: '#1a1a2e' }}>Select provider…</option>
-            {PROVIDERS.map(p => (
-              <option key={p.id} value={p.id} style={{ background: '#1a1a2e' }}>{p.name}</option>
-            ))}
-          </Dropdown>
+            onChange={v => onSelectProvider(v as CloudProvider)}
+            options={providerOptions}
+            placeholder="Select provider…"
+          />
         </div>
 
-        {/* Region — only after provider picked */}
         {selectedProvider && (
           <div>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)', marginBottom: 5 }}>Region</div>
-            <Dropdown
+            <CustomSelect
               value={selectedCloudRegion ?? ''}
-              onChange={v => v && onSelectCloudRegion(v)}
-              configured={!!selectedCloudRegion}
-            >
-              <option value="" disabled style={{ background: '#1a1a2e' }}>Select region…</option>
-              {PROVIDER_REGIONS[selectedProvider].map(r => (
-                <option key={r.id} value={r.id} style={{ background: '#1a1a2e' }}>{r.label} — {r.location}</option>
-              ))}
-            </Dropdown>
+              onChange={v => onSelectCloudRegion(v)}
+              options={regionOptions}
+              placeholder="Select region…"
+            />
           </div>
         )}
       </div>
@@ -153,6 +193,7 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
   )
 }
 
+/* ── StepProvider ────────────────────────────────────────────────── */
 export function StepProvider() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
@@ -162,14 +203,16 @@ export function StepProvider() {
   const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? ['Region 1']) : ['Region 1']
   const hint         = getHqHint(store.orgHeadquarters)
 
-  /* Apply HQ-based defaults on first visit */
+  /* On first visit: apply HQ hint, or fall back to first provider + first region */
   useEffect(() => {
     if (Object.keys(store.regionProviders).length > 0) return
-    if (!hint) return
+    const provider = hint?.provider ?? PROVIDERS[0].id
     for (let i = 0; i < regionCount; i++) {
-      store.setRegionProvider(i, hint.provider)
-      if (i === 0) store.setProvider(hint.provider)
-      store.setRegionCloudRegion(i, hint.regions[i % hint.regions.length])
+      store.setRegionProvider(i, provider)
+      if (i === 0) store.setProvider(provider)
+      const regions = PROVIDER_REGIONS[provider]
+      const region  = hint?.regions[i % hint.regions.length] ?? regions[i % regions.length].id
+      store.setRegionCloudRegion(i, region)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -178,12 +221,16 @@ export function StepProvider() {
     .every(i => !!store.regionProviders[i] && !!store.regionCloudRegions[i])
 
   function handleSelectProvider(i: number, provider: CloudProvider) {
-    if (store.regionProviders[i] !== provider) store.setRegionCloudRegion(i, '')
     store.setRegionProvider(i, provider)
     if (i === 0) store.setProvider(provider)
+    // Auto-select first region of the new provider
+    const regions = PROVIDER_REGIONS[provider]
+    const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
+    const autoRegion = hintRegion ?? regions[0].id
+    store.setRegionCloudRegion(i, autoRegion)
   }
 
-  const cols = regionCount === 1 ? '480px' : regionCount === 2 ? '1fr 1fr' : '1fr 1fr 1fr'
+  const cols = regionCount === 1 ? '420px' : regionCount === 2 ? '1fr 1fr' : '1fr 1fr 1fr'
 
   return (
     <StepShell
@@ -218,12 +265,14 @@ export function StepProvider() {
           <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(56,189,248,0.7)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Credentials required next</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[...new Set(Object.values(store.regionProviders))].map(p => {
+              const def = PROVIDERS.find(d => d.id === p)
               const regions = Object.entries(store.regionProviders).filter(([,v]) => v === p).map(([k]) => Number(k))
               return (
-                <div key={p} style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-                  <span style={{ fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>{PROVIDERS.find(d => d.id === p)?.name}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.25)', margin: '0 6px' }}>·</span>
-                  Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}
+                <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+                  {def?.logo}
+                  <span style={{ fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>{def?.name}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.25)' }}>·</span>
+                  <span>Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}</span>
                 </div>
               )
             })}
