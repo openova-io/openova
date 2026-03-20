@@ -25,6 +25,7 @@ export interface WizardState {
   hetznerToken: string
   credentialValidated: boolean
   componentGroups: Record<string, string[]>
+  componentsAppliedForProfile: string | null
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
   selectedComponents: SelectedComponent[]
@@ -87,18 +88,63 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
   solo:     ['Region 1 — All Components'],
 }
 
+/** Base defaults: all M + all R in required blocks; optional blocks empty */
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
-  // Required blocks — M + R pre-selected
   pilot:    ['flux', 'crossplane', 'gitea', 'opentofu'],
   spine:    ['cilium', 'coraza', 'external-dns', 'envoy', 'k8gb', 'frpc', 'netbird'],
   surge:    ['vpa', 'keda', 'reloader', 'continuum'],
   silo:     ['minio', 'velero', 'harbor'],
   guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
   insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch'],
-  // Optional blocks — empty by default
   fabric:   [],
   cortex:   [],
   relay:    [],
+}
+
+/**
+ * Profile-based defaults — adjusts optional block recommendations based on
+ * org industry, compliance requirements, and size.
+ */
+export function getProfileDefaults(
+  orgIndustry: string,
+  orgCompliance: string[],
+  orgSize: string,
+): Record<string, string[]> {
+  const ind  = orgIndustry.toLowerCase()
+  const comp = orgCompliance.map(c => c.toLowerCase())
+
+  const isFinancial  = /financ|bank|insur|fintech/.test(ind)
+  const isHealthcare = /health|pharma|life sci|medical/.test(ind)
+  const isTech       = /tech|software|saas|cloud|it services/.test(ind)
+  const isRetail     = /retail|commerce|ecomm/.test(ind)
+  const isLarge      = /10[,.]?000|50[,.]?000|100[,.]?000/.test(orgSize)
+  const hasAuditComp = comp.some(c => ['pci dss','hipaa','soc 2','iso 27001','gdpr'].some(r => c.includes(r)))
+
+  const defaults: Record<string, string[]> = { ...DEFAULT_COMPONENT_GROUPS }
+
+  // FABRIC: data-heavy and regulated industries
+  if (isFinancial || isHealthcare || isRetail || isLarge || comp.includes('gdpr')) {
+    defaults.fabric = ['cnpg', 'valkey', 'strimzi', 'debezium']
+  }
+
+  // CORTEX: AI/tech companies and large enterprises
+  if (isTech || isLarge) {
+    defaults.cortex = ['kserve', 'knative', 'axon']
+  }
+
+  // RELAY: keep opt-in; no profile auto-enables it
+
+  // openmeter for usage billing (financial, SaaS, retail)
+  if (isFinancial || isTech || isRetail) {
+    defaults.insights = [...defaults.insights, 'openmeter']
+  }
+
+  // strongSwan IPsec: compliance-heavy or financial
+  if (isFinancial || isHealthcare || hasAuditComp) {
+    defaults.spine = [...defaults.spine, 'strongswan']
+  }
+
+  return defaults
 }
 
 export const INITIAL_WIZARD_STATE: WizardState = {
@@ -110,6 +156,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', credentialValidated: false,
   componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
+  componentsAppliedForProfile: null,
   regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
   haEnabled: false, selectedComponents: [],
   currentStep: 1, completedSteps: [], deploymentId: null,

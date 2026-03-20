@@ -45,6 +45,7 @@ interface WizardActions {
   // Step 5 — Components
   setGroupComponents: (groupId: string, componentIds: string[]) => void
   toggleGroupComponent: (groupId: string, componentId: string, allIds: string[]) => void
+  setComponentsAppliedForProfile: (hash: string | null) => void
 
   // Legacy
   addRegion: (region: Region) => void
@@ -134,6 +135,8 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/setGroupComponents'
           ),
+        setComponentsAppliedForProfile: (componentsAppliedForProfile) =>
+          set({ componentsAppliedForProfile }, false, 'wizard/setComponentsAppliedForProfile'),
         toggleGroupComponent: (groupId, componentId, allIds) =>
           set(
             (s) => {

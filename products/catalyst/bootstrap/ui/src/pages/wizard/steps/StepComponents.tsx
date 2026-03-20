@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
-import { DEFAULT_COMPONENT_GROUPS } from '@/entities/deployment/model'
+import { DEFAULT_COMPONENT_GROUPS, getProfileDefaults } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
@@ -18,6 +18,7 @@ interface GroupDef {
   id: string
   productName: string
   subtitle: string
+  description: string
   required: boolean
   components: ComponentDef[]
 }
@@ -26,6 +27,7 @@ const GROUPS: GroupDef[] = [
   /* ── CORE ─────────────────────────────────────────────────────── */
   {
     id: 'pilot', productName: 'PILOT', subtitle: 'GitOps & IaC',
+    description: 'Continuous delivery engine with GitOps workflows and infrastructure as code',
     required: true,
     components: [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps delivery engine',   tier: 'mandatory' },
@@ -36,6 +38,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'spine', productName: 'SPINE', subtitle: 'Networking & Service Mesh',
+    description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
     required: true,
     components: [
       { id: 'cilium',       name: 'Cilium',      desc: 'CNI & eBPF service mesh',         tier: 'mandatory' },
@@ -50,6 +53,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'surge', productName: 'SURGE', subtitle: 'Scaling & Resilience',
+    description: 'Autoscaling, config-change reloading, and high-availability orchestration',
     required: true,
     components: [
       { id: 'vpa',       name: 'VPA',       desc: 'Vertical pod autoscaling',     tier: 'mandatory' },
@@ -60,6 +64,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'silo', productName: 'SILO', subtitle: 'Storage & Registry',
+    description: 'S3-compatible object storage, backup & disaster recovery, and container registry',
     required: true,
     components: [
       { id: 'minio',  name: 'MinIO',  desc: 'S3-compatible object storage',   tier: 'mandatory' },
@@ -70,6 +75,7 @@ const GROUPS: GroupDef[] = [
   /* ── SIDE (cross-cutting, always present) ─────────────────────── */
   {
     id: 'guardian', productName: 'GUARDIAN', subtitle: 'Security & Identity',
+    description: 'Policy enforcement, secrets vault, certificates, scanning, and identity management',
     required: true,
     components: [
       { id: 'falco',            name: 'Falco',          desc: 'Runtime threat detection',        tier: 'recommended' },
@@ -85,6 +91,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'insights', productName: 'INSIGHTS', subtitle: 'AIOps & Observability',
+    description: 'Unified metrics, logs, traces, dashboards, and AI-powered operations',
     required: true,
     components: [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',         tier: 'recommended' },
@@ -102,6 +109,7 @@ const GROUPS: GroupDef[] = [
   /* ── À LA CARTE ───────────────────────────────────────────────── */
   {
     id: 'fabric', productName: 'FABRIC', subtitle: 'Data & Integration',
+    description: 'Event streaming, CDC, workflow orchestration, and analytics databases',
     required: false,
     components: [
       { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator',         tier: 'recommended' },
@@ -118,6 +126,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'cortex', productName: 'CORTEX', subtitle: 'AI & Machine Learning',
+    description: 'Model serving, LLM inference, vector search, embeddings, and AI observability',
     required: false,
     components: [
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform',       tier: 'mandatory' },
@@ -133,6 +142,7 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: 'relay', productName: 'RELAY', subtitle: 'Communication',
+    description: 'Self-hosted email, WebRTC video conferencing, federated messaging, and push notifications',
     required: false,
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server',    tier: 'mandatory' },
@@ -286,20 +296,21 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
         onClick={toggleAll}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Line 1 — product name */}
+          {/* Line 1 — PRODUCT NAME — Conceptual Subtitle */}
           <div style={{
-            fontSize: 13, fontWeight: 700, lineHeight: 1.3,
+            fontSize: 12, fontWeight: 700, lineHeight: 1.3,
             color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {group.productName}
+            <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.35)', marginLeft: 5 }}>— {group.subtitle}</span>
           </div>
-          {/* Line 2 — conceptual subtitle, 1 line */}
+          {/* Line 2 — 1-line description */}
           <div style={{
-            fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 2, lineHeight: 1.3,
+            fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3, lineHeight: 1.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            {group.subtitle}
+            {group.description}
           </div>
           {/* Line 3 — tier chips */}
           <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'nowrap' }}>
@@ -434,6 +445,18 @@ export function StepComponents() {
   const cols     = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : '1fr 1fr 1fr'
 
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
+
+  /* Apply profile-based defaults on first visit, or when org profile changes */
+  useEffect(() => {
+    const profileHash = [store.orgIndustry, store.orgSize, ...store.orgCompliance.slice().sort()].join('|')
+    if (store.componentsAppliedForProfile === profileHash) return
+    const defaults = getProfileDefaults(store.orgIndustry, store.orgCompliance, store.orgSize)
+    for (const [gid, ids] of Object.entries(defaults)) {
+      store.setGroupComponents(gid, ids)
+    }
+    store.setComponentsAppliedForProfile(profileHash)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.orgIndustry, store.orgSize, store.orgCompliance])
 
   /* Row-boundary split — all row-mates (left + right) shift below expanded card */
   const openIdx      = openGroupId ? GROUPS.findIndex(g => g.id === openGroupId) : -1
