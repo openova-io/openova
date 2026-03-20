@@ -16,7 +16,7 @@ interface TopoConfig {
   bullets: string[]
 }
 
-const BOX = (x: number, y: number, w: number, h: number, label: string, fill: string, textFill = 'rgba(var(--wiz-ch),0.9)') => (
+const BOX = (x: number, y: number, w: number, h: number, label: string, fill: string, textFill = 'var(--wiz-text-hi)') => (
   <g key={`b${x}${y}`}>
     <rect x={x} y={y} width={w} height={h} rx={4} fill={fill} />
     <text x={x + w / 2} y={y + h / 2 + 5} textAnchor="middle" fontSize={9} fontWeight="700" style={{fill: textFill}} fontFamily="Inter,sans-serif">{label}</text>
@@ -24,8 +24,8 @@ const BOX = (x: number, y: number, w: number, h: number, label: string, fill: st
 )
 const REGION = (x: number, y: number, w: number, h: number, label: string) => (
   <g key={`r${x}${y}`}>
-    <rect x={x} y={y} width={w} height={h} rx={6} fill="none" style={{stroke: 'rgba(var(--wiz-ch),0.18)'}} strokeWidth={1} strokeDasharray="4,3" />
-    <text x={x + 7} y={y - 5} fontSize={8} style={{fill: 'rgba(var(--wiz-ch),0.4)'}} fontFamily="Inter,sans-serif" fontWeight="500">{label}</text>
+    <rect x={x} y={y} width={w} height={h} rx={6} fill="none" style={{stroke: 'var(--wiz-text-hint)'}} strokeWidth={1} strokeDasharray="4,3" />
+    <text x={x + 7} y={y - 5} fontSize={8} style={{fill: 'var(--wiz-text-sub)'}} fontFamily="Inter,sans-serif" fontWeight="500">{label}</text>
   </g>
 )
 const CONN = (x1: number, y1: number, x2: number, y2: number) => (
@@ -55,9 +55,9 @@ const DiagramDual = () => (
     {BOX(14, 58, 100, 28, 'DMZ', 'rgba(99,102,241,0.75)')}
     {BOX(14, 90, 100, 28, 'RTZ', 'rgba(99,102,241,0.5)')}
     {REGION(155, 10, 120, 126, 'Region 2 · DR')}
-    {BOX(164, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.3)', 'rgba(var(--wiz-ch),0.6)')}
-    {BOX(164, 58, 100, 28, 'DMZ', 'rgba(99,102,241,0.4)', 'rgba(var(--wiz-ch),0.6)')}
-    {BOX(164, 90, 100, 28, 'RTZ', 'rgba(99,102,241,0.3)', 'rgba(var(--wiz-ch),0.6)')}
+    {BOX(164, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.3)', 'var(--wiz-text-md)')}
+    {BOX(164, 58, 100, 28, 'DMZ', 'rgba(99,102,241,0.4)', 'var(--wiz-text-md)')}
+    {BOX(164, 90, 100, 28, 'RTZ', 'rgba(99,102,241,0.3)', 'var(--wiz-text-md)')}
     {CONN(125, 72, 155, 72)}
   </svg>
 )
@@ -68,8 +68,8 @@ const DiagramZoned = () => (
     {BOX(12, 32, 50, 65, 'DMZ', 'rgba(99,102,241,0.75)')}
     {BOX(68, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.65)')}
     {REGION(151, 14, 124, 100, 'Region 2 · DR')}
-    {BOX(158, 32, 50, 65, 'DMZ', 'rgba(99,102,241,0.45)', 'rgba(var(--wiz-ch),0.6)')}
-    {BOX(214, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.3)', 'rgba(var(--wiz-ch),0.6)')}
+    {BOX(158, 32, 50, 65, 'DMZ', 'rgba(99,102,241,0.45)', 'var(--wiz-text-md)')}
+    {BOX(214, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.3)', 'var(--wiz-text-md)')}
     {CONN(129, 65, 151, 65)}
   </svg>
 )
@@ -79,7 +79,7 @@ const DiagramCompact = () => (
     {REGION(10, 14, 114, 90, 'Region 1 · Primary')}
     {BOX(22, 36, 90, 44, 'All components', 'rgba(56,189,248,0.55)')}
     {REGION(156, 14, 114, 90, 'Region 2 · Secondary')}
-    {BOX(168, 36, 90, 44, 'All components', 'rgba(56,189,248,0.3)', 'rgba(var(--wiz-ch),0.6)')}
+    {BOX(168, 36, 90, 44, 'All components', 'rgba(56,189,248,0.3)', 'var(--wiz-text-md)')}
     {CONN(124, 58, 156, 58)}
   </svg>
 )
@@ -153,7 +153,7 @@ const TOPOLOGIES: TopoConfig[] = [
 function TopologyDetail({ t }: { t: TopoConfig }) {
   return (
     <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(var(--wiz-ch),0.07)' }}>
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-text-primary)', letterSpacing: '0.04em' }}>{t.name}</span>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '2px 7px' }}>{t.tag}</span>
@@ -161,18 +161,18 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
             {[{ val: t.regions, lbl: 'regions' }, { val: t.clusters, lbl: 'clusters' }].map(({ val, lbl }) => (
               <div key={lbl} style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#38BDF8', lineHeight: 1 }}>{val}</div>
-                <div style={{ fontSize: 9, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 2 }}>{lbl}</div>
+                <div style={{ fontSize: 9, color: 'var(--wiz-text-sub)', marginTop: 2 }}>{lbl}</div>
               </div>
             ))}
           </div>
         </div>
-        <div style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.4)', lineHeight: 1.4 }}>{t.tagline}</div>
+        <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
       <div style={{ padding: '16px 18px 10px', background: 'rgba(0,0,0,0.25)' }}>{t.diagram}</div>
       <div style={{ padding: '12px 18px 16px' }}>
         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {t.bullets.map(b => (
-            <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(var(--wiz-ch),0.5)', lineHeight: 1.5 }}>
+            <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--wiz-text-lo)', lineHeight: 1.5 }}>
               <span style={{ color: '#38BDF8', flexShrink: 0, marginTop: 1 }}>·</span>{b}
             </li>
           ))}
@@ -219,15 +219,15 @@ export function StepTopology() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
-                  border: isSelected ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid rgba(var(--wiz-ch),0.07)',
-                  background: isSelected ? 'rgba(56,189,248,0.07)' : 'rgba(var(--wiz-ch),0.02)',
+                  border: isSelected ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid var(--wiz-border-sub)',
+                  background: isSelected ? 'rgba(56,189,248,0.07)' : 'var(--wiz-bg-xs)',
                   boxShadow: isSelected ? '0 0 0 3px rgba(56,189,248,0.07)' : 'none',
                   transition: 'all 0.15s',
                 }}
               >
                 <div style={{
                   width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-                  border: isSelected ? 'none' : '1.5px solid rgba(var(--wiz-ch),0.2)',
+                  border: isSelected ? 'none' : '1.5px solid var(--wiz-text-hint)',
                   background: isSelected ? '#38BDF8' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transition: 'all 0.15s',
@@ -236,17 +236,17 @@ export function StepTopology() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? '#fff' : 'rgba(var(--wiz-ch),0.7)', letterSpacing: '0.03em' }}>{t.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? '#fff' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>{t.name}</span>
                     <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '1px 6px' }}>{t.tag}</span>
                     {t.recommended && !isSelected && <span style={{ fontSize: 9, color: 'rgba(34,197,94,0.6)', fontWeight: 500 }}>← start here</span>}
                   </div>
-                  <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 2, lineHeight: 1.3 }}>{t.tagline}</div>
+                  <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 2, lineHeight: 1.3 }}>{t.tagline}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
                   {[{ val: t.regions, lbl: 'reg' }, { val: t.clusters, lbl: 'cls' }].map(({ val, lbl }) => (
                     <div key={lbl} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, color: isSelected ? '#38BDF8' : 'rgba(var(--wiz-ch),0.4)' }}>{val}</div>
-                      <div style={{ fontSize: 8, color: 'rgba(var(--wiz-ch),0.2)', marginTop: 2 }}>{lbl}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, color: isSelected ? '#38BDF8' : 'var(--wiz-text-sub)' }}>{val}</div>
+                      <div style={{ fontSize: 8, color: 'var(--wiz-text-hint)', marginTop: 2 }}>{lbl}</div>
                     </div>
                   ))}
                 </div>
@@ -262,8 +262,8 @@ export function StepTopology() {
           ) : (
             <div style={{
               minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              border: '1.5px dashed rgba(var(--wiz-ch),0.1)', borderRadius: 12,
-              color: 'rgba(var(--wiz-ch),0.2)', fontSize: 13,
+              border: '1.5px dashed var(--wiz-border)', borderRadius: 12,
+              color: 'var(--wiz-text-hint)', fontSize: 13,
             }}>
               Select a topology to see the architecture diagram
             </div>

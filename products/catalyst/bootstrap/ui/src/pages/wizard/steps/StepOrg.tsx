@@ -26,9 +26,9 @@ function SmartField({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(var(--wiz-ch),0.5)' }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)' }}>
           {label}
-          {!required && <span style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.2)', marginLeft: 6 }}>optional</span>}
+          {!required && <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', marginLeft: 6 }}>optional</span>}
         </span>
         {isDefault && !focused && (
           <span style={{
@@ -46,9 +46,9 @@ function SmartField({
         onChange={e => onChange(e.target.value)}
         style={{
           height: 40, borderRadius: 8,
-          border: `1.5px solid ${focused ? 'rgba(56,189,248,0.45)' : 'rgba(var(--wiz-ch),0.1)'}`,
-          background: 'rgba(var(--wiz-ch),0.05)',
-          color: isDefault && !focused ? 'rgba(var(--wiz-ch),0.28)' : 'rgba(var(--wiz-ch),0.88)',
+          border: `1.5px solid ${focused ? 'rgba(56,189,248,0.45)' : 'var(--wiz-border)'}`,
+          background: 'var(--wiz-bg-input)',
+          color: isDefault && !focused ? 'var(--wiz-text-sub)' : 'var(--wiz-text-hi)',
           fontSize: 13, padding: '0 12px', outline: 'none',
           boxShadow: focused ? '0 0 0 3px rgba(56,189,248,0.08)' : 'none',
           transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
@@ -63,21 +63,21 @@ function SelectField({ label, value, options, onChange }: {
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(var(--wiz-ch),0.5)' }}>
-        {label}<span style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.2)', marginLeft: 6 }}>optional</span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)' }}>
+        {label}<span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', marginLeft: 6 }}>optional</span>
       </span>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
         style={{
           height: 40, borderRadius: 8,
-          border: '1.5px solid rgba(var(--wiz-ch),0.1)',
-          background: 'rgba(var(--wiz-ch),0.05)',
-          color: 'rgba(var(--wiz-ch),0.7)', fontSize: 13,
+          border: '1.5px solid var(--wiz-border)',
+          background: 'var(--wiz-bg-input)',
+          color: 'var(--wiz-text-md)', fontSize: 13,
           paddingLeft: 12, paddingRight: 32, outline: 'none',
           fontFamily: 'Inter, sans-serif', cursor: 'pointer',
           appearance: 'none' as const,
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(var(--wiz-ch),0.3)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
         }}
       >
@@ -129,8 +129,8 @@ export function StepOrg() {
 
       {/* Compliance */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(var(--wiz-ch),0.5)' }}>
-          Compliance frameworks <span style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.2)' }}>optional · shapes component defaults</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)' }}>
+          Compliance frameworks <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>optional · shapes component defaults</span>
         </span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {COMPLIANCE_OPTIONS.map(tag => {
@@ -142,9 +142,9 @@ export function StepOrg() {
                 onClick={() => toggleCompliance(tag)}
                 style={{
                   height: 28, padding: '0 12px', borderRadius: 6,
-                  border: `1.5px solid ${active ? 'rgba(56,189,248,0.45)' : 'rgba(var(--wiz-ch),0.1)'}`,
-                  background: active ? 'rgba(56,189,248,0.1)' : 'rgba(var(--wiz-ch),0.03)',
-                  color: active ? '#38BDF8' : 'rgba(var(--wiz-ch),0.3)',
+                  border: `1.5px solid ${active ? 'rgba(56,189,248,0.45)' : 'var(--wiz-border)'}`,
+                  background: active ? 'rgba(56,189,248,0.1)' : 'var(--wiz-bg-sub)',
+                  color: active ? '#38BDF8' : 'var(--wiz-text-sub)',
                   fontSize: 11, fontWeight: active ? 600 : 400,
                   cursor: 'pointer', transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
                 }}
@@ -156,7 +156,7 @@ export function StepOrg() {
         </div>
       </div>
 
-      <p style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.18)', margin: 0, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
         Fields marked <span style={{ color: 'rgba(56,189,248,0.45)' }}>default</span> are pre-filled.
         Click to focus — all text is selected so you can type a replacement immediately.
       </p>

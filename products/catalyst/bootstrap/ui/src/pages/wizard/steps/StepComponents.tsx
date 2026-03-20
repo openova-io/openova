@@ -287,8 +287,8 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
     <div style={{
       height: '100%', display: 'flex', flexDirection: 'column',
       borderRadius: 10,
-      border: active ? '1.5px solid rgba(var(--wiz-ch),0.1)' : '1.5px solid rgba(var(--wiz-ch),0.06)',
-      background: active ? 'rgba(var(--wiz-ch),0.03)' : 'rgba(0,0,0,0.1)',
+      border: active ? '1.5px solid var(--wiz-border)' : '1.5px solid var(--wiz-border-sub)',
+      background: active ? 'var(--wiz-bg-sub)' : 'rgba(0,0,0,0.1)',
       overflow: 'hidden', transition: 'all 0.15s',
     }}>
       {/* Header — fixed 3-line height so all cards align */}
@@ -300,15 +300,15 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
           {/* Line 1 — PRODUCT NAME — Conceptual Subtitle */}
           <div style={{
             fontSize: 12, fontWeight: 700, lineHeight: 1.3,
-            color: active ? 'rgba(var(--wiz-ch),0.85)' : 'rgba(var(--wiz-ch),0.4)',
+            color: active ? 'var(--wiz-text-hi)' : 'var(--wiz-text-sub)',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {group.productName}
-            <span style={{ fontWeight: 400, color: 'rgba(var(--wiz-ch),0.35)', marginLeft: 5 }}>— {group.subtitle}</span>
+            <span style={{ fontWeight: 400, color: 'var(--wiz-text-sub)', marginLeft: 5 }}>— {group.subtitle}</span>
           </div>
           {/* Line 2 — 1-line description */}
           <div style={{
-            fontSize: 10, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 3, lineHeight: 1.3,
+            fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 3, lineHeight: 1.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {group.description}
@@ -318,8 +318,8 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
             {mItems.length > 0 && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
-                background: 'rgba(var(--wiz-ch),0.06)', border: '1px solid rgba(var(--wiz-ch),0.12)',
-                color: 'rgba(var(--wiz-ch),0.35)',
+                background: 'var(--wiz-border-sub)', border: '1px solid var(--wiz-border)',
+                color: 'var(--wiz-text-sub)',
               }}>
                 {mSel}/{mItems.length}M
               </span>
@@ -327,9 +327,9 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
             {rItems.length > 0 && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
-                background: rSel > 0 ? 'rgba(56,189,248,0.12)' : 'rgba(var(--wiz-ch),0.04)',
-                border: rSel > 0 ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(var(--wiz-ch),0.08)',
-                color: rSel > 0 ? '#38BDF8' : 'rgba(var(--wiz-ch),0.25)',
+                background: rSel > 0 ? 'rgba(56,189,248,0.12)' : 'var(--wiz-bg-card)',
+                border: rSel > 0 ? '1px solid rgba(56,189,248,0.25)' : '1px solid var(--wiz-border-sub)',
+                color: rSel > 0 ? '#38BDF8' : 'var(--wiz-text-hint)',
               }}>
                 {rSel}/{rItems.length}R
               </span>
@@ -337,9 +337,9 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
             {oItems.length > 0 && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, lineHeight: 1.4,
-                background: oSel > 0 ? 'rgba(167,139,250,0.12)' : 'rgba(var(--wiz-ch),0.04)',
-                border: oSel > 0 ? '1px solid rgba(167,139,250,0.25)' : '1px solid rgba(var(--wiz-ch),0.08)',
-                color: oSel > 0 ? '#A78BFA' : 'rgba(var(--wiz-ch),0.25)',
+                background: oSel > 0 ? 'rgba(167,139,250,0.12)' : 'var(--wiz-bg-card)',
+                border: oSel > 0 ? '1px solid rgba(167,139,250,0.25)' : '1px solid var(--wiz-border-sub)',
+                color: oSel > 0 ? '#A78BFA' : 'var(--wiz-text-hint)',
               }}>
                 {oSel}/{oItems.length}O
               </span>
@@ -350,7 +350,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onToggle() }}
-          style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(var(--wiz-ch),0.08)', background: 'rgba(var(--wiz-ch),0.04)', color: 'rgba(var(--wiz-ch),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+          style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-card)', color: 'var(--wiz-text-sub)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
         >
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
@@ -358,7 +358,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
 
       {/* Expanded list */}
       {open && (
-        <div style={{ borderTop: '1px solid rgba(var(--wiz-ch),0.06)', padding: '8px 14px 12px' }}>
+        <div style={{ borderTop: '1px solid var(--wiz-border-sub)', padding: '8px 14px 12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: colsInner, gap: 4 }}>
             {sortedComponents.map(c => {
               const on     = selectedIds.includes(c.id)
@@ -371,7 +371,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '6px 10px', borderRadius: 7,
-                    background: on ? 'rgba(var(--wiz-ch),0.04)' : 'transparent',
+                    background: on ? 'var(--wiz-bg-card)' : 'transparent',
                     cursor: locked ? 'default' : 'pointer',
                     opacity: locked ? 0.6 : 1,
                     transition: 'background 0.12s',
@@ -380,9 +380,9 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   {/* Checkbox — locked = grey checked, user-selected = colored */}
                   <div style={{
                     width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-                    border: on ? 'none' : '1.5px solid rgba(var(--wiz-ch),0.15)',
+                    border: on ? 'none' : '1.5px solid var(--wiz-border)',
                     background: locked
-                      ? 'rgba(var(--wiz-ch),0.2)'
+                      ? 'var(--wiz-text-hint)'
                       : on
                         ? checkboxColor(c.tier, false)
                         : 'transparent',
@@ -391,7 +391,7 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
                   }}>
                     {on && (
                       <svg width={9} height={9} viewBox="0 0 12 12" fill="none">
-                        <path d="M2 6l3 3 5-5" stroke={locked ? 'rgba(var(--wiz-ch),0.6)' : '#fff'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 6l3 3 5-5" stroke={locked ? 'var(--wiz-text-md)' : '#fff'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     )}
                   </div>
@@ -403,17 +403,17 @@ function GroupCard({ group, open, onToggle }: { group: GroupDef; open: boolean; 
 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ fontSize: 12, fontWeight: on ? 600 : 400, color: locked ? 'rgba(var(--wiz-ch),0.5)' : on ? 'rgba(var(--wiz-ch),0.85)' : 'rgba(var(--wiz-ch),0.4)' }}>
+                      <span style={{ fontSize: 12, fontWeight: on ? 600 : 400, color: locked ? 'var(--wiz-text-lo)' : on ? 'var(--wiz-text-hi)' : 'var(--wiz-text-sub)' }}>
                         {c.name}
                       </span>
                       <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3, background: `${badge.color}15`, border: `1px solid ${badge.color}30`, color: badge.color }}>
                         {badge.label}
                       </span>
                     </div>
-                    <div style={{ fontSize: 10, color: 'rgba(var(--wiz-ch),0.22)', lineHeight: 1.3 }}>{c.desc}</div>
+                    <div style={{ fontSize: 10, color: 'var(--wiz-text-hint)', lineHeight: 1.3 }}>{c.desc}</div>
                   </div>
 
-                  {locked && <Lock size={10} style={{ color: 'rgba(var(--wiz-ch),0.3)', flexShrink: 0 }} />}
+                  {locked && <Lock size={10} style={{ color: 'var(--wiz-text-sub)', flexShrink: 0 }} />}
                 </div>
               )
             })}
@@ -485,7 +485,7 @@ export function StepComponents() {
         <span style={{ fontSize: 12, color: 'rgba(56,189,248,0.7)', fontWeight: 600 }}>
           {totalSelected} of {totalAll} components selected
         </span>
-        <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'rgba(var(--wiz-ch),0.08)', overflow: 'hidden' }}>
+        <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'var(--wiz-border-sub)', overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${(totalSelected / totalAll) * 100}%`, background: 'linear-gradient(90deg, #38BDF8, #818CF8)', transition: 'width 0.3s' }} />
         </div>
       </div>

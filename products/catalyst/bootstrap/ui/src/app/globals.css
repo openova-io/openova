@@ -53,6 +53,26 @@
   --wiz-deep-bg:    #1a1a1a;
   --wiz-glow-1:     rgba(56,189,248,0.06);
   --wiz-glow-2:     rgba(129,140,248,0.05);
+
+  /* ── Semantic text tokens (dark defaults) ──────────────────────── */
+  --wiz-text-hi:    rgba(255,255,255,0.88);  /* headings, active labels  */
+  --wiz-text-md:    rgba(255,255,255,0.65);  /* body copy, labels        */
+  --wiz-text-lo:    rgba(255,255,255,0.5);   /* secondary body           */
+  --wiz-text-sub:   rgba(255,255,255,0.35);  /* subtext, taglines        */
+  --wiz-text-hint:  rgba(255,255,255,0.2);   /* hints, placeholders      */
+
+  /* ── Semantic border tokens ───────────────────────────────────── */
+  --wiz-border:     rgba(255,255,255,0.1);   /* visible input/card border */
+  --wiz-border-sub: rgba(255,255,255,0.06);  /* subtle dividers           */
+
+  /* ── Semantic background tokens ──────────────────────────────── */
+  --wiz-bg-input:   rgba(255,255,255,0.05);  /* input / control bg       */
+  --wiz-bg-card:    rgba(255,255,255,0.04);  /* card / section bg        */
+  --wiz-bg-sub:     rgba(255,255,255,0.025); /* subtle area bg           */
+  --wiz-bg-xs:      rgba(255,255,255,0.02);  /* near-transparent tint    */
+
+  /* ── Card shadow ─────────────────────────────────────────────── */
+  --wiz-card-shadow: 0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 /* ─── Light mode overrides ─────────────────────────────────────────────── */
@@ -83,6 +103,26 @@
   --wiz-deep-bg:    #f4f4f5;
   --wiz-glow-1:     rgba(2,132,199,0.08);
   --wiz-glow-2:     rgba(99,102,241,0.05);
+
+  /* ── Semantic text tokens — WCAG AA calibrated for white bg ──── */
+  --wiz-text-hi:    #0f172a;   /* 21:1 — headings, active labels    */
+  --wiz-text-md:    #334155;   /* 9.5:1 — body copy, labels         */
+  --wiz-text-lo:    #475569;   /* 7:1   — secondary body            */
+  --wiz-text-sub:   #64748b;   /* 4.7:1 — subtext, taglines (AA ✓)  */
+  --wiz-text-hint:  #94a3b8;   /* 2.8:1 — hints, step numbers       */
+
+  /* ── Semantic border tokens ───────────────────────────────────── */
+  --wiz-border:     #d1d5db;   /* visible input/card border          */
+  --wiz-border-sub: #e8ecf0;   /* subtle dividers                    */
+
+  /* ── Semantic background tokens ──────────────────────────────── */
+  --wiz-bg-input:   #f8fafc;   /* input / control bg                 */
+  --wiz-bg-card:    #ffffff;   /* card bg = white in Option B        */
+  --wiz-bg-sub:     #f4f6f8;   /* subtle area bg                     */
+  --wiz-bg-xs:      #f9fafb;   /* near-white tint                    */
+
+  /* ── Card shadow — airy for light mode ───────────────────────── */
+  --wiz-card-shadow: 0 2px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 /* ─── Base ─────────────────────────────────────────────────────────────── */

@@ -100,18 +100,18 @@ function TokenSection({
       borderRadius: 12, overflow: 'hidden',
       border: state === 'valid'
         ? '1.5px solid rgba(74,222,128,0.3)'
-        : '1.5px solid rgba(var(--wiz-ch),0.08)',
-      background: state === 'valid' ? 'rgba(74,222,128,0.03)' : 'rgba(var(--wiz-ch),0.02)',
+        : '1.5px solid var(--wiz-border-sub)',
+      background: state === 'valid' ? 'rgba(74,222,128,0.03)' : 'var(--wiz-bg-xs)',
       transition: 'all 0.2s',
     }}>
       {/* Provider header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid rgba(var(--wiz-ch),0.06)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.85)' }}>{PROVIDER_NAMES[provider]}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wiz-text-hi)' }}>{PROVIDER_NAMES[provider]}</span>
             {state === 'valid' && <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />}
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(var(--wiz-ch),0.3)', marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginTop: 2 }}>
             Region{regionIndices.length > 1 ? 's' : ''} {regionIndices.map(i => i + 1).join(', ')}
           </div>
         </div>
@@ -119,7 +119,7 @@ function TokenSection({
 
       {/* Token form */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(var(--wiz-ch),0.4)' }}>
+        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
           API credential · {PROVIDER_TOKEN_HINT[provider]}
         </span>
 
@@ -135,9 +135,9 @@ function TokenSection({
               placeholder="Paste your credential here…"
               style={{
                 width: '100%', height: 38, borderRadius: 7,
-                border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'rgba(var(--wiz-ch),0.1)'}`,
-                background: 'rgba(var(--wiz-ch),0.05)',
-                color: 'rgba(var(--wiz-ch),0.85)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
+                border: `1.5px solid ${error ? 'rgba(248,113,113,0.5)' : focused ? 'rgba(56,189,248,0.45)' : 'var(--wiz-border)'}`,
+                background: 'var(--wiz-bg-input)',
+                color: 'var(--wiz-text-hi)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
                 outline: 'none', fontFamily: 'Inter, monospace',
                 boxShadow: focused ? `0 0 0 3px ${error ? 'rgba(248,113,113,0.07)' : 'rgba(56,189,248,0.07)'}` : 'none',
                 transition: 'all 0.15s',
@@ -146,7 +146,7 @@ function TokenSection({
             <button
               type="button"
               onClick={() => setShow(v => !v)}
-              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(var(--wiz-ch),0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--wiz-text-sub)', cursor: 'pointer', padding: 0, display: 'flex' }}
             >
               {show ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
@@ -159,9 +159,9 @@ function TokenSection({
             disabled={state === 'validating' || state === 'valid'}
             style={{
               height: 38, padding: '0 14px', borderRadius: 7, flexShrink: 0,
-              border: state === 'valid' ? '1.5px solid rgba(74,222,128,0.35)' : '1.5px solid rgba(var(--wiz-ch),0.1)',
-              background: state === 'valid' ? 'rgba(74,222,128,0.07)' : 'rgba(var(--wiz-ch),0.05)',
-              color: state === 'valid' ? '#4ADE80' : 'rgba(var(--wiz-ch),0.4)',
+              border: state === 'valid' ? '1.5px solid rgba(74,222,128,0.35)' : '1.5px solid var(--wiz-border)',
+              background: state === 'valid' ? 'rgba(74,222,128,0.07)' : 'var(--wiz-bg-input)',
+              color: state === 'valid' ? '#4ADE80' : 'var(--wiz-text-sub)',
               fontSize: 12, fontWeight: 600, cursor: state === 'validating' || state === 'valid' ? 'default' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 5,
               fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
@@ -248,8 +248,8 @@ export function StepCredentials() {
 
       {/* How-to for Hetzner */}
       {providers.includes('hetzner') && !allValidated && (
-        <div style={{ borderRadius: 10, border: '1px solid rgba(var(--wiz-ch),0.07)', background: 'rgba(var(--wiz-ch),0.02)', padding: '12px 14px' }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(var(--wiz-ch),0.28)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ borderRadius: 10, border: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)', padding: '12px 14px' }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-sub)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             How to create a Hetzner API token
           </p>
           <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -261,8 +261,8 @@ export function StepCredentials() {
               'Choose Read & Write permissions',
               'Copy the token \u2014 shown only once',
             ].map((s, i) => (
-              <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'rgba(var(--wiz-ch),0.28)', alignItems: 'flex-start' }}>
-                <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'rgba(var(--wiz-ch),0.05)', border: '1px solid rgba(var(--wiz-ch),0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+              <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--wiz-text-sub)', alignItems: 'flex-start' }}>
+                <span style={{ width: 15, height: 15, borderRadius: '50%', background: 'var(--wiz-bg-input)', border: '1px solid var(--wiz-border-sub)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
                 {s}
               </li>
             ))}
