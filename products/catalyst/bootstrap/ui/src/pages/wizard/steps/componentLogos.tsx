@@ -3,7 +3,7 @@
  * 18×18 viewBox — rounded badge with brand color + recognisable shape or letter mark.
  */
 
-function Badge(bg: string, fg = '#fff', children: React.ReactNode) {
+function Badge(bg: string, _fg = '#fff', children: React.ReactNode) {
   return (
     <svg viewBox="0 0 18 18" width={16} height={16} style={{ flexShrink: 0, display: 'block' }}>
       <rect width={18} height={18} rx={4} fill={bg} />
