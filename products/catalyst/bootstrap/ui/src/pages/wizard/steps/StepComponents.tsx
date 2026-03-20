@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Lock } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
+import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -254,9 +255,12 @@ function GroupCard({ group }: { group: GroupDef }) {
 export function StepComponents() {
   const { next, back } = useStepNav()
   const store = useWizardStore()
+  const bp = useBreakpoint()
 
   const totalSelected = GROUPS.reduce((sum, g) => sum + (store.componentGroups[g.id]?.length ?? 0), 0)
   const totalAll = GROUPS.reduce((sum, g) => sum + g.components.length, 0)
+
+  const groupCols = bp === 'mobile' ? '1fr' : '1fr 1fr'
 
   return (
     <StepShell
@@ -275,8 +279,8 @@ export function StepComponents() {
         </div>
       </div>
 
-      {/* 2-column group grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {/* Group grid: 2-col on tablet/desktop, 1-col on mobile */}
+      <div style={{ display: 'grid', gridTemplateColumns: groupCols, gap: 8 }}>
         {GROUPS.map(g => <GroupCard key={g.id} group={g} />)}
       </div>
     </StepShell>

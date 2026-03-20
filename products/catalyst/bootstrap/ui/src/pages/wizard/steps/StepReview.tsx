@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
+import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 const TOPOLOGY_NAMES = {
@@ -59,6 +60,7 @@ export function StepReview() {
   const store = useWizardStore()
   const { back } = useStepNav()
   const navigate = useNavigate()
+  const bp = useBreakpoint()
   const [loading, setLoading] = useState(false)
 
   const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
@@ -100,8 +102,8 @@ export function StepReview() {
       nextLabel={<><Zap size={13} style={{ marginRight: 4 }} />Provision cluster</>}
       nextLoading={loading}
     >
-      {/* 2-column review layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+      {/* 2-column review layout — stacks on mobile */}
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : '1fr 1fr', gap: 16, alignItems: 'start' }}>
 
         {/* Left column: Organisation + Infrastructure */}
         <div>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
+import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
 type ValidationState = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -207,6 +208,7 @@ function TokenSection({
 export function StepCredentials() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
+  const bp = useBreakpoint()
 
   const uniqueProviders = [...new Set(Object.values(store.regionProviders))] as CloudProvider[]
   const providers: CloudProvider[] = uniqueProviders.length > 0
@@ -220,8 +222,8 @@ export function StepCredentials() {
       .filter(([, v]) => v === p)
       .map(([k]) => Number(k))
 
-  /* 2-col grid when 2+ providers, 1-col for single */
-  const cols = providers.length >= 2 ? '1fr 1fr' : '1fr'
+  /* 2-col when 2+ providers AND not mobile */
+  const cols = providers.length >= 2 && bp !== 'mobile' ? '1fr 1fr' : '1fr'
 
   return (
     <StepShell
