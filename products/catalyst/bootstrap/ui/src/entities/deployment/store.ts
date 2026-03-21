@@ -176,7 +176,7 @@ export const useWizardStore = create<WizardStore>()(
         merge: (persisted, current) => {
           const p = { ...(persisted as Partial<WizardState>) }
           // Sanitize stale topology values
-          const validTopologies: TopologyTemplate[] = ['triangle', 'dual', 'zoned', 'compact', 'solo']
+          const validTopologies: TopologyTemplate[] = ['citadel', 'triangle', 'dual', 'zoned', 'compact', 'solo']
           if (p.topology && !validTopologies.includes(p.topology)) {
             p.topology = null
             p.regionProviders = {}

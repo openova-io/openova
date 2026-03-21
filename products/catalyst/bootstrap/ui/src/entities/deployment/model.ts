@@ -1,7 +1,7 @@
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
 export type NodeSize = 'cx22' | 'cx32' | 'cx42' | 'cx52'
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
-export type TopologyTemplate = 'triangle' | 'dual' | 'zoned' | 'compact' | 'solo'
+export type TopologyTemplate = 'citadel' | 'triangle' | 'dual' | 'zoned' | 'compact' | 'solo'
 
 export interface Region {
   id: string; code: string; name: string; location: string; countryCode: string; flag: string
@@ -77,10 +77,11 @@ export const PROVIDER_REGIONS: Record<CloudProvider, { id: string; label: string
 }
 
 export const TOPOLOGY_REGION_COUNT: Record<TopologyTemplate, number> = {
-  triangle: 3, dual: 2, zoned: 2, compact: 2, solo: 1,
+  citadel: 4, triangle: 3, dual: 2, zoned: 2, compact: 2, solo: 1,
 }
 
 export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
+  citadel:  ['CP Region 1 — MGMT', 'CP Region 2 — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
   triangle: ['CP Region — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
   dual:     ['Region 1 — MGMT + DMZ + RTZ', 'Region 2 — MGMT + DMZ + RTZ'],
   zoned:    ['Region 1 — DMZ + Core', 'Region 2 — DMZ + Core'],
@@ -151,7 +152,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   orgName: ORG_DEFAULTS.name, orgDomain: ORG_DEFAULTS.domain, orgEmail: ORG_DEFAULTS.email,
   orgIndustry: ORG_DEFAULTS.industry, orgSize: ORG_DEFAULTS.size,
   orgHeadquarters: ORG_DEFAULTS.headquarters, orgCompliance: [],
-  topology: 'triangle' as TopologyTemplate,
+  topology: null,
   regionProviders: {}, regionCloudRegions: {},
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', credentialValidated: false,

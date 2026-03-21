@@ -25,7 +25,8 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
   azure:   'Microsoft Azure',
 }
 
-const TOPOLOGY_NAMES = {
+const TOPOLOGY_NAMES: Record<string, string> = {
+  citadel:  'CITADEL — 4 regions, 6 clusters',
   triangle: 'TRIANGLE — 3 regions, 5 clusters',
   dual:     'DUAL — 2 regions, 6 clusters',
   zoned:    'ZONED — 2 regions, 4 clusters',
