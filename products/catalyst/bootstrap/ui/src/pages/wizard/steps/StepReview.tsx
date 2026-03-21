@@ -78,23 +78,26 @@ function GroupMiniCard({ gid }: { gid: string }) {
       opacity: hasAny ? 1 : 0.38,
       display: 'flex', flexDirection: 'column', gap: 4,
     }}>
-      {/* Line 1: color-coded M/R/O counts */}
-      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-        {counts.mandatory > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#4ADE80', background: 'rgba(74,222,128,0.1)', borderRadius: 3, padding: '1px 6px' }}>M {counts.mandatory}</span>
-        )}
-        {counts.recommended > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.1)', borderRadius: 3, padding: '1px 6px' }}>R {counts.recommended}</span>
-        )}
-        {counts.optional > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.1)', borderRadius: 3, padding: '1px 6px' }}>O {counts.optional}</span>
-        )}
-        {total === 0 && (
-          <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)' }}>—</span>
-        )}
+      {/* Line 1: product name (left) + color-coded counts (right) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: hasAny ? 'var(--wiz-text-hi)' : 'var(--wiz-text-hint)' }}>{group.productName}</span>
+        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+          {counts.mandatory > 0 && (
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#4ADE80', background: 'rgba(74,222,128,0.1)', borderRadius: 3, padding: '1px 5px' }}>M {counts.mandatory}</span>
+          )}
+          {counts.recommended > 0 && (
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.1)', borderRadius: 3, padding: '1px 5px' }}>R {counts.recommended}</span>
+          )}
+          {counts.optional > 0 && (
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.1)', borderRadius: 3, padding: '1px 5px' }}>O {counts.optional}</span>
+          )}
+          {total === 0 && (
+            <span style={{ fontSize: 9, color: 'var(--wiz-text-hint)' }}>—</span>
+          )}
+        </div>
       </div>
-      {/* Line 2: conceptual product name */}
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: hasAny ? 'var(--wiz-text-md)' : 'var(--wiz-text-hint)' }}>{group.productName}</div>
+      {/* Line 2: conceptual product family name */}
+      <div style={{ fontSize: 9, color: 'var(--wiz-text-sub)', letterSpacing: '0.02em' }}>{group.subtitle}</div>
     </div>
   )
 }
