@@ -215,8 +215,8 @@ const TOPOLOGIES: TopoConfig[] = [
 function TopologyDetail({ t }: { t: TopoConfig }) {
   return (
     <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
+      {/* Header — fixed */}
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-text-primary)', letterSpacing: '0.04em' }}>{t.name}</span>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '2px 7px' }}>{t.tag}</span>
@@ -236,28 +236,30 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
 
-      {/* Fixed-height diagram canvas — all topologies render at same height */}
-      <div style={{ background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', padding: '14px 18px 8px', flexShrink: 0 }}>
-        <div style={{ height: 152, overflow: 'hidden' }}>
+      {/* Canvas — grows to fill all available space between header and bullets */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', padding: '14px 18px 10px', minHeight: 0 }}>
+        {/* SVG fills the flex space */}
+        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
           {t.diagram}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+        {/* Legend */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, flexShrink: 0 }}>
           {[
             { color: 'rgba(99,102,241,0.85)', label: 'DMZ' },
             { color: 'rgba(99,102,241,0.55)', label: 'RTZ' },
             { color: 'rgba(56,189,248,0.85)', label: 'MGMT' },
           ].map(({ color, label }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter, sans-serif' }}>{label}</span>
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontFamily: 'Inter, sans-serif' }}>{label}</span>
             </div>
           ))}
-          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>· outer = physical cluster · inner = vCluster</span>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>· outer box = physical cluster · inner box = vCluster</span>
         </div>
       </div>
 
-      {/* Bullets */}
-      <div style={{ padding: '12px 18px 16px', flex: 1 }}>
+      {/* Bullets — fixed at bottom */}
+      <div style={{ padding: '12px 18px 16px', flexShrink: 0 }}>
         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {t.bullets.map(b => (
             <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--wiz-text-lo)', lineHeight: 1.5 }}>
@@ -350,8 +352,15 @@ export function StepTopology() {
         <div style={{
           width: twoPaneLayout ? '40%' : '100%',
           flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 6,
+          display: 'flex', flexDirection: 'column',
         }}>
+          {/* Grid with 5 equal-height rows — largest item sets the height for all */}
+          <div style={{
+            flex: 1,
+            display: 'grid',
+            gridTemplateRows: twoPaneLayout ? 'repeat(5, 1fr)' : 'repeat(5, auto)',
+            gap: 6,
+          }}>
           {TOPOLOGIES.map(t => {
             const isSelected = store.topology === t.id
             return (
@@ -399,6 +408,7 @@ export function StepTopology() {
               </div>
             )
           })}
+          </div>
           <AirgapAddon />
         </div>
 
