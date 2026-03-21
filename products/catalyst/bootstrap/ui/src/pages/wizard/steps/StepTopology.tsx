@@ -32,22 +32,6 @@ const CONN = (x1: number, y1: number, x2: number, y2: number) => (
   <line key={`c${x1}${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(56,189,248,0.35)" strokeWidth={1.2} strokeDasharray="3,2" />
 )
 
-const DiagramTriangle = () => (
-  <svg viewBox="0 0 280 170" width="100%">
-    {REGION(90, 14, 100, 56, 'CP Region')}
-    {BOX(100, 26, 80, 32, 'MGMT', 'rgba(56,189,248,0.75)')}
-    {REGION(5, 92, 120, 72, 'DP Region 1')}
-    {BOX(10, 108, 50, 48, 'DMZ', 'rgba(99,102,241,0.75)')}
-    {BOX(65, 108, 50, 48, 'RTZ', 'rgba(99,102,241,0.5)')}
-    {REGION(155, 92, 120, 72, 'DP Region 2')}
-    {BOX(160, 108, 50, 48, 'DMZ', 'rgba(99,102,241,0.75)')}
-    {BOX(215, 108, 50, 48, 'RTZ', 'rgba(99,102,241,0.5)')}
-    {CONN(140, 70, 65, 92)}
-    {CONN(140, 70, 215, 92)}
-    {CONN(125, 130, 155, 130)}
-  </svg>
-)
-
 const DiagramDual = () => (
   <svg viewBox="0 0 280 145" width="100%">
     {REGION(5, 10, 120, 126, 'Region 1 · Primary')}
@@ -93,24 +77,13 @@ const DiagramSolo = () => (
 
 const TOPOLOGIES: TopoConfig[] = [
   {
-    id: 'triangle', name: 'TRIANGLE', tagline: 'Three-region — dedicated CP + dual data plane',
-    clusters: 5, regions: 3, tag: 'Tier-1 Bank', tagColor: '#F59E0B',
-    diagram: <DiagramTriangle />,
-    bullets: [
-      'Dedicated CP region — MGMT cluster only, isolated from data plane',
-      'Two data plane regions: independent DMZ + RTZ clusters each',
-      'Triangle connectivity — CP↔DP1, CP↔DP2, DP1↔DP2',
-      'Designed for PCI DSS / DORA / ISO 27001 from day one',
-    ],
-  },
-  {
     id: 'dual', name: 'DUAL', tagline: 'Two-region — full cluster separation (3 per region)',
     clusters: 6, regions: 2, tag: 'Enterprise', tagColor: '#22C55E', recommended: true,
     diagram: <DiagramDual />,
     bullets: [
       'Each region: MGMT, DMZ, and RTZ clusters fully separated',
-      'Primary + DR region with identical cluster topology',
-      'Strong workload isolation with a proven upgrade path to TRIANGLE',
+      'MGMT active in both regions — no single point of management failure',
+      'Primary + DR with identical cluster topology and full workload isolation',
       'Recommended for regulated banks, insurance, and fintechs',
     ],
   },
@@ -120,8 +93,8 @@ const TOPOLOGIES: TopoConfig[] = [
     diagram: <DiagramZoned />,
     bullets: [
       'DMZ cluster fully isolated for ingress and edge workloads',
-      'MGMT and RTZ co-located — reduces cluster overhead',
-      'Lower cost than DUAL, higher isolation than COMPACT',
+      'MGMT and RTZ co-located in each region — reduces cluster overhead',
+      'MGMT present in both regions — eliminates single-site management risk',
       'Good fit for mid-market banks and regional lenders',
     ],
   },
@@ -130,7 +103,7 @@ const TOPOLOGIES: TopoConfig[] = [
     clusters: 2, regions: 2, tag: 'Starter', tagColor: '#A78BFA',
     diagram: <DiagramCompact />,
     bullets: [
-      'Two regions, one cluster per region — geo-redundant SOLO',
+      'Two regions, one cluster per region — geo-redundant with shared management',
       'All platform components share a single cluster per site',
       'Lowest cost multi-region option — clear path to ZONED or DUAL',
       'Ideal for regulated pilots and geo-HA evaluations',
@@ -141,7 +114,7 @@ const TOPOLOGIES: TopoConfig[] = [
     clusters: 1, regions: 1, tag: 'Dev / POC', tagColor: '#6B7280',
     diagram: <DiagramSolo />,
     bullets: [
-      'Single cluster, single region — lowest cost and simplest',
+      'Single cluster, single region — lowest cost and simplest to operate',
       'No isolation between management and workloads',
       'Not suitable for production or regulated workloads',
       'Ideal for demos, evaluations, and training environments',
@@ -149,10 +122,10 @@ const TOPOLOGIES: TopoConfig[] = [
   },
 ]
 
-/* ── Topology detail panel (shared between desktop/mobile) ─────────── */
+/* ── Topology detail panel ──────────────────────────────────────── */
 function TopologyDetail({ t }: { t: TopoConfig }) {
   return (
-    <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden' }}>
+    <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-text-primary)', letterSpacing: '0.04em' }}>{t.name}</span>
@@ -169,7 +142,7 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
       <div style={{ padding: '16px 18px 10px', background: 'rgba(0,0,0,0.25)' }}>{t.diagram}</div>
-      <div style={{ padding: '12px 18px 16px' }}>
+      <div style={{ padding: '12px 18px 16px', flex: 1 }}>
         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {t.bullets.map(b => (
             <li key={b} style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--wiz-text-lo)', lineHeight: 1.5 }}>
@@ -193,7 +166,7 @@ export function StepTopology() {
   return (
     <StepShell
       title="Choose your infrastructure topology"
-      description="Your topology defines how many regions and clusters OpenOva provisions. DUAL is the recommended starting point for most regulated organisations."
+      description="Your topology defines how many regions and clusters OpenOva provisions. DUAL is the recommended starting point for most regulated organisations — MGMT is always active in both regions, eliminating single-site management risk."
       onNext={() => { if (store.topology) next() }}
       onBack={back}
       nextDisabled={!store.topology}
@@ -202,7 +175,7 @@ export function StepTopology() {
         display: 'flex',
         flexDirection: twoPaneLayout ? 'row' : 'column',
         gap: 16,
-        alignItems: 'flex-start',
+        alignItems: twoPaneLayout ? 'stretch' : 'flex-start',
       }}>
         {/* Option list */}
         <div style={{
@@ -217,6 +190,7 @@ export function StepTopology() {
                 key={t.id}
                 onClick={() => store.setTopology(t.id)}
                 style={{
+                  flex: 1,
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
                   border: isSelected ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid var(--wiz-border-sub)',
@@ -255,13 +229,14 @@ export function StepTopology() {
           })}
         </div>
 
-        {/* Detail panel — right on desktop, below on mobile/tablet */}
-        <div style={{ flex: 1, minWidth: 0, width: twoPaneLayout ? undefined : '100%' }}>
+        {/* Detail panel */}
+        <div style={{ flex: 1, minWidth: 0, width: twoPaneLayout ? undefined : '100%', display: 'flex', flexDirection: 'column' }}>
           {selected ? (
             <TopologyDetail t={selected} />
           ) : (
             <div style={{
-              minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              minHeight: 180,
               border: '1.5px dashed var(--wiz-border)', borderRadius: 12,
               color: 'var(--wiz-text-hint)', fontSize: 13,
             }}>

@@ -195,7 +195,7 @@ function TokenSection({
           <button
             type="button"
             onClick={skipDemo}
-            style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 500, color: 'rgba(56,189,248,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: 3, fontFamily: 'Inter, sans-serif' }}
+            style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 500, color: 'var(--wiz-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: 3, fontFamily: 'Inter, sans-serif' }}
           >
             No token yet? Skip — explore in demo mode →
           </button>
@@ -267,7 +267,7 @@ export function StepCredentials() {
               </li>
             ))}
           </ol>
-          <a href="https://console.hetzner.cloud" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'rgba(56,189,248,0.5)', textDecoration: 'none' }}>
+          <a href="https://console.hetzner.cloud" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'var(--wiz-accent)', textDecoration: 'none' }}>
             Open Hetzner Cloud Console <ExternalLink size={10} />
           </a>
         </div>

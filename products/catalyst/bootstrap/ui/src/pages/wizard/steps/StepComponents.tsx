@@ -337,7 +337,7 @@ export function StepComponents() {
     >
       {/* Summary bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.12)' }}>
-        <span style={{ fontSize: 12, color: 'rgba(56,189,248,0.7)', fontWeight: 600 }}>
+        <span style={{ fontSize: 12, color: 'var(--wiz-accent)', fontWeight: 600 }}>
           {totalSelected} of {totalAll} components selected
         </span>
         <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'var(--wiz-border-sub)', overflow: 'hidden' }}>

@@ -145,7 +145,7 @@ export function StepReview() {
       description="Your full OpenOva ecosystem — infrastructure, platform stack, security, and observability — will be provisioned exactly as configured below."
       onNext={provision}
       onBack={back}
-      nextLabel={<><Zap size={13} style={{ marginRight: 5 }} />Launch OpenOva ecosystem</>}
+      nextLabel={<><Zap size={13} style={{ marginRight: 5 }} />Launch OpenOva</>}
       nextLoading={loading}
     >
       {/* 2-column review layout — stacks on mobile */}
@@ -182,7 +182,7 @@ export function StepReview() {
                     const cloudRegionDef = p && cloudRegionId ? PROVIDER_REGIONS[p].find(r => r.id === cloudRegionId) : undefined
                     return (
                       <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                        <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14, marginTop: 2, flexShrink: 0 }}>{i + 1}</span>
+                        <span style={{ fontSize: 10, color: 'var(--wiz-accent)', fontWeight: 700, width: 14, marginTop: 2, flexShrink: 0 }}>{i + 1}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 11, color: 'var(--wiz-text-lo)' }}>{rl}</div>
                           {p && (

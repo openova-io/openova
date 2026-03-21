@@ -82,7 +82,7 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
           borderRadius: 9, border: '1px solid var(--wiz-border)',
-          background: 'var(--wiz-panel-bg)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          background: 'var(--wiz-panel-bg)', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
           overflow: 'hidden',
         }}>
           {options.map(o => {
@@ -101,7 +101,7 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
               >
                 {o.logo}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#fff' : 'var(--wiz-text-md)' }}>{o.label}</div>
+                  <div style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? 'var(--wiz-text-hi)' : 'var(--wiz-text-md)' }}>{o.label}</div>
                   {o.sublabel && <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 1 }}>{o.sublabel}</div>}
                 </div>
                 {active && <Check size={13} strokeWidth={2.5} style={{ color: '#38BDF8', flexShrink: 0 }} />}
@@ -158,7 +158,7 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
             {label}
           </div>
           {isConfigured && providerDef && selectedCloudRegion && (
-            <div style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', marginTop: 1 }}>
+            <div style={{ fontSize: 10, color: 'var(--wiz-accent)', marginTop: 1 }}>
               {providerDef.name} · {PROVIDER_REGIONS[selectedProvider!].find(r => r.id === selectedCloudRegion)?.location}
             </div>
           )}
@@ -230,7 +230,7 @@ export function StepProvider() {
     store.setRegionCloudRegion(i, autoRegion)
   }
 
-  const cols = regionCount === 1 ? '420px' : regionCount === 2 ? '1fr 1fr' : '1fr 1fr 1fr'
+  const cols = Array(regionCount).fill('1fr').join(' ')
 
   return (
     <StepShell
@@ -241,8 +241,8 @@ export function StepProvider() {
       nextDisabled={!allConfigured}
     >
       {hint && (
-        <div style={{ borderRadius: 8, padding: '7px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.12)', fontSize: 11, color: 'rgba(56,189,248,0.6)' }}>
-          ★ Pre-selected based on HQ: <strong style={{ color: 'rgba(56,189,248,0.8)' }}>{store.orgHeadquarters}</strong>
+        <div style={{ borderRadius: 8, padding: '7px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.12)', fontSize: 11, color: 'var(--wiz-accent)' }}>
+          ★ Pre-selected based on HQ: <strong style={{ color: 'var(--wiz-accent)' }}>{store.orgHeadquarters}</strong>
         </div>
       )}
 
@@ -260,25 +260,6 @@ export function StepProvider() {
         ))}
       </div>
 
-      {allConfigured && (
-        <div style={{ borderRadius: 8, background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.12)', padding: '10px 14px' }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(56,189,248,0.7)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Credentials required next</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {[...new Set(Object.values(store.regionProviders))].map(p => {
-              const def = PROVIDERS.find(d => d.id === p)
-              const regions = Object.entries(store.regionProviders).filter(([,v]) => v === p).map(([k]) => Number(k))
-              return (
-                <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--wiz-text-lo)' }}>
-                  {def?.logo}
-                  <span style={{ fontWeight: 500, color: 'var(--wiz-text-md)' }}>{def?.name}</span>
-                  <span style={{ color: 'var(--wiz-text-hint)' }}>·</span>
-                  <span>Region{regions.length > 1 ? 's' : ''} {regions.map(r => r + 1).join(', ')}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </StepShell>
   )
 }

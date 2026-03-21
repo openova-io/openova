@@ -48,6 +48,7 @@
 :root {
   --wiz-ch:         255, 255, 255;   /* fg channel — white in dark mode  */
   --wiz-accent-ch:  56, 189, 248;    /* brand blue rgb                   */
+  --wiz-accent:     rgba(56,189,248,0.8); /* accent text (links, labels) */
   --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #0c1e40 0%, #06080f 70%);
   --wiz-panel-bg:   #131320;
   --wiz-deep-bg:    #1a1a1a;
@@ -98,8 +99,9 @@
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;
   --wiz-accent-ch:  2, 132, 199;
+  --wiz-accent:     #0284c7;  /* sky-600 — 4.6:1 on white (WCAG AA ✓) */
   --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #e0f2fe 0%, #f0f9ff 70%);
-  --wiz-panel-bg:   #ffffff;
+  --wiz-panel-bg:   #f1f5f9;  /* dropdown panel — distinguishable from white card */
   --wiz-deep-bg:    #f4f4f5;
   --wiz-glow-1:     rgba(2,132,199,0.08);
   --wiz-glow-2:     rgba(99,102,241,0.05);

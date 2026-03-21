@@ -157,7 +157,7 @@ export function StepOrg() {
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
-        Fields marked <span style={{ color: 'rgba(56,189,248,0.45)' }}>default</span> are pre-filled.
+        Fields marked <span style={{ color: 'var(--wiz-accent)' }}>default</span> are pre-filled.
         Click to focus — all text is selected so you can type a replacement immediately.
       </p>
     </StepShell>
