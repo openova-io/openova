@@ -155,14 +155,13 @@ export function WizardLayout() {
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
-              const sch = 'var(--wiz-ch)'
               return (
                 <div key={step.id} style={{ position: 'relative' }}>
                   {i < WIZARD_STEPS.length - 1 && (
                     <div style={{
                       position: 'absolute', left: 19, top: 38,
                       width: 1.5, height: 10,
-                      background: done ? 'rgba(56,189,248,0.4)' : `rgba(${sch},0.07)`,
+                      background: done ? 'rgba(56,189,248,0.4)' : 'var(--wiz-border-sub)',
                     }} />
                   )}
                   <div
@@ -182,11 +181,11 @@ export function WizardLayout() {
                       fontSize: 10, fontWeight: 700,
                       background: done
                         ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : `rgba(${sch},0.05)`,
+                        : current ? 'rgba(56,189,248,0.15)' : 'var(--wiz-bg-input)',
                       border: current
                         ? '2px solid #38BDF8'
-                        : done ? 'none' : `1.5px solid rgba(${sch},0.1)`,
-                      color: done ? '#fff' : current ? '#38BDF8' : `rgba(${sch},0.2)`,
+                        : done ? 'none' : '1.5px solid var(--wiz-border)',
+                      color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
                       boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
                       transition: 'all 0.25s',
                     }}>
@@ -195,14 +194,12 @@ export function WizardLayout() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
                         fontSize: 12, fontWeight: current ? 600 : 400,
-                        color: current
-                          ? `rgba(${sch},0.85)`
-                          : done ? `rgba(${sch},0.45)` : `rgba(${sch},0.2)`,
+                        color: current ? 'var(--wiz-text-hi)' : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
                         lineHeight: 1.3,
                       }}>
                         {step.label}
                       </div>
-                      <div style={{ fontSize: 10, color: `rgba(${sch},0.2)`, marginTop: 1 }}>
+                      <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 1 }}>
                         {step.desc}
                       </div>
                     </div>
@@ -213,15 +210,14 @@ export function WizardLayout() {
           </div>
 
           {/* Progress footer */}
-          {(() => { const sch = 'var(--wiz-ch)'; return (
-          <div style={{ borderTop: `1px solid rgba(${sch},0.06)`, paddingTop: 18, marginTop: 18 }}>
+          <div style={{ borderTop: '1px solid var(--wiz-border-sub)', paddingTop: 18, marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: `rgba(${sch},0.25)` }}>Progress</span>
+              <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}>Progress</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#38BDF8' }}>
                 {Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)}%
               </span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: `rgba(${sch},0.08)` }}>
+            <div style={{ height: 3, borderRadius: 2, background: 'var(--wiz-bg-input)' }}>
               <div style={{
                 height: '100%',
                 width: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
@@ -231,7 +227,6 @@ export function WizardLayout() {
               }} />
             </div>
           </div>
-          )})()}
         </div>
       )}
 
