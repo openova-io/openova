@@ -214,7 +214,7 @@ const TOPOLOGIES: TopoConfig[] = [
 /* ── Topology detail panel ──────────────────────────────────────── */
 function TopologyDetail({ t }: { t: TopoConfig }) {
   return (
-    <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Header — fixed */}
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -236,10 +236,10 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
 
-      {/* Canvas — grows to fill all available space between header and bullets */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', padding: '14px 18px 10px', minHeight: 0 }}>
-        {/* SVG fills the flex space */}
-        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      {/* Canvas — fixed minHeight ensures diagram is always substantial */}
+      <div style={{ display: 'flex', flexDirection: 'column', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', padding: '14px 18px 10px' }}>
+        {/* SVG area — fixed height, all diagrams same canvas size */}
+        <div style={{ height: 200, overflow: 'hidden' }}>
           {t.diagram}
         </div>
         {/* Legend */}
@@ -346,21 +346,14 @@ export function StepTopology() {
         display: 'flex',
         flexDirection: twoPaneLayout ? 'row' : 'column',
         gap: 16,
-        alignItems: 'stretch',
+        alignItems: 'flex-start',
       }}>
         {/* Option list + AIR-GAP toggle */}
         <div style={{
           width: twoPaneLayout ? '40%' : '100%',
           flexShrink: 0,
-          display: 'flex', flexDirection: 'column',
+          display: 'flex', flexDirection: 'column', gap: 6,
         }}>
-          {/* Grid with 5 equal-height rows — largest item sets the height for all */}
-          <div style={{
-            flex: 1,
-            display: 'grid',
-            gridTemplateRows: twoPaneLayout ? 'repeat(5, 1fr)' : 'repeat(5, auto)',
-            gap: 6,
-          }}>
           {TOPOLOGIES.map(t => {
             const isSelected = store.topology === t.id
             return (
@@ -370,10 +363,14 @@ export function StepTopology() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                  /* Fixed height — all 5 options are identical height */
+                  height: 62,
+                  boxSizing: 'border-box',
                   border: isSelected ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid var(--wiz-border-sub)',
                   background: isSelected ? 'rgba(56,189,248,0.07)' : 'var(--wiz-bg-xs)',
                   boxShadow: isSelected ? '0 0 0 3px rgba(56,189,248,0.07)' : 'none',
-                  transition: 'all 0.15s',
+                  transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
+                  overflow: 'hidden',
                 }}
               >
                 <div style={{
@@ -385,13 +382,14 @@ export function StepTopology() {
                 }}>
                   {isSelected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>{t.name}</span>
-                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '1px 6px' }}>{t.tag}</span>
-                    {t.recommended && !isSelected && <span style={{ fontSize: 9, color: 'rgba(34,197,94,0.6)', fontWeight: 500 }}>← start here</span>}
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-md)', letterSpacing: '0.03em', flexShrink: 0 }}>{t.name}</span>
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>{t.tag}</span>
+                    {t.recommended && !isSelected && <span style={{ fontSize: 9, color: 'rgba(34,197,94,0.6)', fontWeight: 500, flexShrink: 0 }}>← start here</span>}
                   </div>
-                  <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 2, lineHeight: 1.3 }}>{t.tagline}</div>
+                  {/* Single-line tagline — truncated if too long */}
+                  <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.tagline}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
                   {[
@@ -408,7 +406,6 @@ export function StepTopology() {
               </div>
             )
           })}
-          </div>
           <AirgapAddon />
         </div>
 
