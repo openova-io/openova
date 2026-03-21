@@ -34,7 +34,7 @@ const TOPOLOGY_NAMES: Record<string, string> = {
 }
 
 /* ── Section shell ───────────────────────────────────────────────── */
-function Section({ title, children, style }: { title: string; children: React.ReactNode; style?: React.CSSProperties }) {
+function Section({ title, children, style }: { title: React.ReactNode; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{ borderRadius: 10, border: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)', overflow: 'hidden', display: 'flex', flexDirection: 'column', ...style }}>
       <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--wiz-border-sub)', flexShrink: 0 }}>
@@ -76,26 +76,25 @@ function GroupMiniCard({ gid }: { gid: string }) {
       border: `1px solid ${hasAny ? 'var(--wiz-border-sub)' : 'rgba(255,255,255,0.04)'}`,
       background: hasAny ? 'var(--wiz-bg-xs)' : 'transparent',
       opacity: hasAny ? 1 : 0.38,
-      display: 'flex', flexDirection: 'column', gap: 5,
+      display: 'flex', flexDirection: 'column', gap: 4,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--wiz-text-md)' }}>{group.productName}</span>
-        <span style={{ fontSize: 10, fontWeight: 600, color: hasAny ? '#38BDF8' : 'var(--wiz-text-hint)' }}>{total}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 3 }}>
+      {/* Line 1: color-coded M/R/O counts */}
+      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
         {counts.mandatory > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#4ADE80', background: 'rgba(74,222,128,0.1)', borderRadius: 3, padding: '1px 5px' }}>M {counts.mandatory}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#4ADE80', background: 'rgba(74,222,128,0.1)', borderRadius: 3, padding: '1px 6px' }}>M {counts.mandatory}</span>
         )}
         {counts.recommended > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.1)', borderRadius: 3, padding: '1px 5px' }}>R {counts.recommended}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.1)', borderRadius: 3, padding: '1px 6px' }}>R {counts.recommended}</span>
         )}
         {counts.optional > 0 && (
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.1)', borderRadius: 3, padding: '1px 5px' }}>O {counts.optional}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.1)', borderRadius: 3, padding: '1px 6px' }}>O {counts.optional}</span>
         )}
         {total === 0 && (
-          <span style={{ fontSize: 9, color: 'var(--wiz-text-hint)' }}>—</span>
+          <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)' }}>—</span>
         )}
       </div>
+      {/* Line 2: conceptual product name */}
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: hasAny ? 'var(--wiz-text-md)' : 'var(--wiz-text-hint)' }}>{group.productName}</div>
     </div>
   )
 }
@@ -192,21 +191,19 @@ export function StepReview() {
         </div>
 
         {/* ── Row 2: Infrastructure — full width ── */}
-        <Section title="Infrastructure">
-          {/* Topology + AIR-GAP summary */}
-          <div style={{ display: 'flex', gap: 24, padding: '8px 14px 10px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)', marginBottom: 3 }}>Topology</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--wiz-text-md)' }}>{topology ? TOPOLOGY_NAMES[topology] : '—'}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)', marginBottom: 3 }}>AIR-GAP</div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: store.airgap ? '#F59E0B' : 'var(--wiz-text-hint)' }}>
-                {store.airgap ? 'Enabled — +1 isolated region' : 'Not enabled'}
-              </div>
-            </div>
-          </div>
-
+        <Section title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span>Infrastructure</span>
+            {topology && (
+              <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--wiz-text-md)', letterSpacing: 0 }}>
+                {TOPOLOGY_NAMES[topology]}
+              </span>
+            )}
+            {store.airgap && (
+              <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 3, padding: '1px 6px', letterSpacing: '0.04em' }}>AIR-GAP</span>
+            )}
+          </span>
+        }>
           {/* Region cards — flex row, all equal height, 1–5 cards */}
           <div style={{ padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
             {allRegionLabels.map((rl, i) => {
