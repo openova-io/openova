@@ -61,48 +61,53 @@ const AIR  = 'rgba(245,158,11,0.85)'
    Network mindset ordering (top → bottom):  DMZ · RTZ · MGMT
    ───────────────────────────────────────────────────────────────── */
 
-/* SOLO — 1 region, 1 physical cluster, 3 vClusters */
+/* SOLO — 1 region, 1 physical cluster, 3 vClusters side-by-side */
 const DiagramSolo = () => (
-  <svg viewBox="0 0 280 134" width="100%">
-    {RG(50, 12, 180, 110, 'Single region')}
-    {PC(56, 22, 168, 92)}
-    {VC(60, 28, 160, 24, 'DMZ',  DMZ)}
-    {VC(60, 56, 160, 24, 'RTZ',  RTZ)}
-    {VC(60, 84, 160, 24, 'MGMT', MGT)}
+  <svg viewBox="0 0 280 78" width="100%">
+    {RG(4, 14, 272, 56, 'Single region')}
+    {PC(10, 22, 260, 42)}
+    {VC(14,  27, 80, 30, 'DMZ',  DMZ)}
+    {VC(98,  27, 80, 30, 'RTZ',  RTZ)}
+    {VC(182, 27, 80, 30, 'MGMT', MGT)}
   </svg>
 )
 
-/* COMPACT — 2 regions, 1 physical cluster each, 3 vClusters each */
+/* COMPACT — 2 regions, 1 physical cluster each, 3 vClusters side-by-side */
 const DiagramCompact = () => (
-  <svg viewBox="0 0 280 134" width="100%">
-    {RG(4, 12, 126, 110, 'Region 1 · Primary')}
-    {PC(10, 22, 114, 92)}
-    {VC(14, 28, 106, 24, 'DMZ',  DMZ)}
-    {VC(14, 56, 106, 24, 'RTZ',  RTZ)}
-    {VC(14, 84, 106, 24, 'MGMT', MGT)}
-    {RG(150, 12, 126, 110, 'Region 2 · Secondary')}
-    {PC(156, 22, 114, 92)}
-    {VC(160, 28, 106, 24, 'DMZ',  DMZ2)}
-    {VC(160, 56, 106, 24, 'RTZ',  RTZ2)}
-    {VC(160, 84, 106, 24, 'MGMT', MGT2)}
-    {CONN(130, 96, 150, 96)}
+  <svg viewBox="0 0 280 148" width="100%">
+    {RG(4, 14, 272, 56, 'Region 1 · Primary')}
+    {PC(10, 22, 260, 42)}
+    {VC(14,  27, 80, 30, 'DMZ',  DMZ)}
+    {VC(98,  27, 80, 30, 'RTZ',  RTZ)}
+    {VC(182, 27, 80, 30, 'MGMT', MGT)}
+    {CONN(140, 70, 140, 80)}
+    {RG(4, 80, 272, 56, 'Region 2 · Secondary')}
+    {PC(10, 88, 260, 42)}
+    {VC(14,  93, 80, 30, 'DMZ',  DMZ2)}
+    {VC(98,  93, 80, 30, 'RTZ',  RTZ2)}
+    {VC(182, 93, 80, 30, 'MGMT', MGT2)}
   </svg>
 )
 
-/* ZONED — 2 regions, 2 physical clusters each (DMZ top, MGMT·RTZ bottom) */
+/* ZONED — 2 regions side-by-side; row 1 = DMZ (full-width PC); row 2 = RTZ + MGMT (2 vClusters in 1 PC) */
 const DiagramZoned = () => (
   <svg viewBox="0 0 280 112" width="100%">
-    {RG(4, 14, 124, 82, 'Region 1 · Primary')}
-    {PC(10, 24, 112, 30)}
-    {VC(13, 27, 106, 24, 'DMZ',      DMZ)}
-    {PC(10, 59, 112, 30)}
-    {VC(13, 62, 106, 24, 'MGMT·RTZ', MGT)}
-    {RG(152, 14, 124, 82, 'Region 2 · DR')}
-    {PC(158, 24, 112, 30)}
-    {VC(161, 27, 106, 24, 'DMZ',      DMZ2)}
-    {PC(158, 59, 112, 30)}
-    {VC(161, 62, 106, 24, 'MGMT·RTZ', MGT2)}
-    {CONN(128, 39, 152, 39)}
+    {/* Region 1 */}
+    {RG(4, 14, 130, 90, 'Region 1 · Primary')}
+    {PC(10, 24, 118, 32)}
+    {VC(13, 27, 112, 26, 'DMZ', DMZ)}
+    {PC(10, 62, 118, 32)}
+    {VC(13, 65,  54, 26, 'RTZ',  RTZ)}
+    {VC(71, 65,  54, 26, 'MGMT', MGT)}
+    {/* Region 2 */}
+    {RG(146, 14, 130, 90, 'Region 2 · DR')}
+    {PC(152, 24, 118, 32)}
+    {VC(155, 27, 112, 26, 'DMZ',  DMZ2)}
+    {PC(152, 62, 118, 32)}
+    {VC(155, 65,  54, 26, 'RTZ',  RTZ2)}
+    {VC(213, 65,  54, 26, 'MGMT', MGT2)}
+    {/* Cross-region DMZ connection */}
+    {CONN(134, 40, 146, 40)}
   </svg>
 )
 
@@ -127,9 +132,9 @@ const DiagramDual = () => (
   </svg>
 )
 
-/* CITADEL — DP regions (DMZ·RTZ) on top, CP regions (MGMT) on bottom */
+/* CITADEL — DP regions (DMZ·RTZ) on top, CP regions (MGMT) on bottom — increased gap to fix overlap */
 const DiagramCitadel = () => (
-  <svg viewBox="0 0 280 165" width="100%">
+  <svg viewBox="0 0 280 168" width="100%">
     {/* ── DP row (top) ── */}
     {RG(4, 14, 132, 82, 'DP Region 1')}
     {PC(10, 24, 120, 30)}
@@ -142,17 +147,17 @@ const DiagramCitadel = () => (
     {PC(150, 59, 120, 30)}
     {VC(153, 62, 114, 24, 'RTZ', RTZ2)}
     {CONN(136, 74, 144, 74)}
-    {/* ── CP row (bottom — MGMT) ── */}
-    {RG(4, 106, 132, 48, 'CP Region 1 · MGMT')}
-    {PC(10, 116, 120, 30)}
-    {VC(13, 119, 114, 24, 'MGMT', MGT)}
-    {RG(144, 106, 132, 48, 'CP Region 2 · MGMT')}
-    {PC(150, 116, 120, 30)}
-    {VC(153, 119, 114, 24, 'MGMT', MGT2)}
-    {CONN(136, 131, 144, 131)}
-    {/* DP → CP vertical */}
-    {CONN(70, 96, 70, 106)}
-    {CONN(210, 96, 210, 106)}
+    {/* DP → CP vertical connections */}
+    {CONN(70, 96, 70, 112)}
+    {CONN(210, 96, 210, 112)}
+    {/* ── CP row (bottom — MGMT only) ── */}
+    {RG(4, 112, 132, 48, 'CP · Region 1')}
+    {PC(10, 120, 120, 32)}
+    {VC(13, 123, 114, 26, 'MGMT', MGT)}
+    {RG(144, 112, 132, 48, 'CP · Region 2')}
+    {PC(150, 120, 120, 32)}
+    {VC(153, 123, 114, 26, 'MGMT', MGT2)}
+    {CONN(136, 136, 144, 136)}
   </svg>
 )
 
@@ -209,13 +214,13 @@ const TOPOLOGIES: TopoConfig[] = [
   },
   {
     id: 'zoned', name: 'ZONED',
-    tagline: 'Two-region — DMZ cluster (top) + MGMT·RTZ cluster (bottom)',
-    clusters: 4, regions: 2, vclusters: 4,
+    tagline: 'Two-region — DMZ cluster (top) + RTZ·MGMT cluster (bottom, 2 vClusters)',
+    clusters: 4, regions: 2, vclusters: 6,
     tag: 'Mid-market', tagColor: '#38BDF8',
     diagram: <DiagramZoned />,
     bullets: [
       'DMZ cluster on top — isolated ingress and edge workloads per region',
-      'MGMT and RTZ co-located in the bottom cluster — reduces overhead',
+      'RTZ and MGMT as separate vClusters inside the bottom cluster — logical isolation with lower cost',
       'MGMT present in both regions — eliminates single-site management risk',
       'Good fit for mid-market banks and regional lenders',
     ],
@@ -228,7 +233,7 @@ const TOPOLOGIES: TopoConfig[] = [
     diagram: <DiagramCompact />,
     bullets: [
       'One physical cluster per region — geo-redundant with minimal infrastructure cost',
-      'Three vClusters per cluster: DMZ (top), RTZ (mid), MGMT (bottom)',
+      'Three vClusters per cluster: DMZ (left), RTZ (mid), MGMT (right)',
       'Separate API server, etcd, and RBAC per vCluster — logical isolation at each layer',
       'Clear upgrade path: promote to ZONED or DUAL as compliance requirements grow',
     ],
@@ -240,7 +245,7 @@ const TOPOLOGIES: TopoConfig[] = [
     tag: 'Dev / POC', tagColor: '#6B7280',
     diagram: <DiagramSolo />,
     bullets: [
-      'Three vClusters inside one physical cluster: DMZ (top), RTZ (mid), MGMT (bottom)',
+      'Three vClusters inside one physical cluster: DMZ (left), RTZ (mid), MGMT (right)',
       'Separate API server, etcd, and RBAC per vCluster — logical building block separation',
       'Shared host kernel — not suitable for regulated production workloads',
       'Ideal for demos, evaluations, and development environments',
@@ -271,7 +276,7 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         </div>
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
-      <div style={{ padding: '18px 18px 12px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)' }}>
+      <div style={{ padding: '18px 18px 12px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', minHeight: 120 }}>
         {t.diagram}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           {[
@@ -387,13 +392,14 @@ export function StepTopology() {
         display: 'flex',
         flexDirection: twoPaneLayout ? 'row' : 'column',
         gap: 16,
-        alignItems: twoPaneLayout ? 'stretch' : 'flex-start',
+        alignItems: 'flex-start',
       }}>
         {/* Option list + AIR-GAP toggle */}
         <div style={{
           width: twoPaneLayout ? '40%' : '100%',
           flexShrink: 0,
           display: 'flex', flexDirection: 'column', gap: 6,
+          alignSelf: 'flex-start',
         }}>
           {TOPOLOGIES.map(t => {
             const isSelected = store.topology === t.id
@@ -402,7 +408,6 @@ export function StepTopology() {
                 key={t.id}
                 onClick={() => store.setTopology(t.id)}
                 style={{
-                  flex: 1,
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
                   border: isSelected ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid var(--wiz-border-sub)',

@@ -85,7 +85,7 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
   citadel:  ['CP Region 1 — MGMT', 'CP Region 2 — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
   triangle: ['CP Region — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
   dual:     ['Region 1 — MGMT + DMZ + RTZ', 'Region 2 — MGMT + DMZ + RTZ'],
-  zoned:    ['Region 1 — DMZ + Core', 'Region 2 — DMZ + Core'],
+  zoned:    ['Region 1 — DMZ / RTZ / MGMT', 'Region 2 — DMZ / RTZ / MGMT'],
   compact:  ['Region 1 — Primary', 'Region 2 — Secondary'],
   solo:     ['Region 1 — All Components'],
 }
@@ -153,7 +153,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   orgName: ORG_DEFAULTS.name, orgDomain: ORG_DEFAULTS.domain, orgEmail: ORG_DEFAULTS.email,
   orgIndustry: ORG_DEFAULTS.industry, orgSize: ORG_DEFAULTS.size,
   orgHeadquarters: ORG_DEFAULTS.headquarters, orgCompliance: [],
-  topology: null,
+  topology: 'zoned',
   regionProviders: {}, regionCloudRegions: {},
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', credentialValidated: false,

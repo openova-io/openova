@@ -28,7 +28,7 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
 const TOPOLOGY_NAMES: Record<string, string> = {
   citadel: 'CITADEL — 4 regions, 6 clusters, 6 vClusters',
   dual:    'DUAL — 2 regions, 6 clusters, 6 vClusters',
-  zoned:   'ZONED — 2 regions, 4 clusters, 4 vClusters',
+  zoned:   'ZONED — 2 regions, 4 clusters, 6 vClusters',
   compact: 'COMPACT — 2 regions, 2 clusters, 6 vClusters',
   solo:    'SOLO — 1 region, 1 cluster, 3 vClusters',
 }
@@ -56,17 +56,17 @@ function TierChip({ tier, count }: { tier: 'mandatory' | 'recommended' | 'option
 /* ── Row / Section helpers ───────────────────────────────────────── */
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)' }}>
-      <span style={{ width: 130, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)', lineHeight: 1.45 }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'flex-start', padding: '6px 0', borderBottom: '1px solid var(--wiz-border-sub)' }}>
+      <span style={{ width: 110, flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)', lineHeight: 1.45 }}>{label}</span>
       <span style={{ fontSize: 12, color: 'var(--wiz-text-md)', lineHeight: 1.45, wordBreak: 'break-all' }}>{value}</span>
     </div>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, style }: { title: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ borderRadius: 10, border: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)', overflow: 'hidden', marginBottom: 12 }}>
-      <div style={{ padding: '7px 14px', borderBottom: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)' }}>
+    <div style={{ borderRadius: 10, border: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)', overflow: 'hidden', ...style }}>
+      <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--wiz-border-sub)', background: 'var(--wiz-bg-xs)' }}>
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)' }}>{title}</span>
       </div>
       <div style={{ padding: '0 14px' }}>{children}</div>
@@ -86,7 +86,7 @@ function ComponentGroupRow({ gid, selectedIds }: { gid: string; selectedIds: str
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--wiz-border-sub)', gap: 8, flexWrap: 'wrap' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-md)', letterSpacing: '0.02em' }}>{group.productName}</span>
         <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)', marginLeft: 6 }}>{group.subtitle}</span>
@@ -149,10 +149,10 @@ export function StepReview() {
       nextLoading={loading}
     >
       {/* 2-column review layout — stacks on mobile */}
-      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : '1fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : '1fr 1fr', gap: 16, alignItems: 'stretch' }}>
 
         {/* Left: Organisation + Infrastructure */}
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Section title="Organisation">
             <Row label="Name"       value={store.orgName} />
             <Row label="Domain"     value={store.orgDomain} />
@@ -171,7 +171,7 @@ export function StepReview() {
             } />
           </Section>
 
-          <Section title="Infrastructure">
+          <Section title="Infrastructure" style={{ flex: 1 }}>
             <Row label="Topology" value={topology ? TOPOLOGY_NAMES[topology] : '—'} />
             <Row label="AIR-GAP" value={
               store.airgap
@@ -180,18 +180,18 @@ export function StepReview() {
             } />
             {regionLabels.length > 0 && (
               <Row label="Regions" value={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {regionLabels.map((rl, i) => {
                     const p = regionProviders[i] as CloudProvider | undefined
                     const cloudRegionId = store.regionCloudRegions[i]
                     const cloudRegionDef = p && cloudRegionId ? PROVIDER_REGIONS[p].find(r => r.id === cloudRegionId) : undefined
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                         <span style={{ fontSize: 10, color: 'var(--wiz-accent)', fontWeight: 700, width: 14, marginTop: 2, flexShrink: 0 }}>{i + 1}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: 'var(--wiz-text-lo)' }}>{rl}</div>
+                          <div style={{ fontSize: 10, color: 'var(--wiz-text-lo)' }}>{rl}</div>
                           {p && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
                               {PROVIDER_LOGOS[p]}
                               <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)' }}>
                                 {PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}
@@ -208,39 +208,11 @@ export function StepReview() {
           </Section>
         </div>
 
-        {/* Right: Credentials + Components */}
-        <div>
-          <Section title="Credentials">
-            <div style={{ padding: '4px 0' }}>
-              {[...new Set(Object.values(regionProviders))]
-                .filter(Boolean)
-                .map((p) => {
-                  const validated = store.providerValidated[p as CloudProvider]
-                  const isDemo = (store.providerTokens[p as CloudProvider] ?? '').startsWith('demo-mode')
-                  return (
-                    <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)', fontSize: 11 }}>
-                      {PROVIDER_LOGOS[p as CloudProvider]}
-                      <span style={{ flex: 1, color: 'var(--wiz-text-lo)' }}>{PROVIDER_NAMES[p as CloudProvider]}</span>
-                      {isDemo
-                        ? <span style={{ color: '#38BDF8', fontWeight: 500 }}>Demo mode</span>
-                        : validated
-                          ? <span style={{ color: '#4ADE80', fontWeight: 500 }}>✓ Validated</span>
-                          : <span style={{ color: '#F87171', fontWeight: 500 }}>Not validated</span>
-                      }
-                    </div>
-                  )
-                })}
-              {Object.values(regionProviders).length === 0 && store.credentialValidated && (
-                <div style={{ padding: '7px 0', fontSize: 11 }}>
-                  <span style={{ color: '#4ADE80', fontWeight: 500 }}>✓ Validated</span>
-                </div>
-              )}
-            </div>
-          </Section>
-
-          <Section title={`Components · ${totalComponents} across ${selectedGroups.length} groups`}>
+        {/* Right: Components */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <Section title={`Components · ${totalComponents} across ${selectedGroups.length} groups`} style={{ flex: 1 }}>
             {/* Legend */}
-            <div style={{ display: 'flex', gap: 10, padding: '8px 0 4px', borderBottom: '1px solid var(--wiz-border-sub)', marginBottom: 2 }}>
+            <div style={{ display: 'flex', gap: 10, padding: '7px 0 4px', borderBottom: '1px solid var(--wiz-border-sub)', marginBottom: 2 }}>
               {(['mandatory', 'recommended', 'optional'] as const).map(tier => (
                 <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: TIER_STYLE[tier].color, flexShrink: 0 }} />
@@ -259,7 +231,7 @@ export function StepReview() {
       </div>
 
       {/* Privacy note */}
-      <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.1)' }}>
+      <div style={{ borderRadius: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.1)', marginTop: 16 }}>
         <p style={{ fontSize: 11, color: 'var(--wiz-text-sub)', margin: 0, lineHeight: 1.6 }}>
           Provisioning runs entirely within your cloud account. OpenOva never stores your credentials or accesses your infrastructure after this session.
         </p>
