@@ -17,176 +17,232 @@ interface TopoConfig {
   bullets: string[]
 }
 
-/* ── SVG helpers — designed for dark canvas ─────────────────────── */
+/* ── SVG primitives ─────────────────────────────────────────────── */
 
-// Standard physical cluster box (no vCluster layer)
-const BOX = (x: number, y: number, w: number, h: number, label: string, fill: string, textFill = '#fff') => (
-  <g key={`b${x}${y}`}>
-    <rect x={x} y={y} width={w} height={h} rx={4} fill={fill} />
-    <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fontWeight="700" fill={textFill} fontFamily="Inter,sans-serif">{label}</text>
+// Physical cluster outer container — thin white border
+const PC = (x: number, y: number, w: number, h: number) => (
+  <rect key={`pc${x}${y}`} x={x} y={y} width={w} height={h} rx={4}
+    fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.22)" strokeWidth={1} />
+)
+
+// vCluster inner box — coloured, labelled
+const VC = (x: number, y: number, w: number, h: number, label: string, fill: string) => (
+  <g key={`vc${x}${y}`}>
+    <rect x={x} y={y} width={w} height={h} rx={3} fill={fill} />
+    <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fontWeight="700" fill="#fff" fontFamily="Inter,sans-serif">{label}</text>
   </g>
 )
 
-// Physical cluster box with inner vCluster boundary (dashed inner border + vC badge)
-const VBOX = (x: number, y: number, w: number, h: number, label: string, fill: string, textFill = '#fff') => (
-  <g key={`vb${x}${y}`}>
-    <rect x={x} y={y} width={w} height={h} rx={4} fill={fill} />
-    <rect x={x + 2.5} y={y + 2.5} width={w - 5} height={h - 5} rx={2.5} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth={0.8} strokeDasharray="2,1.5" />
-    <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fontWeight="700" fill={textFill} fontFamily="Inter,sans-serif">{label}</text>
-    <text x={x + w - 4} y={y + 8} textAnchor="end" fontSize={6} fontWeight="600" fill="rgba(255,255,255,0.45)" fontFamily="Inter,sans-serif">vC</text>
+// Region boundary — dashed, label above
+const RG = (x: number, y: number, w: number, h: number, label: string, stroke = 'rgba(255,255,255,0.18)') => (
+  <g key={`rg${x}${y}`}>
+    <rect x={x} y={y} width={w} height={h} rx={6} fill="none" stroke={stroke} strokeWidth={1} strokeDasharray="4,3" />
+    {label && <text x={x + 7} y={y - 5} fontSize={8} fill="rgba(255,255,255,0.35)" fontFamily="Inter,sans-serif" fontWeight="500">{label}</text>}
   </g>
 )
 
-const REGION = (x: number, y: number, w: number, h: number, label: string) => (
-  <g key={`r${x}${y}`}>
-    <rect x={x} y={y} width={w} height={h} rx={6} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4,3" />
-    <text x={x + 7} y={y - 5} fontSize={8} fill="rgba(255,255,255,0.35)" fontFamily="Inter,sans-serif" fontWeight="500">{label}</text>
-  </g>
-)
-
+// Inter-cluster connection
 const CONN = (x1: number, y1: number, x2: number, y2: number) => (
-  <line key={`c${x1}${y1}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(56,189,248,0.4)" strokeWidth={1.2} strokeDasharray="3,2" />
+  <line key={`cn${x1}${y1}${x2}${y2}`} x1={x1} y1={y1} x2={x2} y2={y2}
+    stroke="rgba(56,189,248,0.4)" strokeWidth={1.2} strokeDasharray="3,2" />
 )
 
-/* ── CITADEL: 4 regions — 2 dedicated CP + 2 DP, 1 vCluster per physical cluster ── */
-const DiagramCitadel = () => (
-  <svg viewBox="0 0 280 180" width="100%">
-    {REGION(5, 12, 120, 52, 'CP Region 1')}
-    {VBOX(14, 24, 102, 30, 'MGMT', 'rgba(56,189,248,0.85)')}
-    {REGION(155, 12, 120, 52, 'CP Region 2')}
-    {VBOX(164, 24, 102, 30, 'MGMT', 'rgba(56,189,248,0.55)')}
-    {REGION(5, 100, 120, 72, 'DP Region 1')}
-    {VBOX(8, 116, 53, 44, 'DMZ', 'rgba(99,102,241,0.85)')}
-    {VBOX(66, 116, 53, 44, 'RTZ', 'rgba(99,102,241,0.55)')}
-    {REGION(155, 100, 120, 72, 'DP Region 2')}
-    {VBOX(158, 116, 53, 44, 'DMZ', 'rgba(99,102,241,0.85)')}
-    {VBOX(216, 116, 53, 44, 'RTZ', 'rgba(99,102,241,0.55)')}
-    {CONN(125, 39, 155, 39)}
-    {CONN(65, 64, 65, 100)}
-    {CONN(215, 64, 215, 100)}
-    {CONN(125, 138, 155, 138)}
-  </svg>
-)
+/* ── Colour palette ─────────────────────────────────────────────── */
+const DMZ  = 'rgba(99,102,241,0.90)'
+const DMZ2 = 'rgba(99,102,241,0.50)'
+const RTZ  = 'rgba(99,102,241,0.55)'
+const RTZ2 = 'rgba(99,102,241,0.30)'
+const MGT  = 'rgba(56,189,248,0.85)'
+const MGT2 = 'rgba(56,189,248,0.45)'
+const AIR  = 'rgba(245,158,11,0.85)'
 
-/* ── DUAL: 2 regions — MGMT+DMZ+RTZ each, 1 vCluster per physical cluster ── */
-const DiagramDual = () => (
-  <svg viewBox="0 0 280 145" width="100%">
-    {REGION(5, 10, 120, 126, 'Region 1 · Primary')}
-    {VBOX(14, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.85)')}
-    {VBOX(14, 58, 100, 28, 'DMZ',  'rgba(99,102,241,0.85)')}
-    {VBOX(14, 90, 100, 28, 'RTZ',  'rgba(99,102,241,0.55)')}
-    {REGION(155, 10, 120, 126, 'Region 2 · DR')}
-    {VBOX(164, 26, 100, 28, 'MGMT', 'rgba(56,189,248,0.45)')}
-    {VBOX(164, 58, 100, 28, 'DMZ',  'rgba(99,102,241,0.45)')}
-    {VBOX(164, 90, 100, 28, 'RTZ',  'rgba(99,102,241,0.3)')}
-    {CONN(125, 72, 155, 72)}
-  </svg>
-)
+/* ─────────────────────────────────────────────────────────────────
+   TOPOLOGY DIAGRAMS
+   Network mindset ordering (top → bottom):  DMZ · RTZ · MGMT
+   ───────────────────────────────────────────────────────────────── */
 
-/* ── ZONED: 2 regions — DMZ isolated, MGMT·RTZ merged, 1 vCluster per physical cluster ── */
-const DiagramZoned = () => (
-  <svg viewBox="0 0 280 130" width="100%">
-    {REGION(5, 14, 124, 100, 'Region 1 · Primary')}
-    {VBOX(12, 32, 50, 65, 'DMZ',      'rgba(99,102,241,0.85)')}
-    {VBOX(68, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.75)')}
-    {REGION(151, 14, 124, 100, 'Region 2 · DR')}
-    {VBOX(158, 32, 50, 65, 'DMZ',      'rgba(99,102,241,0.45)')}
-    {VBOX(214, 32, 52, 65, 'MGMT·RTZ', 'rgba(56,189,248,0.35)')}
-    {CONN(129, 65, 151, 65)}
-  </svg>
-)
-
-/* ── COMPACT: 2 regions — 3 vClusters (MGMT/DMZ/RTZ) inside each physical cluster ── */
-const DiagramCompact = () => (
-  <svg viewBox="0 0 280 145" width="100%">
-    {REGION(5, 14, 120, 118, 'Region 1 · Primary')}
-    {VBOX(12, 26, 106, 28, 'MGMT', 'rgba(56,189,248,0.85)')}
-    {VBOX(12, 58, 106, 28, 'DMZ',  'rgba(99,102,241,0.85)')}
-    {VBOX(12, 90, 106, 28, 'RTZ',  'rgba(99,102,241,0.55)')}
-    {REGION(155, 14, 120, 118, 'Region 2 · Secondary')}
-    {VBOX(162, 26, 106, 28, 'MGMT', 'rgba(56,189,248,0.45)')}
-    {VBOX(162, 58, 106, 28, 'DMZ',  'rgba(99,102,241,0.45)')}
-    {VBOX(162, 90, 106, 28, 'RTZ',  'rgba(99,102,241,0.3)')}
-    {CONN(125, 104, 155, 104)}
-  </svg>
-)
-
-/* ── SOLO: 1 region — 3 vClusters (MGMT/DMZ/RTZ) inside single physical cluster ── */
+/* SOLO — 1 region, 1 physical cluster, 3 vClusters */
 const DiagramSolo = () => (
-  <svg viewBox="0 0 280 140" width="100%">
-    {REGION(60, 14, 160, 114, 'Single region')}
-    {VBOX(68, 26, 144, 28, 'MGMT', 'rgba(56,189,248,0.85)')}
-    {VBOX(68, 58, 144, 28, 'DMZ',  'rgba(99,102,241,0.85)')}
-    {VBOX(68, 90, 144, 28, 'RTZ',  'rgba(99,102,241,0.55)')}
+  <svg viewBox="0 0 280 134" width="100%">
+    {RG(50, 12, 180, 110, 'Single region')}
+    {PC(56, 22, 168, 92)}
+    {VC(60, 28, 160, 24, 'DMZ',  DMZ)}
+    {VC(60, 56, 160, 24, 'RTZ',  RTZ)}
+    {VC(60, 84, 160, 24, 'MGMT', MGT)}
   </svg>
 )
 
-// suppress unused warning — BOX kept for future use
-void BOX
+/* COMPACT — 2 regions, 1 physical cluster each, 3 vClusters each */
+const DiagramCompact = () => (
+  <svg viewBox="0 0 280 134" width="100%">
+    {RG(4, 12, 126, 110, 'Region 1 · Primary')}
+    {PC(10, 22, 114, 92)}
+    {VC(14, 28, 106, 24, 'DMZ',  DMZ)}
+    {VC(14, 56, 106, 24, 'RTZ',  RTZ)}
+    {VC(14, 84, 106, 24, 'MGMT', MGT)}
+    {RG(150, 12, 126, 110, 'Region 2 · Secondary')}
+    {PC(156, 22, 114, 92)}
+    {VC(160, 28, 106, 24, 'DMZ',  DMZ2)}
+    {VC(160, 56, 106, 24, 'RTZ',  RTZ2)}
+    {VC(160, 84, 106, 24, 'MGMT', MGT2)}
+    {CONN(130, 96, 150, 96)}
+  </svg>
+)
 
+/* ZONED — 2 regions, 2 physical clusters each (DMZ top, MGMT·RTZ bottom) */
+const DiagramZoned = () => (
+  <svg viewBox="0 0 280 112" width="100%">
+    {RG(4, 14, 124, 82, 'Region 1 · Primary')}
+    {PC(10, 24, 112, 30)}
+    {VC(13, 27, 106, 24, 'DMZ',      DMZ)}
+    {PC(10, 59, 112, 30)}
+    {VC(13, 62, 106, 24, 'MGMT·RTZ', MGT)}
+    {RG(152, 14, 124, 82, 'Region 2 · DR')}
+    {PC(158, 24, 112, 30)}
+    {VC(161, 27, 106, 24, 'DMZ',      DMZ2)}
+    {PC(158, 59, 112, 30)}
+    {VC(161, 62, 106, 24, 'MGMT·RTZ', MGT2)}
+    {CONN(128, 39, 152, 39)}
+  </svg>
+)
+
+/* DUAL — 2 regions, 3 physical clusters each (DMZ · RTZ · MGMT top→bottom) */
+const DiagramDual = () => (
+  <svg viewBox="0 0 280 142" width="100%">
+    {RG(4, 12, 120, 118, 'Region 1 · Primary')}
+    {PC(10, 22, 108, 30)}
+    {VC(13, 25, 102, 24, 'DMZ',  DMZ)}
+    {PC(10, 57, 108, 30)}
+    {VC(13, 60, 102, 24, 'RTZ',  RTZ)}
+    {PC(10, 92, 108, 30)}
+    {VC(13, 95, 102, 24, 'MGMT', MGT)}
+    {RG(156, 12, 120, 118, 'Region 2 · DR')}
+    {PC(162, 22, 108, 30)}
+    {VC(165, 25, 102, 24, 'DMZ',  DMZ2)}
+    {PC(162, 57, 108, 30)}
+    {VC(165, 60, 102, 24, 'RTZ',  RTZ2)}
+    {PC(162, 92, 108, 30)}
+    {VC(165, 95, 102, 24, 'MGMT', MGT2)}
+    {CONN(124, 72, 156, 72)}
+  </svg>
+)
+
+/* CITADEL — DP regions (DMZ·RTZ) on top, CP regions (MGMT) on bottom */
+const DiagramCitadel = () => (
+  <svg viewBox="0 0 280 165" width="100%">
+    {/* ── DP row (top) ── */}
+    {RG(4, 14, 132, 82, 'DP Region 1')}
+    {PC(10, 24, 120, 30)}
+    {VC(13, 27, 114, 24, 'DMZ', DMZ)}
+    {PC(10, 59, 120, 30)}
+    {VC(13, 62, 114, 24, 'RTZ', RTZ)}
+    {RG(144, 14, 132, 82, 'DP Region 2')}
+    {PC(150, 24, 120, 30)}
+    {VC(153, 27, 114, 24, 'DMZ', DMZ2)}
+    {PC(150, 59, 120, 30)}
+    {VC(153, 62, 114, 24, 'RTZ', RTZ2)}
+    {CONN(136, 74, 144, 74)}
+    {/* ── CP row (bottom — MGMT) ── */}
+    {RG(4, 106, 132, 48, 'CP Region 1 · MGMT')}
+    {PC(10, 116, 120, 30)}
+    {VC(13, 119, 114, 24, 'MGMT', MGT)}
+    {RG(144, 106, 132, 48, 'CP Region 2 · MGMT')}
+    {PC(150, 116, 120, 30)}
+    {VC(153, 119, 114, 24, 'MGMT', MGT2)}
+    {CONN(136, 131, 144, 131)}
+    {/* DP → CP vertical */}
+    {CONN(70, 96, 70, 106)}
+    {CONN(210, 96, 210, 106)}
+  </svg>
+)
+
+/* AIR-GAP add-on diagram — shows the isolated region added to any topology */
+const DiagramAirgap = () => (
+  <svg viewBox="0 0 280 82" width="100%">
+    {/* Abstract: existing topology (left) */}
+    {RG(4, 14, 74, 60, '')}
+    {PC(8, 20, 66, 50)}
+    {VC(10, 24, 62, 13, 'DMZ',  'rgba(99,102,241,0.7)')}
+    {VC(10, 40, 62, 13, 'RTZ',  'rgba(99,102,241,0.4)')}
+    {VC(10, 56, 62, 13, 'MGMT', 'rgba(56,189,248,0.7)')}
+    {/* Pull-only arrow */}
+    <text x={95} y={40} fontSize={7} fill="rgba(255,255,255,0.3)" fontFamily="Inter,sans-serif" textAnchor="middle">pull</text>
+    <text x={95} y={50} fontSize={7} fill="rgba(255,255,255,0.3)" fontFamily="Inter,sans-serif" textAnchor="middle">only</text>
+    <polyline points="78,44 102,44" stroke="rgba(56,189,248,0.3)" strokeWidth={1} strokeDasharray="3,2" fill="none" />
+    <polygon points="102,41 108,44 102,47" fill="rgba(56,189,248,0.35)" />
+    {/* AIR-GAP region (amber) */}
+    <rect x={112} y={14} width={164} height={60} rx={6} fill="none"
+      stroke="rgba(245,158,11,0.45)" strokeWidth={1} strokeDasharray="4,3" />
+    <text x={119} y={9} fontSize={8} fill="rgba(245,158,11,0.5)" fontFamily="Inter,sans-serif" fontWeight="500">Air-gap Region</text>
+    {PC(118, 24, 152, 44)}
+    {VC(122, 28, 144, 36, 'AIR-GAP', AIR)}
+  </svg>
+)
+
+/* ── Topology configurations ────────────────────────────────────── */
 const TOPOLOGIES: TopoConfig[] = [
   {
     id: 'citadel', name: 'CITADEL',
-    tagline: 'Four-region — dedicated dual-CP + dual data plane',
+    tagline: 'Four-region — dedicated dual-CP (MGMT) + dual data plane',
     clusters: 6, regions: 4, vclusters: 6,
-    tag: 'Tier-1 Bank', tagColor: '#F59E0B', recommended: false,
+    tag: 'Tier-1 Bank', tagColor: '#F59E0B',
     diagram: <DiagramCitadel />,
     bullets: [
-      'Two dedicated CP regions — each hosts only the MGMT cluster, zero workload co-location',
+      'DP regions (top): DMZ and RTZ clusters fully isolated from control plane',
+      'CP regions (bottom): two dedicated MGMT-only regions — zero workload co-location',
       'MGMT is HA across geographically separate sites — no single point of control',
-      'Two independent DP regions: DMZ + RTZ clusters, fully isolated from CP network',
-      'One vCluster per physical cluster — uniform Catalyst/Specter interface and multi-tenancy headroom',
+      'One vCluster per physical cluster — uniform interface for Catalyst and Specter',
     ],
   },
   {
     id: 'dual', name: 'DUAL',
-    tagline: 'Two-region — full cluster separation (3 per region)',
+    tagline: 'Two-region — DMZ · RTZ · MGMT per region (3 clusters each)',
     clusters: 6, regions: 2, vclusters: 6,
     tag: 'Enterprise', tagColor: '#22C55E', recommended: true,
     diagram: <DiagramDual />,
     bullets: [
-      'Each region: MGMT, DMZ, and RTZ clusters fully separated — physical blast-radius isolation',
+      'Each region: DMZ (top), RTZ (mid), MGMT (bottom) — fully separate physical clusters',
       'MGMT active in both regions — no single point of management failure',
-      'One vCluster per physical cluster — lifecycle independence and future multi-tenancy',
+      'One vCluster per physical cluster — lifecycle independence and multi-tenancy headroom',
       'Recommended starting point for regulated banks, insurance, and fintechs',
     ],
   },
   {
     id: 'zoned', name: 'ZONED',
-    tagline: 'Two-region — DMZ isolated, MGMT+RTZ merged',
+    tagline: 'Two-region — DMZ cluster (top) + MGMT·RTZ cluster (bottom)',
     clusters: 4, regions: 2, vclusters: 4,
     tag: 'Mid-market', tagColor: '#38BDF8',
     diagram: <DiagramZoned />,
     bullets: [
-      'DMZ cluster fully isolated for ingress and edge workloads in each region',
-      'MGMT and RTZ co-located per region — reduces cluster overhead without losing zone separation',
-      'One vCluster per physical cluster — consistent operational model across all building blocks',
+      'DMZ cluster on top — isolated ingress and edge workloads per region',
+      'MGMT and RTZ co-located in the bottom cluster — reduces overhead',
+      'MGMT present in both regions — eliminates single-site management risk',
       'Good fit for mid-market banks and regional lenders',
     ],
   },
   {
     id: 'compact', name: 'COMPACT',
-    tagline: 'Two-region — MGMT / DMZ / RTZ as vClusters per cluster',
+    tagline: 'Two-region — DMZ · RTZ · MGMT as vClusters inside each cluster',
     clusters: 2, regions: 2, vclusters: 6,
     tag: 'Starter', tagColor: '#A78BFA',
     diagram: <DiagramCompact />,
     bullets: [
       'One physical cluster per region — geo-redundant with minimal infrastructure cost',
-      'Three vClusters per cluster (MGMT / DMZ / RTZ) — building block isolation without physical separation',
-      'Separate API server, etcd, and RBAC per vCluster — logical isolation at each building block',
-      'Clear upgrade path: promote to ZONED or DUAL as workloads and compliance requirements grow',
+      'Three vClusters per cluster: DMZ (top), RTZ (mid), MGMT (bottom)',
+      'Separate API server, etcd, and RBAC per vCluster — logical isolation at each layer',
+      'Clear upgrade path: promote to ZONED or DUAL as compliance requirements grow',
     ],
   },
   {
     id: 'solo', name: 'SOLO',
-    tagline: 'Single region — MGMT / DMZ / RTZ as vClusters',
+    tagline: 'Single region — DMZ · RTZ · MGMT as vClusters',
     clusters: 1, regions: 1, vclusters: 3,
     tag: 'Dev / POC', tagColor: '#6B7280',
     diagram: <DiagramSolo />,
     bullets: [
-      'Single physical cluster with three vClusters: MGMT, DMZ, and RTZ',
+      'Three vClusters inside one physical cluster: DMZ (top), RTZ (mid), MGMT (bottom)',
       'Separate API server, etcd, and RBAC per vCluster — logical building block separation',
-      'Shared host kernel and hardware — not suitable for regulated production workloads',
+      'Shared host kernel — not suitable for regulated production workloads',
       'Ideal for demos, evaluations, and development environments',
     ],
   },
@@ -215,16 +271,20 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         </div>
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
-      {/* Dark canvas — diagrams use hardcoded colours for dark bg, pop in both light/dark modes */}
-      <div style={{ padding: '18px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)' }}>
+      <div style={{ padding: '18px 18px 12px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)' }}>
         {t.diagram}
-        {/* vCluster legend */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-          <svg width={18} height={12}>
-            <rect x={1} y={1} width={16} height={10} rx={2} fill="rgba(99,102,241,0.6)" />
-            <rect x={2.5} y={2.5} width={13} height={7} rx={1.5} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={0.8} strokeDasharray="2,1.5" />
-          </svg>
-          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter, sans-serif' }}>dashed inner border = vCluster boundary inside physical cluster</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          {[
+            { color: 'rgba(99,102,241,0.85)', label: 'DMZ' },
+            { color: 'rgba(99,102,241,0.55)', label: 'RTZ' },
+            { color: 'rgba(56,189,248,0.85)', label: 'MGMT' },
+          ].map(({ color, label }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+              <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter, sans-serif' }}>{label}</span>
+            </div>
+          ))}
+          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>· outer box = physical cluster · inner box = vCluster</span>
         </div>
       </div>
       <div style={{ padding: '12px 18px 16px', flex: 1 }}>
@@ -240,6 +300,73 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
   )
 }
 
+/* ── AIR-GAP add-on card ────────────────────────────────────────── */
+function AirgapAddon() {
+  const store = useWizardStore()
+  const enabled = store.airgap
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)', marginBottom: 8 }}>
+        Add-on · optional
+      </div>
+      <div
+        onClick={() => store.setAirgap(!enabled)}
+        style={{
+          borderRadius: 12, cursor: 'pointer', overflow: 'hidden',
+          border: enabled ? '1.5px solid rgba(245,158,11,0.5)' : '1.5px solid var(--wiz-border-sub)',
+          background: enabled ? 'rgba(245,158,11,0.05)' : 'var(--wiz-bg-xs)',
+          boxShadow: enabled ? '0 0 0 3px rgba(245,158,11,0.07)' : 'none',
+          transition: 'all 0.15s',
+        }}
+      >
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
+          {/* Toggle */}
+          <div style={{
+            width: 32, height: 18, borderRadius: 9, flexShrink: 0,
+            background: enabled ? 'rgba(245,158,11,0.85)' : 'var(--wiz-border)',
+            position: 'relative', transition: 'background 0.2s',
+          }}>
+            <div style={{
+              position: 'absolute', top: 2, left: enabled ? 16 : 2,
+              width: 14, height: 14, borderRadius: 7, background: '#fff',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: enabled ? '#F59E0B' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>AIR-GAP</span>
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#F59E0B', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 4, padding: '1px 6px' }}>Ransomware Recovery</span>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 2 }}>+1 isolated region · +1 cluster · pull-only replication · Specter forensic mode</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            {[{ val: '+1', lbl: 'reg' }, { val: '+1', lbl: 'cls' }, { val: '+1', lbl: 'vC' }].map(({ val, lbl }) => (
+              <div key={lbl} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: enabled ? '#F59E0B' : 'var(--wiz-text-sub)' }}>{val}</div>
+                <div style={{ fontSize: 8, color: 'var(--wiz-text-hint)', marginTop: 2 }}>{lbl}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Diagram (collapsed when disabled) */}
+        {enabled && (
+          <div style={{ padding: '0 14px 14px' }}>
+            <div style={{ borderRadius: 8, padding: '14px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)' }}>
+              <DiagramAirgap />
+              <div style={{ marginTop: 8, fontSize: 8, color: 'rgba(255,255,255,0.28)', fontFamily: 'Inter, sans-serif' }}>
+                Pull-only network · deny-all-inbound · WireGuard static config · S3 backup replica · Specter forensic AI
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── StepTopology ───────────────────────────────────────────────── */
 export function StepTopology() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
@@ -251,7 +378,7 @@ export function StepTopology() {
   return (
     <StepShell
       title="Choose your infrastructure topology"
-      description="Your topology defines regions, physical clusters, and the vCluster isolation layer inside each. Every physical cluster runs one vCluster — the operational unit Catalyst provisions and Specter monitors. DUAL is the recommended starting point for most regulated organisations."
+      description="Your topology defines regions, physical clusters, and the vCluster isolation layer inside each. Outer box = physical cluster. Inner coloured box = vCluster. Network order top→bottom: DMZ · RTZ · MGMT. AIR-GAP is an optional add-on to any topology."
       onNext={() => { if (store.topology) next() }}
       onBack={back}
       nextDisabled={!store.topology}
@@ -262,7 +389,7 @@ export function StepTopology() {
         gap: 16,
         alignItems: twoPaneLayout ? 'stretch' : 'flex-start',
       }}>
-        {/* Option list */}
+        {/* Option list + AIR-GAP toggle */}
         <div style={{
           width: twoPaneLayout ? '40%' : '100%',
           flexShrink: 0,
@@ -316,6 +443,8 @@ export function StepTopology() {
               </div>
             )
           })}
+
+          <AirgapAddon />
         </div>
 
         {/* Detail panel */}

@@ -42,6 +42,9 @@ interface WizardActions {
   setHetznerToken: (token: string) => void
   setCredentialValidated: (validated: boolean) => void
 
+  // AIR-GAP add-on
+  setAirgap: (airgap: boolean) => void
+
   // Step 5 — Components
   setGroupComponents: (groupId: string, componentIds: string[]) => void
   toggleGroupComponent: (groupId: string, componentId: string, allIds: string[]) => void
@@ -128,6 +131,8 @@ export const useWizardStore = create<WizardStore>()(
         setHetznerToken: (hetznerToken) => set({ hetznerToken }, false, 'wizard/setHetznerToken'),
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
+
+        setAirgap: (airgap) => set({ airgap }, false, 'wizard/setAirgap'),
 
         setGroupComponents: (groupId, componentIds) =>
           set(

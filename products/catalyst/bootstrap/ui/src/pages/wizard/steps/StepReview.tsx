@@ -26,12 +26,11 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
 }
 
 const TOPOLOGY_NAMES: Record<string, string> = {
-  citadel:  'CITADEL — 4 regions, 6 clusters',
-  triangle: 'TRIANGLE — 3 regions, 5 clusters',
-  dual:     'DUAL — 2 regions, 6 clusters',
-  zoned:    'ZONED — 2 regions, 4 clusters',
-  compact:  'COMPACT — 2 regions, 2 clusters',
-  solo:     'SOLO — 1 region, 1 cluster',
+  citadel: 'CITADEL — 4 regions, 6 clusters, 6 vClusters',
+  dual:    'DUAL — 2 regions, 6 clusters, 6 vClusters',
+  zoned:   'ZONED — 2 regions, 4 clusters, 4 vClusters',
+  compact: 'COMPACT — 2 regions, 2 clusters, 6 vClusters',
+  solo:    'SOLO — 1 region, 1 cluster, 3 vClusters',
 }
 
 /* ── M/R/O chip colours ──────────────────────────────────────────── */
@@ -174,6 +173,11 @@ export function StepReview() {
 
           <Section title="Infrastructure">
             <Row label="Topology" value={topology ? TOPOLOGY_NAMES[topology] : '—'} />
+            <Row label="AIR-GAP" value={
+              store.airgap
+                ? <span style={{ color: '#F59E0B', fontWeight: 500 }}>Enabled — +1 isolated region</span>
+                : <span style={{ color: 'var(--wiz-text-hint)' }}>Not enabled</span>
+            } />
             {regionLabels.length > 0 && (
               <Row label="Regions" value={
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

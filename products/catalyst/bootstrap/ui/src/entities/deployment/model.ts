@@ -29,6 +29,7 @@ export interface WizardState {
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
   selectedComponents: SelectedComponent[]
+  airgap: boolean
   currentStep: number; completedSteps: number[]; deploymentId: string | null
 }
 
@@ -160,5 +161,6 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   componentsAppliedForProfile: null,
   regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
   haEnabled: false, selectedComponents: [],
+  airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
 }
