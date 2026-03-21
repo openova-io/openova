@@ -20,13 +20,14 @@ export const GROUPS: GroupDef[] = [
   /* ── CORE ─────────────────────────────────────────────────────── */
   {
     id: 'pilot', productName: 'PILOT', subtitle: 'GitOps & IaC',
-    description: 'Continuous delivery engine with GitOps workflows and infrastructure as code',
+    description: 'Continuous delivery engine with GitOps workflows, infrastructure as code, and virtual cluster isolation',
     required: true,
     components: [
-      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps delivery engine',   tier: 'mandatory' },
-      { id: 'crossplane', name: 'Crossplane', desc: 'Cloud CRDs / IaC',          tier: 'mandatory' },
-      { id: 'gitea',      name: 'Gitea',      desc: 'Internal Git server',       tier: 'mandatory' },
-      { id: 'opentofu',   name: 'OpenTofu',   desc: 'IaC (Terraform fork)',      tier: 'mandatory' },
+      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps delivery engine',          tier: 'mandatory' },
+      { id: 'crossplane', name: 'Crossplane', desc: 'Cloud CRDs / IaC',               tier: 'mandatory' },
+      { id: 'gitea',      name: 'Gitea',      desc: 'Internal Git server',            tier: 'mandatory' },
+      { id: 'opentofu',   name: 'OpenTofu',   desc: 'IaC (Terraform fork)',           tier: 'mandatory' },
+      { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual cluster isolation layer', tier: 'mandatory' },
     ],
   },
   {
@@ -57,12 +58,12 @@ export const GROUPS: GroupDef[] = [
   },
   {
     id: 'silo', productName: 'SILO', subtitle: 'Storage & Registry',
-    description: 'S3-compatible object storage, backup & disaster recovery, and container registry',
+    description: 'Multi-protocol distributed storage (S3 / NFS / FUSE / HDFS), backup & DR, and container registry',
     required: true,
     components: [
-      { id: 'minio',  name: 'MinIO',  desc: 'S3-compatible object storage', tier: 'mandatory' },
-      { id: 'velero', name: 'Velero', desc: 'Backup & disaster recovery',    tier: 'mandatory' },
-      { id: 'harbor', name: 'Harbor', desc: 'Container registry',            tier: 'mandatory' },
+      { id: 'seaweedfs', name: 'SeaweedFS', desc: 'Multi-protocol distributed storage', tier: 'mandatory' },
+      { id: 'velero',    name: 'Velero',    desc: 'Backup & disaster recovery',         tier: 'mandatory' },
+      { id: 'harbor',    name: 'Harbor',    desc: 'Container registry',                 tier: 'mandatory' },
     ],
   },
   /* ── SIDE (cross-cutting, always present) ─────────────────────── */

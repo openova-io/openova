@@ -189,7 +189,14 @@ export const useWizardStore = create<WizardStore>()(
           if (p.componentGroups) {
             const migrated: Record<string, string[]> = {}
             for (const [k, v] of Object.entries(p.componentGroups)) {
-              if (validGroupIds.includes(k)) migrated[k] = v as string[]
+              if (validGroupIds.includes(k)) {
+                // Migrate minio → seaweedfs
+                migrated[k] = (v as string[]).map(id => id === 'minio' ? 'seaweedfs' : id)
+              }
+            }
+            // Ensure vcluster is in pilot defaults
+            if (migrated.pilot && !migrated.pilot.includes('vcluster')) {
+              migrated.pilot = [...migrated.pilot, 'vcluster']
             }
             p.componentGroups = migrated
           }

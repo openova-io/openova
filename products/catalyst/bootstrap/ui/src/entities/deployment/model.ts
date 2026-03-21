@@ -91,10 +91,10 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
 
 /** Base defaults: all M + all R in required blocks; optional blocks empty */
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
-  pilot:    ['flux', 'crossplane', 'gitea', 'opentofu'],
+  pilot:    ['flux', 'crossplane', 'gitea', 'opentofu', 'vcluster'],
   spine:    ['cilium', 'coraza', 'external-dns', 'envoy', 'k8gb', 'frpc', 'netbird'],
   surge:    ['vpa', 'keda', 'reloader', 'continuum'],
-  silo:     ['minio', 'velero', 'harbor'],
+  silo:     ['seaweedfs', 'velero', 'harbor'],
   guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
   insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch'],
   fabric:   [],
