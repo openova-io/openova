@@ -6,13 +6,15 @@ import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
+import { GROUPS } from './componentGroups'
 
-const TOPOLOGY_NAMES = {
-  triangle: 'TRIANGLE — 3 regions, 5 clusters',
-  dual:     'DUAL — 2 regions, 6 clusters',
-  zoned:    'ZONED — 2 regions, 4 clusters',
-  compact:  'COMPACT — 2 regions, 2 clusters',
-  solo:     'SOLO — 1 region, 1 cluster',
+/* ── Provider logos (mirrors StepProvider) ───────────────────────── */
+const PROVIDER_LOGOS: Record<CloudProvider, React.ReactNode> = {
+  hetzner: <svg viewBox="0 0 24 24" width={16} height={16} style={{flexShrink:0}}><rect width={24} height={24} rx={3} fill="#D50C2D"/><path d="M5 6h5v12H5zM14 6h5v12h-5z" fill="#fff"/></svg>,
+  huawei:  <svg viewBox="0 0 24 24" width={16} height={16} style={{flexShrink:0}}><rect width={24} height={24} rx={3} fill="#CF0A2C"/><path d="M12 5L14 9.5L19 9.5L15 12.5L17 17L12 14L7 17L9 12.5L5 9.5L10 9.5Z" fill="#fff"/></svg>,
+  oci:     <svg viewBox="0 0 24 24" width={16} height={16} style={{flexShrink:0}}><rect width={24} height={24} rx={3} fill="#F80000"/><ellipse cx={12} cy={12} rx={7} ry={4.5} fill="none" stroke="#fff" strokeWidth={1.5}/></svg>,
+  aws:     <svg viewBox="0 0 24 24" width={16} height={16} style={{flexShrink:0}}><rect width={24} height={24} rx={3} fill="#232F3E"/><path d="M7 15c2.5 1.8 7.5 1.8 10 0" stroke="#FF9900" strokeWidth={1.5} fill="none" strokeLinecap="round"/><path d="M12 8v5" stroke="#FF9900" strokeWidth={1.5} strokeLinecap="round"/><path d="M10 11l2-3 2 3" stroke="#FF9900" strokeWidth={1.2} fill="none" strokeLinecap="round"/></svg>,
+  azure:   <svg viewBox="0 0 24 24" width={16} height={16} style={{flexShrink:0}}><rect width={24} height={24} rx={3} fill="#0078D4"/><path d="M11 7L7 17h4l2-4 2 4h4L15 7z" fill="#fff" opacity={0.9}/></svg>,
 }
 
 const PROVIDER_NAMES: Record<CloudProvider, string> = {
@@ -23,18 +25,35 @@ const PROVIDER_NAMES: Record<CloudProvider, string> = {
   azure:   'Microsoft Azure',
 }
 
-const GROUP_NAMES: Record<string, string> = {
-  pilot:    'PILOT — GitOps & IaC',
-  spine:    'SPINE — Networking & Service Mesh',
-  surge:    'SURGE — Scaling & Resilience',
-  silo:     'SILO — Storage & Registry',
-  guardian: 'GUARDIAN — Security & Identity',
-  insights: 'INSIGHTS — AIOps & Observability',
-  fabric:   'FABRIC — Data & Integration',
-  cortex:   'CORTEX — AI & Machine Learning',
-  relay:    'RELAY — Communication',
+const TOPOLOGY_NAMES = {
+  triangle: 'TRIANGLE — 3 regions, 5 clusters',
+  dual:     'DUAL — 2 regions, 6 clusters',
+  zoned:    'ZONED — 2 regions, 4 clusters',
+  compact:  'COMPACT — 2 regions, 2 clusters',
+  solo:     'SOLO — 1 region, 1 cluster',
 }
 
+/* ── M/R/O chip colours ──────────────────────────────────────────── */
+const TIER_STYLE = {
+  mandatory:   { label: 'M', color: '#4ADE80', bg: 'rgba(74,222,128,0.12)',  border: 'rgba(74,222,128,0.25)' },
+  recommended: { label: 'R', color: '#38BDF8', bg: 'rgba(56,189,248,0.12)',  border: 'rgba(56,189,248,0.25)' },
+  optional:    { label: 'O', color: '#A78BFA', bg: 'rgba(167,139,250,0.12)', border: 'rgba(167,139,250,0.25)' },
+} as const
+
+function TierChip({ tier, count }: { tier: 'mandatory' | 'recommended' | 'optional'; count: number }) {
+  const s = TIER_STYLE[tier]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
+      color: s.color, background: s.bg, border: `1px solid ${s.border}`,
+    }}>
+      {s.label}<span style={{ fontWeight: 400, opacity: 0.85 }}>{count}</span>
+    </span>
+  )
+}
+
+/* ── Row / Section helpers ───────────────────────────────────────── */
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)' }}>
@@ -55,6 +74,33 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+/* ── Component group row with M/R/O breakdown ────────────────────── */
+function ComponentGroupRow({ gid, selectedIds }: { gid: string; selectedIds: string[] }) {
+  const group = GROUPS.find(g => g.id === gid)
+  if (!group) return null
+
+  const counts = { mandatory: 0, recommended: 0, optional: 0 }
+  for (const id of selectedIds) {
+    const comp = group.components.find(c => c.id === id)
+    if (comp) counts[comp.tier]++
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-md)', letterSpacing: '0.02em' }}>{group.productName}</span>
+        <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)', marginLeft: 6 }}>{group.subtitle}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        {counts.mandatory   > 0 && <TierChip tier="mandatory"   count={counts.mandatory}   />}
+        {counts.recommended > 0 && <TierChip tier="recommended" count={counts.recommended} />}
+        {counts.optional    > 0 && <TierChip tier="optional"    count={counts.optional}    />}
+      </div>
+    </div>
+  )
+}
+
+/* ── StepReview ──────────────────────────────────────────────────── */
 export function StepReview() {
   const store = useWizardStore()
   const { back } = useStepNav()
@@ -66,6 +112,7 @@ export function StepReview() {
   const topology = store.topology
   const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? []) : []
   const regionProviders = store.regionProviders
+  const selectedGroups = Object.entries(store.componentGroups).filter(([, ids]) => ids.length > 0)
 
   async function provision() {
     setLoading(true)
@@ -94,17 +141,17 @@ export function StepReview() {
 
   return (
     <StepShell
-      title="Review & provision"
-      description="Confirm your configuration below. OpenOva will provision exactly what you see here."
+      title="Ready to launch"
+      description="Your full OpenOva ecosystem — infrastructure, platform stack, security, and observability — will be provisioned exactly as configured below."
       onNext={provision}
       onBack={back}
-      nextLabel={<><Zap size={13} style={{ marginRight: 4 }} />Provision cluster</>}
+      nextLabel={<><Zap size={13} style={{ marginRight: 5 }} />Launch OpenOva ecosystem</>}
       nextLoading={loading}
     >
       {/* 2-column review layout — stacks on mobile */}
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? '1fr' : '1fr 1fr', gap: 16, alignItems: 'start' }}>
 
-        {/* Left column: Organisation + Infrastructure */}
+        {/* Left: Organisation + Infrastructure */}
         <div>
           <Section title="Organisation">
             <Row label="Name"       value={store.orgName} />
@@ -128,17 +175,24 @@ export function StepReview() {
             <Row label="Topology" value={topology ? TOPOLOGY_NAMES[topology] : '—'} />
             {regionLabels.length > 0 && (
               <Row label="Regions" value={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {regionLabels.map((rl, i) => {
                     const p = regionProviders[i] as CloudProvider | undefined
                     const cloudRegionId = store.regionCloudRegions[i]
                     const cloudRegionDef = p && cloudRegionId ? PROVIDER_REGIONS[p].find(r => r.id === cloudRegionId) : undefined
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                        <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14, marginTop: 1 }}>{i + 1}</span>
-                        <div>
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.6)', fontWeight: 700, width: 14, marginTop: 2, flexShrink: 0 }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 11, color: 'var(--wiz-text-lo)' }}>{rl}</div>
-                          {p && <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 1 }}>{PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}</div>}
+                          {p && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                              {PROVIDER_LOGOS[p]}
+                              <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)' }}>
+                                {PROVIDER_NAMES[p]}{cloudRegionDef ? ` · ${cloudRegionDef.label} — ${cloudRegionDef.location}` : ''}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )
@@ -149,7 +203,7 @@ export function StepReview() {
           </Section>
         </div>
 
-        {/* Right column: Credentials + Components */}
+        {/* Right: Credentials + Components */}
         <div>
           <Section title="Credentials">
             <div style={{ padding: '4px 0' }}>
@@ -159,33 +213,42 @@ export function StepReview() {
                   const validated = store.providerValidated[p as CloudProvider]
                   const isDemo = (store.providerTokens[p as CloudProvider] ?? '').startsWith('demo-mode')
                   return (
-                    <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderBottom: '1px solid var(--wiz-border-sub)', fontSize: 11 }}>
+                    <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--wiz-border-sub)', fontSize: 11 }}>
+                      {PROVIDER_LOGOS[p as CloudProvider]}
                       <span style={{ flex: 1, color: 'var(--wiz-text-lo)' }}>{PROVIDER_NAMES[p as CloudProvider]}</span>
                       {isDemo
-                        ? <span style={{ color: '#38BDF8' }}>Demo mode</span>
+                        ? <span style={{ color: '#38BDF8', fontWeight: 500 }}>Demo mode</span>
                         : validated
-                          ? <span style={{ color: '#4ADE80' }}>✓ Validated</span>
-                          : <span style={{ color: '#F87171' }}>Not validated</span>
+                          ? <span style={{ color: '#4ADE80', fontWeight: 500 }}>✓ Validated</span>
+                          : <span style={{ color: '#F87171', fontWeight: 500 }}>Not validated</span>
                       }
                     </div>
                   )
                 })}
               {Object.values(regionProviders).length === 0 && store.credentialValidated && (
                 <div style={{ padding: '7px 0', fontSize: 11 }}>
-                  <span style={{ color: '#4ADE80' }}>✓ Validated</span>
+                  <span style={{ color: '#4ADE80', fontWeight: 500 }}>✓ Validated</span>
                 </div>
               )}
             </div>
           </Section>
 
-          <Section title="Components">
-            <Row label="Total" value={`${totalComponents} components across ${Object.values(store.componentGroups).filter(g => g.length > 0).length} groups`} />
-            {Object.entries(store.componentGroups)
-              .filter(([, ids]) => ids.length > 0)
-              .map(([gid, ids]) => (
-                <Row key={gid} label={GROUP_NAMES[gid] ?? gid} value={`${ids.length} selected`} />
-              ))
-            }
+          <Section title={`Components · ${totalComponents} across ${selectedGroups.length} groups`}>
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: 10, padding: '8px 0 4px', borderBottom: '1px solid var(--wiz-border-sub)', marginBottom: 2 }}>
+              {(['mandatory', 'recommended', 'optional'] as const).map(tier => (
+                <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: TIER_STYLE[tier].color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 9, color: 'var(--wiz-text-hint)', textTransform: 'capitalize' }}>{tier}</span>
+                </div>
+              ))}
+            </div>
+            {selectedGroups.map(([gid, ids]) => (
+              <ComponentGroupRow key={gid} gid={gid} selectedIds={ids} />
+            ))}
+            {selectedGroups.length === 0 && (
+              <div style={{ padding: '12px 0', fontSize: 11, color: 'var(--wiz-text-hint)', textAlign: 'center' }}>No components selected</div>
+            )}
           </Section>
         </div>
       </div>

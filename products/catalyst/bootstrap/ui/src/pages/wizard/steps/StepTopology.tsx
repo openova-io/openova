@@ -236,7 +236,7 @@ export function StepTopology() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? '#fff' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>{t.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>{t.name}</span>
                     <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: t.tagColor, background: `${t.tagColor}18`, border: `1px solid ${t.tagColor}38`, borderRadius: 4, padding: '1px 6px' }}>{t.tag}</span>
                     {t.recommended && !isSelected && <span style={{ fontSize: 9, color: 'rgba(34,197,94,0.6)', fontWeight: 500 }}>← start here</span>}
                   </div>

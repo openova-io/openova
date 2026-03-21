@@ -1,79 +1,13 @@
 import { Outlet, Link } from '@tanstack/react-router'
 import { X, Sun, Moon, Check } from 'lucide-react'
-import { useState, useEffect } from 'react'
 import { IS_SAAS } from '@/shared/constants/env'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useTheme } from '@/shared/lib/useTheme'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
-/* ── Light mode preview options ─────────────────────────────────────── */
-const LIGHT_OPTIONS = {
-  A: {
-    label: 'A',
-    hint: 'Slate Pro — cool gradient, slate text',
-    vars: {
-      '--wiz-ch':           '15, 23, 42',
-      '--wiz-page-bg':      'linear-gradient(160deg, #f1f5f9 0%, #e2e8f0 100%)',
-      '--wiz-panel-bg':     '#ffffff',
-      '--wiz-deep-bg':      '#f8fafc',
-      '--wiz-glow-1':       'rgba(14,165,233,0.08)',
-      '--wiz-glow-2':       'rgba(99,102,241,0.05)',
-      '--color-text-primary': '#0f172a',
-    },
-    sidebarBg: null as string | null,
-  },
-  B: {
-    label: 'B',
-    hint: 'Midnight Split — dark sidebar + white content',
-    vars: {
-      '--wiz-ch':           '9, 9, 11',
-      '--wiz-page-bg':      '#ffffff',
-      '--wiz-panel-bg':     '#ffffff',
-      '--wiz-deep-bg':      '#f8fafc',
-      '--wiz-glow-1':       'rgba(14,165,233,0.06)',
-      '--wiz-glow-2':       'rgba(99,102,241,0.04)',
-      '--color-text-primary': '#09090b',
-    },
-    sidebarBg: 'linear-gradient(180deg, #0c1525 0%, #0f172a 100%)',
-  },
-  C: {
-    label: 'C',
-    hint: 'Cloud Paper — white sidebar + slate page',
-    vars: {
-      '--wiz-ch':           '15, 23, 42',
-      '--wiz-page-bg':      '#f1f5f9',
-      '--wiz-panel-bg':     '#ffffff',
-      '--wiz-deep-bg':      '#e2e8f0',
-      '--wiz-glow-1':       'rgba(14,165,233,0.10)',
-      '--wiz-glow-2':       'rgba(99,102,241,0.06)',
-      '--color-text-primary': '#0f172a',
-    },
-    sidebarBg: '#ffffff',
-  },
-} as const
-
-type LightOption = keyof typeof LIGHT_OPTIONS
-
-function applyLightOption(opt: LightOption) {
-  const { vars } = LIGHT_OPTIONS[opt]
-  for (const [k, v] of Object.entries(vars)) {
-    document.documentElement.style.setProperty(k, v)
-  }
-  localStorage.setItem('oo-light-option', opt)
-}
-
-function useLightOption() {
-  const [opt, setOpt] = useState<LightOption>(() =>
-    (localStorage.getItem('oo-light-option') as LightOption) ?? 'A'
-  )
-  function pick(o: LightOption) {
-    setOpt(o)
-    applyLightOption(o)
-  }
-  useEffect(() => { applyLightOption(opt) }, [opt])
-  return { opt, pick }
-}
+/* Light mode: dark sidebar (Midnight Split) */
+const LIGHT_SIDEBAR_BG = 'linear-gradient(180deg, #0c1525 0%, #0f172a 100%)'
 
 export const WIZARD_STEPS = [
   { id: 1, label: 'Organisation', desc: 'Name, domain, contact'    },
@@ -88,15 +22,12 @@ export function WizardLayout() {
   const { currentStep, setStep } = useWizardStore()
   const { theme, toggle } = useTheme()
   const bp = useBreakpoint()
-  const { opt, pick } = useLightOption()
 
   const isMobile  = bp === 'mobile'
   const isTablet  = bp === 'tablet'
   const isDesktop = bp === 'desktop'
 
-  const sidebarBg = theme === 'light' && LIGHT_OPTIONS[opt].sidebarBg
-    ? LIGHT_OPTIONS[opt].sidebarBg!
-    : undefined
+  const sidebarBg = theme === 'light' ? LIGHT_SIDEBAR_BG : undefined
 
   return (
     <div style={{
@@ -324,26 +255,6 @@ export function WizardLayout() {
 
       {/* ── TOP-RIGHT CONTROLS ───────────────────────────────────────── */}
       <div style={{ position: 'absolute', top: isMobile ? 12 : 18, right: 16, display: 'flex', gap: 8, zIndex: 20, alignItems: 'center' }}>
-
-        {/* Light mode A/B/C picker — only visible in light mode */}
-        {theme === 'light' && (
-          <div style={{ display: 'flex', gap: 3, background: 'var(--wiz-border-sub)', border: '1px solid var(--wiz-border)', borderRadius: 8, padding: '3px' }}>
-            {(['A', 'B', 'C'] as LightOption[]).map(o => (
-              <button
-                key={o}
-                onClick={() => pick(o)}
-                title={LIGHT_OPTIONS[o].hint}
-                style={{
-                  width: 24, height: 24, borderRadius: 6, border: 'none',
-                  background: opt === o ? '#38BDF8' : 'transparent',
-                  color: opt === o ? '#fff' : 'var(--wiz-text-sub)',
-                  fontSize: 10, fontWeight: 700, cursor: 'pointer',
-                  fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
-                }}
-              >{o}</button>
-            ))}
-          </div>
-        )}
 
         <button
           onClick={toggle}
