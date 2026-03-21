@@ -6,9 +6,6 @@ import { useTheme } from '@/shared/lib/useTheme'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
-/* Light mode: dark sidebar (Midnight Split) */
-const LIGHT_SIDEBAR_BG = 'linear-gradient(180deg, #0c1525 0%, #0f172a 100%)'
-
 export const WIZARD_STEPS = [
   { id: 1, label: 'Organisation', desc: 'Name, domain, contact'    },
   { id: 2, label: 'Topology',     desc: 'Regions and clusters'      },
@@ -26,8 +23,6 @@ export function WizardLayout() {
   const isMobile  = bp === 'mobile'
   const isTablet  = bp === 'tablet'
   const isDesktop = bp === 'desktop'
-
-  const sidebarBg = theme === 'light' ? LIGHT_SIDEBAR_BG : undefined
 
   return (
     <div style={{
@@ -139,10 +134,10 @@ export function WizardLayout() {
       {isDesktop && (
         <div style={{
           width: 260, flexShrink: 0, zIndex: 10,
-          background: sidebarBg ?? 'var(--wiz-bg-sub)',
-          backdropFilter: sidebarBg ? undefined : 'blur(20px)',
-          WebkitBackdropFilter: sidebarBg ? undefined : 'blur(20px)',
-          borderRight: sidebarBg ? '1px solid rgba(255,255,255,0.06)' : '1px solid var(--wiz-border-sub)',
+          background: 'var(--wiz-bg-sub)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRight: '1px solid var(--wiz-border-sub)',
           display: 'flex', flexDirection: 'column',
           padding: '28px 20px',
         }}>
@@ -150,8 +145,8 @@ export function WizardLayout() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 36 }}>
             <OOLogo h={24} id="wiz-logo-d" />
             <div style={{ lineHeight: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: sidebarBg ? 'rgba(255,255,255,0.82)' : 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: sidebarBg ? 'rgba(255,255,255,0.28)' : 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
             </div>
           </div>
 
@@ -160,8 +155,7 @@ export function WizardLayout() {
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
-              // When sidebar has its own dark bg, use white channel for text/borders
-              const sch = sidebarBg ? '255,255,255' : 'var(--wiz-ch)'
+              const sch = 'var(--wiz-ch)'
               return (
                 <div key={step.id} style={{ position: 'relative' }}>
                   {i < WIZARD_STEPS.length - 1 && (
@@ -219,7 +213,7 @@ export function WizardLayout() {
           </div>
 
           {/* Progress footer */}
-          {(() => { const sch = sidebarBg ? '255,255,255' : 'var(--wiz-ch)'; return (
+          {(() => { const sch = 'var(--wiz-ch)'; return (
           <div style={{ borderTop: `1px solid rgba(${sch},0.06)`, paddingTop: 18, marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 11, color: `rgba(${sch},0.25)` }}>Progress</span>
