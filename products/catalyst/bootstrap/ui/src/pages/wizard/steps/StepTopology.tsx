@@ -18,30 +18,22 @@ interface TopoConfig {
 }
 
 /* ── SVG primitives ─────────────────────────────────────────────── */
-
-// Physical cluster outer container — thin white border
 const PC = (x: number, y: number, w: number, h: number) => (
   <rect key={`pc${x}${y}`} x={x} y={y} width={w} height={h} rx={4}
     fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.22)" strokeWidth={1} />
 )
-
-// vCluster inner box — coloured, labelled
 const VC = (x: number, y: number, w: number, h: number, label: string, fill: string) => (
   <g key={`vc${x}${y}`}>
     <rect x={x} y={y} width={w} height={h} rx={3} fill={fill} />
     <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fontWeight="700" fill="#fff" fontFamily="Inter,sans-serif">{label}</text>
   </g>
 )
-
-// Region boundary — dashed, label above
 const RG = (x: number, y: number, w: number, h: number, label: string, stroke = 'rgba(255,255,255,0.18)') => (
   <g key={`rg${x}${y}`}>
     <rect x={x} y={y} width={w} height={h} rx={6} fill="none" stroke={stroke} strokeWidth={1} strokeDasharray="4,3" />
     {label && <text x={x + 7} y={y - 5} fontSize={8} fill="rgba(255,255,255,0.35)" fontFamily="Inter,sans-serif" fontWeight="500">{label}</text>}
   </g>
 )
-
-// Inter-cluster connection
 const CONN = (x1: number, y1: number, x2: number, y2: number) => (
   <line key={`cn${x1}${y1}${x2}${y2}`} x1={x1} y1={y1} x2={x2} y2={y2}
     stroke="rgba(56,189,248,0.4)" strokeWidth={1.2} strokeDasharray="3,2" />
@@ -54,16 +46,14 @@ const RTZ  = 'rgba(99,102,241,0.55)'
 const RTZ2 = 'rgba(99,102,241,0.30)'
 const MGT  = 'rgba(56,189,248,0.85)'
 const MGT2 = 'rgba(56,189,248,0.45)'
-const AIR  = 'rgba(245,158,11,0.85)'
 
 /* ─────────────────────────────────────────────────────────────────
-   TOPOLOGY DIAGRAMS
-   Network mindset ordering (top → bottom):  DMZ · RTZ · MGMT
+   TOPOLOGY DIAGRAMS — all use width="100%" height="100%"
+   Parent container is a fixed-height div → all diagrams same canvas size
    ───────────────────────────────────────────────────────────────── */
 
-/* SOLO — 1 region, 1 physical cluster, 3 vClusters side-by-side */
 const DiagramSolo = () => (
-  <svg viewBox="0 0 280 78" width="100%">
+  <svg viewBox="0 0 280 78" width="100%" height="100%" style={{ display: 'block' }}>
     {RG(4, 14, 272, 56, 'Single region')}
     {PC(10, 22, 260, 42)}
     {VC(14,  27, 80, 30, 'DMZ',  DMZ)}
@@ -72,9 +62,8 @@ const DiagramSolo = () => (
   </svg>
 )
 
-/* COMPACT — 2 regions, 1 physical cluster each, 3 vClusters side-by-side */
 const DiagramCompact = () => (
-  <svg viewBox="0 0 280 148" width="100%">
+  <svg viewBox="0 0 280 148" width="100%" height="100%" style={{ display: 'block' }}>
     {RG(4, 14, 272, 56, 'Region 1 · Primary')}
     {PC(10, 22, 260, 42)}
     {VC(14,  27, 80, 30, 'DMZ',  DMZ)}
@@ -89,31 +78,26 @@ const DiagramCompact = () => (
   </svg>
 )
 
-/* ZONED — 2 regions side-by-side; row 1 = DMZ (full-width PC); row 2 = RTZ + MGMT (2 vClusters in 1 PC) */
 const DiagramZoned = () => (
-  <svg viewBox="0 0 280 112" width="100%">
-    {/* Region 1 */}
+  <svg viewBox="0 0 280 112" width="100%" height="100%" style={{ display: 'block' }}>
     {RG(4, 14, 130, 90, 'Region 1 · Primary')}
     {PC(10, 24, 118, 32)}
     {VC(13, 27, 112, 26, 'DMZ', DMZ)}
     {PC(10, 62, 118, 32)}
     {VC(13, 65,  54, 26, 'RTZ',  RTZ)}
     {VC(71, 65,  54, 26, 'MGMT', MGT)}
-    {/* Region 2 */}
     {RG(146, 14, 130, 90, 'Region 2 · DR')}
     {PC(152, 24, 118, 32)}
     {VC(155, 27, 112, 26, 'DMZ',  DMZ2)}
     {PC(152, 62, 118, 32)}
     {VC(155, 65,  54, 26, 'RTZ',  RTZ2)}
     {VC(213, 65,  54, 26, 'MGMT', MGT2)}
-    {/* Cross-region DMZ connection */}
     {CONN(134, 40, 146, 40)}
   </svg>
 )
 
-/* DUAL — 2 regions, 3 physical clusters each (DMZ · RTZ · MGMT top→bottom) */
 const DiagramDual = () => (
-  <svg viewBox="0 0 280 142" width="100%">
+  <svg viewBox="0 0 280 142" width="100%" height="100%" style={{ display: 'block' }}>
     {RG(4, 12, 120, 118, 'Region 1 · Primary')}
     {PC(10, 22, 108, 30)}
     {VC(13, 25, 102, 24, 'DMZ',  DMZ)}
@@ -132,10 +116,8 @@ const DiagramDual = () => (
   </svg>
 )
 
-/* CITADEL — DP regions (DMZ·RTZ) on top, CP regions (MGMT) on bottom — increased gap to fix overlap */
 const DiagramCitadel = () => (
-  <svg viewBox="0 0 280 168" width="100%">
-    {/* ── DP row (top) ── */}
+  <svg viewBox="0 0 280 168" width="100%" height="100%" style={{ display: 'block' }}>
     {RG(4, 14, 132, 82, 'DP Region 1')}
     {PC(10, 24, 120, 30)}
     {VC(13, 27, 114, 24, 'DMZ', DMZ)}
@@ -147,10 +129,8 @@ const DiagramCitadel = () => (
     {PC(150, 59, 120, 30)}
     {VC(153, 62, 114, 24, 'RTZ', RTZ2)}
     {CONN(136, 74, 144, 74)}
-    {/* DP → CP vertical connections */}
     {CONN(70, 96, 70, 112)}
     {CONN(210, 96, 210, 112)}
-    {/* ── CP row (bottom — MGMT only) ── */}
     {RG(4, 112, 132, 48, 'CP · Region 1')}
     {PC(10, 120, 120, 32)}
     {VC(13, 123, 114, 26, 'MGMT', MGT)}
@@ -161,28 +141,6 @@ const DiagramCitadel = () => (
   </svg>
 )
 
-/* AIR-GAP add-on diagram — shows the isolated region added to any topology */
-const DiagramAirgap = () => (
-  <svg viewBox="0 0 280 82" width="100%">
-    {/* Abstract: existing topology (left) */}
-    {RG(4, 14, 74, 60, '')}
-    {PC(8, 20, 66, 50)}
-    {VC(10, 24, 62, 13, 'DMZ',  'rgba(99,102,241,0.7)')}
-    {VC(10, 40, 62, 13, 'RTZ',  'rgba(99,102,241,0.4)')}
-    {VC(10, 56, 62, 13, 'MGMT', 'rgba(56,189,248,0.7)')}
-    {/* Pull-only arrow */}
-    <text x={95} y={40} fontSize={7} fill="rgba(255,255,255,0.3)" fontFamily="Inter,sans-serif" textAnchor="middle">pull</text>
-    <text x={95} y={50} fontSize={7} fill="rgba(255,255,255,0.3)" fontFamily="Inter,sans-serif" textAnchor="middle">only</text>
-    <polyline points="78,44 102,44" stroke="rgba(56,189,248,0.3)" strokeWidth={1} strokeDasharray="3,2" fill="none" />
-    <polygon points="102,41 108,44 102,47" fill="rgba(56,189,248,0.35)" />
-    {/* AIR-GAP region (amber) */}
-    <rect x={112} y={14} width={164} height={60} rx={6} fill="none"
-      stroke="rgba(245,158,11,0.45)" strokeWidth={1} strokeDasharray="4,3" />
-    <text x={119} y={9} fontSize={8} fill="rgba(245,158,11,0.5)" fontFamily="Inter,sans-serif" fontWeight="500">Air-gap Region</text>
-    {PC(118, 24, 152, 44)}
-    {VC(122, 28, 144, 36, 'AIR-GAP', AIR)}
-  </svg>
-)
 
 /* ── Topology configurations ────────────────────────────────────── */
 const TOPOLOGIES: TopoConfig[] = [
@@ -257,6 +215,7 @@ const TOPOLOGIES: TopoConfig[] = [
 function TopologyDetail({ t }: { t: TopoConfig }) {
   return (
     <div style={{ borderRadius: 12, border: '1px solid rgba(56,189,248,0.15)', background: 'rgba(56,189,248,0.04)', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header */}
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-text-primary)', letterSpacing: '0.04em' }}>{t.name}</span>
@@ -276,9 +235,13 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
         </div>
         <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.4 }}>{t.tagline}</div>
       </div>
-      <div style={{ padding: '18px 18px 12px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', minHeight: 120 }}>
-        {t.diagram}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+
+      {/* Fixed-height diagram canvas — all topologies render at same height */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)', padding: '14px 18px 8px', flexShrink: 0 }}>
+        <div style={{ height: 152, overflow: 'hidden' }}>
+          {t.diagram}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
           {[
             { color: 'rgba(99,102,241,0.85)', label: 'DMZ' },
             { color: 'rgba(99,102,241,0.55)', label: 'RTZ' },
@@ -289,9 +252,11 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
               <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter, sans-serif' }}>{label}</span>
             </div>
           ))}
-          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>· outer box = physical cluster · inner box = vCluster</span>
+          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>· outer = physical cluster · inner = vCluster</span>
         </div>
       </div>
+
+      {/* Bullets */}
       <div style={{ padding: '12px 18px 16px', flex: 1 }}>
         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {t.bullets.map(b => (
@@ -305,7 +270,7 @@ function TopologyDetail({ t }: { t: TopoConfig }) {
   )
 }
 
-/* ── AIR-GAP add-on card ────────────────────────────────────────── */
+/* ── AIR-GAP add-on card — toggle only, no expansion ───────────── */
 function AirgapAddon() {
   const store = useWizardStore()
   const enabled = store.airgap
@@ -318,16 +283,14 @@ function AirgapAddon() {
       <div
         onClick={() => store.setAirgap(!enabled)}
         style={{
-          borderRadius: 12, cursor: 'pointer', overflow: 'hidden',
+          borderRadius: 12, cursor: 'pointer',
           border: enabled ? '1.5px solid rgba(245,158,11,0.5)' : '1.5px solid var(--wiz-border-sub)',
           background: enabled ? 'rgba(245,158,11,0.05)' : 'var(--wiz-bg-xs)',
           boxShadow: enabled ? '0 0 0 3px rgba(245,158,11,0.07)' : 'none',
           transition: 'all 0.15s',
         }}
       >
-        {/* Header row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
-          {/* Toggle */}
           <div style={{
             width: 32, height: 18, borderRadius: 9, flexShrink: 0,
             background: enabled ? 'rgba(245,158,11,0.85)' : 'var(--wiz-border)',
@@ -355,17 +318,6 @@ function AirgapAddon() {
             ))}
           </div>
         </div>
-        {/* Diagram (collapsed when disabled) */}
-        {enabled && (
-          <div style={{ padding: '0 14px 14px' }}>
-            <div style={{ borderRadius: 8, padding: '14px', background: 'linear-gradient(135deg, #0a1628 0%, #0f172a 100%)' }}>
-              <DiagramAirgap />
-              <div style={{ marginTop: 8, fontSize: 8, color: 'rgba(255,255,255,0.28)', fontFamily: 'Inter, sans-serif' }}>
-                Pull-only network · deny-all-inbound · WireGuard static config · S3 backup replica · Specter forensic AI
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -392,14 +344,13 @@ export function StepTopology() {
         display: 'flex',
         flexDirection: twoPaneLayout ? 'row' : 'column',
         gap: 16,
-        alignItems: 'flex-start',
+        alignItems: 'stretch',
       }}>
         {/* Option list + AIR-GAP toggle */}
         <div style={{
           width: twoPaneLayout ? '40%' : '100%',
           flexShrink: 0,
           display: 'flex', flexDirection: 'column', gap: 6,
-          alignSelf: 'flex-start',
         }}>
           {TOPOLOGIES.map(t => {
             const isSelected = store.topology === t.id
@@ -448,7 +399,6 @@ export function StepTopology() {
               </div>
             )
           })}
-
           <AirgapAddon />
         </div>
 

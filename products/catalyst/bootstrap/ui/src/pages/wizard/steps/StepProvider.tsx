@@ -56,7 +56,6 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      {/* Trigger */}
       <div
         onClick={() => setOpen(v => !v)}
         style={{
@@ -77,7 +76,6 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
         <ChevronDown size={13} style={{ color: 'var(--wiz-text-sub)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
       </div>
 
-      {/* Panel */}
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
@@ -115,16 +113,20 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
 }
 
 /* ── RegionCard ──────────────────────────────────────────────────── */
-function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSelectProvider, onSelectCloudRegion }: {
+function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSelectProvider, onSelectCloudRegion, isAirgap }: {
   index: number
   label: string
   selectedProvider: CloudProvider | undefined
   selectedCloudRegion: string | undefined
   onSelectProvider: (p: CloudProvider) => void
   onSelectCloudRegion: (r: string) => void
+  isAirgap?: boolean
 }) {
   const isConfigured = !!selectedProvider && !!selectedCloudRegion
   const providerDef = PROVIDERS.find(p => p.id === selectedProvider)
+
+  const accentColor  = isAirgap ? 'rgba(245,158,11,0.5)'  : 'rgba(56,189,248,0.22)'
+  const headerColor  = isAirgap ? 'rgba(245,158,11,0.08)' : undefined
 
   const providerOptions: SelectOption[] = PROVIDERS.map(p => ({
     value: p.id, label: p.name, logo: p.logo,
@@ -139,14 +141,20 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
   return (
     <div style={{
       borderRadius: 10,
-      border: isConfigured ? '1.5px solid rgba(56,189,248,0.22)' : '1.5px solid var(--wiz-border-sub)',
+      border: isConfigured ? `1.5px solid ${accentColor}` : '1.5px solid var(--wiz-border-sub)',
       background: 'var(--wiz-bg-xs)',
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 14px', borderBottom: '1px solid var(--wiz-border-sub)',
+        background: isAirgap ? headerColor : undefined,
+      }}>
         <div style={{
           width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-          background: isConfigured ? 'linear-gradient(135deg,#38BDF8,#818CF8)' : 'var(--wiz-border-sub)',
+          background: isConfigured
+            ? isAirgap ? 'linear-gradient(135deg,#F59E0B,#F97316)' : 'linear-gradient(135deg,#38BDF8,#818CF8)'
+            : 'var(--wiz-border-sub)',
           border: isConfigured ? 'none' : '1px solid var(--wiz-border)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 9, fontWeight: 700, color: isConfigured ? '#fff' : 'var(--wiz-text-sub)',
@@ -154,11 +162,16 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
           {isConfigured ? <Check size={10} strokeWidth={2.5}/> : index + 1}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-md)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {label}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: isAirgap ? '#F59E0B' : 'var(--wiz-text-md)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {label}
+            </div>
+            {isAirgap && (
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#F59E0B', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>isolated</span>
+            )}
           </div>
           {isConfigured && providerDef && selectedCloudRegion && (
-            <div style={{ fontSize: 10, color: 'var(--wiz-accent)', marginTop: 1 }}>
+            <div style={{ fontSize: 10, color: isAirgap ? '#F59E0B' : 'var(--wiz-accent)', marginTop: 1 }}>
               {providerDef.name} · {PROVIDER_REGIONS[selectedProvider!].find(r => r.id === selectedCloudRegion)?.location}
             </div>
           )}
@@ -202,12 +215,14 @@ export function StepProvider() {
   const regionCount  = topology ? (TOPOLOGY_REGION_COUNT[topology]  ?? 1) : 1
   const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? ['Region 1']) : ['Region 1']
   const hint         = getHqHint(store.orgHeadquarters)
+  const hasAirgap    = store.airgap
+  const totalCards   = regionCount + (hasAirgap ? 1 : 0)
 
   /* On first visit: apply HQ hint, or fall back to first provider + first region */
   useEffect(() => {
     if (Object.keys(store.regionProviders).length > 0) return
     const provider = hint?.provider ?? PROVIDERS[0].id
-    for (let i = 0; i < regionCount; i++) {
+    for (let i = 0; i < totalCards; i++) {
       store.setRegionProvider(i, provider)
       if (i === 0) store.setProvider(provider)
       const regions = PROVIDER_REGIONS[provider]
@@ -217,20 +232,19 @@ export function StepProvider() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const allConfigured = Array.from({ length: regionCount }, (_, i) => i)
+  const allConfigured = Array.from({ length: totalCards }, (_, i) => i)
     .every(i => !!store.regionProviders[i] && !!store.regionCloudRegions[i])
 
   function handleSelectProvider(i: number, provider: CloudProvider) {
     store.setRegionProvider(i, provider)
     if (i === 0) store.setProvider(provider)
-    // Auto-select first region of the new provider
     const regions = PROVIDER_REGIONS[provider]
     const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
-    const autoRegion = hintRegion ?? regions[0].id
-    store.setRegionCloudRegion(i, autoRegion)
+    store.setRegionCloudRegion(i, hintRegion ?? regions[0].id)
   }
 
-  const cols = Array(regionCount).fill('1fr').join(' ')
+  /* Max 3 cards per row */
+  const gridCols = `repeat(${Math.min(totalCards, 3)}, 1fr)`
 
   return (
     <StepShell
@@ -246,7 +260,8 @@ export function StepProvider() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12, alignItems: 'start' }}>
+        {/* Standard topology regions */}
         {regionLabels.map((label, i) => (
           <RegionCard
             key={i}
@@ -258,8 +273,21 @@ export function StepProvider() {
             onSelectCloudRegion={r => store.setRegionCloudRegion(i, r)}
           />
         ))}
-      </div>
 
+        {/* AIR-GAP region card — appears when air-gap add-on is enabled */}
+        {hasAirgap && (
+          <RegionCard
+            key="airgap"
+            index={regionCount}
+            label="AIR-GAP Region"
+            selectedProvider={store.regionProviders[regionCount]}
+            selectedCloudRegion={store.regionCloudRegions[regionCount]}
+            onSelectProvider={p => handleSelectProvider(regionCount, p)}
+            onSelectCloudRegion={r => store.setRegionCloudRegion(regionCount, r)}
+            isAirgap
+          />
+        )}
+      </div>
     </StepShell>
   )
 }
