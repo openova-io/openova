@@ -19,6 +19,12 @@ spec:
       containers:
         - name: valkey
           image: {{ .Values.valkey.image }}
+          args:
+            - valkey-server
+            - --maxmemory
+            - {{ .Values.valkey.maxmemory | default "768mb" | quote }}
+            - --maxmemory-policy
+            - {{ .Values.valkey.maxmemoryPolicy | default "allkeys-lru" | quote }}
           ports:
             - containerPort: 6379
               protocol: TCP
