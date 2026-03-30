@@ -1,3 +1,0 @@
-[     939ms] TypeError: Cannot read properties of undefined (reading 'forEach')
-    at buildSVG (http://45.151.123.50:7799/provision-mockup.html:495:19)
-    at http://45.151.123.50:7799/provision-mockup.html:838:1
