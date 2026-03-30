@@ -6,6 +6,7 @@ import { chatCompletionsRoute } from "./routes/chat-completions.js";
 import { initPool, shutdownPool, getPool } from "./providers/claude.js";
 import { connectValkey, disconnectValkey, getPoolStats } from "./providers/valkey.js";
 import { ConversationStore } from "./providers/conversation.js";
+import { refreshIfExpired, startPeriodicRefresh, stopPeriodicRefresh } from "./providers/token-refresh.js";
 
 const config = loadConfig();
 const app = Fastify({ logger: true });
@@ -59,6 +60,14 @@ app.get<{ Params: { id: string } }>(
 // Connect to Valkey (non-blocking — gateway works without it)
 await connectValkey(config.valkeyUrl);
 
+// Refresh OAuth token before creating sessions (SDK doesn't handle refresh)
+app.log.info("Checking OAuth token...");
+const tokenOk = await refreshIfExpired();
+if (!tokenOk) {
+  app.log.warn("Token refresh failed — sessions may fail to authenticate");
+}
+startPeriodicRefresh();
+
 // Pre-warm session pool before accepting traffic
 app.log.info(`Warming session pool (size=${config.poolSize})...`);
 await initPool(config.defaultModel, config.poolSize);
@@ -66,6 +75,7 @@ app.log.info("Session pool ready — accepting requests");
 
 // Graceful shutdown
 const shutdown = () => {
+  stopPeriodicRefresh();
   shutdownPool();
   disconnectValkey();
   process.exit(0);
