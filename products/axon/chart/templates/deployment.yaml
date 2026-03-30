@@ -18,6 +18,19 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.image.pullSecretName }}
       {{- end }}
+      initContainers:
+        - name: copy-credentials
+          image: busybox:1.36
+          command: ["sh", "-c", "cp /secret/.credentials.json /claude-home/ && chmod 600 /claude-home/.credentials.json && mkdir -p /claude-home/debug"]
+          volumeMounts:
+            - name: claude-auth-secret
+              mountPath: /secret
+              readOnly: true
+            - name: claude-home
+              mountPath: /claude-home
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
       containers:
         - name: axon
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -46,10 +59,8 @@ spec:
                   name: {{ .Values.axon.existingSecret }}
                   key: AXON_API_KEYS
           volumeMounts:
-            - name: claude-auth
-              mountPath: /home/axon/.claude/.credentials.json
-              subPath: .credentials.json
-              readOnly: true
+            - name: claude-home
+              mountPath: /home/axon/.claude
           resources:
             {{- toYaml .Values.resources.axon | nindent 12 }}
           livenessProbe:
@@ -70,6 +81,8 @@ spec:
             runAsNonRoot: true
             runAsUser: 1001
       volumes:
-        - name: claude-auth
+        - name: claude-auth-secret
           secret:
             secretName: {{ .Values.axon.claudeAuthSecret }}
+        - name: claude-home
+          emptyDir: {}
