@@ -11,6 +11,9 @@ axon:
   conversationTtl: 604800
   existingSecret: axon-secrets
   claudeAuthSecret: axon-claude-auth
+  tokenRefresh:
+    enabled: false
+    schedule: "0 */4 * * *"  # Every 4 hours
 
 valkey:
   enabled: true
