@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 
 const OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
@@ -30,6 +30,12 @@ function writeCredentials(creds: OAuthCredentials): void {
 }
 
 export async function refreshIfExpired(): Promise<boolean> {
+  const path = credentialsPath();
+  if (!existsSync(path)) {
+    console.warn("[token-refresh] No credentials file found — skipping refresh");
+    return false;
+  }
+
   const creds = readCredentials();
   const oauth = creds.claudeAiOauth;
 
