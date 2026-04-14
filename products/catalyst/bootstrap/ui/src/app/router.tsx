@@ -11,7 +11,6 @@ import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { WizardPage } from '@/pages/wizard/WizardPage'
-import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 
@@ -41,8 +40,9 @@ const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/das
 const wizardLayoutRoute = createRoute({ getParentRoute: () => rootRoute, path: '/wizard', component: WizardLayout })
 const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path: '/', component: WizardPage })
 
-// Provision + Success (full-screen)
-const provisionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/provision', component: ProvisionPage })
+// Success (full-screen)
+// Note: the provisioning view itself is a static page served from /provision.html
+// (see public/provision.html). The wizard redirects there via window.location on Launch.
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
 
 // Design showcase
@@ -55,7 +55,6 @@ const routeTree = rootRoute.addChildren([
   forgotRoute,
   appRoute.addChildren([dashboardRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
-  provisionRoute,
   successRoute,
   designsRoute,
 ])

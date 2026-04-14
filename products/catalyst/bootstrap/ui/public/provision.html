@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><title>OpenOva — Provisioning DAG</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:radial-gradient(ellipse at 20% 10%,#0b1c3a 0%,#070a12 75%);--s1:rgba(255,255,255,.04);--s2:rgba(255,255,255,.07);--bd:rgba(255,255,255,.07);--bd2:rgba(255,255,255,.14);--hi:rgba(255,255,255,.92);--md:rgba(255,255,255,.65);--lo:rgba(255,255,255,.40);--hint:rgba(255,255,255,.22);--acc:#38BDF8;--accd:rgba(56,189,248,.10);--log:rgba(2,6,15,.75)}
+[data-theme=light]{--bg:radial-gradient(ellipse at 20% 10%,#dbeafe 0%,#f0f9ff 75%);--s1:#fff;--s2:#f8fafc;--bd:#e2e8f0;--bd2:#cbd5e1;--hi:#0f172a;--md:#334155;--lo:#475569;--hint:#94a3b8;--acc:#0284c7;--accd:rgba(2,132,199,.08);--log:#f8fafc}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Inter',system-ui,sans-serif;font-size:13px;background:var(--bg);color:var(--md);-webkit-font-smoothing:antialiased}
+.page{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{flex-shrink:0;height:48px;display:flex;align-items:center;padding:0 14px;gap:0;background:var(--s1);border-bottom:1px solid var(--bd);backdrop-filter:blur(20px);z-index:50}
+.tb-logo{font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--acc);text-transform:uppercase}
+.tb-sep{width:1px;height:18px;background:var(--bd);margin:0 12px}
+.tb-org{font-size:13px;font-weight:700;color:var(--hi)}.tb-meta{font-size:10px;color:var(--hint);margin-top:1px}
+.tb-r{display:flex;align-items:center;gap:8px;margin-left:auto}
+.pill{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;background:var(--accd);border:1px solid rgba(56,189,248,.20)}
+.pdot{width:5px;height:5px;border-radius:50%;background:var(--acc);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.65)}}
+.pill-t{font-size:10px;font-weight:600;color:var(--acc)}
+.prog-w{display:flex;align-items:center;gap:6px}.prog-b{width:100px;height:3px;border-radius:2px;background:var(--bd);overflow:hidden}
+.prog-f{height:100%;width:25%;background:linear-gradient(90deg,var(--acc),#818CF8)}
+.prog-p{font-size:11px;font-weight:700;color:var(--acc)}.prog-t{font-size:10px;color:var(--hint)}
+.ibtn{width:26px;height:26px;border-radius:6px;background:var(--bd);border:1px solid var(--bd2);color:var(--lo);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;transition:all .15s}
+.ibtn:hover{background:var(--s2);color:var(--md)}
+.body{flex:1;display:flex;overflow:hidden;min-height:0}
+/* sidebar */
+.sidebar{width:248px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--bd);overflow:hidden;transition:width .28s}
+.sidebar.collapsed{width:0}
+.sb-in{min-width:248px;display:flex;flex-direction:column;height:100%;overflow-y:auto}
+.sb-hdr{font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--hint);padding:10px 12px 6px}
+.reg-row{display:flex;align-items:center;gap:7px;padding:8px 12px 6px;border-top:1px solid var(--bd);cursor:pointer;user-select:none;transition:background .12s}
+.reg-row:hover{background:var(--s2)}
+.reg-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.reg-dot.running{background:var(--acc);animation:pulse 1.5s ease-in-out infinite}
+.reg-name{font-size:12px;font-weight:700;color:var(--hi)}
+.reg-meta{font-size:9px;color:var(--hint);margin-top:1px}
+.reg-badge{font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;color:var(--acc);background:var(--accd);border:1px solid rgba(56,189,248,.22);flex-shrink:0}
+.reg-arr{font-size:9px;color:var(--hint);transition:transform .18s;flex-shrink:0;width:12px;text-align:center}
+.reg-arr.open{transform:rotate(90deg)}
+.lay-row{display:flex;align-items:center;gap:5px;padding:5px 12px 5px 20px;cursor:pointer;user-select:none;transition:background .12s}
+.lay-row:hover{background:var(--s2)}
+.lay-arr{font-size:8px;color:var(--hint);transition:transform .18s;flex-shrink:0;width:10px;text-align:center}
+.lay-arr.open{transform:rotate(90deg)}
+.lay-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.lay-name{font-size:11px;font-weight:700;color:var(--md);min-width:64px}
+.lay-desc{font-size:8.5px;color:var(--hint);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lay-stat{font-size:9px;color:var(--hint);flex-shrink:0;min-width:32px;text-align:right}
+.lay-stat.done{color:#4ADE80}.lay-stat.run{color:var(--acc)}
+.node-rows{overflow:hidden;max-height:0;transition:max-height .22s ease}
+.node-rows.open{max-height:600px}
+.n-row{display:flex;align-items:center;gap:6px;padding:3px 12px 3px 34px;cursor:pointer}
+.n-row:hover{background:var(--s1)}
+.n-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.n-dot.done{background:#4ADE80}.n-dot.running{background:var(--acc);animation:pulse 1.2s ease-in-out infinite}
+.n-dot.waiting{background:var(--bd2)}.n-dot.failed{background:#F87171}
+.n-name{font-size:10px;color:var(--md);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-time{font-size:8px;color:var(--hint);flex-shrink:0}
+/* sidebar bulk controls */
+.sb-bulk{display:flex;gap:3px;padding:5px 10px 6px;flex-wrap:wrap;border-bottom:1px solid var(--bd)}
+.bb{font-size:8.5px;font-weight:700;padding:3px 7px;border-radius:5px;background:var(--bd);border:1px solid var(--bd2);color:var(--lo);cursor:pointer;transition:all .12s;white-space:nowrap;letter-spacing:.03em}
+.bb:hover{background:var(--s2);color:var(--md)}
+/* progress bars in sidebar */
+.sb-prog{height:2px;border-radius:1px;background:var(--bd);margin:0 12px 5px;overflow:hidden}
+.sb-prog-f{height:100%;background:linear-gradient(90deg,var(--acc),#818CF8);transition:width .4s}
+.grp-prog{height:2px;border-radius:1px;background:var(--bd);margin:0 12px 4px 20px;overflow:hidden}
+.grp-prog-f{height:100%;transition:width .4s}
+/* dag */
+.dag-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.dag-graph{flex:1;position:relative;overflow:hidden}
+#gsvg{width:100%;height:100%;display:block;cursor:default}
+#gsvg.dragging{cursor:grabbing}
+.nlabel{font-size:10px;font-family:'Inter',sans-serif;font-weight:600;text-anchor:middle;pointer-events:none}
+.ntime{font-size:8px;font-family:'Inter',sans-serif;text-anchor:middle;fill:var(--hint);pointer-events:none}
+.nsel{fill:none;stroke-width:2;opacity:0;transition:opacity .15s;pointer-events:none}
+.nsel.on{opacity:1}
+.nhov{fill:none;opacity:0;stroke-width:1.5;transition:opacity .12s;pointer-events:none}
+.ng{cursor:grab}.ng:hover .nhov{opacity:1}
+/* log */
+.log-panel{width:248px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid var(--bd);background:var(--log);transition:width .28s;overflow:hidden}
+.log-panel.collapsed{width:0}
+.lp-in{min-width:248px;display:flex;flex-direction:column;height:100%}
+.lhdr{display:flex;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.llbl{font-size:9px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--hint)}
+.lchip{font-size:9px;font-weight:600;padding:2px 7px;border-radius:4px;color:var(--acc);background:var(--accd);border:1px solid rgba(56,189,248,.18)}
+.lstat{margin-left:auto;font-size:9px;color:var(--hint)}
+.lstream{flex:1;overflow-y:auto;padding:8px 11px;font-family:'JetBrains Mono',monospace;font-size:9.5px;line-height:1.9}
+.ll{display:flex;gap:9px}.ll-ts{color:var(--hint);flex-shrink:0;font-size:8.5px}
+.ll-d{color:#4ADE80}
+.lcur{display:inline-block;width:5px;height:10px;background:var(--acc);margin-left:2px;animation:blink 1.1s step-end infinite;vertical-align:text-bottom}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@media(max-width:900px){.sidebar{width:0}}@media(max-width:640px){.log-panel{width:0}}
+/* ── Hover tooltip ── */
+#tt{position:fixed;pointer-events:none;z-index:200;max-width:260px;padding:10px 13px;background:rgba(6,12,28,.97);border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(16px);box-shadow:0 6px 28px rgba(0,0,0,.6);display:none;line-height:1.6}
+#tt .ttn{font-size:13px;font-weight:700;color:rgba(255,255,255,.92);margin-bottom:5px}
+#tt .ttr{display:flex;justify-content:space-between;gap:10px;margin:2px 0}
+#tt .ttk{font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.35);white-space:nowrap}
+#tt .ttv{font-size:10px;font-weight:500;color:rgba(255,255,255,.70);text-align:right}
+#tt .ttd{margin-top:7px;font-size:9.5px;color:rgba(255,255,255,.48);border-top:1px solid rgba(255,255,255,.07);padding-top:7px;line-height:1.55}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="topbar">
+  <span class="tb-logo">OpenOva</span>
+  <div class="tb-sep"></div>
+  <div><div class="tb-org">acme.io</div><div class="tb-meta">DUAL · FSN1 + NBG1 · 10 building blocks · 65 components per region · cross-region VPN mesh active</div></div>
+  <div class="tb-r">
+    <div class="pill"><div class="pdot"></div><span class="pill-t">Provisioning</span></div>
+    <div class="prog-w"><div class="prog-b"><div class="prog-f"></div></div><span class="prog-p">25%</span><span class="prog-t">2m 58s</span></div>
+    <button class="ibtn" onclick="toggleSB()">⊟</button>
+    <button class="ibtn" onclick="toggleLog()">⊞</button>
+    <button class="ibtn" onclick="toggleTheme()" id="tbtn">☀</button>
+    <button class="ibtn" onclick="toggleCaptions()" id="capbtn" title="Toggle node labels" style="width:auto;padding:0 8px;font-size:9px;font-weight:700;letter-spacing:.06em">Aa</button>
+  </div>
+</header>
+<div class="body">
+<aside class="sidebar" id="sb"><div class="sb-in" id="sb-in"></div></aside>
+<div class="dag-panel">
+  <div class="dag-graph">
+    <svg id="gsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600">
+      <defs>
+        <marker id="m-done" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1L7,4L0,7Z" fill="rgba(167,243,208,.55)"/></marker>
+        <marker id="m-act"  viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1L7,4L0,7Z" fill="rgba(186,230,253,.65)"/></marker>
+        <marker id="m-wait" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1L7,4L0,7Z" fill="rgba(148,163,184,.40)"/></marker>
+        <marker id="m-xr"   viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1L7,4L0,7Z" fill="rgba(253,230,138,.55)"/></marker>
+      </defs>
+      <!-- layers: edges below nodes always -->
+      <g id="L-phase"></g>
+      <g id="L-edges"></g>
+      <g id="L-nodes"></g>
+    </svg>
+  </div>
+</div>
+<div class="log-panel" id="lp">
+  <div class="lp-in">
+    <div class="lhdr"><span class="llbl">Live Log</span><span class="lchip" id="lchip">—</span><span class="lstat" id="lstat"></span></div>
+    <div class="lstream" id="lstream"></div>
+  </div>
+</div>
+</div>
+</div>
+<div id="tt"></div>
+<script>
+const NS='http://www.w3.org/2000/svg'
+const mk=(t,a)=>{const e=document.createElementNS(NS,t);Object.entries(a||{}).forEach(([k,v])=>e.setAttribute(k,v));return e}
+
+// ── 10 deployment stages ───────────────────────────────────────────────────────
+const PHASES=[
+  {id:1,label:'Stage 1'},
+  {id:2,label:'Stage 2'},
+  {id:3,label:'Stage 3'},
+  {id:4,label:'Stage 4'},
+  {id:5,label:'Stage 5'},
+  {id:6,label:'Stage 6'},
+  {id:7,label:'Stage 7'},
+  {id:8,label:'Stage 8'},
+  {id:9,label:'Stage 9'},
+  {id:10,label:'Stage 10'},
+]
+const NUM_PHASES=10
+
+// ── 10 building-block families ─────────────────────────────────────────────────
+const GROUPS={
+  catalyst:{label:'Catalyst', desc:'Bootstrap & K8s',         color:'#64748B'},
+  pilot:   {label:'PILOT',    desc:'GitOps & IaC',            color:'#818CF8'},
+  spine:   {label:'SPINE',    desc:'Networking & Mesh',        color:'#38BDF8'},
+  surge:   {label:'SURGE',    desc:'Scaling & Resilience',     color:'#2DD4BF'},
+  silo:    {label:'SILO',     desc:'Storage & Registry',       color:'#FB923C'},
+  guardian:{label:'GUARDIAN', desc:'Security & Identity',      color:'#F472B6'},
+  insights:{label:'INSIGHTS', desc:'AIOps & Observability',    color:'#A78BFA'},
+  fabric:  {label:'FABRIC',   desc:'Data & Integration',       color:'#FBBF24'},
+  cortex:  {label:'CORTEX',   desc:'AI & Machine Learning',    color:'#F87171'},
+  relay:   {label:'RELAY',    desc:'Communication',            color:'#34D399'},
+}
+const REGIONS=[
+  {id:'fsn1',name:'FSN1 · Falkenstein',meta:'Hetzner · Primary'},
+  {id:'nbg1',name:'NBG1 · Nuremberg',  meta:'Hetzner · Secondary'},
+]
+
+// ── All 65 nodes per region × 2 = 130 total ───────────────────────────────────
+// S1:Metal(2)|S2:Pre-Flux(3)|S3:GitOps+Sec(6)|S4:SPINE-Flux(7)|S5:SURGE+Runtime(6)
+// S6:Storage+Data+Telemetry(8)|S7:Observe+Identity+Scanners(9)
+// S8:Dashboards+Pipelines+Comms(11)|S9:AI/ML foundation(7)|S10:AI apps+AIOps(6)
+const NODES=[
+  // ── FSN1 ── Stage distribution: 2|3|6|7|6|8|9|11|7|6 = 65 ───────────────
+  // Stage 1 — Bare metal (2)
+  {id:'vms',       label:'Provision VMs', sub:'1m 12s',group:'catalyst',region:'fsn1',state:'done',   r:22,prog:1.0, phase:1},
+  {id:'k3s',       label:'K3s Cluster',   sub:'1m 44s',group:'catalyst',region:'fsn1',state:'done',   r:22,prog:1.0, phase:1},
+  // Stage 2 — Pre-Flux: CNI + Git server + IaC CLI (3)
+  {id:'cilium',    label:'Cilium',        sub:'0m 41s',group:'spine',   region:'fsn1',state:'running',r:22,prog:0.65,phase:2},
+  {id:'gitea',     label:'Gitea',         sub:'0m 52s',group:'pilot',   region:'fsn1',state:'done',   r:20,prog:1.0, phase:2},
+  {id:'opentofu',  label:'OpenTofu',      sub:'0m 58s',group:'pilot',   region:'fsn1',state:'done',   r:20,prog:1.0, phase:2},
+  // Stage 3 — GitOps engine + Security/Secrets core (6)
+  {id:'flux',      label:'Flux CD',       sub:'—',     group:'pilot',   region:'fsn1',state:'running',r:22,prog:0.72,phase:3},
+  {id:'certmgr',   label:'cert-manager',  sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'kyverno',   label:'Kyverno',       sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'openbao',   label:'OpenBao',       sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'esec',      label:'Ext Secrets',   sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'crossplane',label:'Crossplane',    sub:'—',     group:'pilot',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:3},
+  // Stage 4 — SPINE via Flux (needs cert-manager): gateway mesh (7)
+  {id:'envoy',     label:'Envoy',         sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'coraza',    label:'Coraza WAF',    sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'extdns',    label:'External DNS',  sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'netbird',   label:'NetBird',       sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'frpc',      label:'frpc',          sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:4},
+  {id:'strongswan',label:'strongSwan',    sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:4},
+  {id:'k8gb',      label:'k8gb GSLB',     sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  // Stage 5 — Scaling (SURGE) + vCluster + Runtime security: needs SPINE up (6)
+  {id:'vcluster',  label:'vCluster',      sub:'—',     group:'pilot',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:5},
+  {id:'vpa',       label:'VPA',           sub:'—',     group:'surge',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'keda',      label:'KEDA',          sub:'—',     group:'surge',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'reloader',  label:'Reloader',      sub:'—',     group:'surge',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'continuum', label:'Continuum',     sub:'—',     group:'surge',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:5},
+  {id:'falco',     label:'Falco',         sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:18,prog:0,   phase:5},
+  // Stage 6 — Storage + Data operators + Telemetry bus (8)
+  {id:'seaweed',   label:'SeaweedFS',     sub:'—',     group:'silo',    region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'harbor',    label:'Harbor',        sub:'—',     group:'silo',    region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'velero',    label:'Velero',        sub:'—',     group:'silo',    region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'cnpg',      label:'CloudNative PG',sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'strimzi',   label:'Strimzi',       sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'valkey',    label:'Valkey',        sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'otel',      label:'OpenTelemetry', sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'alloy',     label:'Alloy',         sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:18,prog:0,   phase:6},
+  // Stage 7 — Observability backends + Identity + Security scanners (9)
+  {id:'loki',      label:'Loki',          sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'mimir',     label:'Mimir',         sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'tempo',     label:'Tempo',         sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'opensearch',label:'OpenSearch',    sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'trivy',     label:'Trivy',         sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'syft',      label:'Syft+Grype',    sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'sigstore',  label:'Sigstore',      sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'litmus',    label:'Litmus',        sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'keycloak',  label:'Keycloak',      sub:'—',     group:'guardian',region:'fsn1',state:'waiting',r:20,prog:0,   phase:7},
+  // Stage 8 — Dashboards + Data pipelines + Comms foundation (11)
+  {id:'grafana',   label:'Grafana',       sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:8},
+  {id:'openmeter', label:'OpenMeter',     sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'debezium',  label:'Debezium',      sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'clickhouse',label:'ClickHouse',    sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'ferretdb',  label:'FerretDB',      sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'temporal',  label:'Temporal',      sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'flink',     label:'Apache Flink',  sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'knative',   label:'Knative',       sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'stalwart',  label:'Stalwart',      sub:'—',     group:'relay',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:8},
+  {id:'stunner',   label:'STUNner',       sub:'—',     group:'relay',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'ntfy',      label:'Ntfy',          sub:'—',     group:'relay',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:8},
+  // Stage 9 — AI/ML foundation + Comms apps (needs Knative/STUNner) (7)
+  {id:'kserve',    label:'KServe',        sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:20,prog:0,   phase:9},
+  {id:'neo4j',     label:'Neo4j',         sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'milvus',    label:'Milvus',        sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'iceberg',   label:'Iceberg',       sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'superset',  label:'Superset',      sub:'—',     group:'fabric',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'livekit',   label:'LiveKit',       sub:'—',     group:'relay',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:9},
+  {id:'matrix',    label:'Matrix',        sub:'—',     group:'relay',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:9},
+  // Stage 10 — AI apps + AIOps brain (needs KServe/Keycloak) (6)
+  {id:'axon',      label:'Axon',          sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:20,prog:0,   phase:10},
+  {id:'vllm',      label:'vLLM',          sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'bge',       label:'BGE',           sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'langfuse',  label:'LangFuse',      sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'librechat', label:'LibreChat',     sub:'—',     group:'cortex',  region:'fsn1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'specter',   label:'Specter',       sub:'—',     group:'insights',region:'fsn1',state:'waiting',r:20,prog:0,   phase:10},
+  // ── NBG1 — mirror of FSN1 ─────────────────────────────────────────────────
+  {id:'n-vms',       label:'Provision VMs', sub:'1m 52s',group:'catalyst',region:'nbg1',state:'done',   r:22,prog:1.0, phase:1},
+  {id:'n-k3s',       label:'K3s Cluster',   sub:'1m 58s',group:'catalyst',region:'nbg1',state:'done',   r:22,prog:1.0, phase:1},
+  {id:'n-cilium',    label:'Cilium',        sub:'0m 24s',group:'spine',   region:'nbg1',state:'running',r:22,prog:0.38,phase:2},
+  {id:'n-gitea',     label:'Gitea',         sub:'0m 48s',group:'pilot',   region:'nbg1',state:'done',   r:20,prog:1.0, phase:2},
+  {id:'n-opentofu',  label:'OpenTofu',      sub:'1m 04s',group:'pilot',   region:'nbg1',state:'done',   r:20,prog:1.0, phase:2},
+  {id:'n-flux',      label:'Flux CD',       sub:'—',     group:'pilot',   region:'nbg1',state:'running',r:22,prog:0.55,phase:3},
+  {id:'n-certmgr',   label:'cert-manager',  sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'n-kyverno',   label:'Kyverno',       sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'n-openbao',   label:'OpenBao',       sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'n-esec',      label:'Ext Secrets',   sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'n-crossplane',label:'Crossplane',    sub:'—',     group:'pilot',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:3},
+  {id:'n-envoy',     label:'Envoy',         sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-coraza',    label:'Coraza WAF',    sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-extdns',    label:'External DNS',  sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-netbird',   label:'NetBird',       sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-frpc',      label:'frpc',          sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:4},
+  {id:'n-strongswan',label:'strongSwan',    sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:4},
+  {id:'n-k8gb',      label:'k8gb GSLB',     sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-vcluster',  label:'vCluster',      sub:'—',     group:'pilot',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:5},
+  {id:'n-vpa',       label:'VPA',           sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'n-keda',      label:'KEDA',          sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'n-reloader',  label:'Reloader',      sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:5},
+  {id:'n-continuum', label:'Continuum',     sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:5},
+  {id:'n-falco',     label:'Falco',         sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:18,prog:0,   phase:5},
+  {id:'n-seaweed',   label:'SeaweedFS',     sub:'—',     group:'silo',    region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-harbor',    label:'Harbor',        sub:'—',     group:'silo',    region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-velero',    label:'Velero',        sub:'—',     group:'silo',    region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-cnpg',      label:'CloudNative PG',sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-strimzi',   label:'Strimzi',       sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-valkey',    label:'Valkey',        sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-otel',      label:'OpenTelemetry', sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:6},
+  {id:'n-alloy',     label:'Alloy',         sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:18,prog:0,   phase:6},
+  {id:'n-loki',      label:'Loki',          sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'n-mimir',     label:'Mimir',         sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'n-tempo',     label:'Tempo',         sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'n-opensearch',label:'OpenSearch',    sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'n-trivy',     label:'Trivy',         sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'n-syft',      label:'Syft+Grype',    sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'n-sigstore',  label:'Sigstore',      sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'n-litmus',    label:'Litmus',        sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:18,prog:0,   phase:7},
+  {id:'n-keycloak',  label:'Keycloak',      sub:'—',     group:'guardian',region:'nbg1',state:'waiting',r:20,prog:0,   phase:7},
+  {id:'n-grafana',   label:'Grafana',       sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:8},
+  {id:'n-openmeter', label:'OpenMeter',     sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-debezium',  label:'Debezium',      sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-clickhouse',label:'ClickHouse',    sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-ferretdb',  label:'FerretDB',      sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-temporal',  label:'Temporal',      sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-flink',     label:'Apache Flink',  sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-knative',   label:'Knative',       sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-stalwart',  label:'Stalwart',      sub:'—',     group:'relay',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:8},
+  {id:'n-stunner',   label:'STUNner',       sub:'—',     group:'relay',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-ntfy',      label:'Ntfy',          sub:'—',     group:'relay',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:8},
+  {id:'n-kserve',    label:'KServe',        sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:20,prog:0,   phase:9},
+  {id:'n-neo4j',     label:'Neo4j',         sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'n-milvus',    label:'Milvus',        sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'n-iceberg',   label:'Iceberg',       sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'n-superset',  label:'Superset',      sub:'—',     group:'fabric',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'n-livekit',   label:'LiveKit',       sub:'—',     group:'relay',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:9},
+  {id:'n-matrix',    label:'Matrix',        sub:'—',     group:'relay',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:9},
+  {id:'n-axon',      label:'Axon',          sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:20,prog:0,   phase:10},
+  {id:'n-vllm',      label:'vLLM',          sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'n-bge',       label:'BGE',           sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'n-langfuse',  label:'LangFuse',      sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'n-librechat', label:'LibreChat',     sub:'—',     group:'cortex',  region:'nbg1',state:'waiting',r:18,prog:0,   phase:10},
+  {id:'n-specter',   label:'Specter',       sub:'—',     group:'insights',region:'nbg1',state:'waiting',r:20,prog:0,   phase:10},
+]
+
+// ── Topology (intra-region dependency edges — key dep per component) ──────────
+const TOPO=[
+  // Stage 1→2: Metal → Pre-Flux
+  {f:'vms',       t:'k3s'},
+  {f:'k3s',       t:'cilium'},{f:'k3s',       t:'gitea'},{f:'k3s',       t:'opentofu'},
+  // Stage 2→3: Pre-Flux → GitOps+Security core
+  {f:'gitea',     t:'flux'},{f:'opentofu',  t:'flux'},
+  {f:'flux',      t:'certmgr'},{f:'flux',      t:'kyverno'},
+  {f:'certmgr',   t:'openbao'},{f:'openbao',   t:'esec'},
+  {f:'certmgr',   t:'crossplane'},
+  // Stage 3→4: Security core → Networking (SPINE via Flux+certmgr)
+  {f:'certmgr',   t:'envoy'},{f:'envoy',     t:'coraza'},
+  {f:'certmgr',   t:'extdns'},{f:'certmgr',   t:'netbird'},
+  {f:'netbird',   t:'frpc'},{f:'netbird',   t:'strongswan'},
+  {f:'extdns',    t:'k8gb'},{f:'certmgr',   t:'vcluster'},
+  // Stage 3→4: Security core → Scaling (SURGE) + Runtime security
+  {f:'certmgr',   t:'vpa'},{f:'certmgr',   t:'keda'},
+  {f:'flux',      t:'reloader'},{f:'keda',     t:'continuum'},
+  {f:'kyverno',   t:'falco'},
+  // Stage 4→5: Net/Scale → Storage + Data operators + Telemetry bus
+  {f:'esec',      t:'seaweed'},{f:'seaweed',   t:'harbor'},{f:'seaweed',   t:'velero'},
+  {f:'seaweed',   t:'cnpg'},{f:'seaweed',   t:'strimzi'},
+  {f:'certmgr',   t:'valkey'},
+  {f:'certmgr',   t:'otel'},{f:'otel',      t:'alloy'},
+  // Stage 5→6: Storage/Data → Observability backends + Identity + Scanners
+  {f:'alloy',     t:'loki'},{f:'alloy',     t:'mimir'},{f:'alloy',     t:'tempo'},
+  {f:'certmgr',   t:'opensearch'},
+  {f:'harbor',    t:'trivy'},{f:'harbor',   t:'syft'},{f:'harbor',    t:'sigstore'},
+  {f:'kyverno',   t:'litmus'},
+  {f:'cnpg',      t:'keycloak'},
+  // Stage 6→7: Observability + Identity → Dashboards + Pipelines + Comms
+  {f:'loki',      t:'grafana'},{f:'mimir',    t:'grafana'},{f:'tempo',     t:'grafana'},
+  {f:'cnpg',      t:'openmeter'},{f:'strimzi',  t:'openmeter'},
+  {f:'strimzi',   t:'debezium'},{f:'cnpg',     t:'debezium'},
+  {f:'seaweed',   t:'clickhouse'},
+  {f:'cnpg',      t:'ferretdb'},{f:'cnpg',     t:'temporal'},
+  {f:'strimzi',   t:'flink'},
+  {f:'envoy',     t:'knative'},
+  {f:'cnpg',      t:'stalwart'},{f:'seaweed',  t:'stalwart'},
+  {f:'netbird',   t:'stunner'},{f:'flux',     t:'ntfy'},
+  // Stage 7→8: Pipelines + Comms → AI/ML + Apps + AIOps
+  {f:'knative',   t:'kserve'},{f:'harbor',   t:'kserve'},
+  {f:'seaweed',   t:'neo4j'},
+  {f:'seaweed',   t:'milvus'},{f:'cnpg',     t:'milvus'},
+  {f:'flink',     t:'iceberg'},{f:'seaweed',  t:'iceberg'},
+  {f:'clickhouse',t:'superset'},{f:'cnpg',    t:'superset'},
+  {f:'stunner',   t:'livekit'},
+  {f:'cnpg',      t:'matrix'},{f:'seaweed',  t:'matrix'},
+  {f:'keycloak',  t:'axon'},{f:'cnpg',      t:'axon'},{f:'valkey',   t:'axon'},
+  {f:'kserve',    t:'vllm'},{f:'kserve',    t:'bge'},
+  {f:'cnpg',      t:'langfuse'},{f:'clickhouse',t:'langfuse'},
+  {f:'vllm',      t:'librechat'},{f:'keycloak', t:'librechat'},
+  {f:'grafana',   t:'specter'},{f:'valkey',   t:'specter'},
+]
+// ── Cross-region edges ─────────────────────────────────────────────────────────
+const XR=[
+  {from:'netbird',  to:'n-netbird',  label:'VPN mesh'},
+  {from:'k8gb',     to:'n-k8gb',     label:'GSLB sync'},
+  {from:'cnpg',     to:'n-cnpg',     label:'PG replication'},
+  {from:'strimzi',  to:'n-strimzi',  label:'MirrorMaker2'},
+  {from:'velero',   to:'n-velero',   label:'DR backup'},
+  {from:'mimir',    to:'n-mimir',    label:'Metrics federation'},
+]
+const EDGES=[
+  ...TOPO.map(e=>({from:e.f,to:e.t,region:'fsn1'})),
+  ...TOPO.map(e=>({from:'n-'+e.f,to:'n-'+e.t,region:'nbg1'})),
+  ...XR.map(e=>({...e,xr:true})),
+]
+
+const LOGS={
+  vms:       {s:'done · 1m 12s',    lines:['✓ hcloud server create r1-cp-1 (cx32)','✓ hcloud server create r1-wk-1 (cx42)','✓ All VMs healthy']},
+  k3s:       {s:'done · 1m 44s',    lines:['✓ k3s v1.29.4+k3s1 installed','✓ etcd + apiserver healthy','✓ Node r1-cp-1 Ready']},
+  opentofu:  {s:'done · 0m 58s',    lines:['✓ OpenTofu v1.6.2 init','✓ hcloud provider applied','✓ Infrastructure state locked']},
+  gitea:     {s:'done · 0m 52s',    lines:['✓ Gitea v1.21 deployed','✓ SSH + HTTP endpoints ready','✓ platform repo mirrored']},
+  cilium:    {s:'running · 0m 41s', cur:true, lines:['✓ HelmRelease cilium-v1.15.3 triggered','✓ CRDs registered','✓ eBPF programs loaded','cilium/node-1: agent ready ✓','cilium/node-2: agent ready ✓','DaemonSet: 2/3 pods ready — waiting for node-3 ']},
+  flux:      {s:'running · stage 3', cur:true, lines:['✓ Flux v2.2 bootstrapped','✓ GitRepository flux-system reconciled','HelmRelease queue: 61 pending ']},
+  crossplane:{s:'waiting', lines:['Waiting for Flux…','Crossplane: infrastructure control plane — manages cloud resources via XR']},
+  vcluster:  {s:'waiting', lines:['Waiting for Flux…','vCluster: virtual K8s clusters for tenant isolation']},
+  coraza:    {s:'waiting', lines:['Waiting for Envoy (Stage 4)…','Coraza WAF: OWASP CRS L7 web application firewall — runs as Envoy filter']},
+  extdns:    {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','External DNS: auto-syncs K8s Ingress hostnames → Hetzner DNS']},
+  envoy:     {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','Envoy: L7 proxy — gateway and Coraza WAF dataplane + Knative ingress']},
+  k8gb:      {s:'waiting', lines:['Waiting for External DNS + NetBird (Stage 4)…','k8gb: pairs with NBG1 for global DNS load balancing (GSLB)']},
+  netbird:   {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','NetBird: WireGuard mesh VPN — encrypted tunnel FSN1↔NBG1']},
+  frpc:      {s:'waiting', lines:['Waiting for NetBird (Stage 4)…','frpc: fast reverse proxy tunnel through VPN mesh']},
+  strongswan:{s:'waiting', lines:['Waiting for NetBird (Stage 4)…','strongSwan: IPsec site-to-site VPN gateway companion to NetBird']},
+  vpa:       {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','VPA: right-sizes CPU/memory resource requests continuously']},
+  keda:      {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','KEDA: event-driven autoscaling — Kafka lag, Prometheus metrics']},
+  reloader:  {s:'waiting', lines:['Waiting for Flux (Stage 3)…','Reloader: rolling restarts on ConfigMap/Secret changes']},
+  continuum: {s:'waiting', lines:['Waiting for KEDA + VPA (Stage 4)…','Continuum: HA orchestration and failover controller built on both autoscalers']},
+  seaweed:   {s:'waiting', lines:['Waiting for Ext Secrets (Stage 3)…','SeaweedFS: distributed S3/NFS/FUSE/HDFS object storage — gateway for Harbor, Loki, Mimir, Tempo, CNPG backups']},
+  harbor:    {s:'waiting', lines:['Waiting for SeaweedFS (Stage 5)…','Harbor: OCI registry with SeaweedFS S3 backend + Trivy scanning + Cosign signing']},
+  velero:    {s:'waiting', lines:['Waiting for SeaweedFS (Stage 5)…','Velero: cluster backup + DR — backs up to SeaweedFS S3, cross-region restore to NBG1']},
+  kyverno:   {s:'waiting', lines:['Waiting for Flux (Stage 3)…','Kyverno: admission control + policy mutation + audit reports — must be in place before regulated workloads']},
+  openbao:   {s:'waiting', lines:['Waiting for Flux…','OpenBao: per-region secrets vault — Vault-compatible API']},
+  esec:      {s:'waiting', lines:['Waiting for OpenBao…','External Secrets Operator: pulls vault secrets into K8s Secrets']},
+  certmgr:   {s:'waiting', lines:['Waiting for Ext Secrets…','cert-manager: ACME/Let\'s Encrypt + internal CA for all TLS']},
+  falco:     {s:'waiting', lines:['Waiting for cert-manager…','Falco: eBPF runtime threat detection — syscall analysis']},
+  trivy:     {s:'waiting', lines:['Waiting for cert-manager…','Trivy: container image + IaC vulnerability scanning']},
+  syft:      {s:'waiting', lines:['Waiting for cert-manager…','Syft+Grype: SBOM generation and CVE analysis']},
+  sigstore:  {s:'waiting', lines:['Waiting for cert-manager…','Sigstore: supply chain trust — Cosign image signing + Fulcio CA']},
+  keycloak:  {s:'waiting', lines:['Waiting for cert-manager…','Keycloak: OIDC/SAML identity provider + RBAC for all services']},
+  otel:      {s:'waiting', lines:['Waiting for Flux…','OpenTelemetry Collector: unified metrics/logs/traces pipeline']},
+  alloy:     {s:'waiting', lines:['Waiting for OTel…','Alloy: Grafana telemetry agent — scrapes and forwards to OTel']},
+  grafana:   {s:'waiting', lines:['Waiting for OTel…','Grafana: dashboards backed by Mimir + Loki + Tempo']},
+  loki:      {s:'waiting', lines:['Waiting for OTel…','Loki: log aggregation stored to SeaweedFS S3']},
+  mimir:     {s:'waiting', lines:['Waiting for OTel…','Mimir: long-term metrics storage — federated with NBG1']},
+  tempo:     {s:'waiting', lines:['Waiting for OTel…','Tempo: distributed tracing backend']},
+  opensearch:{s:'waiting', lines:['Waiting for OTel…','OpenSearch: full-text search + security event analytics']},
+  litmus:    {s:'waiting', lines:['Waiting for OTel…','Litmus: chaos engineering — automated resilience experiments']},
+  openmeter: {s:'waiting', lines:['Waiting for OTel…','OpenMeter: usage metering and billing instrumentation']},
+  specter:   {s:'waiting', lines:['Waiting for OTel + all services…','Specter: AIOps brain — pre-built semantic knowledge of all 63 components']},
+  cnpg:      {s:'waiting', lines:['Waiting for Flux…','CloudNative PG: FSN1 primary — WAL streaming replication to NBG1']},
+  valkey:    {s:'waiting', lines:['Waiting for CNPG…','Valkey: Redis-compatible cache for Catalyst/Axon/Fingate']},
+  strimzi:   {s:'waiting', lines:['Waiting for Flux…','Strimzi: Kafka operator — MirrorMaker2 replicates topics to NBG1']},
+  debezium:  {s:'waiting', lines:['Waiting for Strimzi…','Debezium: CDC — streams DB changes into Kafka topics']},
+  flink:     {s:'waiting', lines:['Waiting for Strimzi…','Apache Flink: distributed stream processing engine']},
+  temporal:  {s:'waiting', lines:['Waiting for CNPG…','Temporal: durable workflow orchestration engine']},
+  clickhouse:{s:'waiting', lines:['Waiting for CNPG…','ClickHouse: columnar analytics database — OLAP workloads']},
+  ferretdb:  {s:'waiting', lines:['Waiting for CNPG…','FerretDB: MongoDB-compatible wire protocol over PostgreSQL']},
+  iceberg:   {s:'waiting', lines:['Waiting for SeaweedFS…','Iceberg: open data lakehouse table format (S3-backed)']},
+  superset:  {s:'waiting', lines:['Waiting for ClickHouse…','Superset: BI dashboards and self-service data exploration']},
+  kserve:    {s:'waiting', lines:['Waiting for Flux + Harbor…','KServe: model serving platform — InferenceService CRDs']},
+  axon:      {s:'waiting', lines:['Waiting for Flux…','Axon: SaaS LLM gateway — hosted inference proxy to Cortex']},
+  knative:   {s:'waiting', lines:['Waiting for KServe…','Knative: serverless runtime for scale-to-zero inference pods']},
+  neo4j:     {s:'waiting', lines:['Waiting for CNPG…','Neo4j: graph database for knowledge graphs and RAG indexing']},
+  vllm:      {s:'waiting', lines:['Waiting for KServe…','vLLM: LLM inference engine — GPU-backed, PagedAttention']},
+  milvus:    {s:'waiting', lines:['Waiting for SeaweedFS…','Milvus: vector database for embedding similarity search']},
+  bge:       {s:'waiting', lines:['Waiting for vLLM…','BGE: embedding model server — text → vector pipeline']},
+  langfuse:  {s:'waiting', lines:['Waiting for OTel…','LangFuse: LLM observability — traces, evals, prompt management']},
+  librechat: {s:'waiting', lines:['Waiting for vLLM…','LibreChat: open-source AI chat UI — connects to Axon/vLLM']},
+  stalwart:  {s:'waiting', lines:['Waiting for cert-manager…','Stalwart: SMTP/IMAP/JMAP full mail server stack']},
+  livekit:   {s:'waiting', lines:['Waiting for STUNner…','LiveKit: WebRTC video/audio server via STUNner gateway']},
+  stunner:   {s:'waiting', lines:['Waiting for cert-manager…','STUNner: K8s-native TURN/STUN gateway for WebRTC media']},
+  matrix:    {s:'waiting', lines:['Waiting for Flux…','Matrix: federated encrypted messaging (Element-compatible)']},
+  ntfy:      {s:'waiting', lines:['Waiting for Flux…','Ntfy: self-hosted push notification service (HTTP pub/sub)']},
+}
+
+// ── Layer & region state ───────────────────────────────────────────────────────
+const layerState={
+  fsn1:{catalyst:'open',pilot:'open',spine:'open',surge:'closed',silo:'closed',guardian:'closed',insights:'closed',fabric:'closed',cortex:'closed',relay:'closed'},
+  nbg1:{catalyst:'closed',pilot:'closed',spine:'closed',surge:'closed',silo:'closed',guardian:'closed',insights:'closed',fabric:'closed',cortex:'closed',relay:'closed'},
+}
+const regionState={fsn1:'open',nbg1:'open'}
+
+// ── Position stores ────────────────────────────────────────────────────────────
+const nodePos={};NODES.forEach(n=>nodePos[n.id]={x:480,y:300})
+const groupPos={};REGIONS.forEach(r=>Object.keys(GROUPS).forEach(g=>groupPos[`${r.id}-${g}`]={x:480,y:300}))
+const regionPos={fsn1:{x:480,y:160},nbg1:{x:480,y:440}}
+
+let SVG_W=960,SVG_H=600
+
+function initDims(){
+  const c=document.querySelector('.dag-graph'),rc=c.getBoundingClientRect()
+  if(rc.width>100){SVG_W=rc.width;SVG_H=rc.height}
+  const s=document.getElementById('gsvg')
+  s.setAttribute('viewBox',`0 0 ${SVG_W} ${SVG_H}`)
+  s.setAttribute('preserveAspectRatio','none')
+}
+
+// ── Effective graph (3-level collapse) ─────────────────────────────────────────
+function buildEffectiveGraph(){
+  const effNodes=[],n2e={}
+  NODES.forEach(n=>{
+    if(regionState[n.region]==='closed'){
+      const rid=`RP-${n.region}`
+      if(!effNodes.find(e=>e.id===rid))effNodes.push({id:rid,region:n.region,type:'region',phase:3})
+      n2e[n.id]=rid
+    } else if(layerState[n.region][n.group]==='closed'){
+      const pid=`P-${n.region}-${n.group}`
+      if(!effNodes.find(e=>e.id===pid)){
+        const children=NODES.filter(x=>x.region===n.region&&x.group===n.group)
+        const medPhase=Math.round(children.reduce((s,x)=>s+x.phase,0)/children.length)
+        effNodes.push({id:pid,region:n.region,group:n.group,type:'group',phase:medPhase})
+      }
+      n2e[n.id]=pid
+    } else {
+      effNodes.push({id:n.id,region:n.region,group:n.group,type:'node',phase:n.phase})
+      n2e[n.id]=n.id
+    }
+  })
+  const effEdges=[],eSet=new Set()
+  EDGES.forEach(e=>{
+    const ef=n2e[e.from],et=n2e[e.to]
+    if(!ef||!et)return
+    const k=`${ef}→${et}`
+    if(ef!==et&&!eSet.has(k)){eSet.add(k);effEdges.push({from:ef,to:et,xr:e.xr||false})}
+  })
+  return{effNodes,effEdges,n2e}
+}
+
+// ── Wide grid — auto-split dense stages into multiple columns ────────────────
+// Every stage with >MAX_PER_COL nodes gets split into ceil(count/MAX_PER_COL)
+// columns. This uses horizontal space effectively instead of piling up vertically.
+function computeWideLayout(){
+  const W=SVG_W,H=SVG_H,PAD=56
+  const{effNodes,effEdges,n2e}=buildEffectiveGraph()
+  // Count nodes per phase (single region — both are symmetric)
+  const MAX_PER_COL=5
+  const phaseCounts={}
+  effNodes.forEach(n=>{
+    if(n.region!=='fsn1')return  // count one region only
+    const ph=n.phase||3
+    phaseCounts[ph]=(phaseCounts[ph]||0)+1
+  })
+
+  // Build column mapping: phase → [startCol, numCols]
+  const phaseColMap={}
+  let col=1
+  for(let ph=1;ph<=NUM_PHASES;ph++){
+    const cnt=phaseCounts[ph]||0
+    const nCols=cnt>0?Math.ceil(cnt/MAX_PER_COL):1
+    phaseColMap[ph]={start:col,count:nCols}
+    col+=nCols
+  }
+  const NC=col-1  // total columns
+  wideNumCols=NC   // store for renderPhase
+
+  function wColX(c){return PAD+((c-0.5)/NC)*(W-2*PAD)}
+
+  const FSN1_TOP=H*0.06,FSN1_BOT=H*0.47
+  const NBG1_TOP=H*0.53,NBG1_BOT=H*0.94
+  const bandTop=r=>r==='fsn1'?FSN1_TOP:NBG1_TOP
+  const bandBot=r=>r==='fsn1'?FSN1_BOT:NBG1_BOT
+
+  // Group by region+phase, sort by family
+  const byRP={}
+  effNodes.forEach(n=>{
+    const k=`${n.region}-${n.phase||3}`
+    if(!byRP[k])byRP[k]=[]
+    byRP[k].push(n)
+  })
+  const GRP_IDX=Object.keys(GROUPS)
+  Object.values(byRP).forEach(arr=>{
+    arr.sort((a,b)=>GRP_IDX.indexOf(a.group||GRP_IDX[0])-GRP_IDX.indexOf(b.group||GRP_IDX[0]))
+  })
+
+  // Assign each node to a column
+  const nodeCol={}
+  effNodes.forEach(n=>{
+    const ph=n.phase||3
+    const cm=phaseColMap[ph]
+    if(cm.count===1){
+      nodeCol[n.id]=cm.start
+    } else {
+      const k=`${n.region}-${ph}`
+      const arr=byRP[k]||[]
+      const idx=arr.indexOf(n)
+      const subCol=Math.min(Math.floor(idx/MAX_PER_COL),cm.count-1)
+      nodeCol[n.id]=cm.start+subCol
+    }
+  })
+
+  // Group by region+col for vertical spacing
+  const cells={}
+  effNodes.forEach(n=>{
+    const k=`${n.region}-${nodeCol[n.id]}`
+    if(!cells[k])cells[k]=[]
+    cells[k].push(n)
+  })
+
+  const MIN_GAP=44
+  const pos={}
+  effNodes.forEach(n=>{
+    const c=nodeCol[n.id]
+    const k=`${n.region}-${c}`
+    const cell=cells[k]||[],idx=cell.indexOf(n),cnt=cell.length
+    const top=bandTop(n.region),bot=bandBot(n.region),bandH=bot-top
+    const slotH=Math.max(MIN_GAP,bandH/Math.max(cnt,1))
+    const totalH=cnt*slotH
+    const startY=(top+bot)/2-totalH/2
+    pos[n.id]={x:wColX(c),y:startY+(idx+0.5)*slotH}
+  })
+
+  // Store column map for renderPhase
+  widePhaseColMap=phaseColMap
+
+  const np={},gp={},rp={}
+  NODES.forEach(n=>{np[n.id]=pos[n2e[n.id]]||{x:W/2,y:H/2}})
+  effNodes.filter(e=>e.type==='group').forEach(e=>{gp[`${e.region}-${e.group}`]=pos[e.id]})
+  effNodes.filter(e=>e.type==='region').forEach(e=>{rp[e.region]=pos[e.id]})
+  return{np,gp,rp}
+}
+let wideNumCols=12,widePhaseColMap={}
+
+function getLayout(){return computeWideLayout()}
+
+// ── Animation ─────────────────────────────────────────────────────────────────
+let animID=null
+function animateTo(np,gp,rp){
+  if(animID)cancelAnimationFrame(animID)
+  const sn={},sg={},sr={}
+  NODES.forEach(n=>{sn[n.id]={x:nodePos[n.id].x,y:nodePos[n.id].y}})
+  Object.keys(groupPos).forEach(k=>{sg[k]={x:groupPos[k].x,y:groupPos[k].y}})
+  Object.keys(regionPos).forEach(k=>{sr[k]={x:regionPos[k].x,y:regionPos[k].y}})
+  const t0=performance.now(),DUR=560
+  function frame(now){
+    const t=Math.min((now-t0)/DUR,1),e=1-(1-t)**3
+    NODES.forEach(n=>{
+      const tn=np[n.id]||sn[n.id]
+      nodePos[n.id].x=sn[n.id].x+(tn.x-sn[n.id].x)*e
+      nodePos[n.id].y=sn[n.id].y+(tn.y-sn[n.id].y)*e
+    })
+    Object.keys(groupPos).forEach(k=>{
+      const tg=gp[k]||sg[k]
+      groupPos[k].x=sg[k].x+(tg.x-sg[k].x)*e;groupPos[k].y=sg[k].y+(tg.y-sg[k].y)*e
+    })
+    Object.keys(regionPos).forEach(k=>{
+      const tr=rp[k]||sr[k]
+      regionPos[k].x=sr[k].x+(tr.x-sr[k].x)*e;regionPos[k].y=sr[k].y+(tr.y-sr[k].y)*e
+    })
+    renderGraph()
+    if(t<1)animID=requestAnimationFrame(frame)
+  }
+  animID=requestAnimationFrame(frame)
+}
+
+// ── SVG cache ─────────────────────────────────────────────────────────────────
+const SVGEls={}
+
+function buildSVG(){
+  const Le=document.getElementById('L-edges')
+  const Ln=document.getElementById('L-nodes')
+  const Lp=document.getElementById('L-phase')
+  // Fully opaque fills — lines always visually hidden beneath nodes
+  const SF={done:'#166534',running:'#1e3a5f',failed:'#7f1d1d',waiting:'#0d1726'}
+
+  // ── Phase column structure (backgrounds + dividers) ──────────────────────
+  PHASES.forEach(ph=>{
+    const rect=mk('rect',{id:`ph-bg-${ph.id}`,y:'0',height:'100%',opacity:'.0',fill:'#fff',rx:'0'})
+    Lp.appendChild(rect);SVGEls[`ph-bg-${ph.id}`]=rect
+    if(ph.id>1){
+      const line=mk('line',{id:`ph-div-${ph.id}`,'y1':'0','y2':'100%',stroke:'rgba(255,255,255,.05)','stroke-width':'1'})
+      Lp.appendChild(line);SVGEls[`ph-div-${ph.id}`]=line
+    }
+  })
+
+  // ── Region band divider (horizontal center line) ───────────────────────────
+  const midLine=mk('line',{id:'mid-line','x1':'0','x2':'100%',
+    stroke:'rgba(255,255,255,.06)','stroke-width':'1','stroke-dasharray':'6,6'})
+  Lp.appendChild(midLine);SVGEls['mid-line']=midLine;
+  // FSN1 / NBG1 region labels (left edge)
+  ;['fsn1','nbg1'].forEach(rid=>{
+    const t=mk('text',{id:`rlbl-${rid}`,'font-size':'9','font-family':'Inter','font-weight':'700',
+      'letter-spacing':'.12em',fill:'rgba(255,255,255,.22)','text-anchor':'start','pointer-events':'none'})
+    t.textContent=rid==='fsn1'?'▲ FSN1':'▼ NBG1'
+    Lp.appendChild(t);SVGEls[`rlbl-${rid}`]=t
+  })
+
+  // ── Edge paths ─────────────────────────────────────────────────────────────
+  EDGES.forEach(e=>{
+    const fn=NODES.find(x=>x.id===e.from),tn=NODES.find(x=>x.id===e.to)
+    let stroke,sw,dash,marker
+    if(e.xr){
+      stroke='rgba(253,230,138,0.45)';sw='1.5';dash='7,4';marker='url(#m-xr)'
+    } else {
+      const st=fn&&tn&&fn.state==='done'&&(tn.state==='done'||tn.state==='running')?'done':fn&&fn.state==='running'?'act':'wait'
+      stroke=st==='done'?'rgba(167,243,208,.42)':st==='act'?'rgba(186,230,253,.55)':'rgba(148,163,184,.28)'
+      sw='1.5';dash=null;marker=st==='done'?'url(#m-done)':st==='act'?'url(#m-act)':'url(#m-wait)'
+    }
+    const p=mk('path',{id:`ep-${e.from}-${e.to}`,fill:'none',stroke,'stroke-width':sw,'stroke-linecap':'round','marker-end':marker})
+    if(dash)p.setAttribute('stroke-dasharray',dash)
+    Le.appendChild(p);SVGEls[`ep-${e.from}-${e.to}`]=p
+  })
+
+  // ── Region proxy nodes ─────────────────────────────────────────────────────
+  REGIONS.forEach(r=>{
+    const rn=NODES.filter(n=>n.region===r.id)
+    const dN=rn.filter(n=>n.state==='done').length,runN=rn.filter(n=>n.state==='running').length
+    const prog=(dN+runN*0.5)/rn.length,rr=38,circ=2*Math.PI*rr
+    const g=mk('g',{id:`rp-${r.id}`,class:'ng',display:'none'})
+    g.addEventListener('click',ev=>{ev.stopPropagation();if(!wasDragged)toggleRegion(r.id)})
+    g.addEventListener('mouseenter',ev=>showTT(ev,regionTTHtml(r.id)))
+    g.addEventListener('mousemove',moveTT)
+    g.addEventListener('mouseleave',hideTT)
+    g.appendChild(mk('circle',{r:(rr+12).toString(),class:'nhov',stroke:'#818CF8'}))
+    g.appendChild(mk('circle',{r:rr.toString(),fill:'#142038'}))
+    g.appendChild(mk('circle',{r:rr.toString(),fill:'none',stroke:'rgba(255,255,255,.20)','stroke-width':'1.5'}))
+    if(prog>0){
+      const arc=mk('circle',{r:rr.toString(),fill:'none',stroke:'#38BDF8','stroke-width':'4','stroke-linecap':'round',
+        'stroke-dasharray':`${(prog*circ).toFixed(2)} ${circ.toFixed(2)}`,transform:'rotate(-90)',opacity:'.9'})
+      if(runN>0)arc.appendChild(mk('animate',{attributeName:'opacity',values:'0.9;0.4;0.9',dur:'1.8s',repeatCount:'indefinite'}))
+      g.appendChild(arc)
+    }
+    const lb=mk('text',{y:'-4',class:'nlabel','font-size':'13',fill:'rgba(255,255,255,0.9)'})
+    lb.textContent=r.id.toUpperCase();g.appendChild(lb)
+    const sl=mk('text',{y:'10',class:'ntime','font-size':'9'});sl.textContent='tap to expand';g.appendChild(sl)
+    g.appendChild(mk('circle',{cx:'22',cy:'-22',r:'10',fill:'rgba(56,189,248,0.9)'}))
+    const bt=mk('text',{x:'22',y:'-18','font-size':'8.5','font-family':'Inter','font-weight':'800',fill:'#080f20','text-anchor':'middle','pointer-events':'none'})
+    bt.textContent=rn.length;g.appendChild(bt)
+    Ln.appendChild(g);SVGEls[`rp-${r.id}`]=g
+  })
+
+  // ── Group proxy nodes ──────────────────────────────────────────────────────
+  REGIONS.forEach(r=>{
+    Object.entries(GROUPS).forEach(([gid,gh])=>{
+      const nodes=NODES.filter(n=>n.region===r.id&&n.group===gid)
+      const dN=nodes.filter(n=>n.state==='done').length,runN=nodes.filter(n=>n.state==='running').length
+      const prog=nodes.length>0?(dN+runN*0.5)/nodes.length:0
+      const rr=28,circ=2*Math.PI*rr
+      const g=mk('g',{id:`gp-${r.id}-${gid}`,class:'ng',display:'none'})
+      g.addEventListener('click',ev=>{ev.stopPropagation();if(!wasDragged)toggleLayer(r.id,gid)})
+      g.addEventListener('mouseenter',ev=>showTT(ev,groupTTHtml(r.id,gid)))
+      g.addEventListener('mousemove',moveTT)
+      g.addEventListener('mouseleave',hideTT)
+      g.appendChild(mk('circle',{r:(rr+9).toString(),class:'nhov',stroke:gh.color}))
+      g.appendChild(mk('circle',{r:rr.toString(),fill:darkFill(gh.color)}))
+      g.appendChild(mk('circle',{r:rr.toString(),fill:'none',stroke:gh.color,'stroke-width':'1.5',opacity:'.55'}))
+      if(prog>0){
+        const arc=mk('circle',{r:rr.toString(),fill:'none',stroke:gh.color,'stroke-width':'3.5','stroke-linecap':'round',
+          'stroke-dasharray':`${(prog*circ).toFixed(2)} ${circ.toFixed(2)}`,transform:'rotate(-90)',opacity:'.9'})
+        if(runN>0)arc.appendChild(mk('animate',{attributeName:'opacity',values:'0.9;0.4;0.9',dur:'1.8s',repeatCount:'indefinite'}))
+        g.appendChild(arc)
+      }
+      const ic=mk('text',{'font-size':'12','text-anchor':'middle','dominant-baseline':'central','font-family':'Inter',fill:gh.color,opacity:'.55','pointer-events':'none'})
+      ic.textContent='⊞';g.appendChild(ic)
+      g.appendChild(mk('circle',{cx:'16',cy:'-16',r:'9',fill:gh.color,opacity:'.88'}))
+      const bt=mk('text',{x:'16',y:'-12','font-size':'8','font-family':'Inter','font-weight':'800',fill:'#080f20','text-anchor':'middle','pointer-events':'none'})
+      bt.textContent=nodes.length;g.appendChild(bt)
+      const lb=mk('text',{y:(rr+15).toString(),class:'nlabel','font-size':'10',fill:gh.color})
+      lb.textContent=gh.label;g.appendChild(lb)
+      const sl=mk('text',{y:(rr+25).toString(),class:'ntime','font-size':'8'})
+      sl.textContent=nodes.length+' components';g.appendChild(sl)
+      g.appendChild(mk('circle',{id:`ns-gp-${r.id}-${gid}`,r:(rr+2).toString(),class:'nsel',stroke:gh.color}))
+      Ln.appendChild(g);SVGEls[`gp-${r.id}-${gid}`]=g
+    })
+  })
+
+  // ── Individual nodes ───────────────────────────────────────────────────────
+  NODES.forEach(n=>{
+    const gh=GROUPS[n.group]
+    const g=mk('g',{id:`nd-${n.id}`,class:'ng'})
+    g.addEventListener('click',()=>{if(!wasDragged)selNode(n.id)})
+    g.addEventListener('mouseenter',ev=>showTT(ev,nodeTTHtml(n)))
+    g.addEventListener('mousemove',moveTT)
+    g.addEventListener('mouseleave',hideTT)
+    g.appendChild(mk('circle',{r:(n.r+9).toString(),class:'nhov',stroke:gh.color}))
+    g.appendChild(mk('circle',{r:n.r.toString(),fill:SF[n.state]||SF.waiting}))
+    g.appendChild(mk('circle',{r:n.r.toString(),fill:'none',stroke:gh.color,'stroke-width':'1.5',opacity:n.state==='waiting'?'.25':'.72'}))
+    if(n.prog>0){
+      const circ=2*Math.PI*n.r
+      const arc=mk('circle',{r:n.r.toString(),fill:'none',stroke:gh.color,'stroke-width':'3.5','stroke-linecap':'round',
+        'stroke-dasharray':`${(n.prog*circ).toFixed(2)} ${circ.toFixed(2)}`,transform:'rotate(-90)',opacity:'.92'})
+      if(n.state==='running')arc.appendChild(mk('animate',{attributeName:'opacity',values:'0.92;0.42;0.92',dur:'1.8s',repeatCount:'indefinite'}))
+      g.appendChild(arc)
+    }
+    if(n.state==='done'||n.state==='failed'){
+      const ic=mk('text',{'font-size':'11','text-anchor':'middle','dominant-baseline':'central','font-family':'Inter','font-weight':'800',fill:'rgba(5,12,30,0.92)','pointer-events':'none'})
+      ic.textContent=n.state==='done'?'✓':'✕';g.appendChild(ic)
+    }
+    const lb=mk('text',{y:(n.r+14).toString(),class:'nlabel',fill:n.state==='waiting'?'rgba(255,255,255,0.38)':gh.color})
+    lb.textContent=n.label;g.appendChild(lb)
+    if(n.sub&&n.sub!=='—'){
+      const st=mk('text',{y:(n.r+24).toString(),class:'ntime'});st.textContent=n.sub;g.appendChild(st)
+    }
+    g.appendChild(mk('circle',{id:`ns-${n.id}`,r:(n.r+5).toString(),class:'nsel',stroke:gh.color}))
+    Ln.appendChild(g);SVGEls[`nd-${n.id}`]=g
+  })
+}
+
+function hexRgb(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`${r},${g},${b}`}
+// Blend family color at 25% into dark base #0d1726 → fully opaque background
+function darkFill(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);const t=0.25;const nr=Math.round(13+(r-13)*t),ng=Math.round(23+(g-23)*t),nb=Math.round(38+(b-38)*t);return`#${nr.toString(16).padStart(2,'0')}${ng.toString(16).padStart(2,'0')}${nb.toString(16).padStart(2,'0')}`}
+
+// ── Hover tooltip ────────────────────────────────────────────────────────────
+const TT=document.getElementById('tt')
+function moveTT(ev){
+  const x=ev.clientX+16,y=ev.clientY+16,W=window.innerWidth,H=window.innerHeight
+  TT.style.left=(x+TT.offsetWidth>W?ev.clientX-TT.offsetWidth-10:x)+'px'
+  TT.style.top=(y+TT.offsetHeight>H?ev.clientY-TT.offsetHeight-10:y)+'px'
+}
+function showTT(ev,html){TT.innerHTML=html;TT.style.display='block';moveTT(ev)}
+function hideTT(){TT.style.display='none'}
+
+function nodeTTHtml(n){
+  const gh=GROUPS[n.group]
+  const baseId=n.id.startsWith('n-')?n.id.slice(2):n.id
+  const log=LOGS[baseId]||{lines:[]}
+  const stMap={done:'✓ Done',running:'⟳ Running',waiting:'◌ Waiting',failed:'✕ Failed'}
+  const desc=log.lines.find(l=>l.length>20&&!l.startsWith('✓')&&!l.startsWith('Wait'))||''
+  return`<div class="ttn">${n.label}</div>
+<div class="ttr"><span class="ttk">Family</span><span class="ttv" style="color:${gh.color}">${gh.label} — ${gh.desc}</span></div>
+<div class="ttr"><span class="ttk">Stage</span><span class="ttv">${n.phase} of ${NUM_PHASES}</span></div>
+<div class="ttr"><span class="ttk">Region</span><span class="ttv">${n.region.toUpperCase()}</span></div>
+<div class="ttr"><span class="ttk">Status</span><span class="ttv">${stMap[n.state]||n.state}</span></div>
+${n.sub&&n.sub!=='—'?`<div class="ttr"><span class="ttk">Duration</span><span class="ttv">${n.sub}</span></div>`:''}
+${desc?`<div class="ttd">${desc}</div>`:''}`
+}
+
+function groupTTHtml(rid,gid){
+  const gh=GROUPS[gid],r=REGIONS.find(x=>x.id===rid)
+  const nodes=NODES.filter(n=>n.region===rid&&n.group===gid)
+  const dN=nodes.filter(n=>n.state==='done').length,rN=nodes.filter(n=>n.state==='running').length
+  const stageMin=Math.min(...nodes.map(n=>n.phase)),stageMax=Math.max(...nodes.map(n=>n.phase))
+  const stageRange=stageMin===stageMax?`Stage ${stageMin}`:`Stages ${stageMin}–${stageMax}`
+  return`<div class="ttn" style="color:${gh.color}">${gh.label}</div>
+<div class="ttr"><span class="ttk">Description</span><span class="ttv">${gh.desc}</span></div>
+<div class="ttr"><span class="ttk">Region</span><span class="ttv">${r.name}</span></div>
+<div class="ttr"><span class="ttk">Coverage</span><span class="ttv">${stageRange}</span></div>
+<div class="ttr"><span class="ttk">Progress</span><span class="ttv">${dN}/${nodes.length} done${rN>0?' · '+rN+' active':''}</span></div>
+<div class="ttd">${nodes.map(n=>`<span style="color:${n.state==='done'?'#86efac':n.state==='running'?'#bae6fd':'rgba(255,255,255,.35)'}">${n.label}</span>`).join(' · ')}</div>`
+}
+
+function regionTTHtml(rid){
+  const r=REGIONS.find(x=>x.id===rid)
+  const rn=NODES.filter(n=>n.region===rid)
+  const dN=rn.filter(n=>n.state==='done').length,rN=rn.filter(n=>n.state==='running').length
+  return`<div class="ttn">${r.name}</div>
+<div class="ttr"><span class="ttk">Provider</span><span class="ttv">${r.meta}</span></div>
+<div class="ttr"><span class="ttk">Components</span><span class="ttv">${rn.length} total</span></div>
+<div class="ttr"><span class="ttk">Progress</span><span class="ttv">${dN}/${rn.length} done${rN>0?' · '+rN+' active':''}</span></div>
+<div class="ttr"><span class="ttk">Stages</span><span class="ttv">1 – ${NUM_PHASES}</span></div>`
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function getEP(nid){
+  const n=NODES.find(x=>x.id===nid)
+  if(regionState[n.region]==='closed')return regionPos[n.region]
+  if(layerState[n.region][n.group]==='closed')return groupPos[`${n.region}-${n.group}`]
+  return nodePos[nid]
+}
+function getER(nid){
+  const n=NODES.find(x=>x.id===nid)
+  if(regionState[n.region]==='closed')return 38
+  if(layerState[n.region][n.group]==='closed')return 28
+  return n.r
+}
+
+function renderPhase(){
+  const W=SVG_W,H=SVG_H
+  const midY=H/2
+  const ml=SVGEls['mid-line'];if(ml){ml.setAttribute('y1',midY);ml.setAttribute('y2',midY)}
+  const rlt=SVGEls['rlbl-fsn1'];if(rlt){rlt.setAttribute('x','6');rlt.setAttribute('y',(midY-8).toString())}
+  const rlb=SVGEls['rlbl-nbg1'];if(rlb){rlb.setAttribute('x','6');rlb.setAttribute('y',(midY+16).toString())}
+
+  const PAD=56
+  const NC=wideNumCols
+  function wCX(c){return PAD+((c-0.5)/NC)*(W-2*PAD)}
+  PHASES.forEach(ph=>{
+    const cm=widePhaseColMap[ph.id]||{start:ph.id,count:1}
+    const bg=SVGEls[`ph-bg-${ph.id}`]
+    if(bg){
+      const left=wCX(cm.start-0.5),right=wCX(cm.start+cm.count-0.5)
+      bg.setAttribute('x',left.toString());bg.setAttribute('width',(right-left).toString())
+      bg.setAttribute('opacity',ph.id%2===0?'.015':'.0')
+    }
+    const div=SVGEls[`ph-div-${ph.id}`]
+    if(div){const x=wCX(cm.start-0.5);div.setAttribute('x1',x.toString());div.setAttribute('x2',x.toString())}
+  })
+}
+
+function renderGraph(){
+  renderPhase()
+
+  // Region proxies
+  REGIONS.forEach(r=>{
+    const el=SVGEls[`rp-${r.id}`];if(!el)return
+    if(regionState[r.id]==='closed'){
+      el.removeAttribute('display')
+      const p=regionPos[r.id];el.setAttribute('transform',`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`)
+    } else el.setAttribute('display','none')
+  })
+
+  // Group proxies
+  REGIONS.forEach(r=>{
+    Object.keys(GROUPS).forEach(gid=>{
+      const el=SVGEls[`gp-${r.id}-${gid}`];if(!el)return
+      if(regionState[r.id]==='open'&&layerState[r.id][gid]==='closed'){
+        el.removeAttribute('display')
+        const p=groupPos[`${r.id}-${gid}`];el.setAttribute('transform',`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`)
+      } else el.setAttribute('display','none')
+    })
+  })
+
+  // Individual nodes
+  NODES.forEach(n=>{
+    const el=SVGEls[`nd-${n.id}`];if(!el)return
+    const visible=regionState[n.region]==='open'&&layerState[n.region][n.group]==='open'
+    if(visible){
+      el.removeAttribute('display')
+      const p=nodePos[n.id];el.setAttribute('transform',`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`)
+    } else el.setAttribute('display','none')
+  })
+
+  // Edges
+  EDGES.forEach(e=>{
+    const el=SVGEls[`ep-${e.from}-${e.to}`];if(!el)return
+    const fn=NODES.find(x=>x.id===e.from),tn=NODES.find(x=>x.id===e.to)
+    if(!fn||!tn){el.setAttribute('display','none');return}
+    const fCollapsed=regionState[fn.region]==='closed'||(regionState[fn.region]==='open'&&layerState[fn.region][fn.group]==='closed')
+    const tCollapsed=regionState[tn.region]==='closed'||(regionState[tn.region]==='open'&&layerState[tn.region][tn.group]==='closed')
+    if(!e.xr&&fCollapsed&&tCollapsed&&fn.region===tn.region){
+      if(fn.group===tn.group){el.setAttribute('display','none');return}
+    }
+    el.removeAttribute('display')
+    const fp=getEP(e.from),tp=getEP(e.to),fr=getER(e.from),tr=getER(e.to)
+    const dx=tp.x-fp.x,dy=tp.y-fp.y,d=Math.sqrt(dx*dx+dy*dy)||1,nx=dx/d,ny=dy/d
+    const sx=(fp.x+nx*(fr+1)).toFixed(1),sy=(fp.y+ny*(fr+1)).toFixed(1)
+    const ex=(tp.x-nx*(tr+8)).toFixed(1),ey=(tp.y-ny*(tr+8)).toFixed(1)
+    el.setAttribute('d',`M${sx},${sy} L${ex},${ey}`)
+  })
+}
+
+// ── Toggles ───────────────────────────────────────────────────────────────────
+function toggleLayer(region,gid){
+  layerState[region][gid]=layerState[region][gid]==='open'?'closed':'open'
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+function toggleRegion(rid){
+  regionState[rid]=regionState[rid]==='open'?'closed':'open'
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+
+// ── Bulk accordion helpers ────────────────────────────────────────────────────
+function expandAll(){
+  REGIONS.forEach(r=>{
+    regionState[r.id]='open'
+    Object.keys(GROUPS).forEach(g=>{layerState[r.id][g]='open'})
+  })
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+function collapseAll(){
+  REGIONS.forEach(r=>{
+    Object.keys(GROUPS).forEach(g=>{layerState[r.id][g]='closed'})
+  })
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+function collapseRegions(){
+  REGIONS.forEach(r=>{regionState[r.id]='closed'})
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+function expandRecursive(){
+  REGIONS.forEach(r=>{
+    if(regionState[r.id]==='open'){
+      Object.keys(GROUPS).forEach(g=>{layerState[r.id][g]='open'})
+    }
+  })
+  const{np,gp,rp}=getLayout();animateTo(np,gp,rp);buildAccordion()
+}
+
+// ── Accordion ─────────────────────────────────────────────────────────────────
+function buildAccordion(){
+  const sb=document.getElementById('sb-in');sb.innerHTML=''
+
+  // header
+  const hdr=document.createElement('div');hdr.className='sb-hdr';hdr.textContent='DEPLOYMENT PROGRESS';sb.appendChild(hdr)
+
+  // bulk controls
+  const bulk=document.createElement('div');bulk.className='sb-bulk'
+  const btns=[
+    ['⊞ All',  expandAll,     'Expand all regions & groups'],
+    ['⊟ Grps', collapseAll,   'Collapse all group node rows'],
+    ['⊟ Regs', collapseRegions,'Collapse all regions'],
+    ['↺ Rec',  expandRecursive,'Expand groups in open regions'],
+  ]
+  btns.forEach(([lbl,fn,title])=>{
+    const b=document.createElement('button');b.className='bb';b.textContent=lbl;b.title=title
+    b.onclick=fn;bulk.appendChild(b)
+  })
+  sb.appendChild(bulk)
+
+  REGIONS.forEach(r=>{
+    const rn=NODES.filter(n=>n.region===r.id)
+    const dN=rn.filter(n=>n.state==='done').length
+    const runN=rn.filter(n=>n.state==='running').length
+    const pct=Math.round(((dN+runN*0.5)/rn.length)*100)
+    const isOpen=regionState[r.id]==='open'
+
+    const rr=document.createElement('div');rr.className='reg-row';rr.onclick=()=>toggleRegion(r.id)
+    rr.innerHTML=`<span class="reg-arr${isOpen?' open':''}">▶</span><span class="reg-dot running"></span><div style="flex:1;min-width:0"><div class="reg-name">${r.name}</div><div class="reg-meta">${r.meta}</div></div><span class="reg-badge">${dN}/${rn.length}</span>`
+    sb.appendChild(rr)
+
+    // region progress bar
+    const rp=document.createElement('div');rp.className='sb-prog'
+    rp.innerHTML=`<div class="sb-prog-f" style="width:${pct}%"></div>`
+    sb.appendChild(rp)
+
+    if(!isOpen)return
+
+    Object.entries(GROUPS).forEach(([gid,gh])=>{
+        const nodes=NODES.filter(n=>n.region===r.id&&n.group===gid)
+        if(!nodes.length)return
+        const isGrpOpen=layerState[r.id][gid]==='open'
+        const gdN=nodes.filter(n=>n.state==='done').length,grN=nodes.filter(n=>n.state==='running').length
+        const gPct=Math.round(((gdN+grN*0.5)/nodes.length)*100)
+        const sCls=gdN===nodes.length?'done':grN>0?'run':''
+        const sTxt=gdN===nodes.length?`${gdN}/${nodes.length} ✓`:grN>0?`${gdN}/${nodes.length}…`:`0/${nodes.length}`
+
+        const lr=document.createElement('div');lr.className='lay-row';lr.onclick=()=>toggleLayer(r.id,gid)
+        lr.innerHTML=`<span class="lay-arr${isGrpOpen?' open':''}">▶</span><span class="lay-dot" style="background:${gh.color}"></span><span class="lay-name">${gh.label}</span><span class="lay-desc">${gh.desc}</span><span class="lay-stat ${sCls}">${sTxt}</span>`
+        sb.appendChild(lr)
+
+        const gp=document.createElement('div');gp.className='grp-prog'
+        gp.innerHTML=`<div class="grp-prog-f" style="width:${gPct}%;background:${gh.color}"></div>`
+        sb.appendChild(gp)
+
+        const nr=document.createElement('div');nr.className=`node-rows${isGrpOpen?' open':''}`
+        nodes.forEach(n=>{
+          const row=document.createElement('div');row.className='n-row';row.onclick=()=>selNode(n.id)
+          const nPct=Math.round(n.prog*100)
+          const pBar=nPct>0?`<span style="display:inline-block;width:${16+nPct*.2}px;height:2px;border-radius:1px;background:${gh.color};opacity:.6;margin-left:2px;vertical-align:middle"></span>`:''
+          row.innerHTML=`<span class="n-dot ${n.state}"></span><span class="n-name">${n.label}</span>${pBar}<span class="n-time">${n.sub!=='—'?n.sub:''}</span>`
+          nr.appendChild(row)
+        })
+        sb.appendChild(nr)
+      })
+  })
+}
+
+// ── Log panel ────────────────────────────────────────────────────────────────
+let selId=null
+function selNode(id){
+  if(selId){const p=SVGEls[`ns-${selId}`]||SVGEls[`ns-gp-${selId}`];if(p)p.classList.remove('on')}
+  selId=id
+  const el=SVGEls[`ns-${id}`];if(el)el.classList.add('on')
+  const baseId=id.startsWith('n-')?id.slice(2):id
+  const log=LOGS[baseId]||{s:'—',lines:[]}
+  document.getElementById('lchip').textContent=NODES.find(n=>n.id===id)?.label||id
+  document.getElementById('lstat').textContent=log.s
+  const ls=document.getElementById('lstream')
+  ls.innerHTML=log.lines.map((l,i)=>{
+    const cls=l.startsWith('✓')?'ll-d':'ll-r'
+    const ts=`04:1${i}:${String(i*7+2).padStart(2,'0')}`
+    const cur=(i===log.lines.length-1&&log.cur)?'<span class="lcur"></span>':''
+    return`<div class="ll"><span class="ll-ts">${ts}</span><span class="${cls}">${l}${cur}</span></div>`
+  }).join('')
+  ls.scrollTop=ls.scrollHeight
+}
+
+// ── Live drag relaxation — nearby nodes make room for dragged node ──────────
+function dragRelax(pinnedId){
+  const MIN_SEP=52
+  const pp=nodePos[pinnedId]
+  if(!pp)return
+  const pn=NODES.find(x=>x.id===pinnedId)
+  if(!pn)return
+  NODES.forEach(n=>{
+    if(n.id===pinnedId||n.region!==pn.region)return
+    if(regionState[n.region]!=='open'||layerState[n.region][n.group]!=='open')return
+    const np=nodePos[n.id]
+    const dx=np.x-pp.x,dy=np.y-pp.y
+    const d=Math.sqrt(dx*dx+dy*dy)||0.1
+    if(d<MIN_SEP){
+      const push=(MIN_SEP-d)*0.35/d
+      np.x+=dx*push;np.y+=dy*push
+    }
+  })
+}
+
+// ── Drag ─────────────────────────────────────────────────────────────────────
+let drag=null,wasDragged=false
+const svgEl=document.getElementById('gsvg')
+function toSVG(cx,cy){const p=svgEl.createSVGPoint();p.x=cx;p.y=cy;return p.matrixTransform(svgEl.getScreenCTM().inverse())}
+
+svgEl.addEventListener('mousedown',e=>{
+  const g=e.target.closest('.ng');if(!g)return
+  const isReg=g.id.startsWith('rp-'),isProxy=g.id.startsWith('gp-')
+  let nid,posRef
+  if(isReg){nid=g.id.slice(3);posRef=regionPos[nid]}
+  else if(isProxy){nid=g.id.slice(3);posRef=groupPos[nid]}
+  else{nid=g.id.slice(3);posRef=nodePos[nid]}
+  if(!posRef)return
+  const sp=toSVG(e.clientX,e.clientY)
+  drag={id:nid,isReg,isProxy,ox:sp.x-posRef.x,oy:sp.y-posRef.y,moved:false}
+  wasDragged=false;svgEl.classList.add('dragging');e.preventDefault()
+})
+svgEl.addEventListener('mousemove',e=>{
+  if(!drag)return
+  const sp=toSVG(e.clientX,e.clientY),nx=sp.x-drag.ox,ny=sp.y-drag.oy
+  const pr=drag.isReg?regionPos[drag.id]:drag.isProxy?groupPos[drag.id]:nodePos[drag.id]
+  if(!drag.moved&&(Math.abs(nx-pr.x)>6||Math.abs(ny-pr.y)>6)){drag.moved=true;wasDragged=true}
+  if(!drag.moved)return
+  if(drag.isReg){
+    const dx=nx-regionPos[drag.id].x,dy=ny-regionPos[drag.id].y
+    regionPos[drag.id]={x:nx,y:ny}
+    NODES.filter(n=>n.region===drag.id).forEach(n=>{nodePos[n.id].x+=dx;nodePos[n.id].y+=dy})
+    Object.keys(GROUPS).forEach(gid=>{const k=`${drag.id}-${gid}`;groupPos[k].x+=dx;groupPos[k].y+=dy})
+  } else if(drag.isProxy){
+    groupPos[drag.id]={x:nx,y:ny}
+  } else {
+    nodePos[drag.id].x=nx;nodePos[drag.id].y=ny
+    dragRelax(drag.id)
+  }
+  renderGraph()
+})
+function endDrag(){if(drag){drag=null;svgEl.classList.remove('dragging');setTimeout(()=>{wasDragged=false},120)}}
+svgEl.addEventListener('mouseup',endDrag)
+svgEl.addEventListener('mouseleave',endDrag)
+svgEl.addEventListener('touchstart',e=>{
+  const t=e.touches[0],g=document.elementFromPoint(t.clientX,t.clientY)?.closest('.ng');if(!g)return
+  const isReg=g.id.startsWith('rp-'),isProxy=g.id.startsWith('gp-')
+  let nid,posRef
+  if(isReg){nid=g.id.slice(3);posRef=regionPos[nid]}
+  else if(isProxy){nid=g.id.slice(3);posRef=groupPos[nid]}
+  else{nid=g.id.slice(3);posRef=nodePos[nid]}
+  if(!posRef)return
+  const sp=toSVG(t.clientX,t.clientY)
+  drag={id:nid,isReg,isProxy,ox:sp.x-posRef.x,oy:sp.y-posRef.y,moved:false}
+  wasDragged=false;e.preventDefault()
+},{passive:false})
+svgEl.addEventListener('touchmove',e=>{
+  if(!drag)return;const t=e.touches[0]
+  const sp=toSVG(t.clientX,t.clientY),nx=sp.x-drag.ox,ny=sp.y-drag.oy
+  const pr=drag.isReg?regionPos[drag.id]:drag.isProxy?groupPos[drag.id]:nodePos[drag.id]
+  if(!drag.moved&&(Math.abs(nx-pr.x)>6||Math.abs(ny-pr.y)>6)){drag.moved=true;wasDragged=true}
+  if(!drag.moved)return
+  if(drag.isReg){const dx=nx-regionPos[drag.id].x,dy=ny-regionPos[drag.id].y;regionPos[drag.id]={x:nx,y:ny};NODES.filter(n=>n.region===drag.id).forEach(n=>{nodePos[n.id].x+=dx;nodePos[n.id].y+=dy})}
+  else if(drag.isProxy){groupPos[drag.id]={x:nx,y:ny}}
+  else{nodePos[drag.id].x=nx;nodePos[drag.id].y=ny;dragRelax(drag.id)}
+  renderGraph();e.preventDefault()
+},{passive:false})
+svgEl.addEventListener('touchend',()=>endDrag())
+
+function toggleSB(){document.getElementById('sb').classList.toggle('collapsed')}
+function toggleLog(){document.getElementById('lp').classList.toggle('collapsed')}
+function toggleTheme(){
+  const d=document.documentElement.getAttribute('data-theme')==='dark'
+  document.documentElement.setAttribute('data-theme',d?'light':'dark')
+  document.getElementById('tbtn').textContent=d?'☽':'☀'
+}
+
+// ── Caption (node label) toggle ──────────────────────────────────────────────
+let showCaptions=true
+function toggleCaptions(){
+  showCaptions=!showCaptions
+  const btn=document.getElementById('capbtn')
+  if(btn)btn.style.opacity=showCaptions?'1':'.4'
+  // Toggle visibility of all .nlabel and .ntime text elements
+  document.querySelectorAll('#gsvg .nlabel, #gsvg .ntime').forEach(el=>{
+    el.setAttribute('display',showCaptions?'':'none')
+  })
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildSVG()
+buildAccordion()
+requestAnimationFrame(()=>{
+  initDims()
+  const{np,gp,rp}=getLayout()
+  NODES.forEach(n=>{nodePos[n.id].x=np[n.id].x;nodePos[n.id].y=np[n.id].y})
+  Object.keys(gp).forEach(k=>{groupPos[k]=gp[k]})
+  Object.keys(rp).forEach(k=>{regionPos[k]=rp[k]})
+  renderGraph()
+  selNode('flux')
+})
+window.addEventListener('resize',()=>{initDims();const{np,gp,rp}=getLayout();animateTo(np,gp,rp)})
+</script>
+</body>
+</html>

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Zap } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
@@ -106,7 +105,6 @@ function GroupMiniCard({ gid }: { gid: string }) {
 export function StepReview() {
   const store = useWizardStore()
   const { back } = useStepNav()
-  const navigate = useNavigate()
   const bp = useBreakpoint()
   const [loading, setLoading] = useState(false)
 
@@ -142,7 +140,7 @@ export function StepReview() {
     } catch {
       store.setDeploymentId('demo-deploy')
     }
-    navigate({ to: '/provision' })
+    window.location.href = '/provision.html'
   }
 
   const isMobile = bp === 'mobile'
