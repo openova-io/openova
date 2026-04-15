@@ -81,7 +81,9 @@ export function WizardLayout() {
       {isTablet && (
         <div style={{
           width: 52, flexShrink: 0, zIndex: 10,
-          /* NO distinct bg, NO border — rail belongs to the page */
+          /* Subtle container weight — visible but not "menu" heavy */
+          background: 'rgba(var(--wiz-ch), 0.015)',
+          borderRight: '1px solid rgba(var(--wiz-ch), 0.08)',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           padding: '20px 0 16px',
         }}>
@@ -126,18 +128,18 @@ export function WizardLayout() {
                     {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
                   </div>
 
-                  {/* Rail below (except on last step) */}
+                  {/* Rail below (except on last step) — always visible */}
                   {!isLast && (
                     <div style={{
-                      flex: 1, width: 1.5, minHeight: 24,
+                      flex: 1, width: 2, minHeight: 24,
                       background: done
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.6), rgba(129,140,248,0.35))'
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.45))'
                         : current
-                          ? 'linear-gradient(180deg, rgba(56,189,248,0.5), var(--wiz-border-sub))'
-                          : 'var(--wiz-border-sub)',
-                      backgroundImage: done || current ? undefined : 'repeating-linear-gradient(180deg, var(--wiz-border-sub) 0px, var(--wiz-border-sub) 3px, transparent 3px, transparent 6px)',
-                      backgroundSize: done || current ? undefined : '1.5px 6px',
+                          ? 'linear-gradient(180deg, rgba(56,189,248,0.55), rgba(var(--wiz-ch), 0.2))'
+                          : 'rgba(var(--wiz-ch), 0.2)',
+                      borderRadius: 1,
                       marginTop: 4, marginBottom: 4,
+                      transition: 'background 0.3s',
                     }} />
                   )}
                 </div>
@@ -149,11 +151,14 @@ export function WizardLayout() {
         </div>
       )}
 
-      {/* ── DESKTOP: full 260px rail (no background, no border) ───────── */}
+      {/* ── DESKTOP: 260 px sidebar with subtle weight ─────────────────── */}
       {isDesktop && (
         <div style={{
           width: 260, flexShrink: 0, zIndex: 10,
-          /* NO bg, NO border — integrated into page */
+          /* Subtle tint + thin right border — balances the page without
+             reading as a nav menu. Timeline rail lives inside. */
+          background: 'rgba(var(--wiz-ch), 0.015)',
+          borderRight: '1px solid rgba(var(--wiz-ch), 0.08)',
           display: 'flex', flexDirection: 'column',
           padding: '28px 24px',
         }}>
@@ -251,20 +256,19 @@ export function WizardLayout() {
                     </div>
                   </div>
 
-                  {/* Growing rail — only not on last */}
+                  {/* Growing rail — always visible, solid pale for pending */}
                   {!isLast && (
                     <div style={{
-                      marginLeft: 13.25,  /* align under circle centre (14 - rail_w/2) */
-                      width: 1.5,
+                      marginLeft: 13,  /* align under circle centre (14 - rail_w/2) */
+                      width: 2,
                       flex: 1,
                       minHeight: 16,
+                      borderRadius: 1,
                       background: done
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.5), rgba(129,140,248,0.3))'
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.45))'
                         : current
-                          ? 'linear-gradient(180deg, rgba(56,189,248,0.45), var(--wiz-border-sub) 70%)'
-                          : 'transparent',
-                      backgroundImage: done || current ? undefined : 'repeating-linear-gradient(180deg, var(--wiz-border-sub) 0px, var(--wiz-border-sub) 3px, transparent 3px, transparent 7px)',
-                      backgroundSize: done || current ? undefined : '1.5px 7px',
+                          ? 'linear-gradient(180deg, rgba(56,189,248,0.55), rgba(var(--wiz-ch), 0.2))'
+                          : 'rgba(var(--wiz-ch), 0.2)',
                       transition: 'background 0.3s',
                     }} />
                   )}
