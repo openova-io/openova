@@ -77,34 +77,40 @@ export function WizardLayout() {
         </div>
       )}
 
-      {/* ── TABLET: collapsed icon-only rail (52 px) ──────────────────── */}
+      {/* ── TABLET: icon-only rail, balls-only (no bg, right-aligned) ─── */}
       {isTablet && (
         <div style={{
           width: 52, flexShrink: 0, zIndex: 10,
-          /* Subtle container weight — visible but not "menu" heavy */
-          background: 'rgba(var(--wiz-ch), 0.015)',
-          borderRight: '1px solid rgba(var(--wiz-ch), 0.08)',
+          /* NO bg, NO border — fully transparent */
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          padding: '20px 0 16px',
+          padding: '20px 12px 16px',
         }}>
           <OOLogo h={18} id="wiz-logo-t" />
-          <div style={{ width: 1, height: 16, background: 'var(--wiz-border-sub)', margin: '8px 0' }} />
+          <div style={{ height: 28 }} />
 
-          {/* Step column — justify-content: space-between spreads circles over full height */}
-          <div style={{
-            flex: 1,
-            display: 'flex', flexDirection: 'column',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingBottom: 20,
-          }}>
+          {/* Balls only — fixed 18 px gap between them */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, alignItems: 'center' }}>
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
-              const isLast  = i === WIZARD_STEPS.length - 1
+              const prevFilled = step.id - 1 < currentStep
               return (
-                <div key={step.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', flex: isLast ? 'none' : 1 }}>
-                  {/* Circle */}
+                <div key={step.id} style={{ position: 'relative' }}>
+                  {/* Rail above (except first) */}
+                  {i > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: -18, left: '50%', transform: 'translateX(-50%)',
+                      width: 2, height: 18,
+                      borderRadius: 1,
+                      background: prevFilled
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
+                        : 'rgba(var(--wiz-ch), 0.2)',
+                      transition: 'background 0.3s',
+                    }} />
+                  )}
+
+                  {/* Ball */}
                   <div
                     onClick={() => done && setStep(step.id)}
                     title={step.label}
@@ -121,179 +127,144 @@ export function WizardLayout() {
                       color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
                       boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
                       cursor: done ? 'pointer' : 'default',
-                      transition: 'all 0.25s',
-                      zIndex: 2,
+                      position: 'relative',
                     }}
                   >
                     {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
                   </div>
-
-                  {/* Rail below (except on last step) — always visible */}
-                  {!isLast && (
-                    <div style={{
-                      flex: 1, width: 2, minHeight: 24,
-                      background: done
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.45))'
-                        : current
-                          ? 'linear-gradient(180deg, rgba(56,189,248,0.55), rgba(var(--wiz-ch), 0.2))'
-                          : 'rgba(var(--wiz-ch), 0.2)',
-                      borderRadius: 1,
-                      marginTop: 4, marginBottom: 4,
-                      transition: 'background 0.3s',
-                    }} />
-                  )}
                 </div>
               )
             })}
           </div>
 
-          <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 600, letterSpacing: '0.04em' }}>{progressPct}%</div>
+          <div style={{ flex: 1 }} />
+          <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 600 }}>{progressPct}%</div>
         </div>
       )}
 
-      {/* ── DESKTOP: 260 px sidebar with subtle weight ─────────────────── */}
+      {/* ── DESKTOP: transparent column, right-aligned stepper, labels-left ── */}
       {isDesktop && (
         <div style={{
-          width: 260, flexShrink: 0, zIndex: 10,
-          /* Subtle tint + thin right border — balances the page without
-             reading as a nav menu. Timeline rail lives inside. */
-          background: 'rgba(var(--wiz-ch), 0.015)',
-          borderRight: '1px solid rgba(var(--wiz-ch), 0.08)',
+          width: 200, flexShrink: 0, zIndex: 10,
+          /* NO bg, NO border — fully transparent */
           display: 'flex', flexDirection: 'column',
-          padding: '28px 24px',
+          /* Zero right padding — balls sit flush against main content */
+          padding: '28px 0 28px 20px',
         }}>
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32 }}>
-            <OOLogo h={24} id="wiz-logo-d" />
-            <div style={{ lineHeight: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Corporate</div>
+          {/* Logo — right-aligned to match stepper direction */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', marginBottom: 44, paddingRight: 6 }}>
+            <OOLogo h={22} id="wiz-logo-d" />
+            <div style={{ lineHeight: 1, textAlign: 'right' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Corporate</div>
             </div>
           </div>
 
-          {/* Vertical timeline — circles + growing rails, space-between so it fills the height */}
+          {/* Stepper — fixed 22 px gap (no stretch), right-aligned so balls
+              sit flush against the content card. Labels render LEFT of balls. */}
           <div style={{
-            flex: 1,
             display: 'flex', flexDirection: 'column',
-            minHeight: 0,
+            gap: 22,
+            alignItems: 'flex-end',
           }}>
             {WIZARD_STEPS.map((step, i) => {
-              const done    = step.id < currentStep
-              const current = step.id === currentStep
-              const isLast  = i === WIZARD_STEPS.length - 1
+              const done       = step.id < currentStep
+              const current    = step.id === currentStep
+              const prevFilled = step.id - 1 < currentStep
+              const clickable  = done
 
               return (
-                <div key={step.id} style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flex: isLast ? 'none' : 1,
-                  minHeight: isLast ? 'auto' : 56,
-                }}>
-                  {/* Row: circle + label + description */}
-                  <div
-                    onClick={() => done && setStep(step.id)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 14,
-                      padding: '6px 0',
-                      cursor: done ? 'pointer' : 'default',
-                      position: 'relative',
-                    }}
-                  >
-                    {/* Circle */}
+                <div
+                  key={step.id}
+                  onClick={() => clickable && setStep(step.id)}
+                  style={{
+                    position: 'relative',
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    cursor: clickable ? 'pointer' : 'default',
+                  }}
+                >
+                  {/* Rail above this ball (except first) — connects from previous */}
+                  {i > 0 && (
                     <div style={{
-                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 700,
-                      background: done
-                        ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : 'transparent',
-                      border: current
-                        ? '2px solid #38BDF8'
-                        : done ? 'none' : '1.5px solid var(--wiz-border)',
-                      color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
-                      boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
-                      transition: 'all 0.25s',
-                      zIndex: 2,
-                      position: 'relative',
-                    }}>
-                      {done ? <Check size={12} strokeWidth={2.5} /> : step.id}
-
-                      {/* Pulse ring for current step */}
-                      {current && (
-                        <span
-                          aria-hidden
-                          style={{
-                            position: 'absolute', inset: -4,
-                            borderRadius: '50%',
-                            border: '1.5px solid rgba(56,189,248,0.5)',
-                            animation: 'wiz-step-pulse 2.2s ease-in-out infinite',
-                            pointerEvents: 'none',
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Label + description */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: 13, fontWeight: current ? 600 : 500,
-                        color: current
-                          ? 'var(--wiz-text-hi)'
-                          : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
-                        lineHeight: 1.2,
-                        transition: 'color 0.25s',
-                      }}>
-                        {step.label}
-                      </div>
-                      <div style={{
-                        fontSize: 11,
-                        color: current ? 'var(--wiz-text-lo)' : 'var(--wiz-text-sub)',
-                        marginTop: 2,
-                        transition: 'color 0.25s',
-                      }}>
-                        {step.desc}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Growing rail — always visible, solid pale for pending */}
-                  {!isLast && (
-                    <div style={{
-                      marginLeft: 13,  /* align under circle centre (14 - rail_w/2) */
-                      width: 2,
-                      flex: 1,
-                      minHeight: 16,
+                      position: 'absolute',
+                      top: -22, right: 13, /* ball_width/2 - rail_width/2 = 14 - 1 */
+                      width: 2, height: 22,
                       borderRadius: 1,
-                      background: done
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.45))'
-                        : current
-                          ? 'linear-gradient(180deg, rgba(56,189,248,0.55), rgba(var(--wiz-ch), 0.2))'
-                          : 'rgba(var(--wiz-ch), 0.2)',
+                      background: prevFilled
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
+                        : 'rgba(var(--wiz-ch), 0.2)',
                       transition: 'background 0.3s',
                     }} />
                   )}
+
+                  {/* Label — LEFT of ball, one word */}
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: current ? 700 : done ? 500 : 400,
+                    color: current
+                      ? 'var(--wiz-text-hi)'
+                      : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
+                    transition: 'all 0.2s',
+                    whiteSpace: 'nowrap',
+                    letterSpacing: '-0.005em',
+                  }}>
+                    {step.label}
+                  </span>
+
+                  {/* Ball */}
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700,
+                    background: done
+                      ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
+                      : current ? 'rgba(56,189,248,0.15)' : 'transparent',
+                    border: current
+                      ? '2px solid #38BDF8'
+                      : done ? 'none' : '1.5px solid var(--wiz-border)',
+                    color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
+                    boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
+                    transition: 'all 0.25s',
+                    position: 'relative',
+                    zIndex: 2,
+                  }}>
+                    {done ? <Check size={12} strokeWidth={2.5} /> : step.id}
+
+                    {/* Pulse ring for current step */}
+                    {current && (
+                      <span
+                        aria-hidden
+                        style={{
+                          position: 'absolute', inset: -4,
+                          borderRadius: '50%',
+                          border: '1.5px solid rgba(56,189,248,0.5)',
+                          animation: 'wiz-step-pulse 2.2s ease-in-out infinite',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
 
-          {/* Progress — integrated at the end of the rail, no hard divider */}
-          <div style={{ marginTop: 12, paddingTop: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)', fontWeight: 500 }}>Progress</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#38BDF8' }}>
-                {progressPct}%
-              </span>
-            </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'var(--wiz-border-sub)' }}>
+          {/* Spacer so progress sits at bottom */}
+          <div style={{ flex: 1, minHeight: 40 }} />
+
+          {/* Progress — compact, right-aligned */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+            <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 500 }}>Progress</span>
+            <div style={{ width: 72, height: 2, borderRadius: 1, background: 'rgba(var(--wiz-ch), 0.1)' }}>
               <div style={{
                 height: '100%',
                 width: `${progressPct}%`,
-                borderRadius: 2,
+                borderRadius: 1,
                 background: 'linear-gradient(90deg, #38BDF8, #818CF8)',
                 transition: 'width 0.4s',
               }} />
             </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', minWidth: 26, textAlign: 'right' }}>{progressPct}%</span>
           </div>
         </div>
       )}
