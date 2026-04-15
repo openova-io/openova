@@ -24,6 +24,8 @@ export function WizardLayout() {
   const isTablet  = bp === 'tablet'
   const isDesktop = bp === 'desktop'
 
+  const progressPct = Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)
+
   return (
     <div style={{
       position: 'fixed', inset: 0,
@@ -41,7 +43,7 @@ export function WizardLayout() {
       {isMobile && (
         <div style={{
           flexShrink: 0, height: 56, zIndex: 10,
-          background: 'var(--wiz-bg-sub)',
+          background: 'rgba(var(--wiz-ch), 0.025)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
           borderBottom: '1px solid var(--wiz-border-sub)',
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: 14,
@@ -55,7 +57,6 @@ export function WizardLayout() {
               {WIZARD_STEPS[currentStep - 1].label}
             </div>
           </div>
-          {/* Step dots */}
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
             {WIZARD_STEPS.map(s => (
               <div
@@ -76,151 +77,214 @@ export function WizardLayout() {
         </div>
       )}
 
-      {/* ── TABLET: collapsed icon-only sidebar (52 px) ───────────────── */}
+      {/* ── TABLET: collapsed icon-only rail (52 px) ──────────────────── */}
       {isTablet && (
         <div style={{
           width: 52, flexShrink: 0, zIndex: 10,
-          background: 'var(--wiz-bg-sub)',
-          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid var(--wiz-border-sub)',
+          /* NO distinct bg, NO border — rail belongs to the page */
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           padding: '20px 0 16px',
-          gap: 4,
         }}>
           <OOLogo h={18} id="wiz-logo-t" />
           <div style={{ width: 1, height: 16, background: 'var(--wiz-border-sub)', margin: '8px 0' }} />
-          {WIZARD_STEPS.map(step => {
-            const done    = step.id < currentStep
-            const current = step.id === currentStep
-            return (
-              <div
-                key={step.id}
-                onClick={() => done && setStep(step.id)}
-                title={step.label}
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 700,
-                  background: done
-                    ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                    : current ? 'rgba(56,189,248,0.15)' : 'var(--wiz-bg-input)',
-                  border: current
-                    ? '2px solid #38BDF8'
-                    : done ? 'none' : '1.5px solid var(--wiz-border)',
-                  color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
-                  boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
-                  cursor: done ? 'pointer' : 'default',
-                  transition: 'all 0.25s',
-                }}
-              >
-                {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
-              </div>
-            )
-          })}
-          {/* Progress bar at bottom */}
-          <div style={{ flex: 1 }} />
-          <div style={{ width: 3, height: 60, borderRadius: 2, background: 'var(--wiz-border-sub)', overflow: 'hidden', margin: '0 0 8px' }}>
-            <div style={{
-              width: '100%',
-              height: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
-              background: 'linear-gradient(180deg, #38BDF8, #818CF8)',
-              transition: 'height 0.4s',
-            }} />
-          </div>
-        </div>
-      )}
 
-      {/* ── DESKTOP: full 260px sidebar ───────────────────────────────── */}
-      {isDesktop && (
-        <div style={{
-          width: 260, flexShrink: 0, zIndex: 10,
-          background: 'var(--wiz-bg-sub)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid var(--wiz-border-sub)',
-          display: 'flex', flexDirection: 'column',
-          padding: '28px 20px',
-        }}>
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 36 }}>
-            <OOLogo h={24} id="wiz-logo-d" />
-            <div style={{ lineHeight: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Catalyst</div>
-            </div>
-          </div>
-
-          {/* Vertical step list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+          {/* Step column — justify-content: space-between spreads circles over full height */}
+          <div style={{
+            flex: 1,
+            display: 'flex', flexDirection: 'column',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingBottom: 20,
+          }}>
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
+              const isLast  = i === WIZARD_STEPS.length - 1
               return (
-                <div key={step.id} style={{ position: 'relative' }}>
-                  {i < WIZARD_STEPS.length - 1 && (
-                    <div style={{
-                      position: 'absolute', left: 19, top: 38,
-                      width: 1.5, height: 10,
-                      background: done ? 'rgba(56,189,248,0.4)' : 'var(--wiz-border-sub)',
-                    }} />
-                  )}
+                <div key={step.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', flex: isLast ? 'none' : 1 }}>
+                  {/* Circle */}
                   <div
                     onClick={() => done && setStep(step.id)}
+                    title={step.label}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '9px 12px', borderRadius: 10,
-                      cursor: done ? 'pointer' : 'default',
-                      background: current ? 'rgba(56,189,248,0.08)' : 'transparent',
-                      border: current ? '1px solid rgba(56,189,248,0.2)' : '1px solid transparent',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <div style={{
-                      width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                      width: 28, height: 28, borderRadius: '50%',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 10, fontWeight: 700,
+                      fontSize: 11, fontWeight: 700,
                       background: done
                         ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : 'var(--wiz-bg-input)',
+                        : current ? 'rgba(56,189,248,0.15)' : 'transparent',
                       border: current
                         ? '2px solid #38BDF8'
                         : done ? 'none' : '1.5px solid var(--wiz-border)',
                       color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
-                      boxShadow: current ? '0 0 0 3px rgba(56,189,248,0.12)' : 'none',
+                      boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
+                      cursor: done ? 'pointer' : 'default',
                       transition: 'all 0.25s',
-                    }}>
-                      {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: 12, fontWeight: current ? 600 : 400,
-                        color: current ? 'var(--wiz-text-hi)' : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
-                        lineHeight: 1.3,
-                      }}>
-                        {step.label}
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 1 }}>
-                        {step.desc}
-                      </div>
-                    </div>
+                      zIndex: 2,
+                    }}
+                  >
+                    {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
                   </div>
+
+                  {/* Rail below (except on last step) */}
+                  {!isLast && (
+                    <div style={{
+                      flex: 1, width: 1.5, minHeight: 24,
+                      background: done
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.6), rgba(129,140,248,0.35))'
+                        : current
+                          ? 'linear-gradient(180deg, rgba(56,189,248,0.5), var(--wiz-border-sub))'
+                          : 'var(--wiz-border-sub)',
+                      backgroundImage: done || current ? undefined : 'repeating-linear-gradient(180deg, var(--wiz-border-sub) 0px, var(--wiz-border-sub) 3px, transparent 3px, transparent 6px)',
+                      backgroundSize: done || current ? undefined : '1.5px 6px',
+                      marginTop: 4, marginBottom: 4,
+                    }} />
+                  )}
                 </div>
               )
             })}
           </div>
 
-          {/* Progress footer */}
-          <div style={{ borderTop: '1px solid var(--wiz-border-sub)', paddingTop: 18, marginTop: 18 }}>
+          <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 600, letterSpacing: '0.04em' }}>{progressPct}%</div>
+        </div>
+      )}
+
+      {/* ── DESKTOP: full 260px rail (no background, no border) ───────── */}
+      {isDesktop && (
+        <div style={{
+          width: 260, flexShrink: 0, zIndex: 10,
+          /* NO bg, NO border — integrated into page */
+          display: 'flex', flexDirection: 'column',
+          padding: '28px 24px',
+        }}>
+          {/* Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32 }}>
+            <OOLogo h={24} id="wiz-logo-d" />
+            <div style={{ lineHeight: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Corporate</div>
+            </div>
+          </div>
+
+          {/* Vertical timeline — circles + growing rails, space-between so it fills the height */}
+          <div style={{
+            flex: 1,
+            display: 'flex', flexDirection: 'column',
+            minHeight: 0,
+          }}>
+            {WIZARD_STEPS.map((step, i) => {
+              const done    = step.id < currentStep
+              const current = step.id === currentStep
+              const isLast  = i === WIZARD_STEPS.length - 1
+
+              return (
+                <div key={step.id} style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: isLast ? 'none' : 1,
+                  minHeight: isLast ? 'auto' : 56,
+                }}>
+                  {/* Row: circle + label + description */}
+                  <div
+                    onClick={() => done && setStep(step.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      padding: '6px 0',
+                      cursor: done ? 'pointer' : 'default',
+                      position: 'relative',
+                    }}
+                  >
+                    {/* Circle */}
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700,
+                      background: done
+                        ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
+                        : current ? 'rgba(56,189,248,0.15)' : 'transparent',
+                      border: current
+                        ? '2px solid #38BDF8'
+                        : done ? 'none' : '1.5px solid var(--wiz-border)',
+                      color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
+                      boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
+                      transition: 'all 0.25s',
+                      zIndex: 2,
+                      position: 'relative',
+                    }}>
+                      {done ? <Check size={12} strokeWidth={2.5} /> : step.id}
+
+                      {/* Pulse ring for current step */}
+                      {current && (
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute', inset: -4,
+                            borderRadius: '50%',
+                            border: '1.5px solid rgba(56,189,248,0.5)',
+                            animation: 'wiz-step-pulse 2.2s ease-in-out infinite',
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Label + description */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: current ? 600 : 500,
+                        color: current
+                          ? 'var(--wiz-text-hi)'
+                          : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
+                        lineHeight: 1.2,
+                        transition: 'color 0.25s',
+                      }}>
+                        {step.label}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        color: current ? 'var(--wiz-text-lo)' : 'var(--wiz-text-sub)',
+                        marginTop: 2,
+                        transition: 'color 0.25s',
+                      }}>
+                        {step.desc}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Growing rail — only not on last */}
+                  {!isLast && (
+                    <div style={{
+                      marginLeft: 13.25,  /* align under circle centre (14 - rail_w/2) */
+                      width: 1.5,
+                      flex: 1,
+                      minHeight: 16,
+                      background: done
+                        ? 'linear-gradient(180deg, rgba(56,189,248,0.5), rgba(129,140,248,0.3))'
+                        : current
+                          ? 'linear-gradient(180deg, rgba(56,189,248,0.45), var(--wiz-border-sub) 70%)'
+                          : 'transparent',
+                      backgroundImage: done || current ? undefined : 'repeating-linear-gradient(180deg, var(--wiz-border-sub) 0px, var(--wiz-border-sub) 3px, transparent 3px, transparent 7px)',
+                      backgroundSize: done || current ? undefined : '1.5px 7px',
+                      transition: 'background 0.3s',
+                    }} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Progress — integrated at the end of the rail, no hard divider */}
+          <div style={{ marginTop: 12, paddingTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}>Progress</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#38BDF8' }}>
-                {Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)}%
+              <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)', fontWeight: 500 }}>Progress</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#38BDF8' }}>
+                {progressPct}%
               </span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'var(--wiz-bg-input)' }}>
+            <div style={{ height: 3, borderRadius: 2, background: 'var(--wiz-border-sub)' }}>
               <div style={{
                 height: '100%',
-                width: `${((currentStep - 1) / WIZARD_STEPS.length) * 100}%`,
+                width: `${progressPct}%`,
                 borderRadius: 2,
                 background: 'linear-gradient(90deg, #38BDF8, #818CF8)',
                 transition: 'width 0.4s',
@@ -234,7 +298,7 @@ export function WizardLayout() {
       <div id="wizard-body" style={{
         flex: 1, overflowY: 'auto',
         display: 'flex', flexDirection: 'column',
-        padding: isMobile ? '20px 16px 40px' : isTablet ? '28px 28px 48px' : '36px 48px 56px',
+        padding: isMobile ? '20px 16px 40px' : isTablet ? '28px 28px 48px' : '36px 40px 56px',
         zIndex: 1,
       }}>
         <div style={{ width: '100%', maxWidth: isDesktop ? 960 : '100%', margin: '0 auto' }}>
@@ -244,7 +308,6 @@ export function WizardLayout() {
 
       {/* ── TOP-RIGHT CONTROLS ───────────────────────────────────────── */}
       <div style={{ position: 'absolute', top: isMobile ? 12 : 18, right: 16, display: 'flex', gap: 8, zIndex: 20, alignItems: 'center' }}>
-
         <button
           onClick={toggle}
           aria-label="Toggle theme"
@@ -261,6 +324,14 @@ export function WizardLayout() {
           </button>
         </Link>
       </div>
+
+      {/* Pulse animation — injected once at layout level */}
+      <style>{`
+        @keyframes wiz-step-pulse {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50%      { opacity: 0;   transform: scale(1.35); }
+        }
+      `}</style>
     </div>
   )
 }

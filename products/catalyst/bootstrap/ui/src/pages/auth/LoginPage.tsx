@@ -39,7 +39,7 @@ export function LoginPage() {
       >
         <div>
           <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Welcome back</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">Sign in to your Catalyst account</p>
+          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">Sign in to your Corporate account</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>

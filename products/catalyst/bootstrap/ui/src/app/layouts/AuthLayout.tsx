@@ -15,7 +15,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           <div className="flex h-8 w-8 items-center justify-center rounded-[--radius-md] bg-[--color-brand-500]">
             <OctagonAlert className="h-4.5 w-4.5 text-white" />
           </div>
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva Catalyst</span>
+          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva Corporate</span>
         </div>
 
         <div className="flex flex-col gap-6">

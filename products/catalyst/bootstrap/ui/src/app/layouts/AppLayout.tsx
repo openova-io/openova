@@ -25,7 +25,7 @@ export function AppLayout() {
           <div className="flex h-7 w-7 items-center justify-center rounded-[--radius-md] bg-[--color-brand-500]">
             <OctagonAlert className="h-4 w-4 text-white" />
           </div>
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">Catalyst</span>
+          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">Corporate</span>
         </div>
 
         {/* New deployment CTA */}
