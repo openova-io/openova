@@ -47,8 +47,9 @@
 /* rgba(var(--wiz-ch), opacity) flips white↔black automatically            */
 :root {
   --wiz-ch:         255, 255, 255;   /* fg channel — white in dark mode  */
-  --wiz-accent-ch:  56, 189, 248;    /* brand blue rgb                   */
-  --wiz-accent:     rgba(56,189,248,0.8); /* accent text (links, labels) */
+  --wiz-accent-ch:  59, 130, 246;    /* SME blue-500 — unified accent   */
+  --wiz-accent:     rgba(59,130,246,0.9); /* accent text (links, labels) */
+  --wiz-success-ch: 16, 185, 129;    /* SME emerald — unified success   */
   --wiz-page-bg:    #0b1220;         /* flat dark — matches SME */
   --wiz-panel-bg:   #111827;         /* surface — matches SME */
   --wiz-deep-bg:    #1a1a1a;
@@ -98,8 +99,9 @@
 
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;
-  --wiz-accent-ch:  2, 132, 199;
-  --wiz-accent:     #0284c7;  /* sky-600 — 4.6:1 on white (WCAG AA ✓) */
+  --wiz-accent-ch:  37, 99, 235;    /* SME blue-600 — unified accent   */
+  --wiz-accent:     #2563eb;        /* SME accent-strong (WCAG AA ✓)  */
+  --wiz-success-ch: 5, 150, 105;    /* SME emerald-600 on light       */
   --wiz-page-bg:    #f8fafc;  /* flat light — matches SME */
   --wiz-panel-bg:   #ffffff;  /* card white — matches SME */
   --wiz-deep-bg:    #f1f5f9;

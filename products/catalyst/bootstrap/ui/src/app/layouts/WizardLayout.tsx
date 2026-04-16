@@ -227,8 +227,8 @@ export function WizardLayout() {
         }
 
         .corp-step.done .corp-step-num {
-          background: #22C55E;
-          border-color: #22C55E;
+          background: rgba(var(--wiz-success-ch), 1);
+          border-color: rgba(var(--wiz-success-ch), 1);
           color: #fff;
         }
 
@@ -256,7 +256,7 @@ export function WizardLayout() {
         }
 
         .corp-step-sep.done {
-          background: #22C55E;
+          background: rgba(var(--wiz-success-ch), 1);
         }
 
         .corp-step-content {
