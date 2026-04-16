@@ -1,4 +1,5 @@
 import { useWizardStore } from '@/entities/deployment/store'
+import { WIZARD_STEPS } from '@/app/layouts/WizardLayout'
 
 interface StepShellProps {
   title: string
@@ -27,6 +28,10 @@ export function StepShell({
   nextDisabled,
   nextLoading,
 }: StepShellProps) {
+  const currentStep = useWizardStore(s => s.currentStep)
+  const totalSteps  = WIZARD_STEPS.length
+  const progressPct = Math.round((currentStep / totalSteps) * 100)
+
   return (
     <div className="corp-step-shell">
       {/* Heading */}
@@ -36,24 +41,32 @@ export function StepShell({
       {/* Step content — child cards flow flat, no outer wrapper */}
       <div className="corp-step-children">{children}</div>
 
-      {/* Sticky footer — SME pattern */}
+      {/* Sticky footer — SME pattern, context on left + nav on right */}
       <footer className="corp-step-footer">
         <div className="corp-step-footer-inner">
-          {onBack ? (
-            <button type="button" className="corp-btn-back" onClick={onBack}>
-              ← Back
-            </button>
-          ) : (
-            <div />
-          )}
+          <div className="corp-step-footer-info">
+            <span className="corp-step-counter">
+              <strong>Step {currentStep}</strong> of {totalSteps}
+            </span>
+            <span className="corp-step-divider" aria-hidden>·</span>
+            <span className="corp-step-current">{title}</span>
+            <span className="corp-step-progress-pill" aria-hidden>{progressPct}%</span>
+          </div>
 
-          <button
-            type="button"
-            className="corp-btn-next"
-            onClick={onNext}
-            disabled={nextDisabled || nextLoading}
-          >
-            {nextLoading ? (
+          <div className="corp-step-footer-actions">
+            {onBack ? (
+              <button type="button" className="corp-btn-back" onClick={onBack}>
+                ← Back
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="corp-btn-next"
+              onClick={onNext}
+              disabled={nextDisabled || nextLoading}
+            >
+              {nextLoading ? (
               <>
                 <svg
                   className="corp-spin"
@@ -77,7 +90,8 @@ export function StepShell({
                 {nextLabel} →
               </>
             )}
-          </button>
+            </button>
+          </div>
         </div>
       </footer>
 
@@ -129,9 +143,50 @@ export function StepShell({
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 0.75rem;
+          gap: 1rem;
           max-width: 1100px;
           margin: 0 auto;
+        }
+
+        /* ── Left side: contextual step summary ──────────────────── */
+        .corp-step-footer-info {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          color: var(--wiz-text-sub);
+          font-size: 0.88rem;
+          min-width: 0;
+        }
+        .corp-step-counter strong {
+          color: var(--wiz-text-hi);
+          font-weight: 700;
+        }
+        .corp-step-divider {
+          color: rgba(var(--wiz-ch), 0.25);
+        }
+        .corp-step-current {
+          color: var(--wiz-text-md);
+          font-weight: 600;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .corp-step-progress-pill {
+          display: inline-block;
+          margin-left: 0.35rem;
+          padding: 0.18rem 0.55rem;
+          background: rgba(var(--wiz-accent-ch), 0.12);
+          color: rgba(var(--wiz-accent-ch), 1);
+          border-radius: 999px;
+          font-weight: 700;
+          font-size: 0.75rem;
+        }
+
+        .corp-step-footer-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-shrink: 0;
         }
 
         /* ── SME-style buttons ────────────────────────────────────── */
@@ -190,9 +245,15 @@ export function StepShell({
           to { transform: rotate(360deg); }
         }
 
+        /* Hide progress pill first, then step title on narrow screens */
+        @media (max-width: 820px) {
+          .corp-step-progress-pill { display: none; }
+        }
         @media (max-width: 640px) {
           .corp-step-footer { padding: 0.7rem 0.9rem; }
           .corp-btn-next, .corp-btn-back { font-size: 0.88rem; padding: 0.5rem 0.9rem; }
+          .corp-step-current, .corp-step-divider { display: none; }
+          .corp-step-footer-info { font-size: 0.8rem; }
         }
       `}</style>
     </div>

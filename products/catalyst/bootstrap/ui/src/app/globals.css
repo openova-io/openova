@@ -109,15 +109,16 @@
   --wiz-glow-2:     rgba(99,102,241,0.05);
 
   /* ── Semantic text tokens — WCAG AA calibrated for white bg ──── */
-  --wiz-text-hi:    #0f172a;   /* 21:1 — headings, active labels    */
-  --wiz-text-md:    #334155;   /* 9.5:1 — body copy, labels         */
-  --wiz-text-lo:    #475569;   /* 7:1   — secondary body            */
-  --wiz-text-sub:   #64748b;   /* 4.7:1 — subtext, taglines (AA ✓)  */
-  --wiz-text-hint:  #94a3b8;   /* 2.8:1 — hints, step numbers       */
+  /* Aligned with SME's light palette for visual unity              */
+  --wiz-text-hi:    #0f172a;   /* 21:1 — SME text-strong            */
+  --wiz-text-md:    #475569;   /* 7:1  — SME text-dim               */
+  --wiz-text-lo:    #64748b;   /* 4.7:1 — SME text-dimmer           */
+  --wiz-text-sub:   #64748b;   /* 4.7:1 — unified with SME          */
+  --wiz-text-hint:  #94a3b8;   /* 2.8:1 — hints                     */
 
   /* ── Semantic border tokens ───────────────────────────────────── */
-  --wiz-border:     #d1d5db;   /* visible input/card border          */
-  --wiz-border-sub: #e8ecf0;   /* subtle dividers                    */
+  --wiz-border:     #e2e8f0;   /* SME border slate-200              */
+  --wiz-border-sub: #f1f5f9;   /* SME border-subtle slate-100       */
 
   /* ── Semantic background tokens ──────────────────────────────── */
   --wiz-bg-input:   #f8fafc;   /* input / control bg                 */
