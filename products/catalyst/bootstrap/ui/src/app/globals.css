@@ -49,8 +49,8 @@
   --wiz-ch:         255, 255, 255;   /* fg channel — white in dark mode  */
   --wiz-accent-ch:  56, 189, 248;    /* brand blue rgb                   */
   --wiz-accent:     rgba(56,189,248,0.8); /* accent text (links, labels) */
-  --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #0c1e40 0%, #06080f 70%);
-  --wiz-panel-bg:   #131320;
+  --wiz-page-bg:    #0b1220;         /* flat dark — matches SME */
+  --wiz-panel-bg:   #111827;         /* surface — matches SME */
   --wiz-deep-bg:    #1a1a1a;
   --wiz-glow-1:     rgba(56,189,248,0.06);
   --wiz-glow-2:     rgba(129,140,248,0.05);
@@ -100,9 +100,9 @@
   --wiz-ch:         0, 0, 0;
   --wiz-accent-ch:  2, 132, 199;
   --wiz-accent:     #0284c7;  /* sky-600 — 4.6:1 on white (WCAG AA ✓) */
-  --wiz-page-bg:    radial-gradient(ellipse at 30% 20%, #e0f2fe 0%, #f0f9ff 70%);
-  --wiz-panel-bg:   #f1f5f9;  /* dropdown panel — distinguishable from white card */
-  --wiz-deep-bg:    #f4f4f5;
+  --wiz-page-bg:    #f8fafc;  /* flat light — matches SME */
+  --wiz-panel-bg:   #ffffff;  /* card white — matches SME */
+  --wiz-deep-bg:    #f1f5f9;
   --wiz-glow-1:     rgba(2,132,199,0.08);
   --wiz-glow-2:     rgba(99,102,241,0.05);
 

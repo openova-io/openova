@@ -1,9 +1,9 @@
+import { Fragment } from 'react'
 import { Outlet, Link } from '@tanstack/react-router'
 import { X, Sun, Moon, Check } from 'lucide-react'
 import { IS_SAAS } from '@/shared/constants/env'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useTheme } from '@/shared/lib/useTheme'
-import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
 export const WIZARD_STEPS = [
@@ -15,307 +15,264 @@ export const WIZARD_STEPS = [
   { id: 6, label: 'Review',       desc: 'Confirm and provision'     },
 ]
 
+/**
+ * Unified wizard shell — horizontal stepper matching the SME product
+ * (sme.openova.io). Dark/light theme, flat palette, same card surfaces,
+ * so the two products feel like a single family.
+ */
 export function WizardLayout() {
   const { currentStep, setStep } = useWizardStore()
   const { theme, toggle } = useTheme()
-  const bp = useBreakpoint()
-
-  const isMobile  = bp === 'mobile'
-  const isTablet  = bp === 'tablet'
-  const isDesktop = bp === 'desktop'
-
-  const progressPct = Math.round(((currentStep - 1) / WIZARD_STEPS.length) * 100)
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      display: 'flex',
-      flexDirection: isMobile ? 'column' : 'row',
-      background: 'var(--wiz-page-bg)',
-      fontFamily: 'Inter, sans-serif',
-      overflow: 'hidden',
-    }}>
-      {/* Ambient glows */}
-      <div style={{ position: 'absolute', top: '-10%', left: '25%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 65%)', pointerEvents: 'none', zIndex: 0 }} />
-      <div style={{ position: 'absolute', bottom: '-10%', right: '5%',  width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.05) 0%, transparent 65%)', pointerEvents: 'none', zIndex: 0 }} />
-
-      {/* ── MOBILE: top bar with progress pill ───────────────────────── */}
-      {isMobile && (
-        <div style={{
-          flexShrink: 0, height: 56, zIndex: 10,
-          background: 'rgba(var(--wiz-ch), 0.025)',
-          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid var(--wiz-border-sub)',
-          display: 'flex', alignItems: 'center', padding: '0 16px', gap: 14,
-        }}>
-          <OOLogo h={20} id="wiz-logo-m" />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', letterSpacing: '0.06em' }}>
-              STEP {currentStep} OF {WIZARD_STEPS.length}
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--wiz-text-hi)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {WIZARD_STEPS[currentStep - 1].label}
-            </div>
+    <div className="corp-body">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <header className="corp-header">
+        <Link to={IS_SAAS ? '/app/dashboard' : '/'} className="corp-logo">
+          <OOLogo h={22} id="wiz-logo" />
+          <div className="corp-brand">
+            <div className="corp-brand-primary">OpenOva</div>
+            <div className="corp-brand-secondary">Corporate</div>
           </div>
-          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            {WIZARD_STEPS.map(s => (
-              <div
-                key={s.id}
-                onClick={() => s.id < currentStep && setStep(s.id)}
-                style={{
-                  height: 6, borderRadius: 3,
-                  width: s.id === currentStep ? 18 : 6,
-                  background: s.id < currentStep
-                    ? 'linear-gradient(90deg, #38BDF8, #818CF8)'
-                    : s.id === currentStep ? '#38BDF8' : 'var(--wiz-border)',
-                  cursor: s.id < currentStep ? 'pointer' : 'default',
-                  transition: 'all 0.3s',
-                }}
-              />
-            ))}
-          </div>
+        </Link>
+        <div className="corp-header-actions">
+          <button
+            onClick={toggle}
+            aria-label="Toggle theme"
+            title="Toggle light / dark"
+            className="corp-icon-btn"
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <Link to={IS_SAAS ? '/app/dashboard' : '/'}>
+            <button className="corp-icon-btn" aria-label="Exit wizard" title="Exit wizard">
+              <X size={14} />
+            </button>
+          </Link>
         </div>
-      )}
+      </header>
 
-      {/* ── TABLET: icon-only rail, balls-only (no bg, right-aligned) ─── */}
-      {isTablet && (
-        <div style={{
-          width: 52, flexShrink: 0, zIndex: 10,
-          /* NO bg, NO border — fully transparent */
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          padding: '20px 12px 16px',
-        }}>
-          <OOLogo h={18} id="wiz-logo-t" />
-          <div style={{ height: 28 }} />
+      {/* ── Stepper + content ─────────────────────────────────── */}
+      <main className="corp-main">
+        <nav className="corp-stepper" aria-label="Wizard progress">
+          {WIZARD_STEPS.map((step, i) => {
+            const done    = step.id < currentStep
+            const active  = step.id === currentStep
+            const clickable = done
 
-          {/* Balls only — fixed 24 px gap between them */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
-            {WIZARD_STEPS.map((step, i) => {
-              const done    = step.id < currentStep
-              const current = step.id === currentStep
-              const prevFilled = step.id - 1 < currentStep
-              return (
-                <div key={step.id} style={{ position: 'relative' }}>
-                  {/* Rail above (except first) */}
-                  {i > 0 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: -24, left: '50%', transform: 'translateX(-50%)',
-                      width: 2, height: 24,
-                      borderRadius: 1,
-                      background: prevFilled
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
-                        : 'rgba(var(--wiz-ch), 0.2)',
-                      transition: 'background 0.3s',
-                    }} />
-                  )}
-
-                  {/* Ball */}
-                  <div
-                    onClick={() => done && setStep(step.id)}
-                    title={step.label}
-                    style={{
-                      width: 28, height: 28, borderRadius: '50%',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 700,
-                      background: done
-                        ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                        : current ? 'rgba(56,189,248,0.15)' : 'transparent',
-                      border: current
-                        ? '2px solid #38BDF8'
-                        : done ? 'none' : '1.5px solid var(--wiz-border)',
-                      color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
-                      boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
-                      cursor: done ? 'pointer' : 'default',
-                      position: 'relative',
-                    }}
-                  >
-                    {done ? <Check size={11} strokeWidth={2.5} /> : step.id}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          <div style={{ flex: 1 }} />
-          <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 600 }}>{progressPct}%</div>
-        </div>
-      )}
-
-      {/* ── DESKTOP: transparent column, right-aligned stepper, labels-left ── */}
-      {isDesktop && (
-        <div style={{
-          width: 200, flexShrink: 0, zIndex: 10,
-          /* NO bg, NO border — fully transparent */
-          display: 'flex', flexDirection: 'column',
-          /* Zero right padding — balls sit flush against main content */
-          padding: '28px 0 28px 20px',
-        }}>
-          {/* Logo — right-aligned to match stepper direction */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', marginBottom: 44, paddingRight: 6 }}>
-            <OOLogo h={22} id="wiz-logo-d" />
-            <div style={{ lineHeight: 1, textAlign: 'right' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--wiz-text-hi)', letterSpacing: '-0.01em' }}>OpenOva</div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--wiz-text-sub)', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Corporate</div>
-            </div>
-          </div>
-
-          {/* Stepper — fixed 28 px gap (no stretch), right-aligned so balls
-              sit flush against the content card. Labels render LEFT of balls. */}
-          <div style={{
-            display: 'flex', flexDirection: 'column',
-            gap: 28,
-            alignItems: 'flex-end',
-          }}>
-            {WIZARD_STEPS.map((step, i) => {
-              const done       = step.id < currentStep
-              const current    = step.id === currentStep
-              const prevFilled = step.id - 1 < currentStep
-              const clickable  = done
-
-              return (
-                <div
-                  key={step.id}
+            return (
+              <Fragment key={step.id}>
+                <button
+                  type="button"
+                  className={`corp-step ${active ? 'active' : ''} ${done ? 'done' : ''}`}
                   onClick={() => clickable && setStep(step.id)}
-                  style={{
-                    position: 'relative',
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    cursor: clickable ? 'pointer' : 'default',
-                  }}
+                  disabled={!clickable && !active}
+                  aria-current={active ? 'step' : undefined}
                 >
-                  {/* Rail above this ball (except first) — connects from previous */}
-                  {i > 0 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: -28, right: 13, /* ball_width/2 - rail_width/2 = 14 - 1 */
-                      width: 2, height: 28,
-                      borderRadius: 1,
-                      background: prevFilled
-                        ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
-                        : 'rgba(var(--wiz-ch), 0.2)',
-                      transition: 'background 0.3s',
-                    }} />
-                  )}
-
-                  {/* Label — LEFT of ball, one word */}
-                  <span style={{
-                    fontSize: 12,
-                    fontWeight: current ? 700 : done ? 500 : 400,
-                    color: current
-                      ? 'var(--wiz-text-hi)'
-                      : done ? 'var(--wiz-text-md)' : 'var(--wiz-text-sub)',
-                    transition: 'all 0.2s',
-                    whiteSpace: 'nowrap',
-                    letterSpacing: '-0.005em',
-                  }}>
-                    {step.label}
+                  <span className="corp-step-num">
+                    {done ? <Check size={14} strokeWidth={2.5} /> : step.id}
                   </span>
+                  <span className="corp-step-label">{step.label}</span>
+                </button>
+                {i < WIZARD_STEPS.length - 1 && (
+                  <span
+                    className={`corp-step-sep ${done ? 'done' : ''}`}
+                    aria-hidden
+                  />
+                )}
+              </Fragment>
+            )
+          })}
+        </nav>
 
-                  {/* Ball */}
-                  <div style={{
-                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700,
-                    background: done
-                      ? 'linear-gradient(135deg, #38BDF8, #818CF8)'
-                      : current ? 'rgba(56,189,248,0.15)' : 'transparent',
-                    border: current
-                      ? '2px solid #38BDF8'
-                      : done ? 'none' : '1.5px solid var(--wiz-border)',
-                    color: done ? '#fff' : current ? '#38BDF8' : 'var(--wiz-text-hint)',
-                    boxShadow: current ? '0 0 0 4px rgba(56,189,248,0.15)' : 'none',
-                    transition: 'all 0.25s',
-                    position: 'relative',
-                    zIndex: 2,
-                  }}>
-                    {done ? <Check size={12} strokeWidth={2.5} /> : step.id}
-
-                    {/* Pulse ring for current step */}
-                    {current && (
-                      <span
-                        aria-hidden
-                        style={{
-                          position: 'absolute', inset: -4,
-                          borderRadius: '50%',
-                          border: '1.5px solid rgba(56,189,248,0.5)',
-                          animation: 'wiz-step-pulse 2.2s ease-in-out infinite',
-                          pointerEvents: 'none',
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Spacer so progress sits at bottom */}
-          <div style={{ flex: 1, minHeight: 40 }} />
-
-          {/* Progress — compact, right-aligned */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-            <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontWeight: 500 }}>Progress</span>
-            <div style={{ width: 72, height: 2, borderRadius: 1, background: 'rgba(var(--wiz-ch), 0.1)' }}>
-              <div style={{
-                height: '100%',
-                width: `${progressPct}%`,
-                borderRadius: 1,
-                background: 'linear-gradient(90deg, #38BDF8, #818CF8)',
-                transition: 'width 0.4s',
-              }} />
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', minWidth: 26, textAlign: 'right' }}>{progressPct}%</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── SCROLLABLE CONTENT ────────────────────────────────────────── */}
-      <div id="wizard-body" style={{
-        flex: 1, overflowY: 'auto',
-        display: 'flex', flexDirection: 'column',
-        /* Desktop: 8 px left pad only — content card sits adjacent to balls */
-        padding: isMobile
-          ? '20px 16px 40px'
-          : isTablet
-            ? '28px 28px 48px 12px'
-            : '36px 40px 56px 8px',
-        zIndex: 1,
-      }}>
-        <div style={{
-          width: '100%',
-          maxWidth: isDesktop ? 1000 : '100%',
-          /* Left-aligned on desktop so card hugs the stepper; centered on others */
-          marginLeft: isDesktop ? 0 : 'auto',
-          marginRight: 'auto',
-        }}>
+        <div className="corp-step-content">
           <Outlet />
         </div>
-      </div>
+      </main>
 
-      {/* ── TOP-RIGHT CONTROLS ───────────────────────────────────────── */}
-      <div style={{ position: 'absolute', top: isMobile ? 12 : 18, right: 16, display: 'flex', gap: 8, zIndex: 20, alignItems: 'center' }}>
-        <button
-          onClick={toggle}
-          aria-label="Toggle theme"
-          style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--wiz-border-sub)', border: '1px solid var(--wiz-border)', color: 'var(--wiz-text-sub)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-        >
-          {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-        </button>
-        <Link to={IS_SAAS ? '/app/dashboard' : '/'}>
-          <button
-            aria-label="Exit wizard"
-            style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--wiz-border-sub)', border: '1px solid var(--wiz-border)', color: 'var(--wiz-text-sub)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-          >
-            <X size={13} />
-          </button>
-        </Link>
-      </div>
-
-      {/* Pulse animation — injected once at layout level */}
       <style>{`
-        @keyframes wiz-step-pulse {
-          0%, 100% { opacity: 0.4; transform: scale(1); }
-          50%      { opacity: 0;   transform: scale(1.35); }
+        .corp-body {
+          min-height: 100vh;
+          background: var(--wiz-page-bg);
+          color: var(--wiz-text-md);
+          display: flex;
+          flex-direction: column;
+          font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        }
+
+        /* ── Header (mirrors SME's sme-header) ────────────────────── */
+        .corp-header {
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          background: color-mix(in srgb, var(--wiz-page-bg) 90%, transparent);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          border-bottom: 1px solid rgba(var(--wiz-ch), 0.08);
+          padding: 0.9rem 1.5rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .corp-logo {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          text-decoration: none;
+          color: inherit;
+        }
+
+        .corp-brand { line-height: 1; }
+
+        .corp-brand-primary {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--wiz-text-hi);
+          letter-spacing: -0.01em;
+        }
+
+        .corp-brand-secondary {
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: var(--wiz-text-sub);
+          margin-top: 2px;
+        }
+
+        .corp-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .corp-icon-btn {
+          background: transparent;
+          border: 1px solid rgba(var(--wiz-ch), 0.1);
+          color: var(--wiz-text-sub);
+          width: 34px;
+          height: 34px;
+          border-radius: 7px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: border-color 0.15s, color 0.15s, background 0.15s;
+          padding: 0;
+        }
+
+        .corp-icon-btn:hover {
+          border-color: rgba(var(--wiz-accent-ch), 0.6);
+          color: var(--wiz-text-hi);
+          background: rgba(var(--wiz-accent-ch), 0.1);
+        }
+
+        /* ── Main ─────────────────────────────────────────────────── */
+        .corp-main {
+          flex: 1;
+          width: 100%;
+          max-width: 1100px;
+          margin: 0 auto;
+          padding: 2rem 1.25rem 4rem;
+        }
+
+        /* ── Stepper (mirrors SME's .stepper) ─────────────────────── */
+        .corp-stepper {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.35rem;
+          margin-bottom: 2.25rem;
+          flex-wrap: nowrap;
+        }
+
+        .corp-step {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.35rem;
+          background: transparent;
+          border: none;
+          color: var(--wiz-text-sub);
+          cursor: pointer;
+          padding: 0.25rem 0.4rem;
+          font: inherit;
+        }
+
+        .corp-step:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+        }
+
+        .corp-step-num {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: rgba(var(--wiz-ch), 0.04);
+          border: 2px solid rgba(var(--wiz-ch), 0.15);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 600;
+          font-size: 0.88rem;
+          transition: all 0.2s ease;
+        }
+
+        .corp-step.active .corp-step-num {
+          background: rgba(var(--wiz-accent-ch), 1);
+          border-color: rgba(var(--wiz-accent-ch), 1);
+          color: #fff;
+          box-shadow: 0 0 0 4px rgba(var(--wiz-accent-ch), 0.15);
+        }
+
+        .corp-step.done .corp-step-num {
+          background: #22C55E;
+          border-color: #22C55E;
+          color: #fff;
+        }
+
+        .corp-step.active .corp-step-label {
+          color: var(--wiz-text-hi);
+          font-weight: 600;
+        }
+
+        .corp-step.done {
+          color: var(--wiz-text-md);
+        }
+
+        .corp-step-label {
+          font-size: 0.8rem;
+          line-height: 1.2;
+          white-space: nowrap;
+        }
+
+        .corp-step-sep {
+          width: 44px;
+          height: 2px;
+          background: rgba(var(--wiz-ch), 0.15);
+          margin-top: -20px;  /* visually centre between circles */
+          transition: background 0.2s ease;
+        }
+
+        .corp-step-sep.done {
+          background: #22C55E;
+        }
+
+        .corp-step-content {
+          width: 100%;
+        }
+
+        /* ── Responsive — 6 steps need to stay legible on small screens ── */
+        @media (max-width: 900px) {
+          .corp-step-sep { width: 28px; }
+        }
+
+        @media (max-width: 720px) {
+          .corp-step-label { display: none; }
+          .corp-step-num { width: 28px; height: 28px; font-size: 0.8rem; }
+          .corp-step-sep { width: 20px; margin-top: 0; }
+          .corp-stepper { gap: 0.15rem; }
         }
       `}</style>
     </div>
