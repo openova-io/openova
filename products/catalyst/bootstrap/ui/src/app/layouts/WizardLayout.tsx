@@ -88,8 +88,8 @@ export function WizardLayout() {
           <OOLogo h={18} id="wiz-logo-t" />
           <div style={{ height: 28 }} />
 
-          {/* Balls only — fixed 18 px gap between them */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, alignItems: 'center' }}>
+          {/* Balls only — fixed 24 px gap between them */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
             {WIZARD_STEPS.map((step, i) => {
               const done    = step.id < currentStep
               const current = step.id === currentStep
@@ -100,8 +100,8 @@ export function WizardLayout() {
                   {i > 0 && (
                     <div style={{
                       position: 'absolute',
-                      top: -18, left: '50%', transform: 'translateX(-50%)',
-                      width: 2, height: 18,
+                      top: -24, left: '50%', transform: 'translateX(-50%)',
+                      width: 2, height: 24,
                       borderRadius: 1,
                       background: prevFilled
                         ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
@@ -160,11 +160,11 @@ export function WizardLayout() {
             </div>
           </div>
 
-          {/* Stepper — fixed 22 px gap (no stretch), right-aligned so balls
+          {/* Stepper — fixed 28 px gap (no stretch), right-aligned so balls
               sit flush against the content card. Labels render LEFT of balls. */}
           <div style={{
             display: 'flex', flexDirection: 'column',
-            gap: 22,
+            gap: 28,
             alignItems: 'flex-end',
           }}>
             {WIZARD_STEPS.map((step, i) => {
@@ -187,8 +187,8 @@ export function WizardLayout() {
                   {i > 0 && (
                     <div style={{
                       position: 'absolute',
-                      top: -22, right: 13, /* ball_width/2 - rail_width/2 = 14 - 1 */
-                      width: 2, height: 22,
+                      top: -28, right: 13, /* ball_width/2 - rail_width/2 = 14 - 1 */
+                      width: 2, height: 28,
                       borderRadius: 1,
                       background: prevFilled
                         ? 'linear-gradient(180deg, rgba(56,189,248,0.7), rgba(129,140,248,0.5))'
@@ -273,10 +273,21 @@ export function WizardLayout() {
       <div id="wizard-body" style={{
         flex: 1, overflowY: 'auto',
         display: 'flex', flexDirection: 'column',
-        padding: isMobile ? '20px 16px 40px' : isTablet ? '28px 28px 48px' : '36px 40px 56px',
+        /* Desktop: 8 px left pad only — content card sits adjacent to balls */
+        padding: isMobile
+          ? '20px 16px 40px'
+          : isTablet
+            ? '28px 28px 48px 12px'
+            : '36px 40px 56px 8px',
         zIndex: 1,
       }}>
-        <div style={{ width: '100%', maxWidth: isDesktop ? 960 : '100%', margin: '0 auto' }}>
+        <div style={{
+          width: '100%',
+          maxWidth: isDesktop ? 1000 : '100%',
+          /* Left-aligned on desktop so card hugs the stepper; centered on others */
+          marginLeft: isDesktop ? 0 : 'auto',
+          marginRight: 'auto',
+        }}>
           <Outlet />
         </div>
       </div>
