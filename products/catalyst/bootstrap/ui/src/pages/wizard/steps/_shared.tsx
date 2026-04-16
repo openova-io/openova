@@ -34,12 +34,18 @@ export function StepShell({
 
   return (
     <div className="corp-step-shell">
-      {/* Heading */}
-      <h2 className="corp-step-title">{title}</h2>
-      <p className="corp-step-desc">{description}</p>
+      {/* Compact heading — SME pattern, title only at the top */}
+      <header className="corp-step-head">
+        <h2 className="corp-step-title">{title}</h2>
+      </header>
 
       {/* Step content — child cards flow flat, no outer wrapper */}
       <div className="corp-step-children">{children}</div>
+
+      {/* Helper text moved to the bottom — users read it only if they need it */}
+      {description && (
+        <p className="corp-step-hint">{description}</p>
+      )}
 
       {/* Sticky footer — SME pattern, context on left + nav on right */}
       <footer className="corp-step-footer">
@@ -102,27 +108,40 @@ export function StepShell({
           padding-bottom: 6rem; /* reserve space for sticky footer */
         }
 
-        .corp-step-title {
-          font-size: clamp(1.35rem, 3vw, 1.75rem);
-          font-weight: 700;
-          letter-spacing: -0.015em;
-          color: var(--wiz-text-hi);
-          margin: 0 0 0.4rem;
-          line-height: 1.2;
+        /* Compact header — matches SME step-head exactly */
+        .corp-step-head {
+          text-align: left;
+          margin-bottom: 1rem;
+          padding-bottom: 0.65rem;
+          border-bottom: 1px solid var(--wiz-border-sub);
         }
 
-        .corp-step-desc {
-          font-size: 0.92rem;
-          line-height: 1.55;
-          color: var(--wiz-text-sub);
-          margin: 0 0 1.75rem;
-          max-width: 680px;
+        .corp-step-title {
+          font-size: 1.1rem;
+          font-weight: 600;
+          letter-spacing: -0.005em;
+          color: var(--wiz-text-hi);
+          margin: 0;
+          line-height: 1.3;
         }
 
         .corp-step-children {
           display: flex;
           flex-direction: column;
           gap: 1rem;
+        }
+
+        /* Optional helper — rendered AFTER the step content so it doesn't
+           interrupt the primary task. Subtle styling so it's available for
+           users who want context without cluttering the first view. */
+        .corp-step-hint {
+          margin: 1.5rem 0 0;
+          padding-top: 0.9rem;
+          border-top: 1px dashed var(--wiz-border-sub);
+          color: var(--wiz-text-sub);
+          font-size: 0.82rem;
+          line-height: 1.55;
+          max-width: 680px;
         }
 
         /* ── Sticky footer — mirrors SME .wizard-footer ───────────── */
