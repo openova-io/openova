@@ -59,7 +59,9 @@ const routeTree = rootRoute.addChildren([
   designsRoute,
 ])
 
-export const router = createRouter({ routeTree })
+// basepath mirrors Vite's `base: '/sovereign/'` so internal <Link> and
+// router.navigate calls emit URLs prefixed with /sovereign/.
+export const router = createRouter({ routeTree, basepath: '/sovereign' })
 
 declare module '@tanstack/react-router' {
   interface Register {

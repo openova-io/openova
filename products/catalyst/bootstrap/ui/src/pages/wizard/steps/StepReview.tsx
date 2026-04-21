@@ -4,6 +4,7 @@ import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
+import { API_BASE, path } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 import { GROUPS } from './componentGroups'
 
@@ -121,7 +122,7 @@ export function StepReview() {
   async function provision() {
     setLoading(true)
     try {
-      const res = await fetch('/api/v1/deployments', {
+      const res = await fetch(`${API_BASE}/v1/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -140,7 +141,7 @@ export function StepReview() {
     } catch {
       store.setDeploymentId('demo-deploy')
     }
-    window.location.href = '/provision.html'
+    window.location.href = path('provision.html')
   }
 
   const isMobile = bp === 'mobile'

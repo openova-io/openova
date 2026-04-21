@@ -3,6 +3,7 @@ import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucid
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
+import { API_BASE } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 
 type ValidationState = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -55,7 +56,7 @@ function TokenSection({
     setState('validating')
     store.setProviderToken(provider, token)
     try {
-      const res = await fetch('/api/v1/credentials/validate', {
+      const res = await fetch(`${API_BASE}/v1/credentials/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, provider }),
