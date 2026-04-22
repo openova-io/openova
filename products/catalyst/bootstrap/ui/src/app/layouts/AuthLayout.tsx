@@ -1,6 +1,6 @@
 import { Outlet } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import { OctagonAlert } from 'lucide-react'
+import { OOLogo } from '@/shared/ui/OOLogo'
 
 export function AuthLayout() {
   return <Outlet />
@@ -12,10 +12,9 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       {/* Left panel — branding */}
       <div className="hidden lg:flex lg:w-[420px] xl:w-[480px] shrink-0 flex-col justify-between bg-[--color-surface-1] border-r border-[--color-surface-border] p-10">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[--radius-md] bg-[--color-brand-500]">
-            <OctagonAlert className="h-4.5 w-4.5 text-white" />
-          </div>
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva Corporate</span>
+          {/* Canonical OpenOva mark — see /brand/logo-mark.svg in openova-private */}
+          <OOLogo h={22} id="auth-left-logo" />
+          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva <span className="text-[oklch(60%_0.01_250)] font-normal">Sovereign</span></span>
         </div>
 
         <div className="flex flex-col gap-6">

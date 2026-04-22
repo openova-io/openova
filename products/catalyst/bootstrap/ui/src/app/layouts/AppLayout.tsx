@@ -1,5 +1,6 @@
 import { Outlet, Link, useRouterState } from '@tanstack/react-router'
-import { LayoutDashboard, Plus, Settings, LogOut, OctagonAlert, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, Plus, Settings, LogOut, ChevronDown } from 'lucide-react'
+import { OOLogo } from '@/shared/ui/OOLogo'
 import { cn } from '@/shared/lib/utils'
 import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 import { Button } from '@/shared/ui/button'
@@ -20,12 +21,10 @@ export function AppLayout() {
     <div className="flex h-dvh bg-[--color-surface-0]">
       {/* Sidebar */}
       <aside className="flex w-56 shrink-0 flex-col border-r border-[--color-surface-border] bg-[--color-surface-1]">
-        {/* Logo */}
+        {/* Canonical OpenOva mark — see /brand/logo-mark.svg in openova-private */}
         <div className="flex h-14 items-center gap-2.5 px-4 border-b border-[--color-surface-border]">
-          <div className="flex h-7 w-7 items-center justify-center rounded-[--radius-md] bg-[--color-brand-500]">
-            <OctagonAlert className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">Corporate</span>
+          <OOLogo h={20} id="app-sidebar-logo" />
+          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva <span className="text-[oklch(60%_0.01_250)] font-normal">Sovereign</span></span>
         </div>
 
         {/* New deployment CTA */}
