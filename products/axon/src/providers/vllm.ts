@@ -32,9 +32,9 @@ export class VllmProvider {
     return this.defaultModel;
   }
 
-  private static readonly SYSTEM_MSG_MAX_CHARS = 6000;
-  private static readonly ASSISTANT_MSG_MAX_CHARS = 1500;
-  private static readonly TOTAL_MSG_MAX_CHARS = 12000;
+  private static readonly SYSTEM_MSG_MAX_CHARS = 4000;
+  private static readonly ASSISTANT_MSG_MAX_CHARS = 800;
+  private static readonly TOTAL_MSG_MAX_CHARS = 8000;
 
   private sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
     let seenSystem = false;
