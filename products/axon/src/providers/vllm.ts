@@ -1,5 +1,5 @@
 import type { VllmConfig } from "../config.js";
-import type { ChatCompletionRequest, ModelListResponse } from "../types/openai.js";
+import type { ChatCompletionRequest, ChatMessage, ModelListResponse } from "../types/openai.js";
 
 export class VllmProvider {
   private baseUrl: string;
@@ -32,8 +32,29 @@ export class VllmProvider {
     return this.defaultModel;
   }
 
+  private static readonly SYSTEM_MSG_MAX_CHARS = 6000;
+
+  private trimSystemMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((msg) => {
+      if (msg.role !== "system" || !msg.content || msg.content.length <= VllmProvider.SYSTEM_MSG_MAX_CHARS) {
+        return msg;
+      }
+      const limit = VllmProvider.SYSTEM_MSG_MAX_CHARS;
+      const headSize = Math.floor(limit * 0.7);
+      const tailSize = limit - headSize;
+      const head = msg.content.slice(0, headSize);
+      const tail = msg.content.slice(-tailSize);
+      return { ...msg, content: `${head}\n\n[...condensed...]\n\n${tail}` };
+    });
+  }
+
   private cleanPayload(body: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
-    const payload: Record<string, unknown> = { ...body, model: this.resolveModel(body.model), stream };
+    const payload: Record<string, unknown> = {
+      ...body,
+      model: this.resolveModel(body.model),
+      messages: this.trimSystemMessages(body.messages),
+      stream,
+    };
     delete payload.conversation_id;
     delete payload.thinking;
     delete payload.effort;
