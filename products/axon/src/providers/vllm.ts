@@ -33,6 +33,8 @@ export class VllmProvider {
   }
 
   private static readonly SYSTEM_MSG_MAX_CHARS = 6000;
+  private static readonly ASSISTANT_MSG_MAX_CHARS = 1500;
+  private static readonly TOTAL_MSG_MAX_CHARS = 12000;
 
   private sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
     let seenSystem = false;
@@ -45,17 +47,34 @@ export class VllmProvider {
       deduped.push(msg);
     }
 
-    return deduped.map((msg) => {
-      if (msg.role !== "system" || !msg.content || msg.content.length <= VllmProvider.SYSTEM_MSG_MAX_CHARS) {
-        return msg;
-      }
-      const limit = VllmProvider.SYSTEM_MSG_MAX_CHARS;
+    const trimmed = deduped.map((msg) => {
+      if (!msg.content) return msg;
+      let limit: number;
+      if (msg.role === "system") limit = VllmProvider.SYSTEM_MSG_MAX_CHARS;
+      else if (msg.role === "assistant") limit = VllmProvider.ASSISTANT_MSG_MAX_CHARS;
+      else return msg;
+      if (msg.content.length <= limit) return msg;
       const headSize = Math.floor(limit * 0.7);
       const tailSize = limit - headSize;
-      const head = msg.content.slice(0, headSize);
-      const tail = msg.content.slice(-tailSize);
-      return { ...msg, content: `${head}\n\n[...condensed...]\n\n${tail}` };
+      return { ...msg, content: `${msg.content.slice(0, headSize)}\n\n[...condensed...]\n\n${msg.content.slice(-tailSize)}` };
     });
+
+    const totalLimit = VllmProvider.TOTAL_MSG_MAX_CHARS;
+    const totalChars = trimmed.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+    if (totalChars <= totalLimit) return trimmed;
+
+    const systemMsgs = trimmed.filter((m) => m.role === "system");
+    const nonSystemMsgs = trimmed.filter((m) => m.role !== "system");
+    const sysChars = systemMsgs.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+    let budget = totalLimit - sysChars;
+    const kept: ChatMessage[] = [];
+    for (let i = nonSystemMsgs.length - 1; i >= 0; i--) {
+      const len = nonSystemMsgs[i].content?.length ?? 0;
+      if (budget - len < 0 && kept.length > 0) break;
+      kept.unshift(nonSystemMsgs[i]);
+      budget -= len;
+    }
+    return [...systemMsgs, ...kept];
   }
 
   private cleanPayload(body: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
