@@ -83,6 +83,7 @@ export class VllmProvider {
       model: this.resolveModel(body.model),
       messages: this.sanitizeMessages(body.messages),
       stream,
+      chat_template_kwargs: { enable_thinking: false },
     };
     delete payload.conversation_id;
     delete payload.thinking;
