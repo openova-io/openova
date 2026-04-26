@@ -6,6 +6,7 @@ image:
 
 axon:
   port: 3000
+  provider: claude  # "claude" or "vllm"
   defaultModel: claude-sonnet-4-6
   poolSize: 2
   conversationTtl: 604800
@@ -14,6 +15,10 @@ axon:
   tokenRefresh:
     enabled: false
     schedule: "0 */4 * * *"  # Every 4 hours
+  vllm:
+    baseUrl: ""
+    defaultModel: qwen3-coder
+    existingSecret: axon-vllm-secret
 
 valkey:
   enabled: true

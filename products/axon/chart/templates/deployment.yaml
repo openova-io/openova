@@ -18,6 +18,7 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.image.pullSecretName }}
       {{- end }}
+      {{- if ne (.Values.axon.provider | default "claude") "vllm" }}
       initContainers:
         - name: copy-credentials
           image: busybox:1.36
@@ -31,6 +32,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
+      {{- end }}
       containers:
         - name: axon
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -43,6 +45,8 @@ spec:
               value: /home/axon
             - name: AXON_PORT
               value: "{{ .Values.axon.port }}"
+            - name: AXON_PROVIDER
+              value: "{{ .Values.axon.provider | default "claude" }}"
             - name: AXON_DEFAULT_MODEL
               value: "{{ .Values.axon.defaultModel }}"
             - name: AXON_POOL_SIZE
@@ -58,9 +62,22 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.axon.existingSecret }}
                   key: AXON_API_KEYS
+            {{- if eq (.Values.axon.provider | default "claude") "vllm" }}
+            - name: AXON_VLLM_BASE_URL
+              value: "{{ .Values.axon.vllm.baseUrl }}"
+            - name: AXON_VLLM_DEFAULT_MODEL
+              value: "{{ .Values.axon.vllm.defaultModel | default "qwen3-coder" }}"
+            - name: AXON_VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.axon.vllm.existingSecret }}
+                  key: AXON_VLLM_API_KEY
+            {{- end }}
+          {{- if ne (.Values.axon.provider | default "claude") "vllm" }}
           volumeMounts:
             - name: claude-home
               mountPath: /home/axon/.claude
+          {{- end }}
           resources:
             {{- toYaml .Values.resources.axon | nindent 12 }}
           livenessProbe:
@@ -80,9 +97,11 @@ spec:
             readOnlyRootFilesystem: false
             runAsNonRoot: true
             runAsUser: 1001
+      {{- if ne (.Values.axon.provider | default "claude") "vllm" }}
       volumes:
         - name: claude-auth-secret
           secret:
             secretName: {{ .Values.axon.claudeAuthSecret }}
         - name: claude-home
           emptyDir: {}
+      {{- end }}

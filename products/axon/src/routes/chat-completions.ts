@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import { chat, chatStream, chatV1, chatV1Stream, type ChatOptions, type ChatV1Options } from "../providers/claude.js";
 import { trackPoolMetric } from "../providers/valkey.js";
+import type { VllmProvider } from "../providers/vllm.js";
 import type { ConversationStore } from "../providers/conversation.js";
 import type { Config } from "../config.js";
 import type {
@@ -20,6 +21,7 @@ export async function chatCompletionsRoute(
   app: FastifyInstance,
   config: Config,
   conversations: ConversationStore,
+  vllm?: VllmProvider,
 ): Promise<void> {
   app.post<{ Body: ChatCompletionRequest }>(
     "/v1/chat/completions",
@@ -31,9 +33,6 @@ export async function chatCompletionsRoute(
       const conversationId = body.conversation_id;
       const maxTokens = body.max_tokens ?? body.max_completion_tokens;
       const includeUsage = stream && body.stream_options?.include_usage === true;
-
-      // Route to V1 query() if caller explicitly requests thinking, effort, or profile=deep
-      const useV1 = body.thinking !== undefined || body.effort !== undefined || body.profile === "deep";
 
       if (!newMessages || newMessages.length === 0) {
         return reply.code(400).send({
@@ -73,7 +72,103 @@ export async function chatCompletionsRoute(
         convId = await conversations.create(newMessages, model, apiKey);
       }
 
-      // Build ChatOptions — pass all OpenAI params through
+      // ── vLLM provider: proxy passthrough ──────────────────────
+      if (config.provider === "vllm" && vllm) {
+        const proxyBody: ChatCompletionRequest = { ...body, messages: allMessages, model };
+
+        if (!stream) {
+          const t0 = Date.now();
+          const res = await vllm.chat(proxyBody);
+          if (!res.ok) {
+            const errText = await res.text();
+            app.log.error(`vLLM error: ${res.status} — ${errText}`);
+            return reply.code(res.status).send({
+              error: { message: `vLLM backend error: ${errText}`, type: "server_error" },
+            });
+          }
+          const data = await res.json() as ChatCompletionResponse;
+          trackPoolMetric("request", Date.now() - t0);
+
+          const assistantContent = data.choices?.[0]?.message?.content ?? "";
+          await conversations.append(convId, { role: "assistant", content: assistantContent });
+
+          data.conversation_id = convId;
+          return data;
+        }
+
+        // Streaming: pipe vLLM SSE stream through to client
+        const t0 = Date.now();
+        const res = await vllm.chatStream(proxyBody);
+        if (!res.ok) {
+          const errText = await res.text();
+          app.log.error(`vLLM stream error: ${res.status} — ${errText}`);
+          return reply.code(res.status).send({
+            error: { message: `vLLM backend error: ${errText}`, type: "server_error" },
+          });
+        }
+
+        reply.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+
+        let fullText = "";
+        const reader = res.body?.getReader();
+        if (!reader) {
+          reply.raw.write("data: [DONE]\n\n");
+          reply.raw.end();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const payload = line.slice(6);
+
+              if (payload === "[DONE]") {
+                reply.raw.write("data: [DONE]\n\n");
+                continue;
+              }
+
+              try {
+                const chunk = JSON.parse(payload) as ChatCompletionChunk;
+                const delta = chunk.choices?.[0]?.delta?.content;
+                if (delta) fullText += delta;
+                chunk.conversation_id = convId;
+                reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+              } catch {
+                reply.raw.write(`${line}\n\n`);
+              }
+            }
+          }
+        } catch (err) {
+          app.log.error(err, "vLLM streaming error");
+        }
+
+        reply.raw.end();
+        trackPoolMetric("request", Date.now() - t0);
+
+        if (fullText) {
+          await conversations.append(convId, { role: "assistant", content: fullText });
+        }
+        return;
+      }
+
+      // ── Claude provider (existing logic) ──────────────────────
+      const useV1 = body.thinking !== undefined || body.effort !== undefined || body.profile === "deep";
+
       const chatOpts: ChatOptions = {
         messages: allMessages,
         model,
@@ -88,7 +183,6 @@ export async function chatCompletionsRoute(
       };
 
       if (!stream) {
-        // ── Non-streaming ────────────────────────────────────────
         const t0 = Date.now();
         let text: string;
         if (useV1) {
@@ -135,7 +229,7 @@ export async function chatCompletionsRoute(
         return response;
       }
 
-      // ── Streaming ──────────────────────────────────────────────
+      // ── Streaming (Claude) ────────────────────────────────────
       const t0 = Date.now();
       const id = makeCompletionId();
       const created = Math.floor(Date.now() / 1000);
@@ -150,7 +244,6 @@ export async function chatCompletionsRoute(
         reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
       }
 
-      // Initial chunk with role
       sendChunk({
         id,
         object: "chat.completion.chunk",
@@ -197,7 +290,6 @@ export async function chatCompletionsRoute(
         app.log.error(err, "streaming error");
       }
 
-      // Final chunk with finish_reason
       sendChunk({
         id,
         object: "chat.completion.chunk",
@@ -214,7 +306,6 @@ export async function chatCompletionsRoute(
         ],
       });
 
-      // Usage chunk (if stream_options.include_usage)
       if (includeUsage) {
         sendChunk({
           id,

@@ -1,4 +1,4 @@
-{{- if .Values.axon.tokenRefresh.enabled }}
+{{- if and .Values.axon.tokenRefresh.enabled (ne (.Values.axon.provider | default "claude") "vllm") }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

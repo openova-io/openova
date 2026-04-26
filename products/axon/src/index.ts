@@ -7,20 +7,45 @@ import { initPool, shutdownPool, getPool } from "./providers/claude.js";
 import { connectValkey, disconnectValkey, getPoolStats } from "./providers/valkey.js";
 import { ConversationStore } from "./providers/conversation.js";
 import { refreshIfExpired, startPeriodicRefresh, stopPeriodicRefresh } from "./providers/token-refresh.js";
+import { VllmProvider } from "./providers/vllm.js";
 
 const config = loadConfig();
 const app = Fastify({ logger: true });
 const conversations = new ConversationStore(config.conversationTtl);
 
-// Health check (no auth)
-app.get("/health", async () => ({ status: "ok" }));
+const isVllm = config.provider === "vllm";
+let vllm: VllmProvider | undefined;
+
+if (isVllm) {
+  vllm = new VllmProvider(config.vllm);
+  app.log.info(`Provider: vllm (${config.vllm.baseUrl}), default model: ${config.vllm.defaultModel}`);
+} else {
+  app.log.info(`Provider: claude, default model: ${config.defaultModel}`);
+}
+
+// Health check (no auth) — proxy to vLLM backend when using vllm provider
+app.get("/health", async () => {
+  if (vllm) {
+    return vllm.health();
+  }
+  return { status: "ok" };
+});
 
 // Pool + conversation stats (no auth — internal observability)
 app.get("/stats", async () => {
   const poolStats = await getPoolStats();
-  const pool = getPool();
   const convCount = await conversations.count();
+  if (isVllm) {
+    return {
+      provider: "vllm",
+      backend: config.vllm.baseUrl,
+      model: config.vllm.defaultModel,
+      conversations: convCount,
+    };
+  }
+  const pool = getPool();
   return {
+    provider: "claude",
     pool: poolStats ?? "valkey not connected",
     sessions: pool?.stats ?? "pool not initialized",
     conversations: convCount,
@@ -31,8 +56,8 @@ app.get("/stats", async () => {
 app.addHook("onRequest", createAuthHook(config));
 
 // Register routes
-await modelsRoute(app);
-await chatCompletionsRoute(app, config, conversations);
+await modelsRoute(app, vllm);
+await chatCompletionsRoute(app, config, conversations, vllm);
 
 // GET /v1/conversations/:id — retrieve conversation history (debugging)
 app.get<{ Params: { id: string } }>(
@@ -60,23 +85,28 @@ app.get<{ Params: { id: string } }>(
 // Connect to Valkey (non-blocking — gateway works without it)
 await connectValkey(config.valkeyUrl);
 
-// Refresh OAuth token before creating sessions (SDK doesn't handle refresh)
-app.log.info("Checking OAuth token...");
-const tokenOk = await refreshIfExpired();
-if (!tokenOk) {
-  app.log.warn("Token refresh failed — sessions may fail to authenticate");
-}
-startPeriodicRefresh();
+if (!isVllm) {
+  // Claude provider: refresh OAuth token and warm session pool
+  app.log.info("Checking OAuth token...");
+  const tokenOk = await refreshIfExpired();
+  if (!tokenOk) {
+    app.log.warn("Token refresh failed — sessions may fail to authenticate");
+  }
+  startPeriodicRefresh();
 
-// Pre-warm session pool before accepting traffic
-app.log.info(`Warming session pool (size=${config.poolSize})...`);
-await initPool(config.defaultModel, config.poolSize);
-app.log.info("Session pool ready — accepting requests");
+  app.log.info(`Warming session pool (size=${config.poolSize})...`);
+  await initPool(config.defaultModel, config.poolSize);
+  app.log.info("Session pool ready — accepting requests");
+} else {
+  app.log.info("vLLM provider — skipping session pool and OAuth token refresh");
+}
 
 // Graceful shutdown
 const shutdown = () => {
-  stopPeriodicRefresh();
-  shutdownPool();
+  if (!isVllm) {
+    stopPeriodicRefresh();
+    shutdownPool();
+  }
   disconnectValkey();
   process.exit(0);
 };
@@ -85,10 +115,10 @@ process.on("SIGINT", shutdown);
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });
-  app.log.info(`Axon gateway listening on port ${config.port}`);
+  app.log.info(`Axon gateway listening on port ${config.port} (provider: ${config.provider})`);
 } catch (err) {
   app.log.error(err);
-  shutdownPool();
+  if (!isVllm) shutdownPool();
   await disconnectValkey();
   process.exit(1);
 }
