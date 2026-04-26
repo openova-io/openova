@@ -18,6 +18,7 @@ let vllm: VllmProvider | undefined;
 
 if (isVllm) {
   vllm = new VllmProvider(config.vllm);
+  await vllm.init();
   app.log.info(`Provider: vllm (${config.vllm.baseUrl}), default model: ${config.vllm.defaultModel}`);
 } else {
   app.log.info(`Provider: claude, default model: ${config.defaultModel}`);

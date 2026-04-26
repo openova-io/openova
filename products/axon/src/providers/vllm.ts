@@ -5,6 +5,7 @@ export class VllmProvider {
   private baseUrl: string;
   private apiKey: string;
   private defaultModel: string;
+  private availableModels: Set<string> = new Set();
 
   constructor(config: VllmConfig) {
     if (!config.baseUrl) throw new Error("AXON_VLLM_BASE_URL must be set when provider=vllm");
@@ -14,37 +15,51 @@ export class VllmProvider {
     this.defaultModel = config.defaultModel;
   }
 
-  async chat(body: ChatCompletionRequest): Promise<Response> {
-    const payload = { ...body, model: body.model ?? this.defaultModel, stream: false };
-    delete (payload as Record<string, unknown>).conversation_id;
-    delete (payload as Record<string, unknown>).thinking;
-    delete (payload as Record<string, unknown>).effort;
-    delete (payload as Record<string, unknown>).profile;
+  async init(): Promise<void> {
+    try {
+      const list = await this.models();
+      for (const m of list.data) this.availableModels.add(m.id);
+      console.log(`[vllm] available models: ${[...this.availableModels].join(", ")}`);
+    } catch (err) {
+      console.warn("[vllm] could not fetch model list at init:", err);
+    }
+  }
 
+  private resolveModel(requested?: string): string {
+    if (!requested) return this.defaultModel;
+    if (this.availableModels.size === 0) return this.defaultModel;
+    if (this.availableModels.has(requested)) return requested;
+    return this.defaultModel;
+  }
+
+  private cleanPayload(body: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
+    const payload: Record<string, unknown> = { ...body, model: this.resolveModel(body.model), stream };
+    delete payload.conversation_id;
+    delete payload.thinking;
+    delete payload.effort;
+    delete payload.profile;
+    return payload;
+  }
+
+  async chat(body: ChatCompletionRequest): Promise<Response> {
     return fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(this.cleanPayload(body, false)),
     });
   }
 
   async chatStream(body: ChatCompletionRequest): Promise<Response> {
-    const payload = { ...body, model: body.model ?? this.defaultModel, stream: true };
-    delete (payload as Record<string, unknown>).conversation_id;
-    delete (payload as Record<string, unknown>).thinking;
-    delete (payload as Record<string, unknown>).effort;
-    delete (payload as Record<string, unknown>).profile;
-
     return fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(this.cleanPayload(body, true)),
     });
   }
 
