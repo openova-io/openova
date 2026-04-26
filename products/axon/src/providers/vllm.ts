@@ -34,8 +34,18 @@ export class VllmProvider {
 
   private static readonly SYSTEM_MSG_MAX_CHARS = 6000;
 
-  private trimSystemMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map((msg) => {
+  private sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
+    let seenSystem = false;
+    const deduped: ChatMessage[] = [];
+    for (const msg of messages) {
+      if (msg.role === "system") {
+        if (seenSystem) continue;
+        seenSystem = true;
+      }
+      deduped.push(msg);
+    }
+
+    return deduped.map((msg) => {
       if (msg.role !== "system" || !msg.content || msg.content.length <= VllmProvider.SYSTEM_MSG_MAX_CHARS) {
         return msg;
       }
@@ -52,7 +62,7 @@ export class VllmProvider {
     const payload: Record<string, unknown> = {
       ...body,
       model: this.resolveModel(body.model),
-      messages: this.trimSystemMessages(body.messages),
+      messages: this.sanitizeMessages(body.messages),
       stream,
     };
     delete payload.conversation_id;
