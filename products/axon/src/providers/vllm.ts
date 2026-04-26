@@ -78,12 +78,13 @@ export class VllmProvider {
   }
 
   private cleanPayload(body: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
+    const enableThinking = !!body.thinking;
     const payload: Record<string, unknown> = {
       ...body,
       model: this.resolveModel(body.model),
       messages: this.sanitizeMessages(body.messages),
       stream,
-      chat_template_kwargs: { enable_thinking: false },
+      chat_template_kwargs: { enable_thinking: enableThinking },
     };
     delete payload.conversation_id;
     delete payload.thinking;
