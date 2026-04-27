@@ -77,15 +77,15 @@ Day 1 — 14:00
    (bp-bundle-pharmacy: ERPNext + WooCommerce + Stalwart-mail + Postgres + Redis).
 3. Clicks "Get Started" → Omantel-branded signup. Phone OTP via Omantel mobile
    bill verification (federated identity). Account created.
-4. Catalyst auto-creates: Organization "muscat-pharmacy", Environment
-   "muscat-pharmacy-prod", vcluster "muscatpharmacy" on hz-fsn-rtz-prod.
+4. Catalyst auto-creates: Organization "muscatpharmacy", Environment
+   "muscatpharmacy-prod", vcluster "muscatpharmacy" on hz-fsn-rtz-prod.
    Environment-controller spins up the vcluster in ~60 seconds.
 5. Bundle install wizard: 3 simple steps —
    Step 1: subdomain (muscatpharmacy.shop.omantel.com)
    Step 2: business details (form generated from Blueprint configSchema)
    Step 3: payment plan (BHD 49/month)
 6. Click Install. Provisioning service commits 5 Application directories to
-   gitea.omantel.openova.io/muscat-pharmacy/muscat-pharmacy-prod.
+   gitea.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod.
    Webhook → projector → Flux reconciles in the muscatpharmacy vcluster.
 7. ~3 minutes later: Ahmed sees green checkmarks on his dashboard.
    Each App card has an "Open" button.

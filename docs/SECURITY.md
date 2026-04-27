@@ -192,8 +192,8 @@ Sovereign: omantel
 └── Each Organization gets a minimal Keycloak (1 replica, embedded H2/sqlite,
     ~150 MB RAM, no HA)
     │
-    ├── Organization muscat-pharmacy
-    │     Keycloak realm: muscat-pharmacy
+    ├── Organization muscatpharmacy
+    │     Keycloak realm: muscatpharmacy
     │     Federations: Omantel-Mobile-OTP, Google, Apple
     ├── Organization acme-shop
     │     Keycloak realm: acme-shop
