@@ -351,7 +351,7 @@ openova.io/organization: acme
 openova.io/environment: acme-prod            # Catalyst Environment object
 openova.io/vcluster: acme                    # vcluster name within parent host cluster
 openova.io/host-cluster: hz-fsn-rtz-prod
-openova.io/application: marketing-site       # Application instance name
+openova.io/application: marketing-site       # Application name within the Environment
 openova.io/blueprint: bp-wordpress           # source Blueprint
 openova.io/blueprint-version: 1.3.0
 ```

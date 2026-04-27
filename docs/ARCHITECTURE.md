@@ -336,7 +336,7 @@ spec:
 When a User installs `marketing-site` from `bp-wordpress`:
 
 1. **Catalog-svc** flattens the dependency tree.
-2. **Console** asks: "WordPress requires Postgres. Use existing instance or create a dedicated one?" — querying projector for existing `bp-postgres` Applications in this Environment.
+2. **Console** asks: "WordPress requires Postgres. Use an existing Postgres Application or create a new dedicated one?" — querying projector for existing `bp-postgres` Applications in this Environment.
 3. **Provisioning service** composes an InstallPlan: either one Application (`marketing-site`) referencing an existing postgres Application, or two Applications (`marketing-site` + `marketing-site-postgres`) with a Flux `dependsOn` edge.
 4. **Gitea commit** writes one or two `applications/<name>/` directories.
 5. **Flux** reconciles in dependency order.
