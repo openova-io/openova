@@ -63,6 +63,42 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 64 — SOVEREIGN-PROVISIONING third-cycle stable; keycloak third-cycle clean
+
+Both targets verified clean. **TWELFTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64). **Two consecutive clean architectural passes** (63 → 64).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SOVEREIGN-PROVISIONING.md** third-cycle deep re-read (Pass 19 first-cycle clean, Pass 29 + Pass 41 second-cycle fixes, Pass 64 third-cycle):
+- §1 Inputs: clean. Cloud provider list, sovereign name/domain, region, building blocks, Keycloak topology, federation IdP, TLS, object storage — all consistent with canonical references.
+- §2 Provisioning runs from `catalyst-provisioner`: clean. The "It is **not** part of any Sovereign at runtime" framing matches Pass 30's core/README scope-confusion fix.
+- §3 Phase 0 Bootstrap: Pass 29 DNS records fix intact (`gitea.<location-code>.<sovereign-domain>` etc.). 11-component bootstrap kit (cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats → openbao → keycloak → gitea → catalyst control plane) matches ARCHITECTURE §10.
+- §4 Phase 1 Hand-off: Pass 41 self-sufficiency list fix intact — full 8-item list (Crossplane, OpenBao, JetStream, Keycloak, SPIRE, Gitea, observability, Catalyst control plane) with §2.3 anchor.
+- §5 Phase 2 Day-1 setup: Pass 29 console URL fix intact (`console.<location-code>.<sovereign-domain>`). Day-1 actions list clean.
+- §6 Phase 3 Steady-state: clean.
+- §7 Multi-region topology: §7.1 single-region clean, §7.2 multi-region with 3-region (mgt + 2 rtz) example consistent with PTS §6 mermaid + SECURITY §5 multi-region OpenBao.
+- §8 Adding a region post-provisioning: clean. The 4-step flow (Crossplane → cluster register → cert-manager+Cilium+Flux+Crossplane+SPIRE+ESO+OpenBao deploy → Placement target) consistent with PTS §3.
+- §9 Air-gap deployment: clean. The 4-step Connected/Air-gapped table consistent with SRE.md §7.
+- §10 Migration and decommission: §10.1 Org export between Sovereigns + §10.2 Sovereign decommission. Pass 30 catalyst-provisioner scope distinction implicit.
+
+SOVEREIGN-PROVISIONING substantively stable across 3 review cycles. The doc's structure (10 sections, Phase 0-3 + multi-region + migration) is internally cohesive.
+
+**platform/keycloak/README.md** third-cycle deep-read (Pass 34 second-cycle fixes):
+- Banner: per-Sovereign supporting service in Catalyst control plane (PTS §2.3) + FAPI Authorization Server for Fingate ✓
+- Topology block (lines 8-9): SME-style `per-organization` vs Corporate `shared-sovereign` — clean
+- L78: `namespace: catalyst-keycloak` — Catalyst-prefixed control-plane namespace consistent with SECURITY §2 (`catalyst-spire`, `catalyst-projector`, etc.) ✓
+- L95: `hostname: auth.<location-code>.<sovereign-domain>` — Pass 34 fix held ✓
+- L105: `namespace: <org>` for per-Org SME deployment ✓
+- L115: `hostname: auth.<org>.<location-code>.<sovereign-domain>` — Pass 34 fix held ✓
+- L122 FAPI realm: `"realm": "open-banking"` for Fingate composite Blueprint ✓
+- L161: `namespace: open-banking` Application namespace for Fingate ✓
+
+keycloak third-cycle clean — Pass 34 hostname canonical-form fixes both intact. The doc demonstrates the per-organization vs shared-sovereign topology distinction with corresponding hostname patterns matching NAMING §5.1 + §7's SME-vs-corporate Keycloak guidance.
+
+**Pass 64: clean.** Two consecutive architectural-clean passes (63, 64).
+
+The new-cycle pattern continues: Pass 60-62 surfaced 3 carry-over drift instances (Pass 23/29/35 structural side-effects). Pass 63-64 confirm those didn't propagate further — the carry-over catalog is finite and being worked through.
+
 ### Pass 63 — SECURITY third-cycle stable; strimzi clean
 
 Both targets verified clean. Pass 63 ends the new-cycle drift streak (Pass 60-62 each found carry-over drift; Pass 63 clean).
