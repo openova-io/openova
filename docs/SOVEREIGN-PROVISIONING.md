@@ -91,13 +91,16 @@ After Phase 0 completes:
 3. OpenTofu state is archived and read-only. It is never touched again.
 4. `catalyst-provisioner` no longer has any active connection to the new Sovereign.
 
-The Sovereign is now self-sufficient. It has:
+The Sovereign is now self-sufficient. It has the full Catalyst control-plane set per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2.3:
+
 - Its own Crossplane managing further infrastructure.
 - Its own OpenBao for secrets.
 - Its own JetStream as event spine.
 - Its own Keycloak for users.
+- Its own SPIFFE/SPIRE for workload identity (5-min rotating SVIDs).
 - Its own Gitea (with mirror of the public Blueprint catalog).
-- Its own Catalyst control plane.
+- Its own observability stack (Grafana + Alloy + Loki + Mimir + Tempo) for self-monitoring.
+- Its own Catalyst control plane (console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing).
 
 ---
 

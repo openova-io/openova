@@ -75,7 +75,7 @@ minio:
   enabled: false  # Use external MinIO
   externalS3:
     enabled: true
-    host: minio.minio-system.svc
+    host: minio.storage.svc
     port: 9000
     accessKey: ""  # From ESO
     secretKey: ""  # From ESO

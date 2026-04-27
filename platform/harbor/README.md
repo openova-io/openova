@@ -142,7 +142,7 @@ persistence:
       bucket: harbor-registry
       accesskey: ""  # From ESO secret
       secretkey: ""  # From ESO secret
-      regionendpoint: http://minio.minio-system.svc:9000
+      regionendpoint: http://minio.storage.svc:9000
       v4auth: true
 
 trivy:

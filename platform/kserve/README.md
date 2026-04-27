@@ -214,7 +214,7 @@ spec:
             name: minio-credentials
             key: secretkey
       - name: S3_ENDPOINT
-        value: http://minio.minio-system.svc:9000
+        value: http://minio.storage.svc:9000
 ```
 
 ---

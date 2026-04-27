@@ -63,6 +63,31 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 41 — SOVEREIGN-PROVISIONING §4 incomplete self-sufficiency list + minio namespace drift across 3 components
+
+Two real fixes, expanded mid-pass when sweep grep surfaced additional cross-component drift.
+
+**docs/SOVEREIGN-PROVISIONING.md §4 (Phase 1 Hand-off)** — same drift category as Pass 40 (summary list missing items vs canonical detail).
+
+The "Sovereign is now self-sufficient. It has:" list (line 94-100) had 6 items: Crossplane, OpenBao, JetStream, Keycloak, Gitea, Catalyst control plane. Per PLATFORM-TECH-STACK §2.3 (the canonical Catalyst control-plane components reference) the per-Sovereign supporting services set is 6 items: keycloak, openbao, spire-server, nats-jetstream, gitea, observability. The §4 hand-off list was missing **SPIRE** (workload identity, 5-min rotating SVIDs — critical to the entire SECURITY model) and **observability** (Grafana + Alloy + Loki + Mimir + Tempo — the Catalyst self-monitoring stack). Both added. Also expanded the "Catalyst control plane" bullet to enumerate the §2.1+§2.2 services (console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing) so the list matches the §1 categorization Pass 40 just corrected. Added an inline pointer to PLATFORM-TECH-STACK §2.3 so the list stays anchored.
+
+**Mid-pass sweep finding — minio namespace inconsistency**:
+
+While reading kserve, I noticed `http://minio.minio-system.svc:9000` (line 217) — using `minio-system` namespace. Pass 28's earlier minio README review found `namespace: storage` on L70. Cross-checked all platform READMEs that reference MinIO via in-cluster K8s service DNS:
+
+- platform/iceberg L89, L102: `minio.storage.svc` ✓ (canonical)
+- platform/clickhouse L225: `minio.storage.svc` ✓
+- platform/grafana L151: `minio.storage.svc` ✓ (this README) — wait, looking again, grafana's S3 endpoint at L151 uses `minio.storage.svc:9000`. Confirmed.
+- platform/kserve L217: `minio.minio-system.svc` ✗
+- platform/milvus L78: `minio.minio-system.svc` ✗
+- platform/harbor L145: `minio.minio-system.svc` ✗
+
+Three components used `minio-system` while the canonical minio README and three other components use `storage`. Per minio README's deployment manifest (`namespace: storage` at L70), `storage` is canonical. Fixed kserve, milvus, harbor to align. The drift likely came from Helm chart upstream defaults (some MinIO Helm charts default to `minio-system` while the Catalyst convention puts MinIO in the `storage` namespace alongside Velero per PLATFORM-TECH-STACK §3.5).
+
+**platform/kserve/README.md**: substantively clean apart from the namespace fix above. Banner correct (Application Blueprint §4.6 AI/ML, used by bp-cortex). InferenceService + ServingRuntime + InferenceGraph examples consistent with vLLM/BGE/RAG-pipeline integration described in cortex composite README.
+
+Pass 41 lesson confirmed and extended: the Pass 40 union-equality check (summary table vs detailed taxonomy) applies to ALL summary-style passages in canonical docs, not just headline categorization tables. The §4 self-sufficiency list is essentially a re-statement of §2.3 — and like §1's summary table in Pass 40, it had drifted independently. Going forward, when a doc passage enumerates items derived from a canonical source list elsewhere, count both and verify union-equality.
+
 ### Pass 40 — PLATFORM-TECH-STACK §1 incomplete component lists; iceberg clean
 
 One real fix on PLATFORM-TECH-STACK.md §1 (the canonical summary table); iceberg README clean.
