@@ -456,7 +456,7 @@ The Blueprint shape is influenced by — but not identical to — OAM:
 |---|---|
 | Application | Blueprint with `card.category=composite` |
 | Component | Blueprint (single-purpose) |
-| Trait | Blueprint overlay (`overlays/small|medium|large`) |
+| Trait | Blueprint overlay (e.g. `overlays/small`, `overlays/medium`, `overlays/large`) |
 | Scope | Environment + Placement |
 
 We are not a strict OAM implementation. We borrow the layered composition idea but use Kubernetes-native primitives (Kustomize, Helm) rather than OAM-specific machinery — because Flux, Crossplane, and the K8s ecosystem are the runtime, and inventing a new layer adds no value.

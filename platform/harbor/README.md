@@ -8,50 +8,49 @@ Container registry with vulnerability scanning. Per-host-cluster infrastructure 
 
 ## Overview
 
-**Harbor is mandatory** as the container registry for all OpenOva deployments. It provides secure storage, vulnerability scanning, and cross-region replication.
+**Harbor is mandatory** on every host cluster. Each host cluster runs its own Harbor instance that mirrors from upstream sources (`ghcr.io/openova-io/...` for Catalyst components and Blueprint OCI artifacts; the customer's own CI for application images). Local Harbor = fast Pod pulls, no cross-region traffic on every image pull, air-gap ready.
 
 ```mermaid
 flowchart TB
-    subgraph CI["CI/CD Pipeline"]
-        Build[Build Image]
-        Scan[Trivy Scan]
-        Push[Push to Harbor]
+    subgraph Upstream["Upstream OCI sources"]
+        GHCR[ghcr.io/openova-io/* — Catalyst + Blueprints]
+        CustCI[Customer CI — Application images]
     end
 
-    subgraph Region1["Region 1"]
-        H1[Harbor Primary]
+    subgraph Cluster1["Host cluster A (e.g. hz-fsn-rtz-prod)"]
+        H1[Harbor — local mirror]
         T1[Trivy Scanner]
+        Pods1[Pods pull locally]
     end
 
-    subgraph Region2["Region 2"]
-        H2[Harbor Replica]
+    subgraph Cluster2["Host cluster B (e.g. hz-hel-rtz-prod)"]
+        H2[Harbor — local mirror]
+        T2[Trivy Scanner]
+        Pods2[Pods pull locally]
     end
 
-    subgraph K8s["Kubernetes"]
-        Pods[Pods]
-    end
-
-    Build --> Scan
-    Scan -->|"Pass"| Push
-    Push --> H1
-    H1 -->|"Replicate"| H2
-    H1 --> Pods
-    H2 --> Pods
-    T1 --> H1
+    GHCR -.->|"pull mirror"| H1
+    CustCI -.->|"push"| H1
+    GHCR -.->|"pull mirror"| H2
+    CustCI -.->|"push"| H2
+    H1 --> T1
+    H2 --> T2
+    H1 --> Pods1
+    H2 --> Pods2
 ```
 
 ---
 
 ## Why Mandatory?
 
-| Requirement | Harbor | External Registry |
-|-------------|--------|-------------------|
-| Multi-region replication | ✅ Built-in | ❌ |
+| Requirement | Harbor (per host cluster) | External Registry |
+|-------------|---------------------------|-------------------|
+| Local pulls (no cross-region traffic) | ✅ Each cluster's Pods pull from local Harbor | ❌ Pods pull cross-region |
 | Vulnerability scanning | ✅ Trivy integrated | ⚠️ Depends on provider |
 | Air-gap support | ✅ Self-hosted | ❌ |
 | RBAC | ✅ Full control | ⚠️ Provider-specific |
 | Audit logging | ✅ Complete | ⚠️ Limited |
-| No external dependency | ✅ | ❌ |
+| No external dependency at runtime | ✅ Once mirrored | ❌ |
 
 ---
 
@@ -69,32 +68,36 @@ flowchart TB
 
 ---
 
-## Multi-Region Replication
+## Per-host-cluster mirroring (NOT primary-replica)
+
+Catalyst's agreed model is **one Harbor per host cluster**, each independently pulling from upstream OCI sources. There is no Harbor-to-Harbor replication primary/replica.
 
 ```mermaid
 sequenceDiagram
-    participant CI as CI/CD
-    participant H1 as Harbor R1
-    participant H2 as Harbor R2
-    participant K8s1 as K8s R1
-    participant K8s2 as K8s R2
+    participant CI as CI / Upstream OCI
+    participant H1 as Harbor (cluster A)
+    participant T1 as Trivy (cluster A)
+    participant H2 as Harbor (cluster B)
+    participant T2 as Trivy (cluster B)
+    participant Pods as Pods
 
-    CI->>H1: Push image
-    H1->>H1: Scan with Trivy
-    H1->>H2: Replicate image
-    K8s1->>H1: Pull image
-    K8s2->>H2: Pull image (local)
+    CI->>H1: pull-mirror sync (configured per project)
+    H1->>T1: scan on ingest
+    CI->>H2: pull-mirror sync (independent of H1)
+    H2->>T2: scan on ingest
+    Pods->>H1: pull (cluster A Pods)
+    Pods->>H2: pull (cluster B Pods)
 ```
 
-**Replication Modes:**
-- **Push-based**: Primary pushes to replicas (default)
-- **Pull-based**: Replicas pull from primary
-- **Bidirectional**: Both push and pull (active-active)
+**Why pull-mirror, not Harbor-to-Harbor replication:**
+- Single source of truth = upstream (`ghcr.io/openova-io/...` or customer CI), not a "primary Harbor".
+- Each cluster is its own failure domain — primary-replica drift between Harbors would be one more thing to fail.
+- Air-gap path is the same shape: a one-time mirror import vs ongoing primary-pushed replication.
 
 **Benefits:**
-- Images available locally in each region
-- Survives regional failure
-- Faster pulls (no cross-region traffic)
+- Images available locally in each cluster.
+- Survives any cluster (including the management cluster) going down — workload clusters keep pulling locally.
+- Faster pulls (no cross-region traffic per Pod start).
 
 ---
 
@@ -155,25 +158,31 @@ core:
   secretName: harbor-core-secret
 ```
 
-### Replication Policy
+### Pull-mirror policy
 
 ```json
 {
-  "name": "cross-region-replication",
-  "dest_registry": {
-    "id": 1,
-    "name": "harbor-region2"
+  "name": "ghcr-openova-mirror",
+  "src_registry": {
+    "type": "harbor",
+    "url": "https://ghcr.io",
+    "credential": {
+      "access_key": "",
+      "access_secret": ""
+    }
   },
   "trigger": {
-    "type": "event_based"
+    "type": "scheduled",
+    "trigger_settings": {
+      "cron": "0 */6 * * *"
+    }
   },
   "filters": [
     {
       "type": "name",
-      "value": "**"
+      "value": "openova-io/**"
     }
   ],
-  "replicate_deletion": true,
   "enabled": true
 }
 ```
@@ -262,11 +271,11 @@ flowchart LR
 ## Consequences
 
 **Positive:**
-- Complete control over image lifecycle
-- Built-in vulnerability scanning
-- Multi-region replication for DR
-- Air-gap ready
-- Audit trail for compliance
+- Complete control over image lifecycle.
+- Built-in vulnerability scanning (Trivy on ingest).
+- Per-cluster mirror = no cross-region pull traffic; each cluster is an independent failure domain.
+- Air-gap ready (one-time import works the same way as ongoing pull-mirror).
+- Audit trail for compliance.
 
 **Negative:**
 - Resource overhead (~3GB RAM)

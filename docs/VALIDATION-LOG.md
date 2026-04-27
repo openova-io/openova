@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 17 — ARCHITECTURE OAM table fix + Harbor README de-drift
+
+Two real findings in the drift sweep.
+
+- **ARCHITECTURE.md §13** OAM influence table had `| Trait | Blueprint overlay (`overlays/small|medium|large`) |` — the pipe characters inside backticks inside a Markdown table cell are a known GFM rendering hazard. Replaced with comma-separated example: `(e.g. overlays/small, overlays/medium, overlays/large)`.
+- **platform/harbor/README.md** still described an older "Harbor Primary / Harbor Replica" cross-region replication model that contradicted the new per-host-cluster banner ("every host cluster runs a Harbor instance"). Rewrote three sections: Overview diagram, Per-host-cluster mirroring (was "Multi-Region Replication"), and the example replication policy. Now consistently models Harbor as one-per-host-cluster mirroring from upstream OCI (no Harbor-to-Harbor primary-replica). The mermaid diagram now shows ghcr.io / customer CI → multiple independent Harbor instances, each scanning locally with Trivy.
+
+This is the same kind of architectural drift Pass 7 caught in OpenBao/ESO/Gitea/Flux — it survived the previous banner-addition pass because the banner just added a header line; the body still described the older model.
+
 ### Pass 16 — drift-detection sweep (post-convergence)
 
 First post-convergence drift-detection pass. Routine acceptance grep + line-by-line read.
