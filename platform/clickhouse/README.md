@@ -1,8 +1,8 @@
 # ClickHouse
 
-Column-oriented OLAP database for real-time analytics.
+Column-oriented OLAP database for real-time analytics. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1) — installed by Organizations that want OLAP. Used by `bp-fabric` and as the cold-storage tier of the SIEM pipeline (`docs/SRE.md` §10).
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
