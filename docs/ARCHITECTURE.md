@@ -352,7 +352,7 @@ Phase 0  Bootstrap (one-shot, runs from catalyst-provisioner.openova.io)
 ─────────────────────────────────────────────────────────────────────
 1. OpenTofu provisions: VPC, host nodes, load balancers, DNS records,
    object storage on the target cloud provider (Hetzner / AWS / etc.)
-2. Bootstrap kit installs (in order):
+2. Bootstrap kit installs in order:
    a. cert-manager
    b. Cilium (CNI + Gateway API)
    c. Flux (host-level)
@@ -369,16 +369,21 @@ Crossplane in the new Sovereign adopts management of further
 infrastructure. OpenTofu state is archived. Bootstrap kit is no
 longer in the runtime path.
 
-Phase 2  Self-sufficient
+Phase 2  Day-1 setup
 ─────────────────────────────────────────────────────────────────────
-Catalyst is fully operational. catalyst-provisioner.openova.io
-remains online indefinitely as the entry point for future
-Sovereign provisioning runs (other operators, our own future
-Sovereigns, etc.) — but the existing Sovereign no longer depends
-on it.
+First sovereign-admin logs into the console; configures cert-manager
+issuers, backup destinations, optional federation; onboards the first
+Organization and creates its first Environment.
+
+Phase 3  Steady-state operation
+─────────────────────────────────────────────────────────────────────
+Catalyst is fully autonomous. catalyst-provisioner.openova.io remains
+online indefinitely as the entry point for future Sovereign
+provisioning runs — but the existing Sovereign no longer depends on
+it at runtime.
 ```
 
-See [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) for the full procedure.
+See [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) for the full procedure (this is the canonical reference for phase semantics).
 
 ---
 
