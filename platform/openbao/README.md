@@ -1,66 +1,69 @@
 # OpenBao
 
-Secrets management backend for OpenOva platform. API-compatible fork of HashiCorp Vault with MPL 2.0 license.
+Secrets management backend for Catalyst. Apache 2.0 / MPL 2.0 fork of HashiCorp Vault, drop-in API-compatible.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-04-27
+
+> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). For multi-region semantics and rotation policy, [`docs/SECURITY.md`](../../docs/SECURITY.md) is canonical.
 
 ---
 
 ## Overview
 
-OpenBao is a Linux Foundation project forked from HashiCorp Vault after HashiCorp changed Vault's license from MPL 2.0 to the Business Source License (BSL 1.1). OpenBao retains the MPL 2.0 license and provides API-compatible secrets management.
+OpenBao is a Linux Foundation project forked from HashiCorp Vault after HashiCorp changed Vault's license from MPL 2.0 to the Business Source License (BSL 1.1). OpenBao retains the open license and provides API-compatible secrets management.
 
 OpenBao provides centralized secrets management with:
-- Secrets stored securely outside of Git
-- Multi-region active-active deployments
-- Integration with External Secrets Operator (ESO)
-- Either region can update secrets
-- Self-hosted per cluster
+- Secrets stored securely outside of Git (Git holds only `ExternalSecret` references).
+- **Independent Raft cluster per region** (no stretched cluster).
+- Asynchronous Performance Replication from primary region to standbys.
+- Integration with External Secrets Operator (ESO).
+- Workload authentication via SPIFFE SVID — short-lived, auto-rotating.
 
 ---
 
-## Architecture
+## Architecture: independent Raft per region (NOT a stretched cluster)
 
-### Active-Active Bidirectional Sync
-
-Both regions are identical and can independently update secrets. Updates propagate to both OpenBao instances automatically.
+Each region runs its **own** 3-node Raft cluster. Quorum is **intra-region only** — region failures are independent failure domains. Cross-region replication is asynchronous Performance Replication from primary → secondaries.
 
 ```mermaid
 flowchart TB
-    subgraph Region1["Region 1"]
-        KS1[K8s Secrets]
-        ES1[ExternalSecret]
-        PS1[PushSecret]
-        V1[OpenBao 1]
+    subgraph Region1["Region 1 (primary)"]
+        V1[OpenBao 3-node Raft]
+        ES1[ExternalSecret CR]
+        KS1[K8s Secret]
     end
 
-    subgraph Region2["Region 2"]
-        KS2[K8s Secrets]
-        ES2[ExternalSecret]
-        PS2[PushSecret]
-        V2[OpenBao 2]
+    subgraph Region2["Region 2 (replica)"]
+        V2[OpenBao 3-node Raft<br>independent quorum]
+        ES2[ExternalSecret CR]
+        KS2[K8s Secret]
     end
 
-    KS1 -->|"watch"| PS1
-    PS1 -->|"push"| V1
-    PS1 -->|"push"| V2
-    V1 -->|"pull"| ES1
-    ES1 -->|"update"| KS1
+    subgraph Region3["Region 3 (DR replica)"]
+        V3[OpenBao 3-node Raft<br>independent quorum]
+        ES3[ExternalSecret CR]
+        KS3[K8s Secret]
+    end
 
-    KS2 -->|"watch"| PS2
-    PS2 -->|"push"| V1
-    PS2 -->|"push"| V2
-    V2 -->|"pull"| ES2
-    ES2 -->|"update"| KS2
+    V1 -.->|"async perf replication"| V2
+    V1 -.->|"async perf replication"| V3
+    V1 -->|"local read"| ES1
+    V2 -->|"local read"| ES2
+    V3 -->|"local read"| ES3
+    ES1 -->|"materialize"| KS1
+    ES2 -->|"materialize"| KS2
+    ES3 -->|"materialize"| KS3
 ```
 
-**Key Design:**
-- **Active-Active**: Both regions can update secrets independently
-- **Bidirectional Push**: Each region's PushSecret pushes to **both** OpenBao instances
-- **Local Pull**: Each region's ExternalSecret pulls from its **local** OpenBao only
-- **Last-Write-Wins**: Latest update overwrites all
-- **Self-Stabilizing**: ESO skips updates when values are identical
-- **No SOPS**: Secrets never stored in Git
+**Key design** (canonical in [`docs/SECURITY.md`](../../docs/SECURITY.md) §5):
+- **Independent Raft per region.** No cross-region quorum. A whole-region failure does NOT block any other region.
+- **Single-primary writes.** Rotations and new-secret writes go to the primary OpenBao only.
+- **Async perf replication.** Lag <1s typical; replicas serve reads at sub-10ms latency.
+- **Explicit DR promotion.** Either `sovereign-admin`-approved or automated via failover-controller (with strict criteria — not on every blip).
+- **Apps read locally.** Each region's ExternalSecret pulls from its local OpenBao replica.
+- **No SOPS.** Plaintext never in Git.
+
+> The earlier active-active bidirectional design was rejected as a stretched cluster — it would have made one region's network blip take down all writes. This file's architecture matches the agreed independent-Raft model.
 
 ---
 
@@ -108,50 +111,33 @@ injector:
   enabled: false  # Using ESO instead
 ```
 
-### ClusterSecretStores
+### ClusterSecretStore (local read)
 
-Each region needs two ClusterSecretStores - one for local OpenBao, one for remote OpenBao.
+Each region defines ONE ClusterSecretStore pointing at its local OpenBao replica. Apps in any region read from their local replica only — replication delivers post-write values within seconds.
 
 ```yaml
-# Local OpenBao (for ExternalSecret pulls)
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:
   name: bao-local
 spec:
   provider:
-    vault:
-      server: "https://bao.region1.<domain>"
+    vault:                                # ESO provider type stays `vault` —
+                                          # OpenBao is wire-compatible.
+      server: "https://bao.<location-code>.<sovereign-domain>"
       path: "secret"
       version: "v2"
       auth:
         kubernetes:
           mountPath: "kubernetes"
           role: "external-secrets"
----
-# Remote OpenBao (for PushSecret)
-apiVersion: external-secrets.io/v1beta1
-kind: ClusterSecretStore
-metadata:
-  name: bao-remote
-spec:
-  provider:
-    vault:
-      server: "https://bao.region2.<domain>"
-      path: "secret"
-      version: "v2"
-      auth:
-        tokenSecretRef:
-          name: bao-remote-token
-          namespace: external-secrets
-          key: token
 ```
 
-> **Note:** The ESO provider type remains `vault` as OpenBao is API-compatible and ESO uses the same provider configuration.
+> **Note:** The ESO provider type remains `vault` because OpenBao is API-compatible and ESO uses the same provider configuration.
 
-### PushSecret (Bidirectional)
+### Writes go to the primary region
 
-Pushes to **both** local and remote OpenBao instances simultaneously.
+Secret rotations, new-secret creates, and policy updates target the **primary** OpenBao only. Replicas refuse writes (Performance Replication is one-way: primary → standby). The ESO `PushSecret` is configured to point at the primary's ClusterSecretStore explicitly:
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -162,9 +148,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRefs:
-    - name: bao-local
-      kind: ClusterSecretStore
-    - name: bao-remote
+    - name: bao-primary                   # writes target the primary region only
       kind: ClusterSecretStore
   selector:
     secret:
@@ -177,9 +161,9 @@ spec:
           property: password
 ```
 
-### ExternalSecret (Local Pull)
+### ExternalSecret (local read in every region)
 
-Each region pulls from its **local** OpenBao only.
+Reads always pull from the local OpenBao replica.
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -201,6 +185,10 @@ spec:
         key: databases/db-credentials
         property: password
 ```
+
+### DR promotion
+
+If the primary region fails, a replica is explicitly promoted (sovereign-admin approval or failover-controller automation). New writes are blocked briefly during promotion (~30s), then the new primary accepts writes. See [`docs/SECURITY.md`](../../docs/SECURITY.md) §5.2.
 
 ---
 

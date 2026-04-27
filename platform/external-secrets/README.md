@@ -1,8 +1,8 @@
 # External Secrets Operator
 
-Secrets management with ESO + OpenBao using 100% PushSecrets architecture.
+ESO bridges OpenBao (the Catalyst secret backend) and per-Pod K8s Secrets. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3).
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
@@ -32,7 +32,7 @@ flowchart LR
     ES -->|"sync"| KS
 ```
 
-> **See Also:** [ADR-OPENBAO](../openbao/docs/ADR-OPENBAO.md) for complete secrets backend architecture including active-active multi-region sync.
+> **See also:** [`platform/openbao/README.md`](../openbao/README.md) for the secret-backend architecture (independent Raft per region, async perf replication, single-primary writes — see also [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
 
 ---
 
@@ -41,10 +41,10 @@ flowchart LR
 | Principle | Implementation |
 |-----------|----------------|
 | No secrets in Git | SOPS eliminated, interactive bootstrap |
-| K8s is source of truth | All secrets originate as K8s Secrets |
-| Push, not pull | PushSecrets push to backends |
-| Multi-region sync | Push to both OpenBao instances simultaneously |
-| Auto-generation | ESO Generators create complex secrets |
+| OpenBao is source of truth | Secrets live in OpenBao; K8s Secrets are materialized projections |
+| Pull-locally, write-to-primary | ExternalSecret reads from local OpenBao replica; PushSecret writes to the primary region |
+| Multi-region reads | Async perf replication propagates writes from primary → replicas |
+| Auto-generation | ESO Generators create complex secrets directly into OpenBao |
 
 ---
 
@@ -63,17 +63,17 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    participant Wizard as Bootstrap Wizard
-    participant TF as Terraform
+    participant Wizard as Catalyst Bootstrap (Phase 0)
+    participant TF as OpenTofu
     participant OpenBao as OpenBao
     participant ESO as ESO
 
-    Wizard->>TF: Enter cloud credentials
+    Wizard->>TF: Enter cloud credentials (Catalyst bootstrap, Phase 0)
     TF->>TF: Create terraform.tfvars (local only)
     TF->>OpenBao: Provision & initialize
     OpenBao->>Wizard: Return unseal keys
     Note over Wizard: sovereign-admin saves unseal keys offline
-    ESO->>OpenBao: Connect via K8s auth
+    ESO->>OpenBao: Connect via SPIFFE SVID (workload identity)
 ```
 
 ---
@@ -128,7 +128,9 @@ spec:
         property: main
 ```
 
-### PushSecret to Multiple OpenBao Instances
+### PushSecret to the primary OpenBao
+
+Writes go to the primary region only — replicas refuse writes (perf replication is one-way primary→standby).
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -138,9 +140,7 @@ metadata:
   namespace: databases
 spec:
   secretStoreRefs:
-    - name: vault-region1
-      kind: ClusterSecretStore
-    - name: vault-region2
+    - name: bao-primary             # writes hit the primary region only
       kind: ClusterSecretStore
   selector:
     secret:
@@ -152,6 +152,8 @@ spec:
           remoteKey: databases/db-credentials
           property: password
 ```
+
+OpenBao's async Performance Replication propagates the new value to all replicas within ~1s. Each region's ExternalSecret then materializes the new K8s Secret locally.
 
 ---
 
@@ -305,8 +307,8 @@ If migrating from SOPS-based setup:
 
 **Positive:**
 - No secrets in Git (eliminates leak risk)
-- Auto-generation of complex secrets
-- Multi-region sync via single PushSecret
+- Auto-generation of complex secrets via ESO Generators
+- Cross-region availability via OpenBao Performance Replication (replicas serve reads with sub-10ms latency in same continent)
 - Backend-agnostic (swap without app changes)
 - Gitea tokens managed consistently with all other secrets
 
