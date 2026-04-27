@@ -66,20 +66,24 @@ flowchart TB
 
 ### Keycloak Deployment
 
+The deployment shape depends on Catalyst's `keycloakTopology` choice (see banner above):
+
+**Corporate (`shared-sovereign`)** — one HA Keycloak per Sovereign in `catalyst-keycloak` namespace on the management cluster:
+
 ```yaml
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: Keycloak
 metadata:
   name: keycloak
-  namespace: open-banking
+  namespace: catalyst-keycloak
 spec:
-  instances: 2
+  instances: 3                          # HA, multiple replicas
   db:
     vendor: postgres
-    host: keycloak-postgres-rw.databases.svc
+    host: keycloak-postgres-rw.catalyst-keycloak.svc
     port: 5432
     database: keycloak
-    usernameSecret:
+    usernameSecret:                     # ESO-managed via OpenBao
       name: keycloak-db-credentials
       key: username
     passwordSecret:
@@ -88,7 +92,27 @@ spec:
   http:
     tlsSecret: keycloak-tls
   hostname:
-    hostname: auth.<domain>
+    hostname: auth.<sovereign-domain>
+```
+
+**SME (`per-organization`)** — one minimal Keycloak per Organization in the Org's namespace on the management cluster:
+
+```yaml
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: keycloak
+  namespace: <org>                     # per-Org namespace
+spec:
+  instances: 1                          # no HA at SME tier
+  db:
+    vendor: postgres                    # or H2/sqlite for the smallest tier
+    host: keycloak-postgres-rw.<org>.svc
+    port: 5432
+    database: keycloak
+    # ... credentials
+  hostname:
+    hostname: auth.<org>.<sovereign-domain>
 ```
 
 ### FAPI Realm Configuration
@@ -193,10 +217,10 @@ sequenceDiagram
 
 ## High Availability
 
-Keycloak runs with:
-- 2+ replicas per region
-- CNPG PostgreSQL with WAL streaming
-- Session replication via Infinispan
+HA shape depends on Catalyst's `keycloakTopology`:
+
+- **`shared-sovereign`** (corporate): 3 replicas behind a Service, CNPG PostgreSQL with WAL streaming to async standby, session replication via Infinispan.
+- **`per-organization`** (SME): single replica, no session replication, restart-on-deploy is acceptable for SME-tier SLAs. Larger SMEs can opt into HA via tier upgrade — same Catalyst CR shape, just bumped `instances`.
 
 ---
 

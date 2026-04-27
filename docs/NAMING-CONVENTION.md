@@ -467,7 +467,9 @@ The **Environment** is the user-facing scope where Applications are installed. L
 {org}-{env_type}
 ```
 
-Examples: `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-dr`, `muscatpharmacy-prod`.
+Examples: `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatpharmacy-prod`.
+
+> **DR is a Placement, not an Env Type.** There is no `dr` env_type — the canonical values are `prod | stg | uat | dev | poc` (§2.4). Disaster-recovery topology is expressed by the Application's Placement spec (`active-active` / `active-hotstandby` across multiple regions) inside the `*-prod` Environment, not by a separate `*-dr` Environment.
 
 ### 11.2 Realization
 
