@@ -284,7 +284,7 @@ Blueprint detail page in console:
   Application       Environment        Version    Status
   ──────────────────────────────────────────────────────
   marketing-site    acme-dev           1.4.0      ● Running   [Open]
-  marketing-site    acme-stg       1.3.0      ● Running   [Open]
+  marketing-site    acme-stg           1.3.0      ● Running   [Open]
   marketing-site    acme-prod          1.2.0      ● Running   [Open]
   blog              acme-prod          1.2.0      ● Running   [Open]
 

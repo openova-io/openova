@@ -63,6 +63,40 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 53 — ARCHITECTURE §8 column alignment (Pass 39 replace_all carry-over); langfuse clean
+
+One fix on docs/ARCHITECTURE.md; langfuse clean.
+
+Acceptance greps clean for all 9 carry-forward categories.
+
+**docs/ARCHITECTURE.md** §8 (Promotion across Environments) line 287 had column-alignment drift introduced by Pass 39's `replace_all acme-staging → acme-stg`. The original 12-char `acme-staging` filled the column padding to align with `acme-dev` (8 chars) and `acme-prod` (9 chars) at the version column. Replacing with the 8-char `acme-stg` saved 4 chars but didn't pad — so "1.3.0" shifted left compared to "1.4.0" and "1.2.0" on adjacent lines.
+
+This is a Pass 39 follow-up: the `replace_all` semantic shortened a string inside a code-block ASCII table without re-padding. PERSONAS-AND-JOURNEYS at L230 had the same Pass 39 fix but I'd done that as a single explicit Edit with proper column padding (`acme-stg           1.3.0` with 11 spaces); ARCHITECTURE used `replace_all` which produced `acme-stg       1.3.0` (7 spaces).
+
+Fixed L287: `acme-stg       ` → `acme-stg           ` (4 added spaces) so all four rows in the §8 mockup table align at the version column.
+
+**Methodology lesson #17**: when using `replace_all` on shorter-replacement-strings inside ASCII tables/code blocks, manually verify column alignment afterward. The drift is invisible to greps (no pattern catches whitespace-alignment in table cells) but visible to readers.
+
+**ARCHITECTURE.md §1-§14 deep re-scan** with all current methodology lenses applied:
+- §1 platform-in-one-paragraph: clean. Concise summary consistent with all canonical docs.
+- §2 Two scales: clean. SME/Corporate distinction matches GLOSSARY/SECURITY §6.
+- §3 Topology: 15-component Catalyst control plane list (line 62-66) matches PTS §2.1+§2.2+§2.3 union (post-Pass 40 fix). Per-host-cluster parenthetical lists 20 components — defensibly omits OpenTofu (bootstrap-only/not running at runtime) since the diagram shows what's running. PTS §3 has 21 (with opentofu); the reference "see PLATFORM-TECH-STACK §3" delegates the canonical full list. Acceptable.
+- §4 Write side: Pass 29 fix `gitea.<location-code>.<sovereign-domain>` intact (L121).
+- §5 Read side / CQRS: explicitly defines `<env> = {org}-{env_type}` (L167) — addresses Pass 30's "documented shorthand" anchoring.
+- §6 Identity and secrets: matches SECURITY.
+- §7 Surfaces (UI/Git/API/NOT-surfaces): matches GLOSSARY.
+- §8 Promotion: had the alignment fix above. EnvironmentPolicy YAML uses canonical `catalyst.openova.io/v1alpha1` ✓.
+- §9 Multi-Application linkage: Blueprint CRD example with depends — clean.
+- §10 Provisioning: 11-component bootstrap kit list matches SOVEREIGN-PROVISIONING §3 ✓.
+- §11 Catalyst-on-Catalyst: bp-catalyst-* component list matches IMPLEMENTATION-STATUS §2 ✓.
+- §12 SOTA principles: Independent-failure-domains entry cites OpenBao Raft per region ✓.
+- §13 OAM influence: clean.
+- §14 Read further: clean.
+
+**platform/langfuse/README.md**: clean. Banner correct (Application Blueprint §4.7 AI Safety/Observability, traces LLM calls in bp-cortex). Integration table consistent (LLM Gateway, Grafana complement, CNPG, NeMo Guardrails). The "Catalyst's general-purpose observability stack (Grafana/OTel) covers infrastructure; LangFuse covers the AI-specific dimensions" sentence correctly distinguishes the per-host-cluster Grafana stack from the Application-level LangFuse Blueprint.
+
+Pass 53 result: **drift found** (1 fix in ARCHITECTURE column alignment). Consecutive-clean count remains 0 (Pass 51 reset, Pass 52 had date fixes, Pass 53 has alignment fix). Convergence trajectory continues — drift is now in increasingly cosmetic territory (column alignment, freshness markers) rather than architectural.
+
 ### Pass 52 — bundled date-sweep + cross-component namespace sweep; knative clean
 
 Four stale-date fixes; cross-component namespace sweep clean across all 5 shared dependencies; knative README clean.
