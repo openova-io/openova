@@ -63,6 +63,26 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 36 — flux deep-scrutiny + sweep gap-fill (5 fixes flux + 1 kyverno)
+
+Pass 35 had a sweep grep with `head -10` cutoff that compromised completeness; Pass 36 ran the same grep without the cutoff and found 6 surviving instances across 2 components.
+
+**platform/flux/README.md** had 5 drift items, all surviving prior passes:
+- **Mermaid diagram L21+L45**: `Tenant[Tenant Repos]` subgraph + arrow — banned term per GLOSSARY. Renamed to `Organization[Organization Repos]`.
+- **L134**: GitRepository url `https://gitea.<domain>/<org>/<component>.git` — Catalyst control-plane DNS placeholder collapse. Pass 35 grep missed this because of the `head -10` truncation. Fixed to `gitea.<location-code>.<sovereign-domain>/...`.
+- **L243**: Bootstrap command `--url=https://gitea.<domain>/openova/flux` — same drift, same root cause (Pass 35 truncation). Fixed.
+- **L258**: Key commands `flux reconcile kustomization tenants` — banned term in CLI example. Renamed to `organizations`. (Pass 34's TENANT sweep was uppercase-only and missed lowercase plural.)
+- **L298**: Gitea Actions notify-flux example `https://flux-webhook.<domain>/hook/...` — Catalyst control-plane DNS missing location-code. Fixed.
+
+**platform/kyverno/README.md** L232: Mermaid subgraph label `subgraph Workload["Tenant Workload"]` — banned term. Renamed to "Organization Workload". (Pass 9/20 deferred kyverno priority-class name renames as a separate K8s-recreate migration; that's still deferred. This Mermaid label is documentation, not a deployed resource name, so it's safe to fix immediately.)
+
+Other findings during Pass 36's complete sweep, all correctly preserved:
+- NAMING-CONVENTION L45 / ARCHITECTURE L195: "multi-tenant" used as a generic adjective describing deployment shape ("multi-tenant deployments") and NATS Accounts feature ("native multi-tenant Accounts"). These describe technology features rather than Catalyst entities — leaving as-is would be defensible, but flagging for future stylistic pass.
+- platform/kyverno priority class names (`tenant-high`, `tenant-default`, `tenant-batch`): K8s PriorityClass renames require recreate-not-rename (Pass 9 deferred); kept.
+- platform/opensearch L356 "complex for multi-tenant setups": refers to OpenSearch's own multi-tenancy feature; external technology terminology.
+
+This is the third validation gap surfaced by a "should have been clean" pass — Pass 22's banner-only scan, Pass 28's read-but-don't-grep approach, Pass 35's `head -10` truncation. The pattern: convenience shortcuts in the validation methodology produce false-clean signals. From this pass forward, drift sweeps must use full grep output (no `head` truncation) and must run the case-insensitive form for banned terms (not just uppercase).
+
 ### Pass 35 — completion sweep for surviving DNS placeholders across component READMEs
 
 Started as gitea + relay atomic check. The gitea fix surfaced 9 surviving instances of the DNS-placeholder collapse across other components — the previous sweeps (Pass 29: canonical docs only, Pass 32: image registries only) hadn't covered cross-component config blocks. This pass closes the gap.

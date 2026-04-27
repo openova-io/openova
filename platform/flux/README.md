@@ -18,7 +18,7 @@ Flux provides GitOps-based continuous delivery with Gitea as the internal Git pr
 flowchart TB
     subgraph Gitea["Gitea (Internal Git)"]
         Components[Component Repos]
-        Tenant[Tenant Repos]
+        Organization[Organization Repos]
     end
 
     subgraph K8s["Kubernetes Cluster"]
@@ -42,7 +42,7 @@ flowchart TB
     end
 
     Components --> Source
-    Tenant --> Source
+    Organization --> Source
     Source --> Kustomize
     Source --> Helm
     Kustomize --> Resources
@@ -131,7 +131,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
-  url: https://gitea.<domain>/<org>/<component>.git
+  url: https://gitea.<location-code>.<sovereign-domain>/<org>/<component>.git
   ref:
     branch: main
   secretRef:
@@ -240,7 +240,7 @@ Feature Branch → PR → main → Flux Sync → Staging → Promote → Product
 ```bash
 # Initial cluster bootstrap (Gitea)
 flux bootstrap git \
-  --url=https://gitea.<domain>/openova/flux \
+  --url=https://gitea.<location-code>.<sovereign-domain>/openova/flux \
   --branch=main \
   --path=clusters/<region> \
   --token-auth
@@ -255,7 +255,7 @@ flux bootstrap git \
 flux get all
 
 # Force reconciliation
-flux reconcile kustomization tenants
+flux reconcile kustomization organizations
 
 # View logs
 flux logs --all-namespaces
@@ -295,7 +295,7 @@ jobs:
         run: |
           curl -X POST \
             -H "Authorization: Bearer ${{ secrets.FLUX_WEBHOOK_TOKEN }}" \
-            https://flux-webhook.<domain>/hook/...
+            https://flux-webhook.<location-code>.<sovereign-domain>/hook/...
 ```
 
 ---
