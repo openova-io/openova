@@ -22,6 +22,7 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 | [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
 | [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
 | [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
+| [`docs/VALIDATION-LOG.md`](docs/VALIDATION-LOG.md) | Trail of doc-integrity validation passes (audit log) |
 
 > **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) for what exists today vs what is design.
 
