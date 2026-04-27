@@ -103,7 +103,7 @@ These apply to stateful components — Application Blueprints (data services) **
 | Neo4j | Application Blueprint | Causal cluster replication | Seconds |
 | MinIO | Per-host-cluster infra | Bucket replication | Minutes |
 | Harbor | Per-host-cluster infra | Registry replication | Minutes |
-| Gitea | Catalyst control plane | Bidirectional mirror + CNPG primary-replica | Seconds |
+| Gitea | Catalyst control plane | Intra-cluster HA replicas + CNPG primary-replica (NOT cross-region mirror — see [platform/gitea/README.md](../platform/gitea/README.md) §"Multi-Region Strategy"). DR for Gitea is via mgt-cluster recovery, not bidirectional sync. | Seconds (intra-cluster only) |
 
 ---
 

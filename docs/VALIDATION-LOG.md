@@ -63,6 +63,32 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 43 — SRE §2.5 Gitea replication row contradicts gitea README; keda clean
+
+One real fix on SRE.md; keda README clean.
+
+Acceptance greps clean for all carry-forward categories including the new vague-placeholder grep from Pass 42.
+
+- **docs/SRE.md §2.5 (Data replication patterns) line 106** had: `| Gitea | Catalyst control plane | Bidirectional mirror + CNPG primary-replica | Seconds |`. This is **direct architectural contradiction** with platform/gitea/README.md, which explicitly rejects bidirectional mirror as a design pattern (gitea README "Multi-Region Strategy" section: *"Catalyst runs **one Gitea per Sovereign** on the management cluster. Cross-region resilience comes from intra-cluster HA (multiple replicas + CNPG primary-replica), not cross-region bidirectional mirror"* + a dedicated "Why not cross-region bidirectional mirror?" subsection citing write-conflict semantics and EnvironmentPolicy enforcement). The §2.5 row teaches the rejected pattern.
+  - Fixed to: `| Gitea | Catalyst control plane | Intra-cluster HA replicas + CNPG primary-replica (NOT cross-region mirror — see platform/gitea/README.md §"Multi-Region Strategy"). DR for Gitea is via mgt-cluster recovery, not bidirectional sync. | Seconds (intra-cluster only) |`. Inline pointer to gitea README keeps the rationale visible at the row.
+
+This is the same drift category Pass 7 caught in component READMEs (OpenBao/ESO/Gitea/Flux active-active patterns) and Pass 26 caught in BUSINESS-STRATEGY (active-active OpenBao language) — but now in SRE.md, the operational handbook. The "active-active for everything stateful" mental model survived in this row even though gitea README and SECURITY.md §5 + multi-region SOVEREIGN-PROVISIONING all rejected it for specific components.
+
+**SRE.md §1-§14 deep re-scan** with Pass 23/40-41/42 lessons applied:
+- §1-§4 (Overview, Multi-region, Progressive delivery, Auto-remediation) — clean apart from §2.5 fix.
+- §5 Secret rotation — clean, matches SECURITY §7.
+- §6 GDPR automation — clean.
+- §7 Air-gap compliance: §7.1 line 256 framing "All Catalyst control-plane components support air-gap" lists Harbor, MinIO, Flux, Velero, Grafana stack, OpenBao, Keycloak — but Harbor/MinIO/Flux/Velero are per-host-cluster infrastructure per PLATFORM-TECH-STACK §3, not Catalyst control plane. The framing is technically incorrect but the content is correct (these all support air-gap). Reads as "Catalyst-managed components" rather than strictly "control-plane components". Borderline drift; flagging for a future stylistic tightening pass rather than fixing now.
+- §8 Catalyst observability — uses `catalyst-grafana` namespace (line 294) which is consistent with the per-Sovereign Catalyst self-monitoring pattern. Note that platform/grafana README + KEDA reference `monitoring` namespace which is the per-host-cluster collector instance — different deployment of the same Grafana stack technology, both correct (dual categorization per Pass 38 lesson).
+- §9 SLOs — clean.
+- §10 GPU operations — clean.
+- §11 Vector DB ops — clean.
+- §12 Alertmanager configuration — Pass 24's URL fixes intact.
+- §13 Incident response — clean.
+- §14 Runbooks — line 513 uses `<org>/runbooks` Gitea path without FQDN. Could be made more precise (`gitea.<location-code>.<sovereign-domain>/<org>/runbooks`) per Pass 42 lesson but the path-style placeholder is unambiguous in context (the reader knows it's a path inside the Sovereign's Gitea). Flagging for optional tightening; not fixing now.
+
+**platform/keda/README.md**: clean. Banner correct (per-host-cluster §3.4). ScaledObject examples consistent — Kafka scaler references `kafka-kafka-bootstrap.databases.svc:9092` (in-cluster K8s service DNS, ✓), Prometheus scaler references `mimir.monitoring.svc:8080/prometheus` (the per-host-cluster Mimir collector, consistent with the dual-categorization Pass 38 documented). VPA + KEDA coordination diagram consistent with PLATFORM-TECH-STACK §3.4.
+
 ### Pass 42 — vague `<sovereign-gitea>` / `<sovereign-domain-gitea>` placeholders across BLUEPRINT-AUTHORING + NAMING; falco clean
 
 Two related fixes on canonical docs; falco clean.
