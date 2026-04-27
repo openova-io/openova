@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 23 — PLATFORM-TECH-STACK §7 categorization slip + §10 fictional bp-siem; litmus clean
+
+PLATFORM-TECH-STACK §6-§11 deep-read found two real fixes; litmus README clean.
+
+- **§7.1 (Resource estimates)** had `Crossplane | ~0.5 GB` listed under "Catalyst control plane" — but Crossplane is per-host-cluster infrastructure per §3.2. The §7.1 table was conflating Catalyst-specific RAM with per-host-cluster overhead also running on mgt. Split into:
+  - §7.1: Catalyst-specific only (added missing SPIRE server row; subtotal corrected to ~11.3 GB).
+  - New §7.4: Per-host-cluster infrastructure overhead with explicit per-component breakdown (Cilium, Flux, Crossplane, cert-manager, ESO, Kyverno, Trivy, Falco, Harbor, MinIO, Velero, small operators) totalling ~8.8 GB per host cluster. Total mgt cluster budget = §7.1 + §7.4 ≈ ~20 GB before SME Keycloak fan-out.
+  - Renamed §7.2 heading to "Per-Organization vcluster (workload regions)" for clarity.
+- **§10 (SIEM/SOAR)** claimed "this pipeline is itself a composite Blueprint (`bp-siem`)" — but `bp-siem` doesn't exist in §5 composite Blueprints. The SIEM pipeline is a *composition of existing Application Blueprints* (Strimzi + OpenSearch + ClickHouse + bp-specter on top of per-host-cluster Falco/Trivy/Kyverno), not a single packaged composite. Reworded to reflect that. Also corrected §10's last sentence to point at the local Grafana stack (per-Sovereign observability) for fallback retention rather than nothing.
+
+platform/litmus/README.md: clean. Banner correct, integration table consistent.
+
 ### Pass 22 — PERSONAS-AND-JOURNEYS Environment name format + librechat clean
 
 - **PERSONAS-AND-JOURNEYS.md §6.3** Environment view example said `Environment: bankdhofar-corp-banking-prod` — implies a Sovereign-Org-EnvType three-segment form. But NAMING §11.1 establishes `{org}-{env_type}`: the Sovereign name is NOT in the Environment name. And §4.2 of this same doc says "Their internal Organizations are `core-banking`, `digital-channels`, `analytics`, `corporate-it`" — so the Org is `core-banking`, and the Environment is `core-banking-prod`. Fixed.

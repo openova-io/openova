@@ -254,23 +254,47 @@ Each region is its own failure domain. OpenBao Raft is **intra-region only**; cr
 
 ## 7. Resource estimates
 
-### 7.1 Catalyst control plane (per Sovereign)
+### 7.1 Catalyst control plane (per Sovereign, on the mgt cluster)
+
+This is the budget for the **Catalyst-specific** layer only — the components in §2. Per-host-cluster infrastructure (§3 — Cilium, Flux, Crossplane, Kyverno, Harbor, etc.) runs on the mgt cluster too, but its budget is in §7.4 below.
 
 | Layer | Approx RAM | Notes |
 |---|---|---|
-| Control-plane services (console, projector, …) | ~3 GB | Several small Go services |
+| Control-plane services (console, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing) | ~3 GB | Several small Go services |
 | NATS JetStream | ~0.5 GB | 3 replicas |
 | OpenBao | ~1.5 GB | 3-node Raft |
-| Keycloak (corporate / shared-sovereign) | ~2 GB | HA, Postgres-backed |
-| Keycloak (SME / per-Org × N orgs) | ~150 MB × N | Single replica each, embedded H2 |
+| Keycloak (corporate / `shared-sovereign`) | ~2 GB | HA, Postgres-backed |
+| Keycloak (SME / `per-organization` × N orgs) | ~150 MB × N | Single replica each, embedded H2 |
 | Gitea | ~1 GB | |
-| Crossplane | ~0.5 GB | |
+| SPIRE server | ~0.3 GB | |
 | Catalyst observability (Grafana stack) | ~3 GB | Grafana, Loki, Mimir, Tempo, Alloy |
-| **Subtotal** | **~12 GB** | for the mgt cluster |
+| **Catalyst-only subtotal** | **~11.3 GB** | for the mgt cluster |
 
-For a single-region SME Sovereign with 100 Orgs: ~12 GB control plane + 100 × 150 MB Keycloak = ~27 GB management host cluster RAM.
+For a single-region SME Sovereign with 100 Orgs: ~11.3 GB Catalyst + 100 × 150 MB Keycloak ≈ ~26 GB Catalyst-only on the management host cluster (before per-host-cluster infrastructure overhead).
 
-### 7.2 Per-Organization vcluster
+### 7.4 Per-host-cluster infrastructure overhead
+
+Adds to **every** host cluster a Sovereign owns (mgt, rtz, dmz):
+
+| Layer | Approx RAM | Notes |
+|---|---|---|
+| Cilium | ~0.5 GB | per node, agents + Hubble |
+| Flux (host-level) | ~0.2 GB | source + kustomize + helm controllers |
+| Crossplane | ~0.5 GB | only on mgt; manages cloud resources for whole Sovereign |
+| cert-manager | ~0.2 GB | |
+| ESO | ~0.2 GB | |
+| Kyverno | ~0.5 GB | |
+| Trivy Operator | ~0.5 GB | |
+| Falco | ~0.5 GB | per node |
+| Harbor | ~3 GB | per host cluster |
+| MinIO | ~1 GB | per host cluster |
+| Velero | ~0.2 GB | |
+| Reloader, VPA, KEDA, k8gb, External-DNS, Sigstore, Syft+Grype, failover-controller | ~1.5 GB combined | small operators |
+| **Per-host-cluster subtotal** | **~8.8 GB** | per host cluster |
+
+**Total mgt cluster RAM** ≈ Catalyst (§7.1) + per-host-cluster (§7.4) ≈ ~20 GB + 100 × 150 MB Keycloak (SME tier with 100 orgs) ≈ ~35 GB.
+
+### 7.2 Per-Organization vcluster (workload regions)
 
 | Layer | Approx RAM |
 |---|---|
@@ -395,9 +419,9 @@ flowchart LR
     Specter -->|Auto-remediate| Detect
 ```
 
-This pipeline is itself a composite Blueprint (`bp-siem`). It is **not** part of the Catalyst control plane — it's an application of the platform. Customers install it when they want SIEM.
+This pipeline is **not** part of the Catalyst control plane — it's a composition of Application Blueprints (Strimzi for transport, OpenSearch for hot SIEM, ClickHouse for cold storage, `bp-specter` for SOAR/correlation) plus per-host-cluster security tooling already there (Falco, Trivy, Kyverno). Customers install OpenSearch + ClickHouse + bp-specter when they want SIEM; the rest is already running.
 
-The control plane's own audit log (commits, RBAC events, SecretPolicy actions) ships to OpenSearch via the same SIEM Blueprint when installed; otherwise it's retained locally with rotation.
+The Catalyst control plane's own audit log (commits, RBAC events, SecretPolicy actions) ships to OpenSearch via this pipeline when the SIEM components are installed; otherwise audit logs are retained in the local Grafana stack with rotation.
 
 ---
 
