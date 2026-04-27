@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 14 — Workflow / Analytics / Metering / Chaos / Valkey (7 components)
+
+7 more Application Blueprint banners landed in a single commit:
+
+- **temporal** (§4.3 Workflow): durable workflow orchestration for `bp-fabric`.
+- **flink** (§4.3 Workflow): stream + batch processing for `bp-fabric`.
+- **debezium** (§4.2 CDC): streams DB row-level changes into Strimzi/Kafka.
+- **iceberg** (§4.4 Lakehouse): open table format on top of MinIO + archival S3.
+- **openmeter** (§4.8 Metering): API metering for `bp-fingate`.
+- **litmus** (§4.9 Chaos): resilience testing required by DORA / NIS2.
+- **valkey** (§4.1 Data): banner explicitly states **NOT a Catalyst control-plane component** — control plane uses NATS JetStream KV per ARCHITECTURE §5 / GLOSSARY's `event-spine`. Valkey is Application-tier caching only. This is the disambiguation that PLATFORM-TECH-STACK §1 establishes ("the same upstream technology can serve in multiple categories") — pinned in the per-component README so it can't be misread.
+
 ### Pass 13 — Communication Application Blueprints (4 components)
 
 All 4 communication Application Blueprints under `bp-relay` got banners pointing at PLATFORM-TECH-STACK §4.5:

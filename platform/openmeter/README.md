@@ -1,8 +1,8 @@
 # OpenMeter
 
-Usage metering for OpenOva Open Banking blueprint.
+Usage metering. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.8 — Identity & metering). Used by `bp-fingate` (Open Banking) to meter API calls per TPP for monetization; available to any Organization that wants per-API-call metering.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

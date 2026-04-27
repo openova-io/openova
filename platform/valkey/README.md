@@ -1,8 +1,12 @@
 # Valkey
 
-Redis-compatible in-memory cache for OpenOva platform.
+Redis-compatible in-memory cache. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1 — Data services).
 
-**Status:** Accepted | **Updated:** 2026-01-18
+> **Important: Valkey is NOT a Catalyst control-plane component.** The Catalyst control plane uses NATS JetStream KV for its own pub/sub + KV needs (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §5 and [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md) — `event-spine`). Valkey is purely an Application-tier cache for Apps that want Redis-compatible caching. The same upstream technology can serve in multiple categories (per PLATFORM-TECH-STACK §1) — Valkey is on the Application side of that split.
+
+Replication via REPLICAOF (per Application's choice; see [`docs/SRE.md`](../../docs/SRE.md) §2.5).
+
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

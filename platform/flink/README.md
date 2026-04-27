@@ -1,8 +1,8 @@
 # Apache Flink
 
-Unified stream and batch processing engine.
+Unified stream and batch processing engine. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.3 — Workflow & processing). Used by `bp-fabric` for stream + batch analytics over Strimzi/Kafka topics, CDC events, and Iceberg tables.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
