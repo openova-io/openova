@@ -63,6 +63,32 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 40 — PLATFORM-TECH-STACK §1 incomplete component lists; iceberg clean
+
+One real fix on PLATFORM-TECH-STACK.md §1 (the canonical summary table); iceberg README clean.
+
+Acceptance greps clean for all carry-forward categories.
+
+PLATFORM-TECH-STACK §1 (Component categorization) summary table had three incomplete component lists vs the detailed §2-§4 sections — drift that survived because earlier passes focused on the detailed sections rather than cross-checking the §1 summary against them.
+
+- **Catalyst control plane row** had 13 items but §2 details 15. Missing: `provisioning` (§2.2 backend service that validates configSchema + commits to Environment Gitea) and `observability` (§2.3 Grafana stack — Catalyst's own self-monitoring). Added both. Also reordered the row to match §2's subsection order (UI surfaces → backend services → supporting services) for easier eyeball cross-checking.
+- **Per-host-cluster infrastructure row** had 16 items but §3 details 21. Missing: `external-dns` (§3.1 networking — registers/deletes DNS records via cloud APIs), `opentofu` (§3.2 — bootstrap-only IaC, archived after Phase 0), `minio` (§3.5 — in-cluster S3 + cold-tier), `velero` (§3.5 — K8s backup/restore), `failover-controller` (§3.6 — multi-region failover orchestration). All five added; opentofu marked `(bootstrap-only)` to prevent the Pass 23-style miscategorization that conflated bootstrap-only with runtime per-host-cluster infra.
+- **Application Blueprints row** had 26 items but §4 details 27. Missing: `anthropic-adapter` (§4.6 OpenAI-to-Anthropic translation Blueprint, member of bp-cortex composite per §5). Added.
+
+§1's summary table is now strictly the union of §2+§3+§4 detail sections — making it a true index. Future passes that touch §1 should be done in concert with §2-§4 to keep them aligned.
+
+Pass 23 lesson explicitly applied: cross-checking summary tables (the "early sections" that were repeatedly reviewed) against the detailed later sections still surfaces drift. The drift here was the inverse of Pass 23's: §6-§11 had drift surviving banner reviews; §1 had drift because the summary list was assumed-correct and never cross-checked against the canonical §2-§4 detailed sections that grew over time.
+
+§2 deep re-scan: clean. §2.1+§2.2+§2.3 component descriptions consistent with GLOSSARY components and ARCHITECTURE §11 dogfooding list. The line "nats-jetstream | Event spine... Apache 2.0" matches the ARCHITECTURE §5 reconciliation that Apache 2.0 is the licence-rationale for NATS over Redpanda.
+
+§3 deep re-scan: clean. Component subsections match the platform/ folder list and IMPLEMENTATION-STATUS §3.
+
+§4 deep re-scan: clean. Application Blueprint subsections (§4.1-§4.9) categorize correctly: data services, CDC, workflow, lakehouse, communication, AI/ML, AI safety, identity/metering, chaos. Each Blueprint reference is to a real `platform/<name>/` folder.
+
+§5 deep re-scan: clean. Composite Blueprint table lists bp-catalyst-platform, bp-cortex, bp-axon, bp-fingate, bp-fabric, bp-relay; mentions bp-specter and Exodus correctly. Each composite's "Composes" list matches the products/<name>/README.md component table.
+
+platform/iceberg/README.md: clean. Banner correct (Application Blueprint §4.4 Data lakehouse, used by bp-fabric). Catalog config + ClickHouse Iceberg engine integration consistent with §4.4 and clickhouse README. The literal `'MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY'` strings in the SQL CREATE TABLE example (line 102-103) are similar to clickhouse README's literal `minioadmin` placeholder — flagged with that for a future security-hardening pass to replace with `<access-key>` / `<secret-key>` placeholders, but not Catalyst architectural drift.
+
 ### Pass 39 — non-canonical `*-staging` env_type drift in ARCHITECTURE + PERSONAS; clickhouse clean
 
 Six fixes across two canonical docs; clickhouse README clean.
