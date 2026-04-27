@@ -63,6 +63,19 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 28 — README + minio drift sweep — clean
+
+Both targets verified against canonical docs; no edits needed.
+
+- **README.md**: Catalyst banner, the model-in-60-seconds box, stack-at-a-glance table, and getting-started block are all consistent with current canonical docs:
+  - "OpenOva (the company) publishes Catalyst (the platform). A deployed Catalyst is called a Sovereign." — matches GLOSSARY.
+  - Stack table: Keycloak "(per-Org for SME, per-Sovereign for corporate)" matches PLATFORM-TECH-STACK §2.1 and Pass 27's TECHNOLOGY-FORECAST fix; OpenBao "(independent Raft per region, no stretched cluster)" matches SECURITY §5; NATS JetStream "(per-Org accounts)" matches Pass 6's reconciliation.
+  - Getting-started "Self-host bp-catalyst-provisioner" matches SOVEREIGN-PROVISIONING §2 ("`catalyst-provisioner` is itself a Blueprint (`bp-catalyst-provisioner`)").
+  - Status caveat referring readers to IMPLEMENTATION-STATUS is consistent with that file's "design vs built" framing.
+- **platform/minio/README.md**: Banner correct (per-host-cluster infrastructure §3.5). Multi-region bucket replication diagram is consistent with SRE.md §6 ("MinIO | Per-host-cluster infra | Bucket replication | Minutes") — bidirectional S3 replication is the canonical pattern for object storage and is NOT the same drift category as OpenBao active-active (the SECURITY §5 prohibition is specifically about secrets needing single-writer Raft per region; object storage replication is fine).
+
+**Pass 28: clean.**
+
 ### Pass 27 — TECHNOLOGY-FORECAST mandatory/à-la-carte categorization vs PLATFORM-TECH-STACK; milvus clean
 
 Two real fixes on TECHNOLOGY-FORECAST; milvus README clean.
