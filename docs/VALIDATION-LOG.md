@@ -63,6 +63,32 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 44 — GLOSSARY + sigstore drift sweep — clean
+
+Both targets verified clean. No edits needed.
+
+Acceptance greps (10 carry-forward checks) all clean. The active-active rejection grep (#10) returned 2 hits — both correct architectural language explaining the rejection (SECURITY §5 header "INDEPENDENT, NOT STRETCHED" and ARCHITECTURE §6 "**No stretched cluster.**") rather than drift.
+
+**docs/GLOSSARY.md** deep re-scan with Pass 40-41 union-equality check applied:
+
+GLOSSARY's "Catalyst components (the control plane)" table has 14 component entries; PLATFORM-TECH-STACK §2 has 15 components across §2.1-§2.3. The apparent count difference is **semantic grouping vs technology naming**, not drift:
+- GLOSSARY uses semantic categories: `identity` (= Keycloak + SPIFFE/SPIRE), `secret` (= OpenBao + ESO), `event-spine` (= NATS JetStream)
+- PTS uses technology names: keycloak, openbao, spire-server, nats-jetstream listed individually
+
+GLOSSARY's `secret` entry conflates OpenBao (control plane proper, §2.3) with ESO (per-host-cluster infrastructure, §3.3) under the "Catalyst control plane" header. This is a logical-grouping choice — the secrets-management subsystem includes both — and reads correctly to users even though architecturally ESO is per-host-cluster. Flagging as a borderline categorization for a future stylistic pass; not Catalyst-architectural drift.
+
+Banned-terms cross-check vs CLAUDE.md (top-level repo): all 11 entries match exactly (Tenant, Operator-as-entity, Client-in-UX, Module, Template, Backstage, Synapse-as-product, Lifecycle Manager, Bootstrap wizard, Workspace, Instance). The "Use instead" column and "Reason" column are consistent across both docs.
+
+Acronyms list (OCI, CRD, CQRS, ESO, SPIFFE/SPIRE, GSLB, PromotionPolicy) covers the Catalyst-specific terms. Generic technical acronyms (JWT, OIDC, mTLS, RBAC, etc.) absent from the list — this is appropriate scope since GLOSSARY isn't a generic tech-acronym dictionary. PromotionPolicy entry correctly notes it as a removed concept replaced by EnvironmentPolicy.
+
+The §"Persona-facing surfaces" table (UI, Git, API, kubectl, Crossplane) matches ARCHITECTURE §7 and PERSONAS-AND-JOURNEYS §2.
+
+Pass 31 had previously declared GLOSSARY clean using carry-forward greps only. Pass 44's union-equality re-check confirms it. The doc's stability across these two reviews is a positive signal — GLOSSARY is the keystone canonical doc and other docs derive their terminology from it; its stability is what allows the validation loop to find drift in other docs.
+
+**platform/sigstore/README.md**: clean. Banner correct (per-host-cluster §3.3). Description correctly identifies sigstore's role: Catalyst CI signs every Blueprint OCI artifact at release, Kyverno's verify-signatures policy denies unsigned/wrong-issuer at admission. Integration table consistent with §3.3 supply-chain stack (Harbor, Kyverno, Gitea Actions, Syft + Grype).
+
+**Pass 44: clean.**
+
 ### Pass 43 — SRE §2.5 Gitea replication row contradicts gitea README; keda clean
 
 One real fix on SRE.md; keda README clean.
