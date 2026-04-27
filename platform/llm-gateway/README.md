@@ -90,7 +90,7 @@ spec:
             - name: AUTH_PROVIDER
               value: "keycloak"
             - name: KEYCLOAK_URL
-              value: "https://keycloak.<domain>/realms/ai-hub"
+              value: "https://keycloak.<location-code>.<sovereign-domain>/realms/<org>"
 ```
 
 ---
@@ -183,10 +183,10 @@ async def check_quota(user_id: str, tier: str) -> bool:
 ```bash
 # Configure Claude Code to use gateway
 export ANTHROPIC_API_KEY="your-subscription-token"
-export ANTHROPIC_BASE_URL="https://llm-gateway.ai-hub.<domain>/v1"
+export ANTHROPIC_BASE_URL="https://llm-gateway.<env>.<sovereign-domain>/v1"
 
 # Or in claude code config
-claude config set api_base "https://llm-gateway.ai-hub.<domain>/v1"
+claude config set api_base "https://llm-gateway.<env>.<sovereign-domain>/v1"
 claude config set api_key "your-subscription-token"
 ```
 

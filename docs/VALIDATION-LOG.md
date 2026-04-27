@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 25 — llm-gateway DNS placeholders + IMPLEMENTATION-STATUS clean
+
+Three placeholder fixes on platform/llm-gateway README; IMPLEMENTATION-STATUS confirmed clean against ARCHITECTURE/SECURITY/BLUEPRINT-AUTHORING.
+
+- **platform/llm-gateway/README.md** — three malformed DNS placeholders:
+  - `KEYCLOAK_URL = https://keycloak.<domain>/realms/ai-hub` — `<domain>` collapses location-code+sovereign-domain (same NAMING §5.1 violation Pass 24 fixed in SRE.md), and realm `ai-hub` (an Application namespace) is the wrong scope: per NAMING §7 highlights and SECURITY §7, Keycloak realms are per-Org in SME-style and per-Sovereign in corporate-style — never per-Application-namespace. Fixed to `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>`.
+  - `claude config set api_base "https://llm-gateway.ai-hub.<domain>/v1"` — Application-Blueprint endpoint pattern per NAMING §5.2 is `{app}.{environment}.{sovereign-domain}`, not `{app}.{namespace}.<domain>`. The `ai-hub` segment was an Application namespace standing in for the Environment slot. Fixed to `https://llm-gateway.<env>.<sovereign-domain>/v1`.
+  - `ANTHROPIC_BASE_URL = https://llm-gateway.ai-hub.<domain>/v1` — same shape problem. Fixed to `https://llm-gateway.<env>.<sovereign-domain>/v1`.
+- **docs/IMPLEMENTATION-STATUS.md**: clean. CRD list (§4) matches BLUEPRINT-AUTHORING and ARCHITECTURE; surfaces (§5) match the agreed UI/Git/API + debug-only kubectl model; control-plane component list (§2.1, §2.2) matches PLATFORM-TECH-STACK §2; Sovereigns running today (§6) accurately marks `openova` as 🚧 (legacy SME marketplace, not yet a Catalyst Sovereign).
+
+Note on llm-gateway image refs (`harbor.<domain>/ai-hub/llm-gateway:latest`): same `<domain>` placeholder shape and `:latest` hygiene appear in many platform/*/README.md examples (anthropic-adapter, debezium, bge, knative, strimzi, temporal, etc.). Treating those as illustrative documentation snippets, not deployable manifests, so leaving them for a dedicated sweep pass — fixing only llm-gateway in isolation would create asymmetric drift.
+
 ### Pass 24 — SRE Alertmanager webhook URL form + livekit clean
 
 One real fix on SRE.md; livekit confirmed clean.
