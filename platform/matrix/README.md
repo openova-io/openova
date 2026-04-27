@@ -1,8 +1,10 @@
 # Matrix/Synapse
 
-Decentralized chat and messaging platform.
+Decentralized chat and messaging using the Matrix protocol (Synapse server implementation). **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5 — Communication). Used by `bp-relay` for team chat with end-to-end encryption and federation.
 
-**Category:** Communication | **Type:** A La Carte
+> "Synapse" here refers to the Matrix server implementation (the chat backend), NOT the deprecated OpenOva product noun (which has been retired in favor of `bp-axon` for the SaaS LLM gateway).
+
+**Category:** Communication | **Type:** Application Blueprint
 
 ---
 

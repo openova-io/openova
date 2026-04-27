@@ -1,8 +1,8 @@
 # LiveKit
 
-Real-time video, audio, and data communication.
+WebRTC SFU for real-time video, audio, and data. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5 — Communication). Used by `bp-relay`. Pairs with STUNner for K8s-native NAT traversal.
 
-**Category:** Communication | **Type:** A La Carte
+**Category:** Communication | **Type:** Application Blueprint
 
 ---
 

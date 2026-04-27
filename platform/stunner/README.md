@@ -1,8 +1,8 @@
 # STUNner
 
-Kubernetes-native WebRTC gateway for OpenOva platform.
+K8s-native TURN/STUN for WebRTC NAT traversal. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5 — Communication). Used by `bp-relay` to make LiveKit (WebRTC SFU) reachable from clients behind NATs.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

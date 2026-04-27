@@ -63,6 +63,17 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 13 — Communication Application Blueprints (4 components)
+
+All 4 communication Application Blueprints under `bp-relay` got banners pointing at PLATFORM-TECH-STACK §4.5:
+
+- **stalwart** — JMAP/IMAP/SMTP self-hosted email.
+- **livekit** — WebRTC SFU; pairs with STUNner.
+- **stunner** — K8s-native TURN/STUN for WebRTC NAT traversal.
+- **matrix** — Matrix protocol via Synapse server. Banner explicitly disambiguates "Synapse" as the chat-server implementation (NOT the deprecated OpenOva product noun, which is retired in favor of `bp-axon`).
+
+All 4 are explicitly Application Blueprints, NOT Catalyst control plane.
+
 ### Pass 12 — AI/ML Application Blueprints (11 components)
 
 All 11 AI/ML component READMEs got role-in-Catalyst banners pointing at PLATFORM-TECH-STACK §4.6 (AI/ML) or §4.7 (AI safety + observability), and noting their composition under `bp-cortex` (the AI Hub composite Blueprint):
