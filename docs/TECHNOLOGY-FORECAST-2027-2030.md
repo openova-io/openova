@@ -61,7 +61,7 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 
 ---
 
-## A La Carte Components (26)
+## A La Carte Components (27)
 
 | Component | 2026 | 2027 | 2030 | Trend | Notes |
 |-----------|------|------|------|-------|-------|

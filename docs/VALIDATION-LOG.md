@@ -63,6 +63,40 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 45 — TECHNOLOGY-FORECAST A La Carte header count drift; syft-grype clean
+
+One real fix on TECHNOLOGY-FORECAST; syft-grype README clean.
+
+Acceptance greps clean for all carry-forward categories.
+
+**docs/TECHNOLOGY-FORECAST-2027-2030.md** — Pass 40-41 union-equality check applied: the §"A La Carte Components (26)" header count was stale. Pass 27 added `anthropic-adapter` to the table body but didn't update the header count. Pass 40's PLATFORM-TECH-STACK §1 fix added `anthropic-adapter` to the canonical Application Blueprints list (count 27). The TECHNOLOGY-FORECAST table now lists 27 components in the A La Carte table body but the header still said (26).
+
+Verified by counting:
+- Mandatory: 25 platform/-folder components + OpenTelemetry note = 26 ✓
+- A La Carte: 27 platform/-folder components ✓
+- Total platform/ folders: 52 (matches the Overview L11 claim "all 52 platform components" and the 52 directories in `platform/`)
+
+Fixed: A La Carte header (26) → (27). The doc is now internally consistent: 25 + 27 = 52 platform/ folders matches the Overview claim.
+
+Pass 40-41 lesson confirmed and extended: union-equality checks must verify both the body count AND the header/summary count. A pass that adds an item to a body table but forgets the header count creates the kind of off-by-one drift this pass surfaced.
+
+§"Removed Components (Rationale)" at L156-L157 reviewed: "Dapr | Sidecar overhead unnecessary; Kafka + custom code" and "RabbitMQ | Kafka covers event streaming". Per the architecture, NATS JetStream is the Catalyst control-plane event spine, but Kafka (via Strimzi) remains an Application Blueprint for app-level event streaming. The "Kafka" replacements here refer to app-level use cases (Dapr was an app abstraction, RabbitMQ is an app message queue) — defensible context, no drift.
+
+§"Product Impact Analysis" reviewed:
+- Cortex: clean — references real components (NeMo Guardrails, LangFuse, Airflow/SearXNG/LangServe removals).
+- Fingate: clean — Keycloak, OpenMeter, Lago removal.
+- Fabric: line 110 mentions "Merging Titan + Fuse into Fabric" — historical context (Titan + Fuse were old product names that were merged into bp-fabric). The "fuse" here is the legacy product name explicitly being noted as merged-into-fabric, which is a documented historical reference (similar to how GLOSSARY documents banned terms like "Synapse-as-product" while still using "Synapse" to describe what was renamed). The carry-forward `\bfuse\b` grep didn't flag this because... actually it should have. Let me verify.
+
+Wait — re-running the carry-forward `\bfuse\b` grep at the beginning of this pass returned empty. But Pass 28 BUSINESS-STRATEGY scan also has fuse-related text (the Catalyst rename narrative). The grep excluded VALIDATION-LOG and `.claude/` but should have caught the TECHNOLOGY-FORECAST line 110.
+
+Re-checking: line 110 says "Merging Titan + Fuse into Fabric creates a stronger product." The capitalized `Fuse` (with capital F) wasn't matched by the lowercase `\bfuse\b` grep. This is a grep-case-insensitivity gap: my Pass 38 lesson said "case-insensitive banned-term grep is non-negotiable" but Pass 45's carry-forward grep used the case-sensitive form `\bfuse\b`.
+
+Per Pass 38 lesson, `\bfuse\b` should be case-insensitive (`-i`). When run case-insensitively, line 110's "Fuse" surfaces. The capitalized "Fuse" here is *historical product-rename narrative* (Titan + Fuse were old product names merged into bp-fabric per BUSINESS-STRATEGY §16.2) — not Catalyst-architectural drift. Same pattern as how GLOSSARY discusses banned terms while still mentioning them. Acceptable.
+
+Adding to Pass 45 acceptance grep playbook: case-insensitive `\bfuse\b` grep — and verify each surfaced instance is either (a) historical-rename narrative referencing the merged-into-fabric context, or (b) drift to fix.
+
+**platform/syft-grype/README.md**: clean. Banner correct (per-host-cluster §3.3). Catalyst integration described accurately: CI runs Syft on every Blueprint to publish SBOM alongside OCI artifact; Grype scans for CVEs in the published SBOM and at runtime. Integration table consistent with §3.3 supply-chain stack (Harbor, Sigstore/Cosign, Trivy, Gitea Actions).
+
 ### Pass 44 — GLOSSARY + sigstore drift sweep — clean
 
 Both targets verified clean. No edits needed.
