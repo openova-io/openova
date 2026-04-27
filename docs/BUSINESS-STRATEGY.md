@@ -186,14 +186,15 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 
 ### 5.1 Named Products
 
+> **Company vs. Platform:** "OpenOva" is the **company**. The **platform** OpenOva ships is called **Catalyst**. A deployed instance of Catalyst is called a **Sovereign**. See [`docs/GLOSSARY.md`](../docs/GLOSSARY.md). Older references to "OpenOva (the platform)" in this document refer to Catalyst.
+
 | Product | Description |
 |---------|-------------|
-| **OpenOva** | The core platform. 52 curated open-source components deployed as a turnkey, production-grade Kubernetes ecosystem. Includes security, observability, GitOps, service mesh, policy engine, supply chain security, DR, and more. |
 | **OpenOva Cortex** | Enterprise AI Hub. LLM serving (vLLM), RAG pipelines (Milvus + Neo4j), AI safety (NeMo Guardrails), LLM observability (LangFuse), chat interfaces (LibreChat). Self-hosted AI infrastructure. |
 | **OpenOva Axon** | SaaS LLM Gateway. The neural link to Cortex. Provides managed AI inference for customers who don't want to invest in GPU infrastructure. Powers Specter agents by default. Routes to Claude, GPT-4, or self-hosted vLLM. |
 | **OpenOva Fingate** | Open Banking product. PSD2/FAPI-compliant fintech sandbox with Keycloak (FAPI authorization), metering (OpenMeter), and 6 custom banking services. Production-ready open banking in hours. |
 | **OpenOva Specter** | AI-powered SOC/NOC agents. Self-healing ecosystem that monitors, detects, correlates, and remediates issues autonomously. DevOps, DevSecOps, SRE, FinOps, and Compliance agents working 24/7. Core built-in capability - not an add-on. |
-| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller, identity, secrets, event spine. Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated control plane. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
+| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes 52 curated open-source components (security, observability, GitOps, service mesh, policy engine, supply chain security, DR, identity, secrets, event spine) plus the Catalyst control plane (console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller). Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated platform. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
 | **OpenOva Exodus** | Structured migration program from proprietary to open source. Like an airline modernizing its fleet - you keep flying while every component gets upgraded. Not lift-and-shift. True modernization with zero downtime. |
 | **OpenOva Fabric** | Data & Integration product. Event-driven data integration and lakehouse analytics built on Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, and ClickHouse. |
 | **OpenOva Relay** | Communication product. Enterprise communication platform with email (Stalwart), video/audio (LiveKit), chat (Matrix/Synapse), and WebRTC (STUNner). |
@@ -201,8 +202,9 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 ### 5.2 Architecture Relationship
 
 ```
-                        OPENOVA
-                    (Core Platform)
+                       CATALYST
+                  (the platform — runs
+                   on every Sovereign)
                          │
       ┌──────────┬───────┼───────┬──────────┐
       │          │       │       │          │
@@ -211,6 +213,10 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
       │                                    │
       └──────────── Axon ─────────────────┘
                (SaaS LLM Gateway)
+
+  Each child is a composite Blueprint (bp-cortex,
+  bp-fingate, bp-fabric, bp-relay, bp-specter)
+  installed on Catalyst via the marketplace.
 ```
 
 **Specter is built-in.** Every OpenOva deployment includes Specter agents. By default, Specter connects to Axon (SaaS) for AI inference. Customers who want full self-hosted capability deploy Cortex and point Specter at their own models.
@@ -531,7 +537,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 > Zero-trust from Day 1. Not aspirational — actual.
 >
-> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Falco for runtime eBPF threat detection. OpenBao per-cluster with ESO PushSecrets for cross-cluster secret sync. Coraza WAF with OWASP Core Rule Set.
+> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Falco for runtime eBPF threat detection. OpenBao runs as an independent Raft cluster in each region with async Performance Replication; ESO syncs secrets to workloads inside the region. SPIFFE/SPIRE issues short-lived (5-minute) workload identities. Coraza WAF with OWASP Core Rule Set.
 >
 > Air-gap capable for sovereign deployments. Compliance-ready for PSD2, DORA, NIS2, SOX.
 >

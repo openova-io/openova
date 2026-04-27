@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 26 — BUSINESS-STRATEGY OpenBao active-active drift + Catalyst/OpenOva conflation; matrix clean
+
+Three real fixes on BUSINESS-STRATEGY; matrix README clean.
+
+- **BUSINESS-STRATEGY.md §8.4 (CISO value prop)** still described "OpenBao per-cluster with ESO PushSecrets for cross-cluster secret sync" — the rejected active-active model. Same drift Pass 7 corrected in OpenBao/ESO/Gitea/Flux component READMEs but never propagated to BUSINESS-STRATEGY. SECURITY §5 establishes per-region independent Raft + async Performance Replication; ESO syncs into the local region only. Fixed; also added the SPIFFE/SPIRE 5-minute SVID detail that fits the CISO message.
+- **BUSINESS-STRATEGY.md §5.1 (Product Family table)** had two product entries that overlapped: "OpenOva: The core platform. 52 curated open-source components..." and "OpenOva Catalyst: The platform itself..." — but per GLOSSARY, OpenOva is the **company**, Catalyst is the **platform**. They are not two different products. Removed the standalone "OpenOva" row, expanded the Catalyst row to absorb its 52-component description, and added a banner above the table explaining the Company/Platform/Sovereign vocabulary so older references in the doc still parse correctly.
+- **BUSINESS-STRATEGY.md §5.2 (Architecture Relationship diagram)** showed `OPENOVA / (Core Platform)` at the top — but this is the same company-vs-platform conflation. Replaced top node with `CATALYST / (the platform — runs on every Sovereign)` and added a footer noting each child is a composite Blueprint installed via the marketplace.
+- **platform/matrix/README.md**: clean. Banner correct, Synapse-vs-bp-axon disambiguation explicit, integration table consistent with bp-relay deployment.
+
 ### Pass 25 — llm-gateway DNS placeholders + IMPLEMENTATION-STATUS clean
 
 Three placeholder fixes on platform/llm-gateway README; IMPLEMENTATION-STATUS confirmed clean against ARCHITECTURE/SECURITY/BLUEPRINT-AUTHORING.
