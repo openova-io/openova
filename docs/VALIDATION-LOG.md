@@ -63,6 +63,16 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 16 — drift-detection sweep (post-convergence)
+
+First post-convergence drift-detection pass. Routine acceptance grep + line-by-line read.
+
+- Acceptance greps: all clean. Hits in `<tenant>` / Catalyst-IDP / github.com/openova / workspace-controller / operator-as-entity grep all came from `VALIDATION-LOG.md` itself documenting the rename history; no actual drift in any source doc.
+- Rotated canonical doc: `docs/GLOSSARY.md` — read end-to-end. Clean. The pipe-char `|` inside the env_type enum (`prod | stg | uat | dev | poc`) is wrapped in backticks so Markdown tables render correctly on GitHub.
+- Rotated component README: `platform/grafana/README.md` — clean. Banner correctly straddles both buckets (per-host-cluster infra in §3, and per-Sovereign observability supporting service in §2.3).
+
+**Pass 16: clean.**
+
 ### Pass 15 — final banner sweep + convergence check
 
 Triage swept all 52 `platform/*/README.md` files for the role-in-Catalyst banner (per CLAUDE.md component-README rule of thumb #2). 4 still lacked one: `cnpg`, `flux`, `opentofu`, `strimzi` (although `opentofu` did have its banner — the keyword grep had been too narrow).
