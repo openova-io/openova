@@ -76,7 +76,7 @@ Valkey supports Redis REPLICAOF for async replication:
 
 ```bash
 # On DR region Valkey
-REPLICAOF primary-valkey.region1.svc.cluster.local 6379
+REPLICAOF valkey.<env>.<sovereign-domain> 6379
 
 # Promote DR to primary (failover)
 REPLICAOF NO ONE

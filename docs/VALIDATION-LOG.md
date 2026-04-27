@@ -63,6 +63,47 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 60 — valkey REPLICAOF bash example (Pass 35 carry-over); NAMING fourth-cycle stable
+
+One fix on platform/valkey/README.md (Pass 35 incomplete in-file fix surfaced); NAMING-CONVENTION fourth-cycle stable.
+
+**FIRST drift in the new cycle.** The 6-consecutive-clean streak ends at Pass 60. However, the drift is a Pass-35 carry-over, not new architectural drift — same "incomplete in-file fix" pattern as Pass 31 (openbao L108 vs L127).
+
+Acceptance greps clean for all 12 carry-forward categories (the surfaced drift wasn't a `<domain>` placeholder; it was a fully-qualified non-canonical hostname `primary-valkey.region1.svc.cluster.local` which doesn't match any of the carry-forward grep patterns).
+
+**docs/NAMING-CONVENTION.md** fourth-cycle deep re-read:
+- §1 Principles: clean. 1.1 Dimension-based naming, 1.2 Don't-repeat-the-parent, 1.3 Building-blocks-not-failover-roles, 1.4 Tags-carry-what-names-cannot, 1.5 Organization-identity-in-vcluster — all consistent with downstream usage.
+- §2 Dimension Taxonomy (2.1 Provider, 2.2 Region, 2.3 Building Block, 2.4 Env Type, 2.5 Organization): clean. 2.4 env_type table matches GLOSSARY L19.
+- §3 Core Patterns: clean.
+- §4 Object-Type Reference: §4.1 location-code example "hfrp" is for `rtz` cluster (h+f+r+p = Hetzner-Falkenstein-rtz-prod), distinct from `hfmp` for mgt cluster — both valid examples for different cluster types, not drift. §4.2-§4.8 (provider/region scope, namespace scope, vcluster scope) all consistent. §4.6 multi-Org pattern correctly establishes namespace-as-Org-parent.
+- §5 DNS Pattern: 5.1 control-plane DNS `{component}.{location-code}.{sovereign-domain}` is the anchor referenced from Pass 24/25/29/32/35/37/42 fixes. 5.2 Application DNS `{app}.{environment}.{sovereign-domain}` is the anchor referenced from Pass 25/31/34/35/41 fixes.
+- §6 Tags and Labels: clean.
+- §7 Multi-Region Architecture and Building Block Symmetry: clean.
+- §8 OpenOva Own Sovereign Naming: clean.
+- §9 Migration Rules: clean.
+- §10 Quick Reference Derivation Algorithm: clean.
+- §11 Catalyst Environment: Pass 50 third-cycle confirmed stable; Pass 60 reconfirms.
+
+NAMING-CONVENTION substantively stable across all sections. Three different drift forms (Pass 37 literal-domain example, Pass 42 vague abstract pattern, Pass 50 + Pass 60 verifications) have been surfaced and resolved across 4 review cycles.
+
+**platform/valkey/README.md L79** had `REPLICAOF primary-valkey.region1.svc.cluster.local 6379` in the bash command example — a non-canonical hostname form. Pass 35 fixed L147 (StatefulSet `--replicaof` argument) to canonical `valkey.<env>.<sovereign-domain>` per NAMING §5.2, but the bash example at L79 retained the older `primary-valkey.region1.svc.cluster.local` form.
+
+Same drift category as Pass 31's openbao L108 (ingress hosts `bao.<domain>` while L127 ClusterSecretStore had canonical `bao.<location-code>.<sovereign-domain>`): a Pass-N fix touched some lines but not others in the same file.
+
+Fixed L79 to `valkey.<env>.<sovereign-domain>` matching L147's canonical Application DNS form.
+
+The valkey README's banner explicitly establishes the **NOT a Catalyst control-plane component** framing (per Pass 26 architectural distinction): "The Catalyst control plane uses NATS JetStream KV for its own pub/sub + KV needs... Valkey is purely an Application-tier cache." This is exemplary canonical framing.
+
+**Methodology lesson #18 confirmed**: Pass-N sweep grep patterns can miss carry-over drift that doesn't match the sweep's specific shape. Pass 35's grep targeted `<domain>` placeholders; the bash example at L79 used a fully-qualified hostname `primary-valkey.region1.svc.cluster.local` which contained no placeholder. The sweep needs additional patterns to catch fully-qualified non-canonical hostnames in the same review.
+
+Pass 60 result: drift found in carry-over territory (not new), but the streak resets.
+
+Convergence trajectory:
+- Pass 54-59 (6 consecutive clean): nirvana approach
+- Pass 60: 1 carry-over fix (Pass 35 incomplete) — streak resets but architectural integrity holds
+
+The new cycle audit is doing its job — surfacing carry-over drift that the old cycle's specific-shape sweeps missed.
+
 ### Pass 59 — GLOSSARY fourth-cycle stable; vpa clean (new cycle Pass 1)
 
 **TENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59). **SIX CONSECUTIVE clean architectural passes** (54 → 55 → 56 → 57 → 58 → 59). 
