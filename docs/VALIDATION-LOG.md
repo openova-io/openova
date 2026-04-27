@@ -63,6 +63,34 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 47 — BUSINESS-STRATEGY stale Updated date; coraza clean
+
+One fix on BUSINESS-STRATEGY; coraza README clean.
+
+Acceptance greps clean for all carry-forward categories (one false positive: BUSINESS-STRATEGY L667 "OpenShift's curated stack ~15 components" — competitor reference, not OpenOva drift).
+
+**docs/BUSINESS-STRATEGY.md** header L3 and footer L1214 both said "Last Updated: 2026-02-26". But Pass 26 (2026-04-27) made substantive architectural fixes to this file (OpenBao active-active drift correction in §8.4, Catalyst/OpenOva conflation resolution in §5.1+§5.2). The stale date misled readers about the doc's current freshness — important for a "Living Document" with explicit currency markers.
+
+Fixed both header and footer to 2026-04-28 (current).
+
+**Date-staleness sweep across canonical docs**: 5 other docs also have stale "Updated: 2026-02-26" dates:
+- products/relay/README.md — last commit predates the validation loop (no architectural edits since); date may be accurate.
+- products/fabric/README.md — Pass 34 TENANT rename (architectural).
+- products/cortex/README.md — Pass 34 TENANT rename + DNS placeholder fixes (architectural).
+- products/fingate/README.md — Pass 34 TENANT rename + 6 URL templates renamed (architectural).
+- docs/TECHNOLOGY-FORECAST-2027-2030.md — Pass 27 mandatory/à-la-carte swap + Pass 45 header count fix (architectural).
+
+Per Pass 47 scope discipline (rotate to BUSINESS-STRATEGY + coraza), updating only BUSINESS-STRATEGY this pass. The 4 other product/forecast files are flagged for date-update sweep in a future pass — bundled together they'd make a good Pass-N atomic commit (5-10 min of work, all mechanical).
+
+**BUSINESS-STRATEGY §1-§16 deep re-scan** with Pass 23/40-41/42/45-46 lessons applied:
+- §1-§13: Pass 26's fixes intact. §5.1 Product Family table has the Company/Platform/Sovereign vocabulary banner. §5.2 architecture diagram shows CATALYST as the platform foundation. §8.4 CISO description uses OpenBao independent-Raft-per-region (not active-active).
+- §14 ROI/TCO: clean. §14.3 Savings Summary numbers consistent with §14.1+§14.2 cost tables.
+- §15 Community: clean.
+- §16 Growth Roadmap: clean. §16.2 Scale phase mentions "self-service deployment via wizard" — uses "wizard" as a generic UX term (deployment-via-wizard UI style), not as a Catalyst product name; GLOSSARY's banned "Bootstrap wizard" is specifically the *separate-product* framing. Acceptable per the same exemption logic as "Go module" (allowed) vs "module" (banned in Catalyst sense).
+- Approximation grep #12 surfaced L667 "~15 components" — referring to OpenShift's component count in the competitive comparison. Not a Catalyst/OpenOva self-claim, so the Pass 46 approximation-drift rule doesn't apply.
+
+**platform/coraza/README.md**: clean. Banner correct (per-host-cluster §3.1, DMZ edge). Integration table consistent with §3.1 networking + §10 SIEM pipeline (Falco, OpenSearch). Deployment example illustrative.
+
 ### Pass 46 — CLAUDE.md inflated platform folder count; README + cert-manager clean
 
 One fix on CLAUDE.md; README and cert-manager clean.
