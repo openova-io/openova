@@ -276,7 +276,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: registry.<domain>/fuse/order-worker:latest
+          image: harbor.<location-code>.<sovereign-domain>/fabric/order-worker:latest
           env:
             - name: TEMPORAL_HOST
               value: temporal-frontend.temporal.svc:7233

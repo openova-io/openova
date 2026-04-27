@@ -65,7 +65,7 @@ spec:
     spec:
       containers:
         - name: bge-m3
-          image: harbor.<domain>/ai-hub/bge-m3:latest
+          image: harbor.<location-code>.<sovereign-domain>/ai-hub/bge-m3:latest
           ports:
             - containerPort: 8080
           env:
@@ -92,7 +92,7 @@ spec:
     spec:
       containers:
         - name: bge-reranker
-          image: harbor.<domain>/ai-hub/bge-reranker:latest
+          image: harbor.<location-code>.<sovereign-domain>/ai-hub/bge-reranker:latest
           ports:
             - containerPort: 8080
           env:

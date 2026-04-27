@@ -65,7 +65,7 @@ spec:
     spec:
       containers:
         - name: adapter
-          image: harbor.<domain>/ai-hub/anthropic-adapter:latest
+          image: harbor.<location-code>.<sovereign-domain>/ai-hub/anthropic-adapter:latest
           ports:
             - containerPort: 8000
           env:

@@ -148,7 +148,7 @@ spec:
   build:
     output:
       type: docker
-      image: harbor.<domain>/debezium/debezium-connect:latest
+      image: harbor.<location-code>.<sovereign-domain>/debezium/debezium-connect:latest
       pushSecret: harbor-registry-credentials
     plugins:
       - name: debezium-postgres

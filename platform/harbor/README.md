@@ -129,7 +129,7 @@ expose:
   ingress:
     className: cilium
     hosts:
-      core: harbor.<domain>
+      core: harbor.<location-code>.<sovereign-domain>
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt-prod
 
@@ -233,7 +233,7 @@ spec:
         pattern:
           spec:
             containers:
-              - image: "harbor.<domain>/*"
+              - image: "harbor.<location-code>.<sovereign-domain>/*"
 ```
 
 ---

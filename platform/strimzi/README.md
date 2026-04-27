@@ -161,7 +161,7 @@ spec:
   build:
     output:
       type: docker
-      image: harbor.<domain>/kafka-connect:latest
+      image: harbor.<location-code>.<sovereign-domain>/kafka-connect:latest
     plugins:
       - name: debezium-postgres
         artifacts:

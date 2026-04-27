@@ -96,7 +96,7 @@ spec:
         autoscaling.knative.dev/max-scale: "10"
     spec:
       containers:
-        - image: harbor.<domain>/my-app:latest
+        - image: harbor.<location-code>.<sovereign-domain>/my-app:latest
           ports:
             - containerPort: 8080
           resources:
@@ -120,7 +120,7 @@ spec:
       name: my-service-v2
     spec:
       containers:
-        - image: harbor.<domain>/my-app:v2
+        - image: harbor.<location-code>.<sovereign-domain>/my-app:v2
   traffic:
     - revisionName: my-service-v1
       percent: 90

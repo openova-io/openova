@@ -69,7 +69,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: harbor.<domain>/ai-hub/llm-gateway:latest
+          image: harbor.<location-code>.<sovereign-domain>/ai-hub/llm-gateway:latest
           ports:
             - containerPort: 8000
           env:

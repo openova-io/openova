@@ -175,7 +175,7 @@ spec:
                 - Pod
       verifyImages:
         - imageReferences:
-            - "harbor.<domain>/*"
+            - "harbor.<location-code>.<sovereign-domain>/*"
           attestations:
             - type: https://cosign.sigstore.dev/attestation/vuln/v1
               conditions:

@@ -63,6 +63,27 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 32 — `harbor.<domain>` / `registry.<domain>` registry-DNS sweep (9 files, 11 instances)
+
+Pass 25's deferred sweep, executed. The pattern: image references with `harbor.<domain>/...` (and one `registry.<domain>/...` in temporal) collapse the location-code segment in the same way Pass 24/25/29 fixes addressed for service URLs. NAMING §5.1 establishes Catalyst per-host-cluster Harbor as `harbor.{location-code}.{sovereign-domain}` (e.g. `harbor.hfmp.openova.io`).
+
+Fixed:
+- platform/anthropic-adapter/README.md L68 — Application image ref.
+- platform/bge/README.md L68 + L95 — bge-m3 + bge-reranker image refs.
+- platform/debezium/README.md L151 — Kafka Connect build output.
+- platform/harbor/README.md L132 (ingress hosts) + L236 (Kyverno image-pattern policy).
+- platform/knative/README.md L99 + L123 — sample knative-serving image refs.
+- platform/llm-gateway/README.md L72 — gateway image ref.
+- platform/strimzi/README.md L164 — Kafka Connect build output.
+- platform/temporal/README.md L279 — `registry.<domain>/fuse/order-worker:latest` had two drift items in one line: the off-spec `registry.<domain>` placeholder (Catalyst's per-host-cluster registry is Harbor — there's no separate `registry` component) AND the legacy product name `fuse` (renamed to `bp-fabric` in BUSINESS-STRATEGY §16.2 / Pass 26). Rewritten to `harbor.<location-code>.<sovereign-domain>/fabric/order-worker:latest`.
+- platform/trivy/README.md L178 — Kyverno verifyImages policy `imageReferences:` glob.
+
+Out of scope (intentional): the `:latest` tag hygiene and the broader question of whether a Catalyst-published Application Blueprint should reference `ghcr.io/openova-io/bp-<name>:<semver>` directly vs the Sovereign's Harbor mirror. Both axes warrant their own pass; this pass strictly fixed the DNS placeholder shape.
+
+Out of scope (correctly): platform/stalwart/README.md `<domain>` placeholders in MX/A/TXT/DKIM/DMARC examples — those refer to the customer's email-receiving domain, not Catalyst control-plane DNS, so the bare `<domain>` is correct. platform/external-dns/README.md `gslb.<domain>` / `api.<domain>` / `svc.<domain>` references — those describe upstream external-dns behavior generically; clarifying them as Catalyst-specific would change their semantic.
+
+Final sweep grep confirms zero remaining `harbor.<domain>` / `registry.<domain>` instances. With Pass 29 (canonical doc DNS sweep), Pass 31 (openbao + librechat carry-over), and now Pass 32 (image registry sweep), the recurring DNS-placeholder collapse drift category is addressed end-to-end.
+
 ### Pass 31 — openbao DNS placeholder + librechat callback URL (Pass 22/29 carry-over); GLOSSARY clean
 
 Two real DNS-placeholder fixes; GLOSSARY confirmed clean.
