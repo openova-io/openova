@@ -193,7 +193,7 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 | **OpenOva Axon** | SaaS LLM Gateway. The neural link to Cortex. Provides managed AI inference for customers who don't want to invest in GPU infrastructure. Powers Specter agents by default. Routes to Claude, GPT-4, or self-hosted vLLM. |
 | **OpenOva Fingate** | Open Banking product. PSD2/FAPI-compliant fintech sandbox with Keycloak (FAPI authorization), metering (OpenMeter), and 6 custom banking services. Production-ready open banking in hours. |
 | **OpenOva Specter** | AI-powered SOC/NOC agents. Self-healing ecosystem that monitors, detects, correlates, and remediates issues autonomously. DevOps, DevSecOps, SRE, FinOps, and Compliance agents working 24/7. Core built-in capability - not an add-on. |
-| **OpenOva Catalyst** | Bootstrap wizard + Day-2 lifecycle manager + IDP. Initiates, provisions, and manages your platform. Exits after bootstrap, continues as in-cluster lifecycle manager and developer portal for upgrades, health, workflows, and compliance reporting. |
+| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Console, marketplace, admin, projector, catalog, blueprint controller, workspace controller, identity, secrets, event spine. Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated control plane. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
 | **OpenOva Exodus** | Structured migration program from proprietary to open source. Like an airline modernizing its fleet - you keep flying while every component gets upgraded. Not lift-and-shift. True modernization with zero downtime. |
 | **OpenOva Fabric** | Data & Integration product. Event-driven data integration and lakehouse analytics built on Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, and ClickHouse. |
 | **OpenOva Relay** | Communication product. Enterprise communication platform with email (Stalwart), video/audio (LiveKit), chat (Matrix/Synapse), and WebRTC (STUNner). |
@@ -620,7 +620,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 | **GITOPS & DEVELOPER PLATFORM** | | | | | | | |
 | GitOps engine | Built-in (Flux) | ArgoCD (add-on) | Fleet | No | No | Custom | DIY |
 | Internal Git server | Built-in (Gitea) | No | No | No | No | No | DIY |
-| Developer portal | Built-in (Catalyst IDP) | RHDH (paid) | No | No | Score | Custom | DIY |
+| Developer portal | Built-in (Catalyst console) | RHDH (paid) | No | No | Score | Custom | DIY |
 | Supply chain security | Built-in (Sigstore + Syft/Grype) | Partial | No | No | No | Custom | DIY |
 | CI/CD | Built-in (Gitea Actions) | Tekton | No | No | No | Custom | DIY |
 | **DATA SERVICES** | | | | | | | |

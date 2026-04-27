@@ -143,7 +143,7 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 
 | Component | Score (2026) | Why Removed |
 |-----------|-------------|-------------|
-| Backstage | 45 | Replaced by Catalyst IDP (integrated into product) |
+| Backstage | 45 | Replaced by Catalyst console (the platform's own developer-facing UI) |
 | MongoDB | 72 | Replaced by FerretDB on CNPG (no SSPL, simpler DR) |
 | Airflow | 33 | Replaced by Flink + OTel (AI generates workflows) |
 | Superset | 40 | AI-generated visualizations replace dashboard tools |
