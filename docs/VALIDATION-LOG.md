@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 27 — TECHNOLOGY-FORECAST mandatory/à-la-carte categorization vs PLATFORM-TECH-STACK; milvus clean
+
+Two real fixes on TECHNOLOGY-FORECAST; milvus README clean.
+
+- **TECHNOLOGY-FORECAST-2027-2030.md** "Mandatory Components" listed `opensearch` and "A La Carte Components" listed `keycloak`, but per PLATFORM-TECH-STACK §2.1, Keycloak is part of the Catalyst control plane (per-Org realms in SME, per-Sovereign realm in corporate — installed on every Sovereign), and per §4.4 + §10, OpenSearch is an Application Blueprint that customers install only when they want the SIEM pipeline (paired with ClickHouse + bp-specter).
+  - Swapped: keycloak moved to Mandatory with note "Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate"; opensearch moved to A La Carte with note "Application Blueprint — opt-in for SIEM (paired with ClickHouse + bp-specter)".
+  - Added a classification-basis banner above the Mandatory section pointing at PLATFORM-TECH-STACK §2/§3/§4 so the document's "Mandatory" / "A La Carte" axis lines up with the architectural categorization in canonical docs.
+- **platform/milvus/README.md**: clean. Banner correct (Application Blueprint, paired with BGE in bp-cortex). Helm values, schema, hybrid search, and partition examples consistent with §4.6 RAG description.
+
 ### Pass 26 — BUSINESS-STRATEGY OpenBao active-active drift + Catalyst/OpenOva conflation; matrix clean
 
 Three real fixes on BUSINESS-STRATEGY; matrix README clean.

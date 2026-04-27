@@ -25,6 +25,8 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 
 ## Mandatory Components (26)
 
+> **Classification basis:** "Mandatory" = installed on every Sovereign — comprises the Catalyst control plane (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2) plus per-host-cluster infrastructure (§3). "A La Carte" below = Application Blueprints (§4) that customers opt into per Environment.
+
 | Component | 2026 | 2027 | 2030 | Trend | Notes |
 |-----------|------|------|------|-------|-------|
 | cert-manager | 95 | 95 | 95 | Stable | TLS automation is evergreen |
@@ -51,7 +53,7 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 | vpa | 78 | 78 | 75 | Stable | Right-sizing is ongoing need |
 | reloader | 80 | 80 | 78 | Stable | Simple operator, high value |
 | failover-controller | 82 | 82 | 80 | Stable | Multi-region failover always needed |
-| opensearch | 50 | 55 | 60 | Rising | Dedicated SIEM role increases relevance |
+| keycloak | 85 | 85 | 85 | Stable | Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate |
 
 ### Note on OpenTelemetry
 
@@ -67,7 +69,7 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 | kserve | 88 | 90 | 90 | Rising | Model serving standardizing |
 | milvus | 88 | 90 | 90 | Rising | Vector search increasingly critical |
 | cnpg | 90 | 90 | 90 | Stable | PostgreSQL operator is proven |
-| keycloak | 85 | 85 | 85 | Stable | Identity is foundational |
+| opensearch | 50 | 55 | 60 | Rising | Application Blueprint — opt-in for SIEM (paired with ClickHouse + bp-specter) |
 | valkey | 85 | 85 | 85 | Stable | Caching is evergreen |
 | nemo-guardrails | 90 | 92 | 93 | Rising | AI safety regulations expanding |
 | langfuse | 90 | 92 | 90 | Rising | LLM observability maturing |
