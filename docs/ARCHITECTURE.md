@@ -24,7 +24,7 @@ The model serves two distinct customer shapes through the **same code**:
         │ Many small Organizations, mostly single-Environment           │
         │ Each Org gets its own minimal Keycloak (no HA)                │
         │ Self-service marketplace, next-next-next install              │
-        │ Sovereign-admins are the SaaS Operator team (Omantel staff)   │
+        │ Sovereign-admins are the SaaS provider's cloud team           │
         └──────────────────────────────────────────────────────────────┘
 
         ┌──────────────────────────────────────────────────────────────┐
@@ -96,9 +96,13 @@ Everything else is identical in code.
 ## 4. Write side: Git → Flux → Kubernetes (+ Crossplane)
 
 ```
-              Console UI       catalystctl (read-only)        REST/GraphQL API
-                  │                    │                              │
-                  ▼                    ▼                              ▼
+                       Console UI                       REST/GraphQL API
+                            │                                    │
+                            │  (Git push from any of these       │
+                            │   bypasses provisioning and goes   │
+                            │   straight to the Gitea repo;      │
+                            │   webhook + projector still fire)  │
+                            ▼                                    ▼
               ┌──────────────────────────────────────────────────────────┐
               │  provisioning service                                    │
               │   - validates configSchema against Blueprint              │
@@ -180,7 +184,7 @@ Everything else is identical in code.
 
 **One spine (JetStream), one read model (JetStream KV), one consumer (projector), one stream (SSE).**
 
-The console **never talks to k8s API or Git directly.** This is the architectural lock that prevents the "App says installed in one tab, failed in another tab" class of bug. Both tabs read the same Valkey snapshot served by the same projector replica.
+The console **never talks to k8s API or Git directly.** This is the architectural lock that prevents the "App says installed in one tab, failed in another tab" class of bug. Both tabs read the same JetStream KV snapshot served by the same projector replica.
 
 JetStream replaces the older Redpanda + Valkey pairing in the control plane: NATS is Apache 2.0 (no BSL risk), has native KV (fewer moving parts), and native multi-tenant Accounts (cleaner per-Org isolation). Application-layer event needs (e.g. TalentMesh's voice pipeline) remain free to choose Redpanda, Kafka, NATS, or anything else — that's an Application-level decision, not a control-plane one.
 
@@ -255,7 +259,7 @@ The API exposes the same operations the console performs. It is **not** an IaC a
 ### 7.4 What's deliberately NOT a surface
 
 - `kubectl` — useful for debugging inside one's own vcluster; never a configuration mechanism.
-- A standalone CLI for production changes — Catalyst exposes a small read-only CLI for support purposes; not for installs/promotions.
+- A standalone CLI for production changes — Catalyst may expose a small read-only debug CLI in the future; not authoritative for installs/promotions.
 - Terraform / Pulumi — Crossplane covers non-K8s; it is platform plumbing, not user-facing.
 
 ---
@@ -387,19 +391,21 @@ bp-catalyst-platform                 ← umbrella
 ├── depends: bp-catalyst-console
 ├── depends: bp-catalyst-marketplace
 ├── depends: bp-catalyst-admin
-├── depends: bp-catalyst-projector
 ├── depends: bp-catalyst-catalog-svc
+├── depends: bp-catalyst-projector
+├── depends: bp-catalyst-provisioning
 ├── depends: bp-catalyst-environment-controller
 ├── depends: bp-catalyst-blueprint-controller
 ├── depends: bp-catalyst-billing
-├── depends: bp-catalyst-gitea
-├── depends: bp-catalyst-nats-jetstream
-├── depends: bp-catalyst-openbao
-├── depends: bp-catalyst-keycloak
-├── depends: bp-catalyst-spire
-├── depends: bp-catalyst-crossplane
-└── depends: bp-catalyst-observability
+├── depends: bp-catalyst-gitea            ← per-Sovereign Git server
+├── depends: bp-catalyst-nats-jetstream   ← event spine + KV
+├── depends: bp-catalyst-openbao          ← secret backend
+├── depends: bp-catalyst-keycloak         ← user identity
+├── depends: bp-catalyst-spire            ← workload identity
+└── depends: bp-catalyst-observability    ← OTel + Grafana stack
 ```
+
+(Cilium, Flux, Crossplane, Cert-manager, Kyverno, Harbor, External-Secrets, Reloader, Falco, Sigstore, Syft+Grype are **per-host-cluster infrastructure**, not Catalyst control-plane components — see [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §1. They get installed once per host cluster, before Catalyst itself.)
 
 Installing `bp-catalyst-platform` once gives you a working Sovereign. Same Blueprint installed on Hetzner = the openova Sovereign. Same Blueprint installed on AWS for a bank = that bank's Sovereign. Same Blueprint installed on Hetzner for a telco = the omantel Sovereign. **One artifact. Zero divergence.**
 
@@ -414,7 +420,7 @@ OpenOva's own customer Applications (Cortex, Fingate, Fabric, Relay, Specter, Ax
 | **CQRS** | Write side: Git → Flux → K8s. Read side: catalog-svc + projector. |
 | **GitOps as truth** | Every state change is a commit. Rollback = `git revert`. Audit = `git log`. |
 | **Event sourcing** | NATS JetStream is the durable event log. Projector replays for recovery. |
-| **CRD-driven control plane** | Sovereign, Organization, Environment, Blueprint, Application, EnvironmentPolicy — all CRDs. Controllers reconcile. |
+| **CRD-driven control plane** | Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook — all CRDs. Controllers reconcile. |
 | **Multi-tenancy at OS layer** | vcluster per Organization per host cluster — isolated K8s API + control plane per Org. |
 | **Crossplane for non-K8s** | All cloud-side resources via Compositions. Users never see Crossplane. |
 | **OCI artifacts for software** | Blueprints are signed OCI manifests, cosigned, SBOMed. |

@@ -153,7 +153,7 @@ Critical: each region runs its **own** Raft cluster. There is no cross-region Ra
 - **Each region has its own self-contained 3-node Raft cluster.** Quorum is **intra-region only** (need 2-of-3 in the same region).
 - **A total Region A failure does NOT require any other region to do anything.** Region B and C continue serving reads from their local replicated data.
 - **Network partition between regions:** each region keeps operating independently. Writes pause on standby regions (since they're read-only by design).
-- **DR promotion is explicit.** Either operator-approved or automated by failover-controller with strict criteria. Not automatic on every blip.
+- **DR promotion is explicit.** Either `sovereign-admin`-approved or automated by failover-controller with strict criteria. Not automatic on every blip.
 
 ### 5.2 Read/write semantics
 
@@ -211,7 +211,7 @@ Sovereign: bankdhofar
 └── ONE Keycloak (HA, 3 replicas, Postgres backend)
     Federates to Bank Dhofar's corporate Azure AD
     │
-    ├── Realm: catalyst-operator (sovereign-admin team)
+    ├── Realm: catalyst-admin (sovereign-admin team)
     ├── Realm: core-banking (Org)
     ├── Realm: digital-channels (Org)
     ├── Realm: analytics (Org)

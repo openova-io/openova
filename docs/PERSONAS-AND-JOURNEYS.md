@@ -13,7 +13,7 @@ How different people use Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for ter
 |---|---|---|---|
 | **P1** | **OpenOva Engineer** | github.com/openova-io | Catalyst codebase, Blueprint repos |
 | **P2** | **`sovereign-admin`** | Catalyst admin UI + Sovereign Gitea | Browser UI, Git, kubectl (debug) |
-| **P3** | **Support Agent** (within a Sovereign Operator team) | Catalyst admin UI in support mode | Browser UI |
+| **P3** | **Support Agent** (within a Sovereign's operations team) | Catalyst admin UI in support mode | Browser UI |
 | **P4** | **`org-admin`** | Org-scoped Catalyst console | Browser UI, occasional Git |
 | **P5** | **SME End User** (e.g. Ahmed, pharmacy owner on Omantel) | Marketplace + the App they installed | Browser only |
 | **P6** | **SME Power User** (e.g. Ahmed's tech-savvy nephew) | Console with Developer mode toggled on | Browser, occasionally Git |
@@ -79,7 +79,7 @@ Day 1 — 14:00
    bill verification (federated identity). Account created.
 4. Catalyst auto-creates: Organization "muscat-pharmacy", Environment
    "muscat-pharmacy-prod", vcluster "muscatpharmacy" on hz-fsn-rtz-prod.
-   Workspace-controller spins up the vcluster in ~60 seconds.
+   Environment-controller spins up the vcluster in ~60 seconds.
 5. Bundle install wizard: 3 simple steps —
    Step 1: subdomain (muscatpharmacy.shop.omantel.com)
    Step 2: business details (form generated from Blueprint configSchema)
@@ -139,7 +139,7 @@ Day 1 — 14:08 — Ahmed is selling.
 
 15:00  New Environment needed for a fraud lab. From the console:
        "New Environment in analytics" → fills name "fraud-lab-dev" →
-       picks "small" topology (1 region, single bb=rtz). Workspace-controller
+       picks "small" topology (1 region, single bb=rtz). Environment-controller
        creates the vcluster, bootstraps Flux, creates Gitea repo. Ready in
        60s. Layla now has a new sandbox.
 

@@ -262,7 +262,7 @@ Inside an Organization's vcluster, each Application gets its own namespace.
 
 Two patterns coexist depending on whether the DNS is for **Catalyst control-plane** services or for **Application** endpoints inside an Organization.
 
-#### Catalyst control-plane DNS (operator domain)
+#### Catalyst control-plane DNS (Sovereign domain)
 
 ```
 {component}.{location-code}.{sovereign-domain}
@@ -394,16 +394,19 @@ hz-fsn-dmz-prod                     hz-hel-dmz-prod
 Management (one per Sovereign, single region recommended)
 ────────────────────────────────────────────────────────────
 hz-nbg-mgt-prod
-  Catalyst control plane (console, projector, marketplace, admin,
-                          catalog-svc, blueprint-controller,
-                          environment-controller)
-  Gitea (Blueprint mirror + per-Org workspaces)
-  NATS JetStream (event spine, per-Org accounts)
-  OpenBao (secrets — one cluster here; sibling clusters in workload regions
-           sync via async perf replication; see SECURITY.md)
-  Keycloak (per-Org realms in SME-style; per-Sovereign realm in corporate)
-  Flux (GitOps for Catalyst itself)
-  Crossplane (manages workload clusters and cloud resources)
+  All Catalyst control-plane components — see PLATFORM-TECH-STACK §2.
+  Highlights:
+    Gitea           (Blueprint catalog mirror + per-Org private Blueprint
+                     repos + per-Environment Gitea repos)
+    NATS JetStream  (event spine + KV; per-Org Accounts)
+    OpenBao         (secrets — primary Raft cluster here; sibling replicas
+                     in each workload region with async perf replication.
+                     Each region's Raft is independent. See SECURITY §5.)
+    Keycloak        (per-Org realms in SME-style; per-Sovereign realm in
+                     corporate-style)
+    SPIRE server    (workload identity)
+  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,
+  cert-manager, Kyverno, Harbor, etc.) — see PLATFORM-TECH-STACK §1.
 ```
 
 When FSN becomes unavailable, `hz-hel-rtz-prod` serves all traffic for Applications with `placement: active-active` or `active-hotstandby`. The cluster name does not change. k8gb removes the FSN endpoint from DNS. Recovery is a routing event, not a renaming event.

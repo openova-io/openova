@@ -29,9 +29,9 @@ How to provision a new **Sovereign** — a self-sufficient deployed instance of 
 The bootstrap is performed by `catalyst-provisioner.openova.io`, an always-on provisioning service operated by OpenOva. It is **not** part of any Sovereign at runtime — once a Sovereign is up, it is fully self-sufficient.
 
 Why a permanent provisioner instead of "boot from your laptop":
-- OpenTofu state must be durably stored — keeping it on a single operator's laptop is fragile and a security risk.
+- OpenTofu state must be durably stored — keeping it on a single person's laptop is fragile and a security risk.
 - Provider credentials are scoped, vault-stored, and never leave the provisioner.
-- New Sovereigns can be created without a manual installer dance — the same machinery serves the next operator.
+- New Sovereigns can be created without a manual installer dance — the same machinery serves the next Sovereign provisioning request, regardless of who initiates it.
 
 A self-host route exists for organizations that want zero OpenOva involvement: `catalyst-provisioner` is itself a Blueprint (`bp-catalyst-provisioner`) and can be deployed in a customer's own infrastructure. From there it bootstraps further Sovereigns. This is the air-gap path.
 
@@ -66,7 +66,7 @@ catalyst-provisioner                          Target cloud (e.g. Hetzner)
    records (via Crossplane)                   console.<sovereign>.<domain>   A
                                               admin.<sovereign>.<domain>     A
 
-4. Keycloak realm provisioning   ─────────►   catalyst-operator realm
+4. Keycloak realm provisioning   ─────────►   catalyst-admin realm
                                               (initial sovereign-admin user)
 
 5. Smoke tests                   ─────────►   Console reachable with TLS
@@ -111,16 +111,16 @@ Day-1 actions
 1. Configure cert-manager issuers (Let's Encrypt / corporate CA).
 2. Configure backup destination (cloud object storage for Velero).
 3. Configure Harbor with image-scanning policies.
-4. (Optional) Federate Keycloak's catalyst-operator realm to corporate IdP.
+4. (Optional) Federate Keycloak's catalyst-admin realm to corporate IdP.
 5. (Optional) Configure observability exports (SIEM, datadog, etc.).
 6. Onboard the first Organization:
      Catalyst console → Admin → Organizations → New
      Provide: name, contact, plan.
-   Workspace-controller does NOT create vclusters yet.
+   Environment-controller does NOT create vclusters yet.
    They are created when the first Environment is provisioned.
 7. Create the first Environment in that Organization:
      Console → switch to Org context → Environments → New
-     Workspace-controller spins up a vcluster on the chosen host cluster.
+     Environment-controller spins up a vcluster on the chosen host cluster.
      Bootstraps Flux inside, creates Gitea repo, wires webhook.
      Ready in ~60 seconds.
 ```
@@ -232,7 +232,7 @@ Rare but supported. Example: a Bank Dhofar Organization started life on the open
        - Keycloak realm export (users, federated identities)
        - OpenBao export (sealed secrets only)
 3. On bankdhofar Sovereign: Admin → Organization → Import
-     Workspace-controller recreates Environments → vclusters.
+     Environment-controller recreates Environments → vclusters.
      Flux pulls manifests, reconciles.
      Apps come up.
 4. Final cutover: DNS swap.

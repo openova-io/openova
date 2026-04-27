@@ -485,7 +485,7 @@ route:
 |---|---|---|
 | Console unreachable | P1 | Check Cilium Gateway, console pods, projector pods |
 | Gitea unreachable | P1 | Check Gitea pods, CNPG primary, NetworkPolicy |
-| Workspace-controller stuck | P1 | Check controller logs, Crossplane provider auth |
+| Environment-controller stuck | P1 | Check controller logs, Crossplane provider auth |
 | OpenBao sealed | P1 | Auto-unseal SPIRE — verify SPIRE server health |
 | JetStream consumer lag | P2 | Add consumer replica, check disk pressure |
 | projector lag | P2 | Check JetStream consumer status, projector replicas |
