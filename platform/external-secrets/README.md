@@ -90,7 +90,7 @@ metadata:
 spec:
   provider:
     vault:
-      server: "https://openbao.<domain>"
+      server: "https://openbao.<location-code>.<sovereign-domain>"
       path: "secret"
       version: "v2"
       auth:
@@ -233,7 +233,7 @@ metadata:
   name: component
   namespace: flux-system
 spec:
-  url: https://gitea.<domain>/<org>/component.git
+  url: https://gitea.<location-code>.<sovereign-domain>/<org>/component.git
   secretRef:
     name: gitea-token  # ESO-managed
 ```

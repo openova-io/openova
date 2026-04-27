@@ -167,7 +167,7 @@ spec:
   ingress:
     ingressClassName: cilium
     rules:
-      - host: app.gslb.<domain>
+      - host: app.gslb.<sovereign-domain>
         http:
           paths:
             - path: /

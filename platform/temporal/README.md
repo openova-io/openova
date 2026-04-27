@@ -144,7 +144,7 @@ temporal:
     ingress:
       enabled: true
       hosts:
-        - temporal.fuse.<domain>
+        - temporal.<env>.<sovereign-domain>
 
   prometheus:
     enabled: true

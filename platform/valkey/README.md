@@ -144,7 +144,7 @@ spec:
             - --maxmemory
             - 2gb
             - --replicaof
-            - valkey.region1.<domain>
+            - valkey.<env>.<sovereign-domain>
             - "6379"
             - --masterauth
             - $(MASTER_PASSWORD)

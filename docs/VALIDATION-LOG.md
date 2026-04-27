@@ -63,6 +63,33 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 35 — completion sweep for surviving DNS placeholders across component READMEs
+
+Started as gitea + relay atomic check. The gitea fix surfaced 9 surviving instances of the DNS-placeholder collapse across other components — the previous sweeps (Pass 29: canonical docs only, Pass 32: image registries only) hadn't covered cross-component config blocks. This pass closes the gap.
+
+The recurring pattern at this stage is no longer "single placeholder shape ${X}" but the broader category of any `<domain>` placeholder that should resolve to a Catalyst-canonical FQDN form (control-plane: `{component}.<location-code>.<sovereign-domain>`; Application: `{app}.<env>.<sovereign-domain>`). After Pass 32 cleared `harbor.<domain>` and `registry.<domain>` shapes, what remained was a long tail of one-off placeholder forms: `openbao.<domain>`, `gitea.<domain>`, `valkey.region1.<domain>`, etc.
+
+Fixes:
+
+- **platform/gitea/README.md** L165 — Gitea Actions runner `GITEA_INSTANCE_URL: https://gitea.<domain>` → `gitea.<location-code>.<sovereign-domain>`. Catalyst control-plane DNS shape.
+- **platform/external-secrets/README.md** L93 — `https://openbao.<domain>` (ClusterSecretStore vault server) → `openbao.<location-code>.<sovereign-domain>`. Same shape Pass 31 fixed in openbao README itself.
+- **platform/external-secrets/README.md** L236 — `https://gitea.<domain>/<org>/component.git` (Flux GitRepository) → `gitea.<location-code>.<sovereign-domain>/<org>/component.git`.
+- **platform/temporal/README.md** L147 — `temporal.fuse.<domain>` had two drift items: the old "fuse" name (renamed to "fabric" per BUSINESS-STRATEGY §16.2 / Pass 26 / and corrected in Pass 32 for the image ref on the same file but missed here), AND the wrong DNS placeholder shape. Per NAMING §5.2 Application DNS is `{app}.<env>.<sovereign-domain>`. Fixed to `temporal.<env>.<sovereign-domain>` (drops the legacy product-namespace segment in favor of the canonical Application DNS form).
+- **platform/valkey/README.md** L147 — replication peer `valkey.region1.<domain>` → `valkey.<env>.<sovereign-domain>`. The `region1` segment was a non-canonical placeholder that doesn't fit either NAMING §5.1 or §5.2 — Catalyst encodes regions in the location-code, and cross-region Application access goes through k8gb-routed Application DNS.
+- **platform/strimzi/README.md** L188 — Kafka MirrorMaker source `kafka-kafka-bootstrap.region1.<domain>:9092` → `kafka-kafka-bootstrap.<env>.<sovereign-domain>:9092`. Same `region1` segment issue.
+- **platform/cnpg/README.md** L122 — CNPG cross-region replica `host: postgres.region1.<domain>` → `postgres.<env>.<sovereign-domain>`. Same.
+- **platform/stunner/README.md** L105 — STUN/TURN realm `stunner.<domain>` → `stunner.<env>.<sovereign-domain>`. STUN realms are nominally opaque strings, but using the canonical Application DNS form keeps the Sovereign-namespacing consistent.
+- **platform/k8gb/README.md** L170 — Gslb resource ingress host `app.gslb.<domain>` → `app.gslb.<sovereign-domain>`. The `gslb.<sovereign-domain>` subdomain is Sovereign-specific; k8gb's other illustrative refs in the same file (L237-L238 dnsZone/edgeDNSZone, L359/L384 nslookup commands) are intentionally generic upstream-doc-style and remain unchanged.
+
+- **products/relay/README.md**: clean. Banner concise; component table consistent with bp-relay membership in PLATFORM-TECH-STACK §5; deployment example illustrative.
+
+Out of scope (correctly preserved):
+- platform/external-dns/README.md L117/L125-127/L136 — describe external-dns BEHAVIOR generically with `gslb.<domain>` / `api.<domain>` / `svc.<domain>` examples; not Sovereign-specific.
+- platform/cert-manager/README.md `<domain>` instances — `admin@<domain>` (ACME contact) and `"*.<domain>"`, `"<domain>"` (cert subject names) refer to whatever domain the customer is requesting cert for; generic.
+- platform/stalwart/README.md `<domain>` instances — customer email-receiving domain (acknowledged in Pass 32).
+
+This is the third end-to-end DNS sweep iteration (29 → 32 → 35) and finally surfaces the long tail. Each iteration was prompted by a different category appearing during a different starting-pass; no single greppable pattern would have caught all of them at once because the placeholder shapes vary (`<sovereign>.<domain>` / `<sovereign-domain>` / `<domain>` / `harbor.<domain>` / `region1.<domain>` / `fuse.<domain>`). Future passes should grep specifically for `<domain>` (the bare form) early to flag any new instances introduced during edits.
+
 ### Pass 34 — banned-term `TENANT` sweep across products + platform/keycloak hostname drift
 
 Started as cortex + keycloak atomic check; expanded into a sweep when the banned-term grep surfaced TENANT instances across multiple product READMEs. Three product files corrected.

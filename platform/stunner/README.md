@@ -102,7 +102,7 @@ metadata:
   name: stunner-config
   namespace: stunner
 spec:
-  realm: stunner.<domain>
+  realm: stunner.<env>.<sovereign-domain>
   authType: longterm
   userName: stunner
   password:

@@ -185,7 +185,7 @@ spec:
   connectCluster: "region2"
   clusters:
     - alias: "region1"
-      bootstrapServers: kafka-kafka-bootstrap.region1.<domain>:9092
+      bootstrapServers: kafka-kafka-bootstrap.<env>.<sovereign-domain>:9092
       tls: {}
     - alias: "region2"
       bootstrapServers: kafka-kafka-bootstrap.databases.svc:9092

@@ -119,7 +119,7 @@ spec:
   externalClusters:
     - name: <org>-postgres
       connectionParameters:
-        host: postgres.region1.<domain>
+        host: postgres.<env>.<sovereign-domain>
         user: streaming_replica
       password:
         name: pg-replica-credentials

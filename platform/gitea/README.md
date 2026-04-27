@@ -162,7 +162,7 @@ spec:
           image: gitea/act_runner:latest
           env:
             - name: GITEA_INSTANCE_URL
-              value: https://gitea.<domain>
+              value: https://gitea.<location-code>.<sovereign-domain>
             - name: GITEA_RUNNER_REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
