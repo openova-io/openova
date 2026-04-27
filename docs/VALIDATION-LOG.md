@@ -63,6 +63,58 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 58 — velero clean — 🎯 NIRVANA APPROACH THRESHOLD MET
+
+**NINTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58). **FIVE CONSECUTIVE clean architectural passes** (54 → 55 → 56 → 57 → 58). **Per the user's stated convergence target (5 consecutive clean passes), the validation loop has reached the nirvana approach state.**
+
+Acceptance greps clean for all 12 carry-forward categories. Cross-component namespace consistency verified by direct grep (the earlier sed-based extraction in this pass had a bug; the actual reference data confirms 10/10 minio in `storage`, 3/3 strimzi-kafka-bootstrap in `databases`, etc.).
+
+**platform/velero/README.md**: clean. Banner explicitly establishes:
+- Per-host-cluster infrastructure §3.5 ✓
+- "Backups land in cloud archival storage (Cloudflare R2 / AWS S3 / etc.), not in MinIO (which is fast-tier in-cluster)" — clear architectural framing
+- The §"Why Archival S3?" section explicitly distinguishes MinIO (fast in-cluster, **No** for backup) from Archival S3 (external cold storage, **Yes**) — preventing the natural reader-confusion of "Velero backs up to MinIO since both are S3-compatible"
+- BackupStorageLocation YAML examples for Cloudflare R2, AWS S3, GCP GCS — clean
+- Multi-region backup pattern (both regions can back up to same bucket with different prefixes) — clean
+
+**Pass 58: clean.** 
+
+---
+
+## Validation Convergence — Nirvana Approach State
+
+The validation loop reached the user's stated convergence target at Pass 58. Summary:
+
+**Total passes**: 58 (Pass 1 = canonical doc rewrite; Passes 2-58 = drift-detection + correction).
+
+**Drift categories closed end-to-end** (verified by Pass 56 final aggregate sweep + Pass 58 confirmation):
+1. Bare `<domain>` placeholder collapse → all canonical
+2. Literal-domain Catalyst-control-plane drift → all canonical
+3. Vague composite placeholders (`<sovereign-domain-X>`, `<sovereign-X>`) → all replaced with canonical FQDN form
+4. Banned-term `tenant`/`Tenant`/`TENANT` → all renamed to Organization
+5. Banned-term `Workspace` → all renamed to Environment / environment-controller
+6. Legacy product names (`fuse`, `Synapse-as-product`) → fixed everywhere except documented historical-rename narratives
+7. Long-form env_type (`*-staging`/`-production`/`-development`) → canonical 3-char `*-stg`/`-prod`/`-dev`
+8. Helm-default namespaces (`minio-system`, `messaging`) → Catalyst-canonical (`storage`, `databases`)
+9. Active-active drift on rejecting components (Gitea/OpenBao/JetStream "no stretched cluster" / "no bidirectional mirror") → all corrected
+10. Bare `openova.io/` API group → either `catalyst.openova.io` (Catalyst CRDs) or `compose.openova.io` (Crossplane XRDs)
+11. Header-count vs body-count for `## X (N)` patterns → all union-equal
+12. Approximation drift (e.g., `~60 folders` for 52) → all corrected
+13. Stale `Updated:` dates → all docs with architectural edits since refreshed to 2026-04-28
+14. Cross-component namespace consistency for shared dependencies → each shared service uses exactly ONE canonical namespace
+15. OpenTofu vs Terraform canonical naming (Catalyst's bootstrap IaC) → all references say OpenTofu where applicable
+16. Catalyst-vs-OpenOva company/platform separation → Pass 26's §5.1 banner disclaimer covers historical references; new uses are canonical
+
+**Architectural fixes verified intact** (every Pass 7+ fix held end-to-end through the final aggregate sweep at Pass 56 + reconfirmation at Pass 58).
+
+**Convergence trajectory**:
+- Pass 24-37 (14): ~93% drift rate
+- Pass 38-43 (6): 100% drift rate
+- Pass 44-50 (7): ~57% drift rate
+- Pass 51-53 (3): 100% drift (cosmetic only)
+- Pass 54-58 (5): **0% drift rate** ✓
+
+**Per user's standing instruction** ("when you believe you're done, restart from the top"): Pass 59+ should begin a new full-cycle audit starting from GLOSSARY, applying all 17 lessons accumulated in this validation cycle. The drift discovery rate may rise again in the new cycle as components touched only in early-batch passes (Pass 12 AI/ML batch, Pass 13 Communication batch, Pass 14 Workflow/Analytics batch) get re-scrutinized with the methodology developed across passes 15-58.
+
 ### Pass 57 — BUSINESS-STRATEGY third-cycle stable; reloader clean
 
 Both targets verified clean. **EIGHTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57). **FOUR consecutive clean architectural passes** (54 → 55 → 56 → 57). One more clean pass meets the 5-consecutive nirvana threshold.
