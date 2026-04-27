@@ -17,11 +17,11 @@ A Blueprint is:
 - A **CRD manifest** (`blueprint.yaml`) declaring its identity, configSchema, placementSchema, dependencies, and pointers to its manifests.
 - A **set of manifests** (Helm chart, Kustomize base + overlays, or raw YAML) that get applied when the Blueprint is installed as an Application.
 - A **set of Crossplane Compositions** (optional) for any non-Kubernetes resources the Blueprint provisions.
-- A **CI pipeline** that signs the artifact (cosign), generates an SBOM (Syft), publishes to OCI registry (`ghcr.io/openova-io/<name>:<semver>`), and tags a release.
+- A **CI pipeline** that signs the artifact (cosign), generates an SBOM (Syft), publishes to OCI registry (`ghcr.io/openova-io/bp-<name>:<semver>`), and tags a release.
 
 One Blueprint = one card in the marketplace (when `visibility: listed`).
 
-> **Why monorepo for public Blueprints**: a single repository is simpler to govern, gives one consistent CI pipeline shape across all components, and avoids the per-repo overhead of permissions, settings, and dependabot config. Per-Blueprint isolation is provided at the **OCI artifact** layer, not the Git repo layer — `ghcr.io/openova-io/<name>:<semver>` artifacts are independently versioned, signed, and consumed.
+> **Why monorepo for public Blueprints**: a single repository is simpler to govern, gives one consistent CI pipeline shape across all components, and avoids the per-repo overhead of permissions, settings, and dependabot config. Per-Blueprint isolation is provided at the **OCI artifact** layer, not the Git repo layer — `ghcr.io/openova-io/bp-<name>:<semver>` artifacts are independently versioned, signed, and consumed.
 
 ---
 
@@ -320,7 +320,7 @@ metadata:
   name: postgres-database.bp-wordpress
 spec:
   compositeTypeRef:
-    apiVersion: bp-wordpress.openova.io/v1alpha1
+    apiVersion: compose.openova.io/v1alpha1   # shared XRD group across Blueprints
     kind: PostgresDatabase
   resources:
     - name: hetzner-postgres-instance
@@ -358,7 +358,7 @@ Org-private Blueprints live in the Org's `shared-blueprints` Gitea repo, which o
 ## 10. Versioning
 
 - Semver (`MAJOR.MINOR.PATCH`).
-- Each release publishes a signed OCI artifact at `ghcr.io/openova-io/<name>:<version>`.
+- Each release publishes a signed OCI artifact at `ghcr.io/openova-io/bp-<name>:<version>` (where `<name>` is the folder name; the `bp-` prefix is added to the OCI artifact name to make it self-identifying as a Catalyst Blueprint).
 - The Blueprint declares which prior versions are upgrade-compatible (`upgrades.from`).
 - Customers pin to a version in their Application's `kustomization.yaml`. Upgrades are explicit (one-click in console, or a `git push` editing the version pin).
 
@@ -384,8 +384,8 @@ jobs:
     - render Helm chart / Kustomize → OCI artifact
     - syft generate SBOM
     - cosign sign artifact + SBOM
-    - push to ghcr.io/openova-io/<name>:<tag>
-    - publish blueprint.yaml as the manifest
+    - push to ghcr.io/openova-io/bp-<name>:<tag>
+    - publish blueprint.yaml as the OCI manifest's metadata layer
 ```
 
 Catalyst's `blueprint-controller` watches the GHCR catalog and registers new versions automatically — they appear in the marketplace within seconds of a successful release.
@@ -423,7 +423,7 @@ If an Org's private Blueprint would be useful to other customers, they can contr
 3. Open PR against main.
 4. OpenOva engineers review for security, reusability, license, supply-chain (cosign,
    SBOM, dependency licenses, secret hygiene).
-5. Merge → CI signs and publishes ghcr.io/openova-io/<name>:<semver>.
+5. Merge → CI signs and publishes ghcr.io/openova-io/bp-<name>:<semver>.
 6. blueprint-controller in every Sovereign's Catalyst picks it up on next mirror sync.
 ```
 

@@ -30,7 +30,7 @@ The bootstrap is performed by `catalyst-provisioner.openova.io`, an always-on pr
 
 Why a permanent provisioner instead of "boot from your laptop":
 - OpenTofu state must be durably stored — keeping it on a single person's laptop is fragile and a security risk.
-- Provider credentials are scoped, vault-stored, and never leave the provisioner.
+- Provider credentials are scoped, stored in OpenBao on the provisioner, and never leave it.
 - New Sovereigns can be created without a manual installer dance — the same machinery serves the next Sovereign provisioning request, regardless of who initiates it.
 
 A self-host route exists for organizations that want zero OpenOva involvement: `catalyst-provisioner` is itself a Blueprint (`bp-catalyst-provisioner`) and can be deployed in a customer's own infrastructure. From there it bootstraps further Sovereigns. This is the air-gap path.

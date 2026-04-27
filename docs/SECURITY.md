@@ -65,7 +65,7 @@ Static secrets (API tokens, passwords, signing keys, OAuth client secrets) live 
               │
               │  ┌──────────────────────────────────────────────┐
               │  │  ExternalSecret CR in Git, in the Environment │
-              │  │  repo. References path in OpenBao.           │
+              │  │  Gitea repo. References path in OpenBao.     │
               │  └──────────────────────────────────────────────┘
               │                          │
               │                          ▼
@@ -317,12 +317,12 @@ If a secret is ever leaked via terminal output (a misconfigured `kubectl describ
 
 | Standard | Catalyst posture |
 |---|---|
-| **SOC 2 Type 2** | Audit logging in JetStream + OpenSearch SIEM cold storage. SecretPolicy enforces rotation. ChangePolicy enforces approvals. |
+| **SOC 2 Type 2** | Audit logging in JetStream + OpenSearch SIEM cold storage. SecretPolicy enforces rotation. EnvironmentPolicy enforces approvals. |
 | **PSD2 / FAPI** | Fingate Blueprint composes Keycloak (FAPI authorization), eIDAS cert verification, ext_authz. |
 | **DORA** | Resilience testing via Litmus chaos Blueprint. Multi-region by default for regulated tier. |
 | **NIS2** | Falco runtime detection + OpenSearch SIEM + Kyverno policy + supply-chain (cosign + Syft+Grype). |
 | **GDPR** | Per-region data residency via Placement spec. Right-to-be-forgotten flow defined per Application Blueprint. |
-| **ISO 27001** | Mappings published per control; Catalyst's compliance-controller surfaces evidence. |
+| **ISO 27001** | Mappings published per control; evidence surfaced via Catalyst console audit views and SIEM exports. |
 
 Every Sovereign exports its audit log to a customer-specified SIEM. Default: OpenSearch in the Sovereign itself; customers may push to external Splunk, Datadog SIEM, etc.
 
