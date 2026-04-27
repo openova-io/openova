@@ -1,8 +1,8 @@
 # Vertical Pod Autoscaler (VPA)
 
-Automated resource right-sizing for OpenOva platform.
+Automated resource right-sizing. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.4) — runs on every host cluster a Sovereign owns.
 
-**Status:** Accepted | **Updated:** 2026-01-16
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

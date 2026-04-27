@@ -1,8 +1,8 @@
 # ExternalDNS
 
-DNS synchronization for OpenOva platform.
+DNS synchronization (registers/deletes records via cloud DNS APIs). Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs on every host cluster, primarily on the DMZ block. Pairs with k8gb (which serves the GSLB zone authoritatively) — ExternalDNS handles non-GSLB records and the parent zone delegation.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

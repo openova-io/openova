@@ -1,8 +1,10 @@
 # OpenTofu
 
-Infrastructure as Code for OpenOva Kubernetes platform (bootstrap only). Drop-in replacement for Terraform with MPL 2.0 license.
+Bootstrap Infrastructure as Code (one-shot). Used by Catalyst Phase 0 (see [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) §3) to provision the initial cloud resources for a new Sovereign — VPC, host nodes, load balancers, DNS records, object storage. After Phase 0, OpenTofu state is archived; Crossplane (running inside the new Sovereign) takes over all subsequent infrastructure changes. **OpenTofu is NOT installed on host clusters at runtime** — it lives on the always-on `catalyst-provisioner` only.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+Drop-in replacement for Terraform with MPL 2.0 license.
+
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
@@ -179,11 +181,11 @@ flowchart TB
 
 **No SOPS:** All secrets handled via interactive bootstrap.
 
-1. **Bootstrap Wizard** prompts for cloud credentials
-2. Creates tofu.tfvars locally (not committed to Git)
-3. Provisions infrastructure
-4. Initializes OpenBao with generated unseal keys
-5. ESO PushSecrets sync to both regional OpenBao instances
+1. **Catalyst Bootstrap (Phase 0)** prompts for cloud credentials.
+2. Creates `tofu.tfvars` locally on the provisioner (never committed to Git).
+3. Provisions infrastructure.
+4. Initializes OpenBao with generated unseal keys (saved offline by the sovereign-admin).
+5. After Phase 0, all secret writes go to the **primary** OpenBao region only; replicas pick up via async perf replication. See [`docs/SECURITY.md`](../../docs/SECURITY.md) §5.
 
 See [External Secrets README](../external-secrets/README.md) for full details.
 

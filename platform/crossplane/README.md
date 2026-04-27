@@ -1,8 +1,10 @@
 # Crossplane
 
-Day-2 cloud resource provisioning for OpenOva platform.
+Day-2 cloud resource provisioning for Catalyst. Per-Sovereign on the management cluster (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.2) — manages all non-Kubernetes resources for the entire Sovereign (host clusters, VPCs, DNS records, S3 buckets, third-party SaaS).
 
-**Status:** Accepted | **Updated:** 2026-01-17
+> **Crossplane is platform plumbing, never a user-facing surface.** Users see "needs a database, pick existing or new" in the Catalyst console; Blueprint authors write Compositions; advanced users (sovereign-admins, OpenOva engineers) contribute Compositions upstream as Blueprints. End users do NOT write Crossplane Compositions in their Application configs. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4 / §7 (the "no fourth surface" rule) and [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §8.
+
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

@@ -1,8 +1,8 @@
 # KEDA
 
-Event-driven horizontal autoscaling for OpenOva platform.
+Event-driven horizontal autoscaling, scale-to-zero. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.4) — runs on every host cluster a Sovereign owns.
 
-**Status:** Accepted | **Updated:** 2026-01-16
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

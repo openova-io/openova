@@ -63,6 +63,16 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 10 — vpa, keda, reloader, external-dns, opentofu, crossplane, coraza
+
+Seven more component banners + opentofu drift fix.
+
+- **vpa, keda, reloader**: per-host-cluster infrastructure pointers to PLATFORM-TECH-STACK §3.4. Reloader specifically calls out its role in the secret-rotation flow (when ESO updates a K8s Secret from OpenBao, Reloader triggers the rolling deploy).
+- **external-dns**: per-host-cluster pointer to §3.1; clarifies it's the non-GSLB DNS sync (k8gb owns the GSLB zone authoritatively).
+- **coraza**: per-host-cluster pointer to §3.1; specifically DMZ-block-only.
+- **crossplane**: emphasizes the **never-a-user-surface** rule. Users don't write Compositions in Application configs; Blueprint authors do. Cross-references ARCHITECTURE.md §4/§7 (no-fourth-surface) and BLUEPRINT-AUTHORING.md §8.
+- **opentofu**: framed as Phase-0-only / runs on `catalyst-provisioner` only. NOT installed on host clusters at runtime. Plus drift fix: line 182 had "Bootstrap Wizard prompts for cloud credentials" (banned term) → "Catalyst Bootstrap (Phase 0)". And the secrets section's "ESO PushSecrets sync to both regional OpenBao instances" was the same active-active drift Pass 7 corrected elsewhere — now reads "writes go to the primary OpenBao region only; replicas pick up via async perf replication".
+
 ### Pass 9 — more component README banners + Kyverno priority-class clarification
 
 Added role-in-Catalyst banners to:
