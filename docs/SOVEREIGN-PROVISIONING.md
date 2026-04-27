@@ -193,7 +193,7 @@ Catalyst:
 3. cert-manager + Cilium + Flux + Crossplane + SPIRE + ESO + OpenBao replica deployed via the cluster's Flux Kustomization.
 4. New region available as a Placement target for new and existing Environments.
 
-Existing Applications with `placement: active-active: false, single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly updates the Placement on the Application — that's a one-line edit in the Environment Gitea repo (or a click in Topology tab).
+Existing Applications with `placement.mode: single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly switches Placement to `active-active` (or `active-hotstandby`) and adds the new region to `placement.regions` — that's a one-line edit in the Environment Gitea repo (or a click in Topology tab).
 
 ---
 

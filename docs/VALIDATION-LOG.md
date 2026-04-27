@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 20 — SOVEREIGN-PROVISIONING placement-syntax + Kyverno label drift
+
+Two real findings on the SOVEREIGN-PROVISIONING + platform/kyverno rotation.
+
+- **SOVEREIGN-PROVISIONING.md §8** had `placement: active-active: false, single-region` — invalid YAML mixing a boolean toggle with an enum value. Rewrote to canonical `placement.mode: single-region` matching the placement modes defined in GLOSSARY (`single-region | active-active | active-hotstandby`). Updated the migration prose accordingly.
+- **platform/kyverno/README.md V5 row** had `openova.io/env: production` — out-of-spec label name and value. NAMING-CONVENTION §6 establishes `openova.io/env-type: prod` (hyphen-form, short value). Fixed.
+
+Note: `tenant-high` / `tenant-default` priority class names retained per Pass 9's deferred-migration note (renaming K8s PriorityClass objects requires recreate-not-rename, tracked separately).
+
 ### Pass 19 — SECURITY + kserve drift sweep — clean
 
 Read SECURITY.md and platform/kserve/README.md end-to-end line-by-line.
