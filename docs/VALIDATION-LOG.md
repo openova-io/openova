@@ -63,6 +63,13 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 24 — SRE Alertmanager webhook URL form + livekit clean
+
+One real fix on SRE.md; livekit confirmed clean.
+
+- **SRE.md §12 (Alertmanager configuration)** webhook URLs at lines 442 and 451 used `gitea.<sovereign>.<domain>/api/v1/...` — the `<sovereign>.<domain>` form is malformed against NAMING §5.1, which establishes Catalyst control-plane DNS as `{component}.{location-code}.{sovereign-domain}` (example: `gitea.hfmp.openova.io`). The two-segment placeholder collapses location-code and sovereign-domain into ambiguous tokens. Fixed both URLs to `gitea.<location-code>.<sovereign-domain>/...` matching the canonical form.
+- **platform/livekit/README.md**: clean. Banner correct (Application Blueprint, real-time media). Integration tables consistent with bp-cortex voice path. No drift.
+
 ### Pass 23 — PLATFORM-TECH-STACK §7 categorization slip + §10 fictional bp-siem; litmus clean
 
 PLATFORM-TECH-STACK §6-§11 deep-read found two real fixes; litmus README clean.

@@ -439,7 +439,7 @@ curl -X POST "http://milvus.cortex.svc:19530/v1/vector/collections/<collection>/
 receivers:
   - name: gitea-actions
     webhook_configs:
-      - url: https://gitea.<sovereign>.<domain>/api/v1/repos/<org>/platform/actions/dispatches
+      - url: https://gitea.<location-code>.<sovereign-domain>/api/v1/repos/<org>/platform/actions/dispatches
         http_config:
           authorization:
             type: Bearer
@@ -448,7 +448,7 @@ receivers:
 
   - name: ai-oncall
     webhook_configs:
-      - url: https://gitea.<sovereign>.<domain>/api/v1/repos/<org>/cortex/actions/dispatches
+      - url: https://gitea.<location-code>.<sovereign-domain>/api/v1/repos/<org>/cortex/actions/dispatches
         http_config:
           authorization:
             type: Bearer
