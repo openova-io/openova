@@ -63,6 +63,31 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 42 — vague `<sovereign-gitea>` / `<sovereign-domain-gitea>` placeholders across BLUEPRINT-AUTHORING + NAMING; falco clean
+
+Two related fixes on canonical docs; falco clean.
+
+The recurring drift: vague composite placeholders like `<sovereign-domain-gitea>` and `<sovereign-gitea>` standing in for the canonical Catalyst control-plane DNS form `gitea.{location-code}.{sovereign-domain}`. These survived Pass 29's DNS sweep because they don't match any of Pass 29's grep patterns (`<sovereign>.<domain>`, `<sovereign>.<sovereign-domain>`, etc.) — they're a different shape entirely (single hyphenated placeholder vs. multi-segment).
+
+- **docs/BLUEPRINT-AUTHORING.md §1** had `<sovereign-domain-gitea>/<org>/shared-blueprints/bp-<name>/` describing where Org-private Blueprints live. Replaced with the canonical `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` form, plus an inline pointer to NAMING §5.1 so the form stays anchored.
+- **docs/NAMING-CONVENTION.md §11.2 step 1** had `<sovereign-gitea>/{org}/{org}-{env_type}` as the abstract pattern with a canonical example following. The abstract pattern itself was using a vague placeholder while the example showed the canonical form — internal inconsistency where the *authoritative naming doc* taught a non-canonical shorthand pattern. Replaced the abstract pattern with the canonical structural form `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` and updated the example to use a concrete location-code (`hfmp` = Hetzner Falkenstein mgt prod) instead of the placeholder.
+
+This is the second drift instance found in NAMING §11.2 (Pass 37 fixed the example URL, Pass 42 fixes the abstract pattern). The §11.2 passage is consequential — it defines Environment realization, which downstream docs derive from. Worth flagging for one more careful re-read in a future pass.
+
+**docs/BLUEPRINT-AUTHORING.md** deep re-scan §1-§14:
+- §1 Blueprint definition: had the placeholder fix above.
+- §2 Folder layout: clean — Pass 21 already aligned with monorepo path-matrix model.
+- §3 Blueprint CRD: clean — uses `apiVersion: catalyst.openova.io/v1alpha1`, dependency declarations consistent with ARCHITECTURE §9.
+- §4-§7: clean — configSchema, dependencies, placement, manifests all consistent.
+- §8 Crossplane Compositions: uses `compose.openova.io/v1alpha1` (separate API group from Catalyst CRDs). Verified this is intentional — Crossplane XRDs conventionally use their own group, and the comment at line 323 explicitly establishes this as the "shared XRD group across Blueprints". Pass 1's "API group unified to catalyst.openova.io/v1alpha1" referred to Catalyst's own CRDs (Sovereign, Organization, etc.); Crossplane composite types are a separate concern.
+- §9-§11: clean — visibility, versioning, CI pipeline (Pass 21 fixes intact).
+- §12 Authoring private Blueprints: §6.4 placeholder Pass 29 fixed; §12 step 3 already canonical.
+- §13-§14: clean.
+
+**platform/falco/README.md**: clean. Banner correct (per-host-cluster §3.3, feeds SIEM/SOAR via SRE.md §10). HelmRelease uses `falco-system` namespace (consistent with security-operator namespace pattern). Falcosidekick → OpenSearch routing matches the SIEM pipeline composition described in PLATFORM-TECH-STACK §10. Custom rules examples (cryptomining detection, write to binary directories, unexpected outbound from DB containers) all illustrative and consistent with MITRE ATT&CK framing in §10 of SRE.md.
+
+The OpenSearch namespace `search` (Falcosidekick config L239 `https://opensearch.search.svc:9200`) is consistent across the SIEM pipeline references and matches the Application Blueprint deployment convention. Not the same drift category as Pass 41's MinIO `storage`-vs-`minio-system` fix.
+
 ### Pass 41 — SOVEREIGN-PROVISIONING §4 incomplete self-sufficiency list + minio namespace drift across 3 components
 
 Two real fixes, expanded mid-pass when sweep grep surfaced additional cross-component drift.

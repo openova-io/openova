@@ -13,7 +13,7 @@ A Blueprint is:
 
 - A **source location**:
   - **Public Blueprints**: a directory under `platform/<name>/` or `products/<name>/` in the [`github.com/openova-io/openova`](https://github.com/openova-io/openova) monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact.
-  - **Org-private Blueprints**: a directory inside `<sovereign-domain-gitea>/<org>/shared-blueprints/bp-<name>/` in that Organization's Gitea repo on its Sovereign.
+  - **Org-private Blueprints**: a directory inside `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` in that Organization's Gitea repo on its Sovereign (canonical Catalyst control-plane DNS form per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §5.1).
 - A **CRD manifest** (`blueprint.yaml`) declaring its identity, configSchema, placementSchema, dependencies, and pointers to its manifests.
 - A **set of manifests** (Helm chart, Kustomize base + overlays, or raw YAML) that get applied when the Blueprint is installed as an Application.
 - A **set of Crossplane Compositions** (optional) for any non-Kubernetes resources the Blueprint provisions.

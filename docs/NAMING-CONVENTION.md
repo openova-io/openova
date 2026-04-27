@@ -475,7 +475,7 @@ Examples: `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatp
 
 An Environment is realized by:
 
-1. **One Gitea repo** in the Sovereign's Gitea: `<sovereign-gitea>/{org}/{org}-{env_type}` (e.g. `gitea.<location-code>.omantel.openova.io/acme/acme-prod`). This is the single source of truth for the Environment's manifests; per §5.1 the Catalyst control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}`.
+1. **One Gitea repo** in the Sovereign's Gitea: `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` (e.g. `gitea.hfmp.omantel.openova.io/acme/acme-prod`). This is the single source of truth for the Environment's manifests; the FQDN follows §5.1's Catalyst control-plane DNS pattern `{component}.{location-code}.{sovereign-domain}`.
 2. **One or more vclusters** (`{org}` named on each parent host cluster). The set of host clusters realizing the Environment is determined by the Environment's Placement spec.
 3. **One Flux per vcluster**, all watching the same Environment Gitea repo. Each Flux applies manifests filtered to its region/building block via `kustomization.yaml` selectors.
 4. **JetStream Account** at the Organization level (one per Org); subjects within the Account use the prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.
