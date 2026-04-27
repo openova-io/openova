@@ -63,6 +63,24 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 46 — CLAUDE.md inflated platform folder count; README + cert-manager clean
+
+One fix on CLAUDE.md; README and cert-manager clean.
+
+Acceptance greps clean (one false positive: products/fabric/README.md L11 "Titan and Fuse products" historical-rename narrative — same category as TECHNOLOGY-FORECAST L110, acceptable).
+
+**CLAUDE.md L46** said `└── ... # ~60 folders, each currently README-only` describing the platform/ subdirectory. Pass 45 verified the canonical count: 52 platform/ folders (matches TECHNOLOGY-FORECAST Overview "all 52 platform components" + BUSINESS-STRATEGY's 4 references to "52 components"). The `~60` was an inflated approximation that drifted from the canonical 52. Confirmed via `ls platform/ | wc -l` = 52. Fixed to `# 52 folders total, each currently README-only`.
+
+This is a third-pass-on-same-doc finding for CLAUDE.md (Pass 29 fixed Customer Sync DNS placeholders; Pass 46 found the count drift). The count drift survived previous reads because the eye accepts approximations like "~60" as "roughly correct" without verification — the same inspection bias Pass 33 documented for narrative-style prose.
+
+**README.md**: clean (Pass 28 + Pass 46 reconfirm). No `## X (N)` header count claims (Pass 45 lesson). Stack-at-a-glance table doesn't claim component totals; the model-in-60-seconds passage is consistent with GLOSSARY/CLAUDE.md/ARCHITECTURE.
+
+**CLAUDE.md** apart from the count fix: clean. Banned terms list (L77-L85) matches GLOSSARY exactly. Naming conventions block (L62-L67) matches NAMING-CONVENTION's quick-reference. Customer Sync DNS placeholders (L130-L131, Pass 29 fix) intact. The "Read these before doing anything" ordered list (GLOSSARY → IMPLEMENTATION-STATUS → ARCHITECTURE → NAMING-CONVENTION) correctly identifies the four keystone canonical docs.
+
+**platform/cert-manager/README.md**: clean. Banner correct (per-host-cluster §3.3). The `<domain>` placeholders at L68 (`admin@<domain>`), L93 (`"*.<domain>"`), L94 (`"<domain>"`) correctly generic — they represent customer-supplied cert subject names, not Sovereign-specific Catalyst control-plane DNS. The Pass 32-35 deferral for cert-manager confirmed.
+
+Pass 46 lesson: approximation-style text ("~60", "~50", "around X") in canonical docs needs the same union-equality verification as exact counts. The "~" prefix doesn't excuse drift — when a canonical count exists (52 platform folders), the approximation should match (rounded to nearest, within a reasonable tolerance). "60" is 15% off from "52" — beyond the tolerance for "approximately".
+
 ### Pass 45 — TECHNOLOGY-FORECAST A La Carte header count drift; syft-grype clean
 
 One real fix on TECHNOLOGY-FORECAST; syft-grype README clean.
