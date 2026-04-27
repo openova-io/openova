@@ -1,6 +1,7 @@
 # Personas and Journeys
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target experience. **Updated:** 2026-04-27.
+**Implementation:** The journeys described use Catalyst surfaces (console / Git / API) that are design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 How different people use Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
 
@@ -10,7 +11,7 @@ How different people use Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for ter
 
 | # | Persona | Where they live | Tools they use |
 |---|---|---|---|
-| **P1** | **OpenOva Engineer** | github.com/openova | Catalyst codebase, Blueprint repos |
+| **P1** | **OpenOva Engineer** | github.com/openova-io | Catalyst codebase, Blueprint repos |
 | **P2** | **`sovereign-admin`** | Catalyst admin UI + Sovereign Gitea | Browser UI, Git, kubectl (debug) |
 | **P3** | **Support Agent** (within a Sovereign Operator team) | Catalyst admin UI in support mode | Browser UI |
 | **P4** | **`org-admin`** | Org-scoped Catalyst console | Browser UI, occasional Git |

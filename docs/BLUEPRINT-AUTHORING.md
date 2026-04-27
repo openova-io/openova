@@ -1,6 +1,7 @@
 # Blueprint Authoring
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target spec. **Updated:** 2026-04-27.
+**Implementation:** The Blueprint CRD, `blueprint-controller`, and CI fan-out described below are design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). Today, `platform/<name>/` and `products/<name>/` folders contain only README.md.
 
 How to author a **Blueprint** for Catalyst — the unified unit of installable software (replaces what was previously called "module" + "template"). Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the broader model.
 
@@ -10,28 +11,34 @@ How to author a **Blueprint** for Catalyst — the unified unit of installable s
 
 A Blueprint is:
 
-- A **Git repository** (`bp-<name>` under `github.com/openova` for public, or under `<sovereign>/<org>/shared-blueprints` for Org-private).
+- A **source location**:
+  - **Public Blueprints**: a directory under `platform/<name>/` or `products/<name>/` in the [`github.com/openova-io/openova`](https://github.com/openova-io/openova) monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact.
+  - **Org-private Blueprints**: a directory inside `<sovereign-domain-gitea>/<org>/shared-blueprints/bp-<name>/` in that Organization's Gitea repo on its Sovereign.
 - A **CRD manifest** (`blueprint.yaml`) declaring its identity, configSchema, placementSchema, dependencies, and pointers to its manifests.
 - A **set of manifests** (Helm chart, Kustomize base + overlays, or raw YAML) that get applied when the Blueprint is installed as an Application.
 - A **set of Crossplane Compositions** (optional) for any non-Kubernetes resources the Blueprint provisions.
-- A **CI pipeline** that signs the artifact (cosign), generates an SBOM (Syft), publishes to OCI registry (`ghcr.io/openova/<name>:<semver>`), and tags a release.
+- A **CI pipeline** that signs the artifact (cosign), generates an SBOM (Syft), publishes to OCI registry (`ghcr.io/openova-io/<name>:<semver>`), and tags a release.
 
 One Blueprint = one card in the marketplace (when `visibility: listed`).
 
+> **Why monorepo for public Blueprints**: a single repository is simpler to govern, gives one consistent CI pipeline shape across all components, and avoids the per-repo overhead of permissions, settings, and dependabot config. Per-Blueprint isolation is provided at the **OCI artifact** layer, not the Git repo layer — `ghcr.io/openova-io/<name>:<semver>` artifacts are independently versioned, signed, and consumed.
+
 ---
 
-## 2. Repository layout
+## 2. Folder layout
+
+A Blueprint folder lives at `platform/<name>/` or `products/<name>/` in the [`github.com/openova-io/openova`](https://github.com/openova-io/openova) monorepo. The CI pipeline at the monorepo root detects changes per folder and publishes per-Blueprint OCI artifacts.
 
 ```
-bp-<name>/
-├── blueprint.yaml             ← the Blueprint CRD manifest
-├── README.md                  ← what it does, links to docs
-├── chart/                     ← Helm chart (preferred for typical apps)
+platform/<name>/                 ← OR products/<name>/ for composite Blueprints
+├── blueprint.yaml               ← the Blueprint CRD manifest
+├── README.md                    ← what it does, links to docs
+├── chart/                       ← Helm chart (preferred for typical apps)
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   └── templates/
 │   OR
-├── manifests/                 ← Kustomize base
+├── manifests/                   ← Kustomize base
 │   ├── base/
 │   │   ├── kustomization.yaml
 │   │   ├── deployment.yaml
@@ -41,21 +48,30 @@ bp-<name>/
 │       ├── small/
 │       ├── medium/
 │       └── large/
-├── compositions/              ← (optional) Crossplane Compositions
+├── compositions/                ← (optional) Crossplane Compositions
 │   ├── postgres-database.yaml
 │   └── object-storage-bucket.yaml
-├── card/                      ← marketplace presentation
+├── card/                        ← marketplace presentation
 │   ├── icon.svg
 │   ├── screenshots/
 │   └── description.md
-├── tests/                     ← acceptance tests
-│   ├── integration.yaml       ← Litmus probe / Catalyst test harness
-│   └── upgrade.yaml
-└── .github/workflows/         ← CI
-    ├── validate.yaml
-    ├── test.yaml
-    └── release.yaml
+└── tests/                       ← acceptance tests
+    ├── integration.yaml         ← Litmus probe / Catalyst test harness
+    └── upgrade.yaml
 ```
+
+The CI workflow lives **once** at the monorepo root (`.github/workflows/`) and uses path-based matrix builds — every `blueprint.yaml` triggers its own pipeline:
+
+```yaml
+# .github/workflows/blueprint-release.yaml (monorepo root, path-matrix)
+on:
+  push:
+    tags: ['platform/*/v*', 'products/*/v*']    # tag form: platform/<name>/v1.2.3
+  pull_request:
+    paths: ['platform/**', 'products/**']
+```
+
+This shape is documented as the design contract; the workflow itself is not yet implemented (see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md)).
 
 ---
 
@@ -64,7 +80,7 @@ bp-<name>/
 Annotated example for `bp-wordpress`:
 
 ```yaml
-apiVersion: catalyst.openova.io/v1
+apiVersion: catalyst.openova.io/v1alpha1
 kind: Blueprint
 metadata:
   name: bp-wordpress
@@ -136,7 +152,7 @@ spec:
   manifests:                           # how to materialize on install
     source:
       kind: HelmChart
-      ref: oci://ghcr.io/openova/bp-wordpress:1.3.0
+      ref: oci://ghcr.io/openova-io/bp-wordpress:1.3.0
     overlays:                          # vendor sizing variants
       small:
         replicas: 1
@@ -342,7 +358,7 @@ Org-private Blueprints live in the Org's `shared-blueprints` Gitea repo, which o
 ## 10. Versioning
 
 - Semver (`MAJOR.MINOR.PATCH`).
-- Each release publishes a signed OCI artifact at `ghcr.io/openova/<name>:<version>`.
+- Each release publishes a signed OCI artifact at `ghcr.io/openova-io/<name>:<version>`.
 - The Blueprint declares which prior versions are upgrade-compatible (`upgrades.from`).
 - Customers pin to a version in their Application's `kustomization.yaml`. Upgrades are explicit (one-click in console, or a `git push` editing the version pin).
 
@@ -368,7 +384,7 @@ jobs:
     - render Helm chart / Kustomize → OCI artifact
     - syft generate SBOM
     - cosign sign artifact + SBOM
-    - push to ghcr.io/openova/<name>:<tag>
+    - push to ghcr.io/openova-io/<name>:<tag>
     - publish blueprint.yaml as the manifest
 ```
 
@@ -401,12 +417,14 @@ Same flow works via direct git push to `shared-blueprints`. The console UI is co
 If an Org's private Blueprint would be useful to other customers, they can contribute it upstream:
 
 ```
-1. Fork github.com/openova/bp-<name>-template
-2. Apply their Blueprint, signing key transferred to OpenOva or kept by the contributor.
-3. Open PR.
-4. OpenOva engineers review for security, reusability, license, supply-chain.
-5. Merge → publish to ghcr.io/openova/<name>.
-6. Now appears in every Sovereign's mirrored public catalog.
+1. Fork github.com/openova-io/openova
+2. Add the Blueprint folder under platform/<name>/ or products/<name>/.
+   Include blueprint.yaml + chart/ or manifests/ + (optional) compositions/ + tests/.
+3. Open PR against main.
+4. OpenOva engineers review for security, reusability, license, supply-chain (cosign,
+   SBOM, dependency licenses, secret hygiene).
+5. Merge → CI signs and publishes ghcr.io/openova-io/<name>:<semver>.
+6. blueprint-controller in every Sovereign's Catalyst picks it up on next mirror sync.
 ```
 
 The contribution path applies equally to Crossplane Compositions, Helm charts, and full Blueprints. This is how the community grows the catalog.

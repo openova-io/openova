@@ -1,6 +1,7 @@
 # Sovereign Provisioning
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target procedure. **Updated:** 2026-04-27.
+**Implementation:** The bootstrap kit and Catalyst control plane referenced below are design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). The legacy Contabo VPS runs the older SME marketplace today; provisioning is not yet automated.
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 

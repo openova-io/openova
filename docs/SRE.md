@@ -1,6 +1,7 @@
 # SRE Handbook
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target playbook. **Updated:** 2026-04-27.
+**Implementation:** Most automation described (alert webhooks, Runbook CRDs, failover-controller actions) is design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). Existing Sovereign deployments may rely on simpler manual procedures until the automation lands.
 
 Site Reliability Engineering practices for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology, [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model, [`SECURITY.md`](SECURITY.md) for credentials and identity.
 
@@ -511,7 +512,7 @@ Runbooks live in the customer's `<org>/runbooks` Gitea repo, version-controlled 
 A typical runbook:
 
 ```yaml
-apiVersion: catalyst.openova.io/v1
+apiVersion: catalyst.openova.io/v1alpha1
 kind: Runbook
 metadata:
   name: openbao-sealed

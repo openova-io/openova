@@ -11,10 +11,11 @@ Proprietary content (website source, deployment configs, infra secrets, the runn
 In order:
 
 1. [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terminology source of truth. Wins over any other doc.
-2. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst architecture.
-3. [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) — naming patterns.
+2. [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) — what's built today vs what's design. Read before claiming any feature exists.
+3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst target architecture.
+4. [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) — naming patterns.
 
-These three together define the model. Any contradiction in older docs is to be treated as outdated and updated to match these.
+These four together define the model + implementation reality. Any contradiction in older docs is to be treated as outdated and updated to match these.
 
 ---
 

@@ -1,6 +1,7 @@
 # Catalyst Security Model
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target architecture. **Updated:** 2026-04-27.
+**Implementation:** Per-component status tracked in [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). OpenBao, ESO, SPIRE, Keycloak component READMEs exist; Catalyst's integration glue is design-stage.
 
 Identity, secrets, rotation, and multi-region credential semantics for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
 
@@ -239,7 +240,7 @@ End users get one-click SSO across all Apps in their Organization without ever s
 Every credential class has a SecretPolicy that drives automatic rotation.
 
 ```yaml
-apiVersion: catalyst.openova.io/v1
+apiVersion: catalyst.openova.io/v1alpha1
 kind: SecretPolicy
 metadata:
   name: stricter-rotation

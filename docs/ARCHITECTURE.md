@@ -1,8 +1,9 @@
 # Catalyst Architecture
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target architecture. **Updated:** 2026-04-27.
+**Implementation:** Most of what this document describes is **design-stage** — see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) for what exists in code today vs what is design.
 
-This document describes the architecture of **Catalyst** — the OpenOva platform. For terminology, defer to [`GLOSSARY.md`](GLOSSARY.md). For naming, defer to [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md).
+This document describes the architecture of **Catalyst** — the OpenOva platform. For terminology, defer to [`GLOSSARY.md`](GLOSSARY.md). For naming, defer to [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md). For current code state, defer to [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 ---
 
@@ -284,7 +285,7 @@ Blueprint detail page in console:
 From `marketing-site` in `acme-staging`, the user clicks "Copy to another Environment" → picks `acme-prod`. Catalyst opens a Gitea PR on `acme-prod`'s repo. The destination Environment's `EnvironmentPolicy` (approvers, soak, change window) applies to the PR. On merge, Flux reconciles. Done.
 
 ```yaml
-apiVersion: catalyst.openova.io/v1
+apiVersion: catalyst.openova.io/v1alpha1
 kind: EnvironmentPolicy
 metadata:
   name: prod-default
@@ -312,7 +313,7 @@ The policy lives on the **destination** Environment, not on the App or on a chai
 A Blueprint can declare dependencies on other Blueprints:
 
 ```yaml
-apiVersion: catalyst.openova.io/v1
+apiVersion: catalyst.openova.io/v1alpha1
 kind: Blueprint
 metadata:
   name: bp-wordpress

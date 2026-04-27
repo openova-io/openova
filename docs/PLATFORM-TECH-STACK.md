@@ -1,6 +1,7 @@
 # Platform Tech Stack
 
-**Status:** Authoritative | **Updated:** 2026-04-27
+**Status:** Authoritative target stack. **Updated:** 2026-04-27.
+**Implementation:** Component READMEs exist; Catalyst control-plane glue is design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 Every component in Catalyst, what it does, and where it sits — control plane, application layer, or both. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 

@@ -2,9 +2,10 @@
 
 The Go application that implements the **Catalyst control plane** — the user-facing UI and the controllers that turn a Kubernetes cluster into a **Sovereign**.
 
-**Status:** Development | **Updated:** 2026-04-27
+**Status:** Design + scaffolded. This directory currently contains the agreed structure as `.gitkeep` placeholders — Go code is yet to be written.
+**Updated:** 2026-04-27.
 
-> **Read first:** [`docs/GLOSSARY.md`](../docs/GLOSSARY.md), [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). This README assumes that context.
+> **Read first:** [`docs/GLOSSARY.md`](../docs/GLOSSARY.md), [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md), [`docs/IMPLEMENTATION-STATUS.md`](../docs/IMPLEMENTATION-STATUS.md). This README assumes that context. The structure below describes the **target** layout once implementation begins.
 
 ---
 
@@ -34,18 +35,20 @@ These are deployed as separate workloads but share most of the codebase via inte
 
 ---
 
-## Directory structure
+## Target directory structure
+
+This is the structure once implementation begins. Today, the `apps/`, `internal/`, `pkg/`, `ui/`, and `deploy/` directories exist as `.gitkeep` placeholders only.
 
 ```
 core/
-├── apps/
+├── apps/                  # one binary per control-plane component
 │   ├── console/           # console + marketplace + admin (frontend + Go backend)
-│   ├── projector/         # CQRS projector service
-│   ├── workspace-controller/
-│   ├── blueprint-controller/
-│   ├── provisioning/
-│   ├── catalog-svc/
-│   └── billing/
+│   ├── projector/         # CQRS projector service (NATS JetStream → KV → SSE)
+│   ├── workspace-controller/   # reconciles Environment CRD (vcluster + Flux + Gitea)
+│   ├── blueprint-controller/   # watches Blueprint folders/repos, registers CRDs
+│   ├── provisioning/      # validates configSchema, commits to Environment Gitea
+│   ├── catalog-svc/       # serves Blueprint catalog API
+│   └── billing/           # per-Org metering
 ├── internal/
 │   ├── domain/            # Pure business logic, zero infra deps
 │   │   ├── sovereign.go
@@ -65,10 +68,16 @@ core/
 │   │   └── keycloak/
 │   └── events/            # CloudEvents envelopes
 ├── pkg/
-│   └── apis/v1alpha1/     # CRD types: Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, …
+│   └── apis/v1alpha1/     # CRD types: Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook
 ├── ui/                    # Frontend (Astro + Svelte; same codebase serves console / marketplace / admin via routes)
 └── deploy/                # Kustomize bases for each control-plane component
 ```
+
+The `.gitkeep` directories in this tree are deliberate — they pin the agreed layout while implementation work is scheduled. As each binary or package is written, its `.gitkeep` is removed and the corresponding row in [`docs/IMPLEMENTATION-STATUS.md`](../docs/IMPLEMENTATION-STATUS.md) flips from 📐 to ✅.
+
+### Legacy `apps/bootstrap/` and `apps/manager/` placeholders
+
+The current filesystem also contains `apps/bootstrap/` and `apps/manager/` — empty directories from an earlier (now retired) split where bootstrap and lifecycle-management were modeled as separate binaries. These two folders will be removed when the new `apps/` layout above is scaffolded; we keep them in the meantime to avoid spurious `git rm` churn before there's anything to replace them with.
 
 ---
 

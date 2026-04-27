@@ -12,12 +12,13 @@ This file is now an **index** and **decision log**. The full architecture lives 
 In strict order:
 
 1. [`docs/GLOSSARY.md`](../docs/GLOSSARY.md) — terminology source of truth
-2. [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) — Catalyst architecture overview
-3. [`docs/NAMING-CONVENTION.md`](../docs/NAMING-CONVENTION.md) — naming patterns
-4. [`docs/PERSONAS-AND-JOURNEYS.md`](../docs/PERSONAS-AND-JOURNEYS.md) — who uses what
-5. [`docs/SECURITY.md`](../docs/SECURITY.md) — identity, secrets, rotation
-6. [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online
-7. [`docs/BLUEPRINT-AUTHORING.md`](../docs/BLUEPRINT-AUTHORING.md) — writing Blueprints
+2. [`docs/IMPLEMENTATION-STATUS.md`](../docs/IMPLEMENTATION-STATUS.md) — what's built vs designed
+3. [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) — Catalyst target architecture
+4. [`docs/NAMING-CONVENTION.md`](../docs/NAMING-CONVENTION.md) — naming patterns
+5. [`docs/PERSONAS-AND-JOURNEYS.md`](../docs/PERSONAS-AND-JOURNEYS.md) — who uses what
+6. [`docs/SECURITY.md`](../docs/SECURITY.md) — identity, secrets, rotation
+7. [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online
+8. [`docs/BLUEPRINT-AUTHORING.md`](../docs/BLUEPRINT-AUTHORING.md) — writing Blueprints
 
 If any older notes in this file contradict those docs, those docs win.
 

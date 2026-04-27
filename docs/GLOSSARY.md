@@ -1,7 +1,8 @@
 # Glossary
 
 > **Status:** Canonical. Single source of truth for OpenOva terminology.
-> **Updated:** 2026-04-27
+> **Updated:** 2026-04-27.
+> **Note:** Terms here describe the agreed model. For which terms map to currently-implemented code vs design-stage, see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 Every other document defers to this file. When a term in another doc looks contested, this file wins. New terminology is proposed here first, then propagated.
 
@@ -115,6 +116,7 @@ Every other document defers to this file. When a term in another doc looks conte
 
 ## See also
 
+- [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) — what's built today vs what's design-only.
 - [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) — concrete naming patterns for every object type.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the components fit together.
 - [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md) — who uses each surface and what for.

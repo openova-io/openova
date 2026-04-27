@@ -12,6 +12,7 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 |---|---|
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology — read first |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture overview |
+| [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) | **What's built today vs what's design-only** — read second |
 | [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) | Naming patterns for every resource type |
 | [`docs/PERSONAS-AND-JOURNEYS.md`](docs/PERSONAS-AND-JOURNEYS.md) | Personas × journeys matrix; surfaces |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), rotation, multi-region semantics |
@@ -21,6 +22,8 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 | [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
 | [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
 | [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
+
+> **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) for what exists today vs what is design.
 
 ---
 
@@ -57,20 +60,22 @@ See [`docs/GLOSSARY.md`](docs/GLOSSARY.md) for every term, [`docs/ARCHITECTURE.m
 
 ```
 openova/
-├── core/              # Catalyst control-plane application (Go)
-├── platform/          # Component Blueprints (one folder per upstream OSS project)
-├── products/          # Composite Blueprints OpenOva publishes
-│   ├── catalyst/      # The Catalyst control plane itself, packaged as a Blueprint
+├── core/              # Catalyst control-plane application (Go) — design-stage; mostly placeholders today
+├── platform/          # Component Blueprint folders (one folder per upstream OSS project)
+├── products/          # Composite Blueprint folders OpenOva publishes
+│   ├── catalyst/      # The Catalyst control plane itself, target umbrella Blueprint
 │   ├── cortex/        # AI Hub (LLM serving, RAG, AI safety)
 │   ├── axon/          # SaaS LLM Gateway (default upstream for Cortex)
 │   ├── fingate/       # Open Banking (PSD2/FAPI sandbox)
 │   ├── fabric/        # Data & Integration (event-driven + lakehouse)
-│   ├── relay/         # Communication (email, video, chat, WebRTC)
-│   └── … (specter and exodus are deliverable services, not Blueprints in this layout)
-└── docs/              # Platform documentation (this folder)
+│   └── relay/         # Communication (email, video, chat, WebRTC)
+│                      # (specter and exodus are deliverable services, not Blueprints in this layout)
+└── docs/              # Platform documentation
 ```
 
-Every directory under `platform/` and `products/` is a Blueprint. Each has its own README, its own configSchema, its own CI pipeline that signs and publishes its OCI artifact.
+Each folder under `platform/` and `products/` is the source of one **Blueprint**, published from CI as a signed OCI artifact at `ghcr.io/openova-io/<name>:<semver>`. Per-folder isolation is provided at the OCI artifact layer, not the Git repo layer — this is a **monorepo with per-Blueprint fan-out**, not a meta-repo of separate Git repositories. See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) §2 for the folder layout contract.
+
+> **Today**, every folder under `platform/` and `products/` (except `products/axon/`) contains only a `README.md`. The Blueprint manifests, charts, Compositions, and CI fan-out are all **design-stage** — see [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md).
 
 ---
 
