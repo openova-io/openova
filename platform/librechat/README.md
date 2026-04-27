@@ -158,7 +158,7 @@ openidConfig:
 
 ```yaml
 openidConfig:
-  issuer: "https://keycloak.<domain>/realms/ai-hub"
+  issuer: "https://keycloak.<location-code>.<sovereign-domain>/realms/<org>"
   clientId: "librechat"
   clientSecret: ""  # From ESO
   scope: ["openid", "profile", "email"]

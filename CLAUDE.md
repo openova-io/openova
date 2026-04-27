@@ -127,10 +127,12 @@ Each Sovereign's Gitea mirrors the public catalog from this repo:
 ```
 GitHub (this repo)                  Per-Sovereign Gitea (mirrored)
 ──────────────────                  ──────────────────────────────
-openova/platform/cilium/   ──sync──> gitea.<sovereign>/catalog/bp-cilium/
-openova/products/cortex/   ──sync──> gitea.<sovereign>/catalog/bp-cortex/
+openova/platform/cilium/   ──sync──> gitea.<location-code>.<sovereign-domain>/catalog/bp-cilium/
+openova/products/cortex/   ──sync──> gitea.<location-code>.<sovereign-domain>/catalog/bp-cortex/
 ...
 ```
+
+(Per NAMING §5.1 the Catalyst control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — e.g. `gitea.hfmp.openova.io`.)
 
 Sovereigns pull on their own schedule (default daily). Air-gapped Sovereigns mirror via offline media.
 

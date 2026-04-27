@@ -62,9 +62,9 @@ catalyst-provisioner                          Target cloud (e.g. Hetzner)
                                                  k. catalyst control plane
                                                     (bp-catalyst-platform umbrella)
 
-3. Domain registration / DNS     ─────────►   gitea.<sovereign>.<domain>     A
-   records (via Crossplane)                   console.<sovereign>.<domain>   A
-                                              admin.<sovereign>.<domain>     A
+3. Domain registration / DNS     ─────────►   gitea.<location-code>.<sovereign-domain>      A
+   records (via Crossplane)                   console.<location-code>.<sovereign-domain>    A
+                                              admin.<location-code>.<sovereign-domain>      A
 
 4. Keycloak realm provisioning   ─────────►   catalyst-admin realm
                                               (initial sovereign-admin user)
@@ -103,7 +103,7 @@ The Sovereign is now self-sufficient. It has:
 
 ## 5. Phase 2 — Day-1 setup
 
-The first `sovereign-admin` logs into `console.<sovereign>.<domain>`:
+The first `sovereign-admin` logs into `console.<location-code>.<sovereign-domain>`:
 
 ```
 Day-1 actions

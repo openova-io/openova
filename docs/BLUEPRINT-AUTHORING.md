@@ -412,7 +412,7 @@ For corporate customers: the Org's platform team can author private Blueprints w
 2. Wizard offers two paths:
      a. Inherit from a public Blueprint (overlay path)
      b. Author from scratch (raw path)
-3. Studio writes to gitea.<sovereign-domain>/<org>/shared-blueprints/bp-<name>.
+3. Studio writes to gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>.
 4. On commit, CI runs (Gitea Actions inside the Sovereign).
 5. blueprint-controller registers the new private Blueprint.
 6. It appears in the Org's catalog as a private card.

@@ -63,6 +63,22 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 29 — DNS-placeholder sweep across canonical docs (CLAUDE/PROVISIONING/ARCHITECTURE/BLUEPRINT-AUTHORING/librechat) + nemo-guardrails clean
+
+Started as CLAUDE.md + nemo-guardrails atomic check; expanded into a sweep when the third instance of the same drift pattern surfaced. Six files corrected.
+
+The recurring drift pattern: Catalyst control-plane DNS placeholders that omit the `<location-code>` segment, producing two-segment forms like `gitea.<sovereign>` / `gitea.<sovereign>.<domain>` / `gitea.<sovereign-domain>` / `keycloak.<domain>`. Per NAMING §5.1 the canonical form is `{component}.{location-code}.{sovereign-domain}` (example: `gitea.hfmp.openova.io`). The shorter forms are not just abbreviations — they collapse the multi-region location dimension that gives Catalyst its routing model, so they re-drift the docs each time someone reads them as "obvious shorthand".
+
+Fixes:
+- **CLAUDE.md** "Customer Sync" section — `gitea.<sovereign>/catalog/bp-cilium/` and `gitea.<sovereign>/catalog/bp-cortex/` → `gitea.<location-code>.<sovereign-domain>/catalog/...`. Added parenthetical pointer to NAMING §5.1 so the form stays anchored.
+- **docs/SOVEREIGN-PROVISIONING.md** §3 (Phase 0 procedure) had `gitea.<sovereign>.<domain>`, `console.<sovereign>.<domain>`, `admin.<sovereign>.<domain>` in the DNS-records bullet, and §5 had `console.<sovereign>.<domain>` in the Day-1 login line — all four collapsed location-code into the malformed `<sovereign>.<domain>` two-segment form. Rewritten.
+- **docs/ARCHITECTURE.md** §4 write-path diagram had `Gitea: gitea.<sovereign-domain>/{org}/{org}-{env_type}` — missing location-code. Rewritten.
+- **docs/BLUEPRINT-AUTHORING.md** §6.4 (private-Blueprint authoring journey) step 3 had `gitea.<sovereign-domain>/<org>/shared-blueprints/bp-<name>` — same omission. Rewritten.
+- **platform/librechat/README.md** Keycloak issuer line had `https://keycloak.<domain>/realms/ai-hub` — same drift Pass 25 fixed in llm-gateway, and the `ai-hub` realm is an Application namespace not a Keycloak realm (per SECURITY §7 realms are per-Org or per-Sovereign). Rewritten to `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>`. **Note: Pass 22 marked librechat clean and missed this exact line — a banner-style scan can miss config-block drift inside YAML examples.** Treating Pass 22 as partially incorrect; this is now corrected.
+- **platform/nemo-guardrails/README.md**: clean. Short README, banner correct (Application Blueprint §4.7, used by bp-cortex), integration table consistent.
+
+Final sweep grep confirms only canonical `<location-code>.<sovereign-domain>` forms remain in the codebase. Future passes should treat the collapsed-DNS pattern as an established drift category and grep for it on every pass that touches a doc with example URLs.
+
 ### Pass 28 — README + minio drift sweep — clean
 
 Both targets verified against canonical docs; no edits needed.

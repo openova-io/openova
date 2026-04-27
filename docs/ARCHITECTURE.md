@@ -118,7 +118,7 @@ Everything else is identical in code.
                                      │
                                      ▼
               ┌──────────────────────────────────────────────────────────┐
-              │  Gitea: gitea.<sovereign-domain>/{org}/{org}-{env_type}    │
+              │  Gitea: gitea.<location-code>.<sovereign-domain>/{org}/{org}-{env_type} │
               │  ────────────────────────────────────────────────────────  │
               │  flux-system/        gotk-components.yaml + gotk-sync     │
               │  applications/                                             │
