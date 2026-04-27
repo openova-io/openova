@@ -64,7 +64,7 @@ These run **per-Sovereign** on the management cluster:
 | SPIRE server + agent | 📐 | Selected for workload identity; no integration code. |
 | Catalyst observability (Grafana stack) | 🚧 | Per-component READMEs exist; not yet wired as a Catalyst-level umbrella. |
 
-## 2bis. Per-host-cluster infrastructure (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §3)
+## 3. Per-host-cluster infrastructure (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §3)
 
 These run on **every host cluster** (mgt, rtz, dmz). Status is per-component README only — none yet ship as deployable Blueprints.
 
@@ -90,7 +90,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ---
 
-## 3. CRDs
+## 4. CRDs
 
 [`core/README.md`](../core/README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) reference these CRDs:
 
@@ -109,7 +109,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ---
 
-## 4. Surfaces
+## 5. Surfaces
 
 | Surface | Status | Notes |
 |---|---|---|
@@ -120,7 +120,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ---
 
-## 5. Sovereigns running today
+## 6. Sovereigns running today
 
 | Sovereign | Status | Notes |
 |---|---|---|
@@ -130,7 +130,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ---
 
-## 6. Catalyst provisioner
+## 7. Catalyst provisioner
 
 | Item | Status | Notes |
 |---|---|---|
@@ -140,7 +140,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ---
 
-## 7. What this means for newcomers
+## 8. What this means for newcomers
 
 If you're reading the Catalyst architecture for the first time:
 
@@ -153,7 +153,7 @@ If a doc says "Catalyst does X" without a `📐` or `🚧` marker, treat it as a
 
 ---
 
-## 8. How to update this file
+## 9. How to update this file
 
 This file is updated whenever a status changes:
 

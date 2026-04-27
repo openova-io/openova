@@ -353,15 +353,17 @@ Phase 0  Bootstrap (one-shot, runs from catalyst-provisioner.openova.io)
 1. OpenTofu provisions: VPC, host nodes, load balancers, DNS records,
    object storage on the target cloud provider (Hetzner / AWS / etc.)
 2. Bootstrap kit installs in order:
-   a. cert-manager
-   b. Cilium (CNI + Gateway API)
-   c. Flux (host-level)
-   d. Crossplane + provider config
+   a. Cilium (CNI + Gateway API)              ← network must come first
+   b. cert-manager                            ← TLS for everything below
+   c. Flux (host-level)                       ← GitOps engine
+   d. Crossplane + provider config            ← cloud resource control plane
    e. Sealed Secrets (transient, only for bootstrap secrets)
-   f. SPIRE server + agent
-   g. NATS JetStream cluster
+   f. SPIRE server + agent                    ← workload identity
+   g. NATS JetStream cluster (3 nodes)
    h. OpenBao cluster (3 nodes, region-local Raft)
-   i. Catalyst control plane (umbrella Blueprint: bp-catalyst-platform)
+   i. Keycloak (per `keycloakTopology` choice)
+   j. Gitea (with public Blueprint mirror seeded)
+   k. Catalyst control plane (umbrella Blueprint: bp-catalyst-platform)
 
 Phase 1  Hand-off (~5 minutes after Phase 0 starts)
 ─────────────────────────────────────────────────────────────────────
