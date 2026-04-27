@@ -269,7 +269,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-workflow-worker
-  namespace: fuse
+  namespace: fabric
 spec:
   replicas: 3
   template:

@@ -63,6 +63,20 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 38 — surviving "fuse" namespace in temporal; SECURITY + grafana clean
+
+One real fix on temporal; both deep-scan targets clean.
+
+Acceptance greps with the new literal-domain check (Pass 37 lesson) and case-insensitive banned-term sweep surfaced one surviving instance:
+
+- **platform/temporal/README.md L272** — Worker Deployment example `namespace: fuse`. The "fuse" → "fabric" rename per BUSINESS-STRATEGY §16.2 / Pass 26 had been applied to the temporal README's banner (L3, "bp-fabric") and the image ref (L279, Pass 32+35 fixed `harbor.<location-code>.<sovereign-domain>/fabric/order-worker:latest`), but the namespace declaration on L272 was missed by both prior passes — the field `namespace:` is a YAML key, easy to skim past while the eye tracks the structural surrounding context. Renamed to `fabric`.
+
+- **docs/SECURITY.md**: clean (deep re-scan with focus on §6-§10 per Pass 23 lesson). §1-§5 (Identity systems, SPIFFE/SPIRE, Secrets, Dynamic credentials, Multi-region OpenBao) consistent with canonical model and Pass 7's independent-Raft fix. §6 Keycloak topology consistent with NAMING §7 / Pass 27 swap. §7 Rotation policy uses correct `catalyst.openova.io/v1alpha1` API group. §8 Path-of-a-secret consistent. §9 Compliance posture and §10 Threat model — both contain references to "OpenSearch SIEM" / "OpenSearch in the Sovereign" as default audit destinations. Per Pass 27's clarification, OpenSearch is an opt-in Application Blueprint (not auto-installed). The SECURITY §9 wording reads as "default destination *when customers enable SIEM*" rather than "default-installed component" — defensible interpretation, leaving as-is. Flagged for a future tightening pass that could explicitly say "when the SIEM Application Blueprint is installed".
+
+- **platform/grafana/README.md**: clean. Banner correctly identifies per-host-cluster role; the inline "§3 / observability layer in §2.3" cross-reference acknowledges the legitimate dual-categorization (Grafana stack runs both as per-host-cluster collector AND on the per-Sovereign mgt cluster as Catalyst's own self-monitoring). Tiered storage shape (Hot local → Warm MinIO → Cold R2) consistent with SRE.md §6 and minio README. OpenTelemetry instrumentation example uses the canonical `<org>` namespace placeholder.
+
+Lesson confirmed: case-insensitive banned-term grep is non-negotiable. The Pass 32+35 sweeps fixed `harbor.<domain>` and DNS placeholders surrounding "fuse" but the namespace YAML key (`namespace: fuse`) survived because the prior greps targeted DNS shapes and image registries, not bare-word "fuse". Future passes should always grep `\bfuse\b` (and similar legacy-product-name greps) regardless of whether the surfaced category is unrelated — the cleanup work is small enough that running the check is cheap.
+
 ### Pass 37 — NAMING-CONVENTION §11.2 example URL drift; cilium clean
 
 One real fix on NAMING-CONVENTION; cilium README clean.
