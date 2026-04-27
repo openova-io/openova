@@ -185,7 +185,7 @@ Per-CRD reconcilers live under `apps/<controller>/internal/`. Each is its own de
 
 | Journey | Where it lands |
 |---|---|
-| Sovereign bootstrap | Phase 0 done by `catalyst-provisioner`; this codebase contains the OpenTofu modules under `apps/provisioning/opentofu/` and the post-bootstrap Catalyst install logic. |
+| Sovereign bootstrap | Phase 0 is done by `catalyst-provisioner` — a **separate Blueprint** (`bp-catalyst-provisioner`), not part of `core/`. See [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) §2. The `apps/provisioning/` service in `core/` is for **runtime Application provisioning** (validate configSchema, compose manifests, commit to the Environment's Gitea repo) — not bootstrap. |
 | Environment creation | `environment-controller` reconciles an `Environment` CR. |
 | Application install | `apps/provisioning/` validates and commits to the Environment's Gitea repo. Flux (in the vcluster) reconciles. |
 | Promotion between Environments | `apps/console/` opens a Gitea PR; `EnvironmentPolicy` controller gates merges. |

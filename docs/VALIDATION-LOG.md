@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 30 — core/README catalyst-provisioner scope confusion + neo4j clean
+
+One real fix on core/README; neo4j README clean.
+
+- **core/README.md** "User journeys" table had: "Sovereign bootstrap | Phase 0 done by `catalyst-provisioner`; this codebase contains the OpenTofu modules under `apps/provisioning/opentofu/` and the post-bootstrap Catalyst install logic." But per SOVEREIGN-PROVISIONING.md §2, `catalyst-provisioner` is a **separate Blueprint** (`bp-catalyst-provisioner`) that is "not part of any Sovereign at runtime" — it is a self-host-able provisioner outside the Catalyst control plane in `core/`. The line conflated two services: `bp-catalyst-provisioner` (Phase 0 OpenTofu bootstrap, lives under products/Blueprint folders) and `core/apps/provisioning/` (runtime Application provisioning — validates configSchema and commits to Environment Gitea repos, an entirely different concern). Rewritten to call out the separation: Phase 0 belongs to bp-catalyst-provisioner; `apps/provisioning/` is the runtime install service.
+- **platform/neo4j/README.md**: clean. Banner correct (Application Blueprint, §4.6, paired with Milvus in bp-cortex). Cypher schema and Python integration consistent with knowledge-graph-RAG description. The `bolt://neo4j.ai-hub.svc:7687` reference uses K8s in-cluster service DNS — not a Catalyst control-plane DNS shape, so not subject to the §5.1 NAMING rule.
+
+Note on the JetStream `ws.<env>.>` placeholder: appears in 5 places (core/README L141, ARCHITECTURE L168-171). Per NAMING §11.2 the precise form is `ws.{org}-{env_type}.>`. The `<env>` shorthand is consistently used across canonical docs and is unambiguous given the surrounding context (Environment is the `{org}-{env_type}` composite). Treating as documented shorthand, not drift; future tightening pass could replace globally if desired.
+
 ### Pass 29 — DNS-placeholder sweep across canonical docs (CLAUDE/PROVISIONING/ARCHITECTURE/BLUEPRINT-AUTHORING/librechat) + nemo-guardrails clean
 
 Started as CLAUDE.md + nemo-guardrails atomic check; expanded into a sweep when the third instance of the same drift pattern surfaced. Six files corrected.
