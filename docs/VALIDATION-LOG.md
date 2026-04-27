@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 11 — minio, velero, failover-controller, opensearch, trivy, clickhouse, ferretdb
+
+7 more banners.
+
+- **minio**: per-host-cluster S3 (§3.5); tiers cold data to cloud archival. Plus disambiguation: a Mermaid node was labeled `ILM[Lifecycle Manager]` — confusable with the rejected Catalyst sub-product. Relabeled to `ILM[Information Lifecycle Manager - MinIO ILM]` to make MinIO's feature explicit.
+- **velero**: per-host-cluster backup (§3.5); backups land in archival S3, not MinIO.
+- **failover-controller**: per-host-cluster (§3.6); lease-based split-brain protection layered on top of k8gb. Pointers to SRE §2.4 + SECURITY §5.2.
+- **opensearch**: explicitly framed as Application Blueprint (§4.1), NOT control plane. Installed when an Org wants SIEM / full-text search / log analytics.
+- **trivy**: per-host-cluster (§3.3); CI + registry + runtime scanning chain.
+- **clickhouse**: Application Blueprint (§4.1); used by bp-fabric and SIEM cold-storage tier.
+- **ferretdb**: Application Blueprint (§4.1); replication via underlying CNPG.
+
 ### Pass 10 — vpa, keda, reloader, external-dns, opentofu, crossplane, coraza
 
 Seven more component banners + opentofu drift fix.

@@ -1,8 +1,8 @@
 # MinIO
 
-S3-compatible object storage for OpenOva platform.
+S3-compatible object storage. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — runs on every host cluster Catalyst manages. Tiers cold data to cloud archival storage (Cloudflare R2 / AWS S3 / etc. — chosen at Sovereign provisioning time).
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
@@ -22,7 +22,7 @@ MinIO provides S3-compatible object storage with:
 flowchart TB
     subgraph MinIO["MinIO"]
         API[S3 API]
-        ILM[Lifecycle Manager]
+        ILM[Information Lifecycle Manager - MinIO ILM]
     end
 
     subgraph Storage["Storage Tiers"]

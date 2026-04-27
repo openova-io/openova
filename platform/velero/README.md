@@ -1,8 +1,8 @@
 # Velero
 
-Kubernetes backup to Archival S3 for disaster recovery.
+Kubernetes backup/restore to archival S3 for disaster recovery. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in cloud archival storage (Cloudflare R2 / AWS S3 / etc.), not in MinIO (which is fast-tier in-cluster).
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
