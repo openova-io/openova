@@ -63,11 +63,11 @@ flowchart TB
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: <tenant>-worker
-  namespace: <tenant>
+  name: <org>-worker
+  namespace: <org>
 spec:
   scaleTargetRef:
-    name: <tenant>-worker
+    name: <org>-worker
   minReplicaCount: 1
   maxReplicaCount: 10
   cooldownPeriod: 300
@@ -75,8 +75,8 @@ spec:
     - type: kafka
       metadata:
         bootstrapServers: kafka-kafka-bootstrap.databases.svc:9092
-        consumerGroup: <tenant>-workers
-        topic: <tenant>-jobs
+        consumerGroup: <org>-workers
+        topic: <org>-jobs
         lagThreshold: "100"
 ```
 
@@ -86,11 +86,11 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: <tenant>-api
-  namespace: <tenant>
+  name: <org>-api
+  namespace: <org>
 spec:
   scaleTargetRef:
-    name: <tenant>-api
+    name: <org>-api
   minReplicaCount: 2
   maxReplicaCount: 20
   triggers:
@@ -99,7 +99,7 @@ spec:
         serverAddress: http://mimir.monitoring.svc:8080/prometheus
         metricName: http_requests_per_second
         query: |
-          sum(rate(http_requests_total{namespace="<tenant>"}[1m]))
+          sum(rate(http_requests_total{namespace="<org>"}[1m]))
         threshold: "100"
 ```
 
@@ -109,11 +109,11 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: <tenant>-batch
-  namespace: <tenant>
+  name: <org>-batch
+  namespace: <org>
 spec:
   scaleTargetRef:
-    name: <tenant>-batch
+    name: <org>-batch
   minReplicaCount: 0
   maxReplicaCount: 5
   triggers:

@@ -72,8 +72,8 @@ These policies create companion resources whenever a qualifying parent resource 
 | G2 | `generate-vpa-statefulset` | StatefulSet | `VerticalPodAutoscaler` | All StatefulSets | `updateMode: Initial` (avoids disruptive eviction of stateful pods) | `vpa.openova.io/skip: "true"` |
 | G3 | `generate-pdb` | Deployment | `PodDisruptionBudget` | `spec.replicas >= 2` | `minAvailable: 50%` (round up) | `pdb.openova.io/skip: "true"` |
 | G4 | `generate-pdb-statefulset` | StatefulSet | `PodDisruptionBudget` | `spec.replicas >= 2` | `maxUnavailable: 1` (strict for stateful workloads) | `pdb.openova.io/skip: "true"` |
-| G5 | `generate-default-deny` | Namespace | `NetworkPolicy` (default-deny ingress+egress) | Label `openova.io/tenant` exists | Deny all ingress and egress; teams must explicitly allow | `networkpolicy.openova.io/skip: "true"` |
-| G6 | `generate-cilium-default-deny` | Namespace | `CiliumNetworkPolicy` (L3/L4/L7 deny) | Label `openova.io/tenant` exists | L7-aware default deny (complements K8s NetworkPolicy) | `networkpolicy.openova.io/skip: "true"` |
+| G5 | `generate-default-deny` | Namespace | `NetworkPolicy` (default-deny ingress+egress) | Label `openova.io/organization` exists | Deny all ingress and egress; teams must explicitly allow | `networkpolicy.openova.io/skip: "true"` |
+| G6 | `generate-cilium-default-deny` | Namespace | `CiliumNetworkPolicy` (L3/L4/L7 deny) | Label `openova.io/organization` exists | L7-aware default deny (complements K8s NetworkPolicy) | `networkpolicy.openova.io/skip: "true"` |
 | G7 | `generate-resource-quota` | Namespace | `ResourceQuota` | Label `openova.io/tier` exists | Quotas derived from tier label (see Resource Tiers below) | `quota.openova.io/skip: "true"` |
 | G8 | `generate-limit-range` | Namespace | `LimitRange` | Label `openova.io/tier` exists | Default container requests: 50m/64Mi, limits: 500m/512Mi | `limitrange.openova.io/skip: "true"` |
 
@@ -149,7 +149,7 @@ Based on the Kubernetes Pod Security Standards (Restricted profile) with OpenOva
 | S18 | `disallow-default-namespace` | Deployment, StatefulSet, DaemonSet, Pod | Must not be deployed to `default` namespace | Enforce | Default namespace has no NetworkPolicy isolation; all workloads must live in explicit namespaces |
 | S19 | `disallow-nodeport-services` | Service | `spec.type` must not be `NodePort` | Enforce | NodePort exposes services directly on node IPs, bypassing Gateway API and Cilium L7 policies |
 | S20 | `disallow-external-lb-annotation` | Service | Must not carry cloud-provider LB annotations unless in `openova-system` namespace | Enforce | Load balancers are provisioned via Gateway API; ad-hoc LB annotations cause cost leaks and security gaps |
-| S21 | `require-network-policy-exists` | Namespace | Namespaces labeled `openova.io/tenant` must contain at least one NetworkPolicy | Audit | Catches deleted or missing network policies; complements the generate policy G5 |
+| S21 | `require-network-policy-exists` | Namespace | Namespaces labeled `openova.io/organization` must contain at least one NetworkPolicy | Audit | Catches deleted or missing network policies; complements the generate policy G5 |
 | S22 | `restrict-external-names` | Service | `type: ExternalName` only allowed when annotated `externalname.openova.io/approved: "true"` | Enforce | ExternalName services can redirect to arbitrary external endpoints, bypassing egress policies |
 
 ### Validate — Operational Hygiene
@@ -252,7 +252,7 @@ flowchart TB
 | Encrypted pod-to-pod | Cilium WireGuard mTLS (transparent, no sidecar) | Cilium config (automatic) |
 | Image provenance | Harbor-only registry, signature verification, no latest tags | S15, S16, S17 |
 | Service account lockdown | automountServiceAccountToken: false by default, no wildcard RBAC | M7, S25, S26 |
-| Namespace isolation | No default namespace usage, mandatory tenant labels | S18, S23, S24 |
+| Namespace isolation | No default namespace usage, mandatory Organization labels | S18, S23, S24 |
 | Ingress control | No NodePort, no ad-hoc LBs, Gateway API only | S19, S20 |
 | Egress control | Default deny egress, FQDN-based allow policies via Cilium | G5, G6 |
 | Syscall restriction | Seccomp RuntimeDefault on all pods | M4, S11 |
@@ -529,7 +529,7 @@ metadata:
   annotations:
     policies.kyverno.io/category: Network Security
     policies.kyverno.io/description: >-
-      Generate a default-deny NetworkPolicy for every tenant namespace.
+      Generate a default-deny NetworkPolicy for every Organization-labeled namespace.
       All ingress and egress must be explicitly allowed via additional policies.
 spec:
   rules:
@@ -541,7 +541,7 @@ spec:
                 - Namespace
               selector:
                 matchExpressions:
-                  - key: openova.io/tenant
+                  - key: openova.io/organization
                     operator: Exists
       exclude:
         any:
@@ -595,7 +595,7 @@ Policies are deployed in phases to avoid disrupting existing workloads.
 | 2. Warn | `Audit` + webhook warning | Admission succeeds but user sees warning | 1 week |
 | 3. Enforce | `Enforce` | Reject non-compliant resources | Permanent |
 
-New policies always start in Phase 1. The rollout timeline per policy is tracked in the platform's Catalyst IDP catalog.
+New policies always start in Phase 1. The rollout timeline per policy is tracked in the platform's Catalyst console.
 
 ---
 

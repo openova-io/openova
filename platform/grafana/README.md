@@ -166,7 +166,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
   name: default
-  namespace: <tenant>
+  namespace: <org>
 spec:
   exporter:
     endpoint: http://alloy.monitoring.svc:4317

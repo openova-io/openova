@@ -73,7 +73,7 @@ metadata:
   namespace: velero
 spec:
   provider: aws
-  bucket: <tenant>-backups
+  bucket: <org>-backups
   config:
     region: auto
     s3ForcePathStyle: "true"
@@ -93,7 +93,7 @@ metadata:
   namespace: velero
 spec:
   provider: aws
-  bucket: <tenant>-backups
+  bucket: <org>-backups
   config:
     region: us-east-1
   credential:
@@ -111,7 +111,7 @@ metadata:
   namespace: velero
 spec:
   provider: gcp
-  bucket: <tenant>-backups
+  bucket: <org>-backups
   credential:
     name: gcp-credentials
     key: cloud

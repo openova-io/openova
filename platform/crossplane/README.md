@@ -163,9 +163,9 @@ spec:
 
 ---
 
-## Catalyst IDP Integration
+## Catalyst Integration
 
-Crossplane compositions appear as Catalyst IDP software templates, enabling self-service infrastructure provisioning through the developer portal.
+Crossplane Compositions are referenced by Blueprints when an Application requires non-Kubernetes resources (cloud DBs, DNS records, S3 buckets, etc.). End users never see Crossplane directly — they see "needs a database" in the Blueprint's configSchema, rendered as a form in the Catalyst console. Advanced users author Crossplane Compositions and contribute them upstream as Blueprints. See [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §8.
 
 ---
 

@@ -98,7 +98,7 @@ flux/
 │       ├── observability/     # grafana (LGTM stack)
 │       ├── autoscaling/       # keda
 │       ├── workplace/         # stalwart
-│       └── tenants/           # product deployments
+│       └── organizations/     # per-Organization Application deployments
 ```
 
 ---
@@ -115,7 +115,7 @@ flux/
 | observability | grafana | LGTM stack |
 | autoscaling | keda | Event-driven scaling |
 | workplace | stalwart | Email server |
-| tenants | `<tenant>` | Product deployments |
+| organizations | `<org>` | Per-Organization Application deployments |
 
 ---
 
@@ -262,7 +262,7 @@ flux reconcile kustomization tenants
 flux logs --all-namespaces
 
 # Suspend (manual gate)
-flux suspend kustomization <tenant>-prod
+flux suspend kustomization <org>-prod
 ```
 
 ---

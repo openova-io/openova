@@ -178,15 +178,15 @@ spec:
   class: io.debezium.connector.postgresql.PostgresConnector
   tasksMax: 1
   config:
-    database.hostname: <tenant>-postgres-rw.databases.svc
+    database.hostname: <org>-postgres-rw.databases.svc
     database.port: 5432
     database.user: debezium
     database.password: ${file:/opt/kafka/external-configuration/postgres-credentials/password}
-    database.dbname: <tenant>
+    database.dbname: <org>
     topic.prefix: cdc.postgres
     schema.include.list: public
     plugin.name: pgoutput
-    slot.name: debezium_<tenant>
+    slot.name: debezium_<org>
     publication.name: dbz_publication
     snapshot.mode: initial
     heartbeat.interval.ms: 10000
@@ -198,7 +198,7 @@ spec:
 
 | Topic Pattern | Source | Purpose | Retention |
 |---------------|--------|---------|-----------|
-| `cdc.postgres.<tenant>.*` | PostgreSQL (CNPG) | PostgreSQL CDC events | 7 days |
+| `cdc.postgres.<org>.*` | PostgreSQL (CNPG) | PostgreSQL CDC events | 7 days |
 | `dlq.postgres` | Debezium | Failed source events | 30 days |
 | `debezium-offsets` | Kafka Connect | Connector offset tracking | Compact |
 | `debezium-configs` | Kafka Connect | Connector configuration | Compact |

@@ -67,13 +67,13 @@ flowchart TB
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: <tenant>-app-vpa
-  namespace: <tenant>
+  name: <org>-app-vpa
+  namespace: <org>
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: <tenant>-app
+    name: <org>-app
   updatePolicy:
     updateMode: Auto
   resourcePolicy:

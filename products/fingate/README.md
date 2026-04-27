@@ -335,7 +335,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ### TPP Onboarding
 
-1. TPP submits registration via Developer Portal (Catalyst IDP)
+1. TPP submits registration via Developer Portal (Catalyst console)
 2. Validate eIDAS certificate
 3. Create TPP record in registry
 4. Assign billing plan

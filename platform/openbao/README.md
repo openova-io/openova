@@ -206,14 +206,14 @@ spec:
 
 ## Bootstrap Procedure
 
-1. Bootstrap wizard deploys OpenBao to both regions
-2. OpenBao initialized with Kubernetes auth in each region
-3. Operator saves unseal keys securely offline (per region)
-4. Cross-region auth tokens created for remote OpenBao access
-5. ESO configured with both local and remote ClusterSecretStores
-6. Initial secrets created via K8s + PushSecrets
+1. Catalyst bootstrap (Phase 0 of Sovereign provisioning) deploys OpenBao as **independent Raft cluster per region** (no stretched cluster — see [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
+2. OpenBao initialized with Kubernetes auth in each region.
+3. The first sovereign-admin saves unseal keys securely offline (per region).
+4. Cross-region async perf replication is configured for read availability and DR.
+5. ESO configured with local-region ClusterSecretStores; cross-region reads via the same workload SVID.
+6. Initial secrets created via K8s + PushSecrets, never plaintext in Git.
 
-**No SOPS:** Credentials entered interactively during bootstrap, never stored in Git.
+**No SOPS:** Credentials entered interactively during bootstrap, never stored in Git. See [`docs/SECURITY.md`](../../docs/SECURITY.md).
 
 ---
 

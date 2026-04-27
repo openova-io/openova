@@ -81,7 +81,7 @@ opentofu/
 ```bash
 cd environments/<provider>-<region>
 
-# Bootstrap wizard handles credentials interactively
+# Catalyst bootstrap (Phase 0) handles credentials interactively
 # Creates tofu.tfvars (not committed to Git)
 
 # Initialize and apply
@@ -112,12 +112,12 @@ provider "<provider>" {
 
 resource "<provider>_server" "k8s_node" {
   count       = 3
-  name        = "<tenant>-k8s-${count.index + 1}"
+  name        = "<org>-k8s-${count.index + 1}"
   # Provider-specific configuration
 }
 
 resource "<provider>_network" "k8s_network" {
-  name     = "<tenant>-network"
+  name     = "<org>-network"
   ip_range = "10.0.0.0/16"
 }
 ```

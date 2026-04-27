@@ -109,7 +109,7 @@ apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: <service>-secrets
-  namespace: <tenant>-prod
+  namespace: <org>-prod
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -120,11 +120,11 @@ spec:
   data:
     - secretKey: DATABASE_URL
       remoteRef:
-        key: <tenant>/postgres
+        key: <org>/postgres
         property: url
     - secretKey: API_KEY
       remoteRef:
-        key: <tenant>/api-keys
+        key: <org>/api-keys
         property: main
 ```
 

@@ -68,7 +68,7 @@ flowchart TB
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: <tenant>-postgres
+  name: <org>-postgres
   namespace: databases
 spec:
   instances: 3
@@ -84,7 +84,7 @@ spec:
 
   backup:
     barmanObjectStore:
-      destinationPath: s3://cnpg-backups/<tenant>
+      destinationPath: s3://cnpg-backups/<org>
       endpointURL: http://minio.storage.svc:9000
       s3Credentials:
         accessKeyId:
@@ -107,17 +107,17 @@ spec:
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: <tenant>-postgres-dr
+  name: <org>-postgres-dr
   namespace: databases
 spec:
   instances: 1
 
   replica:
     enabled: true
-    source: <tenant>-postgres
+    source: <org>-postgres
 
   externalClusters:
-    - name: <tenant>-postgres
+    - name: <org>-postgres
       connectionParameters:
         host: postgres.region1.<domain>
         user: streaming_replica
@@ -142,13 +142,13 @@ spec:
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
-  name: <tenant>-daily-backup
+  name: <org>-daily-backup
   namespace: databases
 spec:
   schedule: "0 2 * * *"
   backupOwnerReference: self
   cluster:
-    name: <tenant>-postgres
+    name: <org>-postgres
 ```
 
 ---
@@ -163,7 +163,7 @@ CNPG automatically promotes replicas when primary fails.
 
 ```bash
 # Promote DR cluster
-kubectl cnpg promote <tenant>-postgres-dr -n databases
+kubectl cnpg promote <org>-postgres-dr -n databases
 ```
 
 ---
@@ -186,11 +186,11 @@ Connection pooling with PgBouncer:
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
-  name: <tenant>-pooler
+  name: <org>-pooler
   namespace: databases
 spec:
   cluster:
-    name: <tenant>-postgres
+    name: <org>-postgres
   instances: 2
   type: rw
   pgbouncer:

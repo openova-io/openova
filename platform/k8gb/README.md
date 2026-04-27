@@ -159,8 +159,8 @@ DNS queries come from **resolver IPs**, not client IPs. EDNS Client Subnet (ECS)
 apiVersion: k8gb.absa.oss/v1beta1
 kind: Gslb
 metadata:
-  name: <tenant>-app
-  namespace: <tenant>-prod
+  name: <org>-app
+  namespace: <org>-prod
 spec:
   ingress:
     ingressClassName: cilium
@@ -350,7 +350,7 @@ kubectl get pods -n k8gb
 kubectl get gslb -A
 
 # Gslb status
-kubectl describe gslb <tenant>-app -n <tenant>-prod
+kubectl describe gslb <org>-app -n <org>-prod
 
 # Verify DNS resolution
 kubectl run -it --rm dns-test --image=busybox --restart=Never -- \
