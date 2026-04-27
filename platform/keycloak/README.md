@@ -92,7 +92,7 @@ spec:
   http:
     tlsSecret: keycloak-tls
   hostname:
-    hostname: auth.<sovereign-domain>
+    hostname: auth.<location-code>.<sovereign-domain>
 ```
 
 **SME (`per-organization`)** — one minimal Keycloak per Organization in the Org's namespace on the management cluster:
@@ -112,7 +112,7 @@ spec:
     database: keycloak
     # ... credentials
   hostname:
-    hostname: auth.<org>.<sovereign-domain>
+    hostname: auth.<org>.<location-code>.<sovereign-domain>
 ```
 
 ### FAPI Realm Configuration

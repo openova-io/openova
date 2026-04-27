@@ -223,8 +223,8 @@ spec:
     name: openova-blueprints
   postBuild:
     substitute:
-      TENANT: ${TENANT}
-      DOMAIN: ${DOMAIN}
+      ORGANIZATION: ${ORGANIZATION}
+      SOVEREIGN_DOMAIN: ${SOVEREIGN_DOMAIN}
 ```
 
 ### Gateway Routes
@@ -240,7 +240,7 @@ spec:
     - name: cilium-gateway
       namespace: cilium-system
   hostnames:
-    - "api.openbanking.${TENANT}.${DOMAIN}"
+    - "api.openbanking.${ORGANIZATION}.${SOVEREIGN_DOMAIN}"
   rules:
     - matches:
         - path:
@@ -263,8 +263,8 @@ spec:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `TENANT` | Tenant identifier | Required |
-| `DOMAIN` | Base domain | Required |
+| `ORGANIZATION` | Catalyst Organization identifier (per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `bankdhofar.local`) | Required |
 | `OB_STANDARD` | Open Banking standard | `uk-ob-3.1` |
 | `SANDBOX_ENABLED` | Enable sandbox mode | `true` |
 | `KEYCLOAK_REPLICAS` | Keycloak replicas | `2` |
@@ -309,10 +309,10 @@ kubectl get pods -n open-banking
 kubectl get pods -n open-banking-metering
 
 # Check Keycloak
-curl -k https://auth.openbanking.${TENANT}.${DOMAIN}/health
+curl -k https://auth.openbanking.${ORGANIZATION}.${SOVEREIGN_DOMAIN}/health
 
 # Check API
-curl -k https://api.openbanking.${TENANT}.${DOMAIN}/health
+curl -k https://api.openbanking.${ORGANIZATION}.${SOVEREIGN_DOMAIN}/health
 ```
 
 ### Smoke Test
@@ -324,13 +324,13 @@ export KEY=/path/to/test-aisp-key.pem
 # Get access token
 TOKEN=$(curl -X POST \
   --cert $CERT --key $KEY \
-  https://auth.openbanking.${TENANT}.${DOMAIN}/realms/open-banking/protocol/openid-connect/token \
+  https://auth.openbanking.${ORGANIZATION}.${SOVEREIGN_DOMAIN}/realms/open-banking/protocol/openid-connect/token \
   -d "grant_type=client_credentials&client_id=test-aisp" | jq -r '.access_token')
 
 # Call Accounts API
 curl -H "Authorization: Bearer $TOKEN" \
   --cert $CERT --key $KEY \
-  https://api.openbanking.${TENANT}.${DOMAIN}/accounts
+  https://api.openbanking.${ORGANIZATION}.${SOVEREIGN_DOMAIN}/accounts
 ```
 
 ### TPP Onboarding

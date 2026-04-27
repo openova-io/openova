@@ -63,6 +63,38 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 34 — banned-term `TENANT` sweep across products + platform/keycloak hostname drift
+
+Started as cortex + keycloak atomic check; expanded into a sweep when the banned-term grep surfaced TENANT instances across multiple product READMEs. Three product files corrected.
+
+The recurring drift: GLOSSARY's banned term "tenant" survived in Configuration tables and Flux postBuild substitutions across product READMEs as `TENANT` (uppercased ENV var). Banned-term greps run in Pass 14/16/19 weren't flagging this because they searched lowercase `tenant` but most surviving instances are the uppercase ENV-var form. The ALL-CAPS form passes the eye as "this is just an environment variable name, not a deliberate platform term", but it's still the same word — and at deployment time it becomes a customer-facing label (Flux substitution → manifest field).
+
+Fixes:
+- **products/cortex/README.md**: `TENANT: ${TENANT}` and the Configuration table row → `ORGANIZATION` with inline pointer to GLOSSARY explaining the banned-term rename. Also renamed `DOMAIN` → `SOVEREIGN_DOMAIN` since the bare term is ambiguous (Sovereign-domain vs Org-domain vs customer-domain). Plus two DNS placeholder fixes: `https://llm-gateway.ai-hub.<domain>/v1` → `llm-gateway.<env>.<sovereign-domain>` (same shape Pass 25 fixed in llm-gateway), and `https://chat.ai-hub.<domain>` → `chat.<env>.<sovereign-domain>` (same as Pass 31's librechat fix).
+- **products/fingate/README.md**: 6 instances total (Flux substitution, Configuration table, 4 URL templates `api.openbanking.${TENANT}.${DOMAIN}` / `auth.openbanking.${TENANT}.${DOMAIN}`). Renamed to `${ORGANIZATION}.${SOVEREIGN_DOMAIN}`. Note: the URL shape `api.openbanking.<org>.<sovereign-domain>` doesn't strictly match either NAMING §5.1 control-plane DNS (`{component}.{location-code}.{sovereign-domain}`) or §5.2 Application DNS (`{app}.{environment}.{sovereign-domain}`) — it's a 4-segment FQDN distinct from both. Flagging the URL shape as a deeper architectural question for a future pass; Pass 34 fixes only the variable names (mechanical) without refactoring the URL structure.
+- **products/fabric/README.md**: Configuration table row → `ORGANIZATION` + `SOVEREIGN_DOMAIN`.
+
+- **platform/keycloak/README.md** had two related DNS drift items in `keycloakTopology` examples:
+  - `shared-sovereign` (corporate) line 95: `auth.<sovereign-domain>` → `auth.<location-code>.<sovereign-domain>`.
+  - `per-organization` (SME) line 115: `auth.<org>.<sovereign-domain>` → `auth.<org>.<location-code>.<sovereign-domain>`. NAMING §5 doesn't explicitly cover per-Org Catalyst-component DNS, but the canonical pattern requires `<location-code>` for control-plane services on the management cluster — the per-Org form just adds an org-specific subdomain prefix on top.
+
+Out of scope (correctly preserved): platform/librechat/README.md L150 `${TENANT_ID}` in Microsoft OIDC issuer URL — this is Microsoft Azure AD's tenant-ID concept (external technology), exempted by GLOSSARY's banned-terms note ("OIDC client and K8s client are fine" by analogy: Azure tenant-ID is an external concept just like OIDC client).
+
+This pass demonstrates the value of always running a global grep for the surfaced drift category before declaring a pass closed — the cortex single-fix would have left fingate and fabric drifting in parallel, which is exactly the kind of asymmetric drift Pass 25 explicitly warned against.
+
+Six fixes across two files; both files needed first-time deep scrutiny.
+
+- **products/cortex/README.md** had four real drift items:
+  - **Banned term "TENANT"**: §"Deployment / Enable Cortex Product" used `TENANT: ${TENANT}` substitution, and §"Configuration" listed `TENANT | Tenant identifier | Required` — both use the GLOSSARY-banned term. Per GLOSSARY: "tenant → Organization (Cloud-overloaded, ambiguous between Sovereign tenancy and Organization tenancy)". Fixed both to `ORGANIZATION` and added an inline pointer to GLOSSARY explaining the rename. Renamed `DOMAIN` to `SOVEREIGN_DOMAIN` in the same edit since the bare term is also ambiguous (Sovereign domain vs customer domain vs Organization domain).
+  - **§"Use Cases / Claude Code with Internal Models"** had `ANTHROPIC_BASE_URL="https://llm-gateway.ai-hub.<domain>/v1"` — same Application-endpoint shape Pass 25 fixed in llm-gateway README and Pass 31 fixed in librechat. Per NAMING §5.2 Application endpoints are `{app}.{environment}.{sovereign-domain}`. Fixed to `https://llm-gateway.<env>.<sovereign-domain>/v1`.
+  - **§"Use Cases / RAG-Powered Chat"** had `https://chat.ai-hub.<domain>` — same shape as Pass 31's librechat fix. Fixed to `https://chat.<env>.<sovereign-domain>`.
+
+- **platform/keycloak/README.md** had two related DNS drift items in the `keycloakTopology` configuration examples:
+  - **`shared-sovereign` (corporate) example** at line 95 had `hostname: auth.<sovereign-domain>` — Catalyst control-plane DNS missing location-code per NAMING §5.1. Fixed to `auth.<location-code>.<sovereign-domain>`.
+  - **`per-organization` (SME) example** at line 115 had `hostname: auth.<org>.<sovereign-domain>` — added `<org>` segment but still missing the location-code segment. Fixed to `auth.<org>.<location-code>.<sovereign-domain>`. NAMING §5 doesn't explicitly cover per-Org Catalyst-component DNS, but the canonical pattern requires `<location-code>` for control-plane services on the management cluster — the per-Org form just adds an org-specific subdomain prefix on top.
+
+This is the first deep scrutiny of products/cortex and platform/keycloak — both were touched by Pass 32's image registry sweep (cortex was not, keycloak was not — they avoided the harbor.<domain> pattern). The cortex "TENANT" instances had survived 30+ prior passes despite being in a heavily-referenced product README, which suggests banned-term scans (and the periodic `tenant`/`workspace`/etc greps in this validation log) need to be run more aggressively against config-block YAML keys (uppercased identifiers like `${TENANT}` look like generic ENV var names and don't grep cleanly).
+
 ### Pass 33 — PERSONAS-AND-JOURNEYS Layla narrative DNS + vcluster name drift; vllm clean
 
 Five drift fixes on PERSONAS-AND-JOURNEYS that Pass 22's banner-style scan missed; vllm clean.

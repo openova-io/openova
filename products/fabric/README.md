@@ -125,8 +125,8 @@ spec:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `TENANT` | Tenant identifier | Required |
-| `DOMAIN` | Base domain | Required |
+| `ORGANIZATION` | Catalyst Organization identifier (per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`) | Required |
 | `KAFKA_REPLICAS` | Kafka broker count | `3` |
 | `FLINK_PARALLELISM` | Flink task parallelism | `2` |
 | `CLICKHOUSE_SHARDS` | ClickHouse shard count | `1` |

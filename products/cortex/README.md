@@ -168,8 +168,8 @@ spec:
     name: openova-blueprints
   postBuild:
     substitute:
-      TENANT: ${TENANT}
-      DOMAIN: ${DOMAIN}
+      ORGANIZATION: ${ORGANIZATION}
+      SOVEREIGN_DOMAIN: ${SOVEREIGN_DOMAIN}
       GPU_NODE_POOL: ${GPU_NODE_POOL}
 ```
 
@@ -179,8 +179,8 @@ spec:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `TENANT` | Tenant identifier | Required |
-| `DOMAIN` | Base domain | Required |
+| `ORGANIZATION` | Catalyst Organization identifier (the multi-tenancy unit per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `acme.com`) | Required |
 | `GPU_NODE_POOL` | GPU node label | Required |
 | `LLM_MODEL` | Default LLM | `qwen3-32b` |
 | `EMBEDDING_MODEL` | Embedding model | `bge-m3` |
@@ -221,7 +221,7 @@ spec:
 
 ```bash
 # Configure Claude Code
-export ANTHROPIC_BASE_URL="https://llm-gateway.ai-hub.<domain>/v1"
+export ANTHROPIC_BASE_URL="https://llm-gateway.<env>.<sovereign-domain>/v1"
 export ANTHROPIC_API_KEY="your-subscription-token"
 
 # Use Claude Code normally
@@ -232,7 +232,7 @@ claude "Explain this code..."
 
 ```bash
 # Access LibreChat
-https://chat.ai-hub.<domain>
+https://chat.<env>.<sovereign-domain>
 
 # Select agent preset (e.g., Compliance Advisor)
 # Upload documents for context
