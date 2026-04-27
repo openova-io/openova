@@ -1,8 +1,8 @@
 # KServe
 
-Kubernetes-native model serving for ML/AI inference.
+Kubernetes-native model serving. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Used by `bp-cortex` to serve LLMs via vLLM, embedding models via BGE, and any custom inference workload.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

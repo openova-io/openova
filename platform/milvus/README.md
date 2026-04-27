@@ -1,8 +1,8 @@
 # Milvus
 
-Vector database for similarity search and AI applications.
+Vector database for similarity search. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Backbone of RAG pipelines in `bp-cortex` (paired with BGE embeddings).
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

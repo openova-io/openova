@@ -1,8 +1,8 @@
 # LibreChat
 
-Open-source chat UI with multi-model support and file uploads.
+Open-source chat UI with multi-model support and file uploads. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Default end-user chat surface in `bp-cortex` — fronts the LLM Gateway and routes through NeMo Guardrails for safety.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

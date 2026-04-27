@@ -1,8 +1,8 @@
 # Knative
 
-Serverless platform for Kubernetes with scale-to-zero and event-driven capabilities.
+Serverless platform for Kubernetes with scale-to-zero and event-driven capabilities. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6 — AI/ML). Used by `bp-cortex` (composite AI Hub Blueprint) as the serverless layer for KServe-managed model inference.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

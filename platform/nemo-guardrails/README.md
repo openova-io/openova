@@ -1,8 +1,8 @@
 # NeMo Guardrails
 
-AI safety firewall for LLM deployments.
+AI safety firewall for LLM deployments. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.7 — AI safety). Sits between user input and LLM in `bp-cortex` to block prompt injection, PII leakage, off-topic content, and hallucinated citations.
 
-**Category:** AI Safety | **Type:** A La Carte
+**Category:** AI Safety | **Type:** Application Blueprint
 
 ---
 

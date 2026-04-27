@@ -1,8 +1,8 @@
 # LangFuse
 
-LLM observability and analytics platform.
+LLM observability and analytics. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.7). Traces every LLM call in `bp-cortex` — latency, tokens, cost, eval scores. Catalyst's general-purpose observability stack (Grafana/OTel) covers infrastructure; LangFuse covers the AI-specific dimensions (prompt/response, model drift, eval).
 
-**Category:** AI Observability | **Type:** A La Carte
+**Category:** AI Observability | **Type:** Application Blueprint
 
 ---
 
