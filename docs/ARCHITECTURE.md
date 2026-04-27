@@ -60,10 +60,15 @@ Everything else is identical in code.
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │ Catalyst control plane (in catalyst-* namespaces)                   │ │
 │  │   console   marketplace   admin   catalog-svc   projector           │ │
-│  │   environment-controller   blueprint-controller   billing             │ │
+│  │   provisioning   environment-controller   blueprint-controller      │ │
+│  │   billing                                                            │ │
 │  │   gitea   nats-jetstream   openbao   keycloak   spire-server        │ │
-│  │   crossplane   flux   harbor   grafana-stack                        │ │
+│  │   observability (Grafana stack)                                      │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
+│  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,         │
+│  cert-manager, External-Secrets, Kyverno, Harbor, Reloader, Trivy,       │
+│  Falco, Sigstore, Syft+Grype, VPA, KEDA, External-DNS, k8gb, Coraza,     │
+│  MinIO, Velero, failover-controller) — see PLATFORM-TECH-STACK §3.       │
 │                                                                           │
 │  Workload host clusters: hz-fsn-rtz-prod, hz-hel-rtz-prod                 │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
@@ -158,11 +163,12 @@ Everything else is identical in code.
           ▼                          ▼                          ▼
    ┌────────────────────────────────────────────────────────────────────┐
    │  NATS JetStream                                                    │
-   │  Per-Org account: ws.{org}-{env_type}.>                             │
-   │   subjects: ws.<env>.k8s.<obj-kind>.<ns>.<name>                    │
-   │             ws.<env>.flux.<kustomization>                          │
-   │             ws.<env>.git.<commit-hash>                             │
-   │             ws.<env>.crossplane.<resource>                         │
+   │  Account isolation: one NATS Account per Organization.             │
+   │  Subject prefix scoped per Environment (where <env> = {org}-{env_type}): │
+   │     ws.<env>.k8s.<obj-kind>.<ns>.<name>                            │
+   │     ws.<env>.flux.<kustomization>                                  │
+   │     ws.<env>.git.<commit-hash>                                     │
+   │     ws.<env>.crossplane.<resource>                                 │
    └────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼ durable consumer per env partition
