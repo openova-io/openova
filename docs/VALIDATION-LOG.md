@@ -63,6 +63,69 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 55 — PLATFORM-TECH-STACK §2-§5 third-cycle stable; openmeter clean
+
+Both targets verified clean. **Sixth clean pass overall** (28, 44, 49, 50, 54, 55). **Two consecutive clean architectural passes** (54 → 55).
+
+Acceptance greps clean for all 7 carry-forward categories.
+
+**docs/PLATFORM-TECH-STACK.md §2-§5 third-cycle deep re-scan** with Pass 40-41 union-equality lens:
+
+§2 Catalyst control-plane components (per-Sovereign on mgt cluster):
+- §2.1 user-facing surfaces: 3 (console, marketplace, admin) ✓
+- §2.2 backend services: 6 (projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing) ✓
+- §2.3 supporting services: 6 (keycloak, openbao, spire-server, nats-jetstream, gitea, observability) ✓
+- Total: 15 — matches §1 summary post-Pass 40.
+
+§3 Per-host-cluster infrastructure (every host cluster):
+- §3.1 networking: 4 (cilium, external-dns, k8gb, coraza)
+- §3.2 GitOps and IaC: 3 (flux, crossplane, opentofu)
+- §3.3 security and policy: 7 (cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype)
+- §3.4 scaling: 3 (vpa, keda, reloader)
+- §3.5 storage and registry: 3 (minio, velero, harbor)
+- §3.6 resilience: 1 (failover-controller)
+- Total: 4+3+7+3+3+1 = 21 — matches §1 summary.
+
+§4 Application Blueprints (A La Carte):
+- §4.1 data services: 6 (cnpg, ferretdb, strimzi, valkey, clickhouse, opensearch)
+- §4.2 CDC: 1 (debezium)
+- §4.3 workflow: 2 (temporal, flink)
+- §4.4 lakehouse: 1 (iceberg)
+- §4.5 communication: 4 (stalwart, stunner, livekit, matrix)
+- §4.6 AI/ML: 9 (knative, kserve, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter)
+- §4.7 AI safety/observability: 2 (nemo-guardrails, langfuse)
+- §4.8 identity/metering: 1 (openmeter)
+- §4.9 chaos: 1 (litmus)
+- Total: 6+1+2+1+4+9+2+1+1 = 27 — matches §1 summary post-Pass 40.
+
+§5 Composite Blueprints: 6 (bp-catalyst-platform, bp-cortex, bp-axon, bp-fingate, bp-fabric, bp-relay) + bp-specter mention. Consistent with BUSINESS-STRATEGY §5.1.
+
+All §2-§5 union-equality with §1 summary verified end-to-end. Pass 40 fix held; the doc is now internally consistent.
+
+**Detailed body checks**:
+- §2.3 L56 openbao: "**No stretched clusters.**" — Pass 7 fix preserved ✓
+- §2.3 L58 nats-jetstream: "Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0." — consistent ✓
+- §3.2 L82 crossplane: "**Never user-facing.**" — Pass 48 framing intact ✓
+- §3.2 L83 opentofu: "Bootstrap IaC only" — Pass 48 OpenTofu canonical naming ✓
+- §4.5 L162 matrix: "Matrix protocol; Synapse is the server implementation" — disambiguation per GLOSSARY ✓
+
+**platform/openmeter/README.md**: clean. Banner correct (Application Blueprint §4.8 Identity & metering, used by bp-fingate). All cross-component references canonical:
+- `kafka-kafka-bootstrap.databases.svc:9092` ✓ (Pass 52 sweep)
+- `clickhouse.databases.svc:9000` ✓ (clickhouse.databases.svc matches clickhouse README's `namespace: databases`)
+- CloudEvents-based ingestion + ClickHouse backend + customer billing integration consistent with §4.8 description.
+
+The Quota Checking section's "Valkey provides real-time quota checks" mention correctly identifies Valkey as the application-level cache (consistent with PLATFORM-TECH-STACK §1's "Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint").
+
+**Pass 55: clean.** Two consecutive architectural-clean passes (54, 55). 
+
+Convergence trajectory updated:
+- Pass 24-37 (14 passes): ~93% drift rate
+- Pass 38-43 (6 passes): 100% drift rate
+- Pass 44-50 (7 passes): ~57% drift rate (3 clean: 44, 49, 50)
+- Pass 51-55 (5 passes): ~60% drift rate (2 clean: 54, 55) — but 51-53 drift was cosmetic/mechanical, 54-55 confirm architectural cleanliness
+
+Pass 56 (final aggregate sweep) is the next planned pass. If Pass 56 is clean → 3 consecutive architectural cleans (54, 55, 56) — significant nirvana approach signal.
+
 ### Pass 54 — TECHNOLOGY-FORECAST + opensearch drift sweep — clean
 
 Both targets verified clean. **Fifth clean pass overall** (28, 44, 49, 50, 54).
