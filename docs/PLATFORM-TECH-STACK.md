@@ -272,6 +272,19 @@ This is the budget for the **Catalyst-specific** layer only — the components i
 
 For a single-region SME Sovereign with 100 Orgs: ~11.3 GB Catalyst + 100 × 150 MB Keycloak ≈ ~26 GB Catalyst-only on the management host cluster (before per-host-cluster infrastructure overhead).
 
+### 7.2 Per-Organization vcluster (workload regions)
+
+| Layer | Approx RAM |
+|---|---|
+| vcluster control plane | ~150 MB |
+| Lightweight Flux | ~150 MB |
+| ESO + reloader | ~100 MB |
+| **Subtotal per Org per region** | **~400 MB** + workload RAM |
+
+### 7.3 Per-Application
+
+Application-specific. A WordPress with embedded Postgres on `medium` overlay: ~2 GB. A multi-region Strimzi Kafka cluster: 4–16 GB per region.
+
 ### 7.4 Per-host-cluster infrastructure overhead
 
 Adds to **every** host cluster a Sovereign owns (mgt, rtz, dmz):
@@ -293,19 +306,6 @@ Adds to **every** host cluster a Sovereign owns (mgt, rtz, dmz):
 | **Per-host-cluster subtotal** | **~8.8 GB** | per host cluster |
 
 **Total mgt cluster RAM** ≈ Catalyst (§7.1) + per-host-cluster (§7.4) ≈ ~20 GB + 100 × 150 MB Keycloak (SME tier with 100 orgs) ≈ ~35 GB.
-
-### 7.2 Per-Organization vcluster (workload regions)
-
-| Layer | Approx RAM |
-|---|---|
-| vcluster control plane | ~150 MB |
-| Lightweight Flux | ~150 MB |
-| ESO + reloader | ~100 MB |
-| **Subtotal per Org per region** | **~400 MB** + workload RAM |
-
-### 7.3 Per-Application
-
-Application-specific. A WordPress with embedded Postgres on `medium` overlay: ~2 GB. A multi-region Strimzi Kafka cluster: 4–16 GB per region.
 
 ---
 

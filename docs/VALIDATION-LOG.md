@@ -63,6 +63,43 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 62 — PLATFORM-TECH-STACK §7 subsection order (Pass 23 carry-over); temporal third-cycle clean
+
+One ordering fix on PLATFORM-TECH-STACK; temporal third-cycle clean.
+
+Acceptance greps clean for all 13 carry-forward categories. (The `\bTENANT\b` grep surfaced ARCHITECTURE.md:196 "multi-tenant Accounts" — this is the documented exempt usage from NATS Accounts feature description, line shifted from L195 to L196 due to Pass 61's §4 box-fix added a line; my exclusion regex was stale, content unchanged.)
+
+**docs/PLATFORM-TECH-STACK.md §7 subsection ordering** — Pass 23 carry-over. Pass 23 split §7.1 (Catalyst control plane resource estimates) and added a new §7.4 (Per-host-cluster infrastructure overhead). However, Pass 23 placed the new §7.4 between the existing §7.1 and §7.2, producing the broken numerical order: §7.1 → §7.4 → §7.2 → §7.3.
+
+Reordered to canonical: §7.1 → §7.2 → §7.3 → §7.4. The "Total mgt cluster RAM" computation at the end of the moved-§7.4 block correctly sums Catalyst (§7.1) + per-host-cluster (§7.4), and the cross-reference text in §7.1 ("its budget is in §7.4 below") still reads accurately since §7.4 follows §7.1 in document order (just with §7.2 and §7.3 between them).
+
+**Methodology lesson #20**: When inserting a new subsection during a fix, ensure the insertion point is **after** existing higher-numbered subsections, not between unrelated lower-numbered ones. Pass 23 added §7.4 logically (categorization split) but inserted it physically before §7.2/§7.3. New-cycle audits should grep `^###\s+\d+\.\d+` and verify subsection numbers are monotonically increasing per major section.
+
+**PLATFORM-TECH-STACK §1-§11 fourth-cycle deep re-scan** with all current methodology lenses (Pass 23/40-41/42/45-48/55/60-61/62):
+- §1 Component categorization: Pass 40 fix held (15+21+27 = 63 components union-equal to §2+§3+§4 detail).
+- §2 Catalyst control plane: 15 components (3 + 6 + 6) ✓
+- §3 Per-host-cluster infrastructure: 21 components (4 + 3 + 7 + 3 + 3 + 1) ✓
+- §4 Application Blueprints: 27 components (6 + 1 + 2 + 1 + 4 + 9 + 2 + 1 + 1) ✓
+- §5 Composite Blueprints: 6 main + bp-specter mention ✓
+- §6 Multi-Region Architecture mermaid diagram: clean. OpenBao Raft "intra-region only; cross-region is async perf replication" anchors Pass 7.
+- §7 Resource estimates: had the ordering fix above. Subtotals consistent (~11.3 GB Catalyst + ~8.8 GB per-host-cluster + ~400 MB per-Org vcluster + per-Application variable).
+- §8 Cluster deployment: K3s + Cilium installation snippets clean.
+- §9 User choice options: 6 cloud providers, regional options, LB choices, DNS providers, Archival S3 — all clean.
+- §10 SIEM/SOAR architecture: Pass 23 fix on bp-siem retention intact ("This pipeline is **not** part of the Catalyst control plane — it's a composition of Application Blueprints").
+- §11 License posture: clean. Catalyst control-plane components all Apache 2.0 / MPL 2.0 / MIT / BSD-3 — no BSL.
+
+**platform/temporal/README.md** third-cycle deep-read:
+- Banner: §4.3 Workflow & processing, used by bp-fabric ✓
+- L120-130 PostgreSQL backend: `host: temporal-postgres.databases.svc` — CNPG in `databases` namespace ✓
+- L147 web ingress: `temporal.<env>.<sovereign-domain>` — Pass 35 Application DNS form ✓
+- L272 worker deployment: `namespace: fabric` — Pass 38 fix held (fuse → fabric) ✓
+- L279 image: `harbor.<location-code>.<sovereign-domain>/fabric/order-worker:latest` — Pass 32 + Pass 38 fixes both held ✓
+- L282 worker connects to temporal-frontend: `temporal-frontend.temporal.svc:7233` — temporal control plane services live in `temporal` namespace, customer worker Apps in `fabric` (bp-fabric composition). Cross-namespace pattern correct.
+
+temporal third-cycle clean — three architectural fixes (Pass 32 image, Pass 35 DNS, Pass 38 namespace) all intact.
+
+Pass 62 result: 1 ordering fix carry-over (Pass 23). Convergence trajectory continues.
+
 ### Pass 61 — ARCHITECTURE §4 box alignment (Pass 29 carry-over); cnpg clean
 
 One alignment fix on ARCHITECTURE; cnpg clean. Drift is Pass-29 carry-over, same category as Pass 53/60 — not new architectural drift.
