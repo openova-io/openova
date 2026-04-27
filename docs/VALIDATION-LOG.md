@@ -63,6 +63,11 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 22 — PERSONAS-AND-JOURNEYS Environment name format + librechat clean
+
+- **PERSONAS-AND-JOURNEYS.md §6.3** Environment view example said `Environment: bankdhofar-corp-banking-prod` — implies a Sovereign-Org-EnvType three-segment form. But NAMING §11.1 establishes `{org}-{env_type}`: the Sovereign name is NOT in the Environment name. And §4.2 of this same doc says "Their internal Organizations are `core-banking`, `digital-channels`, `analytics`, `corporate-it`" — so the Org is `core-banking`, and the Environment is `core-banking-prod`. Fixed.
+- **platform/librechat/README.md**: clean. The example `namespace: ai-hub` is a customer-chosen Application namespace (illustrative, not strict drift).
+
 ### Pass 21 — BLUEPRINT-AUTHORING CI pipeline contradicting §2 + langfuse clean
 
 One real fix on BLUEPRINT-AUTHORING + langfuse confirmed clean.

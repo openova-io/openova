@@ -236,7 +236,7 @@ This is the "where is this Blueprint running in my Org" view — the simplest cr
 ### 6.3 Environment view (where the cards live)
 
 ```
-Environment: bankdhofar-corp-banking-prod    [+ Install]  [⋮ View modes ▼]
+Environment: core-banking-prod               [+ Install]  [⋮ View modes ▼]
 
   Group by: ( Status ▼ )    Filter: [_______]    [List | Grid]
 
