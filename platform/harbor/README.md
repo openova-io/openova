@@ -1,8 +1,8 @@
 # Harbor
 
-Container registry with vulnerability scanning and multi-region replication.
+Container registry with vulnerability scanning. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — every host cluster runs a Harbor instance for Catalyst component images, mirrored Blueprint OCI artifacts, and customer images.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

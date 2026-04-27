@@ -1,8 +1,8 @@
 # Sigstore/Cosign
 
-Container image signing and verification for supply chain security.
+Container image signing and verification for supply chain security. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — every host cluster runs cosign-based admission verification. Catalyst's CI signs every Blueprint OCI artifact (`ghcr.io/openova-io/bp-<name>:<semver>`) at release; Kyverno's verify-signatures policy denies unsigned/wrong-issuer artifacts at admission.
 
-**Category:** Supply Chain Security | **Type:** Mandatory
+**Category:** Supply Chain Security | **Type:** Mandatory per host cluster
 
 ---
 

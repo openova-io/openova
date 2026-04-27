@@ -1,8 +1,8 @@
 # Falco
 
-Runtime security and threat detection for Kubernetes.
+Runtime security and eBPF threat detection. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — runs on every host cluster a Sovereign owns. Feeds the SIEM/SOAR pipeline described in [`docs/SRE.md`](../../docs/SRE.md) §10.
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
