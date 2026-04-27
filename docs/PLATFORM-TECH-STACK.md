@@ -13,7 +13,7 @@ Catalyst's components fall into three categories:
 
 | Category | Where it runs | Examples |
 |---|---|---|
-| **Catalyst control plane** | The Sovereign's `mgt` cluster | console, projector, marketplace, admin, catalog-svc, workspace-controller, blueprint-controller, gitea, nats-jetstream (control-plane account), openbao, keycloak, spire-server, billing |
+| **Catalyst control plane** | The Sovereign's `mgt` cluster | console, projector, marketplace, admin, catalog-svc, environment-controller, blueprint-controller, gitea, nats-jetstream (control-plane account), openbao, keycloak, spire-server, billing |
 | **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, cert-manager, flux, crossplane, external-secrets, kyverno, harbor, falco, trivy, sigstore, syft-grype, reloader, vpa, keda, k8gb, coraza |
 | **Application Blueprints** | Inside per-Org vclusters | cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
 
@@ -42,7 +42,7 @@ These are the components that make a Kubernetes cluster a Sovereign. Installed a
 | **projector** | CQRS read-side. Subscribes to NATS JetStream, materializes per-Environment KV, fans out SSE to console. |
 | **catalog-svc** | Reads Blueprint CRDs, serves catalog API to console + marketplace. |
 | **provisioning** | Validates configSchema, composes manifests, commits to Environment Gitea repo. |
-| **workspace-controller** | Reconciles Environment CRD: vcluster + Flux + Gitea repo + webhook. |
+| **environment-controller** | Reconciles Environment CRD: vcluster + Flux + Gitea repo + webhook. |
 | **blueprint-controller** | Watches Blueprint repos (public + Org-private), registers Blueprint CRDs. |
 | **billing** | Per-Organization metering, invoicing. |
 
@@ -61,7 +61,7 @@ These are the components that make a Kubernetes cluster a Sovereign. Installed a
 | Component | Purpose |
 |---|---|
 | **nats-jetstream** | Event spine (pub/sub + Streams + KV). Per-Org Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
-| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts public Blueprint mirror, Org-private Blueprints, per-Environment workspace repos. |
+| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts public Blueprint mirror, Org-private Blueprints, per-Environment Gitea repos. |
 | **[harbor](../platform/harbor/)** | Container registry. Stores Catalyst component images, mirrored Blueprint OCI artifacts, customer images. |
 
 ### 2.5 GitOps and IaC

@@ -60,7 +60,7 @@ Everything else is identical in code.
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │ Catalyst control plane (in catalyst-* namespaces)                   │ │
 │  │   console   marketplace   admin   catalog-svc   projector           │ │
-│  │   workspace-controller   blueprint-controller   billing             │ │
+│  │   environment-controller   blueprint-controller   billing             │ │
 │  │   gitea   nats-jetstream   openbao   keycloak   spire-server        │ │
 │  │   crossplane   flux   harbor   grafana-stack                        │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
@@ -168,7 +168,7 @@ Everything else is identical in code.
    │   - rebuilds per-object state                                      │
    │   - writes to JetStream KV: ws-<env>-state/<kind>/<name>           │
    │   - fans out SSE to subscribed console clients                     │
-   │   - authorizes by JWT claim {workspace, org, role}                 │
+   │   - authorizes by JWT claim {environment, org, role}               │
    │   - serves REST/GraphQL snapshot read API                          │
    └────────────────────────────────────────────────────────────────────┘
                                   │
@@ -389,7 +389,7 @@ bp-catalyst-platform                 ← umbrella
 ├── depends: bp-catalyst-admin
 ├── depends: bp-catalyst-projector
 ├── depends: bp-catalyst-catalog-svc
-├── depends: bp-catalyst-workspace-controller
+├── depends: bp-catalyst-environment-controller
 ├── depends: bp-catalyst-blueprint-controller
 ├── depends: bp-catalyst-billing
 ├── depends: bp-catalyst-gitea

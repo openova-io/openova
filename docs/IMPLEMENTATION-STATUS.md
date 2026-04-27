@@ -47,7 +47,7 @@ The components named in [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2 �
 | catalog-svc | 📐 | Designed. No code. |
 | projector (CQRS read-side, JetStream → KV → SSE) | 📐 | Designed. No code. |
 | provisioning service | 📐 | Designed. No code. |
-| workspace-controller | 📐 | Designed. No code. |
+| environment-controller | 📐 | Designed. No code. |
 | blueprint-controller | 📐 | Designed. No code. |
 | billing | 📐 | Designed. No code. |
 | Gitea (per Sovereign) | 🚧 | Component README exists; no Catalyst-specific deployment manifest. |
@@ -86,7 +86,7 @@ The components named in [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2 �
 | Surface | Status | Notes |
 |---|---|---|
 | **UI** (Catalyst console) | 📐 | Astro + Svelte target stack chosen; no code yet. |
-| **Git** (direct push to Environment Gitea repo) | 📐 | Pattern documented; depends on workspace-controller being implemented. |
+| **Git** (direct push to Environment Gitea repo) | 📐 | Pattern documented; depends on environment-controller being implemented. |
 | **API** (REST + GraphQL) | 📐 | OpenAPI / GraphQL schema not yet defined. |
 | **kubectl** (debug-only inside own vcluster) | 📐 | Standard K8s; works as soon as a Sovereign exists. |
 

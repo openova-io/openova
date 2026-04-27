@@ -132,7 +132,7 @@ Day-1 actions
 From here on, the Sovereign runs autonomously. Sovereign-admins use the Catalyst admin UI for:
 
 - Onboarding more Organizations
-- Adding host clusters in new regions (Crossplane provisions them, workspace-controller adopts them)
+- Adding host clusters in new regions (Crossplane provisions them, environment-controller adopts them)
 - Updating Catalyst itself (umbrella Blueprint version bumps, applied via Flux PR)
 - Configuring SecretPolicies and EnvironmentPolicies
 - Monitoring the Sovereign's own observability stack

@@ -19,7 +19,7 @@ A single Go application (the `core/` directory) packaged as multiple components 
 - **provisioning** — the service that validates configSchema, composes manifests, commits to Environment Gitea repos.
 - **projector** — the CQRS read-side service: NATS JetStream → KV → SSE.
 - **catalog-svc** — Blueprint catalog API.
-- **workspace-controller** — reconciles the Environment CRD (vcluster + Flux + Gitea + webhook).
+- **environment-controller** — reconciles the Environment CRD (vcluster + Flux + Gitea + webhook).
 - **blueprint-controller** — watches Blueprint repositories.
 - **billing** — per-Org metering.
 
@@ -44,7 +44,7 @@ core/
 ├── apps/                  # one binary per control-plane component
 │   ├── console/           # console + marketplace + admin (frontend + Go backend)
 │   ├── projector/         # CQRS projector service (NATS JetStream → KV → SSE)
-│   ├── workspace-controller/   # reconciles Environment CRD (vcluster + Flux + Gitea)
+│   ├── environment-controller/   # reconciles Environment CRD (vcluster + Flux + Gitea)
 │   ├── blueprint-controller/   # watches Blueprint folders/repos, registers CRDs
 │   ├── provisioning/      # validates configSchema, commits to Environment Gitea
 │   ├── catalog-svc/       # serves Blueprint catalog API
@@ -177,7 +177,7 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 ```
 
-Per-CRD reconcilers live under `apps/<controller>/internal/`. Each is its own deployable component to keep blast-radius small (a bug in `blueprint-controller` cannot stall `workspace-controller`).
+Per-CRD reconcilers live under `apps/<controller>/internal/`. Each is its own deployable component to keep blast-radius small (a bug in `blueprint-controller` cannot stall `environment-controller`).
 
 ---
 
@@ -186,7 +186,7 @@ Per-CRD reconcilers live under `apps/<controller>/internal/`. Each is its own de
 | Journey | Where it lands |
 |---|---|
 | Sovereign bootstrap | Phase 0 done by `catalyst-provisioner`; this codebase contains the OpenTofu modules under `apps/provisioning/opentofu/` and the post-bootstrap Catalyst install logic. |
-| Environment creation | `workspace-controller` reconciles an `Environment` CR. |
+| Environment creation | `environment-controller` reconciles an `Environment` CR. |
 | Application install | `apps/provisioning/` validates and commits to the Environment's Gitea repo. Flux (in the vcluster) reconciles. |
 | Promotion between Environments | `apps/console/` opens a Gitea PR; `EnvironmentPolicy` controller gates merges. |
 | Observability fanout | `apps/projector/` consumes JetStream, writes JetStream KV, fans SSE to console clients. |
@@ -223,7 +223,7 @@ cd core/apps/projector
 go run .
 
 # Run a controller against a local kind cluster
-cd core/apps/workspace-controller
+cd core/apps/environment-controller
 kind create cluster --name catalyst-dev
 go run . --kubeconfig $HOME/.kube/config
 

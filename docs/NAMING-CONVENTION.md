@@ -396,7 +396,7 @@ Management (one per Sovereign, single region recommended)
 hz-nbg-mgt-prod
   Catalyst control plane (console, projector, marketplace, admin,
                           catalog-svc, blueprint-controller,
-                          workspace-controller)
+                          environment-controller)
   Gitea (Blueprint mirror + per-Org workspaces)
   NATS JetStream (event spine, per-Org accounts)
   OpenBao (secrets — one cluster here; sibling clusters in workload regions
@@ -484,7 +484,7 @@ An Environment is realized by:
 | Single-region | 1 vcluster on one rtz cluster | SME default. No cross-region failover. |
 | Multi-region | N vclusters across regions × bb | Corporate / regulated default. k8gb routes Application traffic. |
 
-The Environment object's spec drives which vclusters get created; `workspace-controller` (the Catalyst component, not to be confused with the rejected term "workspace") reconciles them.
+The Environment object's spec drives which vclusters get created; `environment-controller` (the Catalyst component) reconciles them.
 
 ### 11.4 Why a separate object instead of a tag?
 
