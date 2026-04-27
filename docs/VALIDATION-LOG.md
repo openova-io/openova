@@ -63,6 +63,30 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 51 — flink Strimzi namespace drift; SECURITY clean
+
+One fix on platform/flink/README.md (2 instances); SECURITY clean.
+
+Acceptance greps clean for all 8 carry-forward categories.
+
+**docs/SECURITY.md** deep re-scan (Pass 38 declared clean, Pass 51 reconfirms with all current methodology lessons applied):
+- §1-§5 (Identity, SPIFFE/SPIRE, Secrets, Dynamic credentials, Multi-region OpenBao): clean. The §5 "INDEPENDENT, NOT STRETCHED" header and surrounding text remain canonical for the Pass 7 architectural principle.
+- §6 Keycloak topology: clean. Per-Org SME-style + per-Sovereign corporate-style consistent with NAMING §7 + Pass 27 forecast swap + Pass 34 keycloak hostname fix.
+- §7 Rotation policy: SecretPolicy YAML uses canonical `apiVersion: catalyst.openova.io/v1alpha1` ✓ (Pass 49 sweep verified).
+- §8 Path of a secret: clean.
+- §9 Compliance posture: borderline OpenSearch SIEM wording (Pass 38 flagged) re-evaluated. Line 327 says "Default: OpenSearch in the Sovereign itself; customers may push to external Splunk, Datadog SIEM, etc." — followed by "customers may push" which implies a choice. Acceptable as "default destination when SIEM is enabled" rather than "default-installed component". Leaving as-is per Pass 38 verdict.
+- §10 Threat model summary: clean — entries cite SVID 5-min TTL, NetworkPolicy + L7, EnvironmentPolicy + Kyverno, vcluster + JetStream Account + Keycloak realm isolation, OpenBao 2-of-3 Raft quorum, k8gb endpoint removal — all consistent with canonical architecture.
+
+No `## X (N)` header counts to verify. No stale dates. No bare openova.io API groups. SECURITY remains stable.
+
+**platform/flink/README.md** had Strimzi/Kafka namespace drift:
+- L137 + L166: `strimzi-kafka-bootstrap.messaging.svc:9093` — uses `messaging` namespace, but canonical Catalyst namespace per strimzi README (L100, L146, L181, L191) and debezium README (L135) is `databases`. Same Helm-default-vs-Catalyst-convention drift category as Pass 41 minio (`minio-system` → `storage`). Pass 51 sweep confirmed no other component uses "messaging" as a Catalyst namespace — only generic English usage and K8s API group `messaging.knative.dev/v1`.
+- Fixed both instances to `strimzi-kafka-bootstrap.databases.svc:9093`. Kept port 9093 (TLS) — the port choice (9092 plaintext vs 9093 TLS) is a separate architectural question deferred for a future pass.
+
+**Mid-pass methodology note**: this is now the third Helm-default-namespace drift discovery (Pass 41 minio, Pass 51 flink, with the broader pattern surfacing across multiple components). Catalyst conventions override Helm defaults; explicit cross-component verification when reading any component's namespace references is now warranted as a standard check in future passes.
+
+Pass 51 result: 1 architectural fix in flink, SECURITY clean. **Drift found.** Resets the consecutive-clean count from 2 (49→50) to 0. Convergence trajectory continues but slower.
+
 ### Pass 50 — NAMING §11.2 third-cycle stable; ferretdb clean
 
 Both targets verified clean. No edits needed. Fourth clean pass overall (28, 44, 49, 50). Two consecutive clean passes (49 → 50).

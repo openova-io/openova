@@ -134,7 +134,7 @@ spec:
     entryClass: io.openova.fabric.CDCToIcebergJob
     args:
       - --kafka.bootstrap.servers
-      - strimzi-kafka-bootstrap.messaging.svc:9093
+      - strimzi-kafka-bootstrap.databases.svc:9093
       - --kafka.group.id
       - fabric-cdc-consumer
       - --iceberg.catalog.uri
@@ -163,7 +163,7 @@ CREATE TABLE cdc_orders (
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'dbserver1.public.orders',
-    'properties.bootstrap.servers' = 'strimzi-kafka-bootstrap.messaging.svc:9093',
+    'properties.bootstrap.servers' = 'strimzi-kafka-bootstrap.databases.svc:9093',
     'format' = 'debezium-json',
     'scan.startup.mode' = 'earliest-offset'
 );
