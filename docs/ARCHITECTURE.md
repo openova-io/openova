@@ -284,7 +284,7 @@ Blueprint detail page in console:
   Application       Environment        Version    Status
   ──────────────────────────────────────────────────────
   marketing-site    acme-dev           1.4.0      ● Running   [Open]
-  marketing-site    acme-staging       1.3.0      ● Running   [Open]
+  marketing-site    acme-stg       1.3.0      ● Running   [Open]
   marketing-site    acme-prod          1.2.0      ● Running   [Open]
   blog              acme-prod          1.2.0      ● Running   [Open]
 
@@ -292,7 +292,7 @@ Blueprint detail page in console:
   [ Compare versions ]
 ```
 
-From `marketing-site` in `acme-staging`, the user clicks "Copy to another Environment" → picks `acme-prod`. Catalyst opens a Gitea PR on `acme-prod`'s repo. The destination Environment's `EnvironmentPolicy` (approvers, soak, change window) applies to the PR. On merge, Flux reconciles. Done.
+From `marketing-site` in `acme-stg`, the user clicks "Copy to another Environment" → picks `acme-prod`. Catalyst opens a Gitea PR on `acme-prod`'s repo. The destination Environment's `EnvironmentPolicy` (approvers, soak, change window) applies to the PR. On merge, Flux reconciles. Done.
 
 ```yaml
 apiVersion: catalyst.openova.io/v1alpha1
@@ -307,7 +307,7 @@ spec:
     - kind: pr-required
       approvers: [team-platform, team-security]
     - kind: soak
-      sourceEnvironment: acme-staging
+      sourceEnvironment: acme-stg
       duration: 72h
     - kind: change-window
       cron: "0 14 * * 2,4"  # Tue/Thu 14:00

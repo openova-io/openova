@@ -63,6 +63,34 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 39 — non-canonical `*-staging` env_type drift in ARCHITECTURE + PERSONAS; clickhouse clean
+
+Six fixes across two canonical docs; clickhouse README clean.
+
+Acceptance greps clean for all carry-forward categories. Drift surfaced via case-sensitive sweep for non-canonical Environment env_type spellings — NAMING §2.4 establishes the 3-char form (`prod | stg | uat | dev | poc`), but multiple Environment-name examples used the long form `staging`.
+
+- **docs/ARCHITECTURE.md §8 (Promotion across Environments)** had 3 instances of `acme-staging` (in the Blueprint detail page mockup at line 287, in the prose at line 295 explaining the promotion flow, and in the EnvironmentPolicy YAML `sourceEnvironment` field at line 310). All renamed to `acme-stg` per NAMING §11.1 (Environment naming = `{org}-{env_type}` using 3-char env_type).
+- **docs/PERSONAS-AND-JOURNEYS.md** had 3 instances of `digital-channels-staging` (Layla narrative L126, L135) and `acme-staging` (Blueprint detail mockup L230). Renamed to `digital-channels-stg` and `acme-stg`.
+
+These were all real Environment names per Catalyst's canonical naming, just spelled with the long form. The `staging` spelling probably came from pre-Catalyst conventions where teams used full English words for env_types — but post-Catalyst, NAMING §2.4 fixes the canonical 3-char form to keep names short and grep-friendly.
+
+Out of scope (correctly preserved):
+- `payment-rail-staging` in PERSONAS L126: this is an Application name (Layla's customer-chosen name for the staging deployment of payment-rail), not an Environment name. Application names are free-form per NAMING.
+- `minimum-replicas-production` in kyverno (Kyverno policy NAME, not an Environment): preserved as a stylistic choice for the policy identifier.
+
+ARCHITECTURE.md deep re-scan applied Pass 23 lesson (focus on later sections):
+- §5 (Read side / CQRS via JetStream): explicitly defines `<env>` as `{org}-{env_type}` (line 167), addressing the placeholder shorthand Pass 30 noted as "documented shorthand" — the canonical doc itself defines the abbreviation, so the use of `ws.<env>.>` is unambiguous.
+- §6 Identity and secrets: matches SECURITY.md exactly.
+- §7 Surfaces (UI / Git / API / NOT-surfaces): matches GLOSSARY.
+- §8 Promotion: had the env_type drift just fixed.
+- §9 Multi-Application linkage: clean — uses `bp-postgres` as a typed Blueprint reference, EnvironmentPolicy YAML uses `catalyst.openova.io/v1alpha1`.
+- §10 Provisioning a Sovereign: clean — Phase 0/1/2/3 framing matches SOVEREIGN-PROVISIONING §3-§5.
+- §11 Catalyst-on-Catalyst: bp-catalyst-* component list matches IMPLEMENTATION-STATUS §2.1; per-host-cluster-vs-control-plane separation explicitly stated.
+- §12 SOTA principles: includes "Independent failure domains" line citing OpenBao Raft per region — consistent with Pass 7.
+- §13 OAM influence: clean.
+
+platform/clickhouse/README.md: clean. Banner correct (Application Blueprint §4.1, used by bp-fabric and SIEM cold-storage). Mermaid diagrams (single-region + multi-region) consistent. Kafka Engine integration correctly references "kafka-kafka-bootstrap.databases.svc:9092" as in-cluster K8s service DNS (not subject to NAMING §5 Catalyst DNS rules). Tiered storage with MinIO cold tier consistent with grafana/SRE/minio docs. The literal `minioadmin/minioadmin` placeholder credentials in the XML config example are illustrative defaults — flagging for a future security-hardening pass to replace with `<access-key>` / `<secret-key>` placeholders, but not Catalyst-architectural drift.
+
 ### Pass 38 — surviving "fuse" namespace in temporal; SECURITY + grafana clean
 
 One real fix on temporal; both deep-scan targets clean.

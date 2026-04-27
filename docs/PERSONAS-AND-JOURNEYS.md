@@ -123,7 +123,7 @@ Day 1 — 14:08 — Ahmed is selling.
        30s. Audit log captures her as committer.
 
 11:00  Need to debug the staging deployment.
-       Browser: console → digital-channels-staging → payment-rail-staging
+       Browser: console → digital-channels-stg → payment-rail-staging
        → Logs tab. Then Topology tab to see across regions.
        Or, drops into kubectl scoped to her vcluster:
          $ kubectl --context=hz-fsn-rtz-prod-digital-channels logs -n payment-rail
@@ -132,7 +132,7 @@ Day 1 — 14:08 — Ahmed is selling.
        is `digital-channels`). Bank Dhofar's sovereign-admin grants this via
        a JIT elevation flow.
 
-14:00  Promotion. Opens digital-channels-staging Environment in the console,
+14:00  Promotion. Opens digital-channels-stg Environment in the console,
        clicks "Copy to digital-channels-uat" on the payment-rail Application.
        Catalyst opens a Gitea PR on the destination Environment's repo.
        EnvironmentPolicy on digital-channels-uat requires team-platform
@@ -227,7 +227,7 @@ Applications using this Blueprint in your Org (4)
   Application       Environment        Version    Status
   ─────────────────────────────────────────────────────
   marketing-site    acme-dev           1.4.0      ● Running   [Open]
-  marketing-site    acme-staging       1.3.0      ● Running   [Open]
+  marketing-site    acme-stg           1.3.0      ● Running   [Open]
   marketing-site    acme-prod          1.2.0      ● Running   [Open]
   blog              acme-prod          1.2.0      ● Running   [Open]
 
