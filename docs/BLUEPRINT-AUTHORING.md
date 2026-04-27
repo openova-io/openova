@@ -366,27 +366,37 @@ Org-private Blueprints live in the Org's `shared-blueprints` Gitea repo, which o
 
 ## 11. CI pipeline
 
-Every Blueprint repo's CI does:
+Catalyst uses a **single monorepo CI** at the root of `github.com/openova-io/openova` (see §2 for the folder layout and path-matrix tag form). The same pipeline shape applies to every `platform/<name>/` and `products/<name>/` folder:
 
 ```yaml
-on: push                           # branch: main
-                                   # tags: vX.Y.Z
+# .github/workflows/blueprint-release.yaml (monorepo root)
+on:
+  pull_request:
+    paths: ['platform/**', 'products/**']        # runs validate on PR
+  push:
+    tags:
+      - 'platform/*/v*'                          # tag form: platform/<name>/v1.2.3
+      - 'products/*/v*'                          #          products/<name>/v1.2.3
 
 jobs:
-  validate:
-    - lint blueprint.yaml against the Blueprint CRD schema
-    - lint Helm chart / Kustomize base
-    - dry-run install in a kind cluster
-    - run tests/integration.yaml
-    - run tests/upgrade.yaml against the previous version
+  validate:                                      # runs on every PR touching a Blueprint folder
+    - detect changed Blueprint folders (path-matrix)
+    - for each: lint blueprint.yaml against the Blueprint CRD schema
+                lint Helm chart / Kustomize base
+                dry-run install in a kind cluster
+                run tests/integration.yaml
+                run tests/upgrade.yaml against the previous version
 
-  build-and-sign:                   # only on tags
-    - render Helm chart / Kustomize → OCI artifact
-    - syft generate SBOM
+  build-and-sign:                                # runs only on tag push
+    - parse the tag → identify which Blueprint folder + version
+    - render that folder's Helm chart / Kustomize → OCI artifact
+    - syft generate SBOM (per Blueprint)
     - cosign sign artifact + SBOM
-    - push to ghcr.io/openova-io/bp-<name>:<tag>
+    - push to ghcr.io/openova-io/bp-<folder-name>:<version>
     - publish blueprint.yaml as the OCI manifest's metadata layer
 ```
+
+So tagging `platform/wordpress/v1.3.0` triggers a build of `platform/wordpress/`'s contents and publishes `ghcr.io/openova-io/bp-wordpress:1.3.0`. Other Blueprint folders are untouched. This is what "monorepo with per-Blueprint fan-out" means in practice.
 
 Catalyst's `blueprint-controller` watches the GHCR catalog and registers new versions automatically — they appear in the marketplace within seconds of a successful release.
 

@@ -63,6 +63,13 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 21 — BLUEPRINT-AUTHORING CI pipeline contradicting §2 + langfuse clean
+
+One real fix on BLUEPRINT-AUTHORING + langfuse confirmed clean.
+
+- **BLUEPRINT-AUTHORING.md §11** described the CI pipeline as if it were per-Blueprint-repo — `on: push  # tags: vX.Y.Z` — but §2 establishes that we use a **monorepo with per-Blueprint fan-out** and the canonical tag form is `platform/<name>/v1.2.3` / `products/<name>/v1.2.3` (path-matrix). §11 was effectively documenting the rejected per-Blueprint-repo CI shape. Rewrote §11 to match the monorepo reality: single CI at the root, `pull_request.paths` triggers validate on PR, `push.tags: ['platform/*/v*', 'products/*/v*']` triggers build-and-sign, with the build job parsing the tag to identify which Blueprint folder + version to build. Includes a worked example: tagging `platform/wordpress/v1.3.0` builds `platform/wordpress/` and publishes `ghcr.io/openova-io/bp-wordpress:1.3.0`.
+- **platform/langfuse/README.md**: clean. Banner correct (Application Blueprint, AI observability, used by bp-cortex). "Used by: OpenOva Cortex" is acceptable commercial phrasing alongside the technical `bp-cortex` reference.
+
 ### Pass 20 — SOVEREIGN-PROVISIONING placement-syntax + Kyverno label drift
 
 Two real findings on the SOVEREIGN-PROVISIONING + platform/kyverno rotation.
