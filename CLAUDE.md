@@ -1,131 +1,154 @@
-# OpenOva Platform (Public Repo)
+# OpenOva (Public Repo) — Codebase Guide for Claude
 
-This is the **public, open-source** repo. No proprietary content (website, deployment configs, infra secrets).
-Website and deployment live in `openova-private`.
+This is the **public, open-source** OpenOva repository. It hosts the Catalyst platform code and Blueprint catalog.
 
-## Project Memory
+Proprietary content (website source, deployment configs, infra secrets, the running clusters' manifests) lives in `openova-private`.
 
-**IMPORTANT**: Read `.claude/project-memory.md` for full strategic context about OpenOva positioning, architecture decisions, and product strategy.
+---
 
-## Purpose
+## Read these before doing anything
 
-OpenOva is an **AI-native infrastructure platform**. 52 open-source components on Kubernetes — every one designed to be AI-manageable. Cloud-native is the foundation. AI-native is the differentiator.
+In order:
 
-- **AI-powered operations built in** — Specter has pre-built semantic knowledge of every CRD, integration dependency, and failure mode across all 52 components
-- **Converged blueprint ecosystem** with operational guarantees — turnkey, production-grade, instant
-- **Comprehensive migration** — full legacy assessment, AI modernization roadmap, and structured migration (Exodus)
-- Both consultancy AND productized platform from day 1
+1. [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terminology source of truth. Wins over any other doc.
+2. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst architecture.
+3. [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) — naming patterns.
 
-## Product Family (Locked 2026-02-26)
+These three together define the model. Any contradiction in older docs is to be treated as outdated and updated to match these.
 
-| Product | Name | Description |
-|---------|------|-------------|
-| Core Platform | **OpenOva** | 52 component AI-native K8s ecosystem — every component AI-manageable by Specter |
-| Bootstrap+Lifecycle+IDP | **OpenOva Catalyst** | Bootstrap wizard, Day-2 manager, IDP, Workflow Explorer |
-| AI Hub | **OpenOva Cortex** | LLM serving, RAG, AI safety, LLM observability |
-| SaaS LLM Gateway | **OpenOva Axon** | Hosted inference gateway (neural link to Cortex) |
-| Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
-| AIOps SOC/NOC | **OpenOva Specter** | AI brain with pre-built semantic knowledge of all 52 components. Token-efficient AI-powered SOAR and self-healing. |
-| Data & Integration | **OpenOva Fabric** | Event-driven integration + data lakehouse |
-| Communication | **OpenOva Relay** | Email, video, chat, WebRTC |
-| Migration | **OpenOva Exodus** | Comprehensive legacy assessment + AI modernization roadmap + structured migration |
+---
 
-## Business Model
+## What Catalyst is
 
-- Blueprints are **FREE and open source** (always)
-- Revenue: per-vCPU-core platform support subscription (all software is free, only charge for support)
-- Pricing: per-vCPU-core under management (ELA with true-up or PAYG)
-- Target market: banks first (2 prospects), then regulated verticals, then broader
+OpenOva (the company) builds **Catalyst** (the platform). A deployed Catalyst is called a **Sovereign**. A Sovereign hosts **Organizations**, which contain **Environments**, which run **Applications**, which are installed from **Blueprints**.
 
-## Monorepo Structure
+`openova` is a Sovereign run by us (formerly Nova). `omantel` is a Sovereign run by Omantel for SMEs. `bankdhofar` is a Sovereign run by the bank for itself. **Same code in every Sovereign.**
+
+---
+
+## Repo structure
 
 ```
 openova/
-├── core/                    # Bootstrap + Lifecycle Manager application
-├── platform/                # All 52 component blueprints (flat structure)
-├── products/                # Bundled vertical solutions
-│   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
-│   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── fabric/              # OpenOva Fabric - Data & Integration
-│   ├── relay/               # OpenOva Relay - Communication
-│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
-└── docs/                    # Platform documentation
+├── core/                   # Catalyst control-plane application (Go)
+│   ├── apps/{bootstrap,manager}/  # historical split; both fold under "Catalyst control plane"
+│   ├── internal/           # domain, application, adapters, events
+│   ├── pkg/apis/           # CRD types
+│   ├── ui/                 # frontend (React/TS)
+│   └── deploy/             # K8s manifests for Catalyst control-plane components
+├── platform/               # Component Blueprints — one folder per upstream OSS project
+│   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
+│   └── ...                 # ~50+ folders
+├── products/               # Composite Blueprints OpenOva ships
+│   ├── catalyst/           # Catalyst itself, packaged as bp-catalyst-platform umbrella
+│   ├── cortex/             # AI Hub
+│   ├── axon/               # SaaS LLM Gateway
+│   ├── fingate/            # Open Banking
+│   ├── fabric/             # Data & Integration
+│   └── relay/              # Communication
+└── docs/                   # Platform documentation (canonical)
 ```
 
-## Core Application
+Each subfolder of `platform/` and `products/` is a Blueprint repo when published. The monorepo here is convenience for development; CI fans out to per-Blueprint OCI publishes.
 
-The `core/` directory contains a single Go application with two deployment modes:
+---
 
-| Mode | Location | Purpose | IaC Tool |
-|------|----------|---------|----------|
-| **Bootstrap** | Outside cluster | Initial provisioning | OpenTofu |
-| **Manager** | Inside cluster | Day-2 operations | Crossplane |
+## Naming conventions in this repo
 
-See [core/README.md](core/README.md) for detailed architecture.
+- Cluster: `{prov}-{reg}-{bb}-{env_type}` — e.g. `hz-fsn-rtz-prod`
+- vcluster: `{org}` (within a cluster) — e.g. `acme`
+- Catalyst Environment: `{org}-{env_type}` — e.g. `acme-prod`
+- Blueprint: `bp-<name>` — e.g. `bp-wordpress`
+- Application: `<purpose>` (within an Environment) — e.g. `marketing-site`
 
-## Platform Components (52)
+Full table in [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md).
 
-All components are flat under `platform/`:
+---
 
-anthropic-adapter, bge, cert-manager, cilium, clickhouse, cnpg, coraza, crossplane, debezium, external-dns, external-secrets, failover-controller, falco, ferretdb, flink, flux, gitea, grafana, harbor, iceberg, k8gb, keda, keycloak, knative, kserve, kyverno, langfuse, librechat, litmus, livekit, llm-gateway, matrix, milvus, minio, nemo-guardrails, neo4j, openbao, openmeter, opensearch, opentofu, reloader, sigstore, stalwart, strimzi, stunner, syft-grype, temporal, trivy, valkey, velero, vllm, vpa
+## Banned terms
 
-## Products
+Do not use in any new doc, code, comment, commit message, or UI string:
 
-Products bundle platform components with custom services for specific verticals:
+- "tenant" (as platform terminology) → `Organization`
+- "operator" (as a person/entity) → `sovereign-admin` (the role). K8s Operators (controller pattern) are still called Operators.
+- "client" (in product UX sense) → `User`. OIDC client and K8s client are fine.
+- "module" / "template" (in Catalyst sense) → `Blueprint`. Go modules, Terraform modules, K8s templates, prompt templates etc. are external technologies and are fine.
+- "Backstage" → `Catalyst console`. Backstage was decided removed.
+- "Synapse" (as the OpenOva product) → `Axon`. Matrix's Synapse server is fine when context is the chat server.
+- "Lifecycle Manager" / "Bootstrap wizard" (as separate products) → `Catalyst`.
+- "Workspace" (as Catalyst scope) → `Environment`.
+- "Instance" (as user-facing object) → `Application`. CRD remains an internal name.
 
-- **cortex** (OpenOva Cortex - AI Hub): Uses kserve, knative, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
-- **fingate** (OpenOva Fingate - Open Banking): Uses keycloak, openmeter + 6 custom services (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
-- **fabric** (OpenOva Fabric - Data & Integration): Uses strimzi, flink, temporal, debezium, iceberg, clickhouse, minio
-- **relay** (OpenOva Relay - Communication): Uses stalwart, livekit, stunner, matrix
-- **axon** (OpenOva Axon - SaaS LLM Gateway): SaaS service, references Cortex infrastructure
+When in doubt: defer to [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
 
-## Key Principles
+---
 
-- Bootstrap wizard EXITS after provisioning (must be safe to delete)
-- Lifecycle Manager continues inside cluster for day-2 operations
-- Catalyst IDP is for developers; Lifecycle Manager is for platform operators
-- OpenOva stays in picture via blueprints, not runtime components
-- Zero external dependencies for core (no CNPG, Valkey, Strimzi for itself)
-- **Every component is AI-manageable** — structured CRDs, unified OTel telemetry, standardized health endpoints, declarative GitOps
-- **Specter is built-in, not bolted on** — pre-built semantic knowledge of the ecosystem is an architectural advantage, not a feature add-on
+## Commit conventions
 
-## AI-Native Architecture
+- Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`.
+- Sign every commit. Default identity for this repo: `hatiyildiz` (`269457768+hatiyildiz@users.noreply.github.com`). Switch to `alierenbaysal` (`269455083+alierenbaysal@users.noreply.github.com`) only when the user explicitly directs.
+- No git config global; pass `-c user.name=… -c user.email=…` per commit.
+- Reference issues/PRs by number where applicable.
+- Per `~/.claude/CLAUDE.md`: every issue lifecycles through `status/in-progress` → `status/uat` → `status/completed`. Open an issue before code changes; never close it (only the user does).
 
-What makes OpenOva AI-native (not AI-cosmetic):
+---
 
-| Property | What It Means | Why It Matters for AI |
-|----------|--------------|----------------------|
-| Structured CRDs | Every component exposes typed Kubernetes Custom Resource Definitions | Specter reads CRDs, not config files — machine-parseable by design |
-| Unified OTel telemetry | All 52 components emit metrics, logs, traces via OpenTelemetry | Specter correlates signals across the entire stack in one query |
-| Standardized health | Consistent liveness, readiness, startup probes | Specter knows the health vocabulary of every component |
-| Kyverno policy-as-code | Security and operational policies are declarative and machine-readable | Specter reasons about compliance programmatically |
-| Declarative GitOps | All state in Git via Flux | Specter diffs actual vs desired, detects drift, proposes reconciliation |
-| Pre-built semantic models | Specter has knowledge of every CRD schema, integration graph, failure mode, upgrade path, compliance mapping | Surgical context = 10x fewer tokens, 10x faster, 10x more accurate than dumping raw logs |
+## What's user-facing (don't expand without permission)
 
-**Token efficiency is the economic moat.** Competitors bolt AI onto unstructured platforms and dump massive context into LLM prompts. Specter sends surgical, structured context. This is an architectural advantage that cannot be retrofitted.
+The user-facing surfaces are **UI / Git / API only**. There is no Terraform provider, no Pulumi SDK, no `catalystctl install` for production changes. Crossplane is platform plumbing, never a user surface.
 
-## Documentation
+If a future feature seems to need another surface, it almost certainly belongs as either (a) UI work, (b) Blueprint work, or (c) a Crossplane Composition the user never sees. Reject the impulse to add a fourth surface.
 
-- [Platform Tech Stack](docs/PLATFORM-TECH-STACK.md) - Technology stack
-- [SRE Handbook](docs/SRE.md) - Site reliability practices
-- [Core Application](core/README.md) - Bootstrap + Lifecycle Manager
-- [Business Strategy](docs/BUSINESS-STRATEGY.md) - Product strategy and GTM
-- [Technology Forecast](docs/TECHNOLOGY-FORECAST-2027-2030.md) - Component forecast
+---
 
-## Conventions
+## Component README rule of thumb
 
-- All manifests are Kustomize-based
-- Secrets via External-Secrets Operator (never commit plaintext)
-- Git commits: conventional commits (feat:, fix:, docs:, infra:)
+Every `platform/<x>/README.md` and `products/<x>/README.md`:
+
+1. States what the component is (one line).
+2. States its role in Catalyst (control plane vs Application Blueprint vs both).
+3. Links to the canonical Catalyst doc that defines its place in the model.
+4. Configuration knobs and Blueprint configSchema highlights.
+5. Operational notes — backups, scaling, multi-region behavior.
+
+If a README contradicts [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) or [`docs/GLOSSARY.md`](docs/GLOSSARY.md), the canonical doc wins; update the README.
+
+---
 
 ## Customer Sync
 
-This monorepo syncs to customer's multi-repo Gitea:
+Each Sovereign's Gitea mirrors the public catalog from this repo:
 
 ```
-GitHub (monorepo)                    Customer Gitea (multi-repo)
-─────────────────                    ──────────────────────────
-openova/core/              ──sync──> openova-core/
-openova/platform/cilium/   ──sync──> openova-cilium/
-openova/platform/flux/     ──sync──> openova-flux/
+GitHub (this repo)                  Per-Sovereign Gitea (mirrored)
+──────────────────                  ──────────────────────────────
+openova/platform/cilium/   ──sync──> gitea.<sovereign>/catalog/bp-cilium/
+openova/products/cortex/   ──sync──> gitea.<sovereign>/catalog/bp-cortex/
+...
 ```
+
+Sovereigns pull on their own schedule (default daily). Air-gapped Sovereigns mirror via offline media.
+
+---
+
+## Per-component dev workflow
+
+Most components are simple: a `README.md`, a Helm chart or Kustomize base, a `blueprint.yaml`, and a CI pipeline. Iteration is:
+
+```bash
+cd platform/<component>/
+# edit chart/, manifests/, blueprint.yaml
+# CI validates and dry-runs on push
+# tagged release → OCI publish + signature → blueprint-controller picks up
+```
+
+For Catalyst control-plane code (`core/`):
+
+```bash
+cd core/
+go test ./...
+go build ./apps/...
+# UI in core/ui/: npm install, npm run dev
+```
+
+CRD types live in `core/pkg/apis/`. Add new types here, regenerate clients, then update the controller in `core/internal/`.

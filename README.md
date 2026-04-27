@@ -1,324 +1,154 @@
-# OpenOva
+# OpenOva Catalyst
 
-**AI-native infrastructure platform. 52 open-source components. Every one managed by AI.**
+**A self-sufficient Kubernetes-native platform. Published as signed OCI Blueprints. Deployable as your own Sovereign.**
 
-Cloud-native is the foundation. AI-native is the differentiator. OpenOva provides 52 curated open-source components on Kubernetes — every one designed to be AI-manageable. Our AI brain (Specter) has pre-built semantic knowledge of every CRD, integration dependency, and failure mode across the entire ecosystem. It sends surgical, structured context to LLMs — not raw log dumps. Faster, cheaper, more accurate than anything bolted on after the fact.
+Catalyst is the open-source platform built by [OpenOva](https://openova.io). It turns any Kubernetes cluster into a **Sovereign**: a self-contained control plane that hosts Organizations, Environments, and Applications via GitOps + Crossplane, with a unified UI/Git/API for users.
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Platform Tech Stack](docs/PLATFORM-TECH-STACK.md) | Technology stack and architecture |
-| [SRE Handbook](docs/SRE.md) | Site reliability practices |
-| [Core Application](core/README.md) | Bootstrap + Lifecycle Manager |
-| [Business Strategy](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
-| [Technology Forecast](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027-2030 |
+| Document | What it covers |
+|---|---|
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology — read first |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture overview |
+| [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) | Naming patterns for every resource type |
+| [`docs/PERSONAS-AND-JOURNEYS.md`](docs/PERSONAS-AND-JOURNEYS.md) | Personas × journeys matrix; surfaces |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), rotation, multi-region semantics |
+| [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) | How to bring a Sovereign online |
+| [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) | Writing Blueprints (incl. Crossplane Compositions) |
+| [`docs/PLATFORM-TECH-STACK.md`](docs/PLATFORM-TECH-STACK.md) | Every component's role in Catalyst |
+| [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
+| [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
+| [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
 
 ---
 
-## Repository Structure
+## The model in 60 seconds
+
+```
+OpenOva (the company) publishes Catalyst (the platform).
+A deployed Catalyst is called a Sovereign.
+
+A Sovereign has:
+  - Organizations (multi-tenancy unit)
+  - Environments (org-scoped, env-typed: prod/stg/uat/dev/poc)
+  - Applications (installed Blueprints)
+  - Blueprints (the App Store catalog — public + Org-private)
+
+Users install Applications from Blueprints into Environments.
+Blueprints can depend on Blueprints (arbitrary depth).
+Each Environment is one Gitea repo + one or more vclusters.
+Every state change is a Git commit.
+Every UI surface reads from a single CQRS projection.
+
+Same code runs in every Sovereign:
+  - openova         (run by us; SaaS Organizations)
+  - omantel         (run by Omantel; SME Organizations across Oman)
+  - bankdhofar      (run by the bank; internal Organizations)
+  - your-company    (run by you, on infrastructure you choose)
+```
+
+See [`docs/GLOSSARY.md`](docs/GLOSSARY.md) for every term, [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full picture.
+
+---
+
+## What's in this repo
 
 ```
 openova/
-├── core/                    # Bootstrap + Lifecycle Manager
-├── platform/                # All 52 component blueprints (flat)
-├── products/                # Bundled vertical solutions
-│   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
-│   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── fabric/              # OpenOva Fabric - Data & Integration
-│   ├── relay/               # OpenOva Relay - Communication
-│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
-└── docs/                    # Platform documentation
+├── core/              # Catalyst control-plane application (Go)
+├── platform/          # Component Blueprints (one folder per upstream OSS project)
+├── products/          # Composite Blueprints OpenOva publishes
+│   ├── catalyst/      # The Catalyst control plane itself, packaged as a Blueprint
+│   ├── cortex/        # AI Hub (LLM serving, RAG, AI safety)
+│   ├── axon/          # SaaS LLM Gateway (default upstream for Cortex)
+│   ├── fingate/       # Open Banking (PSD2/FAPI sandbox)
+│   ├── fabric/        # Data & Integration (event-driven + lakehouse)
+│   ├── relay/         # Communication (email, video, chat, WebRTC)
+│   └── … (specter and exodus are deliverable services, not Blueprints in this layout)
+└── docs/              # Platform documentation (this folder)
 ```
 
----
-
-## What We Provide
-
-| Offering | Description |
-|----------|-------------|
-| **AI-Native Operations** | Specter manages your infrastructure with pre-built semantic knowledge of all 52 components. Token-efficient, auditable, self-healing. |
-| **Turnkey Ecosystem** | 52 curated open-source components, production-grade, deployed instantly. Every one AI-manageable by design. |
-| **Comprehensive Migration (Exodus)** | Full legacy assessment, AI modernization roadmap, and structured migration. Not lift-and-shift — true modernization. |
-| **Expert Network** | 52 open-source disciplines under one support contract. Human expertise when AI needs human judgment. |
+Every directory under `platform/` and `products/` is a Blueprint. Each has its own README, its own configSchema, its own CI pipeline that signs and publishes its OCI artifact.
 
 ---
 
-## Platform Architecture
+## Stack at a glance
 
-```
-Bootstrap Wizard → Customer's K8s + Catalyst IDP + Flux + Gitea
-                 → OpenOva Blueprints (stays in picture)
-                 → Specter AI agents (pre-built semantic knowledge)
-                         │
-                         ├── Axon (SaaS LLM Gateway) ── default
-                         └── Cortex (Self-hosted AI) ── air-gap / sovereign
-```
+| Layer | Technology |
+|---|---|
+| **Container runtime** | k3s (k8s-conformant), containerd |
+| **CNI / Service Mesh** | Cilium (eBPF mTLS, L7 policies, Gateway API) |
+| **GitOps** | Flux (per-vcluster, lightweight) |
+| **Git** | Gitea (per-Sovereign, hosts Blueprint mirror + per-Environment repos) |
+| **IaC for non-K8s** | Crossplane (the only IaC; not user-facing) |
+| **Bootstrap IaC** | OpenTofu (one-shot, archived after Phase 0) |
+| **Multi-tenancy** | vcluster (one per Organization per host cluster) |
+| **Identity (workloads)** | SPIFFE/SPIRE (5-min rotating SVIDs, mTLS everywhere) |
+| **Identity (users)** | Keycloak (per-Org for SME, per-Sovereign for corporate) |
+| **Secrets** | OpenBao (Apache 2.0; independent Raft per region, no stretched cluster) + External Secrets Operator |
+| **Event spine** | NATS JetStream (Apache 2.0; pub/sub + KV; per-Org accounts) |
+| **TLS** | cert-manager + Let's Encrypt or corporate CA |
+| **Policy** | Kyverno |
+| **Supply chain** | cosign (Sigstore), Syft + Grype SBOM, Trivy scans |
+| **Runtime security** | Falco (eBPF) |
+| **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
+| **WAF** | Coraza (OWASP CRS) |
+| **GSLB** | k8gb (authoritative DNS) |
+| **Backup** | Velero (to MinIO + cloud archival S3) |
+| **Container registry** | Harbor |
 
-**Two-Phase Provisioning:**
-- **Bootstrap (OpenTofu)**: Initial cluster + core components + Specter agents
-- **Lifecycle Manager (Crossplane)**: Day-2 operations + a la carte components
-
-**AI-Native by Design:**
-- Structured CRDs across all 52 components (machine-readable configuration)
-- Unified OTel telemetry (correlated signals across the full stack)
-- Kyverno policy-as-code (machine-readable security and compliance)
-- Declarative GitOps via Flux (all state in Git, diffable by AI)
-
----
-
-## Platform Components (52)
-
-All components under `platform/` (flat structure):
-
-### Mandatory (Core Platform)
-
-#### Infrastructure & Provisioning
-
-| Component | Purpose |
-|-----------|---------|
-| [opentofu](platform/opentofu/) | Infrastructure as Code (bootstrap, MPL 2.0) |
-| [crossplane](platform/crossplane/) | Day-2 cloud resource provisioning |
-
-#### GitOps & Git
-
-| Component | Purpose |
-|-----------|---------|
-| [flux](platform/flux/) | GitOps configuration |
-| [gitea](platform/gitea/) | Self-hosted Git + CI/CD |
-
-#### Networking
-
-| Component | Purpose |
-|-----------|---------|
-| [cilium](platform/cilium/) | CNI + Service Mesh (eBPF, mTLS) |
-| [external-dns](platform/external-dns/) | DNS synchronization |
-| [k8gb](platform/k8gb/) | Global Server Load Balancing |
-
-#### Security
-
-| Component | Purpose |
-|-----------|---------|
-| [cert-manager](platform/cert-manager/) | TLS certificate automation |
-| [external-secrets](platform/external-secrets/) | Secrets management (ESO) |
-| [openbao](platform/openbao/) | Secrets backend (MPL 2.0) |
-| [trivy](platform/trivy/) | Security scanning |
-| [falco](platform/falco/) | Runtime security (eBPF) |
-
-#### Supply Chain Security
-
-| Component | Purpose |
-|-----------|---------|
-| [sigstore](platform/sigstore/) | Container image signing (Sigstore/Cosign) |
-| [syft-grype](platform/syft-grype/) | SBOM generation + vulnerability matching |
-
-#### WAF
-
-| Component | Purpose |
-|-----------|---------|
-| [coraza](platform/coraza/) | Web Application Firewall (OWASP CRS) |
-
-#### Policy
-
-| Component | Purpose |
-|-----------|---------|
-| [kyverno](platform/kyverno/) | Policy engine (validation, mutation, generation) |
-
-#### Observability
-
-| Component | Purpose |
-|-----------|---------|
-| [grafana](platform/grafana/) | LGTM stack (Loki, Tempo, Mimir) |
-| [opensearch](platform/opensearch/) | Hot SIEM backend (security analytics) |
-
-#### Scaling
-
-| Component | Purpose |
-|-----------|---------|
-| [vpa](platform/vpa/) | Vertical Pod Autoscaler |
-| [keda](platform/keda/) | Event-driven autoscaling |
-
-#### Operations
-
-| Component | Purpose |
-|-----------|---------|
-| [reloader](platform/reloader/) | Auto-restart on ConfigMap/Secret changes |
-
-#### Storage & Registry
-
-| Component | Purpose |
-|-----------|---------|
-| [minio](platform/minio/) | S3-compatible object storage |
-| [velero](platform/velero/) | Kubernetes backup |
-| [harbor](platform/harbor/) | Container registry |
-
-#### Failover
-
-| Component | Purpose |
-|-----------|---------|
-| [failover-controller](platform/failover-controller/) | Multi-region failover orchestration |
-
-### A La Carte (Optional)
-
-#### Data
-
-| Component | Purpose |
-|-----------|---------|
-| [cnpg](platform/cnpg/) | PostgreSQL operator |
-| [ferretdb](platform/ferretdb/) | MongoDB wire protocol on PostgreSQL |
-| [valkey](platform/valkey/) | Redis-compatible cache |
-| [strimzi](platform/strimzi/) | Apache Kafka streaming |
-| [clickhouse](platform/clickhouse/) | Column-oriented analytics database |
-
-#### CDC
-
-| Component | Purpose |
-|-----------|---------|
-| [debezium](platform/debezium/) | Change data capture |
-
-#### Workflow & Processing
-
-| Component | Purpose |
-|-----------|---------|
-| [temporal](platform/temporal/) | Saga orchestration + compensation |
-| [flink](platform/flink/) | Stream + batch processing |
-
-#### Data Lakehouse
-
-| Component | Purpose |
-|-----------|---------|
-| [iceberg](platform/iceberg/) | Open table format |
-
-#### Identity
-
-| Component | Purpose |
-|-----------|---------|
-| [keycloak](platform/keycloak/) | FAPI Authorization Server |
-
-#### Monetization
-
-| Component | Purpose |
-|-----------|---------|
-| [openmeter](platform/openmeter/) | Usage metering |
-
-#### Communication
-
-| Component | Purpose |
-|-----------|---------|
-| [stalwart](platform/stalwart/) | Self-hosted email server |
-| [stunner](platform/stunner/) | K8s-native TURN/STUN (WebRTC) |
-| [livekit](platform/livekit/) | Video/audio/data (WebRTC SFU) |
-| [matrix](platform/matrix/) | Team chat (Matrix/Synapse) |
-
-#### AI/ML
-
-| Component | Purpose |
-|-----------|---------|
-| [knative](platform/knative/) | Serverless platform |
-| [kserve](platform/kserve/) | Model serving |
-| [vllm](platform/vllm/) | LLM inference engine |
-| [milvus](platform/milvus/) | Vector database |
-| [neo4j](platform/neo4j/) | Graph database |
-| [librechat](platform/librechat/) | Chat UI |
-| [bge](platform/bge/) | Embeddings + reranking |
-| [llm-gateway](platform/llm-gateway/) | Subscription proxy for Claude Code |
-| [anthropic-adapter](platform/anthropic-adapter/) | OpenAI-to-Anthropic translation |
-
-#### AI Safety & Observability
-
-| Component | Purpose |
-|-----------|---------|
-| [nemo-guardrails](platform/nemo-guardrails/) | AI safety firewall |
-| [langfuse](platform/langfuse/) | LLM observability |
-
-#### Chaos Engineering
-
-| Component | Purpose |
-|-----------|---------|
-| [litmus](platform/litmus/) | Chaos engineering experiments |
+For the full component list and trends see [`docs/PLATFORM-TECH-STACK.md`](docs/PLATFORM-TECH-STACK.md) and [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md).
 
 ---
 
-## Products
-
-Bundled vertical solutions that reference components from `platform/`:
-
-### OpenOva Cortex (AI Hub)
-
-Enterprise AI platform with LLM serving, RAG, AI safety, and LLM observability.
-
-**Uses:** kserve, knative, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
-
-See [products/cortex/](products/cortex/)
-
-### OpenOva Fingate (Open Banking)
-
-Fintech sandbox with PSD2/FAPI compliance.
-
-**Uses:** keycloak, openmeter + 6 custom services
-
-See [products/fingate/](products/fingate/)
-
-### OpenOva Fabric (Data & Integration)
-
-Event-driven data integration and lakehouse analytics.
-
-**Uses:** strimzi, flink, temporal, debezium, iceberg, clickhouse, minio
-
-See [products/fabric/](products/fabric/)
-
-### OpenOva Relay (Communication)
-
-Enterprise communication platform with email, video, chat, and WebRTC.
-
-**Uses:** stalwart, livekit, stunner, matrix
-
-See [products/relay/](products/relay/)
-
-### OpenOva Axon (SaaS LLM Gateway)
-
-Hosted inference gateway connecting to OpenOva Cortex.
-
-See [products/axon/](products/axon/)
-
----
-
-## Cloud Providers
+## Cloud providers
 
 | Provider | Status |
-|----------|--------|
-| Hetzner Cloud | Available |
-| Huawei Cloud | Coming Soon |
-| Oracle Cloud (OCI) | Coming Soon |
+|---|---|
+| Hetzner Cloud | Available (most-tested path) |
+| AWS / GCP / Azure | Crossplane providers available; full path coming |
+| Oracle Cloud (OCI) | Crossplane provider available; full path coming |
+| Huawei Cloud | Crossplane provider available; full path coming |
+
+All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md).
 
 ---
 
-## Getting Started
+## Getting started
 
-```bash
-# Managed Bootstrap (recommended)
-# Visit https://bootstrap.openova.io
+### Try it (managed)
 
-# Self-Hosted Bootstrap
-docker run -p 8080:8080 ghcr.io/openova-io/bootstrap:latest
+Visit `marketplace.openova.io` to install Applications on the openova Sovereign without any infrastructure setup. SaaS journey for SMEs and evaluations.
+
+### Run your own Sovereign
+
 ```
+1. Provision via catalyst-provisioner.openova.io (managed bootstrap), OR
+2. Self-host bp-catalyst-provisioner in your own infrastructure (air-gap path).
+
+Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
+```
+
+### Build a Blueprint
+
+See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md). A Blueprint is a Git repo + a `blueprint.yaml` CRD manifest + manifests + (optional) Crossplane Compositions. CI signs it and publishes to OCI. Catalyst's `blueprint-controller` picks it up automatically.
 
 ---
 
-## Sync to Customer Gitea
+## License
 
-This monorepo syncs to customer's multi-repo Gitea:
+All Blueprints and the Catalyst control plane are open source. Each component carries its own upstream license (typically Apache 2.0, MPL 2.0, or BSD-3); see each component's `LICENSE` file.
 
-```
-GitHub (monorepo)                    Customer Gitea (multi-repo)
-─────────────────                    ──────────────────────────
-openova/core/              ──sync──> openova-core/
-openova/platform/cilium/   ──sync──> openova-cilium/
-openova/platform/flux/     ──sync──> openova-flux/
-```
+OpenOva charges for support, managed operations, and expert services — never for access to code. See [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) §10.
 
 ---
 
-*AI-native infrastructure. Open source. Instant.*
+## Contributing
+
+PRs welcome. The contribution path for Blueprints (including Crossplane Compositions) is documented in [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) §13. Issues and discussions on GitHub.
+
+---
+
+*Cloud-native is the foundation. Catalyst is how you operate it.*

@@ -1,1194 +1,191 @@
 # OpenOva Project Memory
 
-> Last Updated: 2026-02-26
-> Purpose: Persistent context for Claude Code sessions about OpenOva platform strategy and architecture
+> **Last Updated:** 2026-04-27 (Catalyst-unified rewrite)
+> **Purpose:** Persistent context for Claude Code sessions about Catalyst platform strategy and architecture.
+
+This file is now an **index** and **decision log**. The full architecture lives in [`docs/`](../docs/). When in doubt, the canonical docs win over this file.
 
 ---
 
-## 0. Final Building Blocks Table (2026-01-17)
+## 1. Read these first
 
-### Mandatory Components (Always Installed)
+In strict order:
 
-| Category | Component | Purpose |
-|----------|-----------|---------|
-| IaC | OpenTofu | Bootstrap provisioning (MPL 2.0) |
-| IaC | Crossplane | Day-2 cloud resources |
-| CNI | Cilium | eBPF networking + Hubble |
-| Mesh | Cilium Service Mesh | mTLS, L7 policies (replaces Istio) |
-| WAF | Coraza | OWASP CRS with Envoy Gateway |
-| Supply Chain | Sigstore/Cosign | Container image signing |
-| Supply Chain | Syft + Grype | SBOM + vulnerability matching |
-| Operations | Reloader | Auto-restart on config changes |
-| GitOps | Flux | GitOps delivery (ArgoCD future option) |
-| Git | Gitea | Internal Git server (bidirectional mirror) |
-| TLS | cert-manager | Certificate automation |
-| Secrets | External Secrets (ESO) | Secrets operator |
-| Secrets | OpenBao | Secrets backend (MPL 2.0, drop-in Vault replacement) |
-| Policy | Kyverno | Auto-generate PDBs, NetworkPolicies |
-| Scaling | VPA | Vertical Pod Autoscaler |
-| Scaling | KEDA | Event-driven + scale-to-zero |
-| Observability | Grafana Stack | Alloy + Loki + Mimir + Tempo + Grafana |
-| Observability | OpenTelemetry | Auto-instrumentation (independent of mesh) |
-| Registry | Harbor | Container registry + scanning |
-| Storage | MinIO | Fast S3 (tiered to archival) |
-| Backup | Velero | Backup to archival S3 |
-| DNS | ExternalDNS | Sync to DNS provider |
-| GSLB | k8gb | Authoritative DNS + cross-region GSLB |
-| Failover | Failover Controller | Generic failover orchestration |
+1. [`docs/GLOSSARY.md`](../docs/GLOSSARY.md) — terminology source of truth
+2. [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) — Catalyst architecture overview
+3. [`docs/NAMING-CONVENTION.md`](../docs/NAMING-CONVENTION.md) — naming patterns
+4. [`docs/PERSONAS-AND-JOURNEYS.md`](../docs/PERSONAS-AND-JOURNEYS.md) — who uses what
+5. [`docs/SECURITY.md`](../docs/SECURITY.md) — identity, secrets, rotation
+6. [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online
+7. [`docs/BLUEPRINT-AUTHORING.md`](../docs/BLUEPRINT-AUTHORING.md) — writing Blueprints
 
-### User Choice Options
-
-| Category | Options | Notes |
-|----------|---------|-------|
-| Cloud Provider | Hetzner (now), Huawei/OCI (coming) | Provider unlocks related services |
-| Regions | 1 or 2 | 2 recommended for DR, 1 allowed |
-| LoadBalancer | Cloud LB (~5-10/mo), k8gb DNS-based (free), Cilium L2 (free, single subnet) | Cloud LB recommended |
-| DNS Provider | Cloudflare (always), Hetzner DNS, Route53/Cloud DNS/Azure DNS (if using that cloud) | Cloudflare recommended |
-| Secrets Backend | OpenBao self-hosted, cloud secret managers | Self-hosted OpenBao recommended |
-| Archival S3 | Cloudflare R2, AWS S3, GCP GCS, Azure Blob, OCI Object Storage, Huawei OBS | For backup + MinIO tiering |
-
-### A La Carte Data Services
-
-| Component | Purpose | DR Strategy |
-|-----------|---------|-------------|
-| CNPG | PostgreSQL operator | WAL streaming (async primary-replica) |
-| FerretDB | MongoDB wire protocol on PostgreSQL | Via CNPG WAL streaming |
-| Strimzi | Apache Kafka streaming | MirrorMaker2 |
-| Valkey | Redis-compatible cache (BSD-3 OSS) | REPLICAOF |
-| ClickHouse | OLAP analytics | ReplicatedMergeTree |
-
-### A La Carte Communication
-
-| Component | Purpose |
-|-----------|---------|
-| Stalwart | Email server (JMAP/IMAP/SMTP) |
-| STUNner | K8s-native TURN/STUN (WebRTC) |
-| LiveKit | Video/audio (WebRTC SFU) |
-| Matrix/Synapse | Team chat (federation) |
+If any older notes in this file contradict those docs, those docs win.
 
 ---
 
-## 1. Critical Architecture Decisions (2026-01-17)
+## 2. Core positioning (locked 2026-04-27)
 
-### Service Mesh: Cilium (NOT Istio)
+- **OpenOva** = the company.
+- **Catalyst** = the OpenOva platform (the control plane that turns a Kubernetes cluster into a self-sufficient deployment).
+- **Sovereign** = a deployed instance of Catalyst.
+- **Organization** = multi-tenancy unit inside a Sovereign.
+- **Environment** = `{org}-{env_type}` scope where Applications run.
+- **Application** = an installed **Blueprint**.
+- **Blueprint** = the unified unit of installable software (replaces the older "module" + "template" split).
 
-**Decision**: Cilium Service Mesh replaces Istio entirely.
+What was previously called **Nova** was just a Sovereign run by us hosting our SaaS Organizations. The "Nova" brand is retired in favor of "the openova Sovereign."
 
-**Rationale**:
-- OpenTelemetry auto-instrumentation is independent of service mesh (via init container injection)
-- SQL query visibility comes from OTel Java/Python/Node agents, NOT Envoy sidecars
-- Cilium provides mTLS via eBPF with lower resource overhead
-- Single CNI+Mesh solution reduces operational complexity
-
-**Cilium Service Mesh Features**:
-| Feature | How |
-|---------|-----|
-| mTLS | Cilium identity-based encryption |
-| L7 Policies | Envoy proxy (CiliumEnvoyConfig) |
-| Traffic Management | CiliumNetworkPolicy + HTTPRoute |
-| Observability | Hubble + OTel (independent) |
-
-### Git Provider: Gitea Only
-
-**Decision**: Gitea is the sole internal Git provider. GitHub/GitLab options removed.
-
-**Architecture**:
-- Gitea deployed in each region
-- Bidirectional mirroring between Gitea instances
-- CNPG for metadata storage (async primary-replica, NOT multi-master)
-- Each Gitea connects to LOCAL CNPG only
-- Cross-region writes via primary region
-- Gitea Actions for CI/CD and approval workflows
-
-### DNS Architecture: k8gb Authoritative
-
-**Decision**: k8gb acts as authoritative DNS server (NOT just a record manager).
-
-**Architecture**:
-- k8gb CoreDNS serves as authoritative DNS for GSLB zone
-- Domain registrar NS records point to k8gb CoreDNS LoadBalancer IPs
-- k8gb CoreDNS is SEPARATE from Kubernetes internal CoreDNS
-- No Cloudflare hybrid option - k8gb handles entire GSLB zone
-
-### Split-Brain Protection: Cloud Witness (Cloudflare)
-
-**Decision**: Use Cloudflare Workers + KV as cloud witness for lease-based failover authority.
-
-**Why Cloud Witness (not external DNS resolvers)**:
-- External DNS resolvers can only verify if a region is reachable, not who should be active
-- Lease-based approach provides true single-source-of-truth
-- Prevents k8gb's DNS-based failover from causing split-brain during partitions
-
-**Mechanism**:
-- Active region holds lease in Cloudflare KV (renews every 10s, TTL 30s)
-- Standby region cannot become active while lease is held
-- Failover Controller gates all readiness based on lease ownership
-
-### Failover Controller: Comprehensive Failover Orchestration
-
-**Decision**: Build a Failover Controller that controls ALL failover (not just databases).
-
-**Scope (Three Layers)**:
-1. **External traffic** (Gateway API → k8gb): Controls HTTPRoute readiness
-2. **Internal traffic** (Cilium Cluster Mesh): Controls Service endpoints
-3. **Stateful services** (CNPG, MongoDB): Signals database promotion
-
-**Key Insight**: k8gb alone cannot prevent split-brain during network partitions. The Failover Controller gates k8gb's view by controlling whether endpoints are visible.
-
-**Architecture**:
-- Cloudflare Worker + KV as witness (lease-based authority)
-- Per-cluster Failover Controller with state machine (ACTIVE/STANDBY/FAILING_OVER)
-- Actuators for Gateway, Service, and Database resources
-
-**Modes**: automatic | semi-automatic | manual (for regulated environments)
-
-### DDoS Protection: Cloud Provider Native
-
-**Decision**: Rely on cloud provider native DDoS protection.
-
-| Provider | Protection | Visibility |
-|----------|------------|------------|
-| Hetzner | Automatic, always-on | Low (black box) |
-| OCI | Always-on, free | Medium |
-| Huawei | Anti-DDoS Basic (free) | Low-Medium |
-
-**No Cloudflare proxy required** - cloud providers handle volumetric attacks at edge.
-
-**WAF (L7)**: Coraza handles application-layer protection separately.
-
-### Multi-Region Strategy
-
-- **Recommended 2 regions** (BCP/DR) but **1 region allowed**
-- **Independent clusters** per region (NOT stretched clusters)
-- Each cluster survives independently during network partition
-- Async data replication between regions (eventual consistency)
-
-### Cloud Providers
-
-- **Primary**: Hetzner Cloud (first supported)
-- **Coming Soon**: Huawei Cloud, Oracle Cloud (OCI)
-- **Dropped**: Contabo (no Crossplane support), AWS/GCP/Azure (future consideration)
-
-### LoadBalancer Strategy
-
-- **Option 1**: Cloud provider LoadBalancers (Hetzner LB, OCI LB, etc.) - recommended
-- **Option 2**: k8gb DNS-based LB (Gateway API hostNetwork + k8gb health routing) - free
-- **Option 3**: Cilium L2 Mode (ARP-based, same subnet only) - free
-- BGP is NOT available on target cloud providers (only bare-metal/dedicated)
-
-### Secrets Management
-
-- **SOPS eliminated completely** - not even for bootstrap
-- **Interactive bootstrap**: Wizard generates credentials, operator saves them
-- **Architecture**: Independent OpenBao per cluster + ESO PushSecrets for cross-cluster sync
-- **Flow**: K8s Secret → ESO PushSecret → Both OpenBao instances simultaneously
-- **ESO Generators**: Auto-create complex passwords/keys (no manual generation)
-- All secrets managed via K8s CRDs (no manual OpenBao updates)
-
-### Storage Architecture
-
-- **MinIO**: Fast S3 (in-cluster) with tiered storage
-- **Archival S3**: External cloud storage (R2, S3, GCS, Blob, OBS)
-- **MinIO tiers to Archival S3** for cold data
-- **Velero backs up to Archival S3** (not MinIO)
-- **Harbor backs up to Archival S3**
-
-### Cross-Region Networking
-
-- **WireGuard mesh** for cross-region connectivity
-- OR **native cloud peering** if same provider (Hetzner vSwitch, OCI FastConnect)
-- Required for: OpenBao sync, k8gb coordination, data replication, Gitea mirroring
-
-### Data Replication Patterns (All Community Edition)
-
-| Service | Replication Method |
-|---------|-------------------|
-| CNPG (Postgres) | WAL streaming to standby cluster (async primary-replica) |
-| Gitea | Bidirectional mirror + CNPG for metadata |
-| MongoDB | CDC via Debezium → Kafka → Sink Connector |
-| Strimzi (Kafka) | MirrorMaker2 (native) |
-| Valkey | REPLICAOF command (async) |
-| MinIO | Bucket replication |
-| Harbor | Registry replication |
-
-### FerretDB (Replaces MongoDB)
-
-- MongoDB replaced by FerretDB (Apache 2.0, MongoDB wire protocol on PostgreSQL)
-- FerretDB uses CNPG as backend - replication via standard PostgreSQL WAL streaming
-- No Debezium/Kafka CDC required for replication (uses CNPG native replication)
-- Full ACID transactions via PostgreSQL
+OpenOva's other products (**Cortex**, **Axon**, **Fingate**, **Fabric**, **Relay**, **Specter**, **Exodus**) are now positioned as composite Blueprints that run **on** Catalyst — not as parallel platform layers.
 
 ---
 
-## 2. OpenOva Positioning & Value Proposition
+## 3. Stack decisions (locked 2026-04-27)
 
-### Core Identity
-
-OpenOva is an **AI-native infrastructure platform**. Cloud-native is the foundation. AI-native is the differentiator.
-
-- **AI-native infrastructure platform** — 52 open-source components, every one designed to be AI-manageable
-- **AI-powered operations built in** — Specter has pre-built semantic knowledge of the entire ecosystem
-- **Transformation journey partner** — from legacy assessment through AI modernization
-- **Converged blueprint ecosystem** with operational guarantees
-
-### Value Proposition
-
-"We provide an AI-native infrastructure platform: 52 curated open-source components on Kubernetes, every one managed by AI. Specter — our AI brain — has pre-built semantic knowledge of every CRD, integration dependency, and failure mode. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on after the fact."
-
-### Differentiator
-
-- **Specter's semantic knowledge moat** — pre-built models of every CRD schema, integration graph, failure mode, health check, upgrade path, and compliance mapping across 52 components
-- **Token efficiency as economic advantage** — competitors bolt AI onto unstructured platforms and dump massive context. Specter sends surgical context. 10x fewer tokens, 10x faster, 10x more accurate.
-- **AI-manageable by design** — structured CRDs, unified OTel telemetry, standardized health endpoints, Kyverno policy-as-code, declarative GitOps
-- **Operational excellence** (Day-2 safety, upgrades, SLAs) — not tooling
-- **Confidence as a service** — we own the pager, not the customer
-
-### Target Market
-
-- Banks, telcos, petroleum (regulated industries)
-- Organizations scared of OSS complexity but wanting to avoid vendor lock-in
-- Teams burned by past platform attempts
-- Enterprises seeking AI-native operations without building from scratch
+| Concern | Choice | Notes |
+|---|---|---|
+| **Event spine** | NATS JetStream | Apache 2.0 (no BSL risk); native KV; native multi-tenant Accounts. Replaces the older "Redpanda + Valkey" combo for the **control plane** only. Application-level event needs choose freely (Redpanda, Kafka, NATS, RabbitMQ). |
+| **Secrets** | OpenBao + ESO | Apache 2.0 fork of Vault (LF-led, IBM-backed). Replaces Vault. |
+| **Multi-region OpenBao** | Independent Raft per region + async perf replication | NOT a stretched cluster. Each region is its own failure domain. |
+| **Workload identity** | SPIFFE/SPIRE | 5-min rotating SVIDs, mTLS everywhere. |
+| **User identity** | Keycloak | Per-Org realm in SME-style Sovereigns; per-Sovereign realm in corporate-style. SME tier uses minimal single-replica Keycloak (no HA). |
+| **GitOps** | Flux per vcluster | Lightweight (source + kustomize + helm controllers). One Flux per vcluster, watching its Environment Gitea repo. |
+| **Git** | Gitea | Per-Sovereign. Hosts public Blueprint mirror, Org-private Blueprints, per-Environment workspace repos. |
+| **IaC for non-K8s** | Crossplane | Only IaC. Never user-facing. Advanced users author Compositions as Blueprints. |
+| **Bootstrap IaC** | OpenTofu | One-shot only. Archived after Phase 0. Crossplane takes over. |
+| **Multi-tenancy** | vcluster (loft.sh) | One per Organization per host cluster. |
+| **CNI / Service Mesh** | Cilium | eBPF mTLS, L7 policies, Gateway API. |
+| **Bootstrap host** | catalyst-provisioner.openova.io | Permanent service. Each Sovereign is fully self-sufficient after Phase 0; provisioner stays online for the next Sovereign. |
 
 ---
 
-## 3. Architecture Model
+## 4. User-facing surfaces (locked 2026-04-27)
 
-### Blueprint vs Instance Model
+Three first-class surfaces. **No fourth.**
 
-- **Public blueprints** (openova-io): Templates with `<tenant>` placeholders - the "class"
-- **Private instances** (acme-private): Generated repos with choices made - the "instance"
-- **Bootstrap wizard**: Generates instance repos from blueprints
+- **UI** — Catalyst console. Form / Advanced / IaC editor depths. Default for all personas.
+- **Git** — direct push or PR to the Environment Gitea repo (or Blueprint repos). Equal weight with UI.
+- **API** — REST + GraphQL for portal integrations (Backstage, ServiceNow). Not a primary IaC surface.
 
-### Three-Layer Architecture
-
-```
-+-------------------------------------------------------+
-| OPENOVA BOOTSTRAP WIZARD (Managed UI)                 |
-| - Hosted on OpenOva's infrastructure                  |
-| - Collects credentials, runs OpenTofu                |
-| - Export option for self-hosted bootstrap             |
-| - Permanent sessions with SSO (Google/Azure)          |
-| - Exits the picture after bootstrap complete          |
-+-------------------------------------------------------+
-                         |
-                         v
-+-------------------------------------------------------+
-| CUSTOMER'S ENVIRONMENT (Post-Bootstrap)               |
-| - Catalyst IDP (IDP - entry door for lifecycle)          |
-| - Flux (GitOps delivery)                              |
-| - Gitea (internal Git with bidirectional mirror)      |
-| - Crossplane (selective - lifecycle abstraction)      |
-| - Operators (CNPG, etc.)                              |
-+-------------------------------------------------------+
-                         |
-                         v
-+-------------------------------------------------------+
-| OPENOVA BLUEPRINTS (Our IP - stays in picture)        |
-| - Certified configurations                            |
-| - Upgrade-safe versions                               |
-| - Best practices (PDBs, VPAs, policies)               |
-| - Published via Git, consumed by customer's Flux      |
-+-------------------------------------------------------+
-```
-
-### Key Architectural Decisions
-
-1. **Bootstrap wizard is SEPARATE** - independent repo/application, hosted on OpenOva
-2. **Bootstrap wizard EXITS after provisioning** - must be safe to delete after day 1
-3. **First cluster inherits bootstrapping capability** via Crossplane/CAPI for expansion
-4. **Catalyst IDP becomes the entry point** for customer's lifecycle management
-5. **OpenOva stays in picture via blueprints** - not runtime components
-6. **OpenTofu is the unified bootstrap mechanism** (SaaS or Self-Hosted)
+`kubectl` is debug-only, scoped to one's own vcluster. No Terraform/Pulumi/CLI for production changes.
 
 ---
 
-## 4. Bootstrap Modes
+## 5. Banned terms
 
-### Mode 1: Managed Bootstrap ("OpenOva Cloud Bootstrap")
+Replaced terms — never use in new docs, code, UI strings:
 
-- Customer uses OpenOva wizard (hosted UI)
-- OpenOva's OpenTofu provisions customer's cloud infrastructure
-- After bootstrap, customer's Crossplane takes over
-- Customer provides cloud credentials to OpenOva (temporarily)
-- Redirect to Catalyst IDP after completion
+| Banned | Use instead |
+|---|---|
+| Tenant | Organization |
+| Operator (entity / person) | `sovereign-admin` (role) |
+| Client (UX sense) | User |
+| Module / Template (Catalyst sense) | Blueprint |
+| Backstage | Catalyst console |
+| Synapse (the OpenOva product) | Axon |
+| Lifecycle Manager (separate) | Catalyst |
+| Bootstrap wizard (separate) | Catalyst bootstrap |
+| Workspace (Catalyst scope) | Environment |
+| Instance (user-facing object) | Application |
 
-### Mode 2: Self-Hosted Bootstrap ("OpenOva Bring-Your-Own Bootstrap")
-
-- Customer exports OpenTofu manifests from wizard
-- Customer runs OpenTofu locally with their own credentials
-- Credentials never leave customer environment
-- Same end result: Catalyst IDP + platform stack ready
-
-### Unified Approach
-
-Both modes use the same OpenTofu manifests - only difference is WHERE terraform apply runs.
-
-### Bootstrap Sequence
-
-```
-OpenTofu → K8s Cluster → Flux (bootstrap)
-         → Gitea (internal Git)
-         → Crossplane + Operators
-         → Catalyst IDP + Grafana Stack
-         → Platform ready
-```
+Full glossary: [`docs/GLOSSARY.md`](../docs/GLOSSARY.md).
 
 ---
 
-## 5. Git Repository: Gitea
+## 6. Sovereign topology
 
-**Fixed decision**: Gitea is the sole Git provider.
+```
+catalyst-provisioner (always on)  ──Phase 0──►  Target cloud (Hetzner / AWS / etc.)
+                                                       │
+                                                       ▼
+                                           Sovereign deployment:
+                                           ─ Management cluster (mgt)
+                                             - Catalyst control plane
+                                             - Gitea, JetStream, OpenBao,
+                                               Keycloak, projector, …
+                                           ─ Workload clusters (rtz, dmz)
+                                             - Per-Org vclusters
+                                             - Each with lightweight Flux
 
-### Gitea Architecture
+After Phase 0: Sovereign is self-sufficient. Provisioner is no longer in the path.
+```
 
-- Deployed in each region (active-active for reads)
-- Bidirectional mirroring between instances
-- CNPG for PostgreSQL metadata (async primary-replica)
-- Each Gitea connects to LOCAL CNPG only
-- Gitea Actions for CI/CD pipelines
-- CODEOWNERS for security approval workflows
-
-### Why Gitea (not GitHub/GitLab)
-
-| Reason | Benefit |
-|--------|---------|
-| Self-hosted | Full control, no external dependency |
-| Lightweight | Lower resource footprint than GitLab |
-| GitOps-focused | Designed for Flux integration |
-| Bidirectional mirror | Active-active reads across regions |
-| Gitea Actions | GitHub Actions compatible CI/CD |
+See [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) for full details.
 
 ---
 
-## 6. IDP vs Crossplane Decision
+## 7. Promotion model (no chain object)
 
-### With IDP (Catalyst IDP) in place:
+There is no `ApplicationGroup` or `ChainPolicy` CRD. Promotion is the act of copying an Application's manifest from one Environment Gitea repo to another, gated by an `EnvironmentPolicy` attached to the destination Environment.
 
-- **IDP handles**: Catalog UX, form generation, YAML templating, PR creation
-- **Crossplane needed only when**:
-  - Multi-backend portability expected (CNPG today → managed DB tomorrow)
-  - Complex compositions (one request → many resources)
-  - Non-K8s resources in same catalog
-  - Lifecycle coupling required
-
-### Encapsulation Strategy: LIGHT
-
-- Thin claims (5-10 fields max): tier, ha, backup, deletionProtection, networkProfile
-- Everything else stays internal (operator defaults)
-- Two-lane model: Standard (90%) + Advanced escape hatch (10%)
+The Blueprint detail page in the console is the cross-Environment view: it shows every Application using a given Blueprint across all Environments in the Org, with version drift visible at a glance.
 
 ---
 
-## 7. End-User Journeys
+## 8. Multi-region semantics
 
-### Journey 1: Initial Bootstrap (Infra SPOC)
-
-```
-OpenOva Wizard UI → Select cloud/options → Generate OpenTofu
-                  → Run OpenTofu (managed or self-hosted)
-                  → Cluster + Platform ready
-                  → Redirect to Catalyst IDP URL
-```
-
-### Journey 2: Day-2 Operations (App Teams via Catalyst IDP)
-
-```
-Catalyst IDP → Select blueprint (e.g., "Tier-1 Postgres")
-         → Fill minimal form (tier, ha, backup)
-         → PR generated to Gitea
-         → Flux applies → Operator reconciles
-         → Resource ready, secret injected
-```
-
-### Journey 3: Platform Extension (Infra SPOC via Catalyst IDP)
-
-```
-Catalyst IDP → Platform Admin section
-         → "Add Cluster" or "Enable Capability Pack"
-         → PR generated to Gitea
-         → Flux + Crossplane/CAPI provision
-```
-
-### Journey 4: Blueprint Updates (OpenOva → Customer)
-
-```
-OpenOva publishes new blueprint version
-         → Customer's Catalyst IDP shows notification
-         → Customer reviews changelog
-         → Customer clicks "Upgrade" (generates PR to Gitea)
-         → Flux applies
-```
+- Clusters named by **building block, not failover role.** Same building blocks deployed in multiple regions; k8gb routes traffic. Section 1.3 of `docs/NAMING-CONVENTION.md`.
+- Each region's OpenBao is an **independent** Raft cluster with async perf replication. No stretched clusters. See `docs/SECURITY.md` §5.
+- Catalyst Environment is a **logical** scope realized by N vclusters across regions — Placement metadata on each Application controls fan-out.
 
 ---
 
-## 8. Support Model
+## 9. Naming changes vs older docs
 
-### Fully Supported
-
-- Entire mandatory stack
-- Selected a la carte components
-- Blueprint configurations only
-
-### Best Effort
-
-- Customer customizations beyond blueprints
-- Edge cases not in support matrix
-
-### Unsupported
-
-- Versions outside support matrix
-- Non-blueprint configurations
-- DIY operator installations
+| Old | New |
+|---|---|
+| `{env}` dimension in NAMING-CONVENTION | `{env_type}` |
+| "Workspace" (Catalyst scope) | "Environment" |
+| "Tenant" (anywhere) | "Organization" |
+| "Bootstrap mode" / "Manager mode" of `core/` app | Both fold under "Catalyst control plane" |
+| Catalyst as a sub-product | Catalyst as the platform itself |
+| Cortex / Fingate / etc. as products | Composite Blueprints running on Catalyst |
+| OpenBao multi-region as stretched | OpenBao multi-region as independent Raft + async perf replication |
+| Vault | OpenBao |
+| Redpanda (control plane) | NATS JetStream |
+| Valkey (control plane) | NATS JetStream KV (Valkey remains as Application Blueprint) |
 
 ---
 
-## 9. Decided Questions (2026-01-17)
+## 10. Component count
 
-| Question | Decision |
-|----------|----------|
-| Service mesh | Cilium Service Mesh (NOT Istio) |
-| Git provider | Gitea only (GitHub/GitLab removed) |
-| Cloud provider | Hetzner first, then Huawei/OCI. Contabo dropped. |
-| Multi-region | Recommended 2 regions but 1 region allowed (independent clusters) |
-| LoadBalancer | Cloud LB (default), k8gb DNS-based (free), Cilium L2 (single subnet) |
-| DNS architecture | k8gb as authoritative DNS server for GSLB zone |
-| Split-brain protection | Cloudflare Workers + KV (lease-based witness) |
-| Failover orchestration | Failover Controller (controls external, internal, stateful) |
-| DDoS protection | Cloud provider native (no Cloudflare proxy) |
-| Secrets backend | Self-hosted OpenBao per cluster + ESO PushSecrets |
-| SOPS | Eliminated completely |
-| Harbor | Mandatory from day 1 |
-| VPA | Mandatory |
-| Crossplane | Mandatory for post-bootstrap cloud ops |
-| MongoDB replication | CDC via Debezium + Strimzi (Kafka) |
-| Redis-compatible cache | Valkey (BSD-3, Linux Foundation) |
-| MinIO | Fast S3 with tiering (NOT backup target) |
-| Archival S3 | R2/S3/GCS/Blob for backup + tiering |
-| GitOps | Flux (ArgoCD as future option) |
-| CI/CD | Gitea Actions |
-| Observability | OTel auto-instrumentation (independent of mesh) + Grafana Stack |
-
-## 10. Open Decisions / Questions
-
-1. **Exact naming for bootstrap modes** - "Managed" vs "Self-Hosted"?
-2. **First flagship blueprint** - PostgreSQL or Service Mesh?
-3. **Wizard tech stack** - what to build it with?
-4. **Failover Controller implementation** - research existing OSS or build new?
-5. **Conflict resolution strategy** - for eventual consistency scenarios
+The historical "52 components" framing is retained at the marketing level for continuity, but the platform's identity is now **Catalyst**, not "the 52 components." Components are Blueprints. The list is in [`docs/PLATFORM-TECH-STACK.md`](../docs/PLATFORM-TECH-STACK.md). Adding or removing components is a Blueprint addition or removal — does not require any platform-level rebrand.
 
 ---
 
-## 15. RESOLVED - k8gb and Failover Architecture (2026-01-18)
+## 11. Customer sync (unchanged in spirit)
 
-### 15.1 k8gb Architecture Deep Dive
-
-**Status:** RESOLVED
-
-**Key Finding from Source Code Analysis:**
-
-k8gb clusters operate **independently** with **DNS-based discovery only**:
-
-| Aspect | k8gb Behavior |
-|--------|---------------|
-| Local health check | Direct service health check (Ingress/Gateway endpoints) |
-| Cross-cluster "health" | DNS query to `localtargets-*` record |
-| Communication | **DNS only** - no direct health checks between clusters |
-
-**Critical Limitation:** k8gb cannot distinguish between:
-- "Region is down" (failover needed)
-- "Network partition" (failover NOT wanted)
-
-Both produce the same symptom: DNS query fails or times out.
-
-```
-Cluster B queries: localtargets-app.example.com from Cluster A
-├── Gets IPs → "Cluster A is healthy"
-└── No IPs / timeout → "Cluster A is unavailable" (but WHY?)
-```
-
-**Scenarios Analyzed:**
-
-| Scenario | k8gb Behavior | Problem? |
-|----------|---------------|----------|
-| Region truly down | Removes region from DNS | Correct |
-| Network partition | Also removes region from DNS | **Incorrect failover** |
-| Both healthy | Returns both regions | Correct |
-
-**Conclusion:** k8gb is suitable for **stateless services** where brief dual-routing during partition is acceptable. For **stateful services** and strict active-passive, a Failover Controller with cloud witness is required.
-
-### 15.2 Failover Controller Design
-
-**Status:** RESOLVED
-
-**Architecture Decision:** Cloudflare Workers + KV as cloud witness
-
-| Component | Role |
-|-----------|------|
-| Cloudflare Worker | Lease management API |
-| Cloudflare KV | Lease storage with TTL |
-| Failover Controller | Per-cluster controller that manages readiness |
-
-**Three Layers Controlled:**
-
-1. **External** (Gateway API → k8gb): HTTPRoute readiness
-2. **Internal** (Cilium Cluster Mesh): Service endpoint manipulation
-3. **Stateful** (CNPG, MongoDB): Database promotion signaling
-
-**Witness Pattern:**
-- Active region holds lease (renews every 10s, TTL 30s)
-- Standby region queries lease status
-- If lease expires → standby acquires lease → becomes active
-- Network partition: both regions reach witness → active keeps renewing → no split-brain
-
-**Documentation:** See `failover-controller/docs/ADR-FAILOVER-CONTROLLER.md`
-
-### 15.3 k8gb Scope Clarification
-
-**Status:** RESOLVED
-
-**k8gb is for EXTERNAL services only:**
-- Routes traffic via DNS based on endpoint availability
-- Does NOT coordinate internal services
-- Does NOT handle database failover
-
-**Internal services use Cilium Cluster Mesh:**
-- Cross-region service discovery
-- Failover Controller manipulates endpoints
-
-**ExternalDNS Role:**
-- Creates NS records delegating GSLB zone to k8gb
-- Manages non-GSLB records in parent zone
-- One-time setup for delegation, ongoing for other records
-
-### 15.4 Gateway API Clarification
-
-**Status:** RESOLVED
-
-- Entry point: Kubernetes Gateway API backed by Cilium/Envoy
-- Traefik (K3s default): Disabled in OpenOva deployments
-- Kong: Not included (Cilium Gateway sufficient for routing)
-- API Management: Future consideration if needed
-
-### 15.5 Redis-Compatible Caching
-
-**Status:** RESOLVED
-
-- **Valkey** selected (Linux Foundation, BSD-3)
-- Dragonfly dropped (BSL license)
-- Redis OSS dropped (license concerns)
-
-### 15.6 Harbor S3 Backend
-
-**Status:** RESOLVED
-
-- MinIO as S3 backend documented
-- Tiered archiving to external S3 documented
-
-### 15.7 SRE Repo
-
-**Status:** FUTURE DISCUSSION
-
-- VPA policies
-- Topology spread
-- PVC resizing
-- KEDA configurations
+Each Sovereign's Gitea mirrors the public Blueprint catalog from this repo. Pull cadence is Sovereign-local; air-gapped Sovereigns mirror offline. See [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) §9.
 
 ---
 
-## 11. New A La Carte Components (2026-01-18)
+## 12. Open follow-ups (post-rewrite)
 
-### Identity
-
-| Component | Purpose | Use Cases |
-|-----------|---------|-----------|
-| Keycloak | OIDC/OAuth/FAPI Authorization Server | Any app needing auth, SSO, FAPI compliance |
-
-### Monetization
-
-| Component | Purpose | Use Cases |
-|-----------|---------|-----------|
-| OpenMeter | Usage metering | API monetization, usage tracking |
-
-### AI Safety & Observability
-
-| Component | Purpose | Use Cases |
-|-----------|---------|-----------|
-| NeMo Guardrails | AI safety firewall | Prompt injection detection, PII filtering, topic control |
-| LangFuse | LLM observability | LLM call tracing, cost tracking, evaluation |
-
-### Chaos Engineering
-
-| Component | Purpose | Use Cases |
-|-----------|---------|-----------|
-| Litmus Chaos | Chaos engineering | Resilience testing, compliance proof |
-
-These are standalone a la carte components that can be used independently or bundled into products.
+- Per-Blueprint `README.md` audit — most are clean; remaining cleanup tracked in issue #37.
+- `core/` directory may be reorganized to match the Catalyst component naming (no urgency; functional code unchanged).
+- Specter and Exodus positioning: Specter is a composite Blueprint (`bp-specter`) installed by default in corporate-style Sovereigns; Exodus is a deliverable migration service (people + playbooks), not a Blueprint. Documented at length in `docs/BUSINESS-STRATEGY.md`.
 
 ---
 
-## 12. Open Banking Meta Blueprint (2026-01-18)
+## 13. Approved key phrases
 
-### Overview
-
-Meta blueprint that bundles a la carte components with custom services for PSD2/FAPI fintech sandboxes.
-
-### Architecture Concept
-
-**Meta Blueprint = A La Carte Components + Custom Services**
-
-```
-Open Banking Product (Fingate)
-├── Keycloak (a la carte)      ─► FAPI Authorization
-├── OpenMeter (a la carte)     ─► Usage metering
-└── Custom Services            ─► Open Banking specific
-    ├── ext-authz
-    ├── accounts-api
-    ├── payments-api
-    ├── consents-api
-    ├── tpp-management
-    └── sandbox-data
-```
-
-### Key Architectural Decision
-
-**Envoy at the heart** - NOT Kong/Tyk. Leverages existing Cilium/Envoy investment with specialized services.
-
-### Architecture Flow
-
-```
-TPP Request (eIDAS cert)
-    |
-    v
-Cilium Ingress (Envoy)
-    |
-    +--> ext_authz Service
-    |       |
-    |       +--> Validate eIDAS cert
-    |       +--> Check TPP registry
-    |       +--> Verify consent
-    |       +--> Check/decrement quota (Valkey)
-    |
-    v
-Backend Services (Accounts/Payments/Consents)
-    |
-    v
-Access Logs --> Kafka --> OpenMeter --> Lago
-```
-
-### Monetization Models
-
-| Model | Flow |
-|-------|------|
-| Prepaid | Buy credits → Valkey balance → Atomic decrement → Block at zero |
-| Post-paid | Use APIs → Meter usage → Invoice at period end |
-| Subscription + Overage | Monthly base + per-call overage |
-
-### Why Not Kong/Tyk
-
-- Already have Cilium/Envoy for service mesh
-- Open Banking logic doesn't fit plugin architecture
-- Unified observability with existing Grafana stack
-- Custom services give full control over PSD2 compliance
-
-### Open Banking Standards
-
-| Standard | Status |
-|----------|--------|
-| UK Open Banking 3.1 | Primary |
-| Berlin Group NextGenPSD2 | Planned |
-| STET (France) | Planned |
-
-### Documentation
-
-- ADR: `handbook/docs/adrs/ADR-OPEN-BANKING-BLUEPRINT.md`
-- Spec: `handbook/docs/specs/SPEC-OPEN-BANKING-ARCHITECTURE.md`
-- Blueprint: `handbook/docs/blueprints/BLUEPRINT-OPEN-BANKING.md`
+- "Cloud-native is the foundation. Catalyst is how you operate it."
+- "Catalyst — the OpenOva platform."
+- "A Sovereign is a self-sufficient deployment of Catalyst."
+- "Nova was just a Sovereign run by us. Now we say 'the openova Sovereign'."
+- "Same code in every Sovereign — whether run by us, by Omantel, or by Bank Dhofar."
 
 ---
 
-## 13. Repository Structure
+## 14. Phrases to avoid
 
-```
-openova-io/                    # Public blueprints org
-├── bootstrap/                 # Bootstrap wizard
-├── terraform/                 # IaC modules
-├── flux/                      # GitOps configs
-├── handbook/                  # Documentation
-├── <component>/               # Individual component blueprints
-│   ├── cilium/                # CNI + Service Mesh
-│   ├── gitea/                 # Git server
-│   ├── failover-controller/   # Failover orchestration
-│   ├── grafana/
-│   ├── harbor/
-│   ├── openbao/              # Secrets backend (MPL 2.0)
-│   ├── k8gb/
-│   ├── external-dns/
-│   ├── keycloak/              # FAPI AuthZ (Open Banking)
-│   ├── openmeter/             # Usage metering (Open Banking)
-│   ├── lago/                  # Billing (Open Banking)
-│   ├── open-banking/          # Open Banking services
-│   └── ...
-
-acme-private/                  # Example private instance
-├── terraform/                 # Configured for acme
-├── flux/                      # Configured for acme
-├── <component>/               # Configured for acme
-```
+- "Tenant" anywhere in product context.
+- "Operator" as an entity (the role is "sovereign-admin").
+- "Module" / "Template" in the Catalyst sense.
+- "Backstage" — replaced.
+- "Lifecycle Manager" or "Bootstrap wizard" as separate products.
+- "Stretched cluster" in OpenBao context — we deliberately reject that pattern.
+- "Workspace" as Catalyst scope — replaced by Environment.
 
 ---
 
-## 14. Key Quotes & Principles
-
-> "Crossplane doesn't kill OpenTofu. It kills OpenTofu-as-a-control-plane."
-
-> "The catalog is a contract, not a UI."
-
-> "You are selling confidence, not Kubernetes. Insurance, not innovation."
-
-> "If the bootstrap platform stays in the picture after day 1, it's doing too much."
-
-> "IDP is the front desk. Your thin layer is the contract, the rules, and the insurance behind the desk."
-
-> "Wrap CNPG/Strimzi only if you are intentionally offering 'databases' and 'streams' as platform products."
-
-> "Public blueprints are the class, private instances are the objects."
-
-> "OTel is completely independent of service mesh - that's why Cilium is a no-brainer."
-
----
-
-## 15. Technical ADRs Referenced
-
-- ADR-MULTI-REGION-STRATEGY: Independent clusters, recommended not enforced
-- ADR-PLATFORM-ENGINEERING-TOOLS: Crossplane, Catalyst IDP, Flux (mandatory)
-- ADR-IMAGE-REGISTRY: Harbor mandatory
-- ADR-SECURITY-SCANNING: Trivy CI/CD + Harbor + Runtime
-- ADR-CILIUM-SERVICE-MESH: Cilium replaces Istio
-- ADR-GITEA: Gitea as sole Git provider
-- ADR-FAILOVER-CONTROLLER: Generic failover orchestration
-- ADR-K8GB-GSLB: k8gb as authoritative DNS
-- ADR-AIRGAP-COMPLIANCE: Air-gap capable architecture
-
----
-
-## 16. Competitive Landscape
-
-### Not Competing With
-
-- Red Hat OpenShift (distro)
-- Cloud providers (AWS/GCP/Azure)
-- Pure tooling vendors
-
-### Competing For
-
-- Regulated enterprises wanting OSS with support
-- Organizations burned by OpenShift cost/complexity
-- Teams needing "someone to call at 3am"
-
-### Adjacent Players
-
-- Upbound (Crossplane ecosystem)
-- Humanitec (Platform orchestrator)
-- Loft/vCluster (Multi-tenancy)
-
----
-
----
-
-## 17. Monorepo Consolidation (2026-02-08)
-
-### Decision
-
-Consolidated 45+ separate GitHub repos into a single monorepo: `openova-io/openova`
-
-### Structure
-
-```
-openova/
-├── core/                    # Bootstrap + Lifecycle Manager (Go application)
-├── platform/                # All 52 component blueprints (FLAT structure)
-├── products/                # Bundled vertical solutions
-│   ├── cortex/              # OpenOva Cortex - Enterprise AI Hub
-│   ├── fingate/             # OpenOva Fingate - Open Banking (+ 6 services)
-│   ├── fabric/              # OpenOva Fabric - Data & Integration
-│   ├── relay/               # OpenOva Relay - Communication
-│   └── axon/                # OpenOva Axon - SaaS LLM Gateway
-└── docs/                    # Platform documentation
-```
-
-### Key Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Flat platform/ structure | No hierarchical subfolders (networking/, security/, etc.) |
-| Documentation shows groupings | README displays logical categories while folders stay flat |
-| Products bundle platform components | Reference components from platform/, no duplication |
-| Core is single Go app | Bootstrap + Lifecycle Manager with mode switch |
-| 52 platform components | All flat under platform/ |
-| 5 products | cortex, fingate (+ 6 services), fabric, relay, axon |
-
-### Component Count (58 total)
-
-- **Platform components**: 52 (flat under platform/)
-- **Fingate custom services**: 6 (accounts-api, consents-api, ext-authz, payments-api, sandbox-data, tpp-management)
-
-### Documentation Groupings (in READMEs)
-
-**Mandatory (Core Platform):**
-| Category | Components |
-|----------|------------|
-| Infrastructure | opentofu, crossplane |
-| GitOps | flux, gitea |
-| Networking | cilium, external-dns, k8gb |
-| Security | cert-manager, external-secrets, openbao, trivy, falco, sigstore, syft-grype, coraza |
-| Policy | kyverno |
-| Observability | grafana, opensearch |
-| Scaling | vpa, keda |
-| Operations | reloader |
-| Storage | minio, velero |
-| Registry | harbor |
-| Failover | failover-controller |
-
-**A La Carte (Optional):**
-| Category | Components |
-|----------|------------|
-| Data | cnpg, ferretdb, valkey, strimzi, clickhouse |
-| CDC | debezium |
-| Workflow | temporal, flink |
-| Analytics | iceberg |
-| Identity | keycloak |
-| Monetization | openmeter |
-| Communication | stalwart, stunner, livekit, matrix |
-| AI/ML | knative, kserve, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter |
-| AI Safety | nemo-guardrails, langfuse |
-| Chaos | litmus |
-
-### Sync to Customer Gitea
-
-```
-GitHub (monorepo)                    Customer Gitea (multi-repo)
-─────────────────                    ──────────────────────────
-openova/core/              ──sync──> openova-core/
-openova/platform/cilium/   ──sync──> openova-cilium/
-openova/platform/flux/     ──sync──> openova-flux/
-```
-
----
-
-## 18. Core Application Architecture (2026-02-08)
-
-### Two Deployment Modes
-
-| Mode | Location | Purpose | IaC Tool |
-|------|----------|---------|----------|
-| **Bootstrap** | Outside cluster | Initial provisioning | OpenTofu |
-| **Lifecycle Manager** | Inside cluster | Day-2 operations | Crossplane |
-
-### Zero External Dependencies
-
-| Mode | State Storage | Rationale |
-|------|---------------|-----------|
-| Bootstrap | SQLite (embedded) | No CNPG needed for ephemeral wizard |
-| Manager | Kubernetes CRDs | Native K8s, no external DB |
-
-### Bootstrap Exits After Provisioning
-
-The bootstrap wizard is designed to be **safely deletable** after initial provisioning. Crossplane owns all cloud resources going forward.
-
-### No Overlap with Catalyst IDP
-
-| Concern | Catalyst IDP | Lifecycle Manager |
-|---------|-----------|-------------------|
-| **Audience** | Developers (internal) | Platform operators |
-| **Focus** | Service catalog, scaffolding | Platform health, upgrades |
-| **Scope** | Application-level | Infrastructure-level |
-| **UI** | Rich portal | Minimal admin dashboard |
-
----
-
-## 19. OpenOva Cortex - AI Hub (2026-02-08)
-
-### Overview
-
-Enterprise AI platform with LLM serving, RAG, and intelligent agents.
-
-### Components (11 from platform/)
-
-knative, kserve, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse
-
-### Architecture
-
-```
-User Interfaces (LibreChat, Claude Code)
-         ↓
-AI Safety (NeMo Guardrails)
-         ↓
-Gateway Layer (LLM Gateway, Anthropic Adapter)
-         ↓
-Model Serving (KServe, vLLM)
-         ↓
-Knowledge Layer (Milvus vectors, Neo4j graph)
-         ↓
-Embeddings (BGE-M3, BGE-Reranker)
-
-LangFuse (traces all LLM calls)
-```
-
-### Resource Requirements
-
-| Component | CPU | Memory | GPU |
-|-----------|-----|--------|-----|
-| vLLM | 4 | 32Gi | 2x A10 |
-| BGE-M3 | 2 | 4Gi | 1x A10 |
-| BGE-Reranker | 1 | 2Gi | 1x A10 |
-| Milvus (3 replicas) | 2 | 8Gi | - |
-| **Total** | ~15 | ~55Gi | 4x A10 |
-
----
-
-## 20. Deleted Repositories (2026-02-08)
-
-All old separate repos deleted after monorepo consolidation:
-
-openova-anthropic-adapter, openova-backstage, openova-bge, openova-cert-manager, openova-cilium, openova-cnpg, openova-crossplane, openova-external-dns, openova-external-secrets, openova-failover-controller, openova-flux, openova-gitea, openova-grafana, openova-harbor, openova-k8gb, openova-keda, openova-keycloak, openova-knative, openova-kserve, openova-kyverno, openova-lago, openova-langserve, openova-librechat, openova-llm-gateway, openova-milvus, openova-minio, openova-mongodb, openova-n8n, openova-neo4j, openova-openmeter, openova-redpanda, openova-searxng, openova-stalwart, openova-stunner, openova-terraform, openova-trivy, openova-valkey, openova-vault, openova-velero, openova-vllm, openova-vpa, openova-open-banking, openova-core, openova-handbook
-
----
-
-## 21. AI-Age Component Rationalization (2026-02-12) — EXECUTED 2026-02-26
-
-### Context
-
-Evaluated all platform components through the lens of "in the age of AI/vibe coding (95% AI-written code), is this technology still essential or is it pre-AI era tech made redundant?"
-
-### Key Insight
-
-AI doesn't just change HOW code is written — it changes WHAT infrastructure you need:
-- **Infrastructure primitives** (networking, security, storage, databases) → Still essential. AI can't replace packets, bytes, or certificates.
-- **Complexity absorber frameworks** (integration, workflow, application runtime) → Declining. These existed because writing integration/orchestration code was hard. AI writes that code now.
-- **Developer UI tools** (portals, dashboards, search) → Declining. AI assistants replace catalog browsing and dashboard building.
-- **AI-native infrastructure** (inference, vectors, embeddings) → MORE needed.
-
-### Tier 1: Essential (85-95) — Keep
-
-cert-manager (95), cilium (95), external-secrets (95), vllm (95), openbao (93), flux (92), minio (92), velero (92), harbor (90), falco (90), trivy (90), cnpg (90), external-dns (90), grafana (88), kyverno (88), kserve (88), milvus (88), llm-gateway (87), anthropic-adapter (85), valkey (85), keycloak (85)
-
-### Tier 2: Needed (75-84) — Keep
-
-gitea (83), opentofu (82), bge (82), failover-controller (82), k8gb (80), keda (80), vpa (78), crossplane (78), knative (75), librechat (75)
-
-### Tier 3: Moderate (60-74) — Keep but Monitor
-
-langserve (73), strimzi (72), mongodb (72), debezium (70), stalwart (70), stunner (68), neo4j (65), flink (60)
-
-### Tier 4: Questionable (50-59) — Review Necessity
-
-lago (58), openmeter (55), clickhouse (55), opensearch (50), iceberg (50)
-
-### Tier 5: Declining/Redundant (12-45) — Candidates for Removal
-
-backstage (45), superset (40), searxng (40), trino (38), temporal (35), airflow (33), dapr (30), rabbitmq (25), camel (20), vitess (15), activemq (12)
-
-### Recommendation
-
-Drop ~15 components (Tier 5) → reduce from 55 to ~40 components. Replace with AI-generated custom code that's simpler to operate.
-
-### Temporal Decision
-
-**Status:** DECIDED — Make Temporal optional, not default for Fuse.
-
-Start without Temporal. Use Kafka for event-driven patterns and Dapr Workflow (if kept) for simpler orchestration. Only add Temporal when a customer needs complex sagas with compensation across 4+ services, long-running workflows (days/weeks), or workflow-level visibility at scale.
-
-### Impact on Products
-
-| Product | Impact |
-|---------|--------|
-| **Fuse** | Most affected. Camel, Dapr, Temporal, RabbitMQ, ActiveMQ all in decline tier. Rethink as Kafka + AI-generated integrations. |
-| **Titan** | Airflow, Superset, Trino, Iceberg all questionable/declining. Rethink as Flink + AI-generated pipelines + direct DB queries. |
-| **Cortex** | Mostly AI-native components. Healthy. SearXNG only declining item. |
-| **Fingate** | Mostly essential components (Keycloak). Lago/OpenMeter questionable but serve specific billing needs. |
-
----
-
-## 22. Missing Components — AI-Age Gaps (2026-02-12)
-
-### Identified Gaps
-
-Evaluated what's MISSING from the stack that would score high in AI-age relevance.
-
-### 90+ (Essential — Add Now)
-
-| Component | Score | Why |
-|-----------|-------|-----|
-| **Sigstore/Cosign** | 92 | Container image signing. AI writes Dockerfiles — must verify provenance. Bank regulatory requirement. |
-| **Syft + Grype** | 90 | SBOM generation. AI pulls random dependencies. EU CRA + bank regulators demand it. |
-| **NeMo Guardrails** | 90 | AI safety firewall. Prompt injection, PII filtering, hallucination detection for LLM outputs. Non-negotiable for banks. |
-| **LangFuse** | 90 | LLM observability. Traces every LLM call — cost, latency, tokens, eval scores. Grafana doesn't cover this. |
-| **OpenCost** | 90 | FinOps for K8s. AI/GPU workloads are expensive. Cost visibility per namespace/team is essential. |
-
-### 80+ (Strongly Needed)
-
-| Component | Score | Why |
-|-----------|-------|-----|
-| **Flagger** | 82 | Progressive delivery (canary, blue-green). AI-generated code needs gradual rollouts. Integrates with Flux. |
-| **Ray** | 80 | Distributed AI compute. Training, batch processing, distributed fine-tuning. |
-| **MLflow** | 80 | AI model registry + experiment tracking. Audit trail for model lifecycle. |
-| **Promptfoo** | 80 | LLM evaluation/testing. Unit tests for prompts. CI/CD for AI. |
-| **Reloader** | 80 | Auto-restart pods on ConfigMap/Secret changes. Tiny operator, huge operational value. |
-
-### 70+ (Valuable)
-
-| Component | Score | Why |
-|-----------|-------|-----|
-| **Litmus Chaos** | 72 | Chaos engineering. Banks need proof of resilience. |
-| **Headscale** | 72 | Self-hosted WireGuard mesh. Zero-trust networking between clusters. |
-| **Goldilocks** | 70 | VPA recommendation dashboard. Right-sizing visibility. Feeds into FinOps. |
-| **Dagger** | 70 | CI/CD pipelines as code. AI generates pipelines better in Go/Python than YAML. |
-| **Robusta** | 70 | K8s troubleshooting automation. AI-powered alert enrichment. |
-
-### 60+ (Nice to Have)
-
-| Component | Score | Why |
-|-----------|-------|-----|
-| **Testkube** | 65 | K8s-native test orchestration. Quality gates for AI-generated code. |
-| **Descheduler** | 62 | Pod rebalancing after scaling events. |
-| **Kubeshark** | 60 | API traffic viewer. Debug AI-generated microservice interactions. |
-| **Label Studio** | 60 | Data labeling for ML. Human-in-the-loop for Cortex. |
-
-### 50+ (Situational)
-
-| Component | Score | Why |
-|-----------|-------|-----|
-| **Karpenter** | 55 | Node autoscaling. Cloud provider support dependent (Hetzner unclear). |
-| **Argo Events** | 52 | Event-driven automation. KEDA + custom code may suffice. |
-| **Kured** | 50 | Node reboot daemon after kernel updates. |
-
-### Biggest Gap Identified
-
-**AI operational tooling is completely missing.** The stack has AI inference (vLLM, KServe, Milvus) but zero AI safety, AI observability, AI testing, or AI model governance. That's like having databases without monitoring.
-
----
-
-## 23. Product Family Update (Locked 2026-02-26)
-
-### Final Product Family (9 products)
-
-| Product | Name | Description |
-|---------|------|-------------|
-| Core | **OpenOva** | 52 component turnkey K8s ecosystem |
-| Bootstrap+Lifecycle+IDP | **OpenOva Catalyst** | Bootstrap wizard, Day-2 manager, IDP, Workflow Explorer |
-| AI Hub | **OpenOva Cortex** | LLM serving, RAG, AI safety, LLM observability |
-| SaaS LLM Gateway | **OpenOva Axon** | Hosted inference gateway (renamed from Synapse) |
-| Open Banking | **OpenOva Fingate** | PSD2/FAPI fintech sandbox |
-| AIOps SOC/NOC | **OpenOva Specter** | AI brain with pre-built semantic knowledge of all 52 components. AI-powered SOAR, self-healing. Token-efficient operations. |
-| Data & Integration | **OpenOva Fabric** | Event-driven integration + data lakehouse (merged Titan+Fuse) |
-| Communication | **OpenOva Relay** | Email, video, chat, WebRTC (NEW) |
-| Migration | **OpenOva Exodus** | Comprehensive legacy assessment + AI modernization roadmap + structured migration from proprietary to OSS |
-
-### Components Changed (2026-02-26)
-
-**Removed (13):** backstage, mongodb, activemq, vitess, airflow, camel, dapr, superset, searxng, langserve, trino, lago, rabbitmq
-
-**Added (10):** sigstore, syft-grype, nemo-guardrails, langfuse, reloader, matrix, ferretdb, litmus, livekit, coraza
-
-**Net count:** 55 - 13 + 10 = 52
-
-### Key Renames
-
-- Synapse → **Axon** (SaaS LLM Gateway)
-- Titan + Fuse → **Fabric** (Data & Integration merged)
-- Backstage → **Catalyst IDP** (integrated into Catalyst product)
-- MongoDB → **FerretDB** (MongoDB wire protocol on PostgreSQL)
-
----
-
-## 24. SIEM/SOAR Architecture (2026-02-26)
-
-```
-Falco (eBPF) → Falcosidekick → Kafka → OpenSearch (hot SIEM)
-                                      → ClickHouse (cold storage)
-                                      → Specter (SOAR)
-```
-
-### Pipeline
-
-1. Falco detects runtime threats via eBPF
-2. Trivy provides vulnerability scan results
-3. Kyverno reports policy violations
-4. Events flow through Kafka to OpenSearch for hot SIEM analytics
-5. Aged data moves to ClickHouse for cold storage and compliance
-6. Specter provides SOAR: automated correlation, enrichment, and remediation
-
----
-
-## 25. Communication Architecture - Relay (2026-02-26)
-
-```
-Keycloak (SSO) → Stalwart (Email)
-               → LiveKit (Video/Audio) ← STUNner (TURN/STUN)
-               → Matrix/Synapse (Chat)
-```
-
-### Components
-
-| Component | Purpose |
-|-----------|---------|
-| Stalwart | Email (JMAP/IMAP/SMTP) |
-| LiveKit | Video/audio (WebRTC SFU) |
-| STUNner | K8s-native TURN/STUN for NAT traversal |
-| Matrix/Synapse | Team chat with federation |
-
----
-
-## 26. AI-Native Positioning (2026-02-26)
-
-### Core Narrative
-
-Cloud-native is the foundation (table stakes). AI-native is the differentiator. We are in an AI gold rush — companies with AI-native infrastructure extract the most value. OpenOva is the AI-native infrastructure platform: 52 open-source components, every one designed to be AI-manageable.
-
-### What "AI-Native" Means Technically
-
-1. **Structured CRDs** — Every component exposes its configuration as typed Kubernetes Custom Resource Definitions. Specter reads CRDs, not config files.
-2. **Unified OTel telemetry** — All 52 components emit metrics, logs, and traces through OpenTelemetry. Specter correlates signals across the entire stack.
-3. **Standardized health endpoints** — Consistent liveness, readiness, and startup probes. Specter knows the health vocabulary of every component.
-4. **Kyverno policy-as-code** — Security and operational policies are declarative, auditable, and machine-readable. Specter can reason about policy compliance programmatically.
-5. **Declarative GitOps** — All state is in Git. Specter can diff actual vs desired state, detect drift, and propose reconciliation PRs.
-
-### The Moat: Token Efficiency
-
-Competitors bolt AI onto unstructured platforms and dump massive context (raw logs, unstructured configs, sprawling dashboards) into LLM prompts. This is expensive, slow, and inaccurate.
-
-Specter sends surgical, structured context: typed CRD schemas, correlated OTel signals, known integration graphs, pre-mapped failure modes. 10x fewer tokens. 10x faster. 10x more accurate.
-
-This is not a feature. It is an architectural moat. You cannot retrofit structured AI-manageability onto a platform not designed for it.
-
-### Specter's Semantic Knowledge Domains
-
-| Domain | What Specter Knows |
-|--------|-------------------|
-| CRD Schemas | Every field, validation rule, and default across 52 component CRDs |
-| Integration Graph | Which components depend on which, data flow paths, failure blast radius |
-| Failure Modes | Known failure patterns, root causes, and proven remediation steps |
-| Health Checks | What "healthy" means for each component, including edge cases |
-| Upgrade Paths | Version compatibility matrix, breaking changes, migration steps |
-| Compliance Mappings | Which controls map to PSD2, DORA, NIS2, SOX requirements |
-
-### Approved Key Phrases
-
-- "Cloud-native is the foundation. AI-native is the differentiator."
-- "AI-native, not AI-bolted" / "AI-native, not AI-cosmetic"
-- "Specter has pre-built semantic knowledge of the entire 52-component ecosystem"
-- "Token efficiency is the economic moat"
-- "Every component is designed to be AI-manageable"
-- "Structured CRDs, unified telemetry, declarative GitOps — built for AI from day one"
-
-### Phrases to Avoid
-
-- Never say "AI-powered" without grounding in what AI actually does (CRD knowledge, telemetry correlation, etc.)
-- Never say "Red Hat for the CNCF era"
-- Never float "AI-native" as abstract marketing — always attach technical specifics
-- No Ballmer-era sugar coating
-
----
-
-*This document serves as persistent context for Claude Code sessions. Update as decisions are made.*
+*Older sections from earlier project-memory revisions removed during the 2026-04-27 unified rewrite. Historical decisions remain captured in git log of this repository if needed.*
