@@ -63,6 +63,45 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 57 — BUSINESS-STRATEGY third-cycle stable; reloader clean
+
+Both targets verified clean. **EIGHTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57). **FOUR consecutive clean architectural passes** (54 → 55 → 56 → 57). One more clean pass meets the 5-consecutive nirvana threshold.
+
+Acceptance greps clean for all 12 carry-forward categories.
+
+**docs/BUSINESS-STRATEGY.md** third-cycle deep re-scan with all current methodology lenses applied:
+
+§10 Business Model & Pricing:
+- §10.1 Revenue Streams diagram: clean
+- §10.2 Core Principle: "The entire 52 component platform is open source" uses canonical 52 ✓
+- §10.3 Pricing Unit (vCPU cores): clean
+- §10.4 Contract Models (ELA, PAYG, SOW, T&M): clean
+- §10.5 Service Add-Ons table: clean (Per-core × 7 add-ons)
+- §10.6 Pricing Principles: "52 components for the price of one subscription" uses canonical 52 ✓
+
+§11 Go-to-Market Strategy: §11.1-§11.5 clean. Banking beachhead → regulated verticals → broader market → global scale phasing.
+
+§12 Expert Network: clean. Discipline list (Infrastructure, GitOps, Data, Security, Observability, Networking, Identity, AI/ML, Compliance) consistent with platform component categorization.
+
+§13 Migration Program: §13.0-§13.4 substantively clean. References to "OpenOva" as the migration TARGET (e.g., "Red Hat OpenShift → OpenOva (K3s + Cilium + Flux)") are covered by Pass 26's §5.1 banner disclaimer ("Older references to 'OpenOva (the platform)' in this document refer to Catalyst"). Pass 26 deliberately chose to add a banner rather than do a global rename to Catalyst — that decision still holds, no drift to fix here.
+
+§14 ROI/TCO: same Pass 26 banner disclaimer covers "OpenOva platform support" line item references. Clean per Pass 26's design.
+
+§15-§16 Community/Growth Roadmap: clean. Pass 47 stale-date fix intact (header L3 + footer L1214 both 2026-04-28).
+
+**platform/reloader/README.md**: clean. Banner correct (per-host-cluster §3.4, critical for Catalyst secret-rotation flow per SECURITY §3). Integration table consistent (ESO, OpenBao, cert-manager, Flux). The Catalyst integration framing is exemplary — explicitly establishes Reloader's role in the secret-rotation chain.
+
+**Pass 57: clean.** Four consecutive architectural-clean passes (54, 55, 56, 57).
+
+Convergence trajectory:
+- Pass 24-37 (14): ~93% drift rate
+- Pass 38-43 (6): 100% drift rate
+- Pass 44-50 (7): ~57% drift rate
+- Pass 51-53 (3): 100% drift (cosmetic)
+- Pass 54-57 (4): **0% drift rate** ✓
+
+The drift surface remains effectively zero. Pass 58 (velero) clean would meet the 5-consecutive nirvana approach threshold per the user's standing instruction.
+
 ### Pass 56 — Final aggregate sweep + opentofu — fully clean
 
 **SEVENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56). **THREE consecutive clean architectural passes** (54 → 55 → 56). Convergence approaching nirvana.
