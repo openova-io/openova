@@ -63,6 +63,47 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 61 — ARCHITECTURE §4 box alignment (Pass 29 carry-over); cnpg clean
+
+One alignment fix on ARCHITECTURE; cnpg clean. Drift is Pass-29 carry-over, same category as Pass 53/60 — not new architectural drift.
+
+Acceptance greps clean for all 13 carry-forward categories (including new #18 fully-qualified-hostname check from Pass 60 — no instances surfaced).
+
+**docs/ARCHITECTURE.md §4 (Write side) box at L121** — Pass 29 expanded the Gitea repo line to canonical FQDN form `gitea.<location-code>.<sovereign-domain>/{org}/{org}-{env_type}` but the longer string broke the ASCII box alignment: line content reached 89 chars while box border was 74 chars. Same drift category as Pass 53's §8 acme-stg alignment fix.
+
+Fixed by replacing the in-box content with a shorter form that fits the box width:
+- Old: `│  Gitea: gitea.<location-code>.<sovereign-domain>/{org}/{org}-{env_type} │` (89 chars, overflow)
+- New: `│  Environment Gitea repo: {org}/{org}-{env_type}            │` + `│  (FQDN form per NAMING §11.2)                              │` (76 chars each, aligned)
+
+The canonical FQDN form is already documented in NAMING §11.2 (and BLUEPRINT-AUTHORING §1, CLAUDE.md Customer Sync, SOVEREIGN-PROVISIONING §3). Repeating it inside the box added little teaching value while breaking the diagram's visual cohesion. The new form points to NAMING §11.2 for the FQDN — directs readers to the canonical authority rather than locally re-stating it.
+
+Also normalized whitespace padding across L122-L130 (other content lines now uniformly 76 chars to match the corrected L121-L122 width).
+
+**ARCHITECTURE.md §1-§14 third-cycle deep re-scan** with all current methodology lenses applied (Pass 23 later-sections, Pass 40-41 union-equality, Pass 42 careful-re-read, Pass 45 header-counts, Pass 46 approximation, Pass 48 API-group + OpenTofu, Pass 53 column-alignment, Pass 60 fully-qualified-hostname):
+- §1-§3: clean
+- §4: had the box alignment fix above; otherwise clean (L142-L144 Crossplane Claims framing matches Pass 48 "Crossplane is the only IaC")
+- §5: `<env>` shorthand explicitly defined as `{org}-{env_type}` (L167) — anchored ✓
+- §6 Identity and secrets: clean
+- §7 Surfaces: matches GLOSSARY ✓
+- §8 Promotion: Pass 39+53 fixes intact (acme-stg with proper alignment)
+- §9 Multi-Application linkage: uses `apiVersion: catalyst.openova.io/v1alpha1` ✓
+- §10 Provisioning: 11-component bootstrap kit matches SOVEREIGN-PROVISIONING §3
+- §11 Catalyst-on-Catalyst: bp-catalyst-* list matches IMPLEMENTATION-STATUS §2
+- §12 SOTA principles: independent-failure-domains cites OpenBao Raft per region ✓
+- §13 OAM influence: clean
+- §14 Read further: clean
+
+**platform/cnpg/README.md**: clean. Banner correct (§4.1 Data services, used by FerretDB + Gitea metadata, replication via WAL streaming). All examples canonical:
+- `namespace: databases` matches Pass 52 cross-component sweep ✓
+- `http://minio.storage.svc:9000` Pass 41/52 namespace ✓
+- `host: postgres.<env>.<sovereign-domain>` Pass 35 Application DNS form ✓
+
+The cross-region DR example uses Application DNS form correctly — no Pass-60-style fully-qualified-hostname drift surfaced.
+
+**Methodology lesson #19**: Pass-N expansion of placeholder-to-canonical-form inside ASCII tables/diagrams must verify box/column alignment afterward. Pass 29's `gitea.<location-code>.<sovereign-domain>` expansion (longer string) broke alignment at ARCHITECTURE §4 (this pass) and previously at §8 (Pass 53). Future placeholder-expansion fixes inside ASCII art need a post-fix alignment verification step.
+
+Pass 61 result: 1 alignment fix carry-over from Pass 29. Convergence trajectory continues — the new cycle is surfacing carry-over drift that the old cycle's specific-shape sweeps missed (Pass 60 fully-qualified hostname, Pass 61 ASCII alignment).
+
 ### Pass 60 — valkey REPLICAOF bash example (Pass 35 carry-over); NAMING fourth-cycle stable
 
 One fix on platform/valkey/README.md (Pass 35 incomplete in-file fix surfaced); NAMING-CONVENTION fourth-cycle stable.

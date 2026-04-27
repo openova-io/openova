@@ -118,15 +118,16 @@ Everything else is identical in code.
                                      │
                                      ▼
               ┌──────────────────────────────────────────────────────────┐
-              │  Gitea: gitea.<location-code>.<sovereign-domain>/{org}/{org}-{env_type} │
+              │  Environment Gitea repo: {org}/{org}-{env_type}            │
+              │  (FQDN form per NAMING §11.2)                              │
               │  ────────────────────────────────────────────────────────  │
-              │  flux-system/        gotk-components.yaml + gotk-sync     │
+              │  flux-system/        gotk-components.yaml + gotk-sync      │
               │  applications/                                             │
-              │    marketing-site/    kustomization.yaml + values.yaml    │
-              │    blog/              kustomization.yaml + values.yaml    │
-              │    shared-postgres/   kustomization.yaml + values.yaml    │
+              │    marketing-site/    kustomization.yaml + values.yaml     │
+              │    blog/              kustomization.yaml + values.yaml     │
+              │    shared-postgres/   kustomization.yaml + values.yaml     │
               │  policies/                                                 │
-              │    environment-policy.yaml   ← approvals, soak, windows   │
+              │    environment-policy.yaml   ← approvals, soak, windows    │
               └──────────────────────────────────────────────────────────┘
                                      │
                                      ▼ (Gitea webhook → projector → annotate)
