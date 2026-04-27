@@ -63,6 +63,44 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 63 — SECURITY third-cycle stable; strimzi clean
+
+Both targets verified clean. Pass 63 ends the new-cycle drift streak (Pass 60-62 each found carry-over drift; Pass 63 clean).
+
+**ELEVENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63).
+
+Acceptance greps clean for all 13 carry-forward categories. New methodology lesson #20 subsection-order check applied across all `docs/*.md` — no out-of-order subsections detected (Pass 62's PLATFORM-TECH-STACK §7 fix held).
+
+**docs/SECURITY.md** third-cycle deep re-read (Pass 19 first-cycle, Pass 38 + Pass 51 second-cycle, Pass 63 third-cycle):
+- §1 Identity (two systems, two purposes): clean. SPIFFE/SPIRE 5-min SVID + Keycloak 15-min JWT clearly separated.
+- §2 SPIFFE/SPIRE: clean. SPIFFE ID examples use `spiffe://omantel/ns/<ns>/sa/<sa>` form consistent with workload-identity-via-trust-domain pattern.
+- §3 Secrets (OpenBao + ESO): clean. ASCII flow diagram (OpenBao → ExternalSecret CR → ESO → K8s Secret → Pod) is canonical.
+- §4 Dynamic credentials: clean. The `catalyst-secret-sidecar` reference is an implementation pattern (sidecar injection for dynamic credential rotation), not a top-level Catalyst component requiring PTS §2 listing — sidecars are typically per-Pod auto-injected via webhook/controller. The supporting prose ("The sidecar is automatic for any Pod whose Blueprint declares `dynamicSecrets: true`") clarifies the abstraction.
+- §5 Multi-region OpenBao — INDEPENDENT, NOT STRETCHED: Pass 7 fix language preserved (header itself anchors the architectural rejection). §5.1 Fault domain semantics, §5.2 Read/write semantics, §5.3 Why NOT a stretched cluster — all consistent with PTS §6 mermaid.
+- §6 Keycloak topology: matches PTS §2.3 + GLOSSARY identity row.
+- §7 Rotation policy: SecretPolicy YAML uses `apiVersion: catalyst.openova.io/v1alpha1` ✓. Default rotation table (workload SVID 5min, dynamic DB 1h, API tokens 90d, signing keys 365d, TLS cert-manager-controlled, Keycloak-user-managed).
+- §8 Path of a secret: clean.
+- §9 Compliance posture: borderline OpenSearch SIEM wording (Pass 38 flagged) re-evaluated again — acceptable in context per Pass 51.
+- §10 Threat model: clean.
+
+SECURITY remains stable across 3 review cycles. Pass 7's independent-Raft-per-region architectural decision is now anchored in §5 header itself ("INDEPENDENT, NOT STRETCHED") — making regression effectively impossible without removing the header.
+
+**platform/strimzi/README.md** deep-read:
+- Banner: §4.1 Data services / event streaming, replaces Redpanda (BSL), used by bp-fabric + SIEM transport. The "Application-tier event stream" framing distinguishes from Catalyst's NATS JetStream control-plane usage — exemplary.
+- `namespace: databases` ✓ canonical (Pass 52 cross-component sweep)
+- L164 image: `harbor.<location-code>.<sovereign-domain>/kafka-connect:latest` — Pass 32 fix held ✓
+- L188 MirrorMaker2 cross-region source: `kafka-kafka-bootstrap.<env>.<sovereign-domain>:9092` — Pass 35 Application DNS ✓
+- L191 MirrorMaker2 local target: `kafka-kafka-bootstrap.databases.svc:9092` — in-cluster service DNS ✓
+- KRaft-mode Kafka (no ZooKeeper) — modern best practice
+- All 3 prior fixes (Pass 32, 35, 51) intact
+
+**Pass 63: clean.** New-cycle drift streak (Pass 60-62) ends. The new-cycle pattern observed:
+- Pass 59 clean (GLOSSARY 4th-cycle keystone-stable)
+- Pass 60-62 drift (carry-over from Pass 23/29/35 — structural blind-spots)
+- Pass 63 clean
+
+This suggests carry-over drift is a finite catalog being worked through, not a new infinite source. Once each old-pass fix is re-verified for structural side-effects (alignment, ordering, in-file-completeness), the cycle should return to architectural cleanliness.
+
 ### Pass 62 — PLATFORM-TECH-STACK §7 subsection order (Pass 23 carry-over); temporal third-cycle clean
 
 One ordering fix on PLATFORM-TECH-STACK; temporal third-cycle clean.
