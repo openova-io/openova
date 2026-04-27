@@ -1,115 +1,135 @@
 # SRE Handbook
 
-Site Reliability Engineering practices for OpenOva platform operations.
+**Status:** Authoritative | **Updated:** 2026-04-27
 
-**Status:** Accepted | **Updated:** 2026-02-26
-
----
-
-## Overview
-
-This document covers SRE practices, multi-region strategy, progressive delivery, auto-remediation, and operational tooling for OpenOva deployments including AI Hub, Open Banking, Data & Integration, and Communication blueprints.
+Site Reliability Engineering practices for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology, [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model, [`SECURITY.md`](SECURITY.md) for credentials and identity.
 
 ---
 
-## Multi-Region Strategy
+## 1. Overview
 
-### Architecture
+This handbook covers running a Sovereign in production: multi-region topology, progressive delivery, auto-remediation, secret rotation, GDPR automation, air-gap considerations, SLOs, GPU operations, and incident response. Audience: `sovereign-admin` and SRE personas across SME-style and corporate-style Sovereigns.
 
-Multi-region is strongly recommended. Two independent clusters across regions provides geographic redundancy with automatic failover. Clusters are named by **building block** (functional security zone), not by failover role — there is no "primary" or "DR" designation. Both clusters run the same building blocks symmetrically; k8gb and GSLB handle traffic distribution. After a failover event the surviving cluster serves all traffic — its name does not change.
+---
 
-See [NAMING-CONVENTION.md](NAMING-CONVENTION.md) for the canonical cluster naming standard.
+## 2. Multi-region strategy
+
+### 2.1 Architecture
+
+Multi-region is **strongly recommended** for production-tier Sovereigns. Two or more independent host clusters across regions provide geographic redundancy with automatic failover.
+
+Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; k8gb and GSLB handle traffic distribution. After a failover event, the surviving cluster serves all traffic — its name does not change.
+
+See [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §1.3.
 
 ```mermaid
 flowchart TB
-    subgraph RegionA["Region A  (e.g. hz-fsn-rtz-prod)"]
+    subgraph RegionA["Region A (e.g. hz-fsn-rtz-prod)"]
         K8s1[Restricted Trust Zone Cluster]
-        Stack1[Full Workload Stack]
+        Stack1[Per-Org vclusters + workloads]
     end
 
-    subgraph RegionB["Region B  (e.g. hz-hel-rtz-prod)"]
+    subgraph RegionB["Region B (e.g. hz-hel-rtz-prod)"]
         K8s2[Restricted Trust Zone Cluster]
-        Stack2[Full Workload Stack]
+        Stack2[Per-Org vclusters + workloads]
     end
 
     subgraph GSLB["Global Load Balancing"]
         k8gb[k8gb Authoritative DNS]
-        Witnesses[External DNS Witnesses]
+        Witness[Cloud witness<br>(lease for split-brain protection)]
     end
 
     K8s1 <-->|"WireGuard"| K8s2
     K8s1 --> k8gb
     K8s2 --> k8gb
+    k8gb -.-> Witness
 ```
 
-### Key Principles
+### 2.2 Key principles
 
-- Each cluster survives independently during network partition — no shared control plane
-- No stretched clusters (avoids split-brain)
-- Both clusters are peers — neither is designated primary or DR
-- Async data replication (eventual consistency)
-- k8gb as authoritative DNS for GSLB zone — removes unhealthy endpoints automatically
-- External DNS witnesses for split-brain protection
+- Each cluster survives independently during network partition — no shared control plane.
+- **No stretched clusters** (avoids split-brain). This applies to OpenBao, JetStream, etcd, and any other quorum-based component.
+- Both clusters are peers — neither is designated primary or DR.
+- Async data replication (eventual consistency).
+- k8gb as authoritative DNS for GSLB zone — removes unhealthy endpoints automatically.
+- Cloud witness (lease) for split-brain protection — see §2.4.
 
-### Cross-Region Networking
+### 2.3 Cross-region networking
 
-| Option | Use Case |
-|--------|----------|
+| Option | Use case |
+|---|---|
 | WireGuard mesh | Different providers, secure overlay |
-| Native peering | Same provider (lower latency) |
+| Native peering | Same provider (lower latency, e.g. Hetzner vSwitch, OCI FastConnect) |
 
-### Data Replication
+### 2.4 Split-brain protection
 
-| Service | Replication Method | RPO |
-|---------|-------------------|-----|
-| CNPG (Postgres) | WAL streaming to async standby | Near-zero |
-| FerretDB | Via CNPG WAL streaming (PostgreSQL backend) | Near-zero |
+Failover Controller uses a **cloud witness** for lease-based authority:
+
+| Component | Role |
+|---|---|
+| Cloud witness | Holds the lease — typically Cloudflare KV (cheap, globally distributed) or another out-of-Sovereign storage |
+| Failover Controller | Per-cluster controller managing readiness and gating endpoints |
+
+**Witness pattern:**
+- Active region holds a lease (renews every 10s, TTL 30s).
+- Standby regions cannot become active while a valid lease exists.
+- Network partition: both regions reach the witness → active keeps renewing → no split-brain.
+- Witness unreachable: failover controller falls back to multi-resolver DNS quorum (8.8.8.8 + 1.1.1.1 + 9.9.9.9, 2-of-3).
+
+**Three layers controlled** by the failover controller:
+
+| Layer | Mechanism |
+|---|---|
+| External traffic (Gateway API → k8gb) | HTTPRoute readiness toggling |
+| Internal traffic (Cilium Cluster Mesh) | Service endpoint manipulation |
+| Stateful services (CNPG, MongoDB, Strimzi) | Database promotion signaling |
+
+**Modes:** automatic | semi-automatic | manual (regulated tier).
+
+### 2.5 Data replication patterns
+
+These apply to **Application Blueprints** that need cross-region replication. The Catalyst control plane uses different patterns documented in [`SECURITY.md`](SECURITY.md) for OpenBao and [`ARCHITECTURE.md`](ARCHITECTURE.md) for JetStream.
+
+| Application Blueprint | Replication method | RPO |
+|---|---|---|
+| CNPG (PostgreSQL) | WAL streaming to async standby | Near-zero |
+| FerretDB | Via CNPG WAL streaming | Near-zero |
 | Strimzi/Kafka | MirrorMaker2 | Seconds |
-| Valkey | REPLICAOF command | Seconds |
+| Valkey | REPLICAOF | Seconds |
+| ClickHouse | ReplicatedMergeTree | Seconds |
 | MinIO | Bucket replication | Minutes |
 | Harbor | Registry replication | Minutes |
-| OpenBao | ESO PushSecrets to both | Seconds |
-| Gitea | Bidirectional mirror + CNPG | Seconds |
 | Milvus | Collection sync | Minutes |
 | Neo4j | Causal cluster replication | Seconds |
-
-### Split-Brain Protection
-
-Failover Controller queries external DNS witnesses:
-
-| Resolver | Provider |
-|----------|----------|
-| 8.8.8.8 | Google |
-| 1.1.1.1 | Cloudflare |
-| 9.9.9.9 | Quad9 |
-
-**Quorum:** 2/3 must agree other region is unreachable before promotion.
+| Gitea | Bidirectional mirror + CNPG primary-replica | Seconds |
 
 ---
 
-## Progressive Delivery
+## 3. Progressive delivery
 
-### Canary Deployments
+### 3.1 Canary deployments
 
-Flagger provides automatic canary analysis with rollback:
+[Flagger](https://flagger.app) provides automatic canary analysis with rollback:
 
 - Flux-native integration
-- Automatic rollback on metric degradation
+- Automatic rollback on metric degradation (latency, error rate)
 - No ArgoCD dependency
 
-### Feature Flags
+Flagger lives as a Catalyst control-plane component in `mgt`; per-Application canary configuration is in the Application Blueprint.
 
-Flipt for zero-cost feature flagging:
+### 3.2 Feature flags
 
-- Self-hosted deployment
-- Simple SDK integration
+[Flipt](https://flipt.io) for self-hosted feature flagging:
+
+- Self-hosted, zero-cost
+- Simple SDK integration (Go, TypeScript, Python)
 - Gradual rollout control
 
 ---
 
-## Auto-Remediation
+## 4. Auto-remediation
 
-### Architecture
+### 4.1 Architecture
 
 Gitea Actions triggered by Alertmanager webhooks for automated incident response.
 
@@ -123,12 +143,12 @@ flowchart LR
     Verify -->|Failure| Log[Log for Analysis]
 ```
 
-### Alert-to-Action Mapping
+### 4.2 Alert-to-action mapping
 
-#### Platform Alerts
+#### Catalyst control plane
 
-| Alert | Auto-Action | Verification |
-|-------|-------------|--------------|
+| Alert | Auto-action | Verification |
+|---|---|---|
 | HighMemoryUsage | Scale up deployment | Check memory |
 | PodCrashLoopBackOff | Restart pod | Check pod status |
 | HighErrorRate | Trigger rollback | Check error rate |
@@ -136,107 +156,112 @@ flowchart LR
 | CertificateExpiringSoon | Trigger renewal | Check expiry |
 | HighLatency | Scale service | Check latency |
 | GslbEndpointDown | Check k8gb status | Verify DNS |
+| OpenBaoSealed | Auto-unseal via SPIRE-attested unseal keys | Check unseal status |
+| JetstreamLagHigh | Add JetStream consumer replica | Check consumer lag |
 
-#### AI Hub Alerts
+#### AI Hub (when bp-cortex installed)
 
-| Alert | Auto-Action | Verification |
-|-------|-------------|--------------|
+| Alert | Auto-action | Verification |
+|---|---|---|
 | VLLMHighLatency | Scale vLLM replicas | Check inference latency |
 | VLLMOOMKilled | Reduce batch size | Check memory |
 | GPUUtilizationLow | Scale down GPU pods | Check utilization |
 | GPUMemoryExhausted | Evict low-priority jobs | Check GPU memory |
 | MilvusQuerySlow | Rebuild index | Check query latency |
 | EmbeddingQueueBacklog | Scale BGE replicas | Check queue depth |
-| RAGRetrievalEmpty | Alert + log for analysis | Check retrieval quality |
+| RAGRetrievalEmpty | Alert + log | Check retrieval quality |
 | LLMGatewayQuotaExhausted | Notify user | Check quota |
 
-#### Open Banking Alerts
+#### Open Banking (when bp-fingate installed)
 
-| Alert | Auto-Action | Verification |
-|-------|-------------|--------------|
+| Alert | Auto-action | Verification |
+|---|---|---|
 | KeycloakHighLatency | Scale Keycloak | Check auth latency |
 | QuotaServiceDown | Failover to backup | Check quota service |
 | BillingWebhookFailed | Retry with backoff | Check webhook status |
-| TPPCertExpiring | Alert ops team | Check certificate |
+| TPPCertExpiring | Alert sovereign-admin team | Check certificate |
 
-### Budget Control
+### 4.3 Budget control
 
 | Threshold | Action |
-|-----------|--------|
+|---|---|
 | 80% of budget | Warning log |
 | 100% of budget | Block scale-up |
 
 ---
 
-## Secret Rotation
+## 5. Secret rotation
 
-| Secret Type | Frequency | Method |
-|-------------|-----------|--------|
-| Database credentials | Monthly | CronJob + ESO |
-| JWT signing keys | 30 days | CronJob |
-| TLS certificates | Auto | cert-manager |
-| Gitea tokens | 90 days | CronJob + ESO |
-| LLM API keys | 90 days | CronJob + ESO |
-| Keycloak client secrets | 90 days | CronJob + ESO |
+Detailed in [`SECURITY.md`](SECURITY.md) §7. Summary:
 
----
-
-## GDPR Automation
-
-| Process | Schedule |
-|---------|----------|
-| Data subject requests | Daily 2 AM |
-| Data retention | Weekly Sunday 3 AM |
-| Audit log cleanup | Monthly |
-| Vector embedding purge | On data deletion request |
-| Chat history cleanup | Per retention policy |
+| Class | Default frequency | Method |
+|---|---|---|
+| Workload identity (SPIRE SVID) | 5 minutes | Auto |
+| Database credentials (dynamic) | 1 hour | OpenBao DB engine + sidecar |
+| API tokens, OAuth client secrets | 90 days | OpenBao + ESO + Reloader |
+| Signing keys | 365 days | Manual approval (security-officer) |
+| TLS certificates | cert-manager | Auto (Let's Encrypt or corporate CA) |
+| User passwords (Keycloak) | User-managed + MFA | Realm policy enforces min age |
 
 ---
 
-## Air-Gap Compliance
+## 6. GDPR automation
+
+| Process | Schedule | Notes |
+|---|---|---|
+| Data subject requests | Daily 02:00 | Application Blueprints expose DSAR endpoints |
+| Data retention | Weekly Sunday 03:00 | Per-Application policy |
+| Audit log cleanup | Monthly | Retains per regulatory requirement |
+| Vector embedding purge | On data deletion request | If using bp-cortex |
+| Chat history cleanup | Per retention policy | If using bp-relay |
+
+GDPR automation is a Catalyst-level controller (`gdpr-controller`) that orchestrates Application-specific deletion via the App's exposed compliance API.
+
+---
+
+## 7. Air-gap compliance
 
 For regulated industries requiring air-gapped deployments:
-
-### Architecture
 
 ```mermaid
 flowchart LR
     subgraph Connected["Connected Zone"]
-        Pull[Pull Images/Charts]
+        Pull[Pull Images / OCI Blueprints]
     end
 
     subgraph DMZ["DMZ Transfer Zone"]
-        Scan[Security Scan]
+        Scan[Trivy + cosign verify]
         Stage[Staging Area]
     end
 
-    subgraph AirGap["Air-Gapped Zone"]
+    subgraph AirGap["Air-Gapped Sovereign"]
         Harbor[Harbor Registry]
-        Git[Gitea]
-        Flux[Flux CD]
-        K8s[Kubernetes]
+        Git[Gitea<br>(Blueprint mirror)]
+        Flux[Flux per vcluster]
+        K8s[Per-host clusters]
     end
 
     Pull --> Scan
     Scan --> Stage
-    Stage -->|"Physical/Diode"| Harbor
-    Stage -->|"Physical/Diode"| Git
+    Stage -->|Physical / Diode| Harbor
+    Stage -->|Physical / Diode| Git
 ```
 
-### Prerequisites
+### 7.1 Prerequisites
 
-All mandatory components support air-gap:
+All Catalyst control-plane components support air-gap:
 
-- Harbor - local registry with replication
-- MinIO - local object storage
-- Flux - reconciles from local Git
-- Velero - backups to local MinIO
-- Grafana Stack - self-contained observability
+- Harbor — local registry with replication
+- MinIO — local object storage
+- Flux — reconciles from local Git
+- Velero — backups to local MinIO
+- Grafana stack — self-contained observability
+- OpenBao + Keycloak — fully self-hosted; no external dependencies
 
-### AI Hub Air-Gap Considerations
+### 7.2 AI Hub air-gap considerations (when bp-cortex installed)
 
-| Component | Air-Gap Requirement |
-|-----------|---------------------|
+| Component | Air-gap requirement |
+|---|---|
 | vLLM | Pre-download model weights to MinIO |
 | BGE-M3 | Pre-download embedding models |
 | Milvus | No external dependencies |
@@ -244,12 +269,13 @@ All mandatory components support air-gap:
 | NeMo Guardrails | No external dependencies |
 | LangFuse | No external dependencies |
 
-### Content Transfer
+### 7.3 Content transfer
 
-| Content Type | Air-Gap Destination |
-|--------------|---------------------|
+| Content type | Air-gap destination |
+|---|---|
 | Container images | Harbor |
-| Helm charts | Harbor ChartMuseum |
+| Helm charts | Harbor (OCI) |
+| Blueprint OCI manifests | Harbor → blueprint-controller registers |
 | Git repositories | Self-hosted Gitea |
 | OS packages | Local mirror |
 | LLM model weights | MinIO |
@@ -257,69 +283,52 @@ All mandatory components support air-gap:
 
 ---
 
-## Platform Engineering Tools
+## 8. Catalyst observability
 
-### Tool Selection
+### 8.1 Self-monitoring
 
-| Tool | Purpose | Status |
-|------|---------|--------|
-| Crossplane | Cloud resource provisioning (day-2) | Mandatory |
-| Catalyst IDP | Internal Developer Platform | Via OpenOva Catalyst |
-| Flux | GitOps delivery engine | Mandatory |
-| OpenTofu | Bootstrap IaC only | Mandatory |
+The Catalyst control plane runs its own Grafana stack (Alloy + Loki + Mimir + Tempo + Grafana) in the `catalyst-grafana` namespace on the management cluster. Every Catalyst component emits OpenTelemetry traces, metrics, and logs.
 
-### Architecture
+### 8.2 Per-Sovereign dashboards
 
-```mermaid
-flowchart TB
-    subgraph IDP["Internal Developer Platform"]
-        CAT[Catalyst IDP]
-    end
+| Dashboard | Purpose |
+|---|---|
+| Sovereign Health | All Catalyst components, control-plane SLOs |
+| Per-Org Footprint | Resource usage by Organization |
+| Per-Environment | Application states, error budgets |
+| Promotion Activity | EnvironmentPolicy-driven promotions, soak times, approver latency |
+| Secret Rotation | All credentials, age, next rotation |
+| Audit | Commits, RBAC events, SecretPolicy actions |
 
-    subgraph GitOps
-        Git[Git Repository]
-        Flux[Flux CD]
-    end
+### 8.3 Per-Organization dashboards
 
-    subgraph IaC["Infrastructure as Code"]
-        TF[OpenTofu Bootstrap]
-        CP[Crossplane Day 2+]
-    end
+Each Organization sees their own slice:
 
-    CAT -->|"Templates"| Git
-    Git -->|"Reconcile"| Flux
-    Flux -->|"Apply"| CP
-    CP --> Cloud
-    TF -.->|"Initial bootstrap"| Cloud
-```
-
-### Crossplane Providers
-
-| Provider | Support |
-|----------|---------|
-| Hetzner Cloud | hcloud provider |
-| Huawei Cloud | huaweicloud provider |
-| Oracle Cloud | oci provider |
-| AWS | aws provider |
-| GCP | gcp provider |
-| Azure | azure provider |
+| Dashboard | Purpose |
+|---|---|
+| Apps Overview | All Applications across Environments |
+| Budget | Cost projection, billing |
+| Compliance Posture | Per-control evidence |
+| Incidents | Open issues, MTTR |
 
 ---
 
-## Monitoring SLOs
+## 9. SLOs
 
-### Platform SLOs
+### 9.1 Catalyst control plane
 
-| SLI | Target | Alert Threshold |
-|-----|--------|-----------------|
-| Availability | 99.9% | <99.5% for 5m |
-| Latency (p95) | <500ms | >1s for 5m |
-| Error Rate | <0.1% | >1% for 5m |
+| SLI | Target | Alert threshold |
+|---|---|---|
+| Console availability | 99.9% | <99.5% for 5m |
+| API p95 latency | <500ms | >1s for 5m |
+| Catalog query p95 | <200ms | >500ms for 5m |
+| projector SSE delivery | <2s end-to-end | >5s for 5m |
+| Gitea webhook → reconcile | <30s | >2m for 5m |
 
-### AI Hub SLOs
+### 9.2 AI Hub (bp-cortex)
 
-| SLI | Target | Alert Threshold |
-|-----|--------|-----------------|
+| SLI | Target | Alert threshold |
+|---|---|---|
 | LLM Inference Latency (p95) | <5s | >10s for 5m |
 | LLM Token Throughput | >50 tok/s | <20 tok/s for 5m |
 | Embedding Latency (p95) | <100ms | >500ms for 5m |
@@ -327,28 +336,28 @@ flowchart TB
 | GPU Utilization | >60% | <30% for 15m |
 | Vector Search Latency (p95) | <50ms | >200ms for 5m |
 
-### Open Banking SLOs
+### 9.3 Open Banking (bp-fingate)
 
-| SLI | Target | Alert Threshold |
-|-----|--------|-----------------|
+| SLI | Target | Alert threshold |
+|---|---|---|
 | Auth Latency (p95) | <200ms | >500ms for 5m |
 | API Availability | 99.95% | <99.5% for 5m |
 | Consent Flow Success | >99% | <95% for 5m |
 
-### Data & Integration (Fabric) SLOs
+### 9.4 Data & Integration (bp-fabric)
 
-| SLI | Target | Alert Threshold |
-|-----|--------|-----------------|
+| SLI | Target | Alert threshold |
+|---|---|---|
 | Kafka Produce Latency (p95) | <50ms | >200ms for 5m |
 | Flink Checkpoint Duration | <30s | >60s for 5m |
 | Temporal Workflow Latency (p95) | <1s | >5s for 5m |
 | CDC Lag (Debezium) | <10s | >60s for 5m |
 | ClickHouse Query Latency (p95) | <500ms | >2s for 5m |
 
-### Communication (Relay) SLOs
+### 9.5 Communication (bp-relay)
 
-| SLI | Target | Alert Threshold |
-|-----|--------|-----------------|
+| SLI | Target | Alert threshold |
+|---|---|---|
 | Email Delivery Rate | >99.5% | <98% for 15m |
 | LiveKit Call Setup (p95) | <2s | >5s for 5m |
 | Matrix Message Delivery (p95) | <500ms | >2s for 5m |
@@ -356,12 +365,11 @@ flowchart TB
 
 ---
 
-## GPU Operations
+## 10. GPU operations
 
-### GPU Node Management
+### 10.1 GPU node management
 
 ```yaml
-# GPU node pool labels
 nodeSelector:
   node.kubernetes.io/gpu: "true"
   nvidia.com/gpu.product: "NVIDIA-A10"
@@ -372,63 +380,48 @@ tolerations:
     effect: NoSchedule
 ```
 
-### GPU Monitoring Metrics
+### 10.2 GPU monitoring metrics
 
 | Metric | Query | Purpose |
-|--------|-------|---------|
-| GPU Utilization | `DCGM_FI_DEV_GPU_UTIL` | Compute usage |
-| GPU Memory Used | `DCGM_FI_DEV_FB_USED` | Memory pressure |
-| GPU Temperature | `DCGM_FI_DEV_GPU_TEMP` | Thermal throttling |
-| GPU Power | `DCGM_FI_DEV_POWER_USAGE` | Power consumption |
-| SM Clock | `DCGM_FI_DEV_SM_CLOCK` | Clock throttling |
+|---|---|---|
+| GPU utilization | `DCGM_FI_DEV_GPU_UTIL` | Compute usage |
+| GPU memory used | `DCGM_FI_DEV_FB_USED` | Memory pressure |
+| GPU temperature | `DCGM_FI_DEV_GPU_TEMP` | Thermal throttling |
+| GPU power | `DCGM_FI_DEV_POWER_USAGE` | Power consumption |
+| SM clock | `DCGM_FI_DEV_SM_CLOCK` | Clock throttling |
 
-### vLLM Operations
+### 10.3 vLLM operations
 
 ```bash
-# Check vLLM health
-curl http://vllm.ai-hub.svc:8000/health
-
-# Check loaded models
-curl http://vllm.ai-hub.svc:8000/v1/models
-
-# Monitor generation metrics
-curl http://vllm.ai-hub.svc:8000/metrics | grep vllm_
+# Within an Org's vcluster, scoped to bp-cortex Application namespace
+kubectl exec -n cortex deploy/vllm -- curl localhost:8000/health
+kubectl exec -n cortex deploy/vllm -- curl localhost:8000/v1/models
 ```
 
-### KServe Operations
+### 10.4 KServe operations
 
 ```bash
-# List InferenceServices
-kubectl get inferenceservices -n ai-hub
-
-# Check model readiness
+kubectl get inferenceservices -n cortex
 kubectl get inferenceservice <name> -o jsonpath='{.status.conditions}'
-
-# Scale model replicas
 kubectl patch inferenceservice <name> -p '{"spec":{"predictor":{"minReplicas":2}}}'
 ```
 
 ---
 
-## Vector Database Operations
+## 11. Vector database operations
 
-### Milvus Health Checks
+### 11.1 Milvus health checks
 
 ```bash
-# Check cluster status
-kubectl exec -it milvus-proxy-0 -n ai-hub -- curl localhost:9091/healthz
-
-# Check collection stats
-curl -X GET "http://milvus.ai-hub.svc:19530/v1/vector/collections/<collection>/stats"
-
-# Compact collection
-curl -X POST "http://milvus.ai-hub.svc:19530/v1/vector/collections/<collection>/compact"
+kubectl exec -n cortex milvus-proxy-0 -- curl localhost:9091/healthz
+curl -X GET "http://milvus.cortex.svc:19530/v1/vector/collections/<collection>/stats"
+curl -X POST "http://milvus.cortex.svc:19530/v1/vector/collections/<collection>/compact"
 ```
 
-### Milvus Maintenance
+### 11.2 Maintenance
 
 | Task | Schedule | Command |
-|------|----------|---------|
+|---|---|---|
 | Index rebuild | Weekly | `collection.create_index()` |
 | Compaction | Daily | `collection.compact()` |
 | Backup | Daily | Velero snapshot |
@@ -436,22 +429,22 @@ curl -X POST "http://milvus.ai-hub.svc:19530/v1/vector/collections/<collection>/
 
 ---
 
-## Alertmanager Configuration
+## 12. Alertmanager configuration
 
 ```yaml
 receivers:
   - name: gitea-actions
     webhook_configs:
-      - url: https://gitea.<domain>/api/v1/repos/<org>/platform/actions/dispatches
+      - url: https://gitea.<sovereign>.<domain>/api/v1/repos/<org>/platform/actions/dispatches
         http_config:
           authorization:
             type: Bearer
             credentials_file: /etc/alertmanager/gitea-token
         send_resolved: true
 
-  - name: ai-hub-oncall
+  - name: ai-oncall
     webhook_configs:
-      - url: https://gitea.<domain>/api/v1/repos/<org>/ai-hub/actions/dispatches
+      - url: https://gitea.<sovereign>.<domain>/api/v1/repos/<org>/cortex/actions/dispatches
         http_config:
           authorization:
             type: Bearer
@@ -467,60 +460,42 @@ route:
       receiver: gitea-actions
       group_wait: 10s
     - match:
-        namespace: ai-hub
-      receiver: ai-hub-oncall
+        namespace: cortex
+      receiver: ai-oncall
       group_by: ['alertname', 'model']
 ```
 
 ---
 
-## Grafana Dashboards
+## 13. Incident response
 
-### Platform Dashboards
+### 13.1 Severity levels
 
-| Dashboard | Purpose |
-|-----------|---------|
-| Platform Overview | Request rates, latencies, errors |
-| Cilium Network | Traffic flows, policy drops |
-| Flux GitOps | Reconciliation status |
-| CNPG Postgres | Database performance |
-
-### AI Hub Dashboards
-
-| Dashboard | Purpose |
-|-----------|---------|
-| AI Hub Overview | Request rates, model usage |
-| GPU Metrics | Utilization, memory, temperature |
-| LLM Inference | Latency, throughput, queue depth |
-| RAG Analytics | Retrieval quality, citations |
-| Vector Search | Query latency, index stats |
-| User Analytics | Usage by agent, user |
-
-### Open Banking Dashboards
-
-| Dashboard | Purpose |
-|-----------|---------|
-| Open Banking Overview | API calls, consent flows |
-| Keycloak Auth | Authentication metrics |
-| Billing | Usage metering, revenue |
-
----
-
-## Incident Response
-
-### Severity Levels
-
-| Level | Definition | Response Time |
-|-------|------------|---------------|
-| P1 | Platform down | 15 minutes |
-| P2 | Major feature broken | 1 hour |
+| Level | Definition | Response time |
+|---|---|---|
+| P1 | Catalyst control plane down (Sovereign-impacting) | 15 minutes |
+| P2 | Major Application or feature broken | 1 hour |
 | P3 | Minor issue | 4 hours |
 | P4 | Low priority | Next business day |
 
-### AI Hub Specific Incidents
+### 13.2 Catalyst-specific incidents
 
 | Incident | Severity | Runbook |
-|----------|----------|---------|
+|---|---|---|
+| Console unreachable | P1 | Check Cilium Gateway, console pods, projector pods |
+| Gitea unreachable | P1 | Check Gitea pods, CNPG primary, NetworkPolicy |
+| Workspace-controller stuck | P1 | Check controller logs, Crossplane provider auth |
+| OpenBao sealed | P1 | Auto-unseal SPIRE — verify SPIRE server health |
+| JetStream consumer lag | P2 | Add consumer replica, check disk pressure |
+| projector lag | P2 | Check JetStream consumer status, projector replicas |
+| Per-Org vcluster down | P2 | Check vcluster pod, host cluster capacity |
+| Flux reconciliation stalled | P2 | Check source-controller logs, Git connectivity |
+| New Sovereign provisioning failed | P3 | Check OpenTofu state, cloud provider quotas |
+
+### 13.3 AI Hub incidents (bp-cortex)
+
+| Incident | Severity | Runbook |
+|---|---|---|
 | vLLM not responding | P1 | Restart vLLM, check GPU |
 | GPU OOM | P2 | Reduce batch size, scale |
 | Milvus query timeout | P2 | Check index, rebuild |
@@ -529,4 +504,30 @@ route:
 
 ---
 
-*Part of [OpenOva](https://openova.io)*
+## 14. Runbooks
+
+Runbooks live in the customer's `<org>/runbooks` Gitea repo, version-controlled alongside the rest of their config. Catalyst's `runbook-controller` indexes them and surfaces them in incident response panels.
+
+A typical runbook:
+
+```yaml
+apiVersion: catalyst.openova.io/v1
+kind: Runbook
+metadata:
+  name: openbao-sealed
+  namespace: catalyst-system
+spec:
+  triggers:
+    - alertName: OpenBaoSealed
+  preconditions:
+    - check: spire.server.healthy
+    - check: openbao.unseal.shamir.shares.available
+  steps:
+    - run: openbao operator unseal --auto-shamir
+    - verify: openbao.status.sealed == false
+  rollback: page-oncall
+```
+
+---
+
+*Cross-reference [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md).*
