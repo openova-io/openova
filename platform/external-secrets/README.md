@@ -72,7 +72,7 @@ sequenceDiagram
     TF->>TF: Create terraform.tfvars (local only)
     TF->>OpenBao: Provision & initialize
     OpenBao->>Wizard: Return unseal keys
-    Note over Wizard: Operator saves unseal keys offline
+    Note over Wizard: sovereign-admin saves unseal keys offline
     ESO->>OpenBao: Connect via K8s auth
 ```
 
