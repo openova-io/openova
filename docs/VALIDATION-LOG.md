@@ -63,6 +63,22 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 33 — PERSONAS-AND-JOURNEYS Layla narrative DNS + vcluster name drift; vllm clean
+
+Five drift fixes on PERSONAS-AND-JOURNEYS that Pass 22's banner-style scan missed; vllm clean.
+
+The corporate-narrative section (§4.2 Layla at Bank Dhofar) read fluently but had multiple Catalyst-naming-rule violations stacked through the timeline:
+
+- **§4.1 Ahmed (Omantel) Day 1 step 6**: `gitea.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod` — Catalyst control-plane Gitea URL collapsed location-code per NAMING §5.1. Fixed to `gitea.<location-code>.omantel.openova.io/...`.
+- **§4.2 Layla 09:15**: `gitea.bankdhofar.local/digital-channels/shared-blueprints/...` — same collapse on Bank Dhofar's internal Sovereign domain. Fixed.
+- **§4.2 Layla 10:00**: `gitea.bankdhofar.local/digital-channels/digital-channels-uat` — same. Fixed.
+- **§4.2 Layla 11:00**: `kubectl --context=hz-fsn-rtz-prod-bankdhofar logs ...` — wrong vcluster identity. Per NAMING §1.5 ("Organization Identity Lives in the vcluster Layer"), the vcluster is named after the **Organization**, not the Sovereign. Layla works on payment-rail in `digital-channels` Org (per §4.2 cast intro), so the vcluster context is `hz-fsn-rtz-prod-digital-channels` not `...-bankdhofar`. Fixed and added a short inline pointer to NAMING §1.5 so the reason is visible to the reader.
+- **§4.2 Layla 16:00**: `https://api.bankdhofar.local/v1/applications` — Catalyst control-plane API endpoint missing location-code. Fixed to `https://api.<location-code>.bankdhofar.local/...`. Also tightened the SPIFFE narrative ("Backstage runs inside the Sovereign and gets a SPIRE-issued SVID") since SPIFFE/SPIRE is workload-internal and external Backstage instances would need OIDC/JWT, not SPIFFE — the original narrative implied external Backstage was using SPIFFE which is unusual.
+
+- **platform/vllm/README.md**: clean. Banner correct (Application Blueprint §4.6, default LLM serving in bp-cortex). All examples use K8s in-cluster service DNS (`vllm.ai-hub.svc:8000`) — K8s-native form, not subject to NAMING §5.1. Image `vllm/vllm-openai:latest` is upstream Docker Hub illustrative ref.
+
+This is the second time PERSONAS-AND-JOURNEYS has been touched: Pass 22 fixed the §6.3 Environment name format (`bankdhofar-corp-banking-prod` → `core-banking-prod`) but missed all five DNS/vcluster issues in §4.1 and §4.2. The narrative form (timeline-style prose) is particularly susceptible to "reads fluently → looks fine" inspection bias — the rule violation is buried inside a sentence that scans naturally. Future passes touching narrative-style docs should grep for the placeholder shapes regardless of how well the prose reads.
+
 ### Pass 32 — `harbor.<domain>` / `registry.<domain>` registry-DNS sweep (9 files, 11 instances)
 
 Pass 25's deferred sweep, executed. The pattern: image references with `harbor.<domain>/...` (and one `registry.<domain>/...` in temporal) collapse the location-code segment in the same way Pass 24/25/29 fixes addressed for service URLs. NAMING §5.1 establishes Catalyst per-host-cluster Harbor as `harbor.{location-code}.{sovereign-domain}` (e.g. `harbor.hfmp.openova.io`).

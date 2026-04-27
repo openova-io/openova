@@ -85,7 +85,7 @@ Day 1 — 14:00
    Step 2: business details (form generated from Blueprint configSchema)
    Step 3: payment plan (BHD 49/month)
 6. Click Install. Provisioning service commits 5 Application directories to
-   gitea.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod.
+   gitea.<location-code>.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod.
    Webhook → projector → Flux reconciles in the muscatpharmacy vcluster.
 7. ~3 minutes later: Ahmed sees green checkmarks on his dashboard.
    Each App card has an "Open" button.
@@ -106,14 +106,14 @@ Day 1 — 14:08 — Ahmed is selling.
        She's authoring a private Blueprint for a payment-rail microservice
        with Postgres + Redis dependencies.
 
-09:15  Pushes to gitea.bankdhofar.local/digital-channels/shared-blueprints/
+09:15  Pushes to gitea.<location-code>.bankdhofar.local/digital-channels/shared-blueprints/
        bp-bd-payment-rail. CI in Bank Dhofar's GitHub Actions runner pool
        (running inside the Sovereign) builds the image, signs the Blueprint
        with cosign, publishes to the local OCI registry. blueprint-controller
        picks it up — visible as a private card in the digital-channels Org.
 
 10:00  Switches to her Environment repo:
-       gitea.bankdhofar.local/digital-channels/digital-channels-uat
+       gitea.<location-code>.bankdhofar.local/digital-channels/digital-channels-uat
        Edits applications/payment-rail/values.yaml (config tweak).
        Catalyst console (Plan view) shows the diff: what will change,
        dependency impact, drift, cost delta. Like terraform plan, but
@@ -126,9 +126,11 @@ Day 1 — 14:08 — Ahmed is selling.
        Browser: console → digital-channels-staging → payment-rail-staging
        → Logs tab. Then Topology tab to see across regions.
        Or, drops into kubectl scoped to her vcluster:
-         $ kubectl --context=hz-fsn-rtz-prod-bankdhofar logs -n payment-rail
-       Direct kubectl, scoped strictly to her own vcluster. Bank Dhofar's
-       sovereign-admin grants this via a JIT elevation flow.
+         $ kubectl --context=hz-fsn-rtz-prod-digital-channels logs -n payment-rail
+       Direct kubectl, scoped strictly to her Org's vcluster (vcluster name
+       per NAMING §1.5 is the Org name, not the Sovereign name — Layla's Org
+       is `digital-channels`). Bank Dhofar's sovereign-admin grants this via
+       a JIT elevation flow.
 
 14:00  Promotion. Opens digital-channels-staging Environment in the console,
        clicks "Copy to digital-channels-uat" on the payment-rail Application.
@@ -145,8 +147,9 @@ Day 1 — 14:08 — Ahmed is selling.
 
 16:00  Business asks for the bank's existing Backstage portal to show
        Catalyst-managed services. Layla integrates: Backstage queries
-       Catalyst REST API at https://api.bankdhofar.local/v1/applications,
-       authenticated via SPIFFE SVID (workload identity). Backstage's
+       Catalyst REST API at https://api.<location-code>.bankdhofar.local/v1/applications,
+       authenticated via SPIFFE SVID (workload identity — Backstage runs
+       inside the Sovereign and gets a SPIRE-issued SVID). Backstage's
        service catalog now includes Catalyst Applications alongside other
        systems. No code change in Catalyst — the API was already there.
 ```
