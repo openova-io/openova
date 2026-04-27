@@ -63,6 +63,34 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 50 — NAMING §11.2 third-cycle stable; ferretdb clean
+
+Both targets verified clean. No edits needed. Fourth clean pass overall (28, 44, 49, 50). Two consecutive clean passes (49 → 50).
+
+Acceptance greps (all 8 carry-forward) clean.
+
+**docs/NAMING-CONVENTION.md** §11 third-cycle careful re-read (per Pass 42 lesson — NAMING §11.2 had had 2 prior drift instances and warranted one more):
+
+§11 (Catalyst Environment / User-Facing Object) is the most consequential passage in the authoritative naming doc — it defines how Environments materialize from logical names to concrete Git repos + vclusters + JetStream Accounts + OpenBao paths. Drift here ripples through every other doc that references Environment realization.
+
+- **§11.1 Naming** (`{org}-{env_type}` pattern + examples): all examples use canonical 3-char env_type per §2.4 (`acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatpharmacy-prod`). DR-not-an-env_type clarification at line 472 anchored to §2.4. ✓
+- **§11.2 Realization** (Pass 37 fixed example URL, Pass 42 fixed abstract pattern, Pass 50 confirms): Step 1 has canonical `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` with concrete example `gitea.hfmp.omantel.openova.io/acme/acme-prod` ✓. Step 4 uses correct JetStream subject prefix `ws.{org}-{env_type}.>` matching ARCHITECTURE §5. Step 6 OpenBao path `org/{org}/env/{env_type}/` consistent with SECURITY §3. All 6 realization items concrete and accurate. **§11.2 now stable.**
+- **§11.3 Single-region vs multi-region**: clean.
+- **§11.4 Why a separate object instead of a tag**: clean.
+
+NAMING-CONVENTION §1-§10 also verified stable (Pass 31, 37, 42, 50 all touched it; final state shows no remaining drift in any acceptance grep category).
+
+The full document remains the authoritative source for naming patterns. Other canonical docs (BLUEPRINT-AUTHORING, ARCHITECTURE, SOVEREIGN-PROVISIONING, SRE, PERSONAS-AND-JOURNEYS) reference NAMING via `§X.Y` cross-references and these have all been verified consistent.
+
+**platform/ferretdb/README.md**: clean. Banner correct (Application Blueprint §4.1, MongoDB-wire-protocol-on-PostgreSQL via CNPG). Integration table consistent with §4.1 data services + bp-fabric composition. The "Why FerretDB (Not MongoDB)" comparison is consistent with TECHNOLOGY-FORECAST's "Removed Components" rationale (MongoDB → FerretDB on CNPG, no SSPL).
+
+**Pass 50: clean.** Convergence trajectory confirmed:
+- Pass 24-37 (14 passes): 13 with drift, 1 clean (Pass 28). Hit rate ~93%.
+- Pass 38-43 (6 passes): 5 with drift, 1 clean? Let me check — Pass 38 drift, 39 drift, 40 drift, 41 drift, 42 drift, 43 drift. All 6 had drift.
+- Pass 44-50 (7 passes): Pass 44 clean, 45 drift, 46 drift, 47 drift, 48 drift, 49 clean, 50 clean. 4 with drift, 3 clean. Hit rate ~57%.
+
+The drift-finding rate has been declining as drift gets eliminated. Three more consecutive clean passes (51, 52, 53) would meet the 5-consecutive-clean convergence signal threshold mentioned in user instructions.
+
 ### Pass 49 — IMPLEMENTATION-STATUS + debezium drift sweep — clean
 
 Both targets verified clean. No edits needed.
