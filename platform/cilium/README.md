@@ -1,8 +1,8 @@
 # Cilium
 
-Unified CNI + Service Mesh for Kubernetes with eBPF.
+Unified CNI + Service Mesh for Kubernetes with eBPF. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — installed on every host cluster Catalyst manages, before any other workload (CNI must come first).
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 

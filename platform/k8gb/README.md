@@ -1,8 +1,10 @@
 # k8gb
 
-Kubernetes Global Balancer for cross-region DNS-based load balancing.
+Kubernetes Global Balancer for cross-region DNS-based load balancing. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs on every host cluster's DMZ building block.
 
-**Status:** Accepted | **Updated:** 2026-02-07
+**Status:** Accepted | **Updated:** 2026-04-27
+
+> **Catalyst role:** Authoritative DNS for the Sovereign's GSLB zone. Routes traffic to healthy regional endpoints when an Application's Placement spans multiple regions. Pairs with the failover-controller for split-brain protection — see [`docs/SRE.md`](../../docs/SRE.md) §2.4.
 
 ---
 
@@ -98,7 +100,7 @@ Both produce the same symptom: DNS query fails or times out.
 
 For **stateless services**: k8gb's behavior is acceptable.
 
-For **stateful services**: Use **Failover Controller** with cloud witness (external DNS) to control Gateway/Service readiness. See [ADR-FAILOVER-CONTROLLER](../failover-controller/docs/ADR-FAILOVER-CONTROLLER.md).
+For **stateful services**: Use the platform's **failover-controller** with cloud witness (lease-based) to control Gateway/Service readiness — see [`platform/failover-controller/README.md`](../failover-controller/README.md) and [`docs/SRE.md`](../../docs/SRE.md) §2.4.
 
 ---
 

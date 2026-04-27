@@ -1,18 +1,25 @@
 # Keycloak
 
-FAPI Authorization Server for OpenOva Open Banking blueprint.
+User identity for Catalyst Sovereigns. Per-Sovereign supporting service in the Catalyst control plane (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). Also serves as the FAPI Authorization Server for the Fingate (Open Banking) Blueprint.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
+
+> **Catalyst topology** (set at Sovereign provisioning time, see [`docs/SECURITY.md`](../../docs/SECURITY.md) §6):
+> - **`per-organization`** (SME-style Sovereigns, e.g. omantel): one minimal Keycloak per Organization (single replica, embedded H2/sqlite, ~150 MB RAM, no HA). Blast radius limited to one Org.
+> - **`shared-sovereign`** (corporate self-host, e.g. bankdhofar): one HA Keycloak for the entire Sovereign with multiple realms (one per Organization), federating to the corporation's identity provider (Azure AD, Okta).
 
 ---
 
 ## Overview
 
-Keycloak provides FAPI 2.0 compliant authorization for Open Banking:
-- PSD2/FAPI 2.0 certification path
-- eIDAS certificate validation
-- Consent management
-- Multi-tenant TPP support
+Keycloak provides:
+- **User identity** for the Catalyst console, marketplace, admin, REST/GraphQL API, and per-Application SSO.
+- **OIDC / OAuth 2.0 / SAML** federation to corporate IdPs.
+- **FAPI 2.0** compliant authorization for the Fingate Open Banking Blueprint:
+  - PSD2/FAPI 2.0 certification path
+  - eIDAS certificate validation
+  - Consent management
+  - Multi-tenant TPP support (PSD2 sense — Third Party Providers, not platform tenants)
 
 ---
 

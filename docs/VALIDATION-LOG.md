@@ -63,6 +63,17 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 8 — component README role-in-Catalyst banners + dead-link fix
+
+Continued the drift sweep into more component READMEs.
+
+- **k8gb**: header reframed to clarify per-host-cluster infrastructure role on the DMZ block; cross-reference to PLATFORM-TECH-STACK §3.1 and SRE.md §2.4 (split-brain protection). Removed broken link to non-existent `../failover-controller/docs/ADR-FAILOVER-CONTROLLER.md` (the failover-controller doesn't have a docs/ folder); replaced with link to its README + SRE.md §2.4.
+- **keycloak**: header reframed from narrow "FAPI Authorization Server for Open Banking" to broader "User identity for Catalyst Sovereigns" (Keycloak handles ALL user identity in Catalyst, not just FAPI). Added the per-Org / per-Sovereign topology callout matching SECURITY.md §6. Clarified that the "Multi-tenant TPP" line refers to PSD2 TPPs, not Catalyst's Organization-level multi-tenancy.
+- **cert-manager**: header reframed as per-host-cluster infrastructure pointer to PLATFORM-TECH-STACK §3.3.
+- **cilium**: header reframed as per-host-cluster infrastructure pointer to PLATFORM-TECH-STACK §3.1, with the install-first-on-every-cluster note matching the Phase-0 install order.
+
+CNPG, Strimzi: read in full and confirmed clean — they correctly position themselves as Application Blueprints and don't drift from the canonical model. CNPG's `<org>-postgres-dr` cluster name (Application-tier database role) is acceptable per NAMING-CONVENTION §1.3 (which only forbids primary/dr in K8s host-cluster names, not in Application-internal CRD names).
+
 ### Pass 7 — major OpenBao + ESO + Gitea + Flux drift
 
 The most consequential pass yet. Two READMEs (`platform/openbao/README.md` and `platform/external-secrets/README.md`) described an **active-active bidirectional sync** model that was explicitly rejected during the architecture session in favor of independent Raft per region with async perf replication. They had survived all previous passes because the banned-term grep doesn't catch architectural drift.
