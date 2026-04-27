@@ -63,6 +63,34 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 48 — crossplane README OpenTofu vs Terraform + XRD group drift; PERSONAS clean
+
+Three fixes on platform/crossplane/README.md; PERSONAS-AND-JOURNEYS clean.
+
+Acceptance greps clean for all carry-forward categories.
+
+**docs/PERSONAS-AND-JOURNEYS.md** §1-§7 deep re-scan with all carry-forward lessons applied:
+- §1-§3 (Personas, Surfaces, Journeys matrix): clean. Three first-class surfaces (UI, Git, API) + kubectl debug-only matches ARCHITECTURE §7.
+- §4.1 Ahmed Omantel narrative: Pass 33 DNS fix intact (`gitea.<location-code>.omantel.openova.io/...`). Customer-app domain `muscatpharmacy.shop.omantel.com` is customer-managed routing, distinct from Catalyst control plane DNS — acceptable.
+- §4.2 Layla Bank Dhofar narrative: Pass 33 fixes intact across all 5 sites (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150). Pass 39 fixes intact (`digital-channels-stg`, `acme-stg`).
+- §5 Application card: clean.
+- §6 Catalog vs Applications-in-use: §6.2 uses `acme-stg` (Pass 39 fix), §6.3 uses `core-banking-prod` (Pass 22 fix). Marketplace mockup §6.1 includes Rocket.Chat which isn't in PLATFORM-TECH-STACK Application Blueprints — illustrative/aspirational marketplace example (community-contributed Blueprints). Acceptable.
+- §7 default UI mode by Sovereign type: clean.
+
+PERSONAS-AND-JOURNEYS has had 3 separate passes touch it (Pass 22, 33, 39) and now reads consistently. Stable.
+
+**platform/crossplane/README.md** had three real drift items:
+
+1. **§"Terraform vs Crossplane"** (table title + body): Catalyst's canonical bootstrap IaC is **OpenTofu**, not Terraform. Per PLATFORM-TECH-STACK §3.2 (Pass 40 verified): "**[opentofu](../platform/opentofu/)** | Bootstrap IaC only. Used in Phase 0 of Sovereign provisioning by `catalyst-provisioner`, then archived." And SOVEREIGN-PROVISIONING §3 Phase 0 explicitly says "OpenTofu run". Renamed table heading to "OpenTofu vs Crossplane", added intro paragraph clarifying Catalyst uses OpenTofu (the OSS Terraform fork), updated table rows, fixed "Decision" line. Same drift category as Catalyst-vs-OpenOva conflation Pass 26 fixed — the canonical naming for tooling matters.
+
+2. **XRD CompositeResourceDefinition example**: used `name: xdatabases.openova.io` and `group: openova.io`. Per BLUEPRINT-AUTHORING §8 (Pass 42 verified canonical) the XRD group is `compose.openova.io/v1alpha1` — explicitly separate from Catalyst CRDs (`catalyst.openova.io/v1alpha1`). Fixed name to `xdatabases.compose.openova.io`, group to `compose.openova.io`, and added inline pointer to BLUEPRINT-AUTHORING §8.
+
+3. **Composition `compositeTypeRef.apiVersion`**: was `openova.io/v1alpha1`, fixed to `compose.openova.io/v1alpha1` matching the corrected XRD group. Also corrected the Composition `metadata.name` to `database.hcloud.compose.openova.io` for naming consistency.
+
+Pass 1's API group unification was Catalyst-CRDs-only (`catalyst.openova.io/v1alpha1`); Pass 42 verified that Crossplane XRDs use the separate `compose.openova.io` group; Pass 48 catches a downstream consequence — the crossplane README's example wasn't using either canonical form, defaulting to a bare `openova.io` group that doesn't match Catalyst convention.
+
+Banner section already correctly enforces "Crossplane is platform plumbing, never a user-facing surface" framing per ARCHITECTURE §7.4 + GLOSSARY ✓. Catalyst Integration section line 170 already correctly describes the user-experience layering (form-from-configSchema, advanced contributors author Compositions). 
+
 ### Pass 47 — BUSINESS-STRATEGY stale Updated date; coraza clean
 
 One fix on BUSINESS-STRATEGY; coraza README clean.

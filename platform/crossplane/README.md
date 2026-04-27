@@ -40,17 +40,19 @@ flowchart TB
 
 ---
 
-## Terraform vs Crossplane
+## OpenTofu vs Crossplane
 
-| Aspect | Terraform | Crossplane |
-|--------|-----------|------------|
-| Phase | Bootstrap (day-0/1) | Day-2+ operations |
+Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, not Terraform. See [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.2 and [`platform/opentofu/`](../opentofu/).
+
+| Aspect | OpenTofu | Crossplane |
+|--------|----------|------------|
+| Phase | Bootstrap (day-0/1) — Phase 0 of Sovereign provisioning, then archived | Day-2+ operations |
 | State | External state file | Kubernetes CRDs |
 | Drift | Manual detection | Continuous reconciliation |
-| Access | CI/CD pipeline | K8s RBAC |
+| Access | CI/CD pipeline (catalyst-provisioner) | K8s RBAC |
 | Lifecycle | Point-in-time | GitOps continuous |
 
-**Decision:** Use Terraform for initial cluster bootstrap only. All subsequent infrastructure managed via Crossplane.
+**Decision:** Use OpenTofu for initial cluster bootstrap only (Phase 0). All subsequent infrastructure managed via Crossplane.
 
 ---
 
@@ -98,9 +100,9 @@ spec:
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: xdatabases.openova.io
+  name: xdatabases.compose.openova.io
 spec:
-  group: openova.io
+  group: compose.openova.io                      # canonical XRD group per BLUEPRINT-AUTHORING §8
   names:
     kind: XDatabase
     plural: xdatabases
@@ -126,10 +128,10 @@ spec:
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: database.hcloud.openova.io
+  name: database.hcloud.compose.openova.io
 spec:
   compositeTypeRef:
-    apiVersion: openova.io/v1alpha1
+    apiVersion: compose.openova.io/v1alpha1     # canonical XRD group per BLUEPRINT-AUTHORING §8
     kind: XDatabase
   resources:
     - name: server
