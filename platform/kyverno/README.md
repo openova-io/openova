@@ -1,8 +1,8 @@
 # Kyverno
 
-Policy engine for OpenOva platform resilience, security, and operational excellence.
+Policy engine for admission control, mutation, and policy generation. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — runs on every host cluster Catalyst manages. Enforces Catalyst's policy contracts (cosign-required-on-Blueprints, default-deny NetworkPolicies on Organization namespaces, priority-class injection, etc.).
 
-**Status:** Accepted | **Updated:** 2026-02-09
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
@@ -170,9 +170,11 @@ Namespace-level tier labels drive ResourceQuota and PriorityClass injection.
 | Tier Label Value | CPU Quota | Memory Quota | PriorityClass | Use Case |
 |------------------|-----------|--------------|---------------|----------|
 | `platform` | 16 cores | 32Gi | `platform-critical` (1000000) | OpenOva system components |
-| `high` | 8 cores | 16Gi | `tenant-high` (100000) | Production tenant workloads |
-| `default` | 4 cores | 8Gi | `tenant-default` (10000) | Development / staging |
+| `high` | 8 cores | 16Gi | `tenant-high` (100000) | Production Organization workloads |
+| `default` | 4 cores | 8Gi | `tenant-default` (10000) | Development / staging Organization workloads |
 | `batch` | 2 cores | 4Gi | `tenant-batch` (1000) | Background jobs, scale-to-zero |
+
+> The `tenant-*` priority class names are legacy deployment artifacts. They map to **Organization** workloads in current terminology. Renaming the priority class names themselves is tracked as a separate migration item — until then, the names remain as-is in deployed clusters.
 
 ---
 

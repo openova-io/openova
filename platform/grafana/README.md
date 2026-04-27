@@ -1,8 +1,8 @@
 # Grafana Stack
 
-LGTM observability stack for OpenOva platform.
+LGTM observability stack (Loki, Grafana, Tempo, Mimir + Alloy collector). Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3 / observability layer in §2.3) — runs on every host cluster a Sovereign owns. Catalyst's own self-monitoring uses this stack on the management cluster; Application telemetry from per-Org vclusters also flows here unless an Org installs its own observability stack.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
