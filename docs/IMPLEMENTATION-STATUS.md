@@ -35,9 +35,11 @@ The other architecture docs describe the **target**: where Catalyst is going. Th
 
 ---
 
-## 2. Catalyst control plane components
+## 2. Catalyst control plane components (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2)
 
-The components named in [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2 — their implementation status:
+These run **per-Sovereign** on the management cluster:
+
+### 2.1 User-facing surfaces and backend services
 
 | Component | Status | Notes |
 |---|---|---|
@@ -50,15 +52,41 @@ The components named in [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2 �
 | environment-controller | 📐 | Designed. No code. |
 | blueprint-controller | 📐 | Designed. No code. |
 | billing | 📐 | Designed. No code. |
+
+### 2.2 Per-Sovereign supporting services
+
+| Component | Status | Notes |
+|---|---|---|
 | Gitea (per Sovereign) | 🚧 | Component README exists; no Catalyst-specific deployment manifest. |
 | NATS JetStream (per Sovereign) | 📐 | Selected as event spine; no Catalyst-specific deployment manifest. |
 | OpenBao (per region, independent Raft) | 🚧 | Component README exists with the agreed multi-region semantics; deployment manifests not in this repo. |
 | Keycloak (per-Org SME / per-Sovereign corporate) | 🚧 | Component README exists; topology choice is a Catalyst-level concern not yet wired. |
 | SPIRE server + agent | 📐 | Selected for workload identity; no integration code. |
-| External Secrets Operator | 🚧 | Component README exists. |
-| Reloader | 🚧 | Component README exists. |
-| cert-manager | 🚧 | Component README exists. |
-| Cilium / k8gb / Kyverno / Falco / Sigstore / Syft+Grype / etc. | 🚧 | Component README exists for each in `platform/`. None yet shipped as a Blueprint. |
+| Catalyst observability (Grafana stack) | 🚧 | Per-component READMEs exist; not yet wired as a Catalyst-level umbrella. |
+
+## 2bis. Per-host-cluster infrastructure (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §3)
+
+These run on **every host cluster** (mgt, rtz, dmz). Status is per-component README only — none yet ship as deployable Blueprints.
+
+| Component | Status | Notes |
+|---|---|---|
+| Cilium | 🚧 | README only. |
+| External-DNS | 🚧 | README only. |
+| k8gb | 🚧 | README only. |
+| Coraza | 🚧 | README only. |
+| Flux | 🚧 | README only. Per-vcluster Flux is a Catalyst-managed convention not yet implemented. |
+| Crossplane | 🚧 | README only. |
+| OpenTofu (bootstrap IaC) | 🚧 | README only. |
+| cert-manager | 🚧 | README only. |
+| External Secrets Operator | 🚧 | README only. |
+| Kyverno | 🚧 | README only. |
+| Trivy | 🚧 | README only. |
+| Falco | 🚧 | README only. |
+| Sigstore | 🚧 | README only. |
+| Syft + Grype | 🚧 | README only. |
+| VPA, KEDA, Reloader | 🚧 | READMEs only. |
+| MinIO, Velero, Harbor | 🚧 | READMEs only. |
+| failover-controller | 🚧 | README only. |
 
 ---
 
