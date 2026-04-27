@@ -63,6 +63,39 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 49 — IMPLEMENTATION-STATUS + debezium drift sweep — clean
+
+Both targets verified clean. No edits needed.
+
+Acceptance greps clean for all 8 carry-forward categories including the new Pass 48 lessons (#14 bare openova.io API group, #15 Terraform-as-bootstrap).
+
+**docs/IMPLEMENTATION-STATUS.md** deep re-scan with Pass 40-41 union-equality lens (current PTS structure post-Pass 40 fix):
+
+PTS §2 control-plane components (15 total): §2.1 (3 user-facing surfaces) + §2.2 (6 backend services) + §2.3 (6 supporting services). IMPLEMENTATION-STATUS rolls §2.1+§2.2 of PTS into one table "User-facing surfaces and backend services" (9 components) and uses §2.2 for "Per-Sovereign supporting services" (6 components) → total 15. Structural difference, but underlying components match exactly. Not drift.
+
+PTS §3 per-host-cluster (21 components): cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu, cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, minio, velero, harbor, failover-controller. IMPLEMENTATION-STATUS §3 lists all 21. Union-equal ✓.
+
+§4 CRDs: 8 (Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook). Matches BLUEPRINT-AUTHORING + core/README. ✓
+
+§5 Surfaces: UI, Git, API, kubectl(debug-only). Matches GLOSSARY/PERSONAS-AND-JOURNEYS/ARCHITECTURE §7. ✓
+
+§6 Sovereigns: openova (🚧, legacy SME marketplace at console.openova.io/nova), omantel (📐), bankdhofar (📐). Status markers honest about current state. ✓
+
+§7 Catalyst provisioner: references `catalyst-provisioner.openova.io` and `bp-catalyst-provisioner` correctly per SOVEREIGN-PROVISIONING §2. ✓
+
+§8 What this means for newcomers + §9 How to update: clean.
+
+The doc remains the bridge between target architecture (canonical docs) and current code state. Pass 25 + Pass 49 both confirm stability.
+
+**API-group canonicality sweep across all docs** (Pass 48 lesson #14):
+- catalyst.openova.io/v1alpha1: core/README L87, ARCHITECTURE L298+L326, SRE L518, BLUEPRINT-AUTHORING L83, SECURITY L243 — all 6 instances canonical for Catalyst CRDs ✓
+- compose.openova.io/v1alpha1: BLUEPRINT-AUTHORING L323 + crossplane L134 — both canonical for Crossplane XRDs ✓
+- No bare `openova.io/v1alpha1` instances. Pass 48 fix held.
+
+**platform/debezium/README.md**: clean. Banner correct (Application Blueprint §4.2 CDC, used by bp-fabric). Pass 32 image registry fix intact (`harbor.<location-code>.<sovereign-domain>/debezium/debezium-connect:latest`). All in-cluster K8s service DNS references use canonical `<svc>.<namespace>.svc` form (databases namespace for Strimzi/CNPG/Debezium-Connect). PostgreSQL source connector + sink topology consistent with bp-fabric composition (Strimzi + ClickHouse + OpenSearch).
+
+**Pass 49: clean.** Second clean pass since Pass 28 + Pass 44.
+
 ### Pass 48 — crossplane README OpenTofu vs Terraform + XRD group drift; PERSONAS clean
 
 Three fixes on platform/crossplane/README.md; PERSONAS-AND-JOURNEYS clean.
