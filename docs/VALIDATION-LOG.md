@@ -63,6 +63,15 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 19 — SECURITY + kserve drift sweep — clean
+
+Read SECURITY.md and platform/kserve/README.md end-to-end line-by-line.
+
+- SECURITY.md: clean. Multi-region OpenBao (§5), Keycloak topology (§6), rotation policy (§7) all consistent with each other and with NAMING / ARCHITECTURE / GLOSSARY.
+- platform/kserve: banner correctly identifies as Application Blueprint under bp-cortex. The example `namespace: ai-hub` is illustrative (AI Hub is a customer-chosen Application name); not a strict contradiction with the agreed naming convention.
+
+**Pass 19: clean.**
+
 ### Pass 18 — NAMING DR-as-env_type misexample + Keycloak deployment narrative
 
 Two real findings on the rotation to NAMING-CONVENTION + platform/keycloak.
