@@ -23,98 +23,94 @@ This separation is critical and is the main reason to read this document careful
 
 ---
 
-## 2. Catalyst control plane components
+## 2. Catalyst control-plane components (per-Sovereign, on the `mgt` cluster)
 
-These are the components that make a Kubernetes cluster a Sovereign. Installed automatically as part of `bp-catalyst-platform` (the umbrella Blueprint).
+These components make a Kubernetes cluster a Sovereign. Installed exactly once per Sovereign, on its management cluster, as part of the `bp-catalyst-platform` umbrella Blueprint.
 
 ### 2.1 User-facing surfaces
 
-| Component | Path | Purpose |
+| Component | Source | Purpose |
 |---|---|---|
-| **console** | `core/` (Go + React) | Primary UI for end users. Form / Advanced / IaC editor depths. |
+| **console** | `core/` (Go + Astro/Svelte UI) | Primary UI for end users. Form / Advanced / IaC editor depths. |
 | **marketplace** | (UI module of `core/`) | Public-facing Blueprint card grid. |
 | **admin** | (UI module of `core/`) | Sovereign-admin operations UI. |
 
-### 2.2 Backend services
+### 2.2 Catalyst backend services
 
 | Component | Purpose |
 |---|---|
 | **projector** | CQRS read-side. Subscribes to NATS JetStream, materializes per-Environment KV, fans out SSE to console. |
 | **catalog-svc** | Reads Blueprint CRDs, serves catalog API to console + marketplace. |
-| **provisioning** | Validates configSchema, composes manifests, commits to Environment Gitea repo. |
-| **environment-controller** | Reconciles Environment CRD: vcluster + Flux + Gitea repo + webhook. |
-| **blueprint-controller** | Watches Blueprint repos (public + Org-private), registers Blueprint CRDs. |
+| **provisioning** | Validates configSchema, composes manifests, commits to the Environment Gitea repo. |
+| **environment-controller** | Reconciles Environment CRD: vcluster + Flux-bootstrap + Gitea repo + webhook. |
+| **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign Gitea Org-private repos), registers Blueprint CRDs. |
 | **billing** | Per-Organization metering, invoicing. |
 
-### 2.3 Identity and secrets
+### 2.3 Per-Sovereign supporting services
+
+These run **once per Sovereign** (on the mgt cluster, with sibling replicas in workload regions where noted). They are part of the Catalyst control plane.
 
 | Component | Purpose |
 |---|---|
 | **[keycloak](../platform/keycloak/)** | User identity. Per-Org realm in SME-style Sovereigns; per-Sovereign realm in corporate-style. |
-| **[openbao](../platform/openbao/)** | Secret backend. **Independent Raft cluster per region.** No stretched clusters. |
-| **[external-secrets](../platform/external-secrets/)** | ESO — reads OpenBao paths, materializes K8s Secrets. |
-| **spire-server** | SPIFFE/SPIRE — workload identity. 5-min rotating SVIDs. |
-| **[reloader](../platform/reloader/)** | Auto-restart Pods when ConfigMap/Secret hashes change. |
+| **[openbao](../platform/openbao/)** | Secret backend. Primary on mgt; sibling Raft cluster per workload region with async perf replication. **No stretched clusters.** See [`SECURITY.md`](SECURITY.md) §5. |
+| **spire-server** | SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Root server on mgt; per-host-cluster agent + cluster-local SPIRE-server replica. |
+| **nats-jetstream** | Event spine (pub/sub + Streams + KV). Per-Organization Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
+| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts public Blueprint catalog mirror, Org-private Blueprints, per-Environment Gitea repos. |
+| **observability** (Grafana stack) | Catalyst's own self-monitoring: Alloy collector, Loki (logs), Mimir (metrics), Tempo (traces), Grafana visualization. Customer Application telemetry also flows here unless an Org installs its own observability stack. |
 
-### 2.4 Event spine and registry
+---
 
-| Component | Purpose |
-|---|---|
-| **nats-jetstream** | Event spine (pub/sub + Streams + KV). Per-Org Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
-| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts public Blueprint mirror, Org-private Blueprints, per-Environment Gitea repos. |
-| **[harbor](../platform/harbor/)** | Container registry. Stores Catalyst component images, mirrored Blueprint OCI artifacts, customer images. |
+## 3. Per-host-cluster infrastructure (on every host cluster: `mgt`, `rtz`, `dmz`)
 
-### 2.5 GitOps and IaC
+These are deployed on **every** host cluster a Sovereign owns — not just the management cluster. They form the substrate Catalyst (and Application workloads) sit on. Installed by the bootstrap kit during Phase 0 (or by Crossplane when a new region is added later).
 
-| Component | Purpose |
-|---|---|
-| **[flux](../platform/flux/)** | GitOps reconciler. **One Flux per vcluster** (lightweight: source + kustomize + helm controllers). Plus a host-level Flux for Catalyst itself. |
-| **[crossplane](../platform/crossplane/)** | The only IaC. Manages all non-Kubernetes resources via Compositions. **Never user-facing.** |
-| **[opentofu](../platform/opentofu/)** | Bootstrap IaC only. Used in Phase 0 of Sovereign provisioning, then archived. |
-
-### 2.6 Networking
+### 3.1 Networking and service mesh
 
 | Component | Purpose |
 |---|---|
 | **[cilium](../platform/cilium/)** | CNI + Service Mesh (eBPF). mTLS, L7 policies, Gateway API. |
 | **[external-dns](../platform/external-dns/)** | DNS sync (registers/deletes records via cloud DNS APIs). |
 | **[k8gb](../platform/k8gb/)** | GSLB — authoritative DNS for cross-region failover. |
-| **[coraza](../platform/coraza/)** | WAF (OWASP CRS) at the edge. |
+| **[coraza](../platform/coraza/)** | WAF (OWASP CRS) at the DMZ edge. |
 
-### 2.7 Security
+### 3.2 GitOps and IaC
+
+| Component | Purpose |
+|---|---|
+| **[flux](../platform/flux/)** | GitOps reconciler. **One Flux instance per vcluster** (lightweight: source + kustomize + helm controllers). Plus a host-level Flux on each host cluster for Catalyst itself. |
+| **[crossplane](../platform/crossplane/)** | The only IaC. Manages all non-Kubernetes resources via Compositions. **Never user-facing.** Installed on the mgt cluster (manages cloud resources for the whole Sovereign). |
+| **[opentofu](../platform/opentofu/)** | Bootstrap IaC only. Used in Phase 0 of Sovereign provisioning by `catalyst-provisioner`, then archived. Not deployed on host clusters. |
+
+### 3.3 Security and policy
 
 | Component | Purpose |
 |---|---|
 | **[cert-manager](../platform/cert-manager/)** | TLS certificate automation. |
-| **[trivy](../platform/trivy/)** | Image and IaC vulnerability scanning. |
-| **[falco](../platform/falco/)** | Runtime security (eBPF). |
-| **[sigstore](../platform/sigstore/)** | Container image signing (cosign). |
-| **[syft-grype](../platform/syft-grype/)** | SBOM generation + vulnerability matching. |
+| **[external-secrets](../platform/external-secrets/)** | ESO — reads OpenBao paths, materializes K8s Secrets. |
 | **[kyverno](../platform/kyverno/)** | Policy engine — admission control, mutation, generation. |
+| **[trivy](../platform/trivy/)** | Image and IaC vulnerability scanning (CI + runtime). |
+| **[falco](../platform/falco/)** | Runtime security (eBPF). |
+| **[sigstore](../platform/sigstore/)** | Container image signing verification (cosign admission). |
+| **[syft-grype](../platform/syft-grype/)** | SBOM generation + vulnerability matching. |
 
-### 2.8 Scaling and operations
+### 3.4 Scaling and operations
 
 | Component | Purpose |
 |---|---|
 | **[vpa](../platform/vpa/)** | Vertical Pod Autoscaler — right-sizing. |
 | **[keda](../platform/keda/)** | Event-driven horizontal autoscaling, scale-to-zero. |
+| **[reloader](../platform/reloader/)** | Auto-restart Pods when ConfigMap/Secret hashes change. |
 
-### 2.9 Storage
+### 3.5 Storage and registry
 
 | Component | Purpose |
 |---|---|
 | **[minio](../platform/minio/)** | In-cluster S3. Tiers cold data to cloud archival storage. |
 | **[velero](../platform/velero/)** | K8s backup/restore. Backups land in cloud archival storage. |
+| **[harbor](../platform/harbor/)** | Container registry per host cluster. Stores Catalyst component images, mirrored Blueprint OCI artifacts, customer images. |
 
-### 2.10 Observability
-
-| Component | Purpose |
-|---|---|
-| **[grafana](../platform/grafana/)** | Grafana stack — Alloy collector, Loki (logs), Mimir (metrics), Tempo (traces). Plus Grafana for visualization. |
-| **OpenTelemetry** | Auto-instrumentation across the stack. Deployed via Alloy configuration; no separate component folder. |
-| **[opensearch](../platform/opensearch/)** | Hot SIEM backend for security analytics. |
-
-### 2.11 Resilience
+### 3.6 Resilience
 
 | Component | Purpose |
 |---|---|
@@ -122,11 +118,11 @@ These are the components that make a Kubernetes cluster a Sovereign. Installed a
 
 ---
 
-## 3. Application Blueprints (Optional, A La Carte)
+## 4. Application Blueprints (Optional, A La Carte)
 
 These are not part of the Catalyst control plane. Users install them as Applications when they need them.
 
-### 3.1 Data services
+### 4.1 Data services
 
 | Blueprint | Purpose | Multi-region replication |
 |---|---|---|
@@ -135,27 +131,28 @@ These are not part of the Catalyst control plane. Users install them as Applicat
 | **[strimzi](../platform/strimzi/)** | Apache Kafka streaming | MirrorMaker2 |
 | **[valkey](../platform/valkey/)** | Redis-compatible cache | REPLICAOF |
 | **[clickhouse](../platform/clickhouse/)** | OLAP analytics | ReplicatedMergeTree |
+| **[opensearch](../platform/opensearch/)** | Search + hot SIEM backend | Cross-cluster replication |
 
-### 3.2 CDC
+### 4.2 CDC
 
 | Blueprint | Purpose |
 |---|---|
 | **[debezium](../platform/debezium/)** | Change data capture |
 
-### 3.3 Workflow and processing
+### 4.3 Workflow and processing
 
 | Blueprint | Purpose |
 |---|---|
 | **[temporal](../platform/temporal/)** | Saga orchestration + compensation |
 | **[flink](../platform/flink/)** | Stream + batch processing |
 
-### 3.4 Data lakehouse
+### 4.4 Data lakehouse
 
 | Blueprint | Purpose |
 |---|---|
 | **[iceberg](../platform/iceberg/)** | Open table format |
 
-### 3.5 Communication
+### 4.5 Communication
 
 | Blueprint | Purpose |
 |---|---|
@@ -164,7 +161,7 @@ These are not part of the Catalyst control plane. Users install them as Applicat
 | **[livekit](../platform/livekit/)** | Video/audio (WebRTC SFU) |
 | **[matrix](../platform/matrix/)** | Team chat (Matrix protocol; Synapse is the server implementation) |
 
-### 3.6 AI / ML
+### 4.6 AI / ML
 
 | Blueprint | Purpose |
 |---|---|
@@ -178,20 +175,20 @@ These are not part of the Catalyst control plane. Users install them as Applicat
 | **[llm-gateway](../platform/llm-gateway/)** | Subscription proxy for Claude Code |
 | **[anthropic-adapter](../platform/anthropic-adapter/)** | OpenAI-to-Anthropic translation |
 
-### 3.7 AI safety and observability
+### 4.7 AI safety and observability
 
 | Blueprint | Purpose |
 |---|---|
 | **[nemo-guardrails](../platform/nemo-guardrails/)** | AI safety firewall |
 | **[langfuse](../platform/langfuse/)** | LLM observability |
 
-### 3.8 Identity and metering
+### 4.8 Identity and metering
 
 | Blueprint | Purpose |
 |---|---|
 | **[openmeter](../platform/openmeter/)** | Usage metering |
 
-### 3.9 Chaos engineering
+### 4.9 Chaos engineering
 
 | Blueprint | Purpose |
 |---|---|
@@ -199,7 +196,7 @@ These are not part of the Catalyst control plane. Users install them as Applicat
 
 ---
 
-## 4. Composite Blueprints (Products)
+## 5. Composite Blueprints (Products)
 
 OpenOva ships these as ready-made composite Blueprints. Each is a package of Blueprints with curated configuration:
 
@@ -216,7 +213,7 @@ OpenOva also ships **Specter** (AIOps agents) and **Exodus** (migration program)
 
 ---
 
-## 5. Multi-Region Architecture
+## 6. Multi-Region Architecture
 
 ```mermaid
 flowchart TB
@@ -255,9 +252,9 @@ Each region is its own failure domain. OpenBao Raft is **intra-region only**; cr
 
 ---
 
-## 6. Resource estimates
+## 7. Resource estimates
 
-### 6.1 Catalyst control plane (per Sovereign)
+### 7.1 Catalyst control plane (per Sovereign)
 
 | Layer | Approx RAM | Notes |
 |---|---|---|
@@ -273,7 +270,7 @@ Each region is its own failure domain. OpenBao Raft is **intra-region only**; cr
 
 For a single-region SME Sovereign with 100 Orgs: ~12 GB control plane + 100 × 150 MB Keycloak = ~27 GB management host cluster RAM.
 
-### 6.2 Per-Organization vcluster
+### 7.2 Per-Organization vcluster
 
 | Layer | Approx RAM |
 |---|---|
@@ -282,15 +279,15 @@ For a single-region SME Sovereign with 100 Orgs: ~12 GB control plane + 100 × 1
 | ESO + reloader | ~100 MB |
 | **Subtotal per Org per region** | **~400 MB** + workload RAM |
 
-### 6.3 Per-Application
+### 7.3 Per-Application
 
 Application-specific. A WordPress with embedded Postgres on `medium` overlay: ~2 GB. A multi-region Strimzi Kafka cluster: 4–16 GB per region.
 
 ---
 
-## 7. Cluster deployment
+## 8. Cluster deployment
 
-### 7.1 K3s installation
+### 8.1 K3s installation
 
 ```bash
 curl -sfL https://get.k3s.io | sh -s - server \
@@ -307,7 +304,7 @@ curl -sfL https://get.k3s.io | sh -s - server \
   --kubelet-arg="max-pods=50"
 ```
 
-### 7.2 Disabled K3s components
+### 8.2 Disabled K3s components
 
 | Component | Replacement |
 |---|---|
@@ -316,7 +313,7 @@ curl -sfL https://get.k3s.io | sh -s - server \
 | local-storage | Application-level replication |
 | flannel | Cilium CNI |
 
-### 7.3 Cilium installation
+### 8.3 Cilium installation
 
 ```bash
 helm install cilium cilium/cilium \
@@ -334,9 +331,9 @@ helm install cilium cilium/cilium \
 
 ---
 
-## 8. User choice options
+## 9. User choice options
 
-### 8.1 Cloud Provider
+### 9.1 Cloud Provider
 
 | Provider | Status | Crossplane provider |
 |---|---|---|
@@ -349,7 +346,7 @@ helm install cilium cilium/cilium \
 
 Hetzner is the most-tested path; the OpenOva Sovereign runs on Hetzner.
 
-### 8.2 Regions
+### 9.2 Regions
 
 | Option | Description |
 |---|---|
@@ -357,7 +354,7 @@ Hetzner is the most-tested path; the OpenOva Sovereign runs on Hetzner.
 | 2 regions | Recommended for production — symmetric rtz clusters + DMZ, k8gb routes |
 | 3+ regions | Regulated tier — adds DR replica region |
 
-### 8.3 LoadBalancer
+### 9.3 LoadBalancer
 
 | Option | How | Cost |
 |---|---|---|
@@ -365,11 +362,11 @@ Hetzner is the most-tested path; the OpenOva Sovereign runs on Hetzner.
 | k8gb DNS-based LB | Cilium Gateway + k8gb | Free |
 | Cilium L2 Mode | ARP-based (same subnet) | Free |
 
-### 8.4 DNS Provider
+### 9.4 DNS Provider
 
 Sovereign-domain registration is by the customer; Cloudflare is a frequent default. Per-cloud DNS providers (Route53, Cloud DNS, Azure DNS, Hetzner DNS) work too — Crossplane providers exist for all.
 
-### 8.5 Archival S3 Storage
+### 9.5 Archival S3 Storage
 
 | Provider | Notes |
 |---|---|
@@ -381,7 +378,7 @@ Sovereign-domain registration is by the customer; Cloudflare is a frequent defau
 
 ---
 
-## 9. SIEM / SOAR architecture
+## 10. SIEM / SOAR architecture
 
 ```mermaid
 flowchart LR
@@ -404,7 +401,7 @@ The control plane's own audit log (commits, RBAC events, SecretPolicy actions) s
 
 ---
 
-## 10. License posture
+## 11. License posture
 
 Every Catalyst control-plane component carries an open-source license that allows redistribution as a customer-deployable platform:
 

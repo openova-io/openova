@@ -83,26 +83,27 @@ Failover Controller uses a **cloud witness** for lease-based authority:
 |---|---|
 | External traffic (Gateway API → k8gb) | HTTPRoute readiness toggling |
 | Internal traffic (Cilium Cluster Mesh) | Service endpoint manipulation |
-| Stateful services (CNPG, MongoDB, Strimzi) | Database promotion signaling |
+| Stateful services (CNPG, FerretDB, Strimzi) | Database promotion signaling |
 
 **Modes:** automatic | semi-automatic | manual (regulated tier).
 
 ### 2.5 Data replication patterns
 
-These apply to **Application Blueprints** that need cross-region replication. The Catalyst control plane uses different patterns documented in [`SECURITY.md`](SECURITY.md) for OpenBao and [`ARCHITECTURE.md`](ARCHITECTURE.md) for JetStream.
+These apply to stateful components — Application Blueprints (data services) **and** per-host-cluster infrastructure with state (MinIO, Harbor). The Catalyst control plane's own state-bearing components use different patterns: see [`SECURITY.md`](SECURITY.md) for OpenBao and [`ARCHITECTURE.md`](ARCHITECTURE.md) for NATS JetStream.
 
-| Application Blueprint | Replication method | RPO |
-|---|---|---|
-| CNPG (PostgreSQL) | WAL streaming to async standby | Near-zero |
-| FerretDB | Via CNPG WAL streaming | Near-zero |
-| Strimzi/Kafka | MirrorMaker2 | Seconds |
-| Valkey | REPLICAOF | Seconds |
-| ClickHouse | ReplicatedMergeTree | Seconds |
-| MinIO | Bucket replication | Minutes |
-| Harbor | Registry replication | Minutes |
-| Milvus | Collection sync | Minutes |
-| Neo4j | Causal cluster replication | Seconds |
-| Gitea | Bidirectional mirror + CNPG primary-replica | Seconds |
+| Component | Layer | Replication method | RPO |
+|---|---|---|---|
+| CNPG (PostgreSQL) | Application Blueprint | WAL streaming to async standby | Near-zero |
+| FerretDB | Application Blueprint | Via CNPG WAL streaming | Near-zero |
+| Strimzi/Kafka | Application Blueprint | MirrorMaker2 | Seconds |
+| Valkey | Application Blueprint | REPLICAOF | Seconds |
+| ClickHouse | Application Blueprint | ReplicatedMergeTree | Seconds |
+| OpenSearch | Application Blueprint | Cross-cluster replication | Seconds |
+| Milvus | Application Blueprint | Collection sync | Minutes |
+| Neo4j | Application Blueprint | Causal cluster replication | Seconds |
+| MinIO | Per-host-cluster infra | Bucket replication | Minutes |
+| Harbor | Per-host-cluster infra | Registry replication | Minutes |
+| Gitea | Catalyst control plane | Bidirectional mirror + CNPG primary-replica | Seconds |
 
 ---
 
@@ -110,21 +111,23 @@ These apply to **Application Blueprints** that need cross-region replication. Th
 
 ### 3.1 Canary deployments
 
-[Flagger](https://flagger.app) provides automatic canary analysis with rollback:
+[Flagger](https://flagger.app) is the planned canary controller (currently a "components to watch" addition, see [`TECHNOLOGY-FORECAST-2027-2030.md`](TECHNOLOGY-FORECAST-2027-2030.md)):
 
 - Flux-native integration
 - Automatic rollback on metric degradation (latency, error rate)
 - No ArgoCD dependency
 
-Flagger lives as a Catalyst control-plane component in `mgt`; per-Application canary configuration is in the Application Blueprint.
+When added, Flagger is intended to live as per-host-cluster infrastructure on each `rtz` cluster; per-Application canary configuration in the Application Blueprint. **Status:** design — not yet a deployed Blueprint.
 
 ### 3.2 Feature flags
 
-[Flipt](https://flipt.io) for self-hosted feature flagging:
+[Flipt](https://flipt.io) is the planned feature-flag service (also "components to watch"):
 
 - Self-hosted, zero-cost
 - Simple SDK integration (Go, TypeScript, Python)
 - Gradual rollout control
+
+**Status:** design — not yet a deployed Blueprint.
 
 ---
 

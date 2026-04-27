@@ -138,7 +138,7 @@ Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
 
 ### Build a Blueprint
 
-See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md). A Blueprint is a Git repo + a `blueprint.yaml` CRD manifest + manifests + (optional) Crossplane Compositions. CI signs it and publishes to OCI. Catalyst's `blueprint-controller` picks it up automatically.
+See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md). A Blueprint is a folder under `platform/<name>/` (or `products/<name>/`) in this monorepo containing `blueprint.yaml` + manifests (Helm chart or Kustomize base) + (optional) Crossplane Compositions. CI signs each folder's contents and publishes to OCI as `ghcr.io/openova-io/bp-<name>:<semver>`. Catalyst's `blueprint-controller` picks it up automatically. Org-private Blueprints follow the same shape inside per-Sovereign Gitea repos.
 
 ---
 

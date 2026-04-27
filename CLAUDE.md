@@ -32,25 +32,29 @@ OpenOva (the company) builds **Catalyst** (the platform). A deployed Catalyst is
 ```
 openova/
 ├── core/                   # Catalyst control-plane application (Go)
-│   ├── apps/{bootstrap,manager}/  # historical split; both fold under "Catalyst control plane"
-│   ├── internal/           # domain, application, adapters, events
-│   ├── pkg/apis/           # CRD types
-│   ├── ui/                 # frontend (React/TS)
-│   └── deploy/             # K8s manifests for Catalyst control-plane components
-├── platform/               # Component Blueprints — one folder per upstream OSS project
+│   ├── apps/               # target: console/, projector/, environment-controller/, etc.
+│   │                       # current: empty .gitkeep + legacy bootstrap/ manager/ placeholders
+│   │                       # See core/README.md for the target tree.
+│   ├── internal/           # domain, application, adapters, events (placeholder)
+│   ├── pkg/apis/           # CRD types: Sovereign, Organization, Environment,
+│   │                       # Application, Blueprint, EnvironmentPolicy, SecretPolicy,
+│   │                       # Runbook (placeholder; design contract in BLUEPRINT-AUTHORING)
+│   ├── ui/                 # frontend (Astro + Svelte) — placeholder
+│   └── deploy/             # K8s manifests per control-plane component (placeholder)
+├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
-│   └── ...                 # ~50+ folders
-├── products/               # Composite Blueprints OpenOva ships
-│   ├── catalyst/           # Catalyst itself, packaged as bp-catalyst-platform umbrella
-│   ├── cortex/             # AI Hub
-│   ├── axon/               # SaaS LLM Gateway
-│   ├── fingate/            # Open Banking
-│   ├── fabric/             # Data & Integration
-│   └── relay/              # Communication
-└── docs/                   # Platform documentation (canonical)
+│   └── ...                 # ~60 folders, each currently README-only
+├── products/               # Composite Blueprint folders OpenOva ships
+│   ├── catalyst/           # Target: bp-catalyst-platform umbrella (currently only bootstrap/ui scaffold)
+│   ├── cortex/             # AI Hub                          (README only)
+│   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
+│   ├── fingate/            # Open Banking                    (README only)
+│   ├── fabric/             # Data & Integration              (README only)
+│   └── relay/              # Communication                   (README only)
+└── docs/                   # Canonical platform documentation
 ```
 
-Each subfolder of `platform/` and `products/` is a Blueprint repo when published. The monorepo here is convenience for development; CI fans out to per-Blueprint OCI publishes.
+Each subfolder of `platform/` and `products/` is the **source of one Blueprint** in this monorepo (canonical layout). CI fans out to per-Blueprint OCI artifacts at `ghcr.io/openova-io/bp-<name>:<semver>` — that's where per-Blueprint isolation lives. There are no separate per-Blueprint Git repositories.
 
 ---
 
@@ -77,7 +81,7 @@ Do not use in any new doc, code, comment, commit message, or UI string:
 - "Backstage" → `Catalyst console`. Backstage was decided removed.
 - "Synapse" (as the OpenOva product) → `Axon`. Matrix's Synapse server is fine when context is the chat server.
 - "Lifecycle Manager" / "Bootstrap wizard" (as separate products) → `Catalyst`.
-- "Workspace" (as Catalyst scope) → `Environment`.
+- "Workspace" (as Catalyst scope OR component name) → `Environment` / `environment-controller`. The controller previously named `workspace-controller` is now `environment-controller`.
 - "Instance" (as user-facing object) → `Application`. CRD remains an internal name.
 
 When in doubt: defer to [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
