@@ -166,34 +166,33 @@ spec:
 
 ## Multi-Region GitOps
 
+Catalyst runs **one Gitea per Sovereign** on the management cluster (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). Each workload region's Flux pulls from that single Gitea over the cross-region network. Per-region HA comes from Gitea's intra-cluster replicas + CNPG-backed metadata, not cross-region bidirectional mirror.
+
 ```mermaid
 flowchart TB
-    subgraph Gitea["Gitea (Bidirectional Mirror)"]
-        G1[Gitea Region 1]
-        G2[Gitea Region 2]
-        G1 <-->|"Mirror"| G2
+    subgraph Mgt["Management cluster (per Sovereign)"]
+        Gitea[Gitea — single instance, K8s-replicated for HA]
     end
 
-    subgraph Region1["Region 1"]
-        Flux1[Flux]
-        K8s1[K8s Resources]
+    subgraph Region1["Workload region 1 (rtz)"]
+        Flux1[Per-vcluster Flux]
+        K8s1[Org vcluster workloads]
     end
 
-    subgraph Region2["Region 2"]
-        Flux2[Flux]
-        K8s2[K8s Resources]
+    subgraph Region2["Workload region 2 (rtz)"]
+        Flux2[Per-vcluster Flux]
+        K8s2[Org vcluster workloads]
     end
 
-    G1 --> Flux1
-    G2 --> Flux2
+    Gitea --> Flux1
+    Gitea --> Flux2
     Flux1 --> K8s1
     Flux2 --> K8s2
 ```
 
-- Each region has its own Flux installation
-- Both Gitea instances mirror repositories bidirectionally
-- Flux in each region pulls from local Gitea
-- Region-specific configuration handled via Kustomize overlays
+- One Gitea per Sovereign (on the mgt cluster). HA via intra-cluster replicas, not cross-region mirror.
+- Each vcluster runs its own lightweight Flux that pulls from this single Gitea.
+- Per-region configuration is encoded in the Environment's manifests via Kustomize overlays / Placement metadata.
 
 ---
 

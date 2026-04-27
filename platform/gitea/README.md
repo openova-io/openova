@@ -1,18 +1,20 @@
 # Gitea
 
-Self-hosted Git and CI/CD for OpenOva platform.
+Per-Sovereign Git server for Catalyst. Hosts the public Blueprint catalog mirror, Org-private Blueprints, and per-Environment Gitea repos.
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
+
+> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (one Gitea per Sovereign on the management cluster). See [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3 and [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.
 
 ---
 
 ## Overview
 
 Gitea provides self-hosted Git with CI/CD capabilities:
-- Internal Git repository hosting
-- Gitea Actions (GitHub Actions compatible)
-- Bidirectional mirroring for multi-region
-- CNPG PostgreSQL backend
+- Internal Git repository hosting (per-Sovereign).
+- Gitea Actions (GitHub Actions compatible).
+- HA via intra-cluster replicas (not cross-region mirror — see Multi-Region section below).
+- CNPG PostgreSQL backend.
 
 ---
 
@@ -33,34 +35,50 @@ flowchart TB
 
     subgraph Integrations
         Flux[Flux CD]
-        Catalyst console[Catalyst console]
+        Console[Catalyst console]
     end
 
     Web --> CNPG
     Git --> CNPG
     Actions --> MinIO
     Flux -->|"Clone"| Git
-    Catalyst console -->|"Discover"| Git
+    Console -->|"Discover"| Git
 ```
 
 ---
 
-## Multi-Region Mirroring
+## Multi-Region Strategy
+
+Catalyst runs **one Gitea per Sovereign** on the management cluster. Cross-region resilience comes from intra-cluster HA (multiple replicas + CNPG primary-replica), not cross-region bidirectional mirror.
 
 ```mermaid
-flowchart LR
-    subgraph Region1["Region 1"]
-        G1[Gitea 1]
+flowchart TB
+    subgraph Mgt["Management cluster (per Sovereign)"]
+        G[Gitea — N replicas, HA]
+        PG[CNPG primary]
+        PGR[CNPG read-replica]
+        G --> PG
+        PG -.->|"WAL streaming"| PGR
     end
 
-    subgraph Region2["Region 2"]
-        G2[Gitea 2]
+    subgraph Region1["Workload region 1"]
+        F1[Per-vcluster Flux]
     end
 
-    G1 <-->|"Bidirectional Mirror"| G2
+    subgraph Region2["Workload region 2"]
+        F2[Per-vcluster Flux]
+    end
+
+    G --> F1
+    G --> F2
 ```
 
-Both Gitea instances maintain full repository copies. Each Flux installation pulls from its local Gitea.
+**Why not cross-region bidirectional mirror?**
+- Single source of truth simplifies the merge story (the Sovereign-wide Catalyst console writes once, all Flux instances pull from one place).
+- Bidirectional mirror would create write-conflict semantics that complicate EnvironmentPolicy enforcement (which requires PR approvals to be authoritative on the destination repo).
+- Workload region failures don't affect Gitea — Flux is read-mostly during outages and the management cluster is the primary failure domain to harden.
+
+If the Sovereign needs Gitea continuity across a full management-cluster failure, the relevant pattern is a DR replica of the management cluster — not Gitea mirroring inside one Sovereign.
 
 ---
 
@@ -169,9 +187,9 @@ spec:
 ## Backup
 
 Gitea data is backed up via:
-- CNPG for PostgreSQL (WAL streaming)
-- MinIO replication for storage
-- Repository mirror for redundancy
+- CNPG for PostgreSQL (WAL streaming to async standby; backed up via Velero to MinIO + cloud archival).
+- MinIO replication for LFS/Actions storage.
+- Velero scheduled backups of the gitea namespace.
 
 ---
 

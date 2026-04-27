@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 7 — major OpenBao + ESO + Gitea + Flux drift
+
+The most consequential pass yet. Two READMEs (`platform/openbao/README.md` and `platform/external-secrets/README.md`) described an **active-active bidirectional sync** model that was explicitly rejected during the architecture session in favor of independent Raft per region with async perf replication. They had survived all previous passes because the banned-term grep doesn't catch architectural drift.
+
+- **OpenBao README**: rewrote Architecture section, ClusterSecretStore example, PushSecret example, and consequences. The active-active diagram was replaced with the primary→replicas async perf replication topology that matches `docs/SECURITY.md` §5. Single-target PushSecret to `bao-primary`. Added DR promotion section.
+- **External-Secrets README**: removed broken link to non-existent `../openbao/docs/ADR-OPENBAO.md`. Reframed Key Principles table to match single-primary writes. Replaced "PushSecret to Multiple OpenBao Instances" with single-target primary write. Updated Bootstrap Mermaid sequence to use "Catalyst Bootstrap (Phase 0)" / "OpenTofu" / "SPIFFE SVID" nomenclature.
+- **Gitea README**: removed bidirectional cross-region mirror diagram (Catalyst runs one Gitea per Sovereign on the management cluster, not cross-region mirror). Added explanation of why bidirectional was rejected (write-conflict semantics break EnvironmentPolicy enforcement). Updated backup section.
+- **Flux README**: same correction — multi-region GitOps section rewritten to show single Gitea per Sovereign with per-vcluster Flux pulling from it.
+- **Mermaid syntax bug**: an earlier mass replace_all of "Catalyst IDP" → "Catalyst console" had left an invalid mermaid node identifier `Catalyst console[Catalyst console]` (mermaid doesn't allow spaces in node IDs). Fixed to `Console[Catalyst console]`. This would have rendered as a broken diagram in the GitHub view.
+
+This pass justifies the user's instruction to keep restarting validation — the active-active drift had survived 5 prior passes by hiding in component READMEs that grep-based checks didn't reach.
+
 ---
 
 ## Acceptance criteria (each ran clean as of last commit)
