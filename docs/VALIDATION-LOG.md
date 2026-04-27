@@ -63,6 +63,76 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 56 — Final aggregate sweep + opentofu — fully clean
+
+**SEVENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56). **THREE consecutive clean architectural passes** (54 → 55 → 56). Convergence approaching nirvana.
+
+**Aggregate sweep across 12 acceptance categories** — all clean:
+| # | Category | Status |
+|---|---|---|
+| 1 | Bare `<domain>` | clean |
+| 2 | Literal-domain Catalyst control-plane | clean |
+| 4 | `\bfuse\b` (legacy product name) | clean |
+| 5a | `\b[a-z]+-staging\b` env_type | clean |
+| 5b | `\b[a-z]+-production\b` env_type | clean |
+| 5c | `\b[a-z]+-development\b` env_type | clean |
+| 6a | `\bTENANT\b` ALL-CAPS | clean |
+| 6b | `\bWORKSPACE\b` ALL-CAPS | clean |
+| 8 | Helm-default namespaces | clean |
+| 9 | Vague composite placeholders | clean |
+| 14 | Bare `openova.io/` API group | clean |
+| 13 | Stale `Updated: 2026-02` dates | clean |
+
+**Cross-component namespace consistency** — each shared dependency uses exactly ONE canonical namespace:
+- `minio.<ns>.svc` → only `storage` (10 components consistent)
+- `kafka-kafka-bootstrap.<ns>.svc` → only `databases` (4 components)
+- `strimzi-kafka-bootstrap.<ns>.svc` → only `databases` (3 components)
+- `opensearch.<ns>.svc` → only `search` (3 components)
+- `clickhouse.<ns>.svc` → only `databases` (1+ component)
+
+**Architectural pass-fix verification** — every fix from Pass 7 onwards intact end-to-end:
+- Pass 7: OpenBao independent-Raft-per-region (echoed across SECURITY §5, ARCHITECTURE §6, BUSINESS-STRATEGY §8.4, openbao README, gitea README, opentofu README L188)
+- Pass 24: SRE.md Alertmanager URLs canonical
+- Pass 25-29: DNS placeholder canonical form `{component}.<location-code>.<sovereign-domain>` end-to-end
+- Pass 26: Catalyst-vs-OpenOva company/platform separation in BUSINESS-STRATEGY
+- Pass 27: TECHNOLOGY-FORECAST mandatory/à-la-carte (opensearch + keycloak swap) intact
+- Pass 32: Image registry canonical `harbor.<location-code>.<sovereign-domain>` across 9 components
+- Pass 33: PERSONAS Layla narrative DNS + vcluster-as-Org name
+- Pass 34: TENANT banned-term renamed to ORGANIZATION across all products
+- Pass 35: Component-README DNS sweep (openbao, valkey, strimzi, cnpg, stunner, k8gb)
+- Pass 38: temporal namespace `fabric` (post-fuse rename)
+- Pass 39: ARCHITECTURE + PERSONAS env_type `*-stg` (not `*-staging`)
+- Pass 40: PLATFORM-TECH-STACK §1 union-equality (15+21+27 = 63 components)
+- Pass 41: SOVEREIGN-PROVISIONING §4 self-sufficiency list completeness + minio `storage` namespace
+- Pass 42: Vague `<sovereign-gitea>` placeholders → canonical
+- Pass 43: SRE §2.5 Gitea no-bidirectional-mirror (intra-cluster HA only)
+- Pass 45: TECHNOLOGY-FORECAST A La Carte header count (27)
+- Pass 46: CLAUDE.md "52 folders" (was "~60")
+- Pass 47-52: Stale `Updated` dates updated to 2026-04-28 across BUSINESS-STRATEGY, fabric, cortex, fingate, TECHNOLOGY-FORECAST
+- Pass 48: crossplane README OpenTofu naming + compose.openova.io XRD group
+- Pass 51: flink Strimzi namespace `databases` (not `messaging`)
+- Pass 53: ARCHITECTURE §8 column alignment
+
+All architectural fixes verified intact via the aggregate sweep — no regression.
+
+**platform/opentofu/README.md**: clean. Banner explicitly establishes:
+- "Bootstrap Infrastructure as Code (one-shot)"
+- "lives on the always-on `catalyst-provisioner` only" — matches PTS §3.2's "Not deployed on host clusters"
+- "Drop-in replacement for Terraform with MPL 2.0 license" + "Linux Foundation / CNCF fork" — Pass 48 OpenTofu canonical naming aligned at the README banner level
+- "After bootstrap, **Crossplane** handles all day-2 cloud resource provisioning" — matches Pass 48 crossplane README + ARCHITECTURE §10
+- L188 secrets management: "all secret writes go to the **primary** OpenBao region only; replicas pick up via async perf replication" — Pass 7 fix language preserved
+
+**Pass 56: clean.** Three consecutive architectural-clean passes (54, 55, 56). Two more (Pass 57, 58) would meet the user's "5 consecutive cleans = nirvana approach" threshold.
+
+Convergence trajectory final update:
+- Pass 24-37 (14): ~93% drift rate
+- Pass 38-43 (6): 100% drift rate
+- Pass 44-50 (7): ~57% drift rate
+- Pass 51-53 (3): 100% drift (cosmetic)
+- Pass 54-56 (3): **0% drift rate** ✓
+
+The drift surface has shrunk to effectively zero across all measurable categories. Remaining drift discovery is now constrained to deep-reads of components not yet examined or third-cycle re-reads of already-touched canonical docs.
+
 ### Pass 55 — PLATFORM-TECH-STACK §2-§5 third-cycle stable; openmeter clean
 
 Both targets verified clean. **Sixth clean pass overall** (28, 44, 49, 50, 54, 55). **Two consecutive clean architectural passes** (54 → 55).
