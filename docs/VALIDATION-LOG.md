@@ -63,6 +63,28 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 15 — final banner sweep + convergence check
+
+Triage swept all 52 `platform/*/README.md` files for the role-in-Catalyst banner (per CLAUDE.md component-README rule of thumb #2). 4 still lacked one: `cnpg`, `flux`, `opentofu`, `strimzi` (although `opentofu` did have its banner — the keyword grep had been too narrow).
+
+Banners added:
+- **cnpg** (§4.1): production Postgres operator; underlying engine for FerretDB and Gitea metadata.
+- **flux** (§3.2): per-vcluster Flux + host-level Flux for Catalyst itself; pulls from single per-Sovereign Gitea.
+- **strimzi** (§4.1): Application-tier event streaming; NOT the Catalyst control-plane spine (which uses NATS JetStream). Same upstream-tech-different-tier disambiguation as Valkey.
+- **opentofu**: keywords aligned so future grep sweeps catch it.
+
+**52 / 52 platform components now have a role-in-Catalyst banner.**
+
+### Convergence achieved (initial banner sweep)
+
+Every platform/<x>/README.md and products/<x>/README.md now states its role in Catalyst (control plane vs per-host-cluster infrastructure vs Application Blueprint vs Composite Blueprint). No banned terms, no broken cross-references, no architectural drift detected on this pass.
+
+The validation loop continues per the user's "infinite loop until nirvana" instruction — subsequent passes will be brief drift-detection sweeps rather than systematic rewrites. Any new architectural divergence introduced by future commits is expected to be caught by:
+
+1. The grep playbook in this file's "Acceptance criteria" section.
+2. Periodic line-by-line spot reads of randomly-selected canonical docs.
+3. The standing rule that any contradiction with `IMPLEMENTATION-STATUS.md` must be reconciled by either (a) shipping the code or (b) correcting the claim.
+
 ### Pass 14 — Workflow / Analytics / Metering / Chaos / Valkey (7 components)
 
 7 more Application Blueprint banners landed in a single commit:

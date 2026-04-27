@@ -1,8 +1,8 @@
 # CNPG (CloudNative PostgreSQL)
 
-PostgreSQL operator for OpenOva platform.
+Production-grade PostgreSQL operator. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1 — Data services). Used by Organizations that want managed Postgres; also the underlying engine for FerretDB (MongoDB-compatible) and Gitea metadata. Replication via WAL streaming to async standby (Application-tier choice).
 
-**Status:** Accepted | **Updated:** 2026-01-17
+**Status:** Accepted | **Updated:** 2026-04-27
 
 ---
 
