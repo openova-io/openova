@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 37 — NAMING-CONVENTION §11.2 example URL drift; cilium clean
+
+One real fix on NAMING-CONVENTION; cilium README clean.
+
+Applying the Pass 23 lesson ("long canonical docs need careful read of LATER sections"): I deep-scanned NAMING-CONVENTION §7-§11 (sections that earlier passes touched only briefly). Found one drift instance in §11.2 — the most authoritative passage in the entire repo on Environment realization.
+
+- **NAMING-CONVENTION.md §11.2 step 1** had the example URL `gitea.omantel.openova.io/acme/acme-prod` — a 3-segment form that bypasses the `{location-code}` segment NAMING §5.1 itself establishes for Catalyst control-plane DNS. This is the most concerning kind of drift: the **authoritative naming doc** offering a non-canonical example would teach every reader the wrong form. Pass 29's earlier sweep caught the placeholder forms (`gitea.<sovereign>.<domain>` etc.) but missed this one because it uses a literal Sovereign domain (`omantel.openova.io`) that completes a 3-segment form, evading any grep for `<sovereign>` / `<domain>` placeholders. Fixed to `gitea.<location-code>.omantel.openova.io/acme/acme-prod` and added an inline pointer back to §5.1 so the canonical pattern stays visible at the example site.
+
+- **platform/cilium/README.md**: clean. Banner correct (per-host-cluster infrastructure §3.1 — installed on every host cluster before any other workload). All examples (CiliumNetworkPolicy, Gateway API, CiliumEnvoyConfig circuit breakers, OTel auto-instrumentation) use generic upstream K8s/Cilium patterns (`app.example.com`, `default` namespace, `frontend`/`api-service` selectors) — not Catalyst-specific, no DNS-shape concerns.
+
+Pattern note: the surviving NAMING drift instance was a **literal-domain** form (no placeholder), which is the hardest variant to grep for. Future drift sweeps that look for "{component}.{Sovereign-domain}" patterns should also grep for the literal domains used by canonical-example Sovereigns (`omantel.openova.io`, `bankdhofar.local`, `openova.io`) to catch this variant.
+
 ### Pass 36 — flux deep-scrutiny + sweep gap-fill (5 fixes flux + 1 kyverno)
 
 Pass 35 had a sweep grep with `head -10` cutoff that compromised completeness; Pass 36 ran the same grep without the cutoff and found 6 surviving instances across 2 components.
