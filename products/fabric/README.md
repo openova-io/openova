@@ -2,7 +2,7 @@
 
 Event-driven data integration and lakehouse analytics platform.
 
-**Status:** Accepted | **Updated:** 2026-02-26
+**Status:** Accepted | **Updated:** 2026-04-28
 
 ---
 

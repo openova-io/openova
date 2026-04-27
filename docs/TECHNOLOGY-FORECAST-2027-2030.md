@@ -2,7 +2,7 @@
 
 Component technology assessment and strategic forecast for the OpenOva platform.
 
-**Status:** Accepted | **Updated:** 2026-02-26
+**Status:** Accepted | **Updated:** 2026-04-28
 
 ---
 

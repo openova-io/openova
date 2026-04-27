@@ -2,7 +2,7 @@
 
 Fintech sandbox environments with PSD2/FAPI compliance, TPP management, and API monetization.
 
-**Status:** Accepted | **Updated:** 2026-02-26
+**Status:** Accepted | **Updated:** 2026-04-28
 
 ---
 

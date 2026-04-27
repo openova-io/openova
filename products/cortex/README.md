@@ -2,7 +2,7 @@
 
 Enterprise AI platform with LLM serving, RAG, AI safety, and LLM observability.
 
-**Status:** Accepted | **Updated:** 2026-02-26
+**Status:** Accepted | **Updated:** 2026-04-28
 
 ---
 

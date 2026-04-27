@@ -63,6 +63,31 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 52 — bundled date-sweep + cross-component namespace sweep; knative clean
+
+Four stale-date fixes; cross-component namespace sweep clean across all 5 shared dependencies; knative README clean.
+
+**Date-sweep (Pass 47 carry-over)**: 4 docs had stale "Updated: 2026-02-26" markers despite architectural edits in Pass 27/34/45. Updated all to 2026-04-28:
+- products/fabric/README.md (Pass 34 TENANT rename)
+- products/cortex/README.md (Pass 34 TENANT + DNS placeholder fixes)
+- products/fingate/README.md (Pass 34 TENANT + 6 URL templates renamed)
+- docs/TECHNOLOGY-FORECAST-2027-2030.md (Pass 27 mandatory/à-la-carte swap + Pass 45 header count fix)
+
+products/relay/README.md kept at 2026-02-26 (no architectural edits since — verified via `git log --follow`).
+
+**Cross-component namespace sweep (Pass 51 lesson #16)** — verified canonical namespace consistency for all shared dependencies:
+- **minio.storage.svc**: 10 instances across 10 components (harbor, iceberg×2, clickhouse, kserve, grafana, gitea, flink, cnpg, milvus). All consistent ✓ (Pass 41 fix held end-to-end).
+- **kafka-kafka-bootstrap.databases.svc**: 4 instances (clickhouse, keda, strimzi, openmeter). All consistent ✓.
+- **strimzi-kafka-bootstrap.databases.svc**: 3 instances (debezium, flink×2). All consistent ✓ (Pass 51 fix held).
+- **opensearch.search.svc**: 3 instances (falco, opensearch×2). All consistent ✓.
+- cnpg, keycloak, openbao, nats, gitea: no `<svc>.<namespace>.svc` references in the canonical docs (these dependencies are referenced via different patterns — e.g., DNS hostnames at the Catalyst control-plane FQDN form for keycloak/openbao/gitea, JetStream subjects for NATS).
+
+This is the first pass where cross-component namespace sweep returned fully clean across all shared dependencies. Previous passes corrected drift one component at a time (Pass 41 minio×3, Pass 51 flink×2). The sweep confirms convergence on the namespace-consistency dimension.
+
+**platform/knative/README.md**: clean. Banner correct (Application Blueprint §4.6 AI/ML, used by bp-cortex). Pass 32 image registry fix intact (`harbor.<location-code>.<sovereign-domain>` on L99 + L123). Knative Service + Eventing examples consistent with Cilium Gateway API integration. The InMemoryChannel default for `messaging.knative.dev/v1` is K8s API group (not a Catalyst namespace named "messaging") — no drift.
+
+Pass 52 result: drift found (4 stale dates; minor mechanical fixes). Consecutive-clean count remains 0 (Pass 51 reset, Pass 52 has fixes). However, the cross-component namespace sweep returning clean for the first time is a significant convergence signal — the drift category that Pass 41 + Pass 51 hunted is now closed.
+
 ### Pass 51 — flink Strimzi namespace drift; SECURITY clean
 
 One fix on platform/flink/README.md (2 instances); SECURITY clean.
