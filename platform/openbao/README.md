@@ -105,7 +105,7 @@ server:
     enabled: true
     ingressClassName: cilium
     hosts:
-      - host: bao.<domain>
+      - host: bao.<location-code>.<sovereign-domain>
 
 injector:
   enabled: false  # Using ESO instead

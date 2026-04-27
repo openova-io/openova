@@ -151,7 +151,7 @@ openidConfig:
   clientId: "${CLIENT_ID}"
   clientSecret: "${CLIENT_SECRET}"
   scope: ["openid", "profile", "email"]
-  callbackURL: "https://chat.ai-hub.<domain>/oauth/openid/callback"
+  callbackURL: "https://chat.<env>.<sovereign-domain>/oauth/openid/callback"
 ```
 
 ### Keycloak

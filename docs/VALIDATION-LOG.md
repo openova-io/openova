@@ -63,6 +63,18 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 31 — openbao DNS placeholder + librechat callback URL (Pass 22/29 carry-over); GLOSSARY clean
+
+Two real DNS-placeholder fixes; GLOSSARY confirmed clean.
+
+- **platform/openbao/README.md** ingress hosts list at line 108 had `bao.<domain>` — same DNS-placeholder collapse Pass 29 swept across canonical docs. The same file uses the canonical `bao.<location-code>.<sovereign-domain>` form on line 127 in the ClusterSecretStore example, so this was internal inconsistency: Pass 7 fixed the active-active drift in the body but missed the ingress hosts placeholder. Fixed.
+- **platform/librechat/README.md** OAuth callback URL line 154 had `https://chat.ai-hub.<domain>/oauth/openid/callback` — Pass 22 marked librechat clean and missed it; Pass 29 fixed the Keycloak issuer line in the same file but didn't re-sweep the rest. Per NAMING §5.2 Application endpoints are `{app}.{environment}.{sovereign-domain}` — the `ai-hub.<domain>` form has the same shape problem Pass 25 fixed in llm-gateway. Rewritten to `https://chat.<env>.<sovereign-domain>/oauth/openid/callback`.
+- **docs/GLOSSARY.md**: clean. Core nouns, roles, infrastructure, Catalyst components, surfaces, banned terms, acronyms — all consistent with Pass 6 (NATS Account/subject reconciliation), Pass 7 (OpenBao independent Raft), Pass 14/22/26 (Catalyst/OpenOva separation), Pass 20 (placement modes), Pass 27 (Keycloak topology). The single-source-of-truth has held up across the loop.
+
+Sweep grep at end of pass: only `harbor.<domain>` patterns + customer-email-domain `<domain>` placeholders in stalwart remain (the latter are correct — they refer to the customer's email-receiving domain, not the Sovereign DNS). The `harbor.<domain>` cluster is on Pass 25's deferred sweep list and will be addressed in a dedicated pass.
+
+This is the third pass to reopen a previously-marked-clean component (librechat: Pass 22 → Pass 29 → Pass 31). The pattern: short-form scans verify the banner and one or two visible config blocks, but YAML/code examples deeper in the file accumulate copy-paste drift that survives. Future Pass-N entries should default to a full grep-for-placeholder-shapes on every file touched, not just visual scan.
+
 ### Pass 30 — core/README catalyst-provisioner scope confusion + neo4j clean
 
 One real fix on core/README; neo4j README clean.
