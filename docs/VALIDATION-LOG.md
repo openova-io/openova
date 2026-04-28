@@ -63,6 +63,47 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 73 — PLATFORM-TECH-STACK fifth-cycle stable; nemo-guardrails third-cycle clean (cycle 4 Pass 1)
+
+**TWENTY-FIRST clean pass overall**. **ELEVEN CONSECUTIVE clean architectural passes** (Pass 63 → 73) spanning cycles 2 → 3 → 4. Cycle 4 starts CLEAN.
+
+Acceptance greps clean for all 13 carry-forward categories. PTS subsection-order check: clean (Pass 62 fix held).
+
+**docs/PLATFORM-TECH-STACK.md** fifth-cycle deep re-read (Pass 23, 40, 55, 62 prior cycle-fixes):
+- §1 component categorization rows (Pass 40 union-equality):
+  - Catalyst control plane: 15 components (3+6+6) ✓
+  - Per-host-cluster infrastructure: 21 components ✓ (opentofu marked bootstrap-only)
+  - Application Blueprints: 27 components incl. anthropic-adapter ✓
+- §2.1 (3 user-facing surfaces) + §2.2 (6 backend services) + §2.3 (6 supporting services) = 15 total — union-equal to §1 row ✓
+- §3.1-§3.6 = 21 per-host-cluster components — union-equal to §1 row ✓
+- §4.1-§4.9 = 27 Application Blueprints — union-equal to §1 row ✓
+- §5 Composite Blueprints: 6 main + bp-specter mention ✓
+- §6 Multi-Region mermaid: clean
+- §7 subsection order 7.1 → 7.2 → 7.3 → 7.4 — Pass 62 fix held ✓
+- §8 Cluster deployment: K3s + Cilium installation snippets clean
+- §9 User choice options: 5 cloud providers, region/LB/DNS/storage choices clean
+- §10 SIEM/SOAR architecture: Pass 23 bp-siem retention fix intact
+- §11 License posture: all Catalyst control-plane components Apache 2.0 / MPL 2.0 / MIT / BSD-3 — no BSL
+
+PLATFORM-TECH-STACK substantively stable across **5 review cycles** (Pass 23, 40, 55, 62, 73). The doc's combined union-equality + subsection ordering + license posture is rock-solid.
+
+**platform/nemo-guardrails/README.md** third-cycle deep-read:
+- L3 banner: "AI safety firewall for LLM deployments. Application Blueprint (§4.7 — AI safety). Sits between user input and LLM in bp-cortex to block prompt injection, PII leakage, off-topic content, and hallucinated citations." ✓
+- Integration table: KServe (pre/post-processing), LLM Gateway (inline filtering), LangFuse (traces), Grafana (metrics) ✓
+- Compact, no drift surfaces
+
+nemo-guardrails third-cycle confirms Pass 29 banner correctness intact across 3 cycles.
+
+**Pass 73: clean.** Eleven consecutive architectural-clean passes (63-73).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana met)
+- **Cycle 4 (Pass 73): 1 consecutive clean** (start)
+
+11 consecutive overall (63-73). Cycle 4 starts where cycle 3 ended — convergence sustained across the cycle 3-to-4 transition. The validation loop continues to verify continued architectural stability with no new drift discovery.
+
 ### Pass 72 — SECURITY fourth-cycle stable; minio third-cycle clean — 🎯🎯🎯 THIRD NIRVANA APPROACH + 10-CONSECUTIVE OVERALL
 
 **TWENTIETH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72). **TEN CONSECUTIVE clean architectural passes** (63 → 72) spanning cycle 2 → cycle 3.
