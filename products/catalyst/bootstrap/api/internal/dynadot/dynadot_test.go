@@ -431,7 +431,15 @@ func TestAddSovereignRecords_FailsFastOnFirstError(t *testing.T) {
 // TestIsManagedDomain_PoolList — the helper that gates whether we attempt
 // Dynadot writes at all. Misclassifying a BYO domain as "managed" would
 // trigger Dynadot calls against a domain we don't own.
+//
+// We unset both DYNADOT_MANAGED_DOMAINS and DYNADOT_DOMAIN so the helper
+// falls through to its built-in default allowlist.
 func TestIsManagedDomain_PoolList(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	t.Setenv("DYNADOT_DOMAIN", "")
+	resetManagedDomainsCache()
+	t.Cleanup(resetManagedDomainsCache)
+
 	cases := []struct {
 		in   string
 		want bool
@@ -449,4 +457,162 @@ func TestIsManagedDomain_PoolList(t *testing.T) {
 			t.Errorf("IsManagedDomain(%q) = %v, want %v", tc.in, got, tc.want)
 		}
 	}
+}
+
+// TestManagedDomains_FromEnvList — production wiring: the K8s secret sets
+// DYNADOT_MANAGED_DOMAINS to a comma-separated list. This is the canonical
+// path the catalyst-api uses in real deployments.
+func TestManagedDomains_FromEnvList(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{
+			name: "two domains, simple",
+			env:  "openova.io,omani.works",
+			want: []string{"openova.io", "omani.works"},
+		},
+		{
+			name: "extra whitespace gets trimmed",
+			env:  " openova.io , omani.works , some-pool.example  ",
+			want: []string{"openova.io", "omani.works", "some-pool.example"},
+		},
+		{
+			name: "case-insensitive normalisation",
+			env:  "OPENOVA.IO,Omani.Works",
+			want: []string{"openova.io", "omani.works"},
+		},
+		{
+			name: "empty entries get dropped",
+			env:  "openova.io,,omani.works,",
+			want: []string{"openova.io", "omani.works"},
+		},
+		{
+			name: "duplicates collapsed, first-seen order preserved",
+			env:  "omani.works,openova.io,Omani.Works,OPENOVA.IO",
+			want: []string{"omani.works", "openova.io"},
+		},
+		{
+			name: "single-domain comma-separated still works",
+			env:  "single-pool.example",
+			want: []string{"single-pool.example"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DYNADOT_MANAGED_DOMAINS", tc.env)
+			t.Setenv("DYNADOT_DOMAIN", "")
+			resetManagedDomainsCache()
+			t.Cleanup(resetManagedDomainsCache)
+
+			got := ManagedDomains()
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("ManagedDomains() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestManagedDomains_LegacyDynadotDomainFallback — during a rolling secret
+// upgrade, the old key DYNADOT_DOMAIN may still be present alone. The helper
+// must still behave (returning that single domain) so in-flight pods don't
+// crash.
+func TestManagedDomains_LegacyDynadotDomainFallback(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{name: "single legacy value", env: "openova.io", want: []string{"openova.io"}},
+		{name: "uppercased gets normalised", env: "OPENOVA.IO", want: []string{"openova.io"}},
+		{name: "wraps whitespace", env: "  omani.works  ", want: []string{"omani.works"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+			t.Setenv("DYNADOT_DOMAIN", tc.env)
+			resetManagedDomainsCache()
+			t.Cleanup(resetManagedDomainsCache)
+
+			got := ManagedDomains()
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("ManagedDomains() (legacy fallback) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestManagedDomains_BuiltinDefaultsWhenNoEnv — local dev / unit-test path:
+// neither env var is set, so the helper returns its built-in defaults. This
+// is the only test that asserts the literal default list — production never
+// runs this path (the K8s secret always sets DYNADOT_MANAGED_DOMAINS).
+func TestManagedDomains_BuiltinDefaultsWhenNoEnv(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	t.Setenv("DYNADOT_DOMAIN", "")
+	resetManagedDomainsCache()
+	t.Cleanup(resetManagedDomainsCache)
+
+	got := ManagedDomains()
+	want := []string{"openova.io", "omani.works"}
+	if !equalStringSlices(got, want) {
+		t.Errorf("ManagedDomains() defaults = %v, want %v", got, want)
+	}
+}
+
+// TestManagedDomains_EnvListBeatsLegacy — when both env vars are set, the
+// canonical comma-separated list wins. This protects against accidental
+// double-configuration during a migration where someone forgets to remove
+// the old key.
+func TestManagedDomains_EnvListBeatsLegacy(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "new-pool.example,another.example")
+	t.Setenv("DYNADOT_DOMAIN", "legacy.example")
+	resetManagedDomainsCache()
+	t.Cleanup(resetManagedDomainsCache)
+
+	got := ManagedDomains()
+	want := []string{"new-pool.example", "another.example"}
+	if !equalStringSlices(got, want) {
+		t.Errorf("env list should win over legacy: got %v, want %v", got, want)
+	}
+}
+
+// TestIsManagedDomain_HonoursEnvList — the main behaviour change for
+// multi-domain support: customer-byo.example becomes "managed" when the
+// secret advertises it, without any code change.
+func TestIsManagedDomain_HonoursEnvList(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "openova.io,custom-pool.example")
+	t.Setenv("DYNADOT_DOMAIN", "")
+	resetManagedDomainsCache()
+	t.Cleanup(resetManagedDomainsCache)
+
+	if !IsManagedDomain("custom-pool.example") {
+		t.Error("custom-pool.example should be managed when present in DYNADOT_MANAGED_DOMAINS")
+	}
+	if !IsManagedDomain("CUSTOM-POOL.EXAMPLE") {
+		t.Error("IsManagedDomain should be case-insensitive (uppercase miss)")
+	}
+	if !IsManagedDomain(" custom-pool.example ") {
+		t.Error("IsManagedDomain should trim whitespace")
+	}
+	if IsManagedDomain("omani.works") {
+		t.Error("omani.works should NOT be managed when it's been removed from the env list")
+	}
+}
+
+// equalStringSlices returns true iff a and b have the same length and the
+// same elements in the same order. A small helper to keep the test bodies
+// readable.
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

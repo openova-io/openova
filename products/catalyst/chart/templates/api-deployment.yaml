@@ -39,6 +39,24 @@ spec:
                 secretKeyRef:
                   name: dynadot-api-credentials
                   key: api-secret
+            # Comma-separated allowlist of pool domains the catalyst-api may
+            # write DNS records for via the Dynadot API. Adding a new pool
+            # domain to production is a secret edit, not a code change. Falls
+            # back to the legacy `domain` key (single domain) if missing, and
+            # then to the package's built-in defaults (openova.io,omani.works)
+            # for dev workstations. See products/catalyst/bootstrap/api/internal/dynadot/dynadot.go.
+            - name: DYNADOT_MANAGED_DOMAINS
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: managed-domains
+                  optional: true
+            - name: DYNADOT_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: domain
+                  optional: true
           resources:
             requests:
               cpu: 10m
