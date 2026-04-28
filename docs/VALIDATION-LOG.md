@@ -63,6 +63,38 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 76 — BLUEPRINT-AUTHORING fourth-cycle stable; anthropic-adapter third-cycle clean (cycle 4 Pass 4)
+
+**TWENTY-FOURTH clean pass overall**. **FOURTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 76) spanning cycles 2 → 3 → 4. Cycle 4 has 4 consecutive cleans (73 → 74 → 75 → 76).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/BLUEPRINT-AUTHORING.md** fourth-cycle deep-read (Pass 21, 29, 42, 65 prior cycle-fixes):
+- §1 What a Blueprint is: L16 Pass 42 vague-placeholder fix held — `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` canonical (with NAMING §5.1 inline pointer) ✓
+- §2 Folder layout + monorepo path-matrix CI (Pass 21) intact ✓
+- §3 Blueprint CRD: L83 `apiVersion: catalyst.openova.io/v1alpha1` canonical ✓
+- §4-§7: configSchema, Dependencies (5.1-5.3), Placement, Manifests — all consistent
+- §8 Crossplane Compositions: L323 `apiVersion: compose.openova.io/v1alpha1   # shared XRD group across Blueprints` — Pass 42/48 split-API-group canonical anchor preserved ✓
+- §9-§14: Visibility, Versioning, CI pipeline, Private Blueprint authoring (L415 Pass 29 gitea DNS canonical), Contributing back, Hard rules — all intact
+
+BLUEPRINT-AUTHORING substantively stable across **4 review cycles** (Pass 21, 29, 42, 65, 76). Multi-level architectural anchoring (§1 placeholder + §3 CRD apiVersion + §8 XRD apiVersion + §12 DNS form) preserved end-to-end.
+
+**platform/anthropic-adapter/README.md** third-cycle deep-read (Pass 32 prior fix):
+- L3 banner: "OpenAI-compatible proxy for Anthropic Claude API. Application Blueprint (§4.6). Lets Apps written against the OpenAI SDK call Anthropic Claude with no code change. Pairs with the LLM Gateway in bp-cortex." ✓
+- OpenAI ↔ Anthropic translation positioning consistent
+- Pass 32 image registry fix (`harbor.<location-code>.<sovereign-domain>/ai-hub/anthropic-adapter:latest`) held ✓
+- bp-cortex pairing with LLM Gateway consistent with composite-Blueprint description
+
+**Pass 76: clean.** Fourteen consecutive architectural-clean passes (63-76).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana)
+- Cycle 4 (Pass 73-76): 4 consecutive clean ✓ (so far)
+
+14 consecutive overall (63-76). Pass 77 clean would meet the renewed 5-consecutive nirvana threshold within cycle 4 = fourth nirvana approach + 15-consecutive-overall.
+
 ### Pass 75 — GLOSSARY fifth-cycle stable; openbao fourth-cycle clean (cycle 4 Pass 3)
 
 **TWENTY-THIRD clean pass overall**. **THIRTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 75) spanning cycles 2 → 3 → 4. Cycle 4 has 3 consecutive cleans (73 → 74 → 75).
