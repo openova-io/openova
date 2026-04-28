@@ -1,5 +1,7 @@
 # Catalyst UI (Sovereign tier console) is served at
-# https://console.openova.io/sovereign/*.
+# https://<ingress.host><routing.basePath>/* — by default
+# https://console.openova.io/sovereign/* on Catalyst-Zero, and
+# https://console.<sovereign-fqdn>/sovereign/* on a franchised Sovereign.
 #
 # The TLS cert for console.openova.io is owned by the sme namespace
 # (console-openova-tls managed by cert-manager on the console-nova
@@ -7,7 +9,7 @@
 # caused Traefik to present different certs per SNI connection ->
 # intermittent SSL errors in the browser.
 #
-# Fix: this ingress exposes the HTTP-only route with the strip-sovereign
+# Fix: this ingress exposes the HTTP-only route with the strip-prefix
 # middleware. Traefik serves TLS using the sme-owned cert because it
 # aggregates cert providers by hostname.
 ---
@@ -19,7 +21,7 @@ metadata:
 spec:
   stripPrefix:
     prefixes:
-      - /sovereign
+      - {{ .Values.routing.basePath | quote }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -27,15 +29,15 @@ metadata:
   name: console-sovereign
   namespace: catalyst
   annotations:
-    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.priority: {{ .Values.ingress.priority | quote }}
     traefik.ingress.kubernetes.io/router.middlewares: "catalyst-strip-sovereign@kubernetescrd"
 spec:
-  ingressClassName: traefik
+  ingressClassName: {{ .Values.ingress.className }}
   rules:
-    - host: console.openova.io
+    - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          - path: /sovereign
+          - path: {{ .Values.routing.basePath | quote }}
             pathType: Prefix
             backend:
               service:

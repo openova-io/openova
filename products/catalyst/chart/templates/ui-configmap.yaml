@@ -1,0 +1,92 @@
+{{- /*
+catalyst-ui nginx config — rendered by Helm at chart-render time so that
+upstream Service DNS names + ports + subpath flow from values.yaml
+(per docs/INVIOLABLE-PRINCIPLES.md §4 "Never hardcode").
+
+The pod mounts this ConfigMap at /etc/nginx/conf.d/default.conf via
+ui-deployment.yaml. nginx-alpine does NOT auto-envsubst its config files,
+so runtime env-var injection is not viable; chart-render-time substitution
+is the canonical path.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalyst-ui-nginx
+  labels:
+    app.kubernetes.io/name: catalyst-ui
+    app.kubernetes.io/component: frontend-config
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        absolute_redirect off;
+        port_in_redirect off;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Gzip
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 256;
+        gzip_types text/html text/css text/javascript application/javascript application/json image/svg+xml;
+
+        # Reverse-proxy /api/* to the catalyst-api Service. The Traefik
+        # `strip-sovereign` middleware on console.openova.io has already
+        # removed the /sovereign prefix by the time requests reach this
+        # nginx, so the SPA's /sovereign/api/v1/... browser path arrives
+        # here as /api/v1/....
+        #
+        # CoreDNS is queried at proxy-time (not config-load time) so that
+        # catalyst-api Pod restarts do not require an nginx reload. The
+        # `set $api_upstream` indirection forces nginx to defer DNS
+        # resolution until the request lands.
+        resolver {{ .Values.dns.resolverIP }} valid={{ .Values.dns.resolverValid }};
+        set $api_upstream http://{{ .Values.routing.catalystApi.serviceDNS }}:{{ .Values.routing.catalystApi.port }};
+
+        location /api/ {
+            proxy_pass $api_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Connection '';
+
+            # SSE streaming for /api/v1/deployments/{id}/logs — disable
+            # buffering so EventSource sees per-line frames as the
+            # provisioner emits them.
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 300s;
+            chunked_transfer_encoding on;
+            add_header X-Accel-Buffering no;
+        }
+
+        # Cache static assets for one year — Vite emits hashed file names
+        # so the cache busts automatically on each rebuild.
+        location ~* \.(js|css|png|jpg|svg|woff2|ico)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # SPA fallback — every non-asset, non-/api route serves index.html
+        # so React Router (with `basename={{ .Values.routing.basePath }}`)
+        # can take over client-side. Skip the `try_files $uri $uri/`
+        # directory-check middle step that would 301 to add a trailing
+        # slash and lose the /sovereign prefix on the client side.
+        location / {
+            try_files $uri /index.html;
+        }
+
+        # Health check (used by K8s probes)
+        location = /healthz {
+            access_log off;
+            return 200 'ok';
+            add_header Content-Type text/plain;
+        }
+    }
