@@ -1,0 +1,66 @@
+name: Test — Billing Integration (real Postgres)
+
+# Runs the integration tests in core/services/billing/store/ that require a
+# real PostgreSQL instance (e.g. voucher_integration_test.go for #147).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #2 ("no mocks where the test
+# would otherwise verify real behavior"), the voucher transactional path —
+# SELECT FOR UPDATE on promo_codes, the redemption-cap concurrency guard,
+# the soft-delete rejection — must be verified against a real database.
+# We bring up Postgres as a service container and pass its URL through
+# BILLING_TEST_PG_URL.
+
+on:
+  push:
+    paths:
+      - 'core/services/billing/**'
+      - 'core/services/shared/**'
+      - '.github/workflows/test-billing-integration.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/services/billing/**'
+      - 'core/services/shared/**'
+      - '.github/workflows/test-billing-integration.yaml'
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: billing
+          POSTGRES_PASSWORD: billing
+          POSTGRES_DB: billing_test
+        options: >-
+          --health-cmd "pg_isready -U billing"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    defaults:
+      run:
+        working-directory: core/services/billing
+    env:
+      BILLING_TEST_PG_URL: postgres://billing:billing@localhost:5432/billing_test?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: core/services/billing/go.sum
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run integration tests
+        run: go test -race -count=1 -v ./store/ -run "Integration|Voucher"
