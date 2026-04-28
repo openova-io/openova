@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: marketplace-api
-          image: ghcr.io/openova-io/openova/marketplace-api:d96d9c8
+          image: ghcr.io/openova-io/openova/marketplace-api:3c2f7e4
           ports:
             - containerPort: 8080
               protocol: TCP
