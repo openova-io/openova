@@ -31,7 +31,7 @@ resource "hcloud_network_subnet" "main" {
   ip_range     = "10.0.1.0/24"
 }
 
-# ── Firewall: 80/443 + 6443 + 22 (locked to operator IPs) + ICMP ─────────
+# ── Firewall: 80/443 + 6443 + ICMP open; 22 only when ssh_allowed_cidrs set ─
 
 resource "hcloud_firewall" "main" {
   name = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-fw"
@@ -59,8 +59,21 @@ resource "hcloud_firewall" "main" {
     protocol   = "icmp"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
-  # SSH (22) is intentionally NOT opened by default. Operators add a sovereign-
-  # specific source-CIDR rule via Crossplane Composition once the cluster is up.
+
+  # SSH (22) is intentionally NOT open to the world. When ssh_allowed_cidrs is
+  # set, we add a narrow rule for those operators only; otherwise the rule is
+  # omitted entirely and break-glass is via Hetzner Console (out-of-band).
+  # Operators tighten/widen this via Crossplane Composition once Phase 1
+  # finishes — see infra/hetzner/README.md §"Firewall rules".
+  dynamic "rule" {
+    for_each = length(var.ssh_allowed_cidrs) > 0 ? [1] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = "22"
+      source_ips = var.ssh_allowed_cidrs
+    }
+  }
 
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
@@ -99,22 +112,28 @@ locals {
   # writes the Flux GitRepository + Kustomization that points at
   # clusters/<sovereign-fqdn>/ in the public OpenOva monorepo.
   control_plane_cloud_init = templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-    sovereign_fqdn      = var.sovereign_fqdn
-    sovereign_subdomain = var.sovereign_subdomain
-    org_name            = var.org_name
-    org_email           = var.org_email
-    region              = var.region
-    ha_enabled          = var.ha_enabled
-    worker_count        = var.worker_count
-    k3s_token           = local.k3s_token
-    gitops_repo_url     = var.gitops_repo_url
-    gitops_branch       = var.gitops_branch
+    sovereign_fqdn             = var.sovereign_fqdn
+    sovereign_subdomain        = var.sovereign_subdomain
+    org_name                   = var.org_name
+    org_email                  = var.org_email
+    region                     = var.region
+    ha_enabled                 = var.ha_enabled
+    worker_count               = var.worker_count
+    k3s_version                = var.k3s_version
+    k3s_token                  = local.k3s_token
+    gitops_repo_url            = var.gitops_repo_url
+    gitops_branch              = var.gitops_branch
+    enable_unattended_upgrades = var.enable_unattended_upgrades
+    enable_fail2ban            = var.enable_fail2ban
   })
 
   worker_cloud_init = templatefile("${path.module}/cloudinit-worker.tftpl", {
-    sovereign_fqdn = var.sovereign_fqdn
-    k3s_token      = local.k3s_token
-    cp_private_ip  = "10.0.1.2" # First static IP in the subnet — control plane
+    sovereign_fqdn             = var.sovereign_fqdn
+    k3s_version                = var.k3s_version
+    k3s_token                  = local.k3s_token
+    cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
+    enable_unattended_upgrades = var.enable_unattended_upgrades
+    enable_fail2ban            = var.enable_fail2ban
   })
 }
 

@@ -4,13 +4,14 @@
 # Provisioned by: catalyst-provisioner (https://console.openova.io/sovereign)
 #
 # This script:
-#   1. Installs k3s with --flannel-backend=none (Cilium replaces it)
-#   2. Installs Flux + bootstraps the GitRepository pointing at clusters/${sovereign_fqdn}/
+#   1. Installs OS hardening (SSH password-auth off, fail2ban, unattended-upgrades).
+#   2. Installs k3s with --flannel-backend=none (Cilium replaces it).
+#   3. Installs Flux + bootstraps the GitRepository pointing at clusters/${sovereign_fqdn}/
 #      in the public OpenOva monorepo. From this point Flux is the GitOps
 #      reconciler and installs the 11-component bootstrap kit
 #      (Cilium → cert-manager → Crossplane → ... → bp-catalyst-platform) in
 #      dependency order via Kustomizations the cluster directory ships.
-#   3. Touches /var/lib/catalyst/cloud-init-complete so the catalyst-api
+#   4. Touches /var/lib/catalyst/cloud-init-complete so the catalyst-api
 #      provisioner can detect cloud-init has finished.
 
 package_update: true
@@ -21,6 +22,13 @@ packages:
   - jq
   - ca-certificates
   - git
+%{ if enable_fail2ban ~}
+  - fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - unattended-upgrades
+  - apt-listchanges
+%{ endif ~}
 
 write_files:
   - path: /var/lib/catalyst/sovereign.json
@@ -34,9 +42,77 @@ write_files:
         "region": "${region}",
         "haEnabled": ${ha_enabled},
         "workerCount": ${worker_count},
+        "k3sVersion": "${k3s_version}",
         "gitopsRepoUrl": "${gitops_repo_url}",
         "gitopsBranch": "${gitops_branch}"
       }
+
+  # ── OS hardening: SSH daemon ──────────────────────────────────────────
+  # Drop-in overrides /etc/ssh/sshd_config defaults. Per Catalyst's threat
+  # model the operator's only valid path in is the Hetzner-project SSH key
+  # injected via cloud-init authorized_keys. Password auth, KbdInteractive,
+  # and root password login are all off.
+  - path: /etc/ssh/sshd_config.d/99-catalyst-hardening.conf
+    permissions: '0644'
+    content: |
+      # Managed by Catalyst Sovereign cloud-init — do not edit by hand.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PermitRootLogin prohibit-password
+      PermitEmptyPasswords no
+      UsePAM yes
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      MaxAuthTries 3
+      LoginGraceTime 30
+
+%{ if enable_unattended_upgrades ~}
+  # ── Unattended security upgrades ──────────────────────────────────────
+  # Ubuntu's stock unattended-upgrades, restricted to the security pocket.
+  # Runs daily, reboots automatically at 02:30 if a kernel upgrade requires
+  # it (k3s tolerates single-node restarts on a solo Sovereign within the
+  # ~60s window the Hetzner LB health-check covers).
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-catalyst
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "$${distro_id}:$${distro_codename}-security";
+        "$${distro_id}ESMApps:$${distro_codename}-apps-security";
+        "$${distro_id}ESM:$${distro_codename}-infra-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "02:30";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+%{ endif ~}
+
+%{ if enable_fail2ban ~}
+  # ── fail2ban: sshd jail ───────────────────────────────────────────────
+  # Even though SSH is firewalled to ssh_allowed_cidrs (or fully closed at
+  # the firewall), fail2ban remains a defence-in-depth layer for the case
+  # where the firewall rule is widened by an operator post-bootstrap.
+  - path: /etc/fail2ban/jail.d/catalyst-sshd.local
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+      backend = systemd
+%{ endif ~}
 
   # Flux GitRepository + Kustomization that take over after k3s is up.
   # The clusters/${sovereign_fqdn}/ directory in the public OpenOva monorepo
@@ -82,14 +158,26 @@ runcmd:
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
 
-  # k3s control-plane. Flags per docs/SOVEREIGN-PROVISIONING.md §3:
-  #   --flannel-backend=none        Cilium replaces flannel
-  #   --disable=traefik             Cilium Gateway replaces traefik
-  #   --disable=servicelb           Hetzner LB handles ingress
-  #   --disable=local-storage       Crossplane-provisioned hcloud-csi instead
-  #   --disable-network-policy      Cilium handles NetworkPolicy
-  #   --tls-san=${sovereign_fqdn}   API server cert valid for the sovereign FQDN
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.31.4+k3s1 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+  # Activate hardened sshd config (cloud-init may have written authorized_keys
+  # already from Hetzner ssh_keys[]; we never touch that file).
+  - systemctl reload ssh || systemctl reload sshd || true
+%{ if enable_fail2ban ~}
+  - systemctl enable --now fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - systemctl enable --now unattended-upgrades
+%{ endif ~}
+
+  # k3s control-plane. Flags per docs/SOVEREIGN-PROVISIONING.md §3 and
+  # docs/PLATFORM-TECH-STACK.md §8.1:
+  #   --cluster-init                Initialise embedded etcd (HA-ready).
+  #   --flannel-backend=none        Cilium replaces flannel.
+  #   --disable=traefik             Cilium Gateway replaces traefik.
+  #   --disable=servicelb           Hetzner LB handles ingress.
+  #   --disable=local-storage       Crossplane-provisioned hcloud-csi instead.
+  #   --disable-network-policy      Cilium handles NetworkPolicy.
+  #   --tls-san=${sovereign_fqdn}   API server cert valid for the sovereign FQDN.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
