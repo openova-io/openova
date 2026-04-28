@@ -1,0 +1,9 @@
+# Catalyst-curated external-dns policies. Per-host-cluster overlays consume
+# these via Kustomize component imports; the canonical multi-domain policy
+# below is the one the bp-catalyst-platform umbrella renders into every
+# Sovereign that uses an OpenOva pool domain.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - dynadot-multi-domain.yaml

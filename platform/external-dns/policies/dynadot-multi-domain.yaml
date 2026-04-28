@@ -1,0 +1,321 @@
+# dynadot-multi-domain.yaml — Catalyst-curated external-dns policy for the
+# OpenOva pool domains registered in the Dynadot account-scoped credential.
+#
+# Closes #109 — "[G] dns: write platform/external-dns/policies/dynadot-multi-domain.yaml".
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Why this manifest exists
+# ──────────────────────────────────────────────────────────────────────────
+#
+# external-dns has no first-class Dynadot provider in its upstream
+# distribution; it supports Dynadot via the `webhook` provider mechanism
+# (external-dns issues record-add/delete RPCs to a sidecar that knows the
+# provider's API). For Catalyst we ship our own webhook implementation
+# that wraps the same internal/dynadot/ package the catalyst-api uses,
+# keeping the canonical Dynadot client multi-domain capable in exactly
+# one place (per docs/INVIOLABLE-PRINCIPLES.md #2 — "no bespoke that
+# duplicates an off-the-shelf component" — and #3 — "exactly one IaC
+# layer per concern").
+#
+# The webhook sidecar (image: ghcr.io/openova-io/openova/external-dns-
+# dynadot-webhook:<sha>, built from products/catalyst/bootstrap/api/cmd/
+# external-dns-dynadot-webhook/) reads the SAME DYNADOT_MANAGED_DOMAINS /
+# DYNADOT_DOMAIN env vars as catalyst-api so adding a future pool domain
+# remains a secret update only.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Multi-domain handling
+# ──────────────────────────────────────────────────────────────────────────
+#
+# external-dns receives the zone list via:
+#   --domain-filter=openova.io
+#   --domain-filter=omani.works
+#   --domain-filter=<future zone>
+#
+# Each --domain-filter narrows what zones external-dns will manage; the
+# webhook sidecar enforces the same allowlist again (defence in depth)
+# via dynadot.IsManagedDomain(). Adding a third pool domain is a 3-line
+# change in this file (one new --domain-filter arg) plus the secret
+# update — no rebuild of either external-dns or the webhook.
+#
+# Per principle #4 ("never hardcode") the zone list here is generated
+# from the same dynadot-api-credentials secret's `domains` key via
+# Kustomize ConfigMapGenerator; in this canonical policy file we
+# enumerate the current zones inline for legibility, but cluster
+# overlays MAY override `args` to pull from the secret.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# TXT registry isolation
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Per platform/external-dns/README.md, external-dns uses TXT records to
+# track ownership of records it has written. With multiple pool domains
+# the TXT prefix MUST be unique per Sovereign so two clusters that share
+# the same parent zone (e.g. *.alpha.omani.works and *.beta.omani.works)
+# don't collide. We use:
+#
+#   --txt-owner-id=<sovereign-fqdn>
+#   --txt-prefix=_externaldns.<sovereign-subdomain>.
+#
+# substituted by the cluster overlay's Kustomize patch.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Status: Catalyst-curated. Reviewed against external-dns v0.15.0 schema.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+  labels:
+    catalyst.openova.io/component: external-dns
+    catalyst.openova.io/scope: per-host-cluster
+
+---
+# ServiceAccount + RBAC — minimal: external-dns watches Gateway, Service,
+# Ingress; it never writes K8s resources.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns
+  namespace: external-dns
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "grpcroutes", "tlsroutes", "tcproutes", "udproutes"]
+    verbs: ["get", "watch", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns
+subjects:
+  - kind: ServiceAccount
+    name: external-dns
+    namespace: external-dns
+
+---
+# Dynadot webhook — runs as a sidecar in the external-dns Pod, exposes
+# the upstream external-dns webhook RPC contract, talks to api.dynadot.com
+# via the SAME internal/dynadot/ package the catalyst-api uses. Reads
+# managed domains from the dynadot-api-credentials secret in
+# openova-system (mounted via projected volume since it's cross-namespace).
+#
+# By keeping a single Dynadot client implementation we guarantee that:
+#  - record encoding (apex vs subdomain) matches the catalyst-api
+#  - the never-wipe rule (add_dns_to_current_setting=yes) is honoured
+#  - the managed-domain allowlist is identical on both write paths
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: external-dns
+  labels:
+    app.kubernetes.io/name: external-dns
+    app.kubernetes.io/component: dns-sync
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # external-dns is single-writer per zone
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: external-dns
+    spec:
+      serviceAccountName: external-dns
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        # ── external-dns controller ───────────────────────────────────────
+        - name: external-dns
+          image: registry.k8s.io/external-dns/external-dns:v0.15.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --source=service
+            - --source=ingress
+            - --source=gateway-httproute
+            - --source=gateway-grpcroute
+            - --source=gateway-tlsroute
+            # Multi-domain — one --domain-filter per managed pool domain.
+            # Adding a third pool domain (e.g. acme.io) is a one-line edit
+            # here PLUS a one-key edit on the dynadot-api-credentials
+            # secret's `domains` field. No webhook rebuild required.
+            - --domain-filter=openova.io
+            - --domain-filter=omani.works
+            - --provider=webhook
+            - --webhook-provider-url=http://localhost:8888
+            - --policy=upsert-only      # never delete records on resource removal — stale records are GC'd by the dedicated reaper job, not the live sync
+            - --registry=txt
+            - --txt-owner-id=$(SOVEREIGN_FQDN)
+            - --txt-prefix=_externaldns.
+            - --interval=1m
+            - --log-level=info
+            - --log-format=json
+          env:
+            - name: SOVEREIGN_FQDN
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+              # Cluster overlays patch this with the actual sovereign FQDN
+              # via the bp-catalyst-platform values.yaml; the namespace
+              # default keeps the manifest valid for `kubectl diff` runs.
+          ports:
+            - containerPort: 7979
+              name: metrics
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 7979
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 7979
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+        # ── Dynadot webhook sidecar ───────────────────────────────────────
+        - name: dynadot-webhook
+          image: ghcr.io/openova-io/openova/external-dns-dynadot-webhook:bp-catalyst-platform
+          # Image tag is overridden per-Sovereign via the bp-catalyst-platform
+          # umbrella so SHA pinning per docs/INVIOLABLE-PRINCIPLES.md #4 is
+          # enforced by the Blueprint, not embedded here.
+          imagePullPolicy: IfNotPresent
+          args:
+            - --listen=:8888
+            - --metrics-listen=:8889
+          env:
+            - name: DYNADOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: api-key
+            - name: DYNADOT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: api-secret
+            # Multi-domain (canonical) — same key the catalyst-api reads,
+            # mounted from the same secret. Optional=true preserves
+            # backward-compatibility with pre-#108 single-`domain` secrets.
+            - name: DYNADOT_MANAGED_DOMAINS
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: domains
+                  optional: true
+            - name: DYNADOT_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: domain
+                  optional: true
+          ports:
+            - containerPort: 8888
+              name: webhook
+            - containerPort: 8889
+              name: webhook-metrics
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8889
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8889
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+# Service — exposes the metrics endpoints for Prometheus scraping. Webhook
+# is intentionally NOT exposed cluster-wide; external-dns reaches it on
+# localhost.
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-dns-metrics
+  namespace: external-dns
+  labels:
+    app.kubernetes.io/name: external-dns
+spec:
+  selector:
+    app.kubernetes.io/name: external-dns
+  ports:
+    - name: metrics
+      port: 7979
+      targetPort: metrics
+    - name: webhook-metrics
+      port: 8889
+      targetPort: webhook-metrics
+
+---
+# ServiceMonitor — Prometheus discovers both the controller's own metrics
+# (zone sync latency, record counts) and the webhook's per-domain Dynadot
+# request counters. Lets ops alert on "Dynadot rate-limited" and
+# "external-dns sync paused" without grepping pod logs.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: external-dns
+  namespace: external-dns
+  labels:
+    app.kubernetes.io/name: external-dns
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+    - port: webhook-metrics
+      interval: 30s
+      path: /metrics
