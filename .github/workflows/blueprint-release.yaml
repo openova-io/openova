@@ -101,17 +101,30 @@ jobs:
         run: |
           set -e
           path="${{ matrix.path }}"
-          name=$(basename "$path")
           chart_yaml="$path/chart/Chart.yaml"
           if [ ! -f "$chart_yaml" ]; then
             echo "No chart at $path/chart/ — skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Authoritative chart name comes from Chart.yaml `name:` field
+          # (e.g. `bp-cilium`, `bp-catalyst-platform`). Folder basename and
+          # chart name are not always identical — the umbrella at
+          # products/catalyst/chart packages as bp-catalyst-platform.
+          chart_name=$(awk '/^name:/{print $2; exit}' "$chart_yaml" | tr -d '"')
           version=$(awk '/^version:/{print $2; exit}' "$chart_yaml" | tr -d '"')
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "name=$chart_name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Helm registry login (for OCI dependencies)
+        if: steps.chart.outputs.skip != 'true'
+        run: |
+          # `helm dependency build` resolves `oci://ghcr.io/openova-io/bp-*`
+          # dependencies — needs an authenticated helm registry login,
+          # not just a docker login.
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
 
       - name: Helm dependency build
         if: steps.chart.outputs.skip != 'true'
@@ -129,11 +142,11 @@ jobs:
           set -e
           name="${{ steps.chart.outputs.name }}"
           version="${{ steps.chart.outputs.version }}"
-          file="/tmp/charts/bp-${name}-${version}.tgz"
-          # Push under bp-<name> namespace, not under the wrapper "bp-<name>" prefix
-          # since the file already contains "bp-<name>-<version>.tgz" naming.
+          # `helm package` writes <chart_name>-<version>.tgz; the chart name
+          # already carries the `bp-` prefix per BLUEPRINT-AUTHORING.md §3.
+          file="/tmp/charts/${name}-${version}.tgz"
           digest=$(helm push "$file" oci://ghcr.io/openova-io 2>&1 | tee /dev/stderr | awk '/Digest:/{print $2}')
-          echo "ref=ghcr.io/openova-io/bp-${name}:${version}" >> "$GITHUB_OUTPUT"
+          echo "ref=ghcr.io/openova-io/${name}:${version}" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Cosign keyless sign
@@ -154,7 +167,8 @@ jobs:
           mkdir -p /tmp/sbom
           name="${{ steps.chart.outputs.name }}"
           version="${{ steps.chart.outputs.version }}"
-          syft "file:/tmp/charts/bp-${name}-${version}.tgz" -o spdx-json="/tmp/sbom/sbom.spdx.json"
+          # Chart name already includes `bp-` prefix (read from Chart.yaml).
+          syft "file:/tmp/charts/${name}-${version}.tgz" -o spdx-json="/tmp/sbom/sbom.spdx.json"
 
       - name: Attest SBOM via cosign
         if: steps.chart.outputs.skip != 'true'
