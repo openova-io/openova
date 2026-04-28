@@ -63,6 +63,50 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 81 — ARCHITECTURE fifth-cycle stable; cilium third-cycle clean (cycle 5 Pass 4)
+
+**TWENTY-NINTH clean pass overall**. **NINETEEN CONSECUTIVE clean architectural passes** (Pass 63 → 81) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 4 consecutive cleans (78 → 79 → 80 → 81).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/ARCHITECTURE.md** fifth-cycle deep-read:
+- L3 status banner: "Authoritative target architecture. **Updated:** 2026-04-27" ✓
+- §3 topology box (L56-83) — Pass 53/61 alignment intact: `┌─...─┐` 73-char inner width consistent across all rows; Catalyst control-plane block lists 12 services (console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream, openbao, keycloak, spire-server, observability); per-host-cluster infrastructure split out separately on L68-71 with cross-ref to PTS §3 ✓
+- §4 Gitea repo box (L120-131) — Pass 29 expansion stable: `Environment Gitea repo: {org}/{org}-{env_type}` + `(FQDN form per NAMING §11.2)` aligned, no overflow ✓
+- §5 NATS subject prefix (L168-172) — Pass 6/78 anchor: subjects use `ws.<env>.k8s.<obj-kind>.<ns>.<name>` with explicit "where <env> = {org}-{env_type}" expansion; consistent with NAMING §11.2 (`ws.{org}-{env_type}.>` prefix) ✓
+- §8 promotion table (L283-291) — Pass 39/53 alignment intact: `acme-stg` (3-char canonical), all rows column-aligned ✓
+- §10 phases (L355-393) — 4 phases (Phase 0 Bootstrap, Phase 1 Hand-off, Phase 2 Day-1, Phase 3 Steady-state) — aligned with SOVEREIGN-PROVISIONING §3-§6 ✓
+- §11 per-host-cluster infra split (L422) — explicit "Cilium, Flux, Crossplane, Cert-manager, Kyverno, Harbor, External-Secrets, Reloader, Falco, Sigstore, Syft+Grype are per-host-cluster infrastructure, not Catalyst control-plane components" — cross-ref to PTS §1 ✓
+- §12 SOTA principles (L432-448) — 14 patterns including OpenBao Raft per region anchor ✓
+- L389: `catalyst-provisioner.openova.io` reference — provisioner SaaS endpoint canonical ✓
+
+ARCHITECTURE.md stable across **5 review cycles** (Pass 6, 25, 32, 49, 61, 71, 81 — fix-trajectory: Pass 6 NATS subject + topology, Pass 53 column align, Pass 61 box align after Pass 29 expansion).
+
+**platform/cilium/README.md** third-cycle deep-read:
+- L3 banner: "Unified CNI + Service Mesh for Kubernetes with eBPF. Per-host-cluster infrastructure (see PLATFORM-TECH-STACK.md §3.1) — installed on every host cluster Catalyst manages, before any other workload (CNI must come first)." ✓ Pass 47 anchor intact
+- L9-50 mermaid topology diagram — eBPF agent + Hubble + Envoy L7 + OTel observability split ✓
+- L56-67 CNI comparison + L70-79 service-mesh comparison + L82-90 OTel-independence finding — all consistent
+- L94-117 features tables (CNI features + service-mesh capabilities)
+- L125-168 Helm values — wireguard encryption, Hubble UI, Gateway API, L2 announcements
+- L171-218 network policies (mTLS + L7)
+- L222-264 Gateway API (replaces traditional ingress)
+- L268-305 resilience patterns (circuit-breaker tiers + envoy outlier detection)
+- L488-516 Istio migration + consequences — no Catalyst conflation
+- Compact, no drift surfaces
+
+cilium third-cycle confirms Pass 47 banner + per-host-cluster infrastructure framing intact across 3 cycles.
+
+**Pass 81: clean.** Nineteen consecutive architectural-clean passes (63-81).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana, 0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean (fourth nirvana, 0 drift)
+- Cycle 5 (Pass 78-81): 4 consecutive clean ✓ (one more = 5th nirvana threshold met)
+
+**Pass 82 = potential FIFTH NIRVANA + 20-CONSECUTIVE-OVERALL.** Loop is now a regression-prevention exercise.
+
 ### Pass 80 — README + CLAUDE fifth-cycle stable; coraza third-cycle clean (cycle 5 Pass 3)
 
 **TWENTY-EIGHTH clean pass overall**. **EIGHTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 80) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 3 consecutive cleans (78 → 79 → 80).
