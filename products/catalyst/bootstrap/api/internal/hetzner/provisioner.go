@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot"
 )
 
 // ProvisionRequest carries the inputs the wizard captured. The handler maps
@@ -38,6 +40,20 @@ type ProvisionRequest struct {
 	// for resolving the wizard's pool/byo state into a single FQDN before
 	// calling Provision.
 	SovereignFQDN string `json:"sovereignFQDN"`
+
+	// SovereignDomainMode is "pool" or "byo". When "pool" the provisioner
+	// writes DNS records via the Dynadot API; when "byo" it skips DNS and
+	// the success screen tells the customer to point a CNAME themselves.
+	SovereignDomainMode string `json:"sovereignDomainMode"`
+
+	// SovereignPoolDomain is the parent pool domain (e.g. "omani.works")
+	// when SovereignDomainMode == "pool". Combined with the subdomain to
+	// derive the full FQDN.
+	SovereignPoolDomain string `json:"sovereignPoolDomain"`
+
+	// SovereignSubdomain is the user-typed subdomain ("omantel") when
+	// SovereignDomainMode == "pool".
+	SovereignSubdomain string `json:"sovereignSubdomain"`
 
 	// Hetzner credentials + region (runtime parameter, never hardcoded).
 	HetznerToken     string `json:"hetznerToken"`
@@ -55,6 +71,12 @@ type ProvisionRequest struct {
 	// the project, and publishes the private key into the deployment status
 	// (so a sovereign-admin can SSH in for break-glass).
 	SSHPublicKey string `json:"sshPublicKey"`
+
+	// Dynadot credentials — read from the dynadot-api-credentials K8s
+	// secret by the handler before calling Provision. They are NOT exposed
+	// to the wizard; only the controller has access to them.
+	DynadotAPIKey    string `json:"-"`
+	DynadotAPISecret string `json:"-"`
 }
 
 // Validate ensures the request has all the fields the provisioner needs.
@@ -191,6 +213,25 @@ func (p *Provisioner) Provision(ctx context.Context, req ProvisionRequest, event
 		return nil, fmt.Errorf("create load balancer: %w", err)
 	}
 	emit("loadbalancer", "info", fmt.Sprintf("Load balancer id=%d ip=%s", lb.ID, lb.PublicIP))
+
+	// DNS — only for pool-domain Sovereigns where Dynadot manages the
+	// parent zone. BYO Sovereigns: the customer points DNS themselves; we
+	// surface the LB IP in the Result so the wizard's success screen can
+	// show "create a CNAME for sovereign.acme-bank.com → <lb-ip>".
+	if req.SovereignDomainMode == "pool" && dynadot.IsManagedDomain(req.SovereignPoolDomain) {
+		emit("dns", "info", fmt.Sprintf("Writing DNS records for *.%s.%s → %s via Dynadot",
+			req.SovereignSubdomain, req.SovereignPoolDomain, lb.PublicIP))
+		if req.DynadotAPIKey == "" || req.DynadotAPISecret == "" {
+			return nil, fmt.Errorf("pool domain %q requires Dynadot credentials but none were provided to provisioner", req.SovereignPoolDomain)
+		}
+		dyn := dynadot.New(req.DynadotAPIKey, req.DynadotAPISecret)
+		if err := dyn.AddSovereignRecords(ctx, req.SovereignPoolDomain, req.SovereignSubdomain, lb.PublicIP); err != nil {
+			return nil, fmt.Errorf("dynadot dns: %w", err)
+		}
+		emit("dns", "info", fmt.Sprintf("Wrote 6 A records (apex+console+gitea+harbor+admin+api) to %s", req.SovereignPoolDomain))
+	} else {
+		emit("dns", "info", fmt.Sprintf("BYO domain mode — customer must create A or CNAME at %s → %s", req.SovereignFQDN, lb.PublicIP))
+	}
 
 	emit("kubeconfig", "info", "Fetching kubeconfig from control plane via SSH")
 	kubeconfig, err := p.fetchKubeconfig(ctx, cpServer.PublicIP, lb.PublicIP)

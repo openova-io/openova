@@ -29,6 +29,16 @@ spec:
               value: "8080"
             - name: CORS_ORIGIN
               value: "https://catalyst.openova.io"
+            - name: DYNADOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: api-key
+            - name: DYNADOT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: api-secret
           resources:
             requests:
               cpu: 10m

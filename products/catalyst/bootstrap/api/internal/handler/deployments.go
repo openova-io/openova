@@ -69,6 +69,16 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Inject Dynadot credentials when the customer chose a pool domain so
+	// the provisioner can write DNS records. Credentials come from the
+	// process environment (mounted from the dynadot-api-credentials K8s
+	// secret in the openova-system namespace via ESO at deploy time).
+	if req.SovereignDomainMode == "pool" {
+		req.DynadotAPIKey = h.dynadotAPIKey
+		req.DynadotAPISecret = h.dynadotAPISecret
+	}
+
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
