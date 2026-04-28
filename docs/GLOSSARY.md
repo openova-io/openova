@@ -20,6 +20,7 @@ Every other document defers to this file. When a term in another doc looks conte
 | **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). **Each Application is realized as one Gitea repo** at `gitea.<location-code>.<sovereign-domain>/<org>/<app>` under its owning Organization. Branches `develop`/`staging`/`main` map to the `dev`/`stg`/`prod` Environments. The repo is the unit of CODEOWNERS, branch protection, webhook, and CI — giving every team self-sufficient ownership of their Apps. |
 | **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §2. |
 | **User** | A person. Authenticates via Keycloak. Belongs to one Organization (or has cross-Org admin scope as `sovereign-admin`). |
+| **Voucher** | A redeemable code that grants billing credit when applied at checkout. Issued by `sovereign-admin` (per-Sovereign campaigns) or `org-admin` (rare; intra-Org credit grants). The user-facing label for what the code calls `PromoCode` (see `core/services/billing/store/store.go`). Vouchers are the user-acquisition surface for franchised Sovereigns: a Franchisee mints codes, distributes them through their marketing channels, and a redeemer's first checkout converts the code into Organization credit. Lives as a row in the per-Sovereign billing Postgres database; soft-delete (`deleted_at`) preserves the audit trail of past redemptions. See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md). |
 
 ---
 
@@ -34,6 +35,7 @@ Every other document defers to this file. When a term in another doc looks conte
 | **`security-officer`** | Role with audit/policy/secret-rotation gating rights. Optional Org-level role. |
 | **`billing-admin`** | Role with billing/invoice/quota rights. Optional Org-level role. |
 | **`sme-end-user`** | Persona, not a role: an SME owner (Ahmed) for whom Organization onboarding is automatic on first signup. |
+| **`Franchisee`** | Persona, not a role: the legal entity (telco, ISP, hyperscaler reseller, regional cloud operator) that owns and operates a franchised Sovereign under license from OpenOva. Examples: Omantel running `omantel.omani.works`, a regional reseller running `cloud.acme.example`. The Franchisee's staff hold the `sovereign-admin` role on their Sovereign and use the existing admin app (per `core/admin/`) to issue Vouchers, curate the `catalog-sovereign` Gitea Org, set marketplace branding, and pick the per-tier pricing they pass through to their tenant Organizations. Revenue split with OpenOva is governed bilaterally by the franchise contract — not a per-Sovereign config field. See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md). |
 
 ---
 

@@ -11,6 +11,11 @@
     type PromoCode,
   } from '../lib/api';
 
+  // #115 — sovereign-admin can manage vouchers (PromoCodes) but not Stripe
+  // settings. The Stripe-settings section is rendered conditionally on
+  // `userRole === 'superadmin'` and the GET /billing/admin/settings call
+  // is skipped for sovereign-admin (it would 403 anyway).
+  let userRole = $state<string>('');
   let settings = $state<BillingSettings | null>(null);
   let promos = $state<PromoCode[]>([]);
   let loading = $state(true);
@@ -31,13 +36,20 @@
   });
   let savingPromo = $state(false);
 
-  async function load() {
+  async function load(role: string) {
     loading = true;
     try {
-      const [s, p] = await Promise.all([getBillingSettings(), listPromoCodes()]);
-      settings = s;
-      promos = p;
-      publicInput = s.stripe_public_key || '';
+      // sovereign-admin: skip Stripe settings — backend rejects with 403.
+      // Always load the promo list (the franchise-voucher surface).
+      if (role === 'superadmin') {
+        const [s, p] = await Promise.all([getBillingSettings(), listPromoCodes()]);
+        settings = s;
+        promos = p;
+        publicInput = s.stripe_public_key || '';
+      } else {
+        promos = await listPromoCodes();
+        settings = null;
+      }
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -45,8 +57,11 @@
     }
   }
 
+  // Load happens once we know the user's role — AdminShell hands us
+  // `user` via the children snippet, so we re-trigger when userRole flips
+  // from '' to 'superadmin' / 'sovereign-admin'.
   $effect(() => {
-    load();
+    if (userRole) load(userRole);
   });
 
   async function saveSettings(e: Event) {
@@ -63,7 +78,7 @@
       secretInput = '';
       webhookInput = '';
       message = 'Settings saved.';
-      await load();
+      await load(userRole);
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -81,7 +96,7 @@
         code: newPromo.code!.toUpperCase().trim(),
       });
       newPromo = { code: '', credit_omr: 100, description: '', active: true, max_redemptions: 0 };
-      await load();
+      await load(userRole);
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -93,7 +108,7 @@
     if (!confirm(`Delete promo code ${code}?`)) return;
     try {
       await deletePromoCode(code);
-      await load();
+      await load(userRole);
     } catch (e: any) {
       error = e.message;
     }
@@ -102,7 +117,7 @@
   async function togglePromo(p: PromoCode) {
     try {
       await upsertPromoCode({ ...p, active: !p.active });
-      await load();
+      await load(userRole);
     } catch (e: any) {
       error = e.message;
     }
@@ -111,10 +126,13 @@
 
 <AdminShell activePage="billing">
   {#snippet children(user: User)}
+    {@const _ = (userRole = user.role)}
     <div>
       <div>
         <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Billing</h1>
-        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Stripe keys and promo codes.</p>
+        <p class="mt-1 text-sm text-[var(--color-text-dim)]">
+          {user.role === 'sovereign-admin' ? 'Vouchers (promo codes) for this Sovereign.' : 'Stripe keys and promo codes.'}
+        </p>
       </div>
 
       {#if error}
@@ -128,7 +146,8 @@
         <div class="mt-12 flex justify-center">
           <div class="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent"></div>
         </div>
-      {:else if settings}
+      {:else}
+      {#if settings}
         <section class="mt-8 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6">
           <h2 class="text-base font-semibold text-[var(--color-text-strong)]">Stripe Configuration</h2>
           <p class="mt-1 text-xs text-[var(--color-text-dim)]">
@@ -192,12 +211,17 @@
             </div>
           </form>
         </section>
+      {/if}
 
+        <!-- #115 — Voucher (PromoCode) section is visible to BOTH superadmin
+             and sovereign-admin. The Stripe-settings section above is
+             superadmin-only because the keys are global to the Sovereign,
+             not tenant-scoped. -->
         <section class="mt-8 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6">
-          <h2 class="text-base font-semibold text-[var(--color-text-strong)]">Promo Codes</h2>
+          <h2 class="text-base font-semibold text-[var(--color-text-strong)]">Vouchers (Promo Codes)</h2>
           <p class="mt-1 text-xs text-[var(--color-text-dim)]">
             Promo codes grant OMR credit. If a customer's credit covers the full order, checkout completes
-            without Stripe.
+            without Stripe. {user.role === 'sovereign-admin' ? 'Issued vouchers are scoped to this Sovereign.' : ''}
           </p>
 
           <form onsubmit={savePromo} class="mt-5 grid grid-cols-[1fr_120px_1fr_auto] gap-3 items-end">
@@ -295,3 +319,4 @@
     </div>
   {/snippet}
 </AdminShell>
+

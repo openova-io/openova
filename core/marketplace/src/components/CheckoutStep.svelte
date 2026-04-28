@@ -36,7 +36,15 @@
   // shows up as a fallback when the user skipped add-ons.
   let subdomain = $state(cart.subdomain || '');
   let userEditedSubdomain = $state(!!cart.subdomain);
-  let promoCode = $state('');
+  // #116 — pre-fill the promo code field if the redeemer arrived via the
+  // public /redeem?code=... landing. The redeem page stashes the code
+  // under `sme-pending-voucher` and redirects to /plans; by the time the
+  // user reaches checkout, this state is hydrated. The slot is cleared
+  // after a successful checkout (in submit() below) so a returning
+  // customer doesn't have a stale code stuck in their UI.
+  let promoCode = $state(
+    (typeof localStorage !== 'undefined' && localStorage.getItem('sme-pending-voucher')) || '',
+  );
   type PayMethod = 'applepay' | 'mastercard' | 'visa';
   let payMethod = $state<PayMethod | null>(null);
 
@@ -222,14 +230,22 @@
       tenantId = tenant.id;
 
       // Step 2: Billing checkout — promo code is additive (credit first, card
-      // covers the remainder). Always send if the user entered one.
+      // covers the remainder). Always send if the user entered one. #116:
+      // a code arriving via the /redeem landing was stashed in
+      // `sme-pending-voucher`; once submitted to /billing/checkout we
+      // clear the stash so a future signup does not silently carry over
+      // somebody else's voucher.
+      const trimmedPromo = promoCode ? promoCode.trim() : '';
       const billing = await createCheckout({
         plan_id: cart.plan || '',
         apps: cart.apps,
         addons: cart.addons,
         tenant_id: tenant.id,
-        promo_code: promoCode ? promoCode.trim() : undefined,
+        promo_code: trimmedPromo || undefined,
       });
+      if (trimmedPromo) {
+        try { localStorage.removeItem('sme-pending-voucher'); } catch (_) {}
+      }
 
       if (billing.session_url) {
         // Stripe is configured + credit did not cover total — redirect to Stripe.

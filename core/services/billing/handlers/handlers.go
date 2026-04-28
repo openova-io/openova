@@ -721,7 +721,7 @@ func (h *Handler) UpdateAdminSettings(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) AdminListPromos(w http.ResponseWriter, r *http.Request) {
-	if err := requireAdmin(r); err != nil {
+	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -734,7 +734,7 @@ func (h *Handler) AdminListPromos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminUpsertPromo(w http.ResponseWriter, r *http.Request) {
-	if err := requireAdmin(r); err != nil {
+	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -755,7 +755,7 @@ func (h *Handler) AdminUpsertPromo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminDeletePromo(w http.ResponseWriter, r *http.Request) {
-	if err := requireAdmin(r); err != nil {
+	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -820,6 +820,23 @@ func requireAdmin(r *http.Request) error {
 		return fmt.Errorf("superadmin role required")
 	}
 	return nil
+}
+
+// requireVoucherIssuer permits both `superadmin` (Catalyst-Zero / direct
+// OpenOva operations) and `sovereign-admin` (Franchisee operations on a
+// franchised Sovereign) to issue, list, and revoke vouchers. The franchise
+// model in docs/FRANCHISE-MODEL.md treats voucher issuance as a per-Sovereign
+// `sovereign-admin` action; this helper is the policy gate on the API side
+// matching the UI gating in core/admin/src/components/BillingPage.svelte.
+//
+// Other admin endpoints (Stripe settings, revenue rollups, order lists)
+// remain superadmin-only — only the promo CRUD surface is widened.
+func requireVoucherIssuer(r *http.Request) error {
+	role := middleware.RoleFromContext(r.Context())
+	if role == "superadmin" || role == "sovereign-admin" {
+		return nil
+	}
+	return fmt.Errorf("superadmin or sovereign-admin role required")
 }
 
 func last4(s string) string {

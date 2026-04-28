@@ -703,9 +703,16 @@ REVENUE STREAMS
 │   ├── Migration Projects (SOW)
 │   └── Custom Blueprint Development (SOW)
 │
-└── STAFF AUGMENTATION (Variable)
-    ├── T&M Embedded Engineers
-    └── SOW-Based Assignments
+├── STAFF AUGMENTATION (Variable)
+│   ├── T&M Embedded Engineers
+│   └── SOW-Based Assignments
+│
+└── FRANCHISE (Recurring, Indirect)
+    ├── Per-vCPU subscription on every franchised Sovereign (same per-core
+    │   model as direct customers — the franchisee passes it through to
+    │   their tenants and OpenOva's share is computed off the gross)
+    └── Bilateral revenue-split contract per Franchisee (Omantel,
+        regional resellers, hyperscaler partners)
 ```
 
 ### 10.2 Core Principle
@@ -798,6 +805,32 @@ For ongoing embedded engineering:
 | **Never free, but flexible** | Early adopters get discounts. No customer gets free. Free devalues everything. |
 | **Clean exit** | If customer leaves, they keep all blueprints and code. Only lose support, Specter, and expert access. |
 | **Customer advocacy is DNA** | We never trap customers. Exit strategy = do nothing. Blueprints are open source. Walk away and everything keeps running. |
+
+### 10.7 Franchise Revenue Model
+
+The per-vCPU subscription is the primary OpenOva revenue surface and applies to every Sovereign — direct (`openova` runs it for SaaS Organizations) or franchised (`omantel`, regional resellers, hyperscaler partners). The voucher is **not** a separate revenue stream; it is the **user-acquisition surface** that Franchisees use to convert their existing customer base into Catalyst tenants.
+
+| Surface | Owner | Pricing basis | Revenue flow |
+|---|---|---|---|
+| Per-vCPU subscription | OpenOva | Per-core, ELA or PAYG | Stripe charge per Sovereign rolls up to OpenOva monthly |
+| Voucher issuance | Franchisee (`sovereign-admin`) | Free to mint; the credit comes off the Franchisee's revenue share | No money moves at issuance — only at first-checkout redemption |
+| Voucher redemption | Tenant Organization | Credit applied at checkout (existing `promo_code` field on `/billing/checkout`) | Order amount drops to zero or near-zero; Stripe charge is suppressed for the credit-covered portion |
+| Tenant billing | Tenant Organization | Standard per-vCPU once credit is exhausted | Stripe charge resumes; OpenOva's share computed off the gross |
+
+**Why this matters for franchise economics:**
+
+- The Franchisee can market a "100 OMR free credit" promo to drive signups without OpenOva participating in the marketing campaign or bearing the credit cost. The credit comes off the Franchisee's share, not OpenOva's.
+- OpenOva's revenue model stays uniform. There is no "voucher tier" or "promo SKU" to maintain — every voucher resolves to ordinary credit on an ordinary Order, going through the same Stripe pipeline that direct OpenOva customers use.
+- The Franchisee's own Tenants on their Sovereign pay them through the same per-vCPU surface. The Franchisee sets their pass-through rate (e.g. they buy from OpenOva at €X/core, sell to their SMEs at €Y/core where Y ≥ X). This margin is the Franchisee's primary income; vouchers are a discount instrument the Franchisee chooses to deploy.
+- Revenue split between OpenOva and each Franchisee is governed by a bilateral contract. The split is **NOT** encoded as a per-Sovereign config field — it lives in OpenOva's accounting system, not in the Catalyst code. Stripe charges on franchised Sovereigns carry a `sovereign=<fqdn>` metadata tag; OpenOva's billing rollup queries those charges and pays out monthly.
+
+**What does NOT change for franchised Sovereigns:**
+
+- The same `core/admin` UI ships with every Sovereign. Voucher issuance is a `sovereign-admin` action, gated by the same role check that governs the rest of the admin surface.
+- The same `core/services/billing` Postgres schema runs on every Sovereign. There is no separate "franchise database."
+- The same Stripe integration handles checkout. Vouchers do not bypass Stripe — they reduce the line total before Stripe is invoked.
+
+See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) for the redemption flow end-to-end.
 
 ---
 
