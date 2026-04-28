@@ -17,7 +17,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: notification
-          image: ghcr.io/openova-io/openova/services-notification:7646840
+          image: ghcr.io/openova-io/openova/services-notification:046e5eb
           imagePullPolicy: Always
           ports:
             - containerPort: 8087

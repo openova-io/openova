@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: auth
-          image: ghcr.io/openova-io/openova/services-auth:7646840
+          image: ghcr.io/openova-io/openova/services-auth:046e5eb
           imagePullPolicy: Always
           ports:
             - containerPort: 8081

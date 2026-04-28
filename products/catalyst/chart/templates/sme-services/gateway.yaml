@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: gateway
-          image: ghcr.io/openova-io/openova/services-gateway:7646840
+          image: ghcr.io/openova-io/openova/services-gateway:046e5eb
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

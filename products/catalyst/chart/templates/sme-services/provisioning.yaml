@@ -140,7 +140,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: provisioning
-          image: ghcr.io/openova-io/openova/services-provisioning:7646840
+          image: ghcr.io/openova-io/openova/services-provisioning:046e5eb
           imagePullPolicy: Always
           ports:
             - containerPort: 8084
