@@ -19,7 +19,7 @@
 | H — Franchise model | 7 | 🚧 docs/FRANCHISE-MODEL.md authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
 | I — Wizard UX | 6 | 📐 SSE event log pane + step indicator pending |  |
 | J — Hetzner infra | 6 | 🚧 cloud-init in repo; firewall + k3s flags wired into provisioner | 07b4bcf |
-| K — Documentation | 8 | 🚧 IMPLEMENTATION-STATUS + core/README + products/catalyst/README updated; component-count anchor refresh (53→55) pending | 3c2f7e4, 8c0f766 |
+| K — Documentation | 8 | 🚧 IMPLEMENTATION-STATUS + core/README + products/catalyst/README updated; component-count anchor refreshed 53 → 56 (spire + nats-jetstream + sealed-secrets factored in) | 3c2f7e4, 8c0f766, group-k-docs |
 | L — Testing | 8 | 📐 Playwright + integration tests pending |  |
 | M — End-to-end DoD | 9 | 📐 Awaiting Hetzner credentials from operator + first OCI-artifact CI runs to complete |  |
 
@@ -251,7 +251,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 - The unified Application = Gitea Repo model (Pass 103) is preserved everywhere. The franchised Sovereign at omantel.omani.works will use the same model — one Gitea Org per Catalyst Organization, one Gitea Repo per Application.
 - The 5 conventional Gitea Orgs convention (`catalog`, `catalog-sovereign`, `<org>` per Catalyst Organization, `system`) applies to the new Sovereign exactly as it does to Catalyst-Zero.
-- The 53-component anchor (Pass 104) holds. SeaweedFS unified S3 encapsulation, Guacamole in bp-relay, OpenBao independent-Raft per region — all preserved.
+- The component-count anchor (Pass 104 set 53; Pass 105 raised it to 56 with spire + nats-jetstream + sealed-secrets) holds. SeaweedFS unified S3 encapsulation, Guacamole in bp-relay, OpenBao independent-Raft per region — all preserved.
 - The audit procedure stays on-demand (no scheduled loops). The `audit-catalyst-docs` skill is the only validation entry point.
 
 ---
