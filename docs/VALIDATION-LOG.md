@@ -63,6 +63,55 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 84 — NAMING-CONVENTION sixth-cycle stable; nemo-guardrails third-cycle clean (cycle 6 Pass 2)
+
+**THIRTY-SECOND clean pass overall**. **TWENTY-TWO CONSECUTIVE clean architectural passes** (Pass 63 → 84) spanning cycles 2 → 6. Cycle 6 has 2 consecutive cleans (83 → 84).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/NAMING-CONVENTION.md** sixth-cycle deep-read:
+- §2 subsection ordering §2.1 → §2.2 → §2.3 → §2.4 → §2.5 monotonic ✓
+- §2.4 (L115-125) Env Type canonical 3-char + 1-char tables: `prod|stg|uat|dev|poc` (full names: Production, Staging, UAT, Development, POC) — Pass 22/39 canonical anchor preserved ✓
+- §3 (L138-) Core Patterns: `{provider}-{region}-{bb}-{env_type}` global pattern ✓
+- §11 subsection ordering §11.1 → §11.2 → §11.3 → §11.4 monotonic ✓
+- §11.1 (L466-472): Environment naming `{org}-{env_type}`; "DR is a Placement, not an Env Type" anchor with explicit `prod | stg | uat | dev | poc` enumeration ✓
+- §11.2 (L474-483) Realization 6-bullet:
+  - 1: Gitea repo `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` with example `gitea.hfmp.omantel.openova.io/acme/acme-prod` — Pass 37 example fix + Pass 42 abstract pattern fix preserved; cross-ref to §5.1 control-plane DNS pattern ✓
+  - 4: **JetStream Account at the Organization level** (one per Org); subjects use prefix `ws.{org}-{env_type}.>` — Pass 78 reconciled anchor preserved (matches GLOSSARY/SECURITY/PTS per-Org Account semantics) ✓
+  - 6: OpenBao path `org/{org}/env/{env_type}/` ✓
+- §11.3 (L485-492): single-region vs multi-region table; environment-controller reconciles ✓
+- §11.4 (L494-499): "Why a separate object instead of a tag?" — 4 reasons preserved ✓
+
+NAMING-CONVENTION.md stable across **6 review cycles** (Pass 9, 22, 37, 42, 65, 75, 84 — fix-trajectory: Pass 22 §6.3 Environment format, Pass 37 §11.2 example URL, Pass 42 §11.2 abstract pattern, Pass 78 §11.2 JetStream Account scoping reconciliation).
+
+**Defense-in-depth verification for env_type 3-char canonical** (Pass 39 anchor, across 5+ representational levels):
+1. NAMING §2.4 table: explicit 3-char column `prod|stg|uat|dev|poc` ✓
+2. NAMING §11.1: example `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat` ✓
+3. NAMING §11.1 narrative: "the canonical values are `prod | stg | uat | dev | poc`" ✓
+4. ARCHITECTURE §8 (L283-291): `acme-stg`, `acme-prod`, `acme-dev` in promotion table ✓
+5. PERSONAS §6.3: `core-banking-prod` (Pass 22 fix) ✓
+6. GLOSSARY env_type definition cross-ref ✓
+
+**platform/nemo-guardrails/README.md** third-cycle deep-read:
+- L1 title "NeMo Guardrails"
+- L3 banner: "AI safety firewall for LLM deployments. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.7 — AI safety). Sits between user input and LLM in `bp-cortex` to block prompt injection, PII leakage, off-topic content, and hallucinated citations." ✓ Pass 31 anchor — explicit Application Blueprint, NOT Catalyst control plane
+- L5 metadata: "AI Safety | Application Blueprint" — Category and Type both anchor non-control-plane status ✓
+- L13-19 features: prompt injection detection, PII filtering, hallucination detection, topic boundary, Colang custom rails
+- L23-28 integration table: KServe (pre/post-processing), LLM Gateway (inline), LangFuse (traces), Grafana (metrics) — all consistent with PTS §4.6/§4.7
+- L32 "Used By: OpenOva Cortex" — links to §5 composite Blueprints (bp-cortex) ✓
+- L36-46 Flux Kustomization deployment YAML
+- No Catalyst conflation; concise scope; clean format
+
+nemo-guardrails third-cycle confirms Pass 31 banner (Application Blueprint, AI safety §4.7) intact across 3 cycles.
+
+**Pass 84: clean.** Twenty-two consecutive architectural-clean passes (63-84). Cycle 6 has 2 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-5: 25 consecutive clean passes (5 nirvana achieved)
+- Cycle 6 (Pass 83-84): 2 consecutive clean ✓ (so far)
+
+Total: 32 clean passes overall, 22 consecutive (Pass 63-84). Loop continues per user's standing instruction.
+
 ### Pass 83 — PLATFORM-TECH-STACK sixth-cycle stable; valkey fourth-cycle clean (cycle 6 Pass 1 — RESTART FROM TOP)
 
 **THIRTY-FIRST clean pass overall**. **TWENTY-ONE CONSECUTIVE clean architectural passes** (Pass 63 → 83) spanning cycles 2 → 6. Cycle 6 begins after fifth nirvana threshold (Pass 82) per user's standing instruction "restart from the top."
