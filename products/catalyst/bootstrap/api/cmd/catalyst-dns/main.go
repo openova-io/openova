@@ -32,44 +32,84 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot"
 )
 
+// inputs captures the env-var contract documented at the top of this file.
+// Splitting it out keeps main() small and lets tests construct a fixture
+// without touching os.Environ().
+type inputs struct {
+	APIKey    string
+	APISecret string
+	Domain    string
+	Subdomain string
+	LBIP      string
+}
+
+// readInputsFromEnv returns the inputs struct populated from the canonical
+// DYNADOT_* / DOMAIN / SUBDOMAIN / LB_IP env vars.
+func readInputsFromEnv() inputs {
+	return inputs{
+		APIKey:    os.Getenv("DYNADOT_API_KEY"),
+		APISecret: os.Getenv("DYNADOT_API_SECRET"),
+		Domain:    os.Getenv("DOMAIN"),
+		Subdomain: os.Getenv("SUBDOMAIN"),
+		LBIP:      os.Getenv("LB_IP"),
+	}
+}
+
+// validate enforces the input contract. Returned error is intended to be
+// surfaced verbatim to the operator (matches the original messages so the
+// existing OpenTofu error-handling continues to work).
+func (in inputs) validate() error {
+	if in.APIKey == "" || in.APISecret == "" {
+		return fmt.Errorf("DYNADOT_API_KEY and DYNADOT_API_SECRET must be set")
+	}
+	if in.Domain == "" {
+		return fmt.Errorf("DOMAIN must be set (e.g. omani.works)")
+	}
+	if in.Subdomain == "" {
+		return fmt.Errorf("SUBDOMAIN must be set (e.g. omantel)")
+	}
+	if in.LBIP == "" {
+		return fmt.Errorf("LB_IP must be set (the Hetzner load balancer IPv4)")
+	}
+	if !dynadot.IsManagedDomain(in.Domain) {
+		return fmt.Errorf("DOMAIN %q is not in the managed-domain allowlist; refusing to write records", in.Domain)
+	}
+	return nil
+}
+
+// run is the testable core. It accepts an already-constructed Dynadot client
+// so tests can inject a transport that rewrites requests at a httptest.Server,
+// avoiding any real api.dynadot.com traffic.
+func run(ctx context.Context, client *dynadot.Client, in inputs, stdout io.Writer) error {
+	if err := in.validate(); err != nil {
+		return err
+	}
+	if err := client.AddSovereignRecords(ctx, in.Domain, in.Subdomain, in.LBIP); err != nil {
+		return fmt.Errorf("write DNS: %w", err)
+	}
+	fmt.Fprintf(stdout, "✓ Wrote 6 A records for *.%s.%s → %s via Dynadot\n", in.Subdomain, in.Domain, in.LBIP)
+	return nil
+}
+
 func main() {
-	apiKey := os.Getenv("DYNADOT_API_KEY")
-	apiSecret := os.Getenv("DYNADOT_API_SECRET")
-	domain := os.Getenv("DOMAIN")
-	subdomain := os.Getenv("SUBDOMAIN")
-	lbIP := os.Getenv("LB_IP")
-
-	if apiKey == "" || apiSecret == "" {
-		fail("DYNADOT_API_KEY and DYNADOT_API_SECRET must be set")
+	in := readInputsFromEnv()
+	// Validate first so we don't construct a client for a no-op run.
+	if err := in.validate(); err != nil {
+		fail(err.Error())
 	}
-	if domain == "" {
-		fail("DOMAIN must be set (e.g. omani.works)")
-	}
-	if subdomain == "" {
-		fail("SUBDOMAIN must be set (e.g. omantel)")
-	}
-	if lbIP == "" {
-		fail("LB_IP must be set (the Hetzner load balancer IPv4)")
-	}
-	if !dynadot.IsManagedDomain(domain) {
-		fail(fmt.Sprintf("DOMAIN %q is not in the managed-domain allowlist; refusing to write records", domain))
-	}
-
-	client := dynadot.New(apiKey, apiSecret)
+	client := dynadot.New(in.APIKey, in.APISecret)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-
-	if err := client.AddSovereignRecords(ctx, domain, subdomain, lbIP); err != nil {
-		fail(fmt.Sprintf("write DNS: %v", err))
+	if err := run(ctx, client, in, os.Stdout); err != nil {
+		fail(err.Error())
 	}
-
-	fmt.Printf("✓ Wrote 6 A records for *.%s.%s → %s via Dynadot\n", subdomain, domain, lbIP)
 }
 
 func fail(msg string) {
