@@ -1,7 +1,7 @@
 # Sovereign Provisioning
 
-**Status:** Authoritative target procedure. **Updated:** 2026-04-27.
-**Implementation:** The bootstrap kit and Catalyst control plane referenced below are design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). The legacy Contabo VPS runs the older SME marketplace today; provisioning is not yet automated.
+**Status:** Authoritative procedure. **Updated:** 2026-04-28.
+**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, and 11 G2 wrapper Helm charts all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 
@@ -39,46 +39,36 @@ A self-host route exists for organizations that want zero OpenOva involvement: `
 
 ## 3. Phase 0 — Bootstrap
 
+The implementation maps cleanly onto two artifacts in this monorepo:
+
+| Step | Lives in | What runs |
+|---|---|---|
+| 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3). |
+| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — operator adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. DNS records written via [`null_resource.dns_pool`](../infra/hetzner/main.tf) → catalyst-dns helper invoking the Dynadot API (managed pool domains only; BYO Sovereigns require the customer to point their own CNAME at the LB IP). |
+| 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. From this point Flux owns the cluster. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl) using the project-derived k3s_token. |
+| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 11 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-catalyst-platform (umbrella). |
+| 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) written through the Crossplane provider rather than Dynadot directly. Phase 1 begins (see §4). |
+
+The wizard's progress page polls Flux Kustomizations on the new cluster and renders steady-state to the user when every Kustomization is `Ready=True`.
+
+**DNS records written in Phase 0:**
+
 ```
-catalyst-provisioner                          Target cloud (e.g. Hetzner)
-─────────────────────                         ────────────────────────────
-
-1. OpenTofu run                  ─────────►   VPC, subnets, security groups
-                                              k3s nodes (3 mgt + workload nodes)
-                                              Cloud LB, DNS A records
-                                              Object storage bucket
-
-2. Bootstrap kit deploys onto    ─────────►   Components (in order):
-   the new k3s cluster:                          a. cilium (CNI + Gateway API)
-                                                 b. cert-manager
-                                                 c. flux (host-level)
-                                                 d. crossplane + provider config
-                                                 e. sealed-secrets (transient)
-                                                 f. spire-server + agent
-                                                 g. nats-jetstream (3 nodes)
-                                                 h. openbao (3 Raft nodes)
-                                                 i. keycloak (per topology choice)
-                                                 j. gitea (with public Blueprint mirror)
-                                                 k. catalyst control plane
-                                                    (bp-catalyst-platform umbrella)
-
-3. Domain registration / DNS     ─────────►   gitea.<location-code>.<sovereign-domain>      A
-   records (via Crossplane)                   console.<location-code>.<sovereign-domain>    A
-                                              admin.<location-code>.<sovereign-domain>      A
-
-4. Keycloak realm provisioning   ─────────►   catalyst-admin realm
-                                              (initial sovereign-admin user)
-
-5. Smoke tests                   ─────────►   Console reachable with TLS
-                                              First sovereign-admin can log in
-                                              Catalog mirror populated
-                                              Crossplane reconciles a test resource
-
-6. OpenTofu state archive        ─────────►   Encrypted, stored in catalyst-provisioner.
-                                              Never used in the Sovereign's runtime.
+*.<subdomain>.<pool-domain>          A → load balancer IP
+console.<subdomain>.<pool-domain>    A → load balancer IP
+gitea.<subdomain>.<pool-domain>      A → load balancer IP
+harbor.<subdomain>.<pool-domain>    A → load balancer IP
+admin.<subdomain>.<pool-domain>      A → load balancer IP
+api.<subdomain>.<pool-domain>        A → load balancer IP
 ```
 
-Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign.
+(Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.)
+
+**OpenTofu state:** kept in the catalyst-api PVC under `/var/lib/catalyst/tofu/<sovereign-fqdn>/` — re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the operator MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on a single PVC.
+
+**Implementation status:** the Go wrapper, OpenTofu module, and 11 G2 wrapper charts all exist today (verified at [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
+
+Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
 
 ---
 
