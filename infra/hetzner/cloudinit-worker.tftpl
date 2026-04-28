@@ -1,20 +1,99 @@
 #cloud-config
 # Catalyst Sovereign worker bootstrap.
 # Sovereign: ${sovereign_fqdn}
+#
+# This script:
+#   1. Installs OS hardening (SSH password-auth off, fail2ban, unattended-upgrades).
+#   2. Joins the cluster as a k3s agent via the control plane's private IP.
+#   3. Touches /var/lib/catalyst/cloud-init-complete for the provisioner.
+
 package_update: true
 package_upgrade: false
 packages:
   - curl
   - iptables
   - ca-certificates
+%{ if enable_fail2ban ~}
+  - fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - unattended-upgrades
+  - apt-listchanges
+%{ endif ~}
+
+write_files:
+  # ── OS hardening: SSH daemon ──────────────────────────────────────────
+  # Identical drop-in to the control plane — Phase-0 baseline. Operators
+  # tighten further via Crossplane Composition once Phase 1 completes.
+  - path: /etc/ssh/sshd_config.d/99-catalyst-hardening.conf
+    permissions: '0644'
+    content: |
+      # Managed by Catalyst Sovereign cloud-init — do not edit by hand.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PermitRootLogin prohibit-password
+      PermitEmptyPasswords no
+      UsePAM yes
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      MaxAuthTries 3
+      LoginGraceTime 30
+
+%{ if enable_unattended_upgrades ~}
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-catalyst
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "$${distro_id}:$${distro_codename}-security";
+        "$${distro_id}ESMApps:$${distro_codename}-apps-security";
+        "$${distro_id}ESM:$${distro_codename}-infra-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "02:30";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+%{ endif ~}
+
+%{ if enable_fail2ban ~}
+  - path: /etc/fail2ban/jail.d/catalyst-sshd.local
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+      backend = systemd
+%{ endif ~}
+
 runcmd:
   - swapoff -a
   - sed -i '/swap/d' /etc/fstab
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+  - systemctl reload ssh || systemctl reload sshd || true
+%{ if enable_fail2ban ~}
+  - systemctl enable --now fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - systemctl enable --now unattended-upgrades
+%{ endif ~}
   # Join the control plane via private network IP (10.0.1.2 — the first
-  # control-plane node in the network subnet).
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.31.4+k3s1 K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --node-label catalyst.openova.io/role=worker" sh -'
+  # control-plane node in the network subnet). k3s_version pinned so all
+  # workers in this Sovereign land on the same Kubernetes minor as the CP.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --node-label catalyst.openova.io/role=worker" sh -'
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 final_message: "Catalyst worker bootstrap complete after $UPTIME seconds"
