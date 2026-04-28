@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provisioning
+  namespace: sme
+---
+# Cluster-wide permissions for the provisioning SA.
+#
+# After #75 this is strictly READ ONLY across all non-namespaced and cross-NS
+# reads. The only destructive verbs granted cluster-wide are patch+delete on
+# Namespaces — and that is deliberate because tenant-<slug> namespaces are
+# only cluster-scoped things the teardown flow owns end-to-end.
+#
+# Every per-tenant destructive operation (deleting HelmRelease finalizers,
+# deleting legacy in-NS Kustomization CRs, reading DB-password secrets) is
+# granted by a namespaced Role that ships INSIDE each tenant's manifest
+# bundle (see services/provisioning/gitops:generateProvisioningTenantRBAC).
+# So a bug in teardown that points at the wrong slug can't wipe flux-system
+# Kustomization CRs or tenant CRs for tenants this SA wasn't invited into.
+#
+# Permissions to touch flux-system's own kustomizations + the kubeconfig
+# mirror secrets live in a Role bound in flux-system (below).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sme-provisioning
+rules:
+  # Read-only status endpoints.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests"]
+    # patch is needed to strip finalizers at teardown — cert-manager attaches
+    # finalizer.cert-manager.io/certificate-secret-binding to every Cert CR
+    # and once the tenant NS is Terminating the controller can't reconcile
+    # the delete (can't write back into a Terminating NS), so the finalizer
+    # is never removed and the NS stays Terminating forever. Same pattern as
+    # the cluster-wide namespace delete below: cluster-wide is justified
+    # because the GC target is cluster-scoped (the NS itself) and the
+    # per-tenant Role generated in gitops.go could already be pruned by
+    # Flux by the time we need to strip. At worst a buggy teardown can only
+    # drop the finalizer off a Certificate — cert-manager will re-add it on
+    # the next reconcile loop when the NS isn't Terminating. Issue #86.
+    verbs: ["get", "list", "watch", "patch"]
+  # Namespaces: tenant NS lifecycle. Cluster-wide because namespaces are a
+  # cluster-scoped resource. Scoping by naming convention (tenant-<slug>) is
+  # enforced in code; this rule trusts that discipline, but at worst a buggy
+  # teardown can only delete a NAMESPACE — not CRs in other namespaces. The
+  # previous version of this role could also delete Flux Kustomizations in
+  # flux-system, which would take the whole cluster offline; that verb is
+  # now gone from cluster scope.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  # Secrets: cluster-wide read is needed so the provisioning service can
+  # fetch the source `vc-vcluster` Secret from tenant-<slug> at mirror time
+  # AND look up a DB password that lives in a tenant NS on day-2 installs.
+  # Write is scoped to flux-system only (see Role below) so a bug can't
+  # rewrite in-tenant secrets.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sme-provisioning
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sme-provisioning
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: sme
+---
+# flux-system-scoped Role: patch/delete the per-tenant Kustomization CRs that
+# live here (see #97 for why they live here and not in the tenant NS), and
+# create/update/delete the mirrored kubeconfig Secrets those CRs reference.
+#
+# Previously these rights were cluster-wide — a bug that resolved the wrong
+# CR name could have deleted flux-system/flux-system itself and taken all
+# reconciliation with it. Confining them to this one namespace means the
+# absolute worst a teardown bug can do is break one tenant's sync, not the
+# cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sme-provisioning-fluxsystem
+  namespace: flux-system
+rules:
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sme-provisioning-fluxsystem
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sme-provisioning-fluxsystem
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: sme
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provisioning
+  namespace: sme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-provisioning
+  template:
+    metadata:
+      labels:
+        app: sme-provisioning
+    spec:
+      serviceAccountName: provisioning
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: provisioning
+          image: ghcr.io/openova-io/openova-private/sme-provisioning:635eec7
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8084
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: MONGODB_URI
+            - name: MONGODB_DB
+              value: "provisioning"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+            - name: GIT_BASE_PATH
+              value: "clusters/contabo-mkt/tenants"
+            - name: CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CATALOG_URL
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-github-token
+                  key: GITHUB_TOKEN
+            - name: GITHUB_OWNER
+              value: "openova-io"
+            - name: GITHUB_REPO
+              value: "openova-private"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8084
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provisioning
+  namespace: sme
+spec:
+  selector:
+    app: sme-provisioning
+  ports:
+    - port: 8084
+      targetPort: 8084

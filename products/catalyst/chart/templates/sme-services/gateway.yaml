@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: sme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-gateway
+  template:
+    metadata:
+      labels:
+        app: sme-gateway
+    spec:
+      serviceAccountName: gateway
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: gateway
+          image: ghcr.io/openova-io/openova-private/sme-gateway:635eec7
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: JWT_SECRET
+            - name: VALKEY_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: VALKEY_ADDR
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_GATEWAY
+            - name: AUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: AUTH_URL
+            - name: CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CATALOG_URL
+            - name: TENANT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: TENANT_URL
+            - name: PROVISIONING_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: PROVISIONING_URL
+            - name: BILLING_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: BILLING_URL
+            - name: DOMAIN_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: DOMAIN_URL
+            - name: NOTIFICATION_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NOTIFICATION_URL
+            - name: RATE_LIMIT_RPM
+              # A single console tab polls /tenant/orgs + /provisioning/jobs
+              # every 1.5s during active work (=80 rpm) plus incidental
+              # /catalog/* + /provisioning/backing-services calls; 120 rpm
+              # was tight enough that a logged-in user saw intermittent
+              # 429s during normal use (issue #106). 600 rpm = 10 req/s
+              # per IP, still tight enough to throttle abuse.
+              value: "600"
+            # Trusted-proxy allowlist: only X-Forwarded-For / X-Real-IP headers
+            # received from these CIDRs are honoured. 10.42.0.0/16 is the k3s
+            # pod CIDR, which Traefik (the only legitimate upstream) sits in.
+            # Direct callers from outside the cluster are untrusted — their
+            # XFF headers are ignored so they cannot rotate rate-limit buckets.
+            - name: GATEWAY_TRUSTED_PROXIES
+              value: "10.42.0.0/16"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: sme
+spec:
+  selector:
+    app: sme-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080

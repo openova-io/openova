@@ -1,0 +1,10 @@
+apiVersion: v2
+name: catalyst-platform
+version: 1.0.0
+appVersion: 1.0.0
+description: |
+  Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
+  Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
+  Deployed via Flux on Catalyst-Zero (Contabo k3s) and on every franchised Sovereign provisioned by Catalyst-Zero.
+  Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
+type: application

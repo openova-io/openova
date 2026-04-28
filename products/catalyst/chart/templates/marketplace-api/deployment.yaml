@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketplace-api
+  labels:
+    app.kubernetes.io/name: marketplace-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: marketplace-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: marketplace-api
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: marketplace-api
+          image: ghcr.io/openova-io/openova/marketplace-api:d96d9c8
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: marketplace-api-secrets
+                  key: jwt-secret
+            - name: SMTP_HOST
+              value: "stalwart-mail.stalwart.svc.cluster.local"
+            - name: SMTP_PORT
+              value: "25"
+            - name: FROM_EMAIL
+              value: "marketplace@openova.io"
+            - name: CORS_ORIGIN
+              value: "https://openova.io"
+            - name: GIT_REPO_PATH
+              value: "/data/repo"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534

@@ -1,0 +1,23 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+<Layout title="Signing in..." step={5}>
+  <div class="flex justify-center items-center py-20">
+    <div class="text-center">
+      <div class="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent"></div>
+      <p class="text-[var(--color-text-dim)]">Completing sign-in...</p>
+    </div>
+  </div>
+  <script>
+    // Extract the authorization code from Google's redirect
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      // Redirect to checkout with the code
+      window.location.href = `/checkout?code=${encodeURIComponent(code)}&google_auth=1`;
+    } else {
+      // No code — redirect to checkout page
+      window.location.href = '/checkout';
+    }
+  </script>
+</Layout>

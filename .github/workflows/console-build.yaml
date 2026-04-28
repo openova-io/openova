@@ -1,0 +1,74 @@
+name: Build & Deploy Catalyst Console
+
+on:
+  push:
+    paths: ['core/console/**']
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/console
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: core/console
+          file: core/console/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update deployment manifest
+        run: |
+          SHA=$(echo $GITHUB_SHA | head -c 7)
+          FILE="products/catalyst/chart/templates/sme-services/console.yaml"
+          if [ -f "$FILE" ]; then
+            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
+          fi
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          SHA=$(echo $GITHUB_SHA | head -c 7)
+          git add products/
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "deploy: update Catalyst console image to ${SHA}"
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase
+          done

@@ -1,0 +1,88 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Login">
+  <div class="flex min-h-screen items-center justify-center">
+    <div class="w-full max-w-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8">
+      <div class="flex justify-center">
+        <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-[#ef4444]">
+          <svg viewBox="0 0 28 28" class="h-7 w-7" fill="none">
+            <path d="M8 14a6 6 0 1112 0 6 6 0 01-12 0z" stroke="#fff" stroke-width="2"/>
+            <circle cx="14" cy="14" r="2" fill="#fff"/>
+          </svg>
+        </div>
+      </div>
+      <h1 class="mt-4 text-center text-xl font-bold text-[var(--color-text-strong)]">Admin Login</h1>
+      <p class="mt-1 text-center text-sm text-[var(--color-text-dim)]">Superadmin access only</p>
+
+      <form id="login-form" class="mt-6 space-y-4">
+        <div>
+          <label class="text-xs font-medium text-[var(--color-text-dim)]">Email</label>
+          <input
+            id="email"
+            type="email"
+            required
+            class="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+            placeholder="admin@openova.io"
+          />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-[var(--color-text-dim)]">Password</label>
+          <input
+            id="password"
+            type="password"
+            required
+            class="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+          />
+        </div>
+        <div id="error" class="hidden rounded-lg bg-[var(--color-danger)]/10 p-3 text-sm text-[var(--color-danger)]"></div>
+        <button
+          type="submit"
+          class="w-full rounded-lg bg-[var(--color-accent)] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    import { API_BASE } from '../lib/config';
+
+    const form = document.getElementById('login-form') as HTMLFormElement;
+    const errorEl = document.getElementById('error') as HTMLDivElement;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.classList.add('hidden');
+      const email = (document.getElementById('email') as HTMLInputElement).value;
+      const password = (document.getElementById('password') as HTMLInputElement).value;
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Login failed');
+        }
+        const data = await res.json();
+        localStorage.setItem('sme-admin-token', data.token);
+        // Admin now stores the refresh token so /lib/api.ts can silently
+        // refresh when the 15-min access token expires (#84). Fires the
+        // sme-admin-auth-changed event so any mounted island re-evaluates
+        // its "is signed in?" state without a page reload (#83).
+        if (data.refresh_token) {
+          localStorage.setItem('sme-admin-refresh-token', data.refresh_token);
+        }
+        window.dispatchEvent(new Event('sme-admin-auth-changed'));
+        window.location.href = import.meta.env.BASE_URL;
+      } catch (err: any) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+      }
+    });
+  </script>
+</Layout>

@@ -1,0 +1,245 @@
+# Customer console, admin, and marketplace ingresses.
+# URL scheme:
+#   marketplace.openova.io/         (pre-auth signup + checkout; marketplace app)
+#   marketplace.openova.io/api/     (API gateway for marketplace)
+#   console.openova.io/nova/        (Nova customer console)
+#   console.openova.io/nova/api/    (API gateway, /nova stripped)
+#   admin.openova.io/nova/          (Nova internal admin)
+#   admin.openova.io/nova/api/      (API gateway, /nova stripped)
+#
+# Old subdomains (sme.openova.io, console.sme.openova.io, admin.sme.openova.io)
+# are retired — no redirects, no backwards compatibility per project decision.
+---
+# Traefik middleware: strip the /nova tier prefix before forwarding to the
+# API gateway (the apps call fetch('/nova/api/...') so the gateway sees /api/...).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-nova
+  namespace: sme
+spec:
+  stripPrefix:
+    prefixes:
+      - /nova
+---
+# Root redirects so the bare hostnames don't 404. / → /nova/ for the
+# Nova tier is a sensible default (the vast majority of customers are
+# Nova); Sovereign users know to go directly to /sovereign.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: root-to-nova
+  namespace: sme
+spec:
+  redirectRegex:
+    regex: "^https?://(console|admin)\\.openova\\.io/?$"
+    replacement: "https://${1}.openova.io/nova/"
+    permanent: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console-root
+  namespace: sme
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "50"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-root-to-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: console.openova.io
+      http:
+        paths:
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: console
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-root
+  namespace: sme
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "50"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-root-to-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: admin.openova.io
+      http:
+        paths:
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: admin
+                port:
+                  number: 8080
+---
+# Marketplace: pre-auth signup + checkout lives on its own subdomain.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: marketplace-api
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "200"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: marketplace.openova.io
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - marketplace.openova.io
+      secretName: marketplace-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: marketplace
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: marketplace.openova.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: marketplace
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - marketplace.openova.io
+      secretName: marketplace-tls
+---
+# Console (Nova tier): path-routed on console.openova.io.
+# API rule has higher priority so /nova/api/* beats the app-serving /nova/* rule.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console-nova-api
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "200"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: console.openova.io
+      http:
+        paths:
+          - path: /nova/api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - console.openova.io
+      secretName: console-openova-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console-nova
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: console.openova.io
+      http:
+        paths:
+          - path: /nova
+            pathType: Prefix
+            backend:
+              service:
+                name: console
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - console.openova.io
+      secretName: console-openova-tls
+---
+# Admin (Nova tier): path-routed on admin.openova.io.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-nova-api
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "200"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: admin.openova.io
+      http:
+        paths:
+          - path: /nova/api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - admin.openova.io
+      secretName: admin-openova-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-nova
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: admin.openova.io
+      http:
+        paths:
+          - path: /nova
+            pathType: Prefix
+            backend:
+              service:
+                name: admin
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - admin.openova.io
+      secretName: admin-openova-tls

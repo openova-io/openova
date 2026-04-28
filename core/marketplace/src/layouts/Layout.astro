@@ -1,0 +1,87 @@
+---
+import Header from '../components/Header.svelte';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  step?: number;
+}
+
+const { title, step = 0 } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="/favicon.ico" />
+  <title>{title} — OpenOva SME</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script is:inline>
+    (function () {
+      try {
+        var saved = localStorage.getItem('sme-theme');
+        var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', saved || system);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+  <script is:inline>
+    // Returning-user redirect: signed-in visitors with at least one live
+    // workspace are sent to the console from ANY marketplace page. This
+    // closes the loophole where deep links (/plans, /apps, /addons, /review,
+    // /checkout) let a returning user land back in the wizard.
+    // Exceptions:
+    //  - /auth/callback completes OAuth before we can check
+    //  - /checkout with ?order_id is Stripe's return URL and must stay so
+    //    CheckoutStep can wire up the active-org and redirect itself
+    //  - ?new=1 lets an existing customer spin up a second workspace
+    (function () {
+      try {
+        var path = window.location.pathname;
+        var qs = new URLSearchParams(window.location.search);
+        if (path.indexOf('/auth/callback') === 0) return;
+        if (qs.get('order_id')) return;
+        if (qs.get('new') === '1') return;
+        var token = localStorage.getItem('sme-token');
+        if (!token) return;
+        var CACHE_KEY = 'sme-has-workspace-v1';
+        var TTL_MS = 60 * 1000;
+        var cached = null;
+        try { cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); } catch (e) {}
+        if (cached && cached.has && Date.now() - cached.ts < TTL_MS) {
+          redirect();
+          return;
+        }
+        fetch('/api/tenant/orgs', { headers: { Authorization: 'Bearer ' + token } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (orgs) {
+            if (!Array.isArray(orgs)) return;
+            var live = orgs.filter(function (o) { return o && o.status !== 'deleted'; });
+            try {
+              sessionStorage.setItem(CACHE_KEY, JSON.stringify({ has: live.length > 0, ts: Date.now() }));
+            } catch (e) {}
+            if (live.length > 0) redirect();
+          })
+          .catch(function () {});
+      } catch (e) {}
+      function redirect() {
+        var token = localStorage.getItem('sme-token') || '';
+        var refresh = localStorage.getItem('sme-refresh-token') || '';
+        var url = 'https://console.openova.io/nova/?token=' + encodeURIComponent(token);
+        if (refresh) url += '&refresh_token=' + encodeURIComponent(refresh);
+        window.location.replace(url);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <Header client:load currentStep={step} />
+  <main class="mx-auto max-w-7xl px-4 py-8">
+    <slot />
+  </main>
+</body>
+</html>

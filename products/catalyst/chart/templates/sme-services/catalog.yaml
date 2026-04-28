@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: sme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-catalog
+  template:
+    metadata:
+      labels:
+        app: sme-catalog
+    spec:
+      serviceAccountName: catalog
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: catalog
+          image: ghcr.io/openova-io/openova-private/sme-catalog:635eec7
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: MONGODB_URI
+            - name: MONGODB_DB
+              value: "catalog"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+  namespace: sme
+spec:
+  selector:
+    app: sme-catalog
+  ports:
+    - port: 8082
+      targetPort: 8082

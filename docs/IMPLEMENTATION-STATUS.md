@@ -28,10 +28,10 @@ The other architecture docs describe the **target**: where Catalyst is going. Th
 | Public repo at `github.com/openova-io/openova` (this repo) | ✅ | Monorepo. Source of truth for documentation and (eventually) for every Blueprint's manifests. |
 | Per-folder Blueprint convention (`platform/<name>/` and `products/<name>/`) | 🚧 | Folders exist with READMEs only. None yet contain a `blueprint.yaml`, `chart/`, or CI pipeline. |
 | `bp-<name>:<semver>` OCI artifacts in `ghcr.io/openova-io/` | 📐 | Target: every Blueprint folder fans out to a signed OCI artifact via CI. Not yet wired. |
-| `core/` Catalyst control-plane Go application | 📐 | Directory tree exists with `.gitkeep` placeholders. No Go code yet. |
-| `products/axon/` | ✅ | Real implementation (chart/, src/, scripts/). The only product with code. |
-| `products/catalyst/` umbrella Blueprint (`bp-catalyst-platform`) | 📐 | Currently only a `bootstrap/ui/` Vite scaffold. No umbrella manifest. |
-| `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. |
+| `core/{console,admin,marketplace,marketplace-api}/` | 🚧 | **Consolidated 2026-04-28 (Pass 105)** from `openova-private/apps/{console,admin,marketplace}/` and `openova-private/website/marketplace-api/`. Astro+Svelte UIs (console, admin, marketplace) plus Go backend (marketplace-api). All deployed today on Catalyst-Zero (Contabo k3s, namespaces `sme` + `marketplace`). |
+| `products/axon/` | ✅ | Real implementation (chart/, src/, scripts/). |
+| `products/catalyst/` umbrella Blueprint (`bp-catalyst-platform`) | 🚧 | **Has `bootstrap/{ui,api}/` source code** (React SPA wizard + Go bootstrap API, deployed on Catalyst-Zero in `catalyst` namespace). **Has `chart/` with Chart.yaml + Helm templates for the full Catalyst-Zero deployment** (catalyst-ui, catalyst-api, console, admin, marketplace, marketplace-api, plus the legacy `sme-services/` backend services). Per `docs/PROVISIONING-PLAN.md`, this is the canonical Helm chart for Catalyst-Zero and every franchised Sovereign. |
+| `products/{cortex,fabric,fingate,relay,specter}/` | 📐 | README only. No charts or manifests. |
 
 ---
 
@@ -43,12 +43,15 @@ These run **per-Sovereign** on the management cluster:
 
 | Component | Status | Notes |
 |---|---|---|
-| console (Catalyst UI) | 📐 | Designed. No code. |
-| marketplace (public Blueprint card grid) | 📐 | Designed. No code. |
-| admin (sovereign-admin operations UI) | 📐 | Designed. No code. |
+| console (Catalyst UI) | 🚧 | Astro + Svelte UI at `core/console/`. Deployed on Catalyst-Zero (Contabo, namespace `sme`). Sovereign-provisioning wizard at `/sovereign` not yet built (Phase 3 of `docs/PROVISIONING-PLAN.md`). |
+| marketplace (public Blueprint card grid) | 🚧 | Astro + Svelte UI at `core/marketplace/`. Deployed on Catalyst-Zero. 5-step `Plan→Apps→Addons→Checkout→Review` flow exists; `AppsStep` to be replaced with unified `bp-<x>` marketplace card grid (Phase 3). |
+| admin (sovereign-admin operations UI) | 🚧 | Astro + Svelte UI at `core/admin/`. Deployed on Catalyst-Zero. Includes existing voucher / billing / catalog / orders / tenants admin surface (the canonical voucher implementation per `docs/PROVISIONING-PLAN.md`). |
+| catalyst-ui | 🚧 | React SPA wizard scaffold at `products/catalyst/bootstrap/ui/`. Deployed on Catalyst-Zero (namespace `catalyst`). 7-step wizard: Org → Provider → Credentials → Infrastructure → Topology → Components → Review. Merges into `core/console/src/pages/sovereign/` per Phase 3. |
+| catalyst-api | 🚧 | Go bootstrap API at `products/catalyst/bootstrap/api/`. Deployed on Catalyst-Zero. `internal/hetzner/` already has Hetzner Cloud API client groundwork. Migrates into `core/marketplace-api/provisioner/` per Phase 4. |
+| marketplace-api | 🚧 | Go backend at `core/marketplace-api/`. Deployed on Catalyst-Zero (namespace `marketplace`). Has `provisioner/` and `store/` modules — extends to full Hetzner Sovereign provisioning per Phase 4. |
 | catalog-svc | 📐 | Designed. No code. |
 | projector (CQRS read-side, JetStream → KV → SSE) | 📐 | Designed. No code. |
-| provisioning service | 📐 | Designed. No code. |
+| provisioning service | 🚧 | Provisioning logic exists in `core/marketplace-api/provisioner/` (consolidated 2026-04-28). Extends per Phase 4. |
 | environment-controller | 📐 | Designed. No code. |
 | blueprint-controller | 📐 | Designed. No code. |
 | billing | 📐 | Designed. No code. |
@@ -124,8 +127,8 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 | Sovereign | Status | Notes |
 |---|---|---|
-| `openova` (the OpenOva-run Sovereign — formerly "Nova") | 🚧 | Current deployment runs on Contabo at `console.openova.io/nova` (legacy SME marketplace); does NOT run Catalyst control plane yet. Migration to a true Catalyst Sovereign is the implementation goal. |
-| `omantel` | 📐 | Planned. Hetzner-hosted. Not yet provisioned. |
+| `openova` Catalyst-Zero (the chicken in the chicken-and-egg) | 🚧 | **Running on Contabo k3s today** in namespaces `catalyst`, `sme`, `marketplace`, `website`. Pods include catalyst-{ui,api}, console, admin, marketplace, marketplace-api. Catalyst-Zero IS the catalyst-provisioner that provisions every other Sovereign — see `docs/PROVISIONING-PLAN.md`. As of 2026-04-28 (Pass 105), all UI source code is consolidated into `core/` and `products/catalyst/` in this public repo; cutover to public-repo CI builds happens in Phase 2 of the plan. |
+| `omantel` (first franchised Sovereign, target: `omantel.omani.works` on Hetzner) | 📐 | Provisioned by Catalyst-Zero per Phase 8 of `docs/PROVISIONING-PLAN.md`. Not yet provisioned. |
 | `bankdhofar` | 📐 | Planned. Customer-hosted. Not yet provisioned. |
 
 ---
