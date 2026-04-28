@@ -23,7 +23,8 @@
  * new phase to the constants list ripples here automatically.
  */
 
-import { Check, Loader2, Circle, AlertCircle, MinusCircle } from 'lucide-react'
+import { Check, Loader2, Circle, AlertCircle, MinusCircle, RotateCw, BookOpen, ExternalLink } from 'lucide-react'
+import { useState } from 'react'
 import {
   ALL_PHASES,
   OPENTOFU_PHASES,
@@ -44,7 +45,25 @@ export interface BootstrapProgressProps {
   focusedPhaseId?: string | null
   /** Compact mode: smaller rows, no descriptions. */
   compact?: boolean
+  /**
+   * Retry handler invoked when the user clicks "Retry phase" on a failed row.
+   * Implementations should POST to
+   *   /api/v1/deployments/<id>/phases/<phaseId>/retry
+   * and re-open the SSE stream. Closes issue #125 — failed-phase UX.
+   * When omitted, the retry button is hidden (e.g. demo screenshots).
+   */
+  onRetryPhase?: (phaseId: string) => Promise<void> | void
+  /**
+   * URL the failed-phase row's "Rollback procedure" link points at.
+   * Defaults to the canonical runbook anchor. Override to point at an
+   * internal copy when serving in air-gap environments.
+   */
+  rollbackDocsURL?: string
 }
+
+/** Default rollback docs URL — anchor on docs/RUNBOOK-PROVISIONING.md. */
+const DEFAULT_ROLLBACK_DOCS_URL =
+  'https://github.com/openova-io/openova/blob/main/docs/RUNBOOK-PROVISIONING.md#rollback-procedures-per-phase'
 
 const STATUS_COLORS: Record<PhaseStatus, { fg: string; bg: string; border: string }> = {
   pending: {
@@ -110,28 +129,51 @@ function PhaseRow({
   onClick,
   focused,
   compact,
+  onRetry,
+  rollbackDocsURL,
 }: {
   phase: BootstrapPhase
   state: PhaseState
   onClick?: () => void
   focused: boolean
   compact: boolean
+  onRetry?: (phaseId: string) => Promise<void> | void
+  rollbackDocsURL: string
 }) {
   const colors = STATUS_COLORS[state.status]
   const dur = durationLabel(state)
   const clickable = !!onClick
+  const isFailed = state.status === 'failed'
+  const [retrying, setRetrying] = useState(false)
+
+  // Failed rows render a distinct red-bordered surface even when not focused
+  // — operators need to spot them at a glance per issue #125.
+  const failedSurface = isFailed
+    ? { background: colors.bg, border: `1px solid ${colors.border}` }
+    : { background: focused ? colors.bg : 'transparent', border: `1px solid ${focused ? colors.border : 'transparent'}` }
+
+  async function handleRetry(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!onRetry || retrying) return
+    setRetrying(true)
+    try {
+      await onRetry(phase.id)
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!clickable}
+    <div
+      role={clickable ? 'button' : undefined}
+      onClick={clickable ? onClick : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
+      tabIndex={clickable ? 0 : -1}
       aria-current={focused ? 'step' : undefined}
       aria-label={`${phase.label} — ${state.status}${dur ? ` (${dur})` : ''}`}
-      className="bp-row"
+      className={`bp-row ${isFailed ? 'bp-row-failed' : ''}`}
       style={{
-        background: focused ? colors.bg : 'transparent',
-        border: `1px solid ${focused ? colors.border : 'transparent'}`,
+        ...failedSurface,
         cursor: clickable ? 'pointer' : 'default',
       }}
     >
@@ -164,10 +206,43 @@ function PhaseRow({
             {phase.description}
           </div>
         )}
-        {state.status === 'failed' && (
-          <div className="bp-failed-marker">
-            sovereign state · <code>{failedAtSovereignState(phase.id)}</code>
-          </div>
+        {isFailed && (
+          <>
+            <div className="bp-failed-marker">
+              sovereign state · <code>{failedAtSovereignState(phase.id)}</code>
+            </div>
+            {state.lastEvent?.message && (
+              <div className="bp-failed-msg" role="alert">
+                {state.lastEvent.message}
+              </div>
+            )}
+            <div className="bp-failed-actions">
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  className="bp-btn bp-btn-retry"
+                  aria-label={`Retry phase ${phase.label}`}
+                >
+                  {retrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCw size={11} />}
+                  <span>{retrying ? 'Retrying…' : 'Retry phase'}</span>
+                </button>
+              )}
+              <a
+                href={`${rollbackDocsURL}-${phase.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bp-btn bp-btn-rollback"
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Rollback procedure for ${phase.label}`}
+              >
+                <BookOpen size={11} />
+                <span>Rollback procedure</span>
+                <ExternalLink size={10} style={{ opacity: 0.6 }} />
+              </a>
+            </div>
+          </>
         )}
         {state.lastEvent && state.status === 'running' && !compact && (
           <div className="bp-tail">{state.lastEvent.message}</div>
@@ -183,8 +258,18 @@ function PhaseRow({
           transition: background 0.15s, border-color 0.15s;
           background: transparent;
         }
-        .bp-row:disabled { cursor: default; }
-        .bp-row:not(:disabled):hover { background: var(--wiz-bg-sub); }
+        .bp-row[role="button"]:hover { background: var(--wiz-bg-sub); }
+        .bp-row[role="button"]:focus-visible {
+          outline: 2px solid var(--wiz-accent);
+          outline-offset: 1px;
+        }
+        .bp-row-failed {
+          /* Steady red border + tinted background — operators must spot
+             a failed phase at a glance per issue #125. */
+          background: rgba(248,113,113,0.07) !important;
+          border: 1px solid rgba(248,113,113,0.45) !important;
+          box-shadow: inset 3px 0 0 #F87171;
+        }
         .bp-icon {
           width: 22px; height: 22px; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
@@ -221,14 +306,76 @@ function PhaseRow({
           background: rgba(248,113,113,0.08);
           padding: 1px 5px; border-radius: 3px;
         }
+        .bp-failed-msg {
+          font-size: 10.5px;
+          color: #FCA5A5;
+          font-family: 'JetBrains Mono', monospace;
+          background: rgba(248,113,113,0.05);
+          border-left: 2px solid rgba(248,113,113,0.55);
+          padding: 5px 8px;
+          margin-top: 5px;
+          border-radius: 0 4px 4px 0;
+          line-height: 1.5;
+          word-break: break-word;
+          white-space: pre-wrap;
+        }
+        .bp-failed-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 7px;
+          flex-wrap: wrap;
+        }
+        .bp-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 4px 9px;
+          border-radius: 5px;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          font-family: 'Inter', sans-serif;
+          cursor: pointer;
+          transition: all 0.15s;
+          border: 1px solid;
+          text-decoration: none;
+          line-height: 1.3;
+        }
+        .bp-btn-retry {
+          color: #FCA5A5;
+          background: rgba(248,113,113,0.10);
+          border-color: rgba(248,113,113,0.40);
+        }
+        .bp-btn-retry:hover:not(:disabled) {
+          background: rgba(248,113,113,0.18);
+          border-color: rgba(248,113,113,0.65);
+          color: #FECACA;
+        }
+        .bp-btn-retry:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+        .bp-btn-rollback {
+          color: var(--wiz-text-md);
+          background: transparent;
+          border-color: var(--wiz-border-sub);
+        }
+        .bp-btn-rollback:hover {
+          background: var(--wiz-bg-sub);
+          border-color: var(--wiz-border);
+          color: var(--wiz-text-hi);
+        }
         .bp-tail {
           font-size: 10px; color: var(--wiz-text-lo);
           font-family: 'JetBrains Mono', monospace;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           margin-top: 2px;
         }
+        .animate-spin { animation: bp-spin 0.9s linear infinite; }
+        @keyframes bp-spin { to { transform: rotate(360deg); } }
       `}</style>
-    </button>
+    </div>
   )
 }
 
@@ -272,6 +419,8 @@ export function BootstrapProgress({
   onPhaseClick,
   focusedPhaseId,
   compact = false,
+  onRetryPhase,
+  rollbackDocsURL = DEFAULT_ROLLBACK_DOCS_URL,
 }: BootstrapProgressProps) {
   const doneCount = (list: BootstrapPhase[]) =>
     list.filter((p) => phases[p.id]?.status === 'done').length
@@ -288,6 +437,10 @@ export function BootstrapProgress({
       100,
   )
 
+  // Locate the first failed phase (chronological order) so the header banner
+  // can surface it immediately even before the user scrolls.
+  const firstFailedPhase = ALL_PHASES.find((p) => phases[p.id]?.status === 'failed') ?? null
+
   return (
     <nav aria-label="Bootstrap provisioning progress" className="bp">
       <header className="bp-header">
@@ -298,9 +451,18 @@ export function BootstrapProgress({
         <div className="bp-header-bar">
           <div
             className="bp-header-bar-fill"
-            style={{ width: `${overallPct}%`, background: allDone ? '#4ADE80' : 'var(--wiz-accent)' }}
+            style={{ width: `${overallPct}%`, background: firstFailedPhase ? '#F87171' : allDone ? '#4ADE80' : 'var(--wiz-accent)' }}
           />
         </div>
+        {firstFailedPhase && (
+          <div className="bp-header-failed-banner" role="alert">
+            <AlertCircle size={12} style={{ flexShrink: 0 }} />
+            <span>
+              <strong>Phase failed:</strong> {firstFailedPhase.label} — sovereign state{' '}
+              <code>{failedAtSovereignState(firstFailedPhase.id)}</code>. Use the row below to retry or open the rollback procedure.
+            </span>
+          </div>
+        )}
       </header>
 
       <SectionHeader
@@ -319,6 +481,8 @@ export function BootstrapProgress({
             onClick={onPhaseClick ? () => onPhaseClick(phase.id) : undefined}
             focused={focusedPhaseId === phase.id}
             compact={compact}
+            onRetry={onRetryPhase}
+            rollbackDocsURL={rollbackDocsURL}
           />
         )
       })}
@@ -339,6 +503,8 @@ export function BootstrapProgress({
             onClick={onPhaseClick ? () => onPhaseClick(phase.id) : undefined}
             focused={focusedPhaseId === phase.id}
             compact={compact}
+            onRetry={onRetryPhase}
+            rollbackDocsURL={rollbackDocsURL}
           />
         )
       })}
@@ -368,6 +534,22 @@ export function BootstrapProgress({
         .bp-header-bar-fill {
           height: 100%; transition: width 0.4s ease, background 0.3s ease;
         }
+        .bp-header-failed-banner {
+          display: flex; align-items: flex-start; gap: 7px;
+          padding: 8px 11px; border-radius: 7px;
+          background: rgba(248,113,113,0.08);
+          border: 1px solid rgba(248,113,113,0.30);
+          color: #FCA5A5;
+          font-size: 11px; line-height: 1.5;
+          margin-top: 4px;
+        }
+        .bp-header-failed-banner code {
+          font-family: 'JetBrains Mono', monospace;
+          background: rgba(248,113,113,0.12);
+          padding: 1px 5px; border-radius: 3px;
+          font-size: 10px;
+        }
+        .bp-header-failed-banner strong { color: #F87171; }
       `}</style>
     </nav>
   )

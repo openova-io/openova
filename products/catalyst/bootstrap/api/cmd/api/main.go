@@ -37,6 +37,11 @@ func main() {
 	r.Post("/api/v1/deployments", h.CreateDeployment)
 	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
+	// Phase-retry endpoint for the wizard's failed-phase UX (issue #125).
+	// Phase 0 retries re-run `tofu apply` against the existing workdir;
+	// Phase 1 retries emit operator instructions per the architectural
+	// contract (Flux owns Phase 1 reconciliation).
+	r.Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
