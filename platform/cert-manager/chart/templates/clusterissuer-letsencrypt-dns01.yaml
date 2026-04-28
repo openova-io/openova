@@ -1,0 +1,72 @@
+{{- if .Values.catalystIssuer.dns01.enabled }}
+# letsencrypt-dns01-prod — ClusterIssuer for ACME DNS-01 challenges.
+#
+# Closes #113 — TLS issuance via cert-manager Let's Encrypt DNS-01
+# challenge.
+#
+# Why DNS-01: wildcard certificates (*.<sovereign-fqdn>) require DNS-01
+# because HTTP-01 cannot prove control over a wildcard. Every Sovereign
+# wants `*.omantel.omani.works` so console., gitea., harbor., admin., and
+# api. all share one cert; that means DNS-01 is the canonical challenge
+# for the Catalyst stack.
+#
+# Why webhook: cert-manager supports a fixed list of built-in DNS providers
+# (cloudflare, route53, akamai, azuredns, digitalocean, googlecloud,
+# rfc2136). Dynadot is NOT in that list. Per cert-manager docs
+# (https://cert-manager.io/docs/configuration/acme/dns01/#webhook), the
+# canonical extension point for an unsupported provider is the webhook
+# solver — a separate operator that implements the
+# `webhook.acme.cert-manager.io/v1alpha1` API.
+#
+# Status (2026-04-28): no production-grade `cert-manager-webhook-dynadot`
+# operator exists upstream. Until one is shipped (tracked separately —
+# Catalyst will likely ship its own as a follow-up Blueprint, leveraging
+# the existing internal/dynadot client), the DNS-01 issuer is gated by
+# `catalystIssuer.dns01.enabled = false` in values.yaml. Operators flip
+# the flag once the webhook deployment lands. The HTTP-01 ClusterIssuer
+# below covers everything else in the meantime.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #3 ("Follow the documented
+# architecture, exactly"): we do NOT call the Dynadot API directly from a
+# Catalyst-bespoke cert-manager fork. The ONLY sanctioned path for
+# Dynadot DNS writes from the cluster is a cert-manager webhook solver
+# (the webhook is a separate, well-defined extension point — not a
+# bespoke patch). The catalyst-api already wraps the Dynadot client; the
+# webhook will reuse that package.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01-prod
+  labels:
+    catalyst.openova.io/component: cert-manager
+    catalyst.openova.io/issuer-tier: dns01
+spec:
+  acme:
+    server: {{ include "catalyst.certManager.acmeServer" . }}
+    email: {{ include "catalyst.certManager.issuerEmail" . }}
+    privateKeySecretRef:
+      name: letsencrypt-dns01-prod-key
+    solvers:
+      - selector:
+          # Apply DNS-01 to dnsNames matching any pool domain we manage.
+          # Operators add per-Sovereign domains here (or via dnsZones) so
+          # the webhook only fires on legitimate Catalyst certificates.
+          dnsZones: {{ toYaml .Values.catalystIssuer.dns01.dnsZones | nindent 12 }}
+        dns01:
+          webhook:
+            groupName: {{ .Values.catalystIssuer.dns01.webhook.groupName | quote }}
+            solverName: {{ .Values.catalystIssuer.dns01.webhook.solverName | quote }}
+            config:
+              # The webhook reads the Dynadot credentials out of the same
+              # K8s Secret the catalyst-api uses (dynadot-api-credentials
+              # in openova-system, or copied to the webhook namespace via
+              # ExternalSecrets — operator's choice). Per
+              # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
+              # secret name and namespace come from values.yaml.
+              apiKeySecretRef:
+                name: {{ .Values.catalystIssuer.dns01.webhook.apiKeySecret.name | quote }}
+                key:  {{ .Values.catalystIssuer.dns01.webhook.apiKeySecret.key  | quote }}
+              apiSecretSecretRef:
+                name: {{ .Values.catalystIssuer.dns01.webhook.apiSecretSecret.name | quote }}
+                key:  {{ .Values.catalystIssuer.dns01.webhook.apiSecretSecret.key  | quote }}
+{{- end }}

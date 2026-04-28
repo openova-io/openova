@@ -25,3 +25,57 @@ webhook:
     requests:
       cpu: 50m
       memory: 64Mi
+
+# ── Catalyst issuers (templates/clusterissuer-letsencrypt-*.yaml) ─────────
+#
+# Two ClusterIssuers ship with this chart:
+#   - letsencrypt-http01-prod (always-on; covers non-wildcard hostnames)
+#   - letsencrypt-dns01-prod  (gated; needs a Dynadot webhook deployment)
+#
+# Closes #113. Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") all
+# tunables — email, ACME endpoint, gateway name/namespace, DNS-01 webhook
+# group, secret refs — live here so per-Sovereign Flux trees can override
+# without forking the chart.
+
+catalystIssuer:
+  # Per-Sovereign contact email. Defaults to a generic Catalyst contact
+  # (catalyst@openova.io) so Lets Encrypt has someone to email about
+  # expiring certs. Override per Sovereign in the cluster's
+  # bootstrap-kit/02-cert-manager.yaml HelmRelease values.
+  email: ""
+
+  # ACME directory URL. Production by default; staging Sovereigns flip
+  # to https://acme-staging-v02.api.letsencrypt.org/directory.
+  acmeServer: "https://acme-v02.api.letsencrypt.org/directory"
+
+  http01:
+    # Always-on for non-wildcard certificates. Disabled only on
+    # air-gapped Sovereigns where Lets Encrypt is not reachable; those
+    # use an internal CA via a separate Crossplane Composition.
+    enabled: true
+    gatewayName: "main-gateway"
+    gatewayNamespace: "cilium-gateway"
+
+  dns01:
+    # OFF by default until cert-manager-webhook-dynadot ships. Once the
+    # webhook is deployed (separate Blueprint, follow-up issue), per-
+    # Sovereign Flux tree flips this to true and adds the Sovereign's
+    # DNS zones to dnsZones below.
+    enabled: false
+    # List of FQDN suffixes the DNS-01 solver applies to. Catalyst pool
+    # domains: openova.io, omani.works. BYO Sovereigns add their own.
+    dnsZones:
+      - openova.io
+      - omani.works
+    webhook:
+      # When the Catalyst Dynadot webhook ships, both groupName and
+      # solverName get pinned here. Until then the values are
+      # placeholders that match the planned webhook ABI.
+      groupName: "acme.dynadot.openova.io"
+      solverName: "dynadot"
+      apiKeySecret:
+        name: "dynadot-api-credentials"
+        key: "api-key"
+      apiSecretSecret:
+        name: "dynadot-api-credentials"
+        key: "api-secret"

@@ -13,3 +13,24 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+  # outputs — resources this Blueprint advertises to downstream Blueprints
+  # via the Catalyst manifest-resolver. Per docs/BLUEPRINT-AUTHORING.md,
+  # downstream charts (per-component Certificates, Gateway listeners, etc.)
+  # reference these by name without hardcoding the issuer kind / API group.
+  # Closes #113 outputs section.
+  outputs:
+    issuers:
+      - name: letsencrypt-dns01-prod
+        kind: ClusterIssuer
+        apiGroup: cert-manager.io
+        # Wildcard-capable. Gated on .Values.catalystIssuer.dns01.enabled
+        # in chart values; off by default until the Dynadot webhook
+        # Blueprint ships (separate follow-up issue).
+        capabilities: [wildcard, dns01]
+      - name: letsencrypt-http01-prod
+        kind: ClusterIssuer
+        apiGroup: cert-manager.io
+        # Non-wildcard, always-on. Default issuer for per-component
+        # certificates (console., gitea., harbor., admin., api.).
+        capabilities: [http01]
+        default: true

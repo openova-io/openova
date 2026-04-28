@@ -1,0 +1,48 @@
+{{- if .Values.catalystIssuer.http01.enabled }}
+# letsencrypt-http01-prod — ClusterIssuer for ACME HTTP-01 challenges.
+#
+# Closes #113 (HTTP-01 fallback path).
+#
+# Always-on canonical issuer: HTTP-01 works for every non-wildcard
+# Catalyst hostname (console., gitea., harbor., admin., api.) without
+# needing a DNS provider integration. cert-manager places the challenge
+# token at /.well-known/acme-challenge/<token> on the same hostname the
+# certificate is issued for; Cilium Gateway routes the request to the
+# cert-manager solver pod and Lets Encrypt verifies.
+#
+# Limitation: HTTP-01 cannot issue wildcard certs (*.<sovereign-fqdn>),
+# so per-component certificates must be requested individually for now.
+# The DNS-01 issuer (above, gated on `catalystIssuer.dns01.enabled`)
+# replaces this once a Dynadot webhook is shipped.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall, not iterative MVP):
+# this is NOT a downgrade or stub — HTTP-01 is the documented industry
+# fallback for ACME challenges and is well-defined in RFC 8555 §8.3. It
+# is the right canonical answer for non-wildcard Catalyst components
+# regardless of whether the DNS-01 webhook ever ships, so it stays in the
+# chart permanently as the always-on issuer for non-wildcard certs.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http01-prod
+  labels:
+    catalyst.openova.io/component: cert-manager
+    catalyst.openova.io/issuer-tier: http01
+spec:
+  acme:
+    server: {{ include "catalyst.certManager.acmeServer" . }}
+    email: {{ include "catalyst.certManager.issuerEmail" . }}
+    privateKeySecretRef:
+      name: letsencrypt-http01-prod-key
+    solvers:
+      - http01:
+          # Cilium Gateway API is the canonical ingress for Catalyst
+          # Sovereigns — the http01 solver creates a temporary HTTPRoute
+          # under the gatewayClassName below. Operators that run a
+          # different gateway class override .Values.catalystIssuer.http01.gatewayClassName.
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: {{ .Values.catalystIssuer.http01.gatewayName | quote }}
+                namespace: {{ .Values.catalystIssuer.http01.gatewayNamespace | quote }}
+                kind: Gateway
+{{- end }}
