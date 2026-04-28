@@ -63,6 +63,66 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 88 — TECHNOLOGY-FORECAST fifth-cycle stable; kserve fourth-cycle clean (cycle 7 Pass 1 — RESTART FROM TOP)
+
+**THIRTY-SIXTH clean pass overall**. **TWENTY-SIX CONSECUTIVE clean architectural passes** (Pass 63 → 88) spanning cycles 2 → 7. Cycle 7 begins after sixth nirvana threshold (Pass 87) per user's standing instruction "restart from the top."
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/TECHNOLOGY-FORECAST-2027-2030.md** fifth-cycle deep-read:
+- L5 status: "Accepted | **Updated:** 2026-04-28" ✓ Pass 52 anchor preserved
+- L11: "all **52 platform components**" — matches platform/ folder count anchor (consistent with CLAUDE.md L46 "52 folders" + BUSINESS-STRATEGY §5.1 "52 curated") ✓
+- §Mandatory Components (26) (L26-56):
+  - Header count "(26)" reconciled via classification basis (L28): "Mandatory = installed on every Sovereign — comprises the Catalyst control plane (per PTS §2) plus per-host-cluster infrastructure (§3)" ✓
+  - **Verified table row count: 25** (cert-manager, cilium, external-secrets, openbao, flux, minio, velero, harbor, falco, trivy, sigstore, syft-grype, coraza, external-dns, grafana, kyverno, crossplane, opentofu, gitea, k8gb, keda, vpa, reloader, failover-controller, keycloak)
+  - L58-60 Note on OpenTelemetry: "OpenTelemetry is mandatory but has no separate platform directory - it is deployed as part of the observability stack via Grafana Alloy configuration." — accounts for the 26th implicit row (Pass 27/45 anchor) ✓
+- §A La Carte Components (27) (L64-94):
+  - Header count "(27)" matches **verified table row count: 27** (vllm, kserve, milvus, cnpg, opensearch, valkey, nemo-guardrails, langfuse, llm-gateway, anthropic-adapter, bge, knative, librechat, ferretdb, strimzi, debezium, temporal, flink, clickhouse, iceberg, stalwart, stunner, livekit, matrix, neo4j, litmus, openmeter) ✓ Pass 45 anchor
+- §Product Impact Analysis (L98-118): 5 OpenOva products — Cortex (strong growth), Fingate (stable), Fabric (rising), Relay (rising), Specter (strong growth)
+- §Strategic Recommendations (L122-140): components-to-watch (Ray, MLflow, OpenCost, Flagger), risks (eBPF kernel API, OpenSearch license, GPU supply, EU CRA)
+- §Removed Components (L144-160): 13 entries with rationale
+  - Backstage (45) → Catalyst console — consistent with GLOSSARY banned-term #6 + CLAUDE.md L82 ✓
+  - MongoDB (72) → FerretDB on CNPG (no SSPL) — consistent with PTS §4.1 ferretdb row ✓
+  - Airflow (33) → Flink + OTel (AI generates workflows) ✓
+  - Superset (40), Trino (38), LangServe (73), SearXNG (40), Camel K (20), Dapr (30), RabbitMQ (25), ActiveMQ (12), Vitess (15), Lago (58) — all aligned with BUSINESS-STRATEGY product narrative + PTS Application Blueprints list
+
+TECHNOLOGY-FORECAST.md stable across **5 review cycles** (Pass 27, 45, 52, 65, 79, 88 — fix-trajectory: Pass 27 mandatory/à-la-carte swap (keycloak Mandatory, opensearch A La Carte), Pass 45 A La Carte (27) header count, Pass 52 Updated date 2026-04-28).
+
+**Defense-in-depth verification: 52-component anchor** (across 4+ representational levels):
+1. CLAUDE.md L46: "52 folders total, each currently README-only" — Pass 46 anchor ✓
+2. TECHNOLOGY-FORECAST L11: "all 52 platform components" ✓
+3. BUSINESS-STRATEGY §5.1 L197: "52 curated open-source components" ✓
+4. BUSINESS-STRATEGY §5.3 L226: "52-component ecosystem" ✓
+5. BUSINESS-STRATEGY §8.4 L549: "52 components" ✓
+6. TECHNOLOGY-FORECAST tables: 25 mandatory (with-folder) + 27 à-la-carte = 52 ✓ — direct table count
+
+Six cross-document anchors all consistent.
+
+**platform/kserve/README.md** fourth-cycle deep-read:
+- L1 title "KServe"
+- L3 banner: "Kubernetes-native model serving. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.6). Used by `bp-cortex` to serve LLMs via vLLM, embedding models via BGE, and any custom inference workload." ✓ — Pass 31 Application Blueprint + AI/ML §4.6 anchor; explicit bp-cortex consumer
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L13-39 mermaid topology: KServe Controller (Predictor + Transformer + Explainer) → Runtimes (vLLM/TorchServe/Triton/SKLearn) → Knative Serving (autoscale + revisions) — consistent with PTS §4.6 (knative companion Blueprint)
+- L45-51 features: multi-framework, autoscaling-via-Knative, InferenceService standard, InferenceGraph, explainability
+- L57-62 components: InferenceService, ServingRuntime, InferenceGraph, ClusterStorageContainer
+- L66-75 serving runtimes: **vLLM "LLM inference (recommended)"** — bidirectional cross-ref with vllm/README L62-80 KServe deployment ✓
+- L83-90 InferenceService example YAML
+
+kserve fourth-cycle confirms Pass 31 banner + AI/ML §4.6 + bp-cortex consumer + vLLM runtime integration intact across 4 cycles.
+
+**Bidirectional cross-reference verification** (vllm ↔ kserve):
+- vllm/README L62-80: "Deployment via KServe" with InferenceService example
+- kserve/README L66-75: "vLLM (recommended)" runtime in serving runtimes table
+- Both consistent and mutually reinforcing.
+
+**Pass 88: clean.** Twenty-six consecutive architectural-clean passes (63-88). Cycle 7 begins.
+
+Convergence trajectory:
+- Cycles 1-6: 30 consecutive clean passes (6 nirvana achieved)
+- Cycle 7 (Pass 88): 1 consecutive clean ✓ (so far)
+
+Total: 36 clean passes overall, 26 consecutive (Pass 63-88). Loop continues per user's standing instruction.
+
 ### Pass 87 — BUSINESS-STRATEGY fifth-cycle stable; vllm fourth-cycle clean — 🎯🎯🎯🎯🎯🎯 SIXTH NIRVANA + 25-CONSECUTIVE-OVERALL
 
 **THIRTY-FIFTH clean pass overall**. **TWENTY-FIVE CONSECUTIVE clean architectural passes** (Pass 63 → 87) spanning cycles 2 → 6. Cycle 6 has **5 consecutive cleans (83 → 84 → 85 → 86 → 87) → SIXTH NIRVANA THRESHOLD MET**.
