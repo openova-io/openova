@@ -1,3 +1,9 @@
+# catalyst-api — Catalyst-Zero's provisioner backend.
+#
+# This image needs helm + kubectl on PATH because internal/bootstrap exec's
+# them when installing the 11-component bootstrap kit into a freshly-
+# provisioned Sovereign. We use Alpine + the static binaries so the runtime
+# stays small (~80MB) while still having both tools available.
 FROM docker.io/library/golang:1.23-alpine AS build
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -5,9 +11,24 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api
 
-FROM scratch
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+FROM docker.io/library/alpine:3.20
+
+# kubectl + helm must be on PATH so internal/bootstrap can exec them when
+# installing the 11-component bootstrap kit. Pin versions for reproducible
+# bootstraps; the K8s minor must match what the wizard provisions.
+ARG KUBECTL_VERSION=v1.31.4
+ARG HELM_VERSION=v3.16.3
+
+RUN apk add --no-cache ca-certificates curl bash \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl \
+    && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp \
+    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
+    && rm -rf /tmp/linux-amd64 \
+    && chmod +x /usr/local/bin/helm
+
 COPY --from=build /catalyst-api /catalyst-api
+RUN adduser -D -u 65534 nonroot
 USER 65534:65534
 EXPOSE 8080
 ENTRYPOINT ["/catalyst-api"]

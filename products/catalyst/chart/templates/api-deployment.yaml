@@ -60,6 +60,23 @@ spec:
             periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem deliberately false: the bootstrap installer
+            # writes kubeconfig temp files (mode 0600) under /tmp and helm
+            # downloads chart caches under $HOME. Per Catalyst security policy
+            # these writes are scoped via emptyDir below, never to the image's
+            # actual root FS.
+            readOnlyRootFilesystem: false
             runAsNonRoot: true
             runAsUser: 65534
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/nonroot
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 256Mi

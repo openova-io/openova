@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/bootstrap"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot"
 )
 
@@ -239,6 +240,18 @@ func (p *Provisioner) Provision(ctx context.Context, req ProvisionRequest, event
 		return nil, fmt.Errorf("fetch kubeconfig: %w", err)
 	}
 	emit("kubeconfig", "info", "Kubeconfig retrieved — control plane reachable")
+
+	// Bootstrap kit — installs Cilium → cert-manager → Flux → Crossplane →
+	// Sealed Secrets → SPIRE → JetStream → OpenBao → Keycloak → Gitea →
+	// bp-catalyst-platform umbrella in dependency order. After this returns
+	// successfully, the new Sovereign is self-sufficient (per
+	// SOVEREIGN-PROVISIONING.md §4 Phase 1 hand-off).
+	emit("bootstrap", "info", "Installing Catalyst bootstrap kit (11 components in dependency order)")
+	bootstrapEmit := func(phase, level, msg string) { emit(phase, level, msg) }
+	if err := bootstrap.Run(ctx, kubeconfig, bootstrapEmit); err != nil {
+		return nil, fmt.Errorf("bootstrap kit: %w", err)
+	}
+	emit("bootstrap", "info", "Catalyst bootstrap kit fully installed — Sovereign is self-sufficient")
 
 	return &Result{
 		SovereignFQDN:    req.SovereignFQDN,
