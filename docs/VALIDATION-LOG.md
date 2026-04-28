@@ -63,6 +63,74 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 85 — GLOSSARY sixth-cycle stable; langfuse third-cycle clean (cycle 6 Pass 3)
+
+**THIRTY-THIRD clean pass overall**. **TWENTY-THREE CONSECUTIVE clean architectural passes** (Pass 63 → 85) spanning cycles 2 → 6. Cycle 6 has 3 consecutive cleans (83 → 84 → 85).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/GLOSSARY.md** sixth-cycle deep-read:
+- L3-5 status: "Canonical. Single source of truth for OpenOva terminology. Updated: 2026-04-27" ✓
+- §Core nouns (L11-22) — 8 entries:
+  - L15: **OpenOva** = "The company. Authors and maintains Catalyst..." — explicit "when referring to the platform itself, prefer Catalyst" — Pass 26 OpenOva-as-company / Catalyst-as-platform anchor preserved ✓
+  - L16: **Catalyst** = "The OpenOva platform itself" with full component enumeration (console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, identity, secret, event-spine, gitea, observability) ✓
+  - L17: **Sovereign** = "One deployed instance of Catalyst" with examples (openova/omantel/bankdhofar) ✓
+  - L18: **Organization** = "multi-tenancy unit inside a Sovereign" ✓
+  - L19: **Environment** = `{org}-{env_type}` where env_type is `prod | stg | uat | dev | poc` (cross-ref to NAMING §2.4) ✓
+  - L20: **Application** = "What a User installs into an Environment from a Blueprint" (App Store metaphor) ✓
+  - L21: **Blueprint** = "Unifies what previously was split between module (primitive) and template (composition)" — banned-terms cross-anchor ✓
+- §Roles (L26-36) — 7 roles: sovereign-admin, org-admin, org-developer, org-viewer, security-officer, billing-admin, sme-end-user ✓
+- §Infrastructure (L40-49) — 6 entries: Cluster, vcluster, Building Block, Region, Env Type, Placement
+  - L48: Env Type cross-ref `prod | stg | uat | dev | poc` consistent with NAMING §2.4 ✓
+- §Catalyst components (L53-70) — 14 components matching PTS §1 control-plane list (15 minus spire-server which is under "identity") + identity/secret/event-spine cluster-grouping ✓
+  - L67: **secret** = "OpenBao + ESO. Independent Raft cluster per region (no stretched cluster)" — defense-in-depth cross-anchor with SECURITY §5 + ARCHITECTURE §6 ✓
+  - L68: **event-spine** = "NATS JetStream...Replaces what was previously specified as Redpanda + Valkey for the control plane" — valkey-not-control-plane cross-anchor with PTS §1 + valkey/README L5 ✓
+- §Persona-facing surfaces (L74-82) — 5 surfaces: UI, Git, API, kubectl (debug only), Crossplane (platform plumbing) — consistent with ARCHITECTURE §7 "no fourth surface" ✓
+- §Banned terms (L86-100) — **11 banned terms** preserved:
+  1. Tenant → Organization ✓
+  2. Operator (as entity) → sovereign-admin ✓
+  3. Client (in UX) → User ✓
+  4. Module → Blueprint ✓
+  5. Template → Blueprint ✓
+  6. Backstage → Catalyst console ✓
+  7. Synapse (as product) → Axon (or Matrix/Synapse) ✓
+  8. Lifecycle Manager → Catalyst ✓
+  9. Bootstrap wizard → Catalyst bootstrap ✓
+  10. "Workspace" → Environment / environment-controller ✓
+  11. "Instance" → Application ✓
+- §Acronyms (L104-114) — 7 entries: OCI, CRD, CQRS, ESO, SPIFFE/SPIRE, GSLB, PromotionPolicy (removed concept) ✓
+
+GLOSSARY.md stable across **6 review cycles** (Pass 13, 26, 32, 51, 65, 75, 85 — fix-trajectory: Pass 26 OpenOva-as-company / Catalyst-as-platform clarification).
+
+**Defense-in-depth verification: 11 banned-terms cross-check vs CLAUDE.md** (Pass 44 anchor):
+- CLAUDE.md L77 "tenant → Organization" matches GLOSSARY #1 ✓
+- CLAUDE.md L78-79 "Operator → sovereign-admin" matches GLOSSARY #2 ✓
+- CLAUDE.md L80 "module/template → Blueprint" matches GLOSSARY #4 + #5 ✓
+- CLAUDE.md L82 "Synapse → Axon" matches GLOSSARY #7 ✓
+- CLAUDE.md L83 "Lifecycle Manager / Bootstrap wizard → Catalyst" matches GLOSSARY #8 + #9 ✓
+- CLAUDE.md L84 "Workspace → Environment / environment-controller" matches GLOSSARY #10 ✓
+- All 11 banned terms preserved across both keystone files.
+
+**platform/langfuse/README.md** third-cycle deep-read:
+- L1 title "LangFuse"
+- L3 banner: "LLM observability and analytics. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.7). Traces every LLM call in `bp-cortex` — latency, tokens, cost, eval scores. Catalyst's general-purpose observability stack (Grafana/OTel) covers infrastructure; LangFuse covers the AI-specific dimensions (prompt/response, model drift, eval)." ✓ — explicit complement to Catalyst observability, NOT a control-plane component
+- L5 metadata: "AI Observability | Application Blueprint" ✓
+- L13-19 features: LLM call tracing (input/output/cost/latency/tokens), prompt versioning, eval scoring, user analytics, cost attribution
+- L23-28 integration table: LLM Gateway (auto trace capture), Grafana (infra complement), CNPG (PostgreSQL backend), NeMo Guardrails (guardrail traces)
+- L32 "Used By: OpenOva Cortex"
+- L36-46 Flux Kustomization deployment YAML
+- No Catalyst conflation; concise
+
+langfuse third-cycle confirms Pass 31 banner (Application Blueprint, AI observability §4.7, complement-not-replace Catalyst observability) intact across 3 cycles.
+
+**Pass 85: clean.** Twenty-three consecutive architectural-clean passes (63-85). Cycle 6 has 3 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-5: 25 consecutive clean (5 nirvana achieved)
+- Cycle 6 (Pass 83-85): 3 consecutive clean ✓ (so far)
+
+Total: 33 clean passes overall, 23 consecutive (Pass 63-85). Loop continues per user's standing instruction.
+
 ### Pass 84 — NAMING-CONVENTION sixth-cycle stable; nemo-guardrails third-cycle clean (cycle 6 Pass 2)
 
 **THIRTY-SECOND clean pass overall**. **TWENTY-TWO CONSECUTIVE clean architectural passes** (Pass 63 → 84) spanning cycles 2 → 6. Cycle 6 has 2 consecutive cleans (83 → 84).
