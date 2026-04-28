@@ -1,0 +1,58 @@
+# Catalyst Platform Helm chart values.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md §4 ("Never hardcode"), every value the
+# chart consumes at install time MUST flow through this file (or an override
+# values file in the calling Flux HelmRelease). No DNS names, image tags,
+# ports, or service references may be hard-coded in templates.
+#
+# This file documents the defaults; environment-specific overrides are
+# provided per-cluster (e.g. clusters/_template/values.yaml or
+# clusters/<sovereign-fqdn>/values.yaml) and merged by Flux at apply time.
+
+# Image references for the platform pods. SHA-pinned in the GitOps overlay,
+# defaulted here so `helm template` renders without an override.
+images:
+  catalystUi:
+    repository: ghcr.io/openova-io/openova/catalyst-ui
+    tag: "333b859"
+    pullPolicy: IfNotPresent
+  catalystApi:
+    repository: ghcr.io/openova-io/openova/catalyst-api
+    tag: "333b859"
+    pullPolicy: IfNotPresent
+
+# Routing wires together the in-cluster Service DNS names that the catalyst-ui
+# nginx reverse-proxies to. The defaults assume the canonical install (chart
+# namespace = "catalyst", default Service names from this chart).
+#
+# Sovereign installs that override the namespace or rename Services MUST
+# override these values — never patch nginx.conf directly.
+routing:
+  # Subpath the wizard SPA is mounted at on console.openova.io. Used by the
+  # ConfigMap template + the Vite `base` config (compile-time) to keep the
+  # two in lock-step.
+  basePath: /sovereign
+
+  catalystApi:
+    # Cluster-internal Service DNS for the catalyst-api Service. Sourced
+    # here, never inlined into nginx.conf. Must include the namespace +
+    # `.svc.cluster.local` suffix (full FQDN avoids resolver ambiguity).
+    serviceDNS: catalyst-api.catalyst.svc.cluster.local
+    port: 8080
+
+# CoreDNS service IP — used by nginx's `resolver` directive to resolve the
+# upstream Service name at proxy_pass time (rather than at config-load time,
+# which would pin nginx to a stale ClusterIP across catalyst-api restarts).
+# k3s ships CoreDNS at 10.43.0.10 by default (kube-dns service IP).
+dns:
+  resolverIP: 10.43.0.10
+  resolverValid: 30s
+
+# Console subpath ingress. The TLS cert for console.openova.io is owned by
+# the sme namespace's `console-nova` ingress; this ingress only exposes the
+# HTTP route + Traefik strip-prefix middleware. See ingress.yaml header
+# comment for the rationale.
+ingress:
+  host: console.openova.io
+  className: traefik
+  priority: "100"

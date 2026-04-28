@@ -14,6 +14,14 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: catalyst-ui
+      annotations:
+        # Roll the Pod whenever the rendered nginx config changes so that a
+        # values.yaml override of routing.catalystApi.serviceDNS (e.g. for
+        # a Sovereign install with a non-default namespace) lands without a
+        # manual rollout-restart. Helm computes the checksum at render time;
+        # if the chart is consumed via kustomize-only the literal string
+        # is harmless.
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
     spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
@@ -48,3 +56,18 @@ spec:
             readOnlyRootFilesystem: false
             runAsNonRoot: true
             runAsUser: 1001
+          volumeMounts:
+            # Override the Containerfile-baked /etc/nginx/conf.d/default.conf
+            # with the chart-rendered version so the catalyst-api upstream
+            # DNS / port / subpath flow from values.yaml (no hardcoding,
+            # per docs/INVIOLABLE-PRINCIPLES.md §4).
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: catalyst-ui-nginx
+            items:
+              - key: default.conf
+                path: default.conf
