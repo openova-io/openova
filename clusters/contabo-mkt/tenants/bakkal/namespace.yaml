@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-bakkal
+  labels:
+    openova.io/tenant: "bakkal"
+    openova.io/managed-by: provisioning

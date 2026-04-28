@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud
+  namespace: apps
+  labels:
+    app: nextcloud
+    openova.io/tenant: "bakkal"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nextcloud
+  template:
+    metadata:
+      labels:
+        app: nextcloud
+        openova.io/tenant: "bakkal"
+    spec:
+      containers:
+        - name: nextcloud
+          image: nextcloud:29-apache
+          ports:
+            - containerPort: 80
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://app:1b556de942f5df2a1458fdb8b19dec0b@postgres:5432/db_nextcloud"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DATABASE
+              value: "db_nextcloud"
+            - name: POSTGRES_USERNAME
+              value: "app"
+            - name: POSTGRES_PASSWORD
+              value: "1b556de942f5df2a1458fdb8b19dec0b"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud
+  namespace: apps
+spec:
+  selector:
+    app: nextcloud
+  ports:
+    - port: 80
+      targetPort: 80

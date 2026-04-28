@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cal-com
+  namespace: apps
+  labels:
+    app: cal-com
+    openova.io/tenant: "bakkal"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cal-com
+  template:
+    metadata:
+      labels:
+        app: cal-com
+        openova.io/tenant: "bakkal"
+    spec:
+      containers:
+        - name: cal-com
+          image: calcom/cal.com:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXTAUTH_URL
+              value: "https://bakkal.omani.rest/calcom"
+            - name: NEXT_PUBLIC_WEBAPP_URL
+              value: "https://bakkal.omani.rest/calcom"
+            - name: DATABASE_URL
+              value: "postgresql://app:1b556de942f5df2a1458fdb8b19dec0b@postgres:5432/db_cal-com"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DATABASE
+              value: "db_cal-com"
+            - name: POSTGRES_USERNAME
+              value: "app"
+            - name: POSTGRES_PASSWORD
+              value: "1b556de942f5df2a1458fdb8b19dec0b"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cal-com
+  namespace: apps
+spec:
+  selector:
+    app: cal-com
+  ports:
+    - port: 80
+      targetPort: 3000

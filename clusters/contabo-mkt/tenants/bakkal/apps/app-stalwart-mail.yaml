@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stalwart-mail
+  namespace: apps
+  labels:
+    app: stalwart-mail
+    openova.io/tenant: "bakkal"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: stalwart-mail
+  template:
+    metadata:
+      labels:
+        app: stalwart-mail
+        openova.io/tenant: "bakkal"
+    spec:
+      containers:
+        - name: stalwart-mail
+          image: 
+          ports:
+            - containerPort: 0
+          env:
+          resources:
+            requests:
+              cpu: 
+              memory: 
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stalwart-mail
+  namespace: apps
+spec:
+  selector:
+    app: stalwart-mail
+  ports:
+    - port: 80
+      targetPort: 0

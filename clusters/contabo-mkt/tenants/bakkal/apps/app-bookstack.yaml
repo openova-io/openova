@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookstack
+  namespace: apps
+  labels:
+    app: bookstack
+    openova.io/tenant: "bakkal"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bookstack
+  template:
+    metadata:
+      labels:
+        app: bookstack
+        openova.io/tenant: "bakkal"
+    spec:
+      containers:
+        - name: bookstack
+          image: lscr.io/linuxserver/bookstack:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mysql"
+            - name: WORDPRESS_DB_USER
+              value: "app"
+            - name: WORDPRESS_DB_PASSWORD
+              value: "1b556de942f5df2a1458fdb8b19dec0b"
+            - name: WORDPRESS_DB_NAME
+              value: "db_bookstack"
+            - name: MYSQL_HOST
+              value: "mysql"
+            - name: MYSQL_USER
+              value: "app"
+            - name: MYSQL_PASSWORD
+              value: "1b556de942f5df2a1458fdb8b19dec0b"
+            - name: MYSQL_DATABASE
+              value: "db_bookstack"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookstack
+  namespace: apps
+spec:
+  selector:
+    app: bookstack
+  ports:
+    - port: 80
+      targetPort: 80

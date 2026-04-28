@@ -1,0 +1,59 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tenant-ingress
+  namespace: tenant-bakkal
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bakkal.omani.rest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+          - path: /nextcloud
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+          - path: /bookstack
+            pathType: Prefix
+            backend:
+              service:
+                name: bookstack-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+          - path: /vaultwarden
+            pathType: Prefix
+            backend:
+              service:
+                name: vaultwarden-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+          - path: /cal-com
+            pathType: Prefix
+            backend:
+              service:
+                name: cal-com-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+          - path: /stalwart-mail
+            pathType: Prefix
+            backend:
+              service:
+                name: stalwart-mail-x-tenant-bakkal-x-vcluster
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - bakkal.omani.rest
+      secretName: tenant-bakkal-tls

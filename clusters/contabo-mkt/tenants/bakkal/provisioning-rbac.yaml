@@ -1,0 +1,58 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provisioning-tenant
+  namespace: tenant-bakkal
+  labels:
+    openova.io/managed-by: provisioning
+rules:
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    # delete needed so waitForVclusterDNSOrKick can bounce vcluster-0 when
+    # the syncer's initial DNS reconciliation doesn't publish the
+    # kube-dns-x-kube-system-x-vcluster service. Issues #103, #105.
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    # services verb needed for waitForVclusterDNSOrKick to read the synced
+    # kube-dns-x-kube-system-x-vcluster Service to know DNS is live.
+    # Without this, the DNS probe returns 403 → we think DNS isn't synced
+    # → we kick vcluster-0 unnecessarily → 150s wasted per tenant.
+    # Also used by pod-truth reconciler to verify tenant apps are healthy
+    # regardless of provision-record freshness. Issue #115.
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests"]
+    # patch needed so stripCertificateFinalizers can drop
+    # finalizer.cert-manager.io/certificate-secret-binding at teardown;
+    # without it the tenant NS can't GC because cert-manager can't
+    # reconcile the delete inside a Terminating NS. Issue #86.
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provisioning-tenant
+  namespace: tenant-bakkal
+  labels:
+    openova.io/managed-by: provisioning
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: provisioning-tenant
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: sme

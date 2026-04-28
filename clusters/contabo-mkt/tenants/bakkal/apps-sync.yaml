@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tenant-bakkal-apps
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 1m
+  timeout: 5m
+  prune: true
+  wait: true
+  targetNamespace: tenant-bakkal
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  path: ./clusters/contabo-mkt/tenants/bakkal/apps
+  kubeConfig:
+    secretRef:
+      name: tenant-bakkal-kubeconfig
+      key: config
