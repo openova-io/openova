@@ -1,0 +1,114 @@
+name: Playwright UI smoke (Group L — #142, #143, #144)
+
+# Issues #142/#143/#144 — UI smoke tests for the Catalyst sovereign wizard,
+# admin voucher (PromoCode) UI, and unified bp-<x> Blueprint card grid.
+#
+# Per CLAUDE.md Rule 8 ("Playwright MCP for interactive testing; for FILES
+# landed in the repo, use plain Playwright"), this workflow uses plain
+# Playwright. The tests themselves are defensive: they self-skip when the
+# dev server isn't reachable, so this workflow boots the Catalyst UI in the
+# background and runs against it.
+#
+# Per CLAUDE.md Rule 4a ("GitHub Actions is the only build path"), this
+# workflow does NOT build any container images — it only runs UI smoke
+# tests against a freshly-installed dev tree.
+#
+# Triggers:
+#   - push to main when UI sources or these tests change
+#   - pull_request when the same paths change
+#   - workflow_dispatch for ad-hoc runs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'core/admin/**'
+      - 'core/marketplace/**'
+      - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'tests/e2e/playwright/**'
+      - '.github/workflows/playwright-smoke.yaml'
+  pull_request:
+    paths:
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'core/admin/**'
+      - 'core/marketplace/**'
+      - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'tests/e2e/playwright/**'
+      - '.github/workflows/playwright-smoke.yaml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Playwright UI smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Catalyst UI dependencies
+        working-directory: products/catalyst/bootstrap/ui
+        run: npm ci
+
+      - name: Install Playwright dependencies
+        working-directory: tests/e2e/playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Boot Catalyst UI in background
+        working-directory: products/catalyst/bootstrap/ui
+        env:
+          HOST: 0.0.0.0
+        run: |
+          # Vite dev server binds 4321 by default; we keep the default so the
+          # tests' BASE_URL fallback (http://localhost:4321) works.
+          nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
+          echo $! > /tmp/catalyst-ui.pid
+
+      - name: Wait for Catalyst UI to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:4321/sovereign/wizard; then
+              echo "UI ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "UI failed to start in 60s — log follows:"
+          cat /tmp/catalyst-ui-dev.log || true
+          exit 1
+
+      - name: Run Playwright smoke
+        working-directory: tests/e2e/playwright
+        env:
+          BASE_URL: http://localhost:4321
+          # ADMIN_BASE_URL / MARKETPLACE_BASE_URL not set — the admin and
+          # marketplace specs self-skip when their respective apps aren't up,
+          # which keeps this workflow lean. Booting all three apps requires
+          # additional CI infra (Postgres, Catalyst API, etc.) and is the
+          # subject of the full E2E pipeline, not this smoke.
+        run: npx playwright test --reporter=list
+
+      - name: Stop Catalyst UI
+        if: always()
+        run: |
+          if [ -f /tmp/catalyst-ui.pid ]; then
+            kill "$(cat /tmp/catalyst-ui.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright/playwright-report/
+          retention-days: 7
