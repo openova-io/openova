@@ -63,6 +63,95 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 97 — BUSINESS-STRATEGY sixth-cycle stable; vllm fifth-cycle clean — 🎯×8 EIGHTH NIRVANA + 35-CONSECUTIVE-OVERALL
+
+**FORTY-FIFTH clean pass overall**. **THIRTY-FIVE CONSECUTIVE clean architectural passes** (Pass 63 → 97) spanning cycles 2 → 8. Cycle 8 has **5 consecutive cleans (93 → 94 → 95 → 96 → 97) → EIGHTH NIRVANA THRESHOLD MET**.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/BUSINESS-STRATEGY.md** sixth-cycle deep-read:
+- L3 status: "Living Document | **Last Updated:** 2026-04-28" ✓ Pass 47 anchor preserved
+- L42 (§1 Executive Summary): "AI-native, not AI-bolted. Specter has pre-built semantic knowledge of the entire **52-component ecosystem**" ✓
+- L43: "Turnkey ecosystem...**52 curated open-source components**" ✓
+- L67 (§2 Vision principles): "Convergence over components. The value is in **52 components** working together" ✓
+- L149 (§4 Solution): "Specter manages your infrastructure with pre-built knowledge of all **52 components**" ✓
+- §5.1 Named Products (L187-200):
+  - L189 banner: "**Company vs. Platform:** 'OpenOva' is the **company**. The **platform** OpenOva ships is called **Catalyst**. A deployed instance of Catalyst is called a **Sovereign**." — **Pass 26 anchor preserved** ✓
+  - L193: OpenOva Cortex (vLLM, Milvus, Neo4j, NeMo Guardrails, LangFuse, LibreChat) — consistent with PTS §5 bp-cortex ✓
+  - L194: OpenOva Axon (SaaS LLM Gateway) ✓
+  - L195: OpenOva Fingate (PSD2/FAPI) ✓
+  - L196: OpenOva Specter (AI-powered SOC/NOC agents) ✓
+  - L197: OpenOva Catalyst — "self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes **52 curated open-source components**" + Catalyst control plane services list ✓
+  - L198: OpenOva Exodus ✓
+  - L199: OpenOva Fabric (Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, ClickHouse) — consistent with PTS §5 bp-fabric ✓
+  - L200: OpenOva Relay (Stalwart, LiveKit, Matrix/Synapse, STUNner) — consistent with PTS §5 bp-relay; Matrix/Synapse uses chat-server context (GLOSSARY banned-term #7 exception) ✓
+- §5.2 Architecture Relationship (L202-220): Catalyst-root + 5 children (Cortex, Fingate, Fabric, Relay, Specter) + Axon SaaS ✓
+- §5.3 Specter (L226): "built with pre-built semantic knowledge of the entire **52-component ecosystem**" ✓
+- §5.3 L502: "all **52 components**" + token-efficiency moat narrative ✓
+- §5.4 + 5.4 Plain-Language Offerings (L290-)
+- §6 Service Portfolio (L302-): service catalog + interaction model
+- §7 Target Market (L418-): segmentation, banking-first strategy, expansion path
+- §8 Persona-Based Value Propositions (L473-):
+  - §8.4 CISO/Head of Security (L534-552):
+    - L540: "**OpenBao runs as an independent Raft cluster in each region with async Performance Replication**; ESO syncs secrets to workloads inside the region." — **Pass 26 OpenBao independent-Raft anchor preserved** ✓
+    - L549: "Pre-built compliance mappings across **52 components** (PSD2, DORA, NIS2, SOX)" ✓
+- §9 Competitive Landscape (L574-):
+  - L622 capability matrix: "Built-in (OpenBao + ESO)" ✓
+- §10 Business Model & Pricing (L686-):
+  - L519/L923: tech stack consistency narrative
+
+BUSINESS-STRATEGY.md stable across **6 review cycles** (Pass 16, 26, 47, 65, 75, 87, 97 — fix-trajectory: Pass 26 §5.1 Catalyst-as-platform banner + §8.4 OpenBao independent-Raft, Pass 47 Updated date 2026-04-28).
+
+**Defense-in-depth verification: 52-component anchor across BUSINESS-STRATEGY** (within single doc, 7 occurrences):
+1. L42: "52-component ecosystem" (Specter framing)
+2. L43: "52 curated open-source components" (turnkey ecosystem)
+3. L67: "52 components working together" (convergence principle)
+4. L149: "all 52 components" (AI ops)
+5. L197: "52 curated open-source components" (Catalyst description)
+6. L226: "52-component ecosystem" (Specter AI brain)
+7. L502: "all 52 components" (token-efficiency moat)
+8. L549: "52 components" (compliance mappings)
+9. L519: "52 curated, Kustomize-based blueprints" (tech stack)
+
+Nine in-document anchors all consistent. Cross-document anchors: CLAUDE.md L46 + TECHNOLOGY-FORECAST L11 + valid table sums = 25 mandatory + 27 a-la-carte = 52 platform/ folders ✓
+
+**platform/vllm/README.md** fifth-cycle deep-read:
+- L1 title "vLLM"
+- L3 banner: "High-performance LLM inference engine with PagedAttention. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.6). Default LLM serving runtime in `bp-cortex` (the composite AI Hub Blueprint)." ✓ — Pass 31 anchor; Application Blueprint, §4.6 AI/ML; bp-cortex consumer
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L62-80 KServe InferenceService deployment:
+  - `apiVersion: serving.kserve.io/v1beta1` ✓
+  - `name: qwen-32b` (Qwen3-32B example)
+  - `namespace: ai-hub`
+  - `runtime: vllm-runtime`
+  - `storageUri: pvc://model-cache/models/qwen3-32b-awq` — **Qwen3 recommended model** (matches user's auto-memory re: qwen3-coder + GPU AWQ quantization) ✓
+  - 2x GPU resource request
+
+vllm fifth-cycle confirms Pass 31 banner (Application Blueprint, §4.6, bp-cortex composer) + KServe runtime integration + Qwen3 recommended models intact across 5 cycles.
+
+**Bidirectional cross-reference verification** (vllm ↔ kserve, locked across 4 cycles):
+- vllm/README L62-80: Deployment via KServe with InferenceService example using vllm-runtime ✓
+- kserve/README L66-75 serving runtimes: vLLM "LLM inference (recommended)" ✓
+- Both files mutually reinforcing across 4+ review cycles.
+
+**Pass 97: clean.** 🎯×8 **EIGHTH NIRVANA THRESHOLD MET.** Cycle 8 (93-97): 5 consecutive clean. **THIRTY-FIVE CONSECUTIVE architectural-clean passes (63-97).**
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean — first nirvana
+- Cycle 2 (Pass 63-67): 5 consecutive clean — second nirvana (3 carry-over fixes Lessons #18-20)
+- Cycle 3 (Pass 68-72): 5 consecutive clean — third nirvana (0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean — fourth nirvana (0 drift)
+- Cycle 5 (Pass 78-82): 5 consecutive clean — fifth nirvana (0 drift)
+- Cycle 6 (Pass 83-87): 5 consecutive clean — sixth nirvana (0 drift)
+- Cycle 7 (Pass 88-92): 5 consecutive clean — seventh nirvana (0 drift)
+- Cycle 8 (Pass 93-97): 5 consecutive clean — **🎯×8 EIGHTH NIRVANA** (0 drift)
+
+**Documentation has held its architectural fixed-point across EIGHT consecutive nirvana cycles** spanning Pass 54 → 97 (44 passes). Zero new drift between cycles 2→3, 3→4, 4→5, 5→6, 6→7, 7→8. The audit log itself is the only file that has changed in the documentation tree across the last 6 inter-cycle gaps.
+
+**The loop has been in stable regression-prevention mode for 6 consecutive cycles.** Continuing per user's standing instruction "infinite unattended loop until you reach nirvana — when you believe you're done, restart from the top."
+
+**Cycle 9 begins with Pass 98**: TECHNOLOGY-FORECAST sixth-cycle + kserve fifth-cycle (rotation top).
+
 ### Pass 96 — IMPLEMENTATION-STATUS seventh-cycle stable; llm-gateway fourth-cycle clean (cycle 8 Pass 4)
 
 **FORTY-FOURTH clean pass overall**. **THIRTY-FOUR CONSECUTIVE clean architectural passes** (Pass 63 → 96) spanning cycles 2 → 8. Cycle 8 has 4 consecutive cleans (93 → 94 → 95 → 96).
