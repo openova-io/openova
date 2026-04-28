@@ -380,8 +380,9 @@ hz-fsn-rtz-prod                     hz-hel-rtz-prod
   vcluster: acme                      vcluster: acme              ← Catalyst Environment acme-prod
   vcluster: bankdhofar                vcluster: bankdhofar         ← Environment bankdhofar-prod
     (each vcluster has its own        (each vcluster has its own
-     Flux watching its Environment    Flux watching its Environment
-     Gitea repo)                      Gitea repo)
+     Flux watching the Org's          Flux watching the Org's
+     Application repos, branch        Application repos, branch
+     per env_type)                    per env_type)
 
 hz-fsn-dmz-prod                     hz-hel-dmz-prod
   Ingress + WAF                       Ingress + WAF
@@ -396,8 +397,11 @@ Management (one per Sovereign, single region recommended)
 hz-nbg-mgt-prod
   All Catalyst control-plane components — see PLATFORM-TECH-STACK §2.
   Highlights:
-    Gitea           (Blueprint catalog mirror + per-Org private Blueprint
-                     repos + per-Environment Gitea repos)
+    Gitea           (5 Gitea Orgs: catalog, catalog-sovereign,
+                     <org>-per-Catalyst-Organization, system —
+                     each Org Gitea Org holds shared-blueprints
+                     + one Gitea repo per Application.
+                     See GLOSSARY §"Gitea Orgs".)
     NATS JetStream  (event spine + KV; per-Org Accounts)
     OpenBao         (secrets — primary Raft cluster here; sibling replicas
                      in each workload region with async perf replication.
@@ -475,12 +479,13 @@ Examples: `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatp
 
 An Environment is realized by:
 
-1. **One Gitea repo** in the Sovereign's Gitea: `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` (e.g. `gitea.hfmp.omantel.openova.io/acme/acme-prod`). This is the single source of truth for the Environment's manifests; the FQDN follows §5.1's Catalyst control-plane DNS pattern `{component}.{location-code}.{sovereign-domain}`.
+1. **A branch inside each Application's Gitea repo.** Every Application is its own Gitea repo at `gitea.{location-code}.{sovereign-domain}/{org}/{app}` (e.g. `gitea.hfmp.acme-telecom.openova.io/acme-pharmacy/store-frontend`). Branches `develop`, `staging`, and `main` map to the `dev`, `stg`, and `prod` Environments respectively. The repo FQDN follows §5.1's Catalyst control-plane DNS pattern `{component}.{location-code}.{sovereign-domain}`. This rule is **uniform across SME and corporate** — one Application = one Gitea repo, regardless of scale.
 2. **One or more vclusters** (`{org}` named on each parent host cluster). The set of host clusters realizing the Environment is determined by the Environment's Placement spec.
-3. **One Flux per vcluster**, all watching the same Environment Gitea repo. Each Flux applies manifests filtered to its region/building block via `kustomization.yaml` selectors.
+3. **One Flux per vcluster**, watching one branch (per env_type) across all of the Org's Application repos via N `GitRepository` sources. Each Flux applies manifests filtered to its region/building block via `kustomization.yaml` selectors.
 4. **JetStream Account** at the Organization level (one per Org); subjects within the Account use the prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.
 5. **One projector consumer-group** materializing per-Environment KV state for the console.
 6. **One OpenBao path** rooted at `org/{org}/env/{env_type}/`.
+7. **One `EnvironmentPolicy` CR** at `system/catalyst-config/policies/{org}-{env_type}-policy.yaml` in the Sovereign-admin's `system` Gitea Org. Owned by `sovereign-admin`; edit access optionally delegated to `org-admin` via Catalyst RBAC. SME and corporate Sovereigns use **the same CR shape** — only the field values (number of approvers, soak duration, RE-score threshold) differ per Org's policy choice.
 
 ### 11.3 Single-region vs multi-region
 

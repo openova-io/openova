@@ -114,7 +114,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 | Surface | Status | Notes |
 |---|---|---|
 | **UI** (Catalyst console) | 📐 | Astro + Svelte target stack chosen; no code yet. |
-| **Git** (direct push to Environment Gitea repo) | 📐 | Pattern documented; depends on environment-controller being implemented. |
+| **Git** (direct push to Application Gitea repo, branch per env_type) | 📐 | Pattern documented; depends on provisioning-service + environment-controller being implemented. |
 | **API** (REST + GraphQL) | 📐 | OpenAPI / GraphQL schema not yet defined. |
 | **kubectl** (debug-only inside own vcluster) | 📐 | Standard K8s; works as soon as a Sovereign exists. |
 

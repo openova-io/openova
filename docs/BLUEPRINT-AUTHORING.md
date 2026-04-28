@@ -11,9 +11,10 @@ How to author a **Blueprint** for Catalyst — the unified unit of installable s
 
 A Blueprint is:
 
-- A **source location**:
-  - **Public Blueprints**: a directory under `platform/<name>/` or `products/<name>/` in the [`github.com/openova-io/openova`](https://github.com/openova-io/openova) monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact.
-  - **Org-private Blueprints**: a directory inside `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` in that Organization's Gitea repo on its Sovereign (canonical Catalyst control-plane DNS form per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §5.1).
+- A **source location** (one of three Gitea-Org-scoped places, all using identical Blueprint shape):
+  - **Public Blueprints**: a directory under `platform/<name>/` or `products/<name>/` in the [`github.com/openova-io/openova`](https://github.com/openova-io/openova) monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact. Visible to every Sovereign via the `catalog` Gitea Org mirror.
+  - **Sovereign-curated private Blueprints**: a Gitea Repo under the `catalog-sovereign` Gitea Org on a Sovereign (e.g. `gitea.<location-code>.<sovereign-domain>/catalog-sovereign/bp-<name>/`). Authored by the Sovereign owner, visible to every Catalyst Organization on that Sovereign without being public upstream. Use case: an SME-marketplace operator (like `acme-telecom`) curates `bp-wordpress`, `bp-jitsi`, `bp-cal-com` for their tenants.
+  - **Org-private Blueprints**: a directory inside `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` in that Organization's Gitea repo on its Sovereign (canonical Catalyst control-plane DNS form per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §5.1). Visible only within that Org.
 - A **CRD manifest** (`blueprint.yaml`) declaring its identity, configSchema, placementSchema, dependencies, and pointers to its manifests.
 - A **set of manifests** (Helm chart, Kustomize base + overlays, or raw YAML) that get applied when the Blueprint is installed as an Application.
 - A **set of Crossplane Compositions** (optional) for any non-Kubernetes resources the Blueprint provisions.

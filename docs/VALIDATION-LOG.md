@@ -58,6 +58,61 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - IMPLEMENTATION-STATUS section numbering had an awkward `§2bis` insertion. Renumbered to clean §1–§9 sequence.
 - Two residual "instance" usages in user-facing dialogs/comments converted to "Application".
 
+### Pass 103 — UNIFIED REPO MODEL REFACTOR (architectural correction)
+
+**Architectural correction supersedes the prior 102-pass audit on a structural question the audit loop never tested.**
+
+The previous model — across 100+ audit passes anchored on it — asserted: "An Environment is realized by **one Gitea repo** (`<org>/<org>-<env_type>`); Applications are folders inside that repo." This was wrong as a unified design. It worked for SMEs (1 org-admin pushing to one repo) but created blocking coordination friction for corporate Orgs with multiple teams sharing one Env repo. The "fix" I dithered toward in design conversation was to introduce a Teams primitive + per-team sub-repos for corporate scale — i.e., **two different shapes for the same conceptual thing**. User correctly called this an architectural smell: "you cannot apply 2 different standards one for sme, one for corporate. Application is application!!!!!"
+
+**Unified rule adopted (one shape, scales by configuration only):**
+
+| Concept | Gitea construct | Universal — same for SME and corporate |
+|---|---|---|
+| Sovereign | the Gitea instance | one per customer |
+| Catalyst Organization | one Gitea Org | one vcluster, one Keycloak realm/group, one OpenBao prefix, one JetStream Account |
+| Catalyst Application | **one Gitea Repo** | one CODEOWNERS, one webhook, one CI, one branch protection — independent of every other App |
+| Catalyst Environment | a logical scope (vcluster + namespace + EnvironmentPolicy CR) | realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo |
+| Sovereign-admin scope | one Gitea Org named `system` | CRs (Sovereign / Organization / Environment / EnvironmentPolicy), policy bundles, runbooks |
+| Public catalog mirror | one Gitea Org named `catalog` | nightly sync of `github.com/openova-io/openova` |
+| Sovereign-curated catalog | one Gitea Org named `catalog-sovereign` | optional — Sovereign-owner-curated private Blueprints visible to every Org on this Sovereign |
+
+**What's the same for SME and corporate:** the Application repo shape, the Blueprint shape, EnvironmentPolicy CR shape, RE-score gate semantics, default thresholds (e.g., RE-score ≥80% for prod), promotion mechanism (PR `staging` → `main` in the App repo).
+
+**What differs (configuration only, not structure):** number of CODEOWNERS per App, `minApprovals` value in EnvironmentPolicy, Keycloak topology choice (per-organization vs shared-sovereign — set at Sovereign provisioning), default Placement mode (single-region SME default, multi-region corporate default).
+
+**Files updated (line-by-line propagation):**
+- `docs/GLOSSARY.md` — Application + Environment definitions rewritten; new §"Gitea Orgs" section added (5 conventional Gitea Orgs); 6 component-row updates (console, marketplace, catalog-svc, projector, provisioning, environment-controller, gitea, Git surface).
+- `docs/NAMING-CONVENTION.md` §11.2 — Realization 6-bullet list rewritten; added new bullet 7 (EnvironmentPolicy CR location). §10 multi-region narrative updated.
+- `docs/ARCHITECTURE.md` — §1 paragraph rewritten; §3 topology box updated (5 Gitea Orgs explicit); §4 write-side ASCII rewritten (App repo shape, branches map to envs, 7 line height grew); §7.1 IaC editor description updated; §7.2 Git surface updated; §7.3 API description updated; §8 Promotion fundamentally rewritten (PR `staging`→`main` in same App repo); §9 Multi-App linkage updated (one Gitea repo per App, cross-repo Kustomization.dependsOn); EnvironmentPolicy CR example updated with system/ Org location + minApprovals field.
+- `docs/PERSONAS-AND-JOURNEYS.md` — §2 Surfaces (Git definition); §4.1 Ahmed's flow (provisioning creates one repo per App, not one Env-monorepo); §4.2 Layla's full narrative rewritten (App repo + branches + cross-repo PR promotion).
+- `docs/BLUEPRINT-AUTHORING.md` §1 — added third source-location category for Sovereign-curated private Blueprints (`catalog-sovereign` Gitea Org).
+- `docs/PLATFORM-TECH-STACK.md` §2.2 + §2.3 — provisioning, environment-controller, blueprint-controller, gitea descriptions all updated.
+- `docs/SECURITY.md` §3 — ExternalSecret CR location ("in the Application Gitea repo" not "in the Environment Gitea repo").
+- `docs/SOVEREIGN-PROVISIONING.md` §5 Phase 2 + §8 + §10 — Application-repo language replaces Environment-monorepo language.
+- `docs/IMPLEMENTATION-STATUS.md` §5 — Git surface description.
+- `docs/SRE.md` §14 — runbooks split (Sovereign-wide in `system/runbooks`, Org-specific in `<org>/runbooks`).
+
+**Files deliberately not touched:**
+- VALIDATION-LOG entries 1-102 — historical audit log, immutable record of the journey through the legacy model.
+- `README.md`, `CLAUDE.md` — high-level entry points; old-model assertions absent.
+- All 52 `platform/<x>/README.md` and 6 `products/<x>/README.md` — component-level, no Org/Env structural assertions.
+- `core/README.md` — Catalyst control-plane services, no repo-shape assertions.
+
+**Verification:**
+```
+$ grep -nE 'Environment Gitea repo|environment Gitea repo|<org>/<org>-<env_type>|/{org}/{org}-{env_type}|per-Environment Gitea' docs/*.md README.md CLAUDE.md | grep -v VALIDATION-LOG
+(no output)
+```
+
+Zero remaining old-model assertions in canonical docs.
+
+**Reset on the audit loop trajectory:**
+The previous 102-pass audit loop was anchored on the old "one Gitea repo per Environment" model and validated that text-shape carried consistently across the doc set. That validation was technically correct (all 100+ docs DID reference the same shape) but architecturally wrong (the shape itself was inadequate for corporate scale). The 8 nirvana cycles (Pass 54-58, 63-67, 68-72, 73-77, 78-82, 83-87, 88-92, 93-97) and 38-consecutive run (Pass 63-100) all validated the WRONG shape. **The audit loop's discipline of cross-checking text-shape consistency is correct; the choice of which text-shape to anchor on is what was off.**
+
+Going forward: any future audit pass should use the unified rule from this Pass 103 entry as the anchor. The Application = Repo invariant, the 5 Gitea Orgs convention, branches-mapping-to-envs, EnvironmentPolicy CR location in `system/catalyst-config/policies/`, and the SME-vs-corporate "configuration not structure" discipline are the new defense-in-depth anchors.
+
+**Lesson #21:** "If you find yourself proposing two different shapes for the same conceptual thing at different scales, that's the moment to stop and find the unified primitive." The fact that 100 audit passes never caught this is itself a signal — text-shape audits validate self-consistency, not architectural soundness. Architectural review is a separate, complementary discipline that the audit loop does not substitute for.
+
 ### Pass 6 — topology + JetStream Account scoping
 
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.

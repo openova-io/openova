@@ -29,7 +29,7 @@ How different people use Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for ter
 The three first-class surfaces (full list and rationale in [`ARCHITECTURE.md`](ARCHITECTURE.md) §7):
 
 - **UI** — Catalyst console. Form / Advanced / IaC editor depths.
-- **Git** — direct push or PR to the Environment Gitea repo (or to private Blueprint repos).
+- **Git** — direct push or PR to the Application's Gitea repo (one repo per App; branches `develop`/`staging`/`main` map to dev/stg/prod), or to private Blueprint repos (`shared-blueprints` per-Org or `catalog-sovereign` Sovereign-wide).
 - **API** — REST + GraphQL, for portal integrations.
 
 Plus one debug-only surface:
@@ -84,9 +84,12 @@ Day 1 — 14:00
    Step 1: subdomain (muscatpharmacy.shop.omantel.com)
    Step 2: business details (form generated from Blueprint configSchema)
    Step 3: payment plan (BHD 49/month)
-6. Click Install. Provisioning service commits 5 Application directories to
-   gitea.<location-code>.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod.
-   Webhook → projector → Flux reconciles in the muscatpharmacy vcluster.
+6. Click Install. Provisioning service creates 5 Application Gitea repos under
+   gitea.<location-code>.omantel.openova.io/muscatpharmacy/ (one repo per App:
+   erpnext, woocommerce, pharmacy-mail, shared-postgres, shared-redis), each
+   with `develop`/`staging`/`main` branches and initial manifests.
+   Webhook → projector → Flux in the muscatpharmacy vcluster picks up the
+   N new GitRepository sources and reconciles.
 7. ~3 minutes later: Ahmed sees green checkmarks on his dashboard.
    Each App card has an "Open" button.
    Click ERPNext → SSO via Omantel federated identity → he's in.
@@ -112,18 +115,21 @@ Day 1 — 14:08 — Ahmed is selling.
        with cosign, publishes to the local OCI registry. blueprint-controller
        picks it up — visible as a private card in the digital-channels Org.
 
-10:00  Switches to her Environment repo:
-       gitea.<location-code>.bankdhofar.local/digital-channels/digital-channels-uat
-       Edits applications/payment-rail/values.yaml (config tweak).
+10:00  Switches to her Application repo:
+       gitea.<location-code>.bankdhofar.local/digital-channels/payment-rail
+       Checks out branch `develop` (the dev environment branch).
+       Edits values.yaml (config tweak).
        Catalyst console (Plan view) shows the diff: what will change,
        dependency impact, drift, cost delta. Like terraform plan, but
        served by the API on the Git diff.
 
-10:15  Happy. Commits to main. Webhook → projector → Flux reconciles in
-       30s. Audit log captures her as committer.
+10:15  Happy. Commits to develop. Webhook → projector → Flux in the
+       digital-channels vcluster (watching the develop branch on this
+       Application repo) reconciles in 30s. Audit log captures her as
+       committer at the App-repo level.
 
-11:00  Need to debug the staging deployment.
-       Browser: console → digital-channels-stg → payment-rail-staging
+11:00  Need to debug the staging deployment of the same App.
+       Browser: console → digital-channels-stg → payment-rail card
        → Logs tab. Then Topology tab to see across regions.
        Or, drops into kubectl scoped to her vcluster:
          $ kubectl --context=hz-fsn-rtz-prod-digital-channels logs -n payment-rail
@@ -132,18 +138,23 @@ Day 1 — 14:08 — Ahmed is selling.
        is `digital-channels`). Bank Dhofar's sovereign-admin grants this via
        a JIT elevation flow.
 
-14:00  Promotion. Opens digital-channels-stg Environment in the console,
-       clicks "Copy to digital-channels-uat" on the payment-rail Application.
-       Catalyst opens a Gitea PR on the destination Environment's repo.
-       EnvironmentPolicy on digital-channels-uat requires team-platform
-       approver. Reviewer approves via Gitea web UI (or via the Catalyst
-       console's PR view — same backend). Auto-merge. Flux reconciles.
+14:00  Promotion stg → uat. From the payment-rail Application card,
+       clicks "Promote staging → uat". Catalyst opens a Gitea PR
+       within the same payment-rail repo: source branch `staging`,
+       target branch (a feature branch tracking uat config). The
+       EnvironmentPolicy CR for digital-channels-uat (in
+       system/catalyst-config/policies/) requires team-platform approver
+       and an RE score ≥ 80%. Reviewer approves via Gitea web UI (or
+       via the Catalyst console's PR view — same backend). Auto-merge.
+       Flux in the uat-bound vcluster reconciles.
 
 15:00  New Environment needed for a fraud lab. From the console:
        "New Environment in analytics" → fills name "fraud-lab-dev" →
        picks "small" topology (1 region, single bb=rtz). Environment-controller
-       creates the vcluster, bootstraps Flux, creates Gitea repo. Ready in
-       60s. Layla now has a new sandbox.
+       creates the vcluster and bootstraps Flux pointing at the develop
+       branch of every Application repo in the analytics Org. No new repos
+       are created (Application repos exist already, indexed by branch).
+       Ready in 60s. Layla now has a new sandbox.
 
 16:00  Business asks for the bank's existing Backstage portal to show
        Catalyst-managed services. Layla integrates: Backstage queries
@@ -154,7 +165,7 @@ Day 1 — 14:08 — Ahmed is selling.
        systems. No code change in Catalyst — the API was already there.
 ```
 
-**What Layla DOES use:** UI (for promotion approvals, observability, EnvironmentPolicy editing), Git (for Blueprint authoring and Environment manifests), kubectl (for debugging her own vcluster), and the API (for integrating Backstage). She **never** writes Crossplane code unless she's contributing a new Composition upstream as a Blueprint — and even then it's via a Gitea PR.
+**What Layla DOES use:** UI (for promotion approvals, observability, EnvironmentPolicy editing), Git (for Blueprint authoring in `shared-blueprints` and per-Application config in each App's repo with `develop`/`staging`/`main` branches), kubectl (for debugging her own vcluster), and the API (for integrating Backstage). She **never** writes Crossplane code unless she's contributing a new Composition upstream as a Blueprint — and even then it's via a Gitea PR.
 
 **What Layla doesn't use:** Terraform, Pulumi, a "catalystctl" CLI, or any other tool that bypasses Git.
 

@@ -9,7 +9,7 @@ This document describes the architecture of **Catalyst** — the OpenOva platfor
 
 ## 1. The platform in one paragraph
 
-Catalyst is a self-sufficient Kubernetes-native control plane published as signed OCI Blueprints. A single deployed Catalyst is called a **Sovereign**. Inside a Sovereign, **Organizations** are the multi-tenancy unit. An Organization has **Environments** (`{org}-prod`, `{org}-dev`, etc.) where users install **Applications** from **Blueprints**. Each Environment is backed by one Gitea repo and one or more vclusters running lightweight Flux. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO + SPIRE handles secrets and workload identity. Keycloak handles user identity. **Same code runs in every Sovereign — whether it's run by us, by Omantel, or by Bank Dhofar.**
+Catalyst is a self-sufficient Kubernetes-native control plane published as signed OCI Blueprints. A single deployed Catalyst is called a **Sovereign**. Inside a Sovereign, **Organizations** are the multi-tenancy unit. An Organization has **Environments** (`{org}-prod`, `{org}-dev`, etc.) where users install **Applications** from **Blueprints**. **Each Application is its own Gitea repo** (one App = one repo, uniformly across SME and corporate scale); branches `develop`/`staging`/`main` map to dev/stg/prod environments. One or more vclusters per Environment run lightweight Flux watching the appropriate branch across the Org's Application repos. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO + SPIRE handles secrets and workload identity. Keycloak handles user identity. **Same code runs in every Sovereign — whether it's run by us, by Omantel, or by Bank Dhofar.**
 
 ---
 
@@ -82,15 +82,26 @@ Everything else is identical in code.
 │   Cilium Gateway, WAF (Coraza), k8gb DNS, WireGuard endpoints             │
 └─────────────────────────────────────────────────────────────────────────┘
                               ↕
-                  Gitea (in management cluster)
-                  ─────────────────────────────
-                  catalog/                    ← public Blueprint mirror
-                  organizations/muscatpharmacy/
-                    ├── shared-blueprints/     ← Org-private Blueprints
-                    └── muscatpharmacy-prod    ← Environment repo
-                  organizations/acme-shop/
-                    ├── shared-blueprints/
-                    └── acme-shop-prod
+                  Gitea (in management cluster) — 5 conventional Gitea Orgs
+                  ──────────────────────────────────────────────────────────
+                  catalog/                    ← public Blueprint mirror (read-only)
+                  catalog-sovereign/          ← Sovereign-owner-curated private Blueprints (optional)
+                  acme-pharmacy/              ← one Gitea Org per Catalyst Organization
+                    ├── shared-blueprints     ← Org-private Blueprint authoring
+                    ├── store-frontend        ← one Gitea Repo per Application
+                    ├── pharmacy-mail
+                    ├── consult-room
+                    └── appointments
+                                              (branches develop/staging/main map
+                                               to dev/stg/prod environments)
+                  kestrel-rx/                 ← another Catalyst Organization
+                    ├── shared-blueprints
+                    └── ...
+                  system/                     ← sovereign-admin scope
+                    ├── catalyst-config       (CRs: Sovereign, Organization,
+                    │                          Environment, EnvironmentPolicy)
+                    ├── policy-bundle         (Kyverno, Falco, RE Scorecard)
+                    └── runbooks              (auto-remediation)
                   ...
 ```
 
@@ -105,35 +116,42 @@ Everything else is identical in code.
                             │                                    │
                             │  (Git push from any of these       │
                             │   bypasses provisioning and goes   │
-                            │   straight to the Gitea repo;      │
+                            │   straight to the App's repo;      │
                             │   webhook + projector still fire)  │
                             ▼                                    ▼
               ┌──────────────────────────────────────────────────────────┐
               │  provisioning service                                    │
               │   - validates configSchema against Blueprint              │
               │   - resolves dependency graph                             │
-              │   - composes manifests                                    │
-              │   - commits to the Environment Gitea repo                 │
+              │   - creates one Gitea repo per Application                │
+              │   - commits initial manifests to develop/staging/main     │
               └──────────────────────────────────────────────────────────┘
                                      │
                                      ▼
               ┌──────────────────────────────────────────────────────────┐
-              │  Environment Gitea repo: {org}/{org}-{env_type}            │
-              │  (FQDN form per NAMING §11.2)                              │
+              │  Application Gitea repo: {org}/{app}                      │
+              │  (FQDN form per NAMING §11.2 — one repo per Application)  │
               │  ────────────────────────────────────────────────────────  │
-              │  flux-system/        gotk-components.yaml + gotk-sync      │
-              │  applications/                                             │
-              │    marketing-site/    kustomization.yaml + values.yaml     │
-              │    blog/              kustomization.yaml + values.yaml     │
-              │    shared-postgres/   kustomization.yaml + values.yaml     │
-              │  policies/                                                 │
-              │    environment-policy.yaml   ← approvals, soak, windows    │
+              │  branches: develop → dev env, staging → stg, main → prod  │
+              │  ────────────────────────────────────────────────────────  │
+              │  kustomization.yaml      ← root Flux Kustomization         │
+              │  values.yaml             ← base values                     │
+              │  overlays/               ← per-env overlays                │
+              │    dev/values.yaml                                         │
+              │    stg/values.yaml                                         │
+              │    prod/values.yaml                                        │
+              │  secrets/                ← ExternalSecret refs (no plain)  │
+              │  CODEOWNERS              ← team / approver list            │
+              │                                                            │
+              │  EnvironmentPolicy lives separately in the system Gitea   │
+              │  Org: system/catalyst-config/policies/{org}-{env}-policy   │
               └──────────────────────────────────────────────────────────┘
                                      │
                                      ▼ (Gitea webhook → projector → annotate)
               ┌──────────────────────────────────────────────────────────┐
               │  Flux in vcluster {org}                                  │
-              │   - source-controller pulls commit                       │
+              │   - N GitRepository sources, one per App repo            │
+              │   - each watching the env-appropriate branch              │
               │   - kustomize-controller applies to per-App namespaces   │
               │   - helm-controller renders Helm-based Blueprints        │
               └──────────────────────────────────────────────────────────┘
@@ -242,15 +260,15 @@ Default. Most users never leave it. Three depths the user can switch between:
 
 - **Form view** — one Application page, fields driven by `configSchema`. Default for SME.
 - **Advanced view** — same page with topology, secrets, observability, history, manifest tabs. Default for corporate.
-- **IaC editor view** — in-browser Monaco editing the Environment Gitea repo with Blueprint-schema validation, live diff, commit-on-save. Toggle, not modal.
+- **IaC editor view** — in-browser Monaco editing the Application's Gitea repo with Blueprint-schema validation, live diff, commit-on-save. Toggle, not modal.
 
-All three commit to the same Environment Gitea repo. The **Application card** is the user's primary handle — see [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md).
+All three commit to the same Application Gitea repo (one repo per App, branches `develop`/`staging`/`main` mapping to dev/stg/prod). The **Application card** is the user's primary handle — see [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md).
 
 ### 7.2 Git
 
-Direct push or pull-request to the Environment's Gitea repo (or to `shared-blueprints` for Org-private Blueprints, or to private Crossplane Composition repos for advanced users).
+Direct push or pull-request to the Application's Gitea repo (one repo per App), or to `shared-blueprints` for Org-private Blueprints, or to `catalog-sovereign` for Sovereign-curated private Blueprints.
 
-Identical write semantics as the UI. Both end up as a commit on the same repo. EnvironmentPolicy (PR approvals, soak, change windows) applies regardless of the surface.
+Identical write semantics as the UI. Both end up as commits on the App's repo branches. EnvironmentPolicy (PR approvals, soak, change windows) applies regardless of the surface — the policy CR lives in the `system` Gitea Org and is matched by Org+env_type at projector enforcement time.
 
 ### 7.3 API (REST + GraphQL)
 
@@ -261,7 +279,7 @@ Use cases:
 - A change-management tool (ServiceNow, JIRA) triggers Application installs based on a ticket.
 - A monitoring/auditing tool exports state for compliance reports.
 
-The API exposes the same operations the console performs. It is **not** an IaC authoring layer in the Terraform-cloud sense. We do not ship a Terraform provider, a Pulumi SDK, or any other "declare desired state through us" surface — the Environment Gitea repo is that surface.
+The API exposes the same operations the console performs. It is **not** an IaC authoring layer in the Terraform-cloud sense. We do not ship a Terraform provider, a Pulumi SDK, or any other "declare desired state through us" surface — the Application Gitea repo is that surface.
 
 ### 7.4 What's deliberately NOT a surface
 
@@ -273,7 +291,7 @@ The API exposes the same operations the console performs. It is **not** an IaC a
 
 ## 8. Promotion across Environments
 
-Promotion is **not** a separate engine or a chain object. It is the simple act of copying an Application's manifest from one Environment's Gitea repo to another's, plus a policy on the destination.
+Promotion is **not** a separate engine or a chain object. Because each Application is a single Gitea repo with branches mapping to env_types, promotion is the simple act of opening a PR from the lower-env branch to the higher-env branch (e.g. `staging` → `main` to promote stg → prod), plus a policy gating the destination branch.
 
 ```
 Blueprint detail page in console:
@@ -293,20 +311,26 @@ Blueprint detail page in console:
   [ Compare versions ]
 ```
 
-From `marketing-site` in `acme-stg`, the user clicks "Copy to another Environment" → picks `acme-prod`. Catalyst opens a Gitea PR on `acme-prod`'s repo. The destination Environment's `EnvironmentPolicy` (approvers, soak, change window) applies to the PR. On merge, Flux reconciles. Done.
+From `marketing-site` in `acme-stg`, the user clicks "Promote to acme-prod". Catalyst opens a Gitea PR from the `staging` branch to the `main` branch in the **same** `marketing-site` Application repo. The destination Environment's `EnvironmentPolicy` CR (in the `system` Gitea Org, matched by `appliesTo.environments: [acme-prod]`) supplies the approvers, soak duration, change window, and RE-score gate that apply to the PR. On merge, the Flux instance in the `acme-prod` vcluster (which watches the `main` branch) reconciles. Done.
 
 ```yaml
+# Lives at: system/catalyst-config/policies/acme-prod-policy.yaml
+# (in the Sovereign-admin's `system` Gitea Org)
 apiVersion: catalyst.openova.io/v1alpha1
 kind: EnvironmentPolicy
 metadata:
-  name: prod-default
-  namespace: acme           # Org namespace on management cluster
+  name: acme-prod-policy
+  namespace: catalyst-system
 spec:
   appliesTo:
     environments: [acme-prod]
   rules:
     - kind: pr-required
       approvers: [team-platform, team-security]
+      minApprovals: 2
+    - kind: re-score-gate
+      minScore: 80
+      severity: blocking
     - kind: soak
       sourceEnvironment: acme-stg
       duration: 72h
@@ -315,7 +339,7 @@ spec:
       duration: 2h
 ```
 
-The policy lives on the **destination** Environment, not on the App or on a chain. It applies uniformly to every Application installed there, regardless of who initiated the change (UI, Git, API).
+The policy lives in the Sovereign-admin's `system` Gitea Org and applies uniformly to every Application in the destination Environment, regardless of who initiated the change (UI, Git, API). The same CR shape is used for SME and corporate Sovereigns — only the field values differ (e.g. `minApprovals: 1` for SMEs with a single org-admin, `minApprovals: 2-3` for corporate teams).
 
 ---
 
@@ -343,12 +367,12 @@ spec:
 When a User installs `marketing-site` from `bp-wordpress`:
 
 1. **Catalog-svc** flattens the dependency tree.
-2. **Console** asks: "WordPress requires Postgres. Use an existing Postgres Application or create a new dedicated one?" — querying projector for existing `bp-postgres` Applications in this Environment.
-3. **Provisioning service** composes an InstallPlan: either one Application (`marketing-site`) referencing an existing postgres Application, or two Applications (`marketing-site` + `marketing-site-postgres`) with a Flux `dependsOn` edge.
-4. **Gitea commit** writes one or two `applications/<name>/` directories.
-5. **Flux** reconciles in dependency order.
+2. **Console** asks: "WordPress requires Postgres. Use an existing Postgres Application or create a new dedicated one?" — querying projector for existing `bp-postgres` Applications in this Org.
+3. **Provisioning service** composes an InstallPlan: either one Application (`marketing-site`) referencing an existing postgres Application, or two Applications (`marketing-site` + `marketing-site-postgres`).
+4. **Gitea creates one or two repos** under the Org's Gitea Org (e.g. `acme-pharmacy/marketing-site` + `acme-pharmacy/marketing-site-postgres`), each with `develop`/`staging`/`main` branches and initial manifests.
+5. **Flux** in the Org's vcluster picks up new `GitRepository` sources and reconciles in dependency order via cross-repo `Kustomization.dependsOn` edges.
 
-Every Application is its own Flux Kustomization. The graph is materialized as `dependsOn` edges between Kustomizations, computed at install time from the Blueprint's `depends` declaration.
+Every Application is its own Gitea repo and its own Flux Kustomization. The dependency graph is materialized as `dependsOn` edges between Kustomizations (which are namespaced CRs in the vcluster, regardless of which Gitea repo each Kustomization was sourced from), computed at install time from the Blueprint's `depends` declaration.
 
 ---
 

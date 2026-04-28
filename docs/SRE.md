@@ -510,7 +510,7 @@ route:
 
 ## 14. Runbooks
 
-Runbooks live in the customer's `<org>/runbooks` Gitea repo, version-controlled alongside the rest of their config. Catalyst's `runbook-controller` indexes them and surfaces them in incident response panels.
+Sovereign-wide runbooks live in `system/runbooks` (Sovereign-admin scope). Org-specific runbooks may live in `<org>/runbooks` Gitea repo (one per Org if used). Both are version-controlled and indexed by Catalyst's `runbook-controller`, which surfaces them in incident response panels.
 
 A typical runbook:
 

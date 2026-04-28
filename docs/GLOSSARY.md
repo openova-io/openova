@@ -16,8 +16,8 @@ Every other document defers to this file. When a term in another doc looks conte
 | **Catalyst** | The OpenOva platform itself. A self-sufficient Kubernetes-native control plane. Composed of: console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, identity, secret, event-spine, gitea, observability. See "Catalyst components" below. Published from this repository as signed OCI Blueprints. |
 | **Sovereign** | One **deployed** instance of Catalyst on Kubernetes infrastructure chosen by its owner. Self-contained; never depends at runtime on any other Sovereign. Examples: `openova` (run by us, hosts our SaaS Organizations — formerly "Nova"), `omantel` (run by Omantel, hosts SME Organizations across Oman), `bankdhofar` (run by the bank, hosts internal Organizations). |
 | **Organization** | The multi-tenancy unit inside a Sovereign. Has billing, Users, Environments, private Blueprints. Ahmed's pharmacy is one Organization on the `omantel` Sovereign; `digital-channels` is one Organization on the `bankdhofar` Sovereign. |
-| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Backed by one Gitea repo and one or more vclusters. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
-| **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). |
+| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
+| **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). **Each Application is realized as one Gitea repo** at `gitea.<location-code>.<sovereign-domain>/<org>/<app>` under its owning Organization. Branches `develop`/`staging`/`main` map to the `dev`/`stg`/`prod` Environments. The repo is the unit of CODEOWNERS, branch protection, webhook, and CI — giving every team self-sufficient ownership of their Apps. |
 | **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §2. |
 | **User** | A person. Authenticates via Keycloak. Belongs to one Organization (or has cross-Org admin scope as `sovereign-admin`). |
 
@@ -54,20 +54,33 @@ Every other document defers to this file. When a term in another doc looks conte
 
 | Component | Purpose |
 |---|---|
-| **console** | Primary user-facing UI. Three depths: form view (default for SME), advanced view (default for corporate), in-browser Monaco IaC editor (toggle). All commits to the Environment Gitea repo. |
+| **console** | Primary user-facing UI. Three depths: form view (default for SME), advanced view (default for corporate), in-browser Monaco IaC editor (toggle). All commits go to the relevant Application's Gitea repo (one repo per App). |
 | **marketplace** | Public-facing Blueprint card grid (the "App Store"). |
 | **admin** | Sovereign-level admin UI. Where `sovereign-admin` configures the deployment. |
-| **catalog-svc** | Reads Blueprint CRDs (sourced from the monorepo + Org-private Gitea repos), serves catalog API to console + marketplace. |
+| **catalog-svc** | Reads Blueprint CRDs (sourced from the public catalog mirror + the Sovereign-curated `catalog-sovereign` Gitea Org + Org-private `shared-blueprints` repos), serves catalog API to console + marketplace. |
 | **projector** | CQRS read-side service. Subscribes to NATS JetStream, materializes per-Environment KV, serves SSE to console, handles Gitea webhooks (forces Flux reconcile on commit). |
-| **provisioning** | Validates Application install requests against Blueprint configSchema, composes manifests, commits to the Environment Gitea repo. |
-| **environment-controller** | Reconciles the **Environment CRD**: creates the vcluster(s), bootstraps Flux inside, creates the Gitea repo, wires the webhook, generates pull credentials. |
+| **provisioning** | Validates Application install requests against Blueprint configSchema, composes manifests, **creates one Gitea repo per Application** under the Org's Gitea Org, commits initial branches (`develop`/`staging`/`main`). |
+| **environment-controller** | Reconciles the **Environment CRD**: creates the vcluster(s), bootstraps Flux inside (watching the appropriate branch across the Org's Application repos), wires the webhook, generates pull credentials. |
 | **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign Gitea Org-private repos), validates and registers Blueprint CRDs. |
 | **billing** | Per-Org metering, invoicing. |
 | **identity** | Keycloak (per-Organization realm in SME-style Sovereigns; per-Sovereign realm in corporate-style) + SPIFFE/SPIRE for workload identity. |
 | **secret** | OpenBao + External Secrets Operator (ESO). Independent Raft cluster per region (no stretched cluster); cross-region perf replication is async. |
 | **event-spine** | NATS JetStream — pub/sub + Streams + KV bucket. Workload-identity-scoped Accounts per Organization. Replaces what was previously specified as "Redpanda + Valkey" for the control plane. |
-| **gitea** | Per-Sovereign Git server. Hosts the Blueprint catalog mirror, Org-private Blueprints, and per-Environment Gitea repos. |
+| **gitea** | Per-Sovereign Git server. Hosts five top-level Gitea Orgs by convention: `catalog` (read-only mirror of the public Blueprint catalog), `catalog-sovereign` (optional — Sovereign-owner-curated private Blueprints visible to every Org on this Sovereign), one Gitea Org per Catalyst **Organization** (each holding the Org's `shared-blueprints` repo + one repo per **Application**), and `system` (sovereign-admin scope: CRs, policy bundles, runbooks). |
 | **observability** | Per-Sovereign OpenTelemetry + Grafana stack (Alloy + Loki + Mimir + Tempo + Grafana) for Catalyst's own telemetry. |
+
+---
+
+## Gitea Orgs (top-level Gitea namespaces)
+
+A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rule: **one Catalyst Organization = one Gitea Org**, **one Application = one Gitea Repo**, regardless of SME or corporate scale.
+
+| Term | Definition |
+|---|---|
+| **`catalog` Gitea Org** | Read-only nightly mirror of `github.com/openova-io/openova` synced by `bp-catalyst-gitea`. Public Blueprints visible to every Org on the Sovereign. |
+| **`catalog-sovereign` Gitea Org** | Optional. Sovereign-owner-curated private Blueprints (e.g. an SME marketplace operator authoring `bp-wordpress`, `bp-jitsi`, `bp-cal-com` for their tenants). Visible to every Org on this Sovereign without being public upstream. Distinct from per-Org `shared-blueprints` (Org-scoped only). |
+| **`<org>` Gitea Org** | One per Catalyst **Organization**. Holds: `shared-blueprints` (Org-private Blueprint authoring) plus **one Gitea Repo per Application** owned by that Org (e.g. `acme-pharmacy/store-frontend`, `core-banking/billing-rail`). |
+| **`system` Gitea Org** | Sovereign-admin scope. Holds: `catalyst-config` (Sovereign / Organization / Environment / EnvironmentPolicy CRs), `policy-bundle` (Kyverno ClusterPolicies, Falco rules, RE Scorecard CRDs), `runbooks` (auto-remediation Runbooks). Edit access restricted to `sovereign-admin`; per-Org delegation possible via Catalyst RBAC. |
 
 ---
 
@@ -76,7 +89,7 @@ Every other document defers to this file. When a term in another doc looks conte
 | Term | Definition |
 |---|---|
 | **UI** | The Catalyst console — full feature, three view depths. |
-| **Git** | Direct push or pull-request to the Environment's Gitea repo, or to private Blueprint repos. |
+| **Git** | Direct push or pull-request to an Application's Gitea repo (branches `develop`/`staging`/`main` for dev/stg/prod), or to a Blueprint repo (`shared-blueprints` per-Org or `catalog-sovereign` Sovereign-wide). |
 | **API** | Catalyst REST + GraphQL. Used for portal integrations (a customer's Backstage / ServiceNow / JIRA). Not a primary IaC authoring surface. |
 | **kubectl** | Inside a User's own vcluster, for **debugging only**. Not a configuration surface. |
 | **Crossplane** | **Platform plumbing**, never a user surface. Used internally by Blueprints to manage non-K8s cloud resources. Advanced users may author their own Crossplane Compositions and contribute them upstream as Blueprints. |

@@ -64,7 +64,7 @@ Static secrets (API tokens, passwords, signing keys, OAuth client secrets) live 
        OpenBao (Raft cluster, region-local)
               │
               │  ┌──────────────────────────────────────────────┐
-              │  │  ExternalSecret CR in Git, in the Environment │
+              │  │  ExternalSecret CR in Git, in the Application │
               │  │  Gitea repo. References path in OpenBao.     │
               │  └──────────────────────────────────────────────┘
               │                          │

@@ -41,9 +41,9 @@ These components make a Kubernetes cluster a Sovereign. Installed exactly once p
 |---|---|
 | **projector** | CQRS read-side. Subscribes to NATS JetStream, materializes per-Environment KV, fans out SSE to console. |
 | **catalog-svc** | Reads Blueprint CRDs, serves catalog API to console + marketplace. |
-| **provisioning** | Validates configSchema, composes manifests, commits to the Environment Gitea repo. |
-| **environment-controller** | Reconciles Environment CRD: vcluster + Flux-bootstrap + Gitea repo + webhook. |
-| **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign Gitea Org-private repos), registers Blueprint CRDs. |
+| **provisioning** | Validates configSchema, composes manifests, creates one Gitea repo per Application under the Org's Gitea Org, commits initial branches (`develop`/`staging`/`main`). |
+| **environment-controller** | Reconciles Environment CRD: vcluster + Flux-bootstrap (watching the appropriate branch across the Org's Application repos) + webhooks. |
+| **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign `catalog-sovereign` Gitea Org + Org-private `shared-blueprints` repos), registers Blueprint CRDs. |
 | **billing** | Per-Organization metering, invoicing. |
 
 ### 2.3 Per-Sovereign supporting services
@@ -56,7 +56,7 @@ These run **once per Sovereign** (on the mgt cluster, with sibling replicas in w
 | **[openbao](../platform/openbao/)** | Secret backend. Primary on mgt; sibling Raft cluster per workload region with async perf replication. **No stretched clusters.** See [`SECURITY.md`](SECURITY.md) §5. |
 | **spire-server** | SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Root server on mgt; per-host-cluster agent + cluster-local SPIRE-server replica. |
 | **nats-jetstream** | Event spine (pub/sub + Streams + KV). Per-Organization Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
-| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts public Blueprint catalog mirror, Org-private Blueprints, per-Environment Gitea repos. |
+| **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts five conventional Gitea Orgs: `catalog` (public Blueprint mirror), `catalog-sovereign` (Sovereign-curated private Blueprints), one per Catalyst Organization (each with `shared-blueprints` + one repo per Application), and `system` (sovereign-admin scope). See [`GLOSSARY.md`](GLOSSARY.md) §"Gitea Orgs". |
 | **observability** (Grafana stack) | Catalyst's own self-monitoring: Alloy collector, Loki (logs), Mimir (metrics), Tempo (traces), Grafana visualization. Customer Application telemetry also flows here unless an Org installs its own observability stack. |
 
 ---

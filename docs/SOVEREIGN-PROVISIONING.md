@@ -123,8 +123,11 @@ Day-1 actions
    They are created when the first Environment is provisioned.
 7. Create the first Environment in that Organization:
      Console → switch to Org context → Environments → New
-     Environment-controller spins up a vcluster on the chosen host cluster.
-     Bootstraps Flux inside, creates Gitea repo, wires webhook.
+     Environment-controller spins up a vcluster on the chosen host cluster
+     and bootstraps Flux inside (watching the env-appropriate branch on
+     every Application repo within this Org's Gitea Org). Apps not yet
+     installed have no repos yet; repos are created on demand by the
+     provisioning-service when each App is installed.
      Ready in ~60 seconds.
 ```
 
@@ -196,7 +199,7 @@ Catalyst:
 3. cert-manager + Cilium + Flux + Crossplane + SPIRE + ESO + OpenBao replica deployed via the cluster's Flux Kustomization.
 4. New region available as a Placement target for new and existing Environments.
 
-Existing Applications with `placement.mode: single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly switches Placement to `active-active` (or `active-hotstandby`) and adds the new region to `placement.regions` — that's a one-line edit in the Environment Gitea repo (or a click in Topology tab).
+Existing Applications with `placement.mode: single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly switches Placement to `active-active` (or `active-hotstandby`) and adds the new region to `placement.regions` — that's a one-line edit in the Application's Gitea repo on the appropriate branch (or a click in the Topology tab).
 
 ---
 
@@ -230,8 +233,8 @@ Rare but supported. Example: a Bank Dhofar Organization started life on the open
 2. On openova Sovereign: Admin → Organization → Export
      Catalyst produces an export bundle:
        - Org metadata
-       - All Environment Gitea repos (cloned + bundled)
-       - All private Blueprint repos
+       - All Application Gitea repos under this Org (cloned + bundled, including all branches)
+       - The Org's `shared-blueprints` repo
        - Keycloak realm export (users, federated identities)
        - OpenBao export (sealed secrets only)
 3. On bankdhofar Sovereign: Admin → Organization → Import
