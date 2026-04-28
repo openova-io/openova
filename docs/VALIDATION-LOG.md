@@ -63,6 +63,80 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 90 — PERSONAS-AND-JOURNEYS sixth-cycle stable; ferretdb third-cycle clean (cycle 7 Pass 3)
+
+**THIRTY-EIGHTH clean pass overall**. **TWENTY-EIGHT CONSECUTIVE clean architectural passes** (Pass 63 → 90) spanning cycles 2 → 7. Cycle 7 has 3 consecutive cleans (88 → 89 → 90).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/PERSONAS-AND-JOURNEYS.md** sixth-cycle deep-read:
+- §1 Personas (L10-26) — 5 personas (Ahmed/SME owner, Layla/corporate SRE, Yousef/sovereign-admin, Maryam/security officer, Hatem/CFO)
+- §2 Surfaces (L27-) — UI / Git / API / kubectl
+- §3 Personas × Journeys matrix (L43-)
+- §4 Two journey narratives (L66-159):
+  - §4.1 SME journey — Ahmed at Muscat Pharmacy on Omantel:
+    - L75: omantel.openova.io marketplace
+    - L88: `gitea.<location-code>.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod` ✓ — canonical Gitea repo path matches NAMING §11.2
+  - §4.2 Corporate journey — Layla at Bank Dhofar (Pass 33 anchor):
+    - L101: Organizations `core-banking`, `digital-channels`, `analytics`, `corporate-it`
+    - L109: `gitea.<location-code>.bankdhofar.local/digital-channels/shared-blueprints/bp-bd-payment-rail` — canonical control-plane DNS pattern ✓
+    - L116: `gitea.<location-code>.bankdhofar.local/digital-channels/digital-channels-uat` — env_type 3-char `uat` ✓
+    - L126: `digital-channels-stg` — env_type 3-char ✓
+    - L129: `kubectl --context=hz-fsn-rtz-prod-digital-channels` — vcluster context per NAMING §1.5 (`{provider}-{region}-{bb}-{env_type}-{org}`) ✓
+    - L131: explicit "vcluster name per NAMING §1.5 is the Org name" — Pass 33 anchor ✓
+    - L143: `fraud-lab-dev` env name — env_type 3-char ✓
+    - L150: `https://api.<location-code>.bankdhofar.local/v1/applications` — canonical control-plane DNS ✓
+- §5 Application card (L163-200)
+- §6 Catalog vs Applications-in-use view (L201-260):
+  - §6.1 Marketplace (catalog)
+  - §6.2 Blueprint detail page (cross-Environment view)
+    - L229-232: `acme-dev`, `acme-stg`, `acme-prod` — Pass 39 env_type 3-char anchor ✓
+  - §6.3 Environment view (Pass 22 anchor):
+    - L242: `Environment: core-banking-prod` — Pass 22 fix preserved (was previously `core-banking-production`; corrected to 3-char `prod`) ✓
+- §7 Differences in default UI mode by Sovereign type (L263-)
+
+PERSONAS-AND-JOURNEYS.md stable across **6 review cycles** (Pass 22, 33, 39, 65, 75, 90 — fix-trajectory: Pass 22 §6.3 Environment format, Pass 33 §4.2 Layla DNS + vcluster name, Pass 39 env_type 3-char canonicalization).
+
+**Defense-in-depth verification: env_type 3-char canonical** (across 5+ representational levels):
+1. NAMING §2.4 table: explicit 3-char `prod | stg | uat | dev | poc` ✓
+2. NAMING §11.1: examples `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat` ✓
+3. GLOSSARY L19/L48: env_type values `prod | stg | uat | dev | poc` ✓
+4. ARCHITECTURE §8: promotion table `acme-dev`, `acme-stg`, `acme-prod` ✓
+5. PERSONAS §6.2: `acme-dev`, `acme-stg`, `acme-prod` ✓
+6. PERSONAS §6.3: `core-banking-prod` ✓
+7. PERSONAS §4.2: `digital-channels-uat`, `digital-channels-stg`, `fraud-lab-dev` ✓
+
+Seven cross-document anchors all consistent.
+
+**platform/ferretdb/README.md** third-cycle deep-read:
+- L1 title "FerretDB"
+- L3 banner: "MongoDB wire protocol on PostgreSQL. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.1) — installed by Organizations that want MongoDB API compatibility. Replication piggybacks on the underlying CNPG cluster (WAL streaming) — no separate replication mechanism needed." ✓ — Pass 31 anchor; Application Blueprint, §4.1 Data services; explicit CNPG dependency
+- L5 metadata: "Database | A La Carte (Application Blueprint)" — explicit non-control-plane ✓
+- L11 narrative: "MongoDB wire protocol compatibility backed by PostgreSQL (via CNPG)...no SSPL license concerns"
+- L13-19 features: MongoDB wire protocol, PostgreSQL/CNPG backend, Apache 2.0 license, WAL replication via CNPG, full ACID
+- L23-27 integration: CNPG (required dep), ESO, Velero (backup via CNPG WAL)
+- L31-36 Why FerretDB vs MongoDB Community: license SSPL→Apache 2.0, replication Debezium/Kafka→CNPG WAL native, operational overhead, ACID
+- L40-50 Flux Kustomization deployment
+
+ferretdb third-cycle confirms Pass 31 banner (Application Blueprint, §4.1 Data services, CNPG-WAL replication) intact across 3 cycles.
+
+**Triangulated cross-reference verification** (ferretdb ↔ cnpg ↔ TECHNOLOGY-FORECAST):
+- ferretdb/README L25: "CNPG — PostgreSQL backend (required dependency)" ✓
+- cnpg/README L3: "also the underlying engine for FerretDB (MongoDB-compatible)" ✓
+- PTS §4.1 row: `ferretdb | MongoDB wire protocol on PostgreSQL | Via CNPG WAL streaming` ✓
+- TECHNOLOGY-FORECAST §Removed L149: "MongoDB (72) → Replaced by FerretDB on CNPG (no SSPL, simpler DR)" ✓
+- BUSINESS-STRATEGY §Removed: MongoDB removal rationale consistent
+
+Four-document chain all consistent and mutually reinforcing.
+
+**Pass 90: clean.** Twenty-eight consecutive architectural-clean passes (63-90). Cycle 7 has 3 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-6: 30 consecutive clean (6 nirvana achieved)
+- Cycle 7 (Pass 88-90): 3 consecutive clean ✓ (so far)
+
+Total: 38 clean passes overall, 28 consecutive (Pass 63-90). Loop continues per user's standing instruction.
+
 ### Pass 89 — SOVEREIGN-PROVISIONING fifth-cycle stable; cnpg fifth-cycle clean (cycle 7 Pass 2)
 
 **THIRTY-SEVENTH clean pass overall**. **TWENTY-SEVEN CONSECUTIVE clean architectural passes** (Pass 63 → 89) spanning cycles 2 → 7. Cycle 7 has 2 consecutive cleans (88 → 89).
