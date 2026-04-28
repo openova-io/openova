@@ -26,9 +26,17 @@ on:
   workflow_dispatch:
     inputs:
       blueprint:
-        description: 'Blueprint name (e.g. cilium, openbao). Empty = build all changed.'
+        description: 'Blueprint name (e.g. cilium, openbao, catalyst). Empty = build all changed.'
         required: false
         type: string
+      tree:
+        description: 'Source tree: platform (leaf) or products (umbrella).'
+        required: false
+        type: choice
+        default: platform
+        options:
+          - platform
+          - products
 
 permissions:
   contents: read
@@ -51,7 +59,9 @@ jobs:
         run: |
           set -e
           if [ -n "${{ inputs.blueprint }}" ]; then
-            echo "matrix={\"include\":[{\"path\":\"platform/${{ inputs.blueprint }}\"}]}" >> "$GITHUB_OUTPUT"
+            tree="${{ inputs.tree }}"
+            tree="${tree:-platform}"
+            echo "matrix={\"include\":[{\"path\":\"${tree}/${{ inputs.blueprint }}\"}]}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Compare against previous commit; emit a matrix of changed paths.
