@@ -1,14 +1,14 @@
-// Package handler — HTTP handlers wired to the real Hetzner provisioner.
+// Package handler — HTTP handlers wired to the OpenTofu-based provisioner.
 //
-// Endpoints:
-//   POST /api/v1/deployments         — start a real Hetzner provisioning run
-//   GET  /api/v1/deployments/{id}/logs — SSE stream of provisioning events
-//   GET  /api/v1/deployments/{id}      — current deployment state (polled by wizard)
+// Per docs/INVIOLABLE-PRINCIPLES.md principle #3 + docs/ARCHITECTURE.md §10:
+// Phase 0 cloud provisioning is OpenTofu's job, NOT bespoke Go code. This
+// handler invokes `tofu apply` against the canonical infra/hetzner/ module
+// and streams the output to the wizard via SSE.
 //
-// Per docs/PROVISIONING-PLAN.md and the user's "no mocks" directive: this
-// handler delegates to internal/hetzner.Provisioner which makes real Hetzner
-// Cloud API calls. The token + project ID + region come from the wizard
-// payload (StepCredentials + StepInfrastructure / StepOrg).
+// Phase 1 hand-off (Crossplane adopting day-2 management) and bootstrap-kit
+// installation (Cilium → cert-manager → Flux → Crossplane → ... → bp-catalyst-platform)
+// happen INSIDE the cluster via Flux reconciling clusters/<sovereign-fqdn>/
+// in the public OpenOva monorepo. The handler does not orchestrate that.
 package handler
 
 import (
@@ -23,23 +23,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // Deployment captures provisioning state for a single Sovereign run.
 type Deployment struct {
 	ID         string
-	Status     string // pending | provisioning | bootstrapping | ready | failed
-	Request    hetzner.ProvisionRequest
-	Result     *hetzner.Result
+	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | ready | failed
+	Request    provisioner.Request
+	Result     *provisioner.Result
 	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
-	Events     chan hetzner.Event
+	Events     chan provisioner.Event
 	mu         sync.Mutex
 }
 
-// State returns a JSON-safe snapshot of the deployment for the GET endpoint.
+// State returns a JSON-safe snapshot for the GET endpoint.
 func (d *Deployment) State() map[string]any {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -64,16 +64,16 @@ func (d *Deployment) State() map[string]any {
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
-	var req hetzner.ProvisionRequest
+	var req provisioner.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Inject Dynadot credentials when the customer chose a pool domain so
-	// the provisioner can write DNS records. Credentials come from the
-	// process environment (mounted from the dynadot-api-credentials K8s
-	// secret in the openova-system namespace via ESO at deploy time).
+	// Inject Dynadot credentials when the customer chose a pool domain so the
+	// OpenTofu module can write DNS records via the dynadot variables.
+	// Credentials come from environment variables mounted from the
+	// dynadot-api-credentials K8s secret in the openova-system namespace.
 	if req.SovereignDomainMode == "pool" {
 		req.DynadotAPIKey = h.dynadotAPIKey
 		req.DynadotAPISecret = h.dynadotAPISecret
@@ -90,7 +90,7 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		Status:    "provisioning",
 		Request:   req,
 		StartedAt: time.Now(),
-		Events:    make(chan hetzner.Event, 256),
+		Events:    make(chan provisioner.Event, 256),
 	}
 	h.deployments.Store(id, dep)
 
@@ -154,7 +154,7 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) runProvisioning(dep *Deployment) {
 	defer close(dep.Events)
 
-	prov := hetzner.New()
+	prov := provisioner.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 

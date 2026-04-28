@@ -1,0 +1,114 @@
+#cloud-config
+# Catalyst Sovereign control-plane bootstrap.
+# Sovereign: ${sovereign_fqdn}
+# Provisioned by: catalyst-provisioner (https://console.openova.io/sovereign)
+#
+# This script:
+#   1. Installs k3s with --flannel-backend=none (Cilium replaces it)
+#   2. Installs Flux + bootstraps the GitRepository pointing at clusters/${sovereign_fqdn}/
+#      in the public OpenOva monorepo. From this point Flux is the GitOps
+#      reconciler and installs the 11-component bootstrap kit
+#      (Cilium → cert-manager → Crossplane → ... → bp-catalyst-platform) in
+#      dependency order via Kustomizations the cluster directory ships.
+#   3. Touches /var/lib/catalyst/cloud-init-complete so the catalyst-api
+#      provisioner can detect cloud-init has finished.
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - iptables
+  - jq
+  - ca-certificates
+  - git
+
+write_files:
+  - path: /var/lib/catalyst/sovereign.json
+    permissions: '0644'
+    content: |
+      {
+        "sovereignFQDN": "${sovereign_fqdn}",
+        "sovereignSubdomain": "${sovereign_subdomain}",
+        "orgName": ${jsonencode(org_name)},
+        "orgEmail": ${jsonencode(org_email)},
+        "region": "${region}",
+        "haEnabled": ${ha_enabled},
+        "workerCount": ${worker_count},
+        "gitopsRepoUrl": "${gitops_repo_url}",
+        "gitopsBranch": "${gitops_branch}"
+      }
+
+  # Flux GitRepository + Kustomization that take over after k3s is up.
+  # The clusters/${sovereign_fqdn}/ directory in the public OpenOva monorepo
+  # contains a Kustomization tree that installs the 11-component bootstrap
+  # kit + bp-catalyst-platform umbrella in dependency order.
+  - path: /var/lib/catalyst/flux-bootstrap.yaml
+    permissions: '0644'
+    content: |
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      metadata:
+        name: openova
+        namespace: flux-system
+      spec:
+        interval: 1m
+        url: ${gitops_repo_url}
+        ref:
+          branch: ${gitops_branch}
+        ignore: |
+          /*
+          !/clusters/${sovereign_fqdn}
+          !/platform
+          !/products
+      ---
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: catalyst-bootstrap
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/${sovereign_fqdn}
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        wait: true
+        timeout: 30m
+
+runcmd:
+  - swapoff -a
+  - sed -i '/swap/d' /etc/fstab
+  - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
+  - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+
+  # k3s control-plane. Flags per docs/SOVEREIGN-PROVISIONING.md §3:
+  #   --flannel-backend=none        Cilium replaces flannel
+  #   --disable=traefik             Cilium Gateway replaces traefik
+  #   --disable=servicelb           Hetzner LB handles ingress
+  #   --disable=local-storage       Crossplane-provisioned hcloud-csi instead
+  #   --disable-network-policy      Cilium handles NetworkPolicy
+  #   --tls-san=${sovereign_fqdn}   API server cert valid for the sovereign FQDN
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.31.4+k3s1 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+
+  # Wait for the API server to be reachable. Cilium needs to come up before
+  # nodes Ready, so we wait specifically for the API endpoint.
+  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
+
+  # Install Flux core. Flux is the FIRST and ONLY in-cluster orchestrator —
+  # everything else (Cilium, cert-manager, Crossplane, ...) gets installed by
+  # Flux reconciling clusters/${sovereign_fqdn}/. Per INVIOLABLE-PRINCIPLES.md
+  # principle #3: Flux is the GitOps engine, no exec helm/kubectl from outside.
+  - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
+
+  # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
+  # owns the cluster: pulls clusters/${sovereign_fqdn}/, installs Cilium
+  # via bp-cilium, cert-manager via bp-cert-manager, etc., then bp-catalyst-platform.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml'
+
+  # Marker for the catalyst-api provisioner to detect cloud-init is done.
+  - mkdir -p /var/lib/catalyst
+  - touch /var/lib/catalyst/cloud-init-complete
+
+final_message: "Catalyst control-plane bootstrap complete after $UPTIME seconds — Flux is now reconciling clusters/${sovereign_fqdn}/"

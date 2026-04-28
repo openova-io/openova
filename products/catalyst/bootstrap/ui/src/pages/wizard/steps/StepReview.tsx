@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Zap } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
-import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
+import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS, resolveSovereignDomain, SOVEREIGN_POOL_DOMAINS } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { API_BASE, path } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
@@ -121,25 +121,60 @@ export function StepReview() {
 
   async function provision() {
     setLoading(true)
+    // Resolve the wizard's pool/byo state into a single FQDN that the
+    // catalyst-api ProvisionRequest understands. Per provisioner.go.Validate,
+    // this must be a non-empty hostname or the request is rejected.
+    const sovereignFQDN = resolveSovereignDomain(store)
+    // Pick the region for the first region slot (solo topology = single region).
+    // For multi-region topologies this is the "primary" region; the
+    // provisioner extends to the rest after the control plane is up.
+    const firstRegion = store.regionCloudRegions[0] ?? 'fsn1'
+
     try {
       const res = await fetch(`${API_BASE}/v1/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgName:         store.orgName,
-          orgDomain:       store.orgDomain,
-          orgEmail:        store.orgEmail,
-          orgIndustry:     store.orgIndustry,
-          orgCompliance:   store.orgCompliance,
-          topology:        store.topology,
-          regionProviders: store.regionProviders,
-          components:      store.componentGroups,
+          // Identity
+          orgName:  store.orgName,
+          orgEmail: store.orgEmail,
+          // Sovereign domain — pool subdomain or BYO
+          sovereignFQDN,
+          sovereignDomainMode: store.sovereignDomainMode,
+          sovereignPoolDomain:
+            // Map the wizard's pool ID ('omani-works') to the actual domain
+            // ('omani.works') by looking it up in SOVEREIGN_POOL_DOMAINS.
+            // Provisioner needs the literal domain string for Dynadot calls.
+            SOVEREIGN_POOL_DOMAINS.find(p => p.id === store.sovereignPoolDomain)?.domain ?? '',
+          sovereignSubdomain: store.sovereignSubdomain,
+          // Hetzner credentials + region (runtime parameter)
+          hetznerToken:     store.hetznerToken,
+          hetznerProjectID: store.hetznerProjectId,
+          region:           firstRegion,
+          // Topology + sizing
+          controlPlaneSize: store.controlPlaneSize,
+          workerSize:       store.workerSize,
+          workerCount:      store.workerCount,
+          haEnabled:        store.haEnabled,
+          // SSH key — TODO: capture in StepCredentials. For now, the catalyst-api
+          // rejects the request if SSHPublicKey is empty (production safety),
+          // so wizard users must provide it via SSH-Key step in next iteration.
+          sshPublicKey: '',
         }),
       })
       const data = await res.json()
-      store.setDeploymentId(data.deploymentId ?? 'demo-deploy')
-    } catch {
-      store.setDeploymentId('demo-deploy')
+      if (!res.ok) {
+        // Surface the validation error from provisioner.Validate to the user
+        // rather than silently swallowing it.
+        alert(`Provisioning rejected: ${data.error || 'unknown error'}`)
+        setLoading(false)
+        return
+      }
+      store.setDeploymentId(data.id)
+    } catch (err) {
+      alert(`Failed to start provisioning: ${err}`)
+      setLoading(false)
+      return
     }
     window.location.href = path('provision.html')
   }
