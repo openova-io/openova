@@ -1,58 +1,108 @@
+// Package handler — HTTP handlers wired to the real Hetzner provisioner.
+//
+// Endpoints:
+//   POST /api/v1/deployments         — start a real Hetzner provisioning run
+//   GET  /api/v1/deployments/{id}/logs — SSE stream of provisioning events
+//   GET  /api/v1/deployments/{id}      — current deployment state (polled by wizard)
+//
+// Per docs/PROVISIONING-PLAN.md and the user's "no mocks" directive: this
+// handler delegates to internal/hetzner.Provisioner which makes real Hetzner
+// Cloud API calls. The token + project ID + region come from the wizard
+// payload (StepCredentials + StepInfrastructure / StepOrg).
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 )
 
-// Deployment holds state for a single provisioning job.
+// Deployment captures provisioning state for a single Sovereign run.
 type Deployment struct {
-	ID     string
-	Status string
-	logs   chan string
+	ID         string
+	Status     string // pending | provisioning | bootstrapping | ready | failed
+	Request    hetzner.ProvisionRequest
+	Result     *hetzner.Result
+	Error      string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Events     chan hetzner.Event
+	mu         sync.Mutex
 }
 
-type createRequest struct {
-	OrgName     string `json:"orgName"`
-	OrgDomain   string `json:"orgDomain"`
-	Provider    string `json:"provider"`
-	Region      string `json:"region"`
-	NodeSize    string `json:"nodeSize"`
-	WorkerCount int    `json:"workerCount"`
-}
-
-type createResponse struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+// State returns a JSON-safe snapshot of the deployment for the GET endpoint.
+func (d *Deployment) State() map[string]any {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := map[string]any{
+		"id":            d.ID,
+		"status":        d.Status,
+		"startedAt":     d.StartedAt.Format(time.RFC3339),
+		"finishedAt":    nil,
+		"sovereignFQDN": d.Request.SovereignFQDN,
+		"region":        d.Request.Region,
+	}
+	if !d.FinishedAt.IsZero() {
+		out["finishedAt"] = d.FinishedAt.Format(time.RFC3339)
+	}
+	if d.Error != "" {
+		out["error"] = d.Error
+	}
+	if d.Result != nil {
+		out["result"] = d.Result
+	}
+	return out
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
-	var req createRequest
+	var req hetzner.ProvisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Region == "" {
-		req.Region = "fsn"
+	if err := req.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 
 	id := newID()
 	dep := &Deployment{
-		ID:     id,
-		Status: "provisioning",
-		logs:   make(chan string, 512),
+		ID:        id,
+		Status:    "provisioning",
+		Request:   req,
+		StartedAt: time.Now(),
+		Events:    make(chan hetzner.Event, 256),
 	}
 	h.deployments.Store(id, dep)
 
-	go h.runProvisioning(dep, req)
+	go h.runProvisioning(dep)
 
-	writeJSON(w, http.StatusCreated, createResponse{ID: id, Status: "provisioning"})
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"id":        id,
+		"status":    dep.Status,
+		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", id),
+	})
+}
+
+// GetDeployment returns the current state of a deployment for polling.
+func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		http.Error(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	dep := val.(*Deployment)
+	writeJSON(w, http.StatusOK, dep.State())
 }
 
 func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
@@ -79,79 +129,60 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case msg, open := <-dep.logs:
+		case ev, open := <-dep.Events:
 			if !open {
-				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(dep.State()))
 				flusher.Flush()
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", msg)
+			fmt.Fprintf(w, "data: %s\n\n", mustJSON(ev))
 			flusher.Flush()
 		}
 	}
 }
 
-func (h *Handler) runProvisioning(dep *Deployment, req createRequest) {
-	defer close(dep.logs)
+func (h *Handler) runProvisioning(dep *Deployment) {
+	defer close(dep.Events)
 
-	send := func(msg string) {
-		event, _ := json.Marshal(map[string]string{
-			"time":  time.Now().Format("15:04:05"),
-			"level": "info",
-			"msg":   msg,
-		})
-		dep.logs <- string(event)
-		time.Sleep(700 * time.Millisecond)
+	prov := hetzner.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	result, err := prov.Provision(ctx, dep.Request, dep.Events)
+
+	dep.mu.Lock()
+	dep.FinishedAt = time.Now()
+	if err != nil {
+		dep.Status = "failed"
+		dep.Error = err.Error()
+		h.log.Error("provision failed", "id", dep.ID, "err", err)
+	} else {
+		dep.Status = "ready"
+		dep.Result = result
+		h.log.Info("provision complete",
+			"id", dep.ID,
+			"sovereignFQDN", result.SovereignFQDN,
+			"controlPlaneIP", result.ControlPlaneIP,
+			"loadBalancerIP", result.LoadBalancerIP,
+		)
 	}
-
-	// Phase 1 — Network
-	send("Initialising OpenTofu workspace...")
-	send("Provider: hcloud v1.47.0")
-	send("Planning infrastructure changes...")
-	send("Plan: 14 to add, 0 to change, 0 to destroy")
-	send("hcloud_network.rtz-prod: Creating...")
-	send("hcloud_network.rtz-prod: Creation complete [id=1234567]")
-	send("hcloud_network_subnet.workers: Creating...")
-	send("hcloud_network_subnet.workers: Creation complete")
-
-	// Phase 2 — Servers
-	send(fmt.Sprintf("hcloud_server.hz%sr-k8s-cp-1p: Creating...", req.Region))
-	time.Sleep(2 * time.Second)
-	send(fmt.Sprintf("hcloud_server.hz%sr-k8s-cp-1p: Creation complete [id=9876543]", req.Region))
-	send("Waiting for cloud-init to complete on cp node...")
-	time.Sleep(3 * time.Second)
-
-	// Phase 3 — K3s
-	send("K3s control-plane is ready")
-	send("Retrieving kubeconfig...")
-
-	// Phase 4 — CSI
-	send("hcloud_volume.data: Creating...")
-	send("hcloud_volume.data: Creation complete")
-	send("Installing hcloud-csi-driver v2.6.0...")
-	time.Sleep(2 * time.Second)
-	send("StorageClass hcloud-volumes created")
-
-	// Phase 5 — Flux
-	send("Bootstrapping Flux v2.4.0...")
-	time.Sleep(2 * time.Second)
-	send("GitRepository openova-platform reconciled")
-	send("Kustomization infrastructure: Applied")
-
-	// Phase 6 — Components
-	send("Deploying: cert-manager, external-secrets, kyverno, cilium...")
-	time.Sleep(4 * time.Second)
-	send("All mandatory components healthy")
-
-	// Phase 7 — Verify
-	send("Cluster health check: PASSED")
-	send(fmt.Sprintf("✓ Provisioning complete — hz-%s-rtz-prod is ready", req.Region))
-
-	dep.Status = "healthy"
+	dep.mu.Unlock()
 }
 
 func newID() string {
 	b := make([]byte, 8)
-	rand.Read(b) //nolint:errcheck
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		fallback, _ := json.Marshal(map[string]string{
+			"level": "error",
+			"msg":   "failed to encode event: " + err.Error(),
+		})
+		return string(fallback)
+	}
+	return string(b)
 }

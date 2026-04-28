@@ -34,6 +34,7 @@ func main() {
 	r.Get("/healthz", h.Health)
 	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
 	r.Post("/api/v1/deployments", h.CreateDeployment)
+	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
 
 	log.Info("catalyst api listening", "port", port)
