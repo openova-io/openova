@@ -1,0 +1,14 @@
+apiVersion: v2
+name: bp-flux
+version: 1.0.0
+appVersion: "2.4.0"
+description: |
+  Catalyst-curated wrapper of flux. GitOps engine. Per-host-cluster infrastructure §3.2. One Flux instance per vcluster (lightweight) plus a host-level Flux per host cluster.
+type: application
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+dependencies:
+  - name: flux
+    version: "2.4.0"
+    repository: "oci://ghcr.io/fluxcd-community/charts"

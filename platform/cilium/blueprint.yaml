@@ -1,0 +1,39 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cilium
+  labels:
+    catalyst.openova.io/category: per-host-cluster-infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  version: 1.0.0
+  card:
+    title: Cilium
+    summary: Unified CNI + Service Mesh (eBPF). mTLS via WireGuard, Hubble observability, Gateway API.
+    icon: cilium.svg
+    category: infrastructure
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      kubeProxyReplacement:
+        type: boolean
+        default: true
+      hubbleUI:
+        type: boolean
+        default: true
+      gatewayAPI:
+        type: boolean
+        default: true
+      l2announcements:
+        type: boolean
+        default: false
+        description: Enable for bare-metal Sovereigns. Cloud Sovereigns use Hetzner LB / AWS NLB.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # Cilium runs on every host cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # foundational — no dependencies
+  upgrades:
+    from: ["0.x"]

@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-openbao
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 1.0.0
+  card:
+    title: openbao
+    summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

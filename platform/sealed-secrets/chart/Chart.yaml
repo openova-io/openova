@@ -1,0 +1,14 @@
+apiVersion: v2
+name: bp-sealed-secrets
+version: 1.0.0
+appVersion: "2.16.1"
+description: |
+  Catalyst-curated wrapper of sealed-secrets. Transient bootstrap-only secrets controller. Replaced post-Phase-0 by OpenBao + ESO.
+type: application
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+dependencies:
+  - name: sealed-secrets
+    version: "2.16.1"
+    repository: https://bitnami-labs.github.io/sealed-secrets

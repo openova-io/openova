@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-spire
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 1.0.0
+  card:
+    title: spire
+    summary: SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Server on mgt cluster + agent per host cluster.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

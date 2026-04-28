@@ -1,0 +1,72 @@
+# Catalyst-curated Cilium values per platform/cilium/README.md.
+#
+# Defaults assume a Catalyst Sovereign on bare-metal/VM Kubernetes (k3s on
+# Hetzner is the canonical target). Cilium replaces both flannel and
+# kube-proxy; k3s must be started with --flannel-backend=none and
+# --disable-network-policy.
+
+cilium:
+  # kube-proxy replacement (faster + simpler than iptables)
+  kubeProxyReplacement: true
+  k8sServiceHost: 127.0.0.1
+  k8sServicePort: 6443
+
+  # eBPF-host-routing — bypasses iptables stack
+  bpf:
+    masquerade: true
+
+  # IPAM — k8s mode uses the k8s pod CIDR allocator (works with k3s defaults)
+  ipam:
+    mode: kubernetes
+
+  # WireGuard mTLS for transparent encryption between every pod (per
+  # platform/cilium/README.md "mTLS via WireGuard")
+  encryption:
+    enabled: true
+    type: wireguard
+
+  # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics)
+  hubble:
+    enabled: true
+    relay:
+      enabled: true
+    ui:
+      enabled: true
+    metrics:
+      enabled:
+        - dns:query;ignoreAAAA
+        - drop
+        - tcp
+        - flow
+        - icmp
+        - http
+
+  # Gateway API — replaces traditional ingress controllers
+  gatewayAPI:
+    enabled: true
+
+  # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
+  envoy:
+    enabled: true
+
+  # L2 LoadBalancer announcements (alternative to MetalLB for bare-metal)
+  l2announcements:
+    enabled: false  # Catalyst uses Hetzner LB on cloud Sovereigns; flip true for bare-metal
+
+  # Operator HA — single replica is fine for solo, bump to 2-3 for HA
+  operator:
+    replicas: 1
+
+  # Pod resource requests/limits — tuned for k3s on cx32 (8 vCPU / 16 GB)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  # ServiceMonitor for Prometheus scraping (Catalyst observability stack consumes)
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true

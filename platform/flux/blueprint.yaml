@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-flux
+  labels:
+    catalyst.openova.io/section: pts-3-2-gitops-and-iac
+spec:
+  version: 1.0.0
+  card:
+    title: flux
+    summary: GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

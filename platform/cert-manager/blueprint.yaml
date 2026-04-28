@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: cert-manager
+    summary: TLS certificate automation. Lets Encrypt issuer with Dynadot DNS-01 for omani.works pool, HTTP-01 for BYO domains.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

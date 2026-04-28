@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-sealed-secrets
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: sealed-secrets
+    summary: Sealed Secrets — used during Phase 0 bootstrap to transport bootstrap-only secrets, then archived after OpenBao + ESO replace it.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: bp-crossplane
+version: 1.0.0
+appVersion: "1.18.0"
+description: |
+  Catalyst-curated wrapper of crossplane. Day-2 cloud resource control plane. Per-host-cluster infrastructure §3.2. Manages all non-Kubernetes resources via Compositions. Never user-facing.
+type: application
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+dependencies:
+  - name: crossplane
+    version: "1.18.0"
+    repository: https://charts.crossplane.io/stable

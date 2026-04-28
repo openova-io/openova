@@ -1,0 +1,14 @@
+apiVersion: v2
+name: bp-keycloak
+version: 1.0.0
+appVersion: "25.0.6"
+description: |
+  Catalyst-curated wrapper of keycloak. User identity. Mandatory Catalyst control plane. Per-Org realm (SME) or shared-Sovereign realm (corporate) — driven by Sovereign CRD spec.keycloakTopology.
+type: application
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+dependencies:
+  - name: keycloak
+    version: "25.0.6"
+    repository: https://charts.bitnami.com/bitnami

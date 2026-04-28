@@ -1,0 +1,170 @@
+# Blueprint release — path-matrix CI fan-out per BLUEPRINT-AUTHORING.md §11.
+#
+# Pushes to `main` that touch any platform/<name>/chart/** or
+# products/<name>/chart/** directory trigger a build of that single Blueprint
+# folder; output is a signed OCI artifact at
+# ghcr.io/openova-io/bp-<name>:<semver> where <semver> comes from the
+# Chart.yaml `version` field.
+#
+# Tag-based releases (refs/tags/<name>/v<X.Y.Z>) trigger the same build with
+# version pinned to the tag, plus cosign signing + Syft SBOM generation.
+#
+# This workflow is the canonical CI for all 11 bootstrap-kit charts plus
+# every other Catalyst-curated wrapper chart. Application-Blueprint charts
+# (cnpg, valkey, etc.) follow the same shape once authored.
+
+name: Blueprint Release
+
+on:
+  push:
+    paths:
+      - 'platform/*/chart/**'
+      - 'products/*/chart/**'
+      - 'platform/*/blueprint.yaml'
+      - 'products/*/blueprint.yaml'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      blueprint:
+        description: 'Blueprint name (e.g. cilium, openbao). Empty = build all changed.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write              # for cosign keyless signing
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.changed.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed Blueprints
+        id: changed
+        run: |
+          set -e
+          if [ -n "${{ inputs.blueprint }}" ]; then
+            echo "matrix={\"include\":[{\"path\":\"platform/${{ inputs.blueprint }}\"}]}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Compare against previous commit; emit a matrix of changed paths.
+          changed=$(git diff --name-only HEAD~1 HEAD | grep -E '^(platform|products)/[^/]+/(chart/|blueprint\.yaml)' | awk -F/ '{print $1"/"$2}' | sort -u)
+          echo "Changed blueprints:"
+          echo "$changed"
+          if [ -z "$changed" ]; then
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+          else
+            include=$(echo "$changed" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({path: .})')
+            echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: detect
+    if: ${{ needs.detect.outputs.matrix != '{"include":[]}' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read chart metadata
+        id: chart
+        run: |
+          set -e
+          path="${{ matrix.path }}"
+          name=$(basename "$path")
+          chart_yaml="$path/chart/Chart.yaml"
+          if [ ! -f "$chart_yaml" ]; then
+            echo "No chart at $path/chart/ — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version=$(awk '/^version:/{print $2; exit}' "$chart_yaml" | tr -d '"')
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Helm dependency build
+        if: steps.chart.outputs.skip != 'true'
+        run: helm dependency build "${{ matrix.path }}/chart"
+
+      - name: Helm package
+        if: steps.chart.outputs.skip != 'true'
+        run: |
+          helm package "${{ matrix.path }}/chart" --destination /tmp/charts
+
+      - name: Helm push to GHCR
+        if: steps.chart.outputs.skip != 'true'
+        id: push
+        run: |
+          set -e
+          name="${{ steps.chart.outputs.name }}"
+          version="${{ steps.chart.outputs.version }}"
+          file="/tmp/charts/bp-${name}-${version}.tgz"
+          # Push under bp-<name> namespace, not under the wrapper "bp-<name>" prefix
+          # since the file already contains "bp-<name>-<version>.tgz" naming.
+          digest=$(helm push "$file" oci://ghcr.io/openova-io 2>&1 | tee /dev/stderr | awk '/Digest:/{print $2}')
+          echo "ref=ghcr.io/openova-io/bp-${name}:${version}" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Cosign keyless sign
+        if: steps.chart.outputs.skip != 'true'
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign --yes "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
+
+      - name: Generate SBOM via Syft
+        if: steps.chart.outputs.skip != 'true'
+        run: |
+          mkdir -p /tmp/sbom
+          syft "${{ steps.push.outputs.ref }}" -o spdx-json="/tmp/sbom/sbom.spdx.json"
+
+      - name: Attest SBOM via cosign
+        if: steps.chart.outputs.skip != 'true'
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign attest --yes --predicate /tmp/sbom/sbom.spdx.json --type spdxjson \
+            "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
+
+      - name: Summary
+        if: steps.chart.outputs.skip != 'true'
+        run: |
+          echo "✓ Blueprint published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Name:** ${{ steps.chart.outputs.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** ${{ steps.chart.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **OCI ref:** \`${{ steps.push.outputs.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Digest:** \`${{ steps.push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Cosigned:** ✓ (keyless via GitHub OIDC)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **SBOM attested:** ✓ (SPDX-JSON)" >> "$GITHUB_STEP_SUMMARY"

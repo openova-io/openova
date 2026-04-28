@@ -1,0 +1,15 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-nats-jetstream
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 1.0.0
+  card:
+    title: nats-jetstream
+    summary: Event spine for the Catalyst control plane. JetStream Streams + KV. Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends: []

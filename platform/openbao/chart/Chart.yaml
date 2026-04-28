@@ -1,0 +1,14 @@
+apiVersion: v2
+name: bp-openbao
+version: 1.0.0
+appVersion: "2.1.0"
+description: |
+  Catalyst-curated wrapper of openbao. Secret backend. Mandatory Catalyst control plane. 3-node Raft per region (no stretched cluster — see SECURITY §5).
+type: application
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+dependencies:
+  - name: openbao
+    version: "2.1.0"
+    repository: https://openbao.github.io/openbao-helm
