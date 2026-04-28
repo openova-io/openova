@@ -1,14 +1,14 @@
 apiVersion: v2
 name: bp-flux
 version: 1.0.0
-appVersion: "2.4.0"
 description: |
-  Catalyst-curated wrapper of flux. GitOps engine. Per-host-cluster infrastructure §3.2. One Flux instance per vcluster (lightweight) plus a host-level Flux per host cluster.
+  Catalyst-curated Blueprint wrapper for flux. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
+keywords: [catalyst, blueprint, flux]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: flux2
-    version: "2.13.0"
-    repository: https://fluxcd-community.github.io/helm-charts

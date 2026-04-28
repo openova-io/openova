@@ -78,15 +78,31 @@ func DefaultSteps() []Step {
 	}
 }
 
-// installCilium applies the Cilium Helm chart with Catalyst-curated values
-// from the public bp-cilium OCI artifact. Cilium replaces both flannel and
-// kube-proxy that k3s normally ships with — we passed --flannel-backend=none
-// at k3s install time precisely so Cilium can take over.
+// installCilium applies the Cilium Helm chart with Catalyst-curated values.
+//
+// IMPORTANT: per the Catalyst Blueprint wrapper convention (see
+// platform/<name>/chart/Chart.yaml + values.yaml), the bp-<name> OCI artifact
+// carries the values overlay + metadata only — it does NOT carry a copy of
+// the upstream chart. The bootstrap installer points helm install at the
+// upstream chart's repo and overlays our values.
+//
+// This split keeps blueprint-release CI lightweight (no pulling upstream
+// charts during package) and avoids the "bp-<name> diverges from upstream"
+// drift trap. The values overlay is the contract.
+//
+// Cilium replaces both flannel and kube-proxy that k3s normally ships with —
+// we passed --flannel-backend=none at k3s install time precisely so Cilium
+// can take over.
 func installCilium(ctx context.Context, kubeconfig string, emit EmitFunc) error {
 	emit("cilium", "info", "Adding Cilium Helm repo and installing chart with --kubeProxyReplacement=true")
+	if err := runHelm(ctx, kubeconfig, "repo", []string{"add", "cilium", "https://helm.cilium.io", "--force-update"}, ""); err != nil {
+		return err
+	}
+	if err := runHelm(ctx, kubeconfig, "repo", []string{"update", "cilium"}, ""); err != nil {
+		return err
+	}
 	return runHelm(ctx, kubeconfig, "install", []string{
-		"cilium",
-		"oci://ghcr.io/openova-io/bp-cilium",
+		"cilium", "cilium/cilium",
 		"--version", "1.16.5",
 		"--namespace", "kube-system",
 		"--values", "-",

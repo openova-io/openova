@@ -1,14 +1,14 @@
 apiVersion: v2
 name: bp-nats-jetstream
 version: 1.0.0
-appVersion: "2.10.22"
 description: |
-  Catalyst-curated wrapper of nats-jetstream. NATS JetStream cluster — control-plane event spine. 3 nodes, per-Org Account isolation, KV bucket per Environment.
+  Catalyst-curated Blueprint wrapper for nats-jetstream. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
+keywords: [catalyst, blueprint, nats-jetstream]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: nats
-    version: "2.10.22"
-    repository: https://nats-io.github.io/k8s/helm/charts

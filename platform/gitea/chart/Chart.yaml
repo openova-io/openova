@@ -1,14 +1,14 @@
 apiVersion: v2
 name: bp-gitea
 version: 1.0.0
-appVersion: "10.5.0"
 description: |
-  Catalyst-curated wrapper of gitea. Per-Sovereign Git server. Mandatory Catalyst control plane. Hosts 5 conventional Gitea Orgs: catalog, catalog-sovereign, <org> per Catalyst Organization, system.
+  Catalyst-curated Blueprint wrapper for gitea. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
+keywords: [catalyst, blueprint, gitea]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: gitea
-    version: "10.5.0"
-    repository: https://dl.gitea.com/charts

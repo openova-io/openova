@@ -1,19 +1,14 @@
 apiVersion: v2
 name: bp-cilium
 version: 1.0.0
-appVersion: "1.16.5"
 description: |
-  Catalyst-curated wrapper of Cilium CNI + Service Mesh (eBPF). Per-host-cluster
-  infrastructure per docs/PLATFORM-TECH-STACK.md §3.1. First component installed
-  on every host cluster; CNI must come up before any other workload.
+  Catalyst-curated Blueprint wrapper for cilium. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
-keywords: [cni, ebpf, service-mesh, mtls, gateway-api]
-home: https://cilium.io
-icon: https://raw.githubusercontent.com/cilium/cilium/main/Documentation/images/logo.svg
+keywords: [catalyst, blueprint, cilium]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: cilium
-    version: "1.16.5"
-    repository: https://helm.cilium.io

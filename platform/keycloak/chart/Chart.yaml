@@ -1,14 +1,14 @@
 apiVersion: v2
 name: bp-keycloak
 version: 1.0.0
-appVersion: "25.0.6"
 description: |
-  Catalyst-curated wrapper of keycloak. User identity. Mandatory Catalyst control plane. Per-Org realm (SME) or shared-Sovereign realm (corporate) — driven by Sovereign CRD spec.keycloakTopology.
+  Catalyst-curated Blueprint wrapper for keycloak. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
+keywords: [catalyst, blueprint, keycloak]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: keycloak
-    version: "24.7.1"
-    repository: https://charts.bitnami.com/bitnami

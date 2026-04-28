@@ -1,14 +1,14 @@
 apiVersion: v2
 name: bp-crossplane
 version: 1.0.0
-appVersion: "1.18.0"
 description: |
-  Catalyst-curated wrapper of crossplane. Day-2 cloud resource control plane. Per-host-cluster infrastructure §3.2. Manages all non-Kubernetes resources via Compositions. Never user-facing.
+  Catalyst-curated Blueprint wrapper for crossplane. Carries Catalyst-specific values.yaml
+  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
+  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
+  reads the upstream chart reference from values.yaml's metadata block and
+  applies the values overlay at helm install time.
 type: application
+keywords: [catalyst, blueprint, crossplane]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-dependencies:
-  - name: crossplane
-    version: "1.18.0"
-    repository: https://charts.crossplane.io/stable
