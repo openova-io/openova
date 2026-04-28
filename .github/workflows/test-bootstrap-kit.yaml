@@ -1,0 +1,84 @@
+name: Test — Bootstrap Kit (kind cluster + Flux)
+
+# Closes #145 — integration test that the 11-component bootstrap kit's
+# Flux Kustomizations are well-formed and accepted by a real K8s API
+# server. Spins up a kind cluster, installs Flux, and asserts that all
+# 11 Kustomizations get registered. Does NOT wait for full reconciliation
+# (chart pulls + cloud creds belong to #141 Hetzner E2E).
+
+on:
+  push:
+    paths:
+      - 'tests/e2e/bootstrap-kit/**'
+      - 'platform/**/blueprint.yaml'
+      - 'platform/**/chart/**'
+      - 'clusters/**'
+      - '.github/workflows/test-bootstrap-kit.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'tests/e2e/bootstrap-kit/**'
+      - 'platform/**/blueprint.yaml'
+      - 'platform/**/chart/**'
+      - 'clusters/**'
+      - '.github/workflows/test-bootstrap-kit.yaml'
+  workflow_dispatch:
+
+jobs:
+  manifest-validation:
+    # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template
+    # parsing + dependency order check. Runs on every push.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/e2e/bootstrap-kit
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: tests/e2e/bootstrap-kit/go.sum
+
+      - name: Run static validation
+        run: go test -v -count=1
+
+  kind-reconciliation:
+    # Kind-cluster reconciliation: brings up kubernetes-in-docker, installs
+    # Flux, and verifies the API server accepts our 11 bootstrap-kit
+    # Kustomizations. Runs only on main to keep PRs fast — the ticket calls
+    # for "all 11 phases install in sequence on a kind cluster (CI)" so this
+    # is the long-form gate.
+    runs-on: ubuntu-latest
+    needs: manifest-validation
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    defaults:
+      run:
+        working-directory: tests/e2e/bootstrap-kit
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: tests/e2e/bootstrap-kit/go.sum
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: bootstrap-kit-test
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Install Flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Run kind-reconciliation test
+        env:
+          BOOTSTRAP_KIT_KIND_TEST: '1'
+          BOOTSTRAP_KIT_GIT_URL: https://github.com/${{ github.repository }}
+        run: go test -v -count=1 -run TestBootstrapKit_KindReconciliation -timeout 10m
