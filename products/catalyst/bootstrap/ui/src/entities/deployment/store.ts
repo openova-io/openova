@@ -25,6 +25,12 @@ interface WizardActions {
   setOrgHeadquarters: (hq: string) => void
   setOrgCompliance: (tags: string[]) => void
 
+  // Step 1 — Sovereign domain (pool or BYO)
+  setSovereignDomainMode: (mode: import('./model').DomainMode) => void
+  setSovereignPoolDomain: (id: string) => void
+  setSovereignSubdomain: (subdomain: string) => void
+  setSovereignByoDomain: (domain: string) => void
+
   // Step 2 — Topology (resets per-region providers when topology changes)
   setTopology: (topology: TopologyTemplate) => void
 
@@ -40,6 +46,7 @@ interface WizardActions {
   // Compat setters
   setProvider: (provider: CloudProvider) => void
   setHetznerToken: (token: string) => void
+  setHetznerProjectId: (projectId: string) => void
   setCredentialValidated: (validated: boolean) => void
 
   // AIR-GAP add-on
@@ -91,6 +98,19 @@ export const useWizardStore = create<WizardStore>()(
         setOrgHeadquarters: (orgHeadquarters) => set({ orgHeadquarters }, false, 'wizard/setOrgHeadquarters'),
         setOrgCompliance: (orgCompliance) => set({ orgCompliance }, false, 'wizard/setOrgCompliance'),
 
+        // Sovereign-domain setters
+        setSovereignDomainMode: (sovereignDomainMode) =>
+          set({ sovereignDomainMode }, false, 'wizard/setSovereignDomainMode'),
+        setSovereignPoolDomain: (sovereignPoolDomain) =>
+          set({ sovereignPoolDomain }, false, 'wizard/setSovereignPoolDomain'),
+        setSovereignSubdomain: (sovereignSubdomain) =>
+          // normalize: lowercase, strip whitespace; keep validation in the form layer
+          set({ sovereignSubdomain: sovereignSubdomain.toLowerCase().replace(/\s+/g, '') },
+              false, 'wizard/setSovereignSubdomain'),
+        setSovereignByoDomain: (sovereignByoDomain) =>
+          set({ sovereignByoDomain: sovereignByoDomain.toLowerCase().trim() },
+              false, 'wizard/setSovereignByoDomain'),
+
         // Reset regionProviders and regionCloudRegions when topology changes
         setTopology: (topology) =>
           set({ topology, regionProviders: {}, regionCloudRegions: {}, providerValidated: {}, providerTokens: {} }, false, 'wizard/setTopology'),
@@ -129,6 +149,8 @@ export const useWizardStore = create<WizardStore>()(
         setProvider: (provider) =>
           set({ provider, credentialValidated: false, hetznerToken: '' }, false, 'wizard/setProvider'),
         setHetznerToken: (hetznerToken) => set({ hetznerToken }, false, 'wizard/setHetznerToken'),
+        setHetznerProjectId: (hetznerProjectId) =>
+          set({ hetznerProjectId: hetznerProjectId.trim() }, false, 'wizard/setHetznerProjectId'),
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
 

@@ -13,9 +13,27 @@ export interface SelectedComponent {
   id: string; name: string; version: string; category: string; required: boolean; dependencies: string[]
 }
 
+export type DomainMode = 'pool' | 'byo'
+
+export interface SovereignPoolDomain {
+  /** Pool domain owned by OpenOva (or by a franchised Sovereign owner). Sovereign tenants pick a subdomain under it. */
+  id: string
+  domain: string
+  description: string
+}
+
 export interface WizardState {
   orgName: string; orgDomain: string; orgEmail: string; orgIndustry: string
   orgSize: string; orgHeadquarters: string; orgCompliance: string[]
+  /** 'pool' = use a shared OpenOva-provided domain like omani.works with a sovereign-chosen subdomain.
+   *  'byo'  = customer brings their own domain. */
+  sovereignDomainMode: DomainMode
+  /** When sovereignDomainMode='pool', which pool domain to use (id, e.g. 'omani-works'). */
+  sovereignPoolDomain: string
+  /** When sovereignDomainMode='pool', the subdomain the customer types (e.g. 'omantel' → omantel.omani.works). */
+  sovereignSubdomain: string
+  /** When sovereignDomainMode='byo', the full domain the customer brings (e.g. 'sovereign.acme-bank.com'). */
+  sovereignByoDomain: string
   topology: TopologyTemplate | null
   regionProviders: Record<number, CloudProvider>
   regionCloudRegions: Record<number, string>
@@ -23,6 +41,8 @@ export interface WizardState {
   providerValidated: Partial<Record<CloudProvider, boolean>>
   provider: CloudProvider | null
   hetznerToken: string
+  /** Hetzner project ID — captured at the credentials step alongside the API token. */
+  hetznerProjectId: string
   credentialValidated: boolean
   componentGroups: Record<string, string[]>
   componentsAppliedForProfile: string | null
@@ -38,6 +58,29 @@ export const ORG_DEFAULTS = {
   industry: 'Financial Services', size: '2,000–10,000', headquarters: 'Frankfurt, Germany',
   compliance: ['PCI DSS', 'ISO 27001'],
 }
+
+/**
+ * Pool domains a Sovereign tenant can pick when sovereignDomainMode='pool'.
+ *
+ * The first entry, omani.works, is OpenOva's primary pool domain — registered in the
+ * Dynadot account managed by the dynadot-api-credentials K8s secret in openova-system
+ * (which is account-scoped, so the same API key covers all OpenOva-owned domains).
+ *
+ * When a tenant picks a pool domain, the provisioner backend writes a CNAME or A record
+ * for `<sovereignSubdomain>.<pool-domain>` pointing at the new Sovereign's load balancer
+ * IP, and cert-manager handles TLS via Let's Encrypt DNS-01 against the same Dynadot
+ * account.
+ *
+ * Future entries to this list represent franchise-acquired or partner-provided pool
+ * domains that the Catalyst-Zero administrators expose to wizard users.
+ */
+export const SOVEREIGN_POOL_DOMAINS: SovereignPoolDomain[] = [
+  {
+    id: 'omani-works',
+    domain: 'omani.works',
+    description: 'OpenOva-provided pool — first franchised Sovereigns and SME marketplace tenants. DNS managed via Dynadot.',
+  },
+]
 
 export const PROVIDER_REGIONS: Record<CloudProvider, { id: string; label: string; location: string }[]> = {
   hetzner: [
@@ -153,14 +196,50 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   orgName: ORG_DEFAULTS.name, orgDomain: ORG_DEFAULTS.domain, orgEmail: ORG_DEFAULTS.email,
   orgIndustry: ORG_DEFAULTS.industry, orgSize: ORG_DEFAULTS.size,
   orgHeadquarters: ORG_DEFAULTS.headquarters, orgCompliance: [],
+  // Sovereign domain — defaults to the OpenOva-provided pool. Customer can switch to BYO
+  // in StepOrg. The first pool entry (omani.works) is what every wizard run defaults to.
+  sovereignDomainMode: 'pool',
+  sovereignPoolDomain: SOVEREIGN_POOL_DOMAINS[0]!.id,
+  sovereignSubdomain: '',
+  sovereignByoDomain: '',
   topology: 'zoned',
   regionProviders: {}, regionCloudRegions: {},
   providerTokens: {}, providerValidated: {},
-  provider: null, hetznerToken: '', credentialValidated: false,
+  provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
   componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
   componentsAppliedForProfile: null,
   regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
   haEnabled: false, selectedComponents: [],
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
+}
+
+/**
+ * Resolve the customer's chosen Sovereign domain into a single fully-qualified hostname.
+ * Returns the empty string if the chosen mode hasn't been filled in yet — callers should
+ * treat that as "not yet ready, disable Next button".
+ */
+export function resolveSovereignDomain(state: Pick<WizardState, 'sovereignDomainMode' | 'sovereignPoolDomain' | 'sovereignSubdomain' | 'sovereignByoDomain'>): string {
+  if (state.sovereignDomainMode === 'pool') {
+    const pool = SOVEREIGN_POOL_DOMAINS.find(p => p.id === state.sovereignPoolDomain)
+    if (!pool || !state.sovereignSubdomain) return ''
+    return `${state.sovereignSubdomain}.${pool.domain}`
+  }
+  return state.sovereignByoDomain.trim()
+}
+
+/** Validate that the chosen subdomain is a syntactically valid DNS label per RFC 1035. */
+export function isValidSubdomain(subdomain: string): boolean {
+  if (!subdomain) return false
+  if (subdomain.length > 63) return false
+  // RFC 1035: starts with letter, ends alphanumeric, only [a-z0-9-]
+  return /^[a-z]([a-z0-9-]*[a-z0-9])?$/.test(subdomain)
+}
+
+/** Validate a BYO domain (e.g. sovereign.acme-bank.com). */
+export function isValidDomain(domain: string): boolean {
+  const d = domain.trim()
+  if (!d || d.length > 253) return false
+  // Each label same rule as subdomain; at least 2 labels for a public domain
+  return d.split('.').every(isValidSubdomain) && d.split('.').length >= 2
 }

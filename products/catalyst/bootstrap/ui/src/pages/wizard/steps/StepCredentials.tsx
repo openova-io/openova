@@ -191,6 +191,31 @@ function TokenSection({
           </div>
         )}
 
+        {/* Hetzner project ID — required for resource attribution. The Hetzner Cloud API token
+            is project-scoped, but we still ask for the project ID explicitly so the wizard can
+            display it back during the Review step and so the provisioner can write it into
+            tofu.auto.tfvars.json before terraform apply runs. */}
+        {provider === 'hetzner' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 6, paddingTop: 10, borderTop: '1px dashed var(--wiz-border-sub)' }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+              Hetzner Project ID <span style={{ color: 'var(--wiz-text-hint)', marginLeft: 6 }}>required · used for resource attribution + audit log</span>
+            </span>
+            <input
+              type="text"
+              value={store.hetznerProjectId}
+              onChange={e => store.setHetznerProjectId(e.target.value)}
+              placeholder="e.g. proj_abc123 (find it in Hetzner Cloud Console → Project settings)"
+              style={{
+                height: 36, borderRadius: 7,
+                border: '1.5px solid var(--wiz-border)',
+                background: 'var(--wiz-bg-input)', color: 'var(--wiz-text-hi)',
+                fontSize: 12, padding: '0 10px', outline: 'none',
+                fontFamily: 'JetBrains Mono, monospace',
+              }}
+            />
+          </div>
+        )}
+
         {/* Demo bypass */}
         {state !== 'valid' && (
           <button
