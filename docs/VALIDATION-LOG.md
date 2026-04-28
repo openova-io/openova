@@ -63,6 +63,83 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 89 — SOVEREIGN-PROVISIONING fifth-cycle stable; cnpg fifth-cycle clean (cycle 7 Pass 2)
+
+**THIRTY-SEVENTH clean pass overall**. **TWENTY-SEVEN CONSECUTIVE clean architectural passes** (Pass 63 → 89) spanning cycles 2 → 7. Cycle 7 has 2 consecutive cleans (88 → 89).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SOVEREIGN-PROVISIONING.md** fifth-cycle deep-read:
+- §1 Inputs (L10-)
+- §2 Provisioning runs from `catalyst-provisioner` (L27-) — provisioner endpoint canonical
+- §3 Phase 0 — Bootstrap (L40-83):
+  - L65-67 DNS records (Pass 29 anchor preserved):
+    - `gitea.<location-code>.<sovereign-domain>      A` ✓
+    - `console.<location-code>.<sovereign-domain>    A` ✓
+    - `admin.<location-code>.<sovereign-domain>      A` ✓
+    - All 3 follow canonical control-plane DNS pattern from NAMING §11.2 ✓
+- §4 Phase 1 — Hand-off (L85-103):
+  - **Self-sufficiency 8-bullet list** (Pass 41 anchor preserved):
+    1. Crossplane (L96)
+    2. OpenBao (L97)
+    3. JetStream (L98)
+    4. Keycloak (L99)
+    5. **SPIFFE/SPIRE** (L100) — Pass 41 fix preserved ✓
+    6. Gitea (L101)
+    7. **Observability stack (Grafana + Alloy + Loki + Mimir + Tempo)** (L102) — Pass 41 fix preserved ✓
+    8. Catalyst control plane (9 services: console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing) (L103)
+  - L94 cross-ref to PTS §2.3 ✓
+- §5 Phase 2 — Day-1 setup (L107-):
+  - L109: "first `sovereign-admin` logs into `console.<location-code>.<sovereign-domain>`" — canonical control-plane DNS ✓
+- §6 Phase 3 — Steady-state operation (L133-)
+- §7 Multi-region topology — §7.1 Single-region SME + §7.2 Multi-region corporate
+- §8 Adding a region post-provisioning
+- §9 Air-gap deployment
+- §10 Migration and decommission
+
+**Phase alignment cross-check** (SOVEREIGN-PROVISIONING ↔ ARCHITECTURE):
+- SOVEREIGN-PROVISIONING §3 Phase 0 Bootstrap ↔ ARCHITECTURE §10 Phase 0 Bootstrap ✓
+- SOVEREIGN-PROVISIONING §4 Phase 1 Hand-off ↔ ARCHITECTURE §10 Phase 1 Hand-off ✓
+- SOVEREIGN-PROVISIONING §5 Phase 2 Day-1 setup ↔ ARCHITECTURE §10 Phase 2 Day-1 setup ✓
+- SOVEREIGN-PROVISIONING §6 Phase 3 Steady-state ↔ ARCHITECTURE §10 Phase 3 Steady-state ✓
+4 phases aligned.
+
+SOVEREIGN-PROVISIONING.md stable across **5 review cycles** (Pass 14, 29, 41, 65, 78, 89 — fix-trajectory: Pass 29 DNS canonical, Pass 41 self-sufficiency SPIRE + observability).
+
+**Defense-in-depth verification: Sovereign self-sufficiency** (across 4+ representational levels):
+1. ARCHITECTURE §3 L97: "once a Sovereign is provisioned, it has its own Gitea, its own JetStream, its own OpenBao, its own Keycloak, its own Crossplane. It does not depend on any other Sovereign at runtime." ✓
+2. ARCHITECTURE §10 Phase 1: "Bootstrap kit is no longer in the runtime path." ✓
+3. SOVEREIGN-PROVISIONING §4 L94-103: 8-bullet self-sufficiency list ✓
+4. PTS §2.3 supporting services list ✓
+5. GLOSSARY L17 Sovereign definition: "Self-contained; never depends at runtime on any other Sovereign." ✓
+6. README L34 (Catalyst-as-platform): banner reinforces same separation ✓
+
+**platform/cnpg/README.md** fifth-cycle deep-read:
+- L1 title "CNPG (CloudNative PostgreSQL)"
+- L3 banner: "Production-grade PostgreSQL operator. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.1 — Data services). Used by Organizations that want managed Postgres; also the underlying engine for FerretDB (MongoDB-compatible) and Gitea metadata. Replication via WAL streaming to async standby (Application-tier choice)." ✓ — Pass 31 anchor; Application Blueprint, §4.1 Data services, multiple consumers (FerretDB, Gitea) named
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L11-15 features: K8s-native operator, WAL streaming DR, MinIO/S3 backups, HA with auto-failover
+- L21-38 Single Region mermaid: Primary + 2 replicas → MinIO WAL archive
+- L42-59 Multi-Region DR mermaid: Region 1 Primary → Region 2 Standby via WAL streaming + MinIO archive/restore
+- L72 namespace: `databases` — consistent with PTS §4.1 namespace convention for data-services Application Blueprints
+- L74 instances: 3 (HA cluster default)
+- L181-201 PgBouncer integration: pooler with transaction-mode pool, max_client_conn 1000
+
+cnpg fifth-cycle confirms Pass 31 banner (Application Blueprint, §4.1 Data services) + WAL streaming DR + FerretDB/Gitea-as-consumers + databases namespace intact across 5 cycles.
+
+**Bidirectional cross-reference verification** (cnpg ↔ PTS §4.1):
+- PTS §4.1 row: `**[cnpg](../platform/cnpg/)** | PostgreSQL operator | WAL streaming (async primary-replica)` ✓
+- cnpg/README L3: "Application Blueprint (see PTS §4.1 — Data services)...Replication via WAL streaming" ✓
+- Both consistent.
+
+**Pass 89: clean.** Twenty-seven consecutive architectural-clean passes (63-89). Cycle 7 has 2 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-6: 30 consecutive clean (6 nirvana achieved)
+- Cycle 7 (Pass 88-89): 2 consecutive clean ✓ (so far)
+
+Total: 37 clean passes overall, 27 consecutive (Pass 63-89). Loop continues per user's standing instruction.
+
 ### Pass 88 — TECHNOLOGY-FORECAST fifth-cycle stable; kserve fourth-cycle clean (cycle 7 Pass 1 — RESTART FROM TOP)
 
 **THIRTY-SIXTH clean pass overall**. **TWENTY-SIX CONSECUTIVE clean architectural passes** (Pass 63 → 88) spanning cycles 2 → 7. Cycle 7 begins after sixth nirvana threshold (Pass 87) per user's standing instruction "restart from the top."
