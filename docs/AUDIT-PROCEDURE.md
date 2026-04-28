@@ -74,10 +74,10 @@ grep -lE 'develop`/`staging`/`main|develop/staging/main|branches.*map.*env' \
 grep -lE 'catalog-sovereign|`system` Gitea Org|five conventional Gitea Orgs|5 conventional Gitea Orgs' \
   docs/GLOSSARY.md docs/ARCHITECTURE.md docs/PLATFORM-TECH-STACK.md docs/BLUEPRINT-AUTHORING.md
 
-# 9. Component count = 53 across all anchors (must produce no "52 components" except VALIDATION-LOG)
-grep -rnE '\b52 components\b|\b52 curated\b|\b52-component\b|\ball 52\b|\b52 platform\b|\b52 folders\b' \
+# 9. Component count = 56 across all anchors (must produce no "53 components" except VALIDATION-LOG)
+grep -rnE '\b53 components\b|\b53 curated\b|\b53-component\b|\ball 53\b|\b53 platform\b|\b53 folders\b' \
   docs/*.md README.md CLAUDE.md | grep -v VALIDATION-LOG
-ls -d platform/*/ | wc -l    # must equal 53
+ls -d platform/*/ | wc -l    # must equal 56
 
 # 10. SeaweedFS encapsulation (no MinIO except intentional TF L37 explanation)
 grep -rinE '\bminio\b' docs/*.md README.md CLAUDE.md core/README.md products/*/README.md platform/*/README.md \
@@ -103,7 +103,7 @@ grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
 
 ## Deep-read rotation
 
-After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 53 platform components + 7 products (catalyst, cortex, axon, fingate, fabric, relay, specter) over time. The next-most-stale entry should be the target.
+After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + 7 products (catalyst, cortex, axon, fingate, fabric, relay, specter) over time. The next-most-stale entry should be the target.
 
 The deep-read confirms the doc's known anchors are present and consistent with the rest of the canon. For each:
 

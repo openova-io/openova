@@ -14,8 +14,8 @@ Catalyst's components fall into three categories:
 | Category | Where it runs | Examples |
 |---|---|---|
 | **Catalyst control plane** | The Sovereign's `mgt` cluster | console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream (control-plane account), openbao, keycloak, spire-server, observability (Grafana stack) |
-| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu (bootstrap-only), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor, failover-controller |
-| **Application Blueprints** | Inside per-Org vclusters | cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
+| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu (bootstrap-only), sealed-secrets (bootstrap-only — transient until ESO+OpenBao take over), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor, failover-controller |
+| **Application Blueprints** | Inside per-Org vclusters | cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, guacamole, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
 
 The **same upstream technology** can serve in multiple categories. For example: Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint when a User wants Redis-compatible caching for their app. Similarly, Strimzi/Kafka is an Application Blueprint; the Catalyst control plane uses NATS JetStream for events, not Kafka.
 
@@ -54,8 +54,8 @@ These run **once per Sovereign** (on the mgt cluster, with sibling replicas in w
 |---|---|
 | **[keycloak](../platform/keycloak/)** | User identity. Per-Org realm in SME-style Sovereigns; per-Sovereign realm in corporate-style. |
 | **[openbao](../platform/openbao/)** | Secret backend. Primary on mgt; sibling Raft cluster per workload region with async perf replication. **No stretched clusters.** See [`SECURITY.md`](SECURITY.md) §5. |
-| **spire-server** | SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Root server on mgt; per-host-cluster agent + cluster-local SPIRE-server replica. |
-| **nats-jetstream** | Event spine (pub/sub + Streams + KV). Per-Organization Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
+| **[spire](../platform/spire/)** (server + agent) | SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Root server on mgt; per-host-cluster agent + cluster-local SPIRE-server replica. |
+| **[nats-jetstream](../platform/nats-jetstream/)** | Event spine (pub/sub + Streams + KV). Per-Organization Accounts. Replaces Redpanda + Valkey for the **control plane** only. Apache 2.0. |
 | **[gitea](../platform/gitea/)** | Per-Sovereign Git server. Hosts five conventional Gitea Orgs: `catalog` (public Blueprint mirror), `catalog-sovereign` (Sovereign-curated private Blueprints), one per Catalyst Organization (each with `shared-blueprints` + one repo per Application), and `system` (sovereign-admin scope). See [`GLOSSARY.md`](GLOSSARY.md) §"Gitea Orgs". |
 | **observability** (Grafana stack) | Catalyst's own self-monitoring: Alloy collector, Loki (logs), Mimir (metrics), Tempo (traces), Grafana visualization. Customer Application telemetry also flows here unless an Org installs its own observability stack. |
 
@@ -81,6 +81,7 @@ These are deployed on **every** host cluster a Sovereign owns — not just the m
 | **[flux](../platform/flux/)** | GitOps reconciler. **One Flux instance per vcluster** (lightweight: source + kustomize + helm controllers). Plus a host-level Flux on each host cluster for Catalyst itself. |
 | **[crossplane](../platform/crossplane/)** | The only IaC. Manages all non-Kubernetes resources via Compositions. **Never user-facing.** Installed on the mgt cluster (manages cloud resources for the whole Sovereign). |
 | **[opentofu](../platform/opentofu/)** | Bootstrap IaC only. Used in Phase 0 of Sovereign provisioning by `catalyst-provisioner`, then archived. Not deployed on host clusters. |
+| **[sealed-secrets](../platform/sealed-secrets/)** | Bootstrap-only secret distribution. Used during Phase 0 to seal the initial OpenBao unseal keys before ESO + OpenBao are up. Decommissioned after Phase 1 hand-off; ESO+OpenBao is the day-2 secret pipeline. |
 
 ### 3.3 Security and policy
 

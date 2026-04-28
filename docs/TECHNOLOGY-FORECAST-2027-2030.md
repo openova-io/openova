@@ -8,7 +8,7 @@ Component technology assessment and strategic forecast for the OpenOva platform.
 
 ## Overview
 
-This document provides a forward-looking assessment of all 53 platform components, evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation.
+This document provides a forward-looking assessment of all 56 platform components, evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation.
 
 ---
 
@@ -23,9 +23,9 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 
 ---
 
-## Mandatory Components (26)
+## Mandatory Components (29)
 
-> **Classification basis:** "Mandatory" = installed on every Sovereign — comprises the Catalyst control plane (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2) plus per-host-cluster infrastructure (§3). "A La Carte" below = Application Blueprints (§4) that customers opt into per Environment.
+> **Classification basis:** "Mandatory" = installed on every Sovereign — comprises the Catalyst control plane (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2) plus per-host-cluster infrastructure (§3) plus the transient Phase-0 bootstrap component (sealed-secrets, used by the bootstrap kit until External Secrets Operator + OpenBao take over). "A La Carte" below = Application Blueprints (§4) that customers opt into per Environment.
 
 | Component | 2026 | 2027 | 2030 | Trend | Notes |
 |-----------|------|------|------|-------|-------|
@@ -54,6 +54,9 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 | reloader | 80 | 80 | 78 | Stable | Simple operator, high value |
 | failover-controller | 82 | 82 | 80 | Stable | Multi-region failover always needed |
 | keycloak | 85 | 85 | 85 | Stable | Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate |
+| spire | 88 | 90 | 92 | Rising | SPIFFE/SPIRE workload identity — 5-min rotating SVIDs, root server on mgt + per-host-cluster agent. Zero-trust mTLS substrate beneath Cilium. |
+| nats-jetstream | 90 | 92 | 92 | Rising | Catalyst control-plane event spine (pub/sub + Streams + KV). Apache 2.0. Replaces Redpanda + Valkey for the control plane only; per-Organization Accounts. |
+| sealed-secrets | 75 | 70 | 60 | Declining | Transient Phase-0 bootstrap-only — used to seal the initial OpenBao unseal keys before ESO + OpenBao take over day-2 secret distribution. Decommissioned after Phase 1. |
 
 ### Note on OpenTelemetry
 
