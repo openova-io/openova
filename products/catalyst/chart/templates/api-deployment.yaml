@@ -39,6 +39,31 @@ spec:
                 secretKeyRef:
                   name: dynadot-api-credentials
                   key: api-secret
+            # DYNADOT_MANAGED_DOMAINS — comma-separated list of pool domains
+            # the same Dynadot account manages. Per docs/INVIOLABLE-PRINCIPLES.md
+            # #4, this is runtime configuration so adding a third pool domain
+            # (e.g. acme.io) does NOT require a code change — only a secret
+            # update. The Dynadot API is account-scoped (one api-key/api-secret
+            # pair covers every domain owned by the account); this list scopes
+            # which domains the catalyst-api is *allowed* to write records for,
+            # defending against misconfiguration that would let a wizard-
+            # supplied poolDomain trigger writes against an unrelated domain.
+            - name: DYNADOT_MANAGED_DOMAINS
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: domains
+                  # optional=true so deployments using the legacy single-value
+                  # `domain` key (pre-#108) keep working until the secret is
+                  # migrated; the dynadot package falls through to DYNADOT_DOMAIN
+                  # then to its built-in defaults if neither key is present.
+                  optional: true
+            - name: DYNADOT_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: dynadot-api-credentials
+                  key: domain
+                  optional: true
           resources:
             requests:
               cpu: 10m

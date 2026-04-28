@@ -431,7 +431,16 @@ func TestAddSovereignRecords_FailsFastOnFirstError(t *testing.T) {
 // TestIsManagedDomain_PoolList — the helper that gates whether we attempt
 // Dynadot writes at all. Misclassifying a BYO domain as "managed" would
 // trigger Dynadot calls against a domain we don't own.
+//
+// This test exercises the built-in-defaults path (env vars unset), which
+// must include the wizard's well-known pool domains as a defensive
+// last-resort fallback.
 func TestIsManagedDomain_PoolList(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	t.Setenv("DYNADOT_DOMAIN", "")
+	ResetManagedDomains()
+	defer ResetManagedDomains()
+
 	cases := []struct {
 		in   string
 		want bool
@@ -447,6 +456,86 @@ func TestIsManagedDomain_PoolList(t *testing.T) {
 	for _, tc := range cases {
 		if got := IsManagedDomain(tc.in); got != tc.want {
 			t.Errorf("IsManagedDomain(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestIsManagedDomain_FromMultiDomainEnv exercises the canonical multi-domain
+// path: DYNADOT_MANAGED_DOMAINS supplies the set, replacing the built-in
+// defaults. This is the path that lets ops add a third pool domain
+// (e.g. acme.io) without rebuilding the binary.
+func TestIsManagedDomain_FromMultiDomainEnv(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "openova.io, omani.works,acme.io")
+	t.Setenv("DYNADOT_DOMAIN", "")
+	ResetManagedDomains()
+	defer ResetManagedDomains()
+
+	for _, d := range []string{"openova.io", "omani.works", "acme.io", "ACME.IO"} {
+		if !IsManagedDomain(d) {
+			t.Errorf("IsManagedDomain(%q) = false; expected true with DYNADOT_MANAGED_DOMAINS set", d)
+		}
+	}
+	// A domain not in the set is rejected — proves the env var is the
+	// source of truth, not the in-binary defaults.
+	if IsManagedDomain("rogue.example") {
+		t.Error("IsManagedDomain(rogue.example) should be false")
+	}
+
+	got := ManagedDomains()
+	want := []string{"acme.io", "omani.works", "openova.io"} // sorted
+	if len(got) != len(want) {
+		t.Fatalf("ManagedDomains length: got %d (%v), want %d (%v)", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ManagedDomains[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestIsManagedDomain_FromLegacySingleDomain — the backward-compat path:
+// when the secret only has the legacy `domain` key, DYNADOT_DOMAIN is the
+// only env var set, and the resolver falls through to it.
+func TestIsManagedDomain_FromLegacySingleDomain(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	t.Setenv("DYNADOT_DOMAIN", "openova.io")
+	ResetManagedDomains()
+	defer ResetManagedDomains()
+
+	if !IsManagedDomain("openova.io") {
+		t.Error("legacy single-domain path: openova.io should be managed")
+	}
+	// omani.works is NOT in the legacy single-domain set — proves the
+	// fallback is "exact match", not "include the defaults too".
+	if IsManagedDomain("omani.works") {
+		t.Error("legacy single-domain path: omani.works should NOT be managed when only DYNADOT_DOMAIN=openova.io")
+	}
+}
+
+// TestSplitDomainsList covers the parser edge cases.
+func TestSplitDomainsList(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"openova.io,omani.works", []string{"openova.io", "omani.works"}},
+		{"openova.io omani.works", []string{"openova.io", "omani.works"}},
+		{" openova.io , omani.works ", []string{"openova.io", "omani.works"}},
+		{"OPENOVA.IO, OMANI.WORKS", []string{"openova.io", "omani.works"}},
+		{"openova.io,openova.io", []string{"openova.io"}}, // dedupe
+		{",,, ,", nil},
+		{"", nil},
+	}
+	for _, tc := range cases {
+		got := splitDomainsList(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("splitDomainsList(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("splitDomainsList(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+			}
 		}
 	}
 }

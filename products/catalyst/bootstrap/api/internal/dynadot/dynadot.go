@@ -4,9 +4,17 @@
 // The Dynadot API is account-scoped: a single API key + secret pair can
 // manage all domains owned by that account. The K8s secret
 // `dynadot-api-credentials` in the `openova-system` namespace stores the
-// credentials. Per docs/PROVISIONING-PLAN.md §3 the secret's `domain` field
-// can be a list — this client takes a domain per call so the same client
-// instance handles openova.io, omani.works, and any future pool domain.
+// credentials and the managed-domain list. Per docs/PROVISIONING-PLAN.md §3
+// the secret's `domains` field is a comma-separated list — this client
+// takes a domain per call so the same client instance handles openova.io,
+// omani.works, and any future pool domain (e.g. acme.io) without code
+// changes; only the secret's `domains` value needs to grow.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode"): the managed
+// domain list is read at runtime from DYNADOT_MANAGED_DOMAINS env var
+// (mounted from the secret's `domains` key), with the legacy single-value
+// `domain` key honoured as a fallback for backward compatibility. Adding a
+// third pool domain is purely a secret update — no code change.
 //
 // See `~/.claude/.../memory/feedback_dynadot_dns.md`: NEVER run exploratory
 // set_dns2 calls — each one wipes all records. We always use
@@ -20,7 +28,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -160,17 +170,125 @@ func (c *Client) AddSovereignRecords(ctx context.Context, domain, subdomain, lbI
 	return nil
 }
 
+// managedDomainsState holds the resolved, lower-cased pool-domain set the
+// process treats as "Dynadot-managed" for this run. Resolution order
+// (per docs/INVIOLABLE-PRINCIPLES.md #4 — never hardcode):
+//
+//  1. DYNADOT_MANAGED_DOMAINS env var, comma- or whitespace-separated.
+//     This is the canonical multi-domain configuration mounted from the
+//     dynadot-api-credentials K8s secret's `domains` key.
+//  2. Legacy DYNADOT_DOMAIN single-value env var (mounted from the
+//     secret's `domain` key) for backward compatibility with the
+//     pre-multi-domain secret shape.
+//  3. Last-resort built-in defaults — only used in tests / when the
+//     deployment forgot to mount the secret. Mirrors SOVEREIGN_POOL_DOMAINS
+//     in the wizard's deployment/model.ts plus openova.io itself.
+//
+// The set is computed once on first read and cached; tests can call
+// ResetManagedDomains to force re-evaluation after mutating env vars.
+var managedDomainsState struct {
+	once sync.Once
+	set  map[string]struct{}
+}
+
+func resolveManagedDomains() map[string]struct{} {
+	managedDomainsState.once.Do(func() {
+		managedDomainsState.set = computeManagedDomains()
+	})
+	return managedDomainsState.set
+}
+
+// computeManagedDomains is split out so ResetManagedDomains can re-evaluate.
+func computeManagedDomains() map[string]struct{} {
+	out := make(map[string]struct{})
+
+	// 1. Multi-domain env var (canonical). Accepts both commas and
+	// whitespace as separators so operators can use either.
+	if raw := os.Getenv("DYNADOT_MANAGED_DOMAINS"); strings.TrimSpace(raw) != "" {
+		for _, tok := range splitDomainsList(raw) {
+			out[tok] = struct{}{}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+
+	// 2. Legacy single-domain env var.
+	if d := strings.ToLower(strings.TrimSpace(os.Getenv("DYNADOT_DOMAIN"))); d != "" {
+		out[d] = struct{}{}
+		return out
+	}
+
+	// 3. Built-in defaults — only the wizard's well-known pool domains.
+	// These are the SAME values surfaced in SOVEREIGN_POOL_DOMAINS in the
+	// UI; keeping them as defensive defaults means a misconfigured
+	// deployment fails closed (refuses BYO DNS writes) rather than open.
+	out["openova.io"] = struct{}{}
+	out["omani.works"] = struct{}{}
+	return out
+}
+
+// ResetManagedDomains clears the cached managed-domain set so the next
+// IsManagedDomain call re-reads the environment. Tests use this; in
+// production the env vars are immutable for the lifetime of the pod.
+func ResetManagedDomains() {
+	managedDomainsState.once = sync.Once{}
+	managedDomainsState.set = nil
+}
+
+// ManagedDomains returns a sorted, deduplicated copy of the configured
+// managed-domain list. Useful for logging, /healthz exposure, and the
+// external-dns sidecar that needs to know which zones to sync.
+func ManagedDomains() []string {
+	set := resolveManagedDomains()
+	out := make([]string, 0, len(set))
+	for d := range set {
+		out = append(out, d)
+	}
+	// Sort for stable output (tests + logs).
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1] > out[j]; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
+}
+
+// splitDomainsList parses a `DYNADOT_MANAGED_DOMAINS`-style string —
+// comma- or whitespace-separated, lower-cased, trimmed, deduped.
+func splitDomainsList(raw string) []string {
+	raw = strings.ToLower(raw)
+	// Replace commas with spaces, then split on whitespace.
+	raw = strings.ReplaceAll(raw, ",", " ")
+	parts := strings.Fields(raw)
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
 // IsManagedDomain returns true if the given domain is one whose DNS Dynadot
-// manages on behalf of OpenOva. The list mirrors SOVEREIGN_POOL_DOMAINS in
-// the wizard's deployment/model.ts plus openova.io itself.
+// manages on behalf of OpenOva. The set comes from runtime configuration
+// (see resolveManagedDomains) so adding a future pool domain (acme.io,
+// etc.) only requires updating the dynadot-api-credentials secret, not
+// rebuilding this binary.
 func IsManagedDomain(domain string) bool {
 	domain = strings.ToLower(strings.TrimSpace(domain))
-	switch domain {
-	case "openova.io", "omani.works":
-		return true
-	default:
+	if domain == "" {
 		return false
 	}
+	_, ok := resolveManagedDomains()[domain]
+	return ok
 }
 
 func truncate(s string, max int) string {
