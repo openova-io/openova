@@ -1,0 +1,65 @@
+# Catalyst Blueprint wrapper metadata — read by the bootstrap-kit installer.
+# The installer combines the upstream chart reference below with the values
+# overlay also in this file when running 'helm install'.
+
+catalystBlueprint:
+  upstream:
+    chart: external-dns
+    version: "1.15.0"
+    repo: "https://kubernetes-sigs.github.io/external-dns/"
+
+# Catalyst-curated ExternalDNS values per platform/external-dns/README.md.
+#
+# Defaults assume a Catalyst Sovereign with the Dynadot multi-domain webhook
+# provider for OpenOva-managed zones; per-Sovereign provider selection
+# (cloudflare/hetzner/route53/gcp/azure/dynadot) is overlaid via the Crossplane
+# Composition that materializes the bp-external-dns HelmRelease at runtime.
+
+external-dns:
+  # Default to a generic webhook provider; the per-Sovereign Composition
+  # overrides `provider` + the matching credentials Secret reference at apply
+  # time. Catalyst-Zero (openova.io) uses the Dynadot multi-domain webhook
+  # (platform/external-dns/policies/dynadot-multi-domain.yaml).
+  provider: webhook
+
+  sources:
+    - service
+    - ingress
+    - gateway-httproute
+    - gateway-grpcroute
+    - gateway-tlsroute
+
+  # TXT-record ownership — must be unique per host cluster so two clusters
+  # don't fight over the same record set. Composition overlays the Sovereign
+  # ID at install time.
+  txtOwnerId: openova
+  txtPrefix: "_externaldns."
+
+  # Domain filters — empty by default; the Composition writes the per-Sovereign
+  # zone list (e.g. ["openova.io", "omantel.omani.works"]) at apply time.
+  domainFilters: []
+
+  policy: sync
+
+  # RBAC — ExternalDNS needs read on Service/Ingress/HTTPRoute/GRPCRoute and
+  # write on its own ConfigMap for ownership state.
+  rbac:
+    create: true
+
+  # Resources — modest defaults for the per-cluster controller.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # ServiceMonitor enabled so the Catalyst observability stack
+  # (platform/grafana + bp-prometheus) scrapes ExternalDNS metrics.
+  serviceMonitor:
+    enabled: true
+
+  # Single replica is fine — ExternalDNS is leader-elected and the workload is
+  # IO-bound on the DNS API, not CPU-bound.
+  replicas: 1
