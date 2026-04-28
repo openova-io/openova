@@ -44,6 +44,40 @@ export interface WizardState {
   /** Hetzner project ID — captured at the credentials step alongside the API token. */
   hetznerProjectId: string
   credentialValidated: boolean
+  /**
+   * SSH public key the OpenTofu module passes to the Hetzner API as the
+   * `hcloud_ssh_key` resource attached to every server. Captured by the
+   * StepCredentials SSH section in one of two modes:
+   *
+   *   • Mode A — auto-generate: catalyst-api emits an Ed25519 keypair, the
+   *     wizard captures the public half here and triggers a one-time
+   *     download of the private half.
+   *   • Mode B — paste existing: operator pastes a single OpenSSH
+   *     authorized_keys-style line; the regex below accepts ed25519, RSA,
+   *     and the three nistp ECDSA variants.
+   *
+   * Per docs/INVIOLABLE-PRINCIPLES.md security floor (issue #160), the
+   * provisioner rejects an empty value at apply time. The wizard's Next
+   * button must therefore stay disabled until this string is populated.
+   */
+  sshPublicKey: string
+  /** UI-only flag — true once a Mode-A generation has completed (used to
+   *  show the one-time "private key shown once" warning). Not persisted
+   *  across page reloads on purpose: a reload should re-prompt the user
+   *  rather than reuse a key whose private half is already in their
+   *  Downloads folder. */
+  sshKeyGeneratedThisSession: boolean
+  /** Mode A only — the private key blob the catalyst-api returned, held
+   *  in memory just long enough for the user to click "Download .pem"
+   *  again if the auto-trigger was blocked. Cleared as soon as a fresh
+   *  paste replaces it. */
+  sshPrivateKeyOnce: string
+  /** SHA256 fingerprint of the public key — populated for both modes
+   *  (computed server-side in Mode A; left empty in Mode B since we don't
+   *  ship a JS hashing library just for the wizard preview). Shown in the
+   *  Review step so operators can sanity-check what they're about to
+   *  apply. */
+  sshFingerprint: string
   componentGroups: Record<string, string[]>
   componentsAppliedForProfile: string | null
   /**
@@ -231,6 +265,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   regionProviders: {}, regionCloudRegions: {},
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
+  sshPublicKey: '', sshKeyGeneratedThisSession: false, sshPrivateKeyOnce: '', sshFingerprint: '',
   componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
   componentsAppliedForProfile: null,
   // Empty by default — the user opts in to marketplace Blueprints in
@@ -264,6 +299,35 @@ export function isValidSubdomain(subdomain: string): boolean {
   if (subdomain.length > 63) return false
   // RFC 1035: starts with letter, ends alphanumeric, only [a-z0-9-]
   return /^[a-z]([a-z0-9-]*[a-z0-9])?$/.test(subdomain)
+}
+
+/**
+ * Validate an OpenSSH authorized_keys-style public key line.
+ *
+ * Accepts the algorithms `infra/hetzner/variables.tf` already accepts via
+ * its regex validator: ed25519, RSA, and the three NIST-P ECDSA variants.
+ * The base64 body is required; the trailing comment is optional.
+ *
+ * Rejects:
+ *   • empty / whitespace-only strings (security floor — never an empty key)
+ *   • lines whose algorithm prefix is not in the allow-list
+ *   • lines whose middle field isn't a syntactically valid base64 blob
+ *
+ * Closes #160.
+ */
+export function isValidSSHPublicKey(line: string): boolean {
+  const trimmed = line.trim()
+  if (trimmed === '') return false
+  // Algorithm prefix list mirrors the regex in infra/hetzner/variables.tf:
+  //   ssh-rsa | ssh-ed25519 | ecdsa-sha2-nistp256 | ecdsa-sha2-nistp384 | ecdsa-sha2-nistp521
+  const m = trimmed.match(
+    /^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+([A-Za-z0-9+/=]+)(?:\s+.+)?$/,
+  )
+  if (!m) return false
+  // Reject suspiciously short base64 — a real ed25519 wire-format public key
+  // is ~80 base64 chars, RSA is ≥ 200, ECDSA ≥ 130. Anything < 30 chars is a
+  // typo or a placeholder pasted by mistake.
+  return (m[2]?.length ?? 0) >= 30
 }
 
 /** Validate a BYO domain (e.g. sovereign.acme-bank.com). */

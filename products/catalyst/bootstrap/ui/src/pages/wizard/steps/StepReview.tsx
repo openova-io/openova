@@ -156,10 +156,12 @@ export function StepReview() {
           workerSize:       store.workerSize,
           workerCount:      store.workerCount,
           haEnabled:        store.haEnabled,
-          // SSH key — TODO: capture in StepCredentials. For now, the catalyst-api
-          // rejects the request if SSHPublicKey is empty (production safety),
-          // so wizard users must provide it via SSH-Key step in next iteration.
-          sshPublicKey: '',
+          // SSH key — captured in StepCredentials (#160). Either auto-generated
+          // by /api/v1/sshkey/generate (Mode A, private half downloaded once
+          // by the browser) or pasted by the operator (Mode B). The wizard's
+          // Continue button on the credentials step is gated on this string
+          // being non-empty + matching the OpenSSH algorithm allow-list.
+          sshPublicKey: store.sshPublicKey,
         }),
       })
       const data = await res.json()

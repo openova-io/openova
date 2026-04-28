@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle, RotateCw, Copy } from 'lucide-react'
+import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle, RotateCw, Copy, KeyRound, Download, Sparkles, ClipboardPaste, ShieldAlert } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
-import type { CloudProvider } from '@/entities/deployment/model'
+import { resolveSovereignDomain, isValidSSHPublicKey, type CloudProvider } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { API_BASE } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
@@ -376,6 +376,11 @@ export function StepCredentials() {
     : store.provider ? [store.provider] : ['hetzner']
 
   const allValidated = providers.every(p => store.providerValidated[p])
+  // Security floor (#160): the OpenTofu module rejects empty/invalid keys;
+  // gate the wizard's Next button on the same regex so the user can't reach
+  // StepReview with a payload the backend will refuse.
+  const sshKeyOk = isValidSSHPublicKey(store.sshPublicKey)
+  const canProceed = allValidated && sshKeyOk
 
   const regionIndicesFor = (p: CloudProvider) =>
     Object.entries(store.regionProviders)
@@ -389,11 +394,11 @@ export function StepCredentials() {
     <StepShell
       title="Cloud credentials"
       description={providers.length > 1
-        ? `You selected ${providers.length} different cloud providers. Provide one API credential per provider.`
-        : 'Provide a read/write API credential. Credentials are used only during provisioning and never persisted on our servers.'}
-      onNext={() => { if (allValidated) next() }}
+        ? `You selected ${providers.length} different cloud providers. Provide one API credential per provider, plus an SSH public key for break-glass access.`
+        : 'Provide a read/write API credential plus an SSH public key. Credentials are used only during provisioning and never persisted on our servers.'}
+      onNext={() => { if (canProceed) next() }}
       onBack={back}
-      nextDisabled={!allValidated}
+      nextDisabled={!canProceed}
     >
       {/* Credential sections */}
       <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 14 }}>
@@ -405,6 +410,10 @@ export function StepCredentials() {
           />
         ))}
       </div>
+
+      {/* SSH keypair — required for hcloud_ssh_key + sovereign-admin
+          break-glass access. Closes #160. */}
+      <SSHKeySection />
 
       {/* How-to for Hetzner */}
       {providers.includes('hetzner') && !allValidated && (
@@ -601,4 +610,478 @@ function ValidationErrorCard({
       </div>
     </div>
   )
+}
+
+/* ── SSH keypair section (issue #160) ─────────────────────────────────
+ *
+ * Two-mode UX:
+ *
+ *   Mode A — "Generate keypair"
+ *     Single button → POST /api/v1/sshkey/generate → catalyst-api emits an
+ *     Ed25519 keypair → wizard stores the public key + downloads the
+ *     private key as `<sovereign-fqdn>.pem` (or `catalyst.pem` if the FQDN
+ *     isn't filled in yet) → renders the public key inline (read-only) and
+ *     a one-time "save your private key now" warning.
+ *
+ *   Mode B — "Paste existing public key"
+ *     Textarea, RFC validation regex (mirrors infra/hetzner/variables.tf).
+ *     Sets store.sshPublicKey directly; clears any private blob held over
+ *     from a Mode-A generation in the same session.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md:
+ *   • #4 (never hardcode): the FQDN sent to the backend is computed from
+ *     wizard state, never a literal "omantel.omani.works".
+ *   • #10 (credential hygiene): the private key is held only long enough
+ *     to trigger the download. partialize() in the store strips it from
+ *     the persisted payload regardless.
+ */
+function SSHKeySection() {
+  const store = useWizardStore()
+  const initialMode: 'generate' | 'paste' = store.sshPublicKey && !store.sshKeyGeneratedThisSession ? 'paste' : 'generate'
+  const [mode, setMode] = useState<'generate' | 'paste'>(initialMode)
+  const [generating, setGenerating] = useState(false)
+  const [pasted, setPasted] = useState(store.sshPublicKey)
+  const [error, setError] = useState<string | null>(null)
+
+  const sovereignFQDN = resolveSovereignDomain(store)
+  const downloadFilename = `${sovereignFQDN || 'catalyst'}.pem`
+
+  async function generate() {
+    setError(null)
+    setGenerating(true)
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}/v1/sshkey/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fqdn: sovereignFQDN }),
+      })
+    } catch (err) {
+      setError(`Could not reach the keypair generator (${String(err)}). Reload and retry.`)
+      setGenerating(false)
+      return
+    }
+    if (!res.ok) {
+      setError(`Generator returned HTTP ${res.status}. Reload and retry.`)
+      setGenerating(false)
+      return
+    }
+    let data: { publicKey?: string; privateKey?: string; fingerprint?: string } | null = null
+    try {
+      data = (await res.json()) as { publicKey?: string; privateKey?: string; fingerprint?: string }
+    } catch (err) {
+      setError(`Generator response was malformed (${String(err)}).`)
+      setGenerating(false)
+      return
+    }
+    if (!data?.publicKey || !data?.privateKey) {
+      setError('Generator response was missing publicKey or privateKey.')
+      setGenerating(false)
+      return
+    }
+    store.setSshGenerated(data.publicKey, data.privateKey, data.fingerprint ?? '')
+    triggerPrivateKeyDownload(data.privateKey, downloadFilename)
+    setGenerating(false)
+  }
+
+  function handlePaste(value: string) {
+    setPasted(value)
+    setError(null)
+    if (value.trim() === '') {
+      // Clear store immediately on empty so the wizard can't keep an old key in scope.
+      store.setSshPublicKey('')
+      return
+    }
+    if (!isValidSSHPublicKey(value)) {
+      // Don't write into the store yet — leave the previous valid value (if any)
+      // intact, but surface the error so the user can correct it.
+      setError(
+        'Public key did not parse. Paste a single line beginning with ' +
+          '"ssh-ed25519", "ssh-rsa", or "ecdsa-sha2-nistp256/384/521" followed by a base64 blob.',
+      )
+      return
+    }
+    store.setSshPublicKey(value.trim())
+  }
+
+  function reDownload() {
+    if (!store.sshPrivateKeyOnce) return
+    triggerPrivateKeyDownload(store.sshPrivateKeyOnce, downloadFilename)
+  }
+
+  const sshKeyOk = isValidSSHPublicKey(store.sshPublicKey)
+
+  return (
+    <div
+      data-testid="ssh-key-section"
+      style={{
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: sshKeyOk ? '1.5px solid rgba(74,222,128,0.3)' : '1.5px solid var(--wiz-border-sub)',
+        background: sshKeyOk ? 'rgba(74,222,128,0.03)' : 'var(--wiz-bg-xs)',
+        transition: 'all 0.2s',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 14px',
+          borderBottom: '1px solid var(--wiz-border-sub)',
+        }}
+      >
+        <KeyRound size={14} style={{ color: 'var(--wiz-text-md)' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wiz-text-hi)' }}>
+              SSH public key
+            </span>
+            {sshKeyOk && <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />}
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                fontFamily: 'JetBrains Mono, monospace',
+                color: '#FBBF24',
+                background: 'rgba(251,191,36,0.12)',
+                padding: '1px 6px',
+                borderRadius: 3,
+              }}
+            >
+              REQUIRED
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginTop: 2 }}>
+            Break-glass access if k3s + Flux reconcile fails post-bootstrap. Hetzner attaches this to every server.
+          </div>
+        </div>
+      </div>
+
+      {/* Mode tabs */}
+      <div
+        role="tablist"
+        aria-label="SSH key input mode"
+        style={{ display: 'flex', borderBottom: '1px solid var(--wiz-border-sub)' }}
+      >
+        <ModeTab
+          testid="ssh-mode-generate"
+          active={mode === 'generate'}
+          onClick={() => setMode('generate')}
+          icon={<Sparkles size={12} />}
+          label="Generate keypair"
+          hint="Recommended"
+        />
+        <ModeTab
+          testid="ssh-mode-paste"
+          active={mode === 'paste'}
+          onClick={() => setMode('paste')}
+          icon={<ClipboardPaste size={12} />}
+          label="Paste existing public key"
+          hint="Advanced"
+        />
+      </div>
+
+      {/* Mode body */}
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {mode === 'generate' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {!store.sshKeyGeneratedThisSession && (
+              <button
+                type="button"
+                data-testid="ssh-generate-button"
+                onClick={generate}
+                disabled={generating}
+                style={{
+                  alignSelf: 'flex-start',
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 7,
+                  border: '1.5px solid rgba(56,189,248,0.4)',
+                  background: 'rgba(56,189,248,0.1)',
+                  color: 'var(--wiz-accent)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: generating ? 'default' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                {generating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {generating ? 'Generating Ed25519 keypair…' : 'Generate Ed25519 keypair'}
+              </button>
+            )}
+
+            {store.sshKeyGeneratedThisSession && (
+              <>
+                {/* One-time warning banner — closes the part of the spec
+                    that says "Private key shown once. Save it now or you
+                    lose access." */}
+                <div
+                  data-testid="ssh-private-key-warning"
+                  role="alert"
+                  style={{
+                    borderRadius: 8,
+                    border: '1px solid rgba(251,191,36,0.45)',
+                    background: 'rgba(251,191,36,0.07)',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                  }}
+                >
+                  <ShieldAlert size={14} style={{ color: '#FBBF24', flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#FBBF24' }}>
+                      Private key shown once. Save it now or you lose access.
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--wiz-text-md)', lineHeight: 1.55 }}>
+                      Your browser downloaded <code>{downloadFilename}</code>. Move it to <code>~/.ssh/</code> and run{' '}
+                      <code>chmod 600 ~/.ssh/{downloadFilename}</code>. The catalyst-api has discarded its copy.
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        data-testid="ssh-redownload"
+                        onClick={reDownload}
+                        disabled={!store.sshPrivateKeyOnce}
+                        style={{
+                          height: 26,
+                          padding: '0 9px',
+                          borderRadius: 6,
+                          border: '1px solid rgba(251,191,36,0.45)',
+                          background: 'rgba(251,191,36,0.1)',
+                          color: '#FBBF24',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: store.sshPrivateKeyOnce ? 'pointer' : 'default',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontFamily: 'Inter, sans-serif',
+                          opacity: store.sshPrivateKeyOnce ? 1 : 0.5,
+                        }}
+                      >
+                        <Download size={11} />
+                        {store.sshPrivateKeyOnce ? 'Download again' : 'Already downloaded'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Re-generate path — discards the prior public key
+                          // and emits a fresh keypair. Useful if the user
+                          // accidentally lost the .pem and wants a new one
+                          // without leaving the wizard.
+                          store.clearSshPrivateKey()
+                          generate()
+                        }}
+                        style={{
+                          height: 26,
+                          padding: '0 9px',
+                          borderRadius: 6,
+                          border: '1px solid var(--wiz-border)',
+                          background: 'transparent',
+                          color: 'var(--wiz-text-md)',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontFamily: 'Inter, sans-serif',
+                        }}
+                      >
+                        <RotateCw size={11} /> Re-generate
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Read-only public-key preview */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+                    Public key — embedded in tofu apply
+                  </span>
+                  <textarea
+                    data-testid="ssh-public-key-preview"
+                    value={store.sshPublicKey}
+                    readOnly
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      borderRadius: 7,
+                      border: '1.5px solid var(--wiz-border)',
+                      background: 'var(--wiz-bg-input)',
+                      color: 'var(--wiz-text-hi)',
+                      fontSize: 11.5,
+                      padding: '8px 10px',
+                      outline: 'none',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      resize: 'vertical',
+                      wordBreak: 'break-all',
+                    }}
+                  />
+                  {store.sshFingerprint && (
+                    <span
+                      data-testid="ssh-fingerprint"
+                      style={{ fontSize: 10.5, color: 'var(--wiz-text-hint)', fontFamily: 'JetBrains Mono, monospace' }}
+                    >
+                      Fingerprint: {store.sshFingerprint}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {!store.sshKeyGeneratedThisSession && (
+              <p style={{ margin: 0, fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.55 }}>
+                The catalyst-api will emit a fresh Ed25519 keypair, ship the private half to your browser as a one-time
+                download, and forget it. The public half is stored only as long as the wizard stays open.
+              </p>
+            )}
+          </div>
+        )}
+
+        {mode === 'paste' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+              Public key (single line, OpenSSH authorized_keys format)
+            </span>
+            <textarea
+              data-testid="ssh-paste-input"
+              value={pasted}
+              onChange={(e) => handlePaste(e.target.value)}
+              placeholder="ssh-ed25519 AAAA… user@host"
+              rows={3}
+              aria-invalid={error !== null}
+              style={{
+                width: '100%',
+                borderRadius: 7,
+                border: error
+                  ? '1.5px solid rgba(248,113,113,0.5)'
+                  : sshKeyOk
+                    ? '1.5px solid rgba(74,222,128,0.45)'
+                    : '1.5px solid var(--wiz-border)',
+                background: 'var(--wiz-bg-input)',
+                color: 'var(--wiz-text-hi)',
+                fontSize: 11.5,
+                padding: '8px 10px',
+                outline: 'none',
+                fontFamily: 'JetBrains Mono, monospace',
+                resize: 'vertical',
+              }}
+            />
+            {error && (
+              <div
+                data-testid="ssh-paste-error"
+                role="alert"
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  fontSize: 11,
+                  color: '#F87171',
+                  alignItems: 'flex-start',
+                  lineHeight: 1.45,
+                }}
+              >
+                <AlertCircle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>{error}</span>
+              </div>
+            )}
+            {!error && sshKeyOk && (
+              <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#4ADE80', alignItems: 'center' }}>
+                <CheckCircle2 size={12} /> Looks like a valid OpenSSH public key.
+              </div>
+            )}
+            <span style={{ fontSize: 10.5, color: 'var(--wiz-text-hint)', lineHeight: 1.5 }}>
+              Accepted algorithms: <code>ssh-ed25519</code>, <code>ssh-rsa</code>,{' '}
+              <code>ecdsa-sha2-nistp256/384/521</code>. The provisioner runs the same regex server-side — empty or
+              malformed keys are rejected (security floor — never an empty SSH key).
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ModeTab({
+  testid,
+  active,
+  onClick,
+  icon,
+  label,
+  hint,
+}: {
+  testid: string
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+  hint: string
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      data-testid={testid}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        height: 38,
+        background: active ? 'rgba(56,189,248,0.07)' : 'transparent',
+        border: 'none',
+        borderBottom: active ? '2px solid var(--wiz-accent)' : '2px solid transparent',
+        color: active ? 'var(--wiz-text-hi)' : 'var(--wiz-text-sub)',
+        fontSize: 12,
+        fontWeight: active ? 600 : 500,
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        fontFamily: 'Inter, sans-serif',
+        transition: 'all 0.15s',
+      }}
+    >
+      {icon}
+      {label}
+      <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)', fontWeight: 500 }}>· {hint}</span>
+    </button>
+  )
+}
+
+/**
+ * triggerPrivateKeyDownload — creates a one-shot Blob URL for the private
+ * key blob and clicks a hidden anchor to make the browser save it. The URL
+ * is revoked immediately afterwards so the blob is GC'd as soon as the
+ * download dialog has copied the bytes.
+ *
+ * Per credential hygiene (#10), this is the ONLY moment the private key
+ * touches the DOM; nothing renders it inline.
+ */
+function triggerPrivateKeyDownload(privateKey: string, filename: string) {
+  // jsdom in vitest doesn't implement Blob URLs the same way browsers do;
+  // guard so the test environment doesn't crash when the helper runs.
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  try {
+    const blob = new Blob([privateKey], { type: 'application/x-pem-file' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch {
+    // Swallow — the user can still click "Download again" from the warning
+    // banner, which calls back into this helper. We log nothing so the
+    // private key never appears in console.error stack traces.
+  }
 }
