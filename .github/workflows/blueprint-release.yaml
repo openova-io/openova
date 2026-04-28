@@ -146,8 +146,15 @@ jobs:
       - name: Generate SBOM via Syft
         if: steps.chart.outputs.skip != 'true'
         run: |
+          # Scan the local .tgz file rather than the published OCI artifact so
+          # we don't need containerd permissions on the runner. The .tgz
+          # carries everything we'd want to inventory anyway (values.yaml +
+          # Chart.yaml + templates + blueprint.yaml + the upstream-chart
+          # reference metadata).
           mkdir -p /tmp/sbom
-          syft "${{ steps.push.outputs.ref }}" -o spdx-json="/tmp/sbom/sbom.spdx.json"
+          name="${{ steps.chart.outputs.name }}"
+          version="${{ steps.chart.outputs.version }}"
+          syft "file:/tmp/charts/bp-${name}-${version}.tgz" -o spdx-json="/tmp/sbom/sbom.spdx.json"
 
       - name: Attest SBOM via cosign
         if: steps.chart.outputs.skip != 'true'
