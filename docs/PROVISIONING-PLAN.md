@@ -1,7 +1,31 @@
 # Catalyst-Zero Provisioning Plan
 
-**Status:** Authoritative working plan. **Updated:** 2026-04-28.
-**Owner:** OpenOva engineering. **Issue tracker:** TBD.
+**Status:** Authoritative working plan — **execution underway**. **Updated:** 2026-04-28.
+**Owner:** OpenOva engineering. **Parent issue:** [#43](https://github.com/openova-io/openova/issues/43). **Sub-tickets:** A–M groups, [#45–#155](https://github.com/openova-io/openova/issues?q=is%3Aopen+%5B+).
+
+---
+
+## Execution status (live)
+
+| Group | Tickets | Status | Commits |
+|---|---|---|---|
+| A — Code consolidation | 9 | ✅ Done | 3c2f7e4 |
+| B — SME backend services | 10 | ✅ Source migrated; CI workflow live | 7646840 |
+| C — Cutover Catalyst-Zero | 8 | 🚧 CI builds live; Flux source repoint pending | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07 |
+| D — Wizard | 10 | 🚧 Domain capture + Hetzner project ID added; AppsStep replacement pending | 854a063 |
+| E — Provisioner backend | 13 | 🚧 Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
+| F — Bootstrap-kit Helm charts | 14 | ✅ All 11 G2 wrapper charts + blueprint-release CI live | 8c0f766 |
+| G — DNS multi-domain | 6 | 🚧 Dynadot client + manifest env vars done; subdomain-reservation check pending | db4f21a |
+| H — Franchise model | 7 | 🚧 docs/FRANCHISE-MODEL.md authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
+| I — Wizard UX | 6 | 📐 SSE event log pane + step indicator pending |  |
+| J — Hetzner infra | 6 | 🚧 cloud-init in repo; firewall + k3s flags wired into provisioner | 07b4bcf |
+| K — Documentation | 8 | 🚧 IMPLEMENTATION-STATUS + core/README + products/catalyst/README updated; component-count anchor refresh (53→55) pending | 3c2f7e4, 8c0f766 |
+| L — Testing | 8 | 📐 Playwright + integration tests pending |  |
+| M — End-to-end DoD | 9 | 📐 Awaiting Hetzner credentials from operator + first OCI-artifact CI runs to complete |  |
+
+---
+
+
 
 This document captures the agreed plan for consolidating the existing nova/console/admin/marketplace code into the public OpenOva Catalyst monorepo, deploying it as **Catalyst-Zero** (the first Catalyst Sovereign — running on Contabo, the chicken in the chicken-and-egg problem), and then provisioning the first **franchised Sovereign** on Hetzner via the wizard at `console.openova.io/sovereign`.
 
