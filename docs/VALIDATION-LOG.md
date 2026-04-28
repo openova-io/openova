@@ -63,6 +63,49 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 65 — BLUEPRINT-AUTHORING third-cycle stable; openbao third-cycle clean
+
+Both targets verified clean. **THIRTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65). **THREE CONSECUTIVE clean architectural passes** (63 → 64 → 65) in the new cycle.
+
+Acceptance greps clean for all 13 carry-forward categories. Subsection-order check across all docs/*.md: clean (no out-of-order subsections — Pass 62 PTS §7 fix held, all other docs structurally consistent).
+
+**docs/BLUEPRINT-AUTHORING.md** third-cycle deep re-read (Pass 21 + Pass 29 + Pass 42 fixes):
+- §1 What a Blueprint is: Pass 42 vague-placeholder fix intact (`gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` canonical).
+- §2 Folder layout: Pass 21 monorepo path-matrix CI workflow shape clean (single `.github/workflows/` at monorepo root, `tags: ['platform/*/v*', 'products/*/v*']`).
+- §3 Blueprint CRD example: `apiVersion: catalyst.openova.io/v1alpha1` ✓
+- §4 configSchema design: clean (JSON Schema features + `x-catalyst-ui-hint` for non-trivial widgets).
+- §5 Dependencies: §5.1 hard, §5.2 conditional, §5.3 reference — three patterns clean.
+- §6 Placement and multi-region: matches GLOSSARY Placement modes (`single-region | active-active | active-hotstandby`).
+- §7 Manifests: three source types (HelmChart, Kustomize, OAM-future) clean.
+- §8 Crossplane Compositions: `compose.openova.io/v1alpha1` XRD group canonical (Pass 42 / Pass 48 verified).
+- §9 Visibility: listed/unlisted/private — matches GLOSSARY Blueprint definition.
+- §10 Versioning: SemVer + `ghcr.io/openova-io/bp-<name>:<version>` canonical.
+- §11 CI pipeline: Pass 21 monorepo per-Blueprint fan-out shape preserved (single CI at root parsing tag → Blueprint folder → publish).
+- §12 Authoring private Blueprints: Pass 29 §6.4 Studio target gitea DNS canonical.
+- §13 Contributing back: clean.
+- §14 Hard rules: 12 author rules consistent with SECURITY (cosign + SBOM + ESO + SPIFFE + OTel + structured logs).
+
+BLUEPRINT-AUTHORING substantively stable across 3 review cycles. The doc's structure (§1-§14, no further subsection complexity beyond §5.1-§5.3) remains internally consistent.
+
+**platform/openbao/README.md** third-cycle deep-read (Pass 7 + Pass 31 fixes):
+- L17: "**Independent Raft cluster per region** (no stretched cluster)" — Pass 7 fix anchor preserved at the bullet level ✓
+- L24: Section header "Architecture: independent Raft per region (NOT a stretched cluster)" — anchor at section title level ✓
+- L48-49: Mermaid "async perf replication" arrows ✓
+- L66: Explicit rejection of "active-active bidirectional design" with rationale ✓
+- L108: `bao.<location-code>.<sovereign-domain>` — Pass 31 ingress hostname fix held ✓
+- L127: ClusterSecretStore canonical form ✓
+- DR promotion section consistent with SECURITY §5.2
+
+openbao third-cycle confirms all architectural anchors intact across multiple representational levels (bullet, header, diagram, prose, ingress YAML, ClusterSecretStore YAML). The doc has the strongest defense-in-depth anchoring of any architectural decision in the canonical-doc set.
+
+**Pass 65: clean.** Three consecutive architectural-clean passes (63, 64, 65) in the new cycle.
+
+Convergence trajectory updated:
+- Old cycle Pass 54-58: 5 consecutive clean (nirvana approach met)
+- New cycle Pass 59 clean → 60-62 drift (carry-over) → 63-65 clean (3 consecutive)
+
+If Pass 66, 67 also clean → 5 consecutive clean within the new cycle = renewed nirvana approach in the new audit cycle.
+
 ### Pass 64 — SOVEREIGN-PROVISIONING third-cycle stable; keycloak third-cycle clean
 
 Both targets verified clean. **TWELFTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64). **Two consecutive clean architectural passes** (63 → 64).
