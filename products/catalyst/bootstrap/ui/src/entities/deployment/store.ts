@@ -10,6 +10,43 @@ import {
   type TopologyTemplate,
   type ProvisionResult,
 } from './model'
+import {
+  findComponent,
+  isMandatory as isMandatoryComponent,
+  resolveTransitiveDependencies,
+  resolveTransitiveDependents,
+  MANDATORY_COMPONENT_IDS,
+  computeDefaultSelection,
+} from '@/pages/wizard/steps/componentGroups'
+
+/**
+ * Normalise any caller-supplied component list (legacy SelectedComponent[]
+ * records OR plain string[]) to a sorted, de-duplicated string[]. The
+ * marketplace-style wizard stores ids only and treats the catalog as the
+ * single source of truth for tier / description / dependency metadata.
+ */
+function normaliseComponentIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const ids = input
+    .map((entry) => {
+      if (typeof entry === 'string') return entry
+      if (entry && typeof entry === 'object' && 'id' in entry) {
+        return String((entry as { id: unknown }).id)
+      }
+      return null
+    })
+    .filter((v): v is string => !!v)
+  return [...new Set(ids)].sort()
+}
+
+/**
+ * Initial selection at first wizard run: every mandatory + recommended
+ * component plus their transitive deps. Persisted state overrides this on
+ * subsequent runs (see merge() below).
+ */
+function computeInitialComponentSelection(): string[] {
+  return [...computeDefaultSelection()].sort()
+}
 
 interface WizardActions {
   setStep: (step: number) => void
@@ -71,6 +108,25 @@ interface WizardActions {
   toggleBlueprint: (blueprintId: string) => void
   /** Replace the entire selectedBlueprints list (e.g. when a preset is picked). */
   setSelectedBlueprints: (ids: string[]) => void
+
+  // Step 5 — Corporate platform components (the 60+ catalog)
+  /**
+   * Add a component to the selection. Cascades: every transitive dep listed
+   * in componentGroups.ts is added too. Idempotent — re-adding an
+   * already-selected id is a no-op. Returns the new sorted selection.
+   */
+  addComponent: (id: string) => void
+  /**
+   * Remove a component from the selection. Cascades: every component that
+   * (transitively) depends on it is removed too. Mandatory components
+   * cannot be removed — call is a no-op. Idempotent. Returns the new
+   * sorted selection.
+   */
+  removeComponent: (id: string) => void
+  /** Replace the entire component selection (used by tests + presets). */
+  setSelectedComponents: (ids: string[]) => void
+  /** Reset the component selection back to "all mandatory + all recommended + their deps". */
+  resetSelectedComponentsToDefault: () => void
 
   // Step 7 — Provisioning result (captured by SSE done event)
   setLastProvisionResult: (result: ProvisionResult | null) => void
@@ -241,16 +297,78 @@ export const useWizardStore = create<WizardStore>()(
         setWorkerCount: (workerCount) => set({ workerCount }, false, 'wizard/setWorkerCount'),
         setHaEnabled: (haEnabled) => set({ haEnabled }, false, 'wizard/setHaEnabled'),
         toggleComponent: (component) =>
+          // Legacy action — kept for back-compat with any old call site that
+          // hands a SelectedComponent record. Internally we just toggle the
+          // id in the new string[] selectedComponents form.
           set(
-            (s) => ({
-              selectedComponents: s.selectedComponents.find((c) => c.id === component.id)
-                ? s.selectedComponents.filter((c) => c.id !== component.id)
-                : [...s.selectedComponents, component],
-            }),
+            (s) => {
+              const has = s.selectedComponents.includes(component.id)
+              return {
+                selectedComponents: has
+                  ? s.selectedComponents.filter((id) => id !== component.id)
+                  : [...s.selectedComponents, component.id].sort(),
+              }
+            },
             false,
             'wizard/toggleComponent'
           ),
-        setComponents: (selectedComponents) => set({ selectedComponents }, false, 'wizard/setComponents'),
+        setComponents: (selectedComponents) =>
+          // Legacy: accept either string[] or SelectedComponent[] and
+          // normalise to string[]. Empty arrays come through unchanged.
+          set(
+            { selectedComponents: normaliseComponentIds(selectedComponents as unknown) },
+            false,
+            'wizard/setComponents',
+          ),
+
+        addComponent: (id) =>
+          set(
+            (s) => {
+              if (s.selectedComponents.includes(id)) return s
+              const comp = findComponent(id)
+              if (!comp) return s
+              const next = new Set(s.selectedComponents)
+              next.add(id)
+              for (const dep of resolveTransitiveDependencies(id)) {
+                next.add(dep)
+              }
+              return { selectedComponents: [...next].sort() }
+            },
+            false,
+            'wizard/addComponent',
+          ),
+
+        removeComponent: (id) =>
+          set(
+            (s) => {
+              if (isMandatoryComponent(id)) return s
+              if (!s.selectedComponents.includes(id)) return s
+              const drop = new Set<string>([id, ...resolveTransitiveDependents(id)])
+              // Mandatory deps cannot be removed even via cascade — guard.
+              for (const d of [...drop]) {
+                if (isMandatoryComponent(d) && d !== id) drop.delete(d)
+              }
+              return {
+                selectedComponents: s.selectedComponents.filter((cid) => !drop.has(cid)).sort(),
+              }
+            },
+            false,
+            'wizard/removeComponent',
+          ),
+
+        setSelectedComponents: (ids) =>
+          set(
+            { selectedComponents: normaliseComponentIds(ids) },
+            false,
+            'wizard/setSelectedComponents',
+          ),
+
+        resetSelectedComponentsToDefault: () =>
+          set(
+            { selectedComponents: computeInitialComponentSelection() },
+            false,
+            'wizard/resetSelectedComponentsToDefault',
+          ),
       }),
       {
         name: 'openova-catalyst-wizard',
@@ -301,6 +419,25 @@ export const useWizardStore = create<WizardStore>()(
           // accidentally retained them.
           p.sshPrivateKeyOnce = ''
           p.sshKeyGeneratedThisSession = false
+          // Coerce selectedComponents from any legacy shape (SelectedComponent[]
+          // records, undefined) to a sorted string[]. Always ensure mandatory
+          // components are present — they cannot be opted out of.
+          {
+            const ids = normaliseComponentIds(p.selectedComponents as unknown)
+            const present = new Set(ids)
+            // First-run fallback: if persisted state is empty, seed with
+            // default selection (all mandatory + all recommended + deps).
+            if (ids.length === 0) {
+              for (const id of computeInitialComponentSelection()) present.add(id)
+            } else {
+              for (const id of MANDATORY_COMPONENT_IDS) present.add(id)
+            }
+            // Drop any persisted ids that no longer exist in the catalog.
+            for (const id of [...present]) {
+              if (!findComponent(id)) present.delete(id)
+            }
+            p.selectedComponents = [...present].sort()
+          }
           // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
           const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']
           if (p.componentGroups) {

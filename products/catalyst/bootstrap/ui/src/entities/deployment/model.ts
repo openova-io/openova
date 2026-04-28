@@ -1,3 +1,5 @@
+import { computeDefaultSelection } from '@/pages/wizard/steps/componentGroups'
+
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
 export type NodeSize = 'cx22' | 'cx32' | 'cx42' | 'cx52'
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
@@ -92,7 +94,32 @@ export interface WizardState {
   selectedBlueprints: string[]
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
-  selectedComponents: SelectedComponent[]
+  /**
+   * Selected platform components from the corporate StepComponents grid
+   * (the 60+ catalog defined in pages/wizard/steps/componentGroups.ts).
+   *
+   * Stored as a sorted, de-duplicated string[] of component ids. The
+   * wizard exposes Set-shaped helpers via the store actions
+   * (addComponent / removeComponent / setSelectedComponents) but persists
+   * the array form so Zustand's storage middleware can JSON-serialise it
+   * across sessions.
+   *
+   * The selection is dependency-aware:
+   *  - addComponent(id) walks `dependencies` transitively and adds every
+   *    reachable component, so picking Harbor auto-pulls cnpg + seaweedfs +
+   *    valkey.
+   *  - removeComponent(id) walks the reverse graph (`findDependents`) and
+   *    also removes anything that listed `id` as a dep. The wizard UI is
+   *    expected to confirm with the user BEFORE calling removeComponent
+   *    when the cascade is non-empty.
+   *  - Components with `tier: mandatory` cannot be removed.
+   *
+   * Replaces the previous `SelectedComponent[]` legacy structure (still
+   * exported as a type for any old call site that imported it) — the wizard
+   * UI now uses just the id list with the catalog providing the tier /
+   * description / dependency metadata.
+   */
+  selectedComponents: string[]
   airgap: boolean
   currentStep: number; completedSteps: number[]; deploymentId: string | null
   /**
@@ -273,7 +300,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // is `visibility: unlisted` and installed by the bootstrap kit regardless.
   selectedBlueprints: [],
   regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
-  haEnabled: false, selectedComponents: [],
+  haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
   lastProvisionResult: null,
