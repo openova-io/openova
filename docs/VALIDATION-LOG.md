@@ -63,6 +63,52 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 71 — ARCHITECTURE fourth-cycle stable; milvus third-cycle clean
+
+**NINETEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69, 70, 71). **NINE CONSECUTIVE clean architectural passes** (63 → 71) spanning cycle 2 → cycle 3.
+
+Cycle 3 has 4 consecutive cleans (68 → 69 → 70 → 71). Pass 72 clean would meet the 5-consecutive nirvana threshold within cycle 3 and bring overall consecutive-clean total to 10.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/ARCHITECTURE.md** fourth-cycle deep re-read with all Pass-fix verifications:
+- §4 box alignment (Pass 29 expansion, Pass 61 alignment fix): uniform 76-char content + 74-char borders held ✓
+- §8 promotion table alignment (Pass 39 env_type, Pass 53 column-alignment fix): all 4 rows uniform 68-char width ✓
+- §5 Read side / CQRS via JetStream → projector → console: ws.<env>.k8s.<obj-kind>.<ns>.<name> subject prefix per Pass 6 reconciliation held ✓
+- §1 platform-in-one-paragraph: Catalyst-as-platform / Sovereign-as-deployed-instance framing intact (Pass 26 anchor)
+- §3 Topology: 15-component Catalyst control plane list matches PTS §2 union (post-Pass 40)
+- §6 Identity and secrets: matches SECURITY
+- §7 Surfaces: matches GLOSSARY
+- §9 Multi-Application linkage: catalyst.openova.io/v1alpha1 canonical
+- §10 Provisioning: 11-component bootstrap kit matches SOVEREIGN-PROVISIONING §3
+- §11 Catalyst-on-Catalyst: bp-catalyst-* matches IMPLEMENTATION-STATUS §2
+- §12 SOTA principles: independent-failure-domains anchored (OpenBao Raft per region)
+- §13 OAM influence + §14 Read further: clean
+
+ARCHITECTURE substantively stable across 4 review cycles (Pass 6, 29, 39, 53, 61, 71). Multiple Pass-fix anchors preserved at multiple representational levels (§4 box content, §8 table alignment, §5 prose, §1 framing, §10/§11 component lists, §12 architectural principles).
+
+**platform/milvus/README.md** third-cycle deep-read:
+- L3 banner: Application Blueprint §4.6, paired with BGE embeddings in bp-cortex ✓
+- L11 + L53: RAG positioning consistent ✓
+- L78: `host: minio.storage.svc` — Pass 41 minio canonical-namespace fix held ✓
+- Helm values + Collection schema + hybrid search examples all canonical
+- Partition strategy (compliance/infrastructure/ephemeral) — Application-level domain
+- Backup via Velero on MinIO — consistent with PTS §3.5 (Velero backups land in cloud archival storage)
+
+milvus third-cycle confirms Pass 27 (Application Blueprint categorization) + Pass 41 (minio namespace) fixes intact across 3 review cycles.
+
+**Pass 71: clean.** Nine consecutive architectural-clean passes (63-71).
+
+Convergence trajectory:
+- Cycle 1 Pass 54-58: 5 consecutive clean (1st nirvana)
+- Cycle 2 Pass 59 clean → 60-62 drift → 63-67 5 consecutive clean (renewed nirvana)
+- Cycle 3 Pass 68-71: 4 consecutive clean ✓ (so far)
+
+9 consecutive overall (63-71). Pass 72 clean would mean:
+- 10 consecutive overall (63-72)
+- 5 consecutive within cycle 3 (68-72) = third nirvana approach signal
+- The strongest possible cycle-over-cycle convergence proof
+
 ### Pass 70 — README + CLAUDE fourth-cycle stable; matrix third-cycle clean
 
 **EIGHTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69, 70). **EIGHT CONSECUTIVE clean architectural passes** (63 → 70) spanning cycle 2 → cycle 3.
