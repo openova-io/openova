@@ -63,6 +63,63 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 83 — PLATFORM-TECH-STACK sixth-cycle stable; valkey fourth-cycle clean (cycle 6 Pass 1 — RESTART FROM TOP)
+
+**THIRTY-FIRST clean pass overall**. **TWENTY-ONE CONSECUTIVE clean architectural passes** (Pass 63 → 83) spanning cycles 2 → 6. Cycle 6 begins after fifth nirvana threshold (Pass 82) per user's standing instruction "restart from the top."
+
+Acceptance greps clean for all 13 carry-forward categories (note: `${TENANT_ID}` in librechat is Azure AD API terminology, not Catalyst platform terminology — permitted reference).
+
+**docs/PLATFORM-TECH-STACK.md** sixth-cycle deep-read:
+- L3 status banner: "Authoritative target stack. **Updated:** 2026-04-27" ✓
+- §1 (L10-22) union-equality: Catalyst control plane (15) + Per-host-cluster infrastructure (21) + Application Blueprints (27) = 63 components — Pass 40 anchor preserved ✓
+  - Catalyst control plane (15): console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream, openbao, keycloak, spire-server, observability ✓
+  - Per-host-cluster infrastructure (21): cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu, cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, minio, velero, harbor, failover-controller ✓
+  - Application Blueprints (27): cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus ✓
+- §1 L20 multi-category narrative: "Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint" — defense-in-depth anchoring ✓
+- §2 (L26-60) Catalyst control plane subsections §2.1 user-facing, §2.2 backend services, §2.3 supporting services — monotonic ✓
+- §3 (L64-117) Per-host-cluster infrastructure §3.1 networking, §3.2 GitOps/IaC, §3.3 security/policy, §3.4 scaling/ops, §3.5 storage/registry, §3.6 resilience — monotonic ✓
+- §4 (L121-195) Application Blueprints §4.1 data, §4.2 CDC, §4.3 workflow, §4.4 lakehouse, §4.5 communication, §4.6 AI/ML, §4.7 AI safety, §4.8 identity/metering, §4.9 chaos — monotonic; §4.1 valkey row "Redis-compatible cache | REPLICAOF" anchors valkey README cross-ref ✓
+- §5 (L199-212) Composite Blueprints (Products) — bp-catalyst-platform, bp-cortex, bp-axon, bp-fingate, bp-fabric, bp-relay ✓
+- §6 (L216-251) Multi-region mermaid diagram + §5 SECURITY cross-ref ✓
+- §7 (L255-308) Resource estimates §7.1 → §7.2 → §7.3 → §7.4 — **monotonic** (Pass 62 anchor preserved) ✓
+- §8 (L312-) Cluster deployment
+
+PLATFORM-TECH-STACK.md stable across **6 review cycles** (Pass 8, 24, 40, 51, 62, 73, 83 — fix-trajectory: Pass 40 §1 union-equality, Pass 62 §7 subsection ordering).
+
+**platform/valkey/README.md** fourth-cycle deep-read:
+- L3 banner: "Redis-compatible in-memory cache. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.1 — Data services)." ✓ Pass 35 anchor
+- L5: "**Important: Valkey is NOT a Catalyst control-plane component.** The Catalyst control plane uses NATS JetStream KV for its own pub/sub + KV needs (see ARCHITECTURE.md §5 and GLOSSARY.md — `event-spine`). Valkey is purely an Application-tier cache for Apps that want Redis-compatible caching." — Pass 35 NOT-control-plane anchor ✓
+- L7: "Replication via REPLICAOF (per Application's choice; see SRE.md §2.5)." ✓
+- L9 status: "Accepted | **Updated:** 2026-04-27" ✓
+- L20-21: License framing (Redis OSS RSALv2/SSPL not OSS, Dragonfly BSL not OSS, Valkey BSD-3 truly OSS) ✓
+- L26-33 Why Valkey table — BSD-3, Linux Foundation, AWS/Google/Oracle backing ✓
+- L37-69 Architecture diagrams (single-region cluster + multi-region DR) ✓
+- L73-90 DR Strategy: REPLICAOF — `REPLICAOF valkey.<env>.<sovereign-domain> 6379` ✓ **Pass 60 fix preserved** (was previously fully-qualified `primary-valkey.region1.svc.cluster.local`)
+- L94-151 Configuration: Primary StatefulSet + DR Region StatefulSet with `--replicaof valkey.<env>.<sovereign-domain>` ✓
+- L155-162 Use cases (session cache, rate limit, API cache, feature flags) ✓
+- L166-173 Monitoring metrics ✓
+- L177-184 Migration from Redis/Dragonfly drop-in compatibility ✓
+
+valkey fourth-cycle confirms Pass 35 NOT-control-plane banner + Pass 60 canonical DR hostname intact across 4 cycles.
+
+**Defense-in-depth verification for "Valkey is NOT a Catalyst control-plane component"** (architectural anchor across 4 representational levels):
+1. PTS §1 narrative (L20): explicitly states "Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint" ✓
+2. PTS §4.1 table row: valkey under Application Blueprints with Multi-region replication = REPLICAOF ✓
+3. valkey/README L3 banner: "Application Blueprint (see PLATFORM-TECH-STACK.md §4.1)" ✓
+4. valkey/README L5 explicit rejection: "Valkey is NOT a Catalyst control-plane component" with cross-ref to ARCHITECTURE §5 (NATS JetStream is event spine) ✓
+
+**Pass 83: clean.** Twenty-one consecutive architectural-clean passes (63-83). Cycle 6 begins.
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive — first nirvana
+- Cycle 2 (Pass 63-67): 5 consecutive — second nirvana (3 carry-over fixes Lessons #18-20)
+- Cycle 3 (Pass 68-72): 5 consecutive — third nirvana (0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive — fourth nirvana (0 drift)
+- Cycle 5 (Pass 78-82): 5 consecutive — 🎯🎯🎯🎯🎯 fifth nirvana (0 drift)
+- Cycle 6 (Pass 83): 1 consecutive ✓ (so far)
+
+**Loop continues per user's standing instruction. Cycle 6 first pass clean.**
+
 ### Pass 82 — SECURITY fifth-cycle stable; crossplane third-cycle clean — 🎯🎯🎯🎯🎯 FIFTH NIRVANA + 20-CONSECUTIVE-OVERALL
 
 **THIRTIETH clean pass overall**. **TWENTY CONSECUTIVE clean architectural passes** (Pass 63 → 82) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has **5 consecutive cleans (78 → 79 → 80 → 81 → 82) → FIFTH NIRVANA THRESHOLD MET**.
