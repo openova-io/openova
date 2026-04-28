@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: billing
-          image: ghcr.io/openova-io/openova/services-billing:635eec7
+          image: ghcr.io/openova-io/openova/services-billing:7646840
           imagePullPolicy: Always
           ports:
             - containerPort: 8085
