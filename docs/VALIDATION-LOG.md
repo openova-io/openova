@@ -63,6 +63,48 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 74 — NAMING-CONVENTION fifth-cycle stable; neo4j third-cycle clean (cycle 4 Pass 2)
+
+**TWENTY-SECOND clean pass overall**. **TWELVE CONSECUTIVE clean architectural passes** (Pass 63 → 74) spanning cycles 2 → 3 → 4. Cycle 4 has 2 consecutive cleans (73 → 74).
+
+Acceptance greps clean for all 13 carry-forward categories. NAMING subsection-order check: clean.
+
+**docs/NAMING-CONVENTION.md** fifth-cycle deep-read (Pass 31, 37, 42, 50, 60, 64 prior cycle-fixes/scans):
+- §1 Principles: dimension-based naming + don't-repeat-the-parent + building-blocks-not-failover-roles + Tags-carry-what-Names-cannot + Org-identity-in-vcluster — all 5 principles intact
+- §2 Dimension Taxonomy (provider, region, building block, env_type, organization): clean. §2.4 env_type canonical 5-value list (prod/stg/uat/dev/poc)
+- §3 Core Patterns: clean
+- §4 Object-Type Reference (§4.1-§4.8): clean. `hfrp` location-code example for rtz cluster (Pass 60 verified — distinct from `hfmp` for mgt cluster)
+- §5 DNS Pattern: §5.1 control-plane DNS `{component}.{location-code}.{sovereign-domain}` + §5.2 Application DNS `{app}.{environment}.{sovereign-domain}` — both anchors preserved
+- §6 Tags and Labels: clean
+- §7 Multi-Region Architecture: clean
+- §8 OpenOva Own Sovereign Naming: clean
+- §9 Migration Rules: clean
+- §10 Quick Reference Derivation Algorithm: clean
+- §11 Catalyst Environment (User-Facing Object):
+  - §11.1 Naming `{org}-{env_type}` with examples ✓
+  - §11.2 Realization step 1: `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` (e.g. `gitea.hfmp.omantel.openova.io/acme/acme-prod`) — Pass 42 abstract pattern + Pass 37 example URL fixes both held ✓
+  - §11.3 Single-region vs multi-region: clean
+  - §11.4 Why a separate object: clean
+
+NAMING-CONVENTION substantively stable across **5 review cycles** (Pass 31, 37, 42, 50, 60, 64, 74). The doc is the bedrock for downstream-doc canonical references — its stability is what makes drift detection meaningful.
+
+**platform/neo4j/README.md** third-cycle deep-read:
+- L3 banner: "Graph database for knowledge graphs and relationship-based queries. Application Blueprint (§4.6). Used by bp-cortex for knowledge-graph-augmented retrieval alongside Milvus vector search." ✓
+- Graph RAG positioning consistent (L23 mermaid, L52 use case table, L124 §"Graph RAG Queries")
+- Cypher schema examples + GDS integration consistent with §4.6
+
+neo4j third-cycle confirms Pass 30 banner correctness intact across 3 cycles.
+
+**Pass 74: clean.** Twelve consecutive architectural-clean passes (63-74).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana)
+- Cycle 4 (Pass 73-74): 2 consecutive clean ✓ (so far)
+
+12 consecutive overall (63-74). Cycle 4 sustains the convergence pattern. Pass 75-77 clean would meet the 5-consecutive nirvana threshold within cycle 4 = fourth nirvana approach.
+
 ### Pass 73 — PLATFORM-TECH-STACK fifth-cycle stable; nemo-guardrails third-cycle clean (cycle 4 Pass 1)
 
 **TWENTY-FIRST clean pass overall**. **ELEVEN CONSECUTIVE clean architectural passes** (Pass 63 → 73) spanning cycles 2 → 3 → 4. Cycle 4 starts CLEAN.
