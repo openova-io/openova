@@ -63,6 +63,88 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 94 — NAMING-CONVENTION seventh-cycle stable; nemo-guardrails fourth-cycle clean (cycle 8 Pass 2)
+
+**FORTY-SECOND clean pass overall**. **THIRTY-TWO CONSECUTIVE clean architectural passes** (Pass 63 → 94) spanning cycles 2 → 8. Cycle 8 has 2 consecutive cleans (93 → 94).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/NAMING-CONVENTION.md** seventh-cycle deep-read:
+- §2 subsection ordering §2.1 → §2.2 → §2.3 → §2.4 → §2.5 monotonic ✓
+- §2.4 (L115-125) Env Type 3-char canonical (prod|stg|uat|dev|poc) ✓
+- §5 (L261-) DNS patterns (Pass 37/42 anchors):
+  - §5.1 Structure two-pattern split:
+    - **Catalyst control-plane DNS**: `{component}.{location-code}.{sovereign-domain}` ✓
+      - Examples: `console.hfmp.openova.io`, `gitea.hfmp.openova.io` ✓
+    - **Application DNS**: `{app}.{environment}.{sovereign-domain}` (or `{app}.{environment}.{org-domain}` for white-label) ✓
+      - Examples: `marketing-site.acme-prod.omantel.openova.io`, `blog.acme-prod.omantel.openova.io` — env_type 3-char ✓
+  - §5.2 Location Code Lookup Table — 14 entries covering Hetzner/Huawei/OCI ✓
+  - §5.3 Coexistence During Migration
+- §11 subsection ordering §11.1 → §11.2 → §11.3 → §11.4 monotonic ✓
+- §11.1 (L466-472) Environment naming:
+  - Format `{org}-{env_type}`; examples `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatpharmacy-prod` ✓
+  - L472 "DR is a Placement, not an Env Type" anchor: "the canonical values are `prod | stg | uat | dev | poc`" + DR via Placement spec inside `*-prod` Environment ✓
+- §11.2 (L474-483) 6-bullet realization:
+  - 1: Gitea `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` with example `gitea.hfmp.omantel.openova.io/acme/acme-prod` — **Pass 37 example fix + Pass 42 abstract pattern fix preserved** ✓
+  - 4: JetStream Account at Organization level (one per Org); subjects use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning — **Pass 78 reconciliation anchor preserved** ✓
+  - 6: OpenBao path rooted at `org/{org}/env/{env_type}/` ✓
+- §11.3 (L485-492) Single-region vs multi-region table; environment-controller reconciles ✓
+- §11.4 (L494-499) Why separate object: 4 reasons (own Git repo, own Placement metadata, unit of install/uninstall/promotion, naming stable) ✓
+
+NAMING-CONVENTION.md stable across **7 review cycles** (Pass 9, 22, 37, 42, 65, 75, 84, 94 — fix-trajectory: Pass 22 §6.3 Environment format, Pass 37 §11.2 example URL, Pass 42 §11.2 abstract pattern, Pass 78 §11.2 JetStream Account scoping reconciliation).
+
+**Defense-in-depth verification: DNS pattern split** (across all docs and component READMEs):
+- NAMING §5.1 control-plane pattern: `{component}.{location-code}.{sovereign-domain}` ✓
+- NAMING §5.1 Application pattern: `{app}.{environment}.{sovereign-domain}` ✓
+- NAMING §11.2 bullet 1: gitea repo path uses control-plane pattern ✓
+- SOVEREIGN-PROVISIONING §3 L65-67: gitea/console/admin all control-plane pattern ✓
+- SOVEREIGN-PROVISIONING §5 L109: console control-plane pattern ✓
+- BLUEPRINT-AUTHORING §1 L16: gitea control-plane pattern ✓
+- BLUEPRINT-AUTHORING §12 L415: gitea control-plane pattern ✓
+- SRE §12 L442/L451: gitea control-plane pattern ✓
+- llm-gateway L72: harbor control-plane pattern ✓
+- llm-gateway L93: keycloak control-plane pattern ✓
+- llm-gateway L186/L189: llm-gateway Application pattern ✓
+- valkey L79/L147: valkey Application pattern (Pass 60) ✓
+- PERSONAS §4.1 L88: gitea control-plane pattern (Ahmed) ✓
+- PERSONAS §4.2 L109/L116/L150: gitea + api control-plane pattern (Layla) ✓
+
+Fourteen cross-document anchors all consistent.
+
+**platform/nemo-guardrails/README.md** fourth-cycle deep-read (file unchanged since Pass 84):
+- L1 title "NeMo Guardrails"
+- L3 banner: "AI safety firewall for LLM deployments. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.7 — AI safety). Sits between user input and LLM in `bp-cortex` to block prompt injection, PII leakage, off-topic content, and hallucinated citations." ✓ — Pass 31 anchor
+- L5 metadata: "AI Safety | Application Blueprint" ✓
+- L13-19 features: prompt injection detection, PII filtering, hallucination detection, topic boundary enforcement, custom rail definitions (Colang)
+- L23-28 integration table:
+  - KServe — Deployed as pre/post-processing step
+  - LLM Gateway — Inline filtering for all LLM requests
+  - LangFuse — Traces guardrail activations
+  - Grafana — Guardrail metrics and alerting
+- L32 Used By: OpenOva Cortex
+- L36-46 Flux Kustomization deployment
+
+nemo-guardrails fourth-cycle confirms Pass 31 banner (Application Blueprint, §4.7 AI safety, bp-cortex consumer) intact across 4 cycles.
+
+**Bidirectional cross-reference verification** (nemo-guardrails ↔ companion AI safety/observability components):
+- nemo-guardrails L25 KServe integration ↔ kserve/README pre/post-processing ✓
+- nemo-guardrails L26 LLM Gateway inline ↔ llm-gateway/README routes via gateway ✓
+- nemo-guardrails L27 LangFuse traces ↔ langfuse/README L28 "Traces guardrail activations" ✓
+- PTS §4.7 row: `**[nemo-guardrails](../platform/nemo-guardrails/)** | AI safety firewall` ✓
+- PTS §5 bp-cortex: "Composes...nemo-guardrails, langfuse" ✓
+- BUSINESS-STRATEGY §5.1 L193: "OpenOva Cortex...AI safety (NeMo Guardrails)" ✓
+- TECHNOLOGY-FORECAST A La Carte L74: "nemo-guardrails | 90 | 92 | 93 | Rising | AI safety regulations expanding" ✓
+
+Seven cross-document anchors all consistent.
+
+**Pass 94: clean.** Thirty-two consecutive architectural-clean passes (63-94). Cycle 8 has 2 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-7: 35 consecutive clean (7 nirvana achieved)
+- Cycle 8 (Pass 93-94): 2 consecutive clean ✓ (so far)
+
+Total: 42 clean passes overall, 32 consecutive (Pass 63-94). Loop continues per user's standing instruction.
+
 ### Pass 93 — PLATFORM-TECH-STACK seventh-cycle stable; valkey fifth-cycle clean (cycle 8 Pass 1 — RESTART FROM TOP)
 
 **FORTY-FIRST clean pass overall**. **THIRTY-ONE CONSECUTIVE clean architectural passes** (Pass 63 → 93) spanning cycles 2 → 8. Cycle 8 begins after seventh nirvana threshold (Pass 92) per user's standing instruction "restart from the top."
