@@ -1,0 +1,141 @@
+# XRD: XHetznerLoadBalancer — Catalyst's canonical Hetzner load-balancer
+# composite. Wraps:
+#   - hcloud_load_balancer
+#   - hcloud_load_balancer_network (attaches LB to private network)
+#   - hcloud_load_balancer_target (zero or more — typically the cp/worker servers)
+#   - hcloud_load_balancer_service (zero or more — port mappings)
+#
+# The expected use cases on a Sovereign post-Phase-1:
+#   - Adding a regional ingress LB when expanding to a new region
+#   - Adding service-specific LBs (e.g. dedicated TURN/STUN LB for stunner)
+#   - Adopting the Phase-0-provisioned LB by external-name
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xhetznerloadbalancers.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  group: compose.openova.io
+  names:
+    kind: XHetznerLoadBalancer
+    plural: xhetznerloadbalancers
+  claimNames:
+    kind: HetznerLoadBalancer
+    plural: hetznerloadbalancers
+  defaultCompositionRef:
+    name: hetzner-load-balancer.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, type, region, networkId, algorithm]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        LB name in Hetzner. Convention:
+                        catalyst-<sovereign-fqdn-with-dashes>-lb
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    sovereignFQDN:
+                      type: string
+                    type:
+                      type: string
+                      description: |
+                        Hetzner LB type slug — lb11, lb21, lb31.
+                      enum: [lb11, lb21, lb31]
+                    region:
+                      type: string
+                      description: |
+                        Hetzner location.
+                      pattern: '^[a-z]+[0-9]?$'
+                    algorithm:
+                      type: string
+                      enum: [round_robin, least_connections]
+                    networkId:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID — the LB attaches to this
+                        private network so it can reach servers via private IPs.
+                    targetServerIds:
+                      type: array
+                      description: |
+                        Hetzner numeric server IDs to add as backend targets.
+                        Typically status.serverId from one or more XHetznerServer.
+                      items:
+                        type: string
+                    services:
+                      type: array
+                      description: |
+                        Listener-port mappings. Catalyst convention for the
+                        bootstrap LB is two services:
+                          80 → 31080 (HTTP, Cilium Gateway NodePort)
+                          443 → 31443 (HTTPS, Cilium Gateway NodePort)
+                      minItems: 1
+                      items:
+                        type: object
+                        required: [protocol, listenPort, destinationPort]
+                        properties:
+                          protocol:
+                            type: string
+                            enum: [tcp, http, https]
+                          listenPort:
+                            type: integer
+                            minimum: 1
+                            maximum: 65535
+                          destinationPort:
+                            type: integer
+                            minimum: 1
+                            maximum: 65535
+                          proxyProtocol:
+                            type: boolean
+                            default: false
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                loadBalancerId:
+                  type: string
+                ipv4:
+                  type: string
+                  description: |
+                    Public IPv4 of the LB. catalyst-environment-controller
+                    reads this and writes A records via Crossplane DNS XR
+                    (or Dynadot for omani.works pool domains).
+                ipv6:
+                  type: string
+      additionalPrinterColumns:
+        - name: LB-ID
+          type: string
+          jsonPath: .status.loadBalancerId
+        - name: TYPE
+          type: string
+          jsonPath: .spec.parameters.type
+        - name: REGION
+          type: string
+          jsonPath: .spec.parameters.region
+        - name: PUBLIC-IP
+          type: string
+          jsonPath: .status.ipv4
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

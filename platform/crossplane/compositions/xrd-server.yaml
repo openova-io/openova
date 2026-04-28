@@ -1,0 +1,149 @@
+# XRD: XHetznerServer — Catalyst's canonical Hetzner server (VM) composite.
+#
+# Wraps:
+#   - hcloud_server (the VM, including network attachment)
+#
+# The expected use cases on a Sovereign post-Phase-1:
+#   - Adding a worker node to an existing host cluster
+#   - Provisioning an additional control-plane node when scaling to HA
+#   - Provisioning servers for new building blocks (rtz, dmz) added later
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #4 every cloud-specific
+# value (region, server_type, image) is a schema field — no hardcoding.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xhetznerservers.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  group: compose.openova.io
+  names:
+    kind: XHetznerServer
+    plural: xhetznerservers
+  claimNames:
+    kind: HetznerServer
+    plural: hetznerservers
+  defaultCompositionRef:
+    name: hetzner-server.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, serverType, image, region, networkId, sshKeyName]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Server name in Hetzner Cloud. Convention:
+                        catalyst-<sovereign-fqdn-with-dashes>-{cp,w}<index>
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    sovereignFQDN:
+                      type: string
+                    role:
+                      type: string
+                      description: |
+                        Catalyst role label — written to the server's labels
+                        and to the catalyst.openova.io/role label. Used by
+                        kubectl selectors and observability dashboards.
+                      enum: [control-plane, worker, edge]
+                    serverType:
+                      type: string
+                      description: |
+                        Hetzner server type slug — cx22, cx32, cx42, cpx21,
+                        cpx31, cpx41, ccx13, ccx23, ccx33, ccx43, etc.
+                      pattern: '^(cx|cpx|ccx)[0-9]{2}$'
+                    image:
+                      type: string
+                      description: |
+                        Hetzner image slug — ubuntu-24.04, ubuntu-22.04,
+                        debian-12, fedora-40, etc.
+                      pattern: '^[a-z]+-[0-9]+\.?[0-9]*$'
+                    region:
+                      type: string
+                      description: |
+                        Hetzner location — fsn1, nbg1, hel1, ash, hil, sin.
+                      pattern: '^[a-z]+[0-9]?$'
+                    networkId:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID to attach this server to —
+                        typically status.networkId from an XHetznerNetwork.
+                    privateIp:
+                      type: string
+                      description: |
+                        Static IPv4 inside the network's subnet.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+                    sshKeyName:
+                      type: string
+                      description: |
+                        Name of an existing Hetzner SSH key (created by the
+                        Phase-0 OpenTofu module) that can SSH into this server.
+                    firewallIds:
+                      type: array
+                      description: |
+                        Hetzner numeric firewall IDs to apply to this server.
+                      items:
+                        type: string
+                    userData:
+                      type: string
+                      description: |
+                        cloud-init user-data script. Catalyst leaves this
+                        empty for day-2 nodes — the cloud-init that joins
+                        a worker to the existing k3s cluster is templated
+                        by the catalyst-environment-controller using the
+                        bootstrap k3s_token retrieved from OpenBao.
+                    placementGroupName:
+                      type: string
+                      description: |
+                        Optional placement-group name — for spread/anti-affinity.
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                serverId:
+                  type: string
+                publicIPv4:
+                  type: string
+                publicIPv6:
+                  type: string
+                privateIPv4:
+                  type: string
+      additionalPrinterColumns:
+        - name: SERVER-ID
+          type: string
+          jsonPath: .status.serverId
+        - name: ROLE
+          type: string
+          jsonPath: .spec.parameters.role
+        - name: TYPE
+          type: string
+          jsonPath: .spec.parameters.serverType
+        - name: REGION
+          type: string
+          jsonPath: .spec.parameters.region
+        - name: PUBLIC-IP
+          type: string
+          jsonPath: .status.publicIPv4
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

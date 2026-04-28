@@ -1,0 +1,111 @@
+# XRD: XHetznerNetwork — Catalyst's canonical Hetzner private network composite.
+#
+# Wraps:
+#   - hcloud_network (the private VPC range)
+#   - hcloud_network_subnet (a subnet inside the network, in a network zone)
+#
+# Per docs/BLUEPRINT-AUTHORING.md §8 the canonical XRD group is
+# compose.openova.io/v1alpha1 — NOT catalyst.openova.io (that's the Catalyst CRD
+# group used for Sovereign/Organization/Environment/Application/Blueprint).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #4 every cloud-specific value
+# (CIDR, subnet range, network zone) is a schema field — no hardcoded values.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xhetznernetworks.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  group: compose.openova.io
+  names:
+    kind: XHetznerNetwork
+    plural: xhetznernetworks
+  claimNames:
+    kind: HetznerNetwork
+    plural: hetznernetworks
+  defaultCompositionRef:
+    name: hetzner-network.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, ipRange, subnetIpRange, networkZone]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Network name as it appears in the Hetzner Cloud console.
+                        Convention: catalyst-<sovereign-fqdn-with-dashes>-net
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    ipRange:
+                      type: string
+                      description: |
+                        Top-level VPC CIDR. Catalyst default 10.0.0.0/16.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                    subnetIpRange:
+                      type: string
+                      description: |
+                        Subnet CIDR — must be inside ipRange. Catalyst default 10.0.1.0/24.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                    networkZone:
+                      type: string
+                      description: |
+                        Hetzner network zone — eu-central, us-east, us-west, ap-southeast.
+                      enum: [eu-central, us-east, us-west, ap-southeast]
+                    sovereignFQDN:
+                      type: string
+                      description: |
+                        FQDN of the owning Sovereign — written as a label so
+                        operators can grep all resources for one Sovereign.
+                  description: |
+                    Hetzner private network parameters. All fields are required;
+                    no defaults are applied so the caller is forced to make
+                    the topology explicit.
+                providerConfigRef:
+                  type: object
+                  description: |
+                    Override the default ProviderConfig (default-hcloud).
+                    Useful for multi-account Sovereigns.
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                networkId:
+                  type: string
+                  description: |
+                    Hetzner numeric network ID, populated after the network
+                    exists. Other XRs (XHetznerServer, XHetznerLoadBalancer)
+                    reference this to attach themselves to the network.
+                subnetIpRange:
+                  type: string
+      additionalPrinterColumns:
+        - name: NETWORK-ID
+          type: string
+          jsonPath: .status.networkId
+        - name: ZONE
+          type: string
+          jsonPath: .spec.parameters.networkZone
+        - name: CIDR
+          type: string
+          jsonPath: .spec.parameters.ipRange
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

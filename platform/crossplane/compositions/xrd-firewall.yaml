@@ -1,0 +1,111 @@
+# XRD: XHetznerFirewall — Catalyst's canonical Hetzner firewall composite.
+#
+# Wraps:
+#   - hcloud_firewall (the firewall and its rules)
+#
+# Per docs/BLUEPRINT-AUTHORING.md §8 the canonical XRD group is
+# compose.openova.io/v1alpha1.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xhetznerfirewalls.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  group: compose.openova.io
+  names:
+    kind: XHetznerFirewall
+    plural: xhetznerfirewalls
+  claimNames:
+    kind: HetznerFirewall
+    plural: hetznerfirewalls
+  defaultCompositionRef:
+    name: hetzner-firewall.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, rules]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Firewall name in Hetzner Cloud. Convention:
+                        catalyst-<sovereign-fqdn-with-dashes>-fw
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    sovereignFQDN:
+                      type: string
+                      description: |
+                        FQDN of the owning Sovereign — written as label.
+                    rules:
+                      type: array
+                      description: |
+                        Firewall rules. Order does not matter — Hetzner
+                        evaluates all rules and accepts on first match.
+                      minItems: 1
+                      items:
+                        type: object
+                        required: [direction, protocol]
+                        properties:
+                          direction:
+                            type: string
+                            enum: [in, out]
+                          protocol:
+                            type: string
+                            enum: [tcp, udp, icmp, esp, gre]
+                          port:
+                            type: string
+                            description: |
+                              Single port (e.g. "443"), range (e.g.
+                              "30000-32767"), or omitted for icmp/esp/gre.
+                          sourceIps:
+                            type: array
+                            description: |
+                              Source CIDR list for direction=in. Catalyst
+                              convention: ["0.0.0.0/0", "::/0"] for public,
+                              operator-specific CIDR for SSH (22).
+                            items:
+                              type: string
+                          destinationIps:
+                            type: array
+                            description: |
+                              Destination CIDR list for direction=out.
+                            items:
+                              type: string
+                          description:
+                            type: string
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                firewallId:
+                  type: string
+                  description: |
+                    Hetzner numeric firewall ID. Servers (XHetznerServer)
+                    reference this via firewallIds to apply the rules.
+      additionalPrinterColumns:
+        - name: FIREWALL-ID
+          type: string
+          jsonPath: .status.firewallId
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

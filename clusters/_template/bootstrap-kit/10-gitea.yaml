@@ -1,0 +1,61 @@
+# bp-gitea — Catalyst Blueprint #10 of 11. Per-Sovereign Git server with
+# the public Blueprint catalog mirror seeded. Catalyst's catalog-svc reads
+# Blueprint metadata from this Gitea (not from the public openova monorepo
+# directly) so the Sovereign is air-gap-ready by construction.
+#
+# Wrapper chart: platform/gitea/chart/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+  labels:
+    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-gitea
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io/bp-gitea
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-gitea
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: gitea
+  targetNamespace: gitea
+  dependsOn:
+    - name: bp-keycloak
+  chart:
+    spec:
+      chart: bp-gitea
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-gitea
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    global:
+      sovereignFQDN: SOVEREIGN_FQDN_PLACEHOLDER
+    # gitea hostname is gitea.SOVEREIGN_FQDN_PLACEHOLDER. The DNS A record
+    # was already published by the Phase-0 catalyst-dns helper.
+    ingress:
+      hosts:
+        - host: gitea.SOVEREIGN_FQDN_PLACEHOLDER
+          paths:
+            - path: /
+              pathType: Prefix

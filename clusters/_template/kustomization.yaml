@@ -1,0 +1,15 @@
+# Per-Sovereign Flux Kustomization root.
+#
+# Copied from clusters/_template/ → clusters/<sovereign-fqdn>/ at provisioning
+# time, with SOVEREIGN_FQDN_PLACEHOLDER substituted. The Sovereign's k3s
+# control plane (cloud-init bootstrap) installs Flux core, then applies a
+# GitRepository pointing at this Sovereign's directory. From there Flux owns
+# everything.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - flux-system
+  - infrastructure
+  - bootstrap-kit

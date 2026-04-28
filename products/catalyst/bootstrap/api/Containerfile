@@ -10,6 +10,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api
+# catalyst-dns helper — invoked by the OpenTofu module's null_resource.dns_pool
+# via local-exec at Phase-0 apply time. Lives at /usr/local/bin/catalyst-dns
+# in the runtime image so the OpenTofu run (which executes inside this same
+# container — the catalyst-api Pod is also the OpenTofu runner) can shell out
+# to it. See infra/hetzner/main.tf comments around null_resource.dns_pool.
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/catalyst-dns
 
 FROM docker.io/library/alpine:3.20
 
@@ -28,6 +34,7 @@ RUN apk add --no-cache ca-certificates curl bash \
     && chmod +x /usr/local/bin/helm
 
 COPY --from=build /catalyst-api /catalyst-api
+COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
 RUN adduser -D -u 65534 nonroot
 USER 65534:65534
 EXPOSE 8080

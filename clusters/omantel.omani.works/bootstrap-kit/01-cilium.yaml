@@ -1,0 +1,47 @@
+# bp-cilium — Catalyst bootstrap-kit Blueprint. CNI must come first; k3s started with --flannel-backend=none precisely so Cilium can take over.
+#
+# Wrapper chart: platform/cilium/chart/
+# Catalyst-curated values: platform/cilium/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cilium
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io/bp-cilium
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cilium
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: cilium
+  targetNamespace: kube-system
+  chart:
+    spec:
+      chart: bp-cilium
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cilium
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3

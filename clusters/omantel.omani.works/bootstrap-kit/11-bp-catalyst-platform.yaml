@@ -1,0 +1,70 @@
+# bp-catalyst-platform — Catalyst Blueprint #11 of 11. The umbrella
+# Blueprint that brings up the Catalyst control plane: console, marketplace,
+# admin, catalog-svc, projector, provisioning, environment-controller,
+# blueprint-controller, billing.
+#
+# Per docs/ARCHITECTURE.md §11 (Catalyst-on-Catalyst): once this is Ready,
+# the Sovereign is fully self-sufficient — sovereign-admin can log into
+# console.omantel.omani.works and proceed with Phase 2 day-1 setup.
+#
+# Wrapper chart: products/catalyst/chart/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-system
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-catalyst-platform
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io/bp-catalyst-platform
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-catalyst-platform
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: catalyst-platform
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-gitea
+  chart:
+    spec:
+      chart: bp-catalyst-platform
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-catalyst-platform
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # Per-Sovereign overrides for the umbrella — sovereign-FQDN-derived hostnames
+  # for console/admin/api. All chart-level Catalyst service config (image refs,
+  # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
+  values:
+    global:
+      sovereignFQDN: omantel.omani.works
+    ingress:
+      hosts:
+        console:
+          host: console.omantel.omani.works
+        admin:
+          host: admin.omantel.omani.works
+        marketplace:
+          host: omantel.omani.works
+        api:
+          host: api.omantel.omani.works

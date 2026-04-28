@@ -1,0 +1,49 @@
+# bp-crossplane — Catalyst bootstrap-kit Blueprint. Day-2 cloud resource control plane. Adopts management of resources OpenTofu created in Phase 0 (Phase 1 hand-off per SOVEREIGN-PROVISIONING.md §4).
+#
+# Wrapper chart: platform/crossplane/chart/
+# Catalyst-curated values: platform/crossplane/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crossplane-system
+  labels:
+    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-crossplane
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io/bp-crossplane
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-crossplane
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: crossplane
+  targetNamespace: crossplane-system
+  dependsOn:
+    - name: bp-flux
+  chart:
+    spec:
+      chart: bp-crossplane
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-crossplane
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
