@@ -63,6 +63,42 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 78 — SOVEREIGN-PROVISIONING fourth-cycle stable; cnpg fourth-cycle clean (cycle 5 Pass 1)
+
+**TWENTY-SIXTH clean pass overall**. **SIXTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 78) spanning cycles 2 → 3 → 4 → 5. Cycle 5 starts CLEAN.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SOVEREIGN-PROVISIONING.md** fourth-cycle deep-read (Pass 19, 29, 41, 64 prior cycles):
+- §1 Inputs: clean
+- §2 catalyst-provisioner: L29 self-sufficiency framing + L36 bp-catalyst-provisioner self-host (Pass 30 scope-confusion fix anchored) ✓
+- §3 Phase 0 Bootstrap: L65-66 DNS records canonical (Pass 29 fix) ✓; 11-component bootstrap kit
+- §4 Phase 1 Hand-off: L94 8-item self-sufficiency list (Pass 41 fix held: includes SPIRE + observability) ✓
+- §5 Phase 2 Day-1 (Pass 29 console URL canonical) ✓
+- §6 Phase 3 Steady-state ✓
+- §7-§10 Multi-region topology, Add-region, Air-gap, Migration — all consistent
+
+SOVEREIGN-PROVISIONING substantively stable across **4 review cycles** (Pass 19, 29, 41, 64, 78).
+
+**platform/cnpg/README.md** fourth-cycle deep-read (Pass 35, 41, 61 prior cycles):
+- L3 banner: §4.1 Data services, used by FerretDB + Gitea metadata, WAL streaming async standby ✓
+- All 4 instances of `namespace: databases` consistent ✓
+- L88 `http://minio.storage.svc:9000` (Pass 41 namespace fix) ✓
+- L122 `host: postgres.<env>.<sovereign-domain>` (Pass 35 Application DNS) ✓
+
+cnpg fourth-cycle confirms Pass 35 + Pass 41 fixes intact across 4 review cycles.
+
+**Pass 78: clean.** Sixteen consecutive architectural-clean passes (63-78).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean (1st nirvana)
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana, 0 new drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean (fourth nirvana, 0 new drift)
+- Cycle 5 (Pass 78): 1 clean (start) ✓
+
+16 consecutive overall (63-78). Cycle 5 starts where cycle 4 ended — convergence sustained across the cycle 4-to-5 transition. The validation loop continues to verify continued architectural stability with no new drift discovery.
+
 ### Pass 77 — PERSONAS fifth-cycle stable; bge third-cycle clean — 🎯🎯🎯🎯 FOURTH NIRVANA APPROACH MET + 15-CONSECUTIVE OVERALL
 
 **TWENTY-FIFTH clean pass overall**. **FIFTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 77) spanning cycles 2 → 3 → 4.
