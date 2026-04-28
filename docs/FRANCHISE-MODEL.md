@@ -57,10 +57,12 @@ API endpoints (current implementation, served by `core/services/billing`):
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
-| `GET /billing/admin/promos` | `superadmin` | List live vouchers (soft-deleted excluded). |
-| `POST /billing/admin/promos` | `superadmin` | Issue / upsert a voucher (resurrects a soft-deleted code on conflict). |
-| `DELETE /billing/admin/promos/{code}` | `superadmin` | Soft-delete a voucher (sets `deleted_at`, flips `active=false`; preserves audit trail). |
+| `POST /billing/vouchers/issue` | `superadmin` or `sovereign-admin` | Issue / upsert a voucher (resurrects a soft-deleted code on conflict). |
+| `GET /billing/vouchers/list` | `superadmin` or `sovereign-admin` | List live vouchers (soft-deleted excluded). |
+| `DELETE /billing/vouchers/revoke/{code}` | `superadmin` or `sovereign-admin` | Soft-delete a voucher (sets `deleted_at`, flips `active=false`; preserves audit trail). |
+| `POST /billing/vouchers/redeem-preview` | unauthenticated (rate-limit at ingress) | Public landing validation: returns `{code, credit_omr, description, active, accepting_redemptions}` without consuming the code. 404 = not valid; 410 = exists but inactive or capped. |
 | `POST /billing/checkout` (with `promo_code` field) | authenticated user | Customer-side redemption inside the checkout flow: validates code, atomically inserts a `promo_redemptions` row, increments `times_redeemed`, and adds a positive `credit_ledger` entry. Subsequent line-items draw down credit before Stripe is invoked. |
+| `GET /billing/admin/promos`, `POST /billing/admin/promos`, `DELETE /billing/admin/promos/{code}` | `superadmin` (legacy) | Older URL surface kept for the current admin UI until it migrates to `/billing/vouchers/...`. Identical store-layer semantics. |
 
 These endpoints are served by the **existing** `core/admin` Svelte UI + `core/services/billing` Go backend. The same code runs on every Sovereign — both Catalyst-Zero and franchised — so a franchisee gets the same voucher surface automatically when their Sovereign is provisioned.
 
