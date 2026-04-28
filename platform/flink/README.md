@@ -10,7 +10,7 @@ Unified stream and batch processing engine. **Application Blueprint** (see [`doc
 
 Apache Flink is a distributed processing engine for stateful computations over both bounded (batch) and unbounded (streaming) data. Unlike frameworks that bolt streaming onto a batch engine, Flink was built streaming-first, making it the most capable engine for real-time data pipelines. It handles exactly-once semantics, event-time processing, and complex event processing out of the box.
 
-Within OpenOva, Flink serves as the data processing engine for the **Fabric** data and integration product. It ingests data from Kafka topics (via Strimzi), CDC streams (via Debezium), and batch sources, transforms and enriches it, and writes the results directly into Iceberg tables on MinIO. This creates a unified architecture where a single engine handles both real-time streaming and periodic batch ETL, eliminating the need for separate processing frameworks.
+Within OpenOva, Flink serves as the data processing engine for the **Fabric** data and integration product. It ingests data from Kafka topics (via Strimzi), CDC streams (via Debezium), and batch sources, transforms and enriches it, and writes the results directly into Iceberg tables on SeaweedFS. This creates a unified architecture where a single engine handles both real-time streaming and periodic batch ETL, eliminating the need for separate processing frameworks.
 
 Flink runs natively on Kubernetes via the official Flink Kubernetes Operator. The operator manages the full lifecycle of Flink applications: deployment, scaling, savepoints, upgrades, and failure recovery. This Kubernetes-native approach replaces Apache Spark for environments where container orchestration is the primary compute platform, avoiding the complexity of YARN or standalone cluster managers.
 
@@ -23,7 +23,7 @@ flowchart LR
     subgraph Sources["Data Sources"]
         Kafka[Kafka / Strimzi]
         CDC[Debezium CDC]
-        S3[MinIO Batch Files]
+        S3[SeaweedFS Batch Files]
     end
 
     subgraph Flink["Apache Flink on K8s"]
@@ -34,7 +34,7 @@ flowchart LR
     end
 
     subgraph Sinks["Data Sinks"]
-        Iceberg[Iceberg Tables on MinIO]
+        Iceberg[Iceberg Tables on SeaweedFS]
         PG[PostgreSQL / CNPG]
         Alerts[Alert System]
     end
@@ -58,9 +58,9 @@ flowchart LR
     Debezium --> Kafka[Kafka]
     Kafka --> Flink[Apache Flink]
     Flink -->|Write| Iceberg[Iceberg Tables]
-    Iceberg -->|Store| MinIO[MinIO S3]
-    MinIO --> CH[ClickHouse Query]
-    MinIO --> Grafana[Grafana Dashboards]
+    Iceberg -->|Store| SeaweedFS[SeaweedFS S3]
+    SeaweedFS --> CH[ClickHouse Query]
+    SeaweedFS --> Grafana[Grafana Dashboards]
 ```
 
 ---
@@ -98,9 +98,9 @@ spec:
     state.backend: rocksdb
     state.checkpoints.dir: s3://flink-checkpoints/fabric
     state.savepoints.dir: s3://flink-savepoints/fabric
-    s3.endpoint: http://minio.storage.svc:9000
-    s3.access-key: ${MINIO_ACCESS_KEY}
-    s3.secret-key: ${MINIO_SECRET_KEY}
+    s3.endpoint: http://seaweedfs.storage.svc:8333
+    s3.access-key: ${SEAWEEDFS_ACCESS_KEY}
+    s3.secret-key: ${SEAWEEDFS_SECRET_KEY}
     s3.path.style.access: "true"
     execution.checkpointing.interval: "60000"
     execution.checkpointing.min-pause: "30000"

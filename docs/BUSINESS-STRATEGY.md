@@ -31,7 +31,7 @@
 
 We are in an AI gold rush. The companies that extract the most value are the ones with AI-native infrastructure — not AI bolted onto legacy platforms after the fact.
 
-OpenOva is an AI-native infrastructure platform. 52 open-source components on Kubernetes, every one designed to be AI-manageable. Our AI brain — Specter — has pre-built semantic knowledge of every CRD schema, integration dependency, failure mode, health check, upgrade path, and compliance mapping across the entire ecosystem. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on.
+OpenOva is an AI-native infrastructure platform. 53 open-source components on Kubernetes, every one designed to be AI-manageable. Our AI brain — Specter — has pre-built semantic knowledge of every CRD schema, integration dependency, failure mode, health check, upgrade path, and compliance mapping across the entire ecosystem. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on.
 
 Cloud-native is the foundation. AI-native is the differentiator.
 
@@ -39,11 +39,11 @@ We serve organizations that want the economics and freedom of open source with t
 
 **What makes us different:**
 
-- **AI-native, not AI-bolted.** Specter has pre-built semantic knowledge of the entire 52-component ecosystem — structured CRDs, unified telemetry, declarative GitOps. Token-efficient operations that are 10x faster and cheaper than competitors dumping raw context into LLMs.
-- **Turnkey ecosystem, not a single tool.** 52 curated open-source components tested and certified to work together. What takes 2-3 years to build internally, we deploy instantly.
+- **AI-native, not AI-bolted.** Specter has pre-built semantic knowledge of the entire 53-component ecosystem — structured CRDs, unified telemetry, declarative GitOps. Token-efficient operations that are 10x faster and cheaper than competitors dumping raw context into LLMs.
+- **Turnkey ecosystem, not a single tool.** 53 curated open-source components tested and certified to work together. What takes 2-3 years to build internally, we deploy instantly.
 - **Consultancy and platform from day one.** We meet customers where they are — whether they need a guide, a platform, or both.
 - **Open source, genuinely.** Blueprints are free forever. We charge for support, managed services, and expertise — not for access to code.
-- **52 open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more — all under one support contract.
+- **53 open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more — all under one support contract.
 
 ---
 
@@ -64,7 +64,7 @@ Give every organization AI-native infrastructure: curated open-source blueprints
 | **Open source is non-negotiable** | Blueprints are free forever. We don't create lock-in through code. |
 | **Confidence, not complexity** | We sell peace of mind, not more tools to manage. |
 | **Journey partnership** | We walk with customers from first cluster to production-grade platform. |
-| **Convergence over components** | The value is in 52 components working together, not any single one. |
+| **Convergence over components** | The value is in 53 components working together, not any single one. |
 | **AI-native, not AI-bolted** | Every component is designed to be AI-manageable. Specter is built in from day one, not added as a feature. |
 | **Token efficiency is economic advantage** | Structured CRDs + unified telemetry = surgical AI context. 10x fewer tokens than competitors dumping raw logs. |
 | **Authenticity** | No corporate buzzwords, no sugar coating. Open source ethos in everything we do. |
@@ -146,11 +146,11 @@ This is the infrastructure layer of the AI gold rush. And it is wide open.
 OpenOva is both a **consultancy** and a **productized platform**. The customer chooses what they need:
 
 ```
-Need AI-native ops?  → Specter manages your infrastructure with pre-built knowledge of all 52 components.
+Need AI-native ops?  → Specter manages your infrastructure with pre-built knowledge of all 53 components.
 Need a guide?        → We consult. Assessment, architecture, AI modernization roadmap, enablement.
-Need a platform?     → We deploy. 52 AI-manageable components, production-grade, instantly.
+Need a platform?     → We deploy. 53 AI-manageable components, production-grade, instantly.
 Need both?           → We do both. And we stay for Day-2 operations.
-Need specialists?    → Our expert network. 52 OSS disciplines, one contract.
+Need specialists?    → Our expert network. 53 OSS disciplines, one contract.
 Need freedom?        → We migrate. From OpenShift, Oracle, Redis, Datadog — to open source.
 ```
 
@@ -194,10 +194,10 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 | **OpenOva Axon** | SaaS LLM Gateway. The neural link to Cortex. Provides managed AI inference for customers who don't want to invest in GPU infrastructure. Powers Specter agents by default. Routes to Claude, GPT-4, or self-hosted vLLM. |
 | **OpenOva Fingate** | Open Banking product. PSD2/FAPI-compliant fintech sandbox with Keycloak (FAPI authorization), metering (OpenMeter), and 6 custom banking services. Production-ready open banking in hours. |
 | **OpenOva Specter** | AI-powered SOC/NOC agents. Self-healing ecosystem that monitors, detects, correlates, and remediates issues autonomously. DevOps, DevSecOps, SRE, FinOps, and Compliance agents working 24/7. Core built-in capability - not an add-on. |
-| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes 52 curated open-source components (security, observability, GitOps, service mesh, policy engine, supply chain security, DR, identity, secrets, event spine) plus the Catalyst control plane (console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller). Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated platform. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
+| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes 53 curated open-source components (security, observability, GitOps, service mesh, policy engine, supply chain security, DR, identity, secrets, event spine) plus the Catalyst control plane (console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller). Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated platform. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
 | **OpenOva Exodus** | Structured migration program from proprietary to open source. Like an airline modernizing its fleet - you keep flying while every component gets upgraded. Not lift-and-shift. True modernization with zero downtime. |
 | **OpenOva Fabric** | Data & Integration product. Event-driven data integration and lakehouse analytics built on Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, and ClickHouse. |
-| **OpenOva Relay** | Communication product. Enterprise communication platform with email (Stalwart), video/audio (LiveKit), chat (Matrix/Synapse), and WebRTC (STUNner). |
+| **OpenOva Relay** | Communication product. Enterprise communication platform with email (Stalwart), video/audio (LiveKit), chat (Matrix/Synapse), WebRTC (STUNner), and clientless remote-desktop access (Guacamole — RDP/VNC/SSH/kubectl-exec via browser, Keycloak SSO, full session recording for compliance). |
 
 ### 5.2 Architecture Relationship
 
@@ -223,7 +223,7 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 
 ### 5.3 Specter: The AI Brain
 
-Specter is not a bolted-on chatbot. It is the AI brain of the platform — built with pre-built semantic knowledge of the entire 52-component ecosystem.
+Specter is not a bolted-on chatbot. It is the AI brain of the platform — built with pre-built semantic knowledge of the entire 53-component ecosystem.
 
 #### Architecture
 
@@ -269,7 +269,7 @@ Specter's core advantage is pre-built semantic knowledge. It doesn't discover th
 
 | Knowledge Domain | What Specter Knows | How It Uses It |
 |-----------------|-------------------|----------------|
-| **CRD Schemas** | Every field, validation rule, and default across 52 component CRDs | Reads configuration as typed data, not raw text |
+| **CRD Schemas** | Every field, validation rule, and default across 53 component CRDs | Reads configuration as typed data, not raw text |
 | **Integration Graph** | Which components depend on which, data flow paths, failure blast radius | Traces root causes across component boundaries in seconds |
 | **Failure Modes** | Known failure patterns, root causes, and proven remediation steps per component | Matches symptoms to known failures before escalating to LLM |
 | **Health Checks** | What "healthy" means for each component, including edge cases and degraded states | Distinguishes "degraded but functional" from "about to fail" |
@@ -291,7 +291,7 @@ You cannot retrofit this. A platform not designed for AI-manageability will alwa
 
 These are services and capabilities described as what they are:
 
-- **Expert network** - Curated specialists across 52 open-source disciplines
+- **Expert network** - Curated specialists across 53 open-source disciplines
 - **Migration services** - Moving from proprietary to open-source alternatives
 - **Consultancy** - Cloud-native assessment, architecture design, transformation roadmap
 - **Managed operations** - We own the pager, full 24/7 operational responsibility
@@ -336,7 +336,7 @@ OPENOVA SERVICES
 ├── PLATFORM DEPLOYMENT
 │   │
 │   ├── OpenOva Core Deployment
-│   │   What: Full 52 component platform deployed to customer environment
+│   │   What: Full 53 component platform deployed to customer environment
 │   │   Duration: Hours to days depending on complexity
 │   │   Outcome: Production-grade K8s ecosystem, operational from day 1
 │   │
@@ -499,14 +499,14 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 > You know the stack you want — Kubernetes, GitOps, observability, service mesh. But integrating 40+ CNCF projects into a secure, resilient, production-grade ecosystem takes 2-3 years and a team you cannot hire fast enough.
 >
-> OpenOva delivers the converged ecosystem you would build yourself — if you had the time and the team. But here is what you would not build: Specter has pre-built semantic knowledge of every CRD schema, integration dependency, and failure mode across all 52 components. It sends surgical, structured context to LLMs — not raw log dumps. This is token efficiency as an architectural moat. Your competitors who bolt AI onto unstructured platforms will spend 10x more on inference and get worse results.
+> OpenOva delivers the converged ecosystem you would build yourself — if you had the time and the team. But here is what you would not build: Specter has pre-built semantic knowledge of every CRD schema, integration dependency, and failure mode across all 53 components. It sends surgical, structured context to LLMs — not raw log dumps. This is token efficiency as an architectural moat. Your competitors who bolt AI onto unstructured platforms will spend 10x more on inference and get worse results.
 >
 > Multi-region DR with split-brain protection. Zero-trust security from day one. Full observability. And AI agents that actually understand the infrastructure they manage.
 >
 > We can be your consultant, your platform provider, or both. You choose.
 
 **Key metrics for this persona:**
-- 52 integrated open-source components, every one AI-manageable
+- 53 integrated open-source components, every one AI-manageable
 - Specter's semantic knowledge moat (pre-built, not learned at runtime)
 - Token efficiency: 10x fewer tokens than AI-bolted approaches
 - Multi-region DR with tested failover
@@ -516,7 +516,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 **They evaluate the technology. They will operate what we deploy. They care about technical depth, no lock-in, operational reality, and open-source purity.**
 
-> 52 curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Strimzi/Kafka for streaming. Valkey for caching.
+> 53 curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Strimzi/Kafka for streaming. Valkey for caching.
 >
 > Every component exposes structured CRDs. Unified OTel telemetry across the stack. Standardized health endpoints. Declarative GitOps state in Git. This is not just good engineering — it is what makes the platform AI-manageable.
 >
@@ -525,7 +525,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 > Full source access. No proprietary agents. Every blueprint is open source and Kustomize-based. You can read every line, fork if you want, customize what you need.
 
 **Key metrics for this persona:**
-- 52 components, all upstream open source, every one AI-manageable
+- 53 components, all upstream open source, every one AI-manageable
 - Kustomize-based (no proprietary abstraction)
 - Specter decisions are inspectable and auditable
 - Air-gap capable
@@ -546,7 +546,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 **Key metrics for this persona:**
 - Zero-trust architecture from day one
 - Continuous compliance posture (not periodic audits)
-- Pre-built compliance mappings across 52 components (PSD2, DORA, NIS2, SOX)
+- Pre-built compliance mappings across 53 components (PSD2, DORA, NIS2, SOX)
 - Automated vulnerability remediation
 - Audit evidence auto-generated
 - All AI operations inspectable and auditable
@@ -605,7 +605,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 |:-----------|:-------:|:-----------------:|:--------------:|:-------:|:---------:|:-----------------:|:---:|
 | **PLATFORM DEPLOYMENT** | | | | | | | |
 | Turnkey K8s platform (hours) | Yes | Partial (weeks) | No | No | No | No (months) | No (years) |
-| Integrated open-source components | 52 | ~15 | ~8 | 1 | 0 | Varies | DIY |
+| Integrated open-source components | 53 | ~15 | ~8 | 1 | 0 | Varies | DIY |
 | Components tested together | Yes | Yes (their stack) | Partial | N/A | N/A | No | No |
 | Blueprints open source & free | Yes | No | Partial | Yes | No | No | N/A |
 | Multi-cloud support | Yes | Yes | Yes | Yes | Yes | Yes | DIY |
@@ -646,13 +646,13 @@ Every organization has multiple decision-makers. Each cares about different thin
 | Predictive failure detection | Yes | No | No | No | No | No | No |
 | Automated remediation | Yes | No | No | No | No | No | No |
 | **AI-NATIVE ARCHITECTURE** | | | | | | | |
-| Pre-built semantic knowledge of ecosystem | Yes (52 components) | No | No | No | No | No | No |
+| Pre-built semantic knowledge of ecosystem | Yes (53 components) | No | No | No | No | No | No |
 | Token-efficient AI operations | Yes (surgical context) | No | No | No | No | No | No |
 | AI-manageable components (structured CRDs + unified telemetry) | Yes (by design) | Partial | No | Partial | No | No | DIY |
 | **SERVICES** | | | | | | | |
 | Transformation consultancy | Yes | Via partners | No | No | No | Yes | No |
 | Managed operations | Yes | Via partners | No | No | No | Yes | No |
-| Expert network (52 OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
+| Expert network (53 OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
 | SOW / T&M augmentation | Yes | No | No | No | No | Yes | N/A |
 | Skills transfer & enablement | Yes | Training courses | No | No | No | Yes | N/A |
 | **PRICING & FREEDOM** | | | | | | | |
@@ -664,13 +664,13 @@ Every organization has multiple decision-makers. Each cares about different thin
 ### 9.3 Competitive Advantages by Competitor
 
 **vs. Red Hat OpenShift:**
-OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-native operations — any AI they add will be bolted onto an architecture not designed for AI-manageability. OpenOva offers broader ecosystem support (52 vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter with pre-built semantic knowledge of the entire ecosystem.
+OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-native operations — any AI they add will be bolted onto an architecture not designed for AI-manageability. OpenOva offers broader ecosystem support (53 vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter with pre-built semantic knowledge of the entire ecosystem.
 
 **vs. Rancher / SUSE:**
 Rancher is a cluster management tool, not an integrated platform. It helps you manage Kubernetes, but you still build the platform yourself. No integrated GitOps, no observability stack, no policy engine, no DR automation. No AI-native operations — you would need to build and train AI on an ad-hoc collection of components. OpenOva is the complete AI-native platform, not just the management layer.
 
 **vs. Upbound / Crossplane ecosystem:**
-Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 52 components. We don't compete with Crossplane - we include it and support it alongside 50+ other projects.
+Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 53 components. We don't compete with Crossplane - we include it and support it alongside 50+ other projects.
 
 **vs. Humanitec:**
 Humanitec is a platform orchestrator focused on developer experience and the Score specification. It does not provide infrastructure components, security, observability, or operational support. It is complementary in concept but narrow in scope.
@@ -719,7 +719,7 @@ Revenue comes from:
 - Managed services (we own the pager)
 - Transformation consulting (the journey)
 
-**All software is free.** We do not charge for any software component. The entire 52 component platform is open source and free to deploy. Revenue is exclusively from per-vCPU-core platform support subscriptions. No per-component charges. No software licensing fees. Ever.
+**All software is free.** We do not charge for any software component. The entire 53 component platform is open source and free to deploy. Revenue is exclusively from per-vCPU-core platform support subscriptions. No per-component charges. No software licensing fees. Ever.
 
 ### 10.3 Pricing Unit: vCPU Cores Under Management
 
@@ -791,7 +791,7 @@ For ongoing embedded engineering:
 
 | Principle | Rationale |
 |-----------|-----------|
-| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 52 components for the price of one subscription. |
+| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 53 components for the price of one subscription. |
 | **Minimum ELA cap** | Ensures baseline revenue per customer. Below minimum, PAYG is available. |
 | **True-up, not penalty** | Customer grows freely. True-up at renewal is a conversation, not a surprise bill. |
 | **Expert hours roll over** | Builds trust. Customer doesn't lose unused hours (within 1 quarter). |
@@ -872,7 +872,7 @@ For ongoing embedded engineering:
 
 ### 12.1 Purpose
 
-The expert network is one of OpenOva's most important differentiators. Organizations adopting 52 open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
+The expert network is one of OpenOva's most important differentiators. Organizations adopting 53 open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
 
 OpenOva provides a single relationship that connects customers to verified specialists across the entire CNCF ecosystem and beyond.
 

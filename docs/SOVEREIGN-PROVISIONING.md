@@ -20,7 +20,7 @@ How to provision a new **Sovereign** — a self-sufficient deployed instance of 
 | Keycloak topology | `per-organization` (SME) / `shared-sovereign` (corporate) | Determines Keycloak deployment shape. |
 | Federation IdP (optional) | Azure AD / Okta / Google / etc. | For corporate; SME tier defers to per-Org Org-IdP federation. |
 | TLS strategy | Let's Encrypt / cert-manager / corporate CA | cert-manager-managed, Let's Encrypt by default. |
-| Object storage | Cloud-provider native | Used by Velero, MinIO tiering, Harbor. |
+| Object storage | Cloud-provider native | Used as the cold-tier backend behind SeaweedFS (which is the in-cluster S3 encapsulation layer that all consumers — Velero, Harbor, CNPG WAL, OpenSearch snapshots, Loki/Mimir/Tempo, Iceberg — talk to). |
 
 ---
 

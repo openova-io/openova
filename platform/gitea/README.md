@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph Backend["Backend"]
         CNPG[CNPG Postgres]
-        MinIO[MinIO Storage]
+        SeaweedFS[SeaweedFS Storage]
     end
 
     subgraph Integrations
@@ -40,7 +40,7 @@ flowchart TB
 
     Web --> CNPG
     Git --> CNPG
-    Actions --> MinIO
+    Actions --> SeaweedFS
     Flux -->|"Clone"| Git
     Console -->|"Discover"| Git
 ```
@@ -105,9 +105,9 @@ spec:
             - name: GITEA__database__HOST
               value: gitea-postgres-rw.databases.svc:5432
             - name: GITEA__storage__STORAGE_TYPE
-              value: minio
-            - name: GITEA__storage__MINIO_ENDPOINT
-              value: minio.storage.svc:9000
+              value: seaweedfs
+            - name: GITEA__storage__SEAWEEDFS_ENDPOINT
+              value: seaweedfs.storage.svc:8333
 ```
 
 ### Mirror Configuration
@@ -180,15 +180,15 @@ spec:
 | Catalyst console | Repository discovery, templates |
 | External Secrets | Token management |
 | CNPG | PostgreSQL database |
-| MinIO | LFS and Actions storage |
+| SeaweedFS | LFS and Actions storage |
 
 ---
 
 ## Backup
 
 Gitea data is backed up via:
-- CNPG for PostgreSQL (WAL streaming to async standby; backed up via Velero to MinIO + cloud archival).
-- MinIO replication for LFS/Actions storage.
+- CNPG for PostgreSQL (WAL streaming to async standby; backed up via Velero to SeaweedFS + cloud archival).
+- SeaweedFS replication for LFS/Actions storage.
 - Velero scheduled backups of the gitea namespace.
 
 ---

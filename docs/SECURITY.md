@@ -125,7 +125,7 @@ Pod                   catalyst-secret-sidecar          OpenBao (DB engine)
 
 The sidecar is automatic for any Pod whose Blueprint declares `dynamicSecrets: true`. Apps that prefer in-process can use the Catalyst SDK directly. Apps that can't do either get a rolling restart at the TTL boundary (acceptable for low-tier workloads).
 
-**Database engines supported:** PostgreSQL (CNPG), FerretDB, MongoDB-compatible, ClickHouse, Valkey, MinIO/S3.
+**Database engines supported:** PostgreSQL (CNPG), FerretDB, MongoDB-compatible, ClickHouse, Valkey, SeaweedFS/S3.
 
 ---
 

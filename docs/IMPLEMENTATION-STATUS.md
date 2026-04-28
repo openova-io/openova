@@ -85,7 +85,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 | Sigstore | 🚧 | README only. |
 | Syft + Grype | 🚧 | README only. |
 | VPA, KEDA, Reloader | 🚧 | READMEs only. |
-| MinIO, Velero, Harbor | 🚧 | READMEs only. |
+| SeaweedFS, Velero, Harbor | 🚧 | READMEs only. |
 | failover-controller | 🚧 | README only. |
 
 ---

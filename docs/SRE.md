@@ -89,7 +89,7 @@ Failover Controller uses a **cloud witness** for lease-based authority:
 
 ### 2.5 Data replication patterns
 
-These apply to stateful components — Application Blueprints (data services) **and** per-host-cluster infrastructure with state (MinIO, Harbor). The Catalyst control plane's own state-bearing components use different patterns: see [`SECURITY.md`](SECURITY.md) for OpenBao and [`ARCHITECTURE.md`](ARCHITECTURE.md) for NATS JetStream.
+These apply to stateful components — Application Blueprints (data services) **and** per-host-cluster infrastructure with state (SeaweedFS, Harbor). The Catalyst control plane's own state-bearing components use different patterns: see [`SECURITY.md`](SECURITY.md) for OpenBao and [`ARCHITECTURE.md`](ARCHITECTURE.md) for NATS JetStream.
 
 | Component | Layer | Replication method | RPO |
 |---|---|---|---|
@@ -101,7 +101,7 @@ These apply to stateful components — Application Blueprints (data services) **
 | OpenSearch | Application Blueprint | Cross-cluster replication | Seconds |
 | Milvus | Application Blueprint | Collection sync | Minutes |
 | Neo4j | Application Blueprint | Causal cluster replication | Seconds |
-| MinIO | Per-host-cluster infra | Bucket replication | Minutes |
+| SeaweedFS | Per-host-cluster infra | Cross-region async bucket replication + cold-tier passthrough to shared cloud archive | Minutes |
 | Harbor | Per-host-cluster infra | Registry replication | Minutes |
 | Gitea | Catalyst control plane | Intra-cluster HA replicas + CNPG primary-replica (NOT cross-region mirror — see [platform/gitea/README.md](../platform/gitea/README.md) §"Multi-Region Strategy"). DR for Gitea is via mgt-cluster recovery, not bidirectional sync. | Seconds (intra-cluster only) |
 
@@ -256,9 +256,9 @@ flowchart LR
 All Catalyst control-plane components support air-gap:
 
 - Harbor — local registry with replication
-- MinIO — local object storage
+- SeaweedFS — local S3 + cold-tier encapsulation (cold backend can be air-gap-internal if no cloud archive is reachable)
 - Flux — reconciles from local Git
-- Velero — backups to local MinIO
+- Velero — backups to local SeaweedFS
 - Grafana stack — self-contained observability
 - OpenBao + Keycloak — fully self-hosted; no external dependencies
 
@@ -266,7 +266,7 @@ All Catalyst control-plane components support air-gap:
 
 | Component | Air-gap requirement |
 |---|---|
-| vLLM | Pre-download model weights to MinIO |
+| vLLM | Pre-download model weights to SeaweedFS |
 | BGE-M3 | Pre-download embedding models |
 | Milvus | No external dependencies |
 | Neo4j | No external dependencies |
@@ -282,8 +282,8 @@ All Catalyst control-plane components support air-gap:
 | Blueprint OCI manifests | Harbor → blueprint-controller registers |
 | Git repositories | Self-hosted Gitea |
 | OS packages | Local mirror |
-| LLM model weights | MinIO |
-| Embedding models | MinIO |
+| LLM model weights | SeaweedFS |
+| Embedding models | SeaweedFS |
 
 ---
 

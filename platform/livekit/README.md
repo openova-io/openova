@@ -16,14 +16,14 @@ LiveKit provides WebRTC-based real-time communication infrastructure for video c
 - Video conferencing and screen sharing
 - Audio rooms and live streaming
 - Data channels for real-time messaging
-- Recording and egress to MinIO
+- Recording and egress to SeaweedFS
 
 ## Integration
 
 | Component | Integration |
 |-----------|-------------|
 | STUNner | Kubernetes-native TURN/STUN for NAT traversal |
-| MinIO | Recording storage |
+| SeaweedFS | Recording storage |
 | Keycloak | Authentication via OIDC |
 | Grafana | Call quality metrics |
 

@@ -39,7 +39,7 @@ flowchart TB
 
     subgraph Tier["Tiered Storage"]
         Hot[Hot: Local]
-        Cold[Cold: MinIO]
+        Cold[Cold: SeaweedFS]
         Archive[Archive: R2]
     end
 
@@ -84,21 +84,21 @@ flowchart LR
     end
 
     subgraph Warm["Warm (30 days)"]
-        MinIO[MinIO]
+        SeaweedFS[SeaweedFS]
     end
 
     subgraph Cold["Cold (1 year)"]
         R2[Cloudflare R2]
     end
 
-    Local -->|"After 7d"| MinIO
-    MinIO -->|"After 30d"| R2
+    Local -->|"After 7d"| SeaweedFS
+    SeaweedFS -->|"After 30d"| R2
 ```
 
 | Tier | Duration | Storage |
 |------|----------|---------|
 | Hot | 0-7 days | Local PV |
-| Warm | 7-30 days | MinIO |
+| Warm | 7-30 days | SeaweedFS |
 | Cold | 30d-1 year | Cloudflare R2 |
 
 ---
@@ -148,10 +148,10 @@ loki:
   storage:
     type: s3
     s3:
-      endpoint: minio.storage.svc:9000
+      endpoint: seaweedfs.storage.svc:8333
       bucketnames: loki-data
-      access_key_id: ${MINIO_ACCESS_KEY}
-      secret_access_key: ${MINIO_SECRET_KEY}
+      access_key_id: ${SEAWEEDFS_ACCESS_KEY}
+      secret_access_key: ${SEAWEEDFS_SECRET_KEY}
 ```
 
 ---

@@ -14,7 +14,7 @@ Catalyst's components fall into three categories:
 | Category | Where it runs | Examples |
 |---|---|---|
 | **Catalyst control plane** | The Sovereign's `mgt` cluster | console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream (control-plane account), openbao, keycloak, spire-server, observability (Grafana stack) |
-| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu (bootstrap-only), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, minio, velero, harbor, failover-controller |
+| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu (bootstrap-only), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor, failover-controller |
 | **Application Blueprints** | Inside per-Org vclusters | cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
 
 The **same upstream technology** can serve in multiple categories. For example: Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint when a User wants Redis-compatible caching for their app. Similarly, Strimzi/Kafka is an Application Blueprint; the Catalyst control plane uses NATS JetStream for events, not Kafka.
@@ -106,7 +106,7 @@ These are deployed on **every** host cluster a Sovereign owns — not just the m
 
 | Component | Purpose |
 |---|---|
-| **[minio](../platform/minio/)** | In-cluster S3. Tiers cold data to cloud archival storage. |
+| **[seaweedfs](../platform/seaweedfs/)** | Unified S3 layer. Acts as the encapsulation in front of cloud archival storage — every Catalyst component talks to one S3 endpoint while SeaweedFS routes hot/warm/cold tiers transparently. |
 | **[velero](../platform/velero/)** | K8s backup/restore. Backups land in cloud archival storage. |
 | **[harbor](../platform/harbor/)** | Container registry per host cluster. Stores Catalyst component images, mirrored Blueprint OCI artifacts, customer images. |
 
@@ -160,6 +160,7 @@ These are not part of the Catalyst control plane. Users install them as Applicat
 | **[stunner](../platform/stunner/)** | K8s-native TURN/STUN |
 | **[livekit](../platform/livekit/)** | Video/audio (WebRTC SFU) |
 | **[matrix](../platform/matrix/)** | Team chat (Matrix protocol; Synapse is the server implementation) |
+| **[guacamole](../platform/guacamole/)** | Clientless remote-desktop gateway (RDP/VNC/SSH/kubectl-exec via browser, Keycloak SSO, full session recording to SeaweedFS) |
 
 ### 4.6 AI / ML
 
@@ -206,8 +207,8 @@ OpenOva ships these as ready-made composite Blueprints. Each is a package of Blu
 | **[bp-cortex](../products/cortex/)** | AI Hub — kserve, knative, vllm, milvus, neo4j, librechat, bge, llm-gateway, anthropic-adapter, nemo-guardrails, langfuse |
 | **[bp-axon](../products/axon/)** | SaaS LLM Gateway (also installable as a managed gateway when Cortex is too heavy) |
 | **[bp-fingate](../products/fingate/)** | Open Banking — keycloak (FAPI mode), openmeter, ext_authz + 6 banking services |
-| **[bp-fabric](../products/fabric/)** | Data & Integration — strimzi, flink, temporal, debezium, iceberg, clickhouse, minio |
-| **[bp-relay](../products/relay/)** | Communication — stalwart, livekit, stunner, matrix |
+| **[bp-fabric](../products/fabric/)** | Data & Integration — strimzi, flink, temporal, debezium, iceberg, clickhouse, seaweedfs |
+| **[bp-relay](../products/relay/)** | Communication — stalwart, livekit, stunner, matrix, guacamole |
 
 OpenOva also ships **Specter** (AIOps agents) and **Exodus** (migration program). Specter is a composite Blueprint (`bp-specter`) typically installed in corporate Sovereigns. Exodus is a deliverable services engagement, not a Blueprint.
 
@@ -300,7 +301,7 @@ Adds to **every** host cluster a Sovereign owns (mgt, rtz, dmz):
 | Trivy Operator | ~0.5 GB | |
 | Falco | ~0.5 GB | per node |
 | Harbor | ~3 GB | per host cluster |
-| MinIO | ~1 GB | per host cluster |
+| SeaweedFS | ~1.2 GB | per host cluster (3 master + 6 volume + 2 filer + 2 s3 replicas) |
 | Velero | ~0.2 GB | |
 | Reloader, VPA, KEDA, k8gb, External-DNS, Sigstore, Syft+Grype, failover-controller | ~1.5 GB combined | small operators |
 | **Per-host-cluster subtotal** | **~8.8 GB** | per host cluster |

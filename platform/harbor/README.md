@@ -106,15 +106,15 @@ sequenceDiagram
 | Backend | Use Case | Notes |
 |---------|----------|-------|
 | PVC | Small deployments | Local storage |
-| S3 (MinIO) | Production | Recommended - tiered archiving |
+| S3 (SeaweedFS) | Production | Recommended - tiered archiving |
 | Cloud S3 | Managed | AWS S3 / GCS / Azure Blob |
 
-### Recommended: S3 via MinIO
+### Recommended: S3 via SeaweedFS
 
 ```mermaid
 flowchart LR
-    Harbor[Harbor] -->|"S3 API"| MinIO[MinIO]
-    MinIO -->|"Tier cold data"| Archive[Archival S3]
+    Harbor[Harbor] -->|"S3 API"| SeaweedFS[SeaweedFS]
+    SeaweedFS -->|"Tier cold data"| Archive[Archival S3]
 ```
 
 ---
@@ -133,7 +133,7 @@ expose:
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt-prod
 
-# S3 Storage (MinIO)
+# S3 Storage (SeaweedFS)
 persistence:
   imageChartStorage:
     type: s3
@@ -142,7 +142,7 @@ persistence:
       bucket: harbor-registry
       accesskey: ""  # From ESO secret
       secretkey: ""  # From ESO secret
-      regionendpoint: http://minio.storage.svc:9000
+      regionendpoint: http://seaweedfs.storage.svc:8333
       v4auth: true
 
 trivy:

@@ -191,13 +191,13 @@ spec:
   storageClassName: oci-bv
 ```
 
-### S3-based Storage (MinIO)
+### S3-based Storage (SeaweedFS)
 
 ```yaml
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterStorageContainer
 metadata:
-  name: minio-storage
+  name: seaweedfs-storage
 spec:
   container:
     name: storage-initializer
@@ -206,15 +206,15 @@ spec:
       - name: AWS_ACCESS_KEY_ID
         valueFrom:
           secretKeyRef:
-            name: minio-credentials
+            name: seaweedfs-credentials
             key: accesskey
       - name: AWS_SECRET_ACCESS_KEY
         valueFrom:
           secretKeyRef:
-            name: minio-credentials
+            name: seaweedfs-credentials
             key: secretkey
       - name: S3_ENDPOINT
-        value: http://minio.storage.svc:9000
+        value: http://seaweedfs.storage.svc:8333
 ```
 
 ---

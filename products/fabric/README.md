@@ -32,7 +32,7 @@ flowchart TB
     subgraph Storage["Data Storage"]
         Iceberg[Apache Iceberg]
         ClickHouse[ClickHouse]
-        MinIO[MinIO S3]
+        SeaweedFS[SeaweedFS S3]
     end
 
     Sources --> Streaming
@@ -56,7 +56,7 @@ All components are in `platform/` (flat structure):
 | [debezium](../../platform/debezium/) | Change data capture (CDC) | platform/debezium |
 | [iceberg](../../platform/iceberg/) | Open table format (lakehouse) | platform/iceberg |
 | [clickhouse](../../platform/clickhouse/) | OLAP analytics database | platform/clickhouse |
-| [minio](../../platform/minio/) | Object storage (S3) | platform/minio |
+| [seaweedfs](../../platform/seaweedfs/) | Object storage (S3) | platform/seaweedfs |
 
 ---
 
@@ -83,7 +83,7 @@ Kafka → Flink → ClickHouse → Grafana Dashboards
 ### Data Lakehouse
 
 ```
-Kafka → Flink → Iceberg (MinIO) → SQL queries via ClickHouse
+Kafka → Flink → Iceberg (SeaweedFS) → SQL queries via ClickHouse
 ```
 
 ---

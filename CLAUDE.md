@@ -43,7 +43,7 @@ openova/
 │   └── deploy/             # K8s manifests per control-plane component (placeholder)
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
-│   └── ...                 # 52 folders total, each currently README-only
+│   └── ...                 # 53 folders total, each currently README-only
 ├── products/               # Composite Blueprint folders OpenOva ships
 │   ├── catalyst/           # Target: bp-catalyst-platform umbrella (currently only bootstrap/ui scaffold)
 │   ├── cortex/             # AI Hub                          (README only)

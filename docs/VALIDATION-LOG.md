@@ -58,6 +58,101 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - IMPLEMENTATION-STATUS section numbering had an awkward `§2bis` insertion. Renumbered to clean §1–§9 sequence.
 - Two residual "instance" usages in user-facing dialogs/comments converted to "Application".
 
+### Pass 104 — MinIO → SeaweedFS swap + Guacamole add (component refactor)
+
+**Component-level architectural correction.** Two changes propagated across the doc set:
+
+**1. MinIO replaced by SeaweedFS as the unified S3 layer.**
+
+The old design used MinIO for in-cluster S3 + a separate "tiering to cloud archival" layer (MinIO ILM + external R2/Glacier configuration). Every Catalyst component had its own S3 endpoint configuration; the boundary between in-cluster and cloud archival was scattered.
+
+The new design: **SeaweedFS is the single S3 encapsulation layer.** Every Catalyst component talks to one endpoint (`seaweedfs.storage.svc:8333`). SeaweedFS internally:
+- Hosts hot/warm tiers on in-cluster volume servers
+- Routes cold-tier objects transparently to cloud archival storage (Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage / etc., chosen at Sovereign provisioning time)
+- Provides one audit/lifecycle/encryption boundary instead of N
+
+This is the encapsulation principle. No Catalyst component talks to cloud S3 directly anymore — Velero, CNPG WAL archive, OpenSearch snapshots, Loki/Mimir/Tempo storage, Iceberg tables, Harbor blob store, custom App buckets all share one S3 surface.
+
+**2. Apache Guacamole added as Application Blueprint §4.5 Communication.**
+
+Clientless browser-based RDP / VNC / SSH / kubectl-exec gateway. Keycloak SSO, full session recording to SeaweedFS for compliance (PSD2/DORA/SOX evidence). Composed into `bp-relay`. Replaces VPN + native-client distribution for auditable remote access in regulated environments.
+
+**Files updated:**
+
+Component additions/removals:
+- **DELETED**: `platform/minio/README.md`
+- **CREATED**: `platform/seaweedfs/README.md` (unified S3 layer with cold-tier encapsulation; bucket layout; multi-region replication via shared cold backend; migration-from-MinIO section)
+- **CREATED**: `platform/guacamole/README.md` (clientless remote-desktop gateway; GuacamoleConnection CRD; compliance integration via session recordings to SeaweedFS)
+
+Doc updates:
+- `docs/PLATFORM-TECH-STACK.md` — §1 component categorization (minio → seaweedfs); §3.5 row replaced; §4.5 added guacamole; §5 bp-fabric composition (minio → seaweedfs); §5 bp-relay composition (added guacamole); §7.4 RAM estimate updated.
+- `docs/TECHNOLOGY-FORECAST-2027-2030.md` — L11 "all 52 → all 53 platform components"; minio row replaced with seaweedfs; A La Carte header (27 → 28); guacamole row added.
+- `docs/ARCHITECTURE.md` — §3 topology box per-host-cluster infra list (minio → seaweedfs).
+- `docs/SECURITY.md` — §4 Database engines list (MinIO/S3 → SeaweedFS/S3).
+- `docs/SOVEREIGN-PROVISIONING.md` — §1 Inputs Object-storage row (now describes SeaweedFS as encapsulation + cold-tier passthrough to cloud-provider native).
+- `docs/SRE.md` — §2.5 stateful components list (MinIO → SeaweedFS); §2.5 replication-pattern row; §7.1 air-gap component list; §7.2 + §7.3 model weights destination.
+- `docs/IMPLEMENTATION-STATUS.md` — §3 grouped per-host-cluster row (MinIO → SeaweedFS).
+- `docs/BLUEPRINT-AUTHORING.md` — Stateful blueprint replication examples (MinIO bucket replication → SeaweedFS bucket replication).
+- `docs/BUSINESS-STRATEGY.md` — 13 occurrences of "52 components" / "52 curated" / "52-component ecosystem" → 53; OpenOva Relay product line updated to include Guacamole.
+- `README.md` — Backup row: "Velero (to SeaweedFS, which routes cold tier to cloud archival)".
+- `CLAUDE.md` — folder count "52 → 53".
+
+Component-README updates (URL/path/dependency replacement):
+- `platform/cnpg/README.md` — WAL archive endpoint, mermaid topology, credentials secret name.
+- `platform/clickhouse/README.md` — Tiered Storage endpoint + access keys.
+- `platform/flink/README.md` — Iceberg-on-SeaweedFS narrative, mermaid topology, S3 endpoint config.
+- `platform/gitea/README.md` — LFS + Actions storage backend; replication note.
+- `platform/iceberg/README.md` — Storage backend mermaid + ClickHouse engine config.
+- `platform/harbor/README.md` — Blob store + tiered archiving.
+- `platform/grafana/README.md` — Cold tier diagram + Loki/Mimir/Tempo S3 config.
+- `platform/livekit/README.md` — Recording storage (egress to SeaweedFS).
+- `platform/kserve/README.md` — Model storage backend.
+- `platform/milvus/README.md` — Object storage dependency.
+- `platform/velero/README.md` — Substantive rewrite: Velero now writes to SeaweedFS exclusively; SeaweedFS handles cold-tier routing to cloud archival. Diagram + Why-encapsulation table updated.
+- `platform/opensearch/README.md` — Snapshot repo references.
+- `platform/flux/README.md` — flux-system folder layout.
+- `platform/stalwart/README.md` — Recording storage diagram.
+- `products/relay/README.md` — Recording storage row.
+- `products/fabric/README.md` — Component table + data-flow diagram.
+
+Code updates (Vite scaffold for the Catalyst control-plane UI):
+- `products/catalyst/bootstrap/ui/src/shared/constants/components.ts` — minio entry replaced with seaweedfs (storage category, no deps); velero deps `['minio']` → `['seaweedfs']`; harbor deps include seaweedfs; new guacamole entry added (depends on cnpg + keycloak + seaweedfs).
+- `products/catalyst/bootstrap/ui/src/entities/deployment/store.ts` — already had migration logic mapping `minio → seaweedfs` ID; no change needed.
+- `products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentLogos.tsx` — left as-is (logos are visual assets; addition of seaweedfs/guacamole logos is a separate UI task).
+
+**Verification (all clean):**
+
+```
+$ grep -rinE '\bminio\b' docs/*.md README.md CLAUDE.md core/README.md products/*/README.md platform/*/README.md 2>/dev/null | grep -v VALIDATION-LOG | grep -v 'platform/seaweedfs/'
+docs/TECHNOLOGY-FORECAST-2027-2030.md:37:| seaweedfs | 92 | 93 | 92 | Stable | Replaces MinIO in 2026-04. ...
+   ↑ intentional retention — this row explicitly explains the swap
+
+$ grep -rnE '\b52\b' docs/*.md README.md CLAUDE.md 2>/dev/null | grep -v VALIDATION-LOG
+   (no output — all "52 components" anchors updated to 53)
+
+$ ls -d platform/*/ | wc -l
+53                                         ← matches the new "all 53 platform components" anchor
+```
+
+**Component-count cross-document consistency** (defense-in-depth across 9 anchors, all updated to 53):
+1. CLAUDE.md L46 "53 folders total" ✓
+2. TF L11 "all 53 platform components" ✓
+3. TF tables: 25 mandatory + 28 a-la-carte = 53 ✓
+4. BUSINESS-STRATEGY: 13 "53 components" / "53-component ecosystem" / "53 curated" anchors ✓
+5. PTS §1: 15 control-plane + 21 per-host-cluster (cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu, cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, **seaweedfs**, velero, harbor, failover-controller) + 28 a-la-carte (... + **guacamole**) = 64 categorized roles, 53 unique platform/ folders ✓
+6. IMPLEMENTATION-STATUS §3 grouped row: SeaweedFS, Velero, Harbor ✓
+
+**Encapsulation principle now anchored across the doc set:**
+1. PTS §3.5 row: "Acts as the encapsulation in front of cloud archival storage — every Catalyst component talks to one S3 endpoint while SeaweedFS routes hot/warm/cold tiers transparently." ✓
+2. seaweedfs/README L3 banner: "Acts as the unified S3 encapsulation layer in front of cloud archival object storage" ✓
+3. seaweedfs/README §Architecture mermaid: shows all consumers → one S3 API → SeaweedFS internal routing → cloud archive backends ✓
+4. velero/README L3 banner: "Backups land in the velero-backups bucket on SeaweedFS, which is Catalyst's unified S3 encapsulation layer" ✓
+5. velero/README "Why route through SeaweedFS" table: explicit comparison of N-direct-S3-endpoints vs 1-encapsulated-endpoint ✓
+6. README.md L105 Backup row: "Velero (to SeaweedFS, which routes the cold tier to cloud archival S3)" ✓
+7. SOVEREIGN-PROVISIONING §1 Object-storage row: "cold-tier backend behind SeaweedFS" framing ✓
+
+**Lesson #22:** "Storage tier policy belongs at the encapsulation boundary, not inside every consumer." The previous design exposed cold-tier routing to every component (each MinIO consumer + cloud-S3 consumer had to coordinate). Moving the boundary into SeaweedFS centralizes the policy: one tier configuration, one lifecycle policy schema, one audit log location, one encryption boundary. Same principle as the OpenBao independent-Raft design (SECURITY §5) — putting boundaries at the right architectural layer is more important than the component choice.
+
 ### Pass 103 — UNIFIED REPO MODEL REFACTOR (architectural correction)
 
 **Architectural correction supersedes the prior 102-pass audit on a structural question the audit loop never tested.**

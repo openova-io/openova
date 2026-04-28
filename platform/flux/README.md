@@ -94,7 +94,7 @@ flux/
 │       ├── security/          # kyverno, external-secrets, cert-manager
 │       ├── database/          # cnpg, ferretdb, valkey
 │       ├── middleware/        # strimzi
-│       ├── storage/           # minio, velero
+│       ├── storage/           # seaweedfs, velero
 │       ├── observability/     # grafana (LGTM stack)
 │       ├── autoscaling/       # keda
 │       ├── workplace/         # stalwart
@@ -111,7 +111,7 @@ flux/
 | security | kyverno, external-secrets, cert-manager | Policy, secrets, TLS |
 | database | cnpg, ferretdb, valkey | Database operators |
 | middleware | strimzi | Apache Kafka streaming |
-| storage | minio, velero | Object storage, backup |
+| storage | seaweedfs, velero | Object storage, backup |
 | observability | grafana | LGTM stack |
 | autoscaling | keda | Event-driven scaling |
 | workplace | stalwart | Email server |

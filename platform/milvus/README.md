@@ -21,14 +21,14 @@ flowchart TB
 
     subgraph Storage["Storage"]
         etcd[etcd<br/>Metadata]
-        MinIO[MinIO<br/>Object Storage]
+        SeaweedFS[SeaweedFS<br/>Object Storage]
     end
 
     App[Application] --> Proxy
     Proxy --> QueryNode
     Proxy --> DataNode
-    DataNode --> MinIO
-    QueryNode --> MinIO
+    DataNode --> SeaweedFS
+    QueryNode --> SeaweedFS
     Proxy --> etcd
 ```
 
@@ -71,11 +71,11 @@ etcd:
   persistence:
     size: 10Gi
 
-minio:
-  enabled: false  # Use external MinIO
+seaweedfs:
+  enabled: false  # Use external SeaweedFS
   externalS3:
     enabled: true
-    host: minio.storage.svc
+    host: seaweedfs.storage.svc
     port: 9000
     accessKey: ""  # From ESO
     secretKey: ""  # From ESO
@@ -221,11 +221,11 @@ results = collection.search(
 
 ## Backup
 
-Via Velero with MinIO storage:
+Via Velero with SeaweedFS storage:
 
 ```yaml
-# Milvus data is stored in MinIO
-# MinIO is backed up via Velero to Archival S3
+# Milvus data is stored in SeaweedFS
+# SeaweedFS is backed up via Velero to Archival S3
 ```
 
 ---

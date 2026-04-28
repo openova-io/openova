@@ -28,7 +28,7 @@ flowchart TB
 
     subgraph Backend["Backend"]
         CNPG[CNPG Postgres]
-        MinIO[MinIO Storage]
+        SeaweedFS[SeaweedFS Storage]
     end
 
     subgraph DNS["DNS Records"]
@@ -41,7 +41,7 @@ flowchart TB
     SMTP --> CNPG
     IMAP --> CNPG
     JMAP --> CNPG
-    SMTP --> MinIO
+    SMTP --> SeaweedFS
     MX --> SMTP
 ```
 

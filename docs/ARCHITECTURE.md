@@ -68,7 +68,7 @@ Everything else is identical in code.
 │  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,         │
 │  cert-manager, External-Secrets, Kyverno, Harbor, Reloader, Trivy,       │
 │  Falco, Sigstore, Syft+Grype, VPA, KEDA, External-DNS, k8gb, Coraza,     │
-│  MinIO, Velero, failover-controller) — see PLATFORM-TECH-STACK §3.       │
+│  SeaweedFS, Velero, failover-controller) — see PLATFORM-TECH-STACK §3.   │
 │                                                                           │
 │  Workload host clusters: hz-fsn-rtz-prod, hz-hel-rtz-prod                 │
 │  ┌──────────────────────────────────────────────────────────────────┐   │

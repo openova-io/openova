@@ -102,7 +102,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
 | **WAF** | Coraza (OWASP CRS) |
 | **GSLB** | k8gb (authoritative DNS) |
-| **Backup** | Velero (to MinIO + cloud archival S3) |
+| **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 
 For the full component list and trends see [`docs/PLATFORM-TECH-STACK.md`](docs/PLATFORM-TECH-STACK.md) and [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md).

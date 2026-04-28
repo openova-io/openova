@@ -109,7 +109,7 @@ flowchart TB
 | Distributed Queries | Scatter-gather queries across shards |
 | ClickHouse Keeper | Built-in ZooKeeper-compatible coordination (replaces ZooKeeper) |
 | SQL Compatibility | ANSI SQL with extensions for analytics (window functions, arrays, JSON) |
-| Tiered Storage | Hot/warm/cold storage policies with S3/MinIO cold tier |
+| Tiered Storage | Hot/warm/cold storage policies with S3/SeaweedFS cold tier |
 | Projections | Pre-sorted data views for faster queries on secondary sort orders |
 | TTL | Automatic data expiration and archival policies |
 
@@ -212,7 +212,7 @@ CREATE MATERIALIZED VIEW events_mv TO events AS
 SELECT * FROM events_queue;
 ```
 
-### Tiered Storage (MinIO Cold Tier)
+### Tiered Storage (SeaweedFS Cold Tier)
 
 ```xml
 <storage_configuration>
@@ -222,9 +222,9 @@ SELECT * FROM events_queue;
         </default>
         <s3_cold>
             <type>s3</type>
-            <endpoint>http://minio.storage.svc:9000/clickhouse-cold/</endpoint>
-            <access_key_id>minioadmin</access_key_id>
-            <secret_access_key>minioadmin</secret_access_key>
+            <endpoint>http://seaweedfs.storage.svc:8333/clickhouse-cold/</endpoint>
+            <access_key_id>seaweedfsadmin</access_key_id>
+            <secret_access_key>seaweedfsadmin</secret_access_key>
         </s3_cold>
     </disks>
     <policies>
@@ -265,7 +265,7 @@ SELECT * FROM events_queue;
 - Native Kafka (via Strimzi) integration enables real-time streaming analytics
 - Columnar compression reduces storage costs by 10-40x compared to row stores
 - Replaces expensive managed OLAP services (Snowflake, BigQuery) for self-hosted deployments
-- Tiered storage to MinIO provides cost-effective long-term data retention
+- Tiered storage to SeaweedFS provides cost-effective long-term data retention
 
 **Negative:**
 - Not suitable for OLTP workloads (use CNPG for transactional queries)

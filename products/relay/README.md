@@ -54,7 +54,7 @@ All components are in `platform/` (flat structure):
 |-----------|---------|
 | Keycloak | SSO across all communication services |
 | CNPG | PostgreSQL backend for Matrix and Stalwart |
-| MinIO | Recording and attachment storage |
+| SeaweedFS | Recording and attachment storage |
 
 ---
 

@@ -1,6 +1,6 @@
 # Apache Iceberg
 
-Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.4 — Data lakehouse). Used by `bp-fabric` to organize lakehouse tables on top of MinIO / cloud archival S3 with ACID transactions, time travel, and schema evolution.
+Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.4 — Data lakehouse). Used by `bp-fabric` to organize lakehouse tables on top of SeaweedFS / cloud archival S3 with ACID transactions, time travel, and schema evolution.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -10,7 +10,7 @@ Open table format for huge analytic datasets. **Application Blueprint** (see [`d
 
 Apache Iceberg is an open table format designed for petabyte-scale analytic datasets. It brings ACID transactions, schema evolution, and time travel to data lakes, closing the gap between traditional data warehouses and raw object storage. Iceberg has become the de facto standard for modern data lakehouse architecture, supported by every major compute engine in the ecosystem.
 
-Within OpenOva, Iceberg provides the storage layer for the **Fabric** data and integration product. All analytic tables are stored as Iceberg tables on MinIO (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, and ClickHouse queries them with full SQL for analytics and dashboarding via Grafana.
+Within OpenOva, Iceberg provides the storage layer for the **Fabric** data and integration product. All analytic tables are stored as Iceberg tables on SeaweedFS (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, and ClickHouse queries them with full SQL for analytics and dashboarding via Grafana.
 
 Iceberg's metadata-driven design means that operations like schema changes, partition layout changes, and snapshot isolation happen without rewriting data files. This makes it safe to evolve table structures in production without downtime or data migration scripts.
 
@@ -31,7 +31,7 @@ flowchart TB
         Manifests[Manifest Files]
     end
 
-    subgraph Storage["MinIO (S3-Compatible)"]
+    subgraph Storage["SeaweedFS (S3-Compatible)"]
         Parquet[Parquet Data Files]
         Meta[Metadata Files]
     end
@@ -86,9 +86,9 @@ data:
     uri=jdbc:postgresql://fabric-postgres.databases.svc:5432/iceberg_catalog
     warehouse=s3://iceberg-warehouse/
     io-impl=org.apache.iceberg.aws.s3.S3FileIO
-    s3.endpoint=http://minio.storage.svc:9000
-    s3.access-key-id=${MINIO_ACCESS_KEY}
-    s3.secret-access-key=${MINIO_SECRET_KEY}
+    s3.endpoint=http://seaweedfs.storage.svc:8333
+    s3.access-key-id=${SEAWEEDFS_ACCESS_KEY}
+    s3.secret-access-key=${SEAWEEDFS_SECRET_KEY}
     s3.path-style-access=true
 ```
 
@@ -99,8 +99,8 @@ ClickHouse queries Iceberg tables directly via its built-in Iceberg table engine
 ```sql
 -- Create an Iceberg table in ClickHouse
 CREATE TABLE iceberg_events
-ENGINE = Iceberg('http://minio.storage.svc:9000/iceberg-warehouse/analytics/events/',
-    'MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY')
+ENGINE = Iceberg('http://seaweedfs.storage.svc:8333/iceberg-warehouse/analytics/events/',
+    'SEAWEEDFS_ACCESS_KEY', 'SEAWEEDFS_SECRET_KEY')
 ```
 
 ---

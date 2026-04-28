@@ -8,7 +8,7 @@ Component technology assessment and strategic forecast for the OpenOva platform.
 
 ## Overview
 
-This document provides a forward-looking assessment of all 52 platform components, evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation.
+This document provides a forward-looking assessment of all 53 platform components, evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation.
 
 ---
 
@@ -34,7 +34,7 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 | external-secrets | 95 | 95 | 95 | Stable | Secrets management is foundational |
 | openbao | 93 | 93 | 90 | Stable | May face cloud-native alternatives |
 | flux | 92 | 92 | 88 | Stable | GitOps is established pattern |
-| minio | 92 | 92 | 90 | Stable | S3-compatible storage remains essential |
+| seaweedfs | 92 | 93 | 92 | Stable | Replaces MinIO in 2026-04. Native S3 + tiered cloud archive in one component; Apache 2.0; encapsulates cloud-S3 backends behind a single in-cluster S3 endpoint |
 | velero | 92 | 90 | 88 | Stable | Backup is non-negotiable |
 | harbor | 90 | 92 | 92 | Rising | Supply chain security drives adoption |
 | falco | 90 | 92 | 93 | Rising | Runtime security more critical with AI workloads |
@@ -61,7 +61,7 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 
 ---
 
-## A La Carte Components (27)
+## A La Carte Components (28)
 
 | Component | 2026 | 2027 | 2030 | Trend | Notes |
 |-----------|------|------|------|-------|-------|
@@ -92,6 +92,7 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 | neo4j | 65 | 68 | 70 | Rising | Knowledge graphs for RAG |
 | litmus | 72 | 75 | 78 | Rising | Chaos engineering for compliance proof |
 | openmeter | 55 | 58 | 60 | Stable | Usage metering is niche |
+| guacamole | 70 | 72 | 75 | Rising | Clientless remote-desktop gateway with Keycloak SSO + session recording; replaces VPN+native-client distribution for auditable RDP/VNC/SSH access in regulated environments |
 
 ---
 

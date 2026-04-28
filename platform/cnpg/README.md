@@ -11,7 +11,7 @@ Production-grade PostgreSQL operator. **Application Blueprint** (see [`docs/PLAT
 CloudNative PostgreSQL (CNPG) provides production-grade PostgreSQL with:
 - Kubernetes-native operator
 - WAL streaming for multi-region DR
-- Automated backups to MinIO/S3
+- Automated backups to SeaweedFS/S3
 - High availability with automatic failover
 
 ---
@@ -29,12 +29,12 @@ flowchart TB
     end
 
     subgraph Backup["Backup"]
-        MinIO[MinIO]
+        SeaweedFS[SeaweedFS]
     end
 
     Primary -->|"WAL Stream"| Replica1
     Primary -->|"WAL Stream"| Replica2
-    Primary -->|"WAL Archive"| MinIO
+    Primary -->|"WAL Archive"| SeaweedFS
 ```
 
 ### Multi-Region DR
@@ -50,12 +50,12 @@ flowchart TB
     end
 
     subgraph Backup["Backup"]
-        MinIO[MinIO]
+        SeaweedFS[SeaweedFS]
     end
 
     PG1 -->|"WAL Streaming"| PG2
-    PG1 -->|"WAL Archive"| MinIO
-    PG2 -->|"WAL Restore"| MinIO
+    PG1 -->|"WAL Archive"| SeaweedFS
+    PG2 -->|"WAL Restore"| SeaweedFS
 ```
 
 ---
@@ -85,13 +85,13 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: s3://cnpg-backups/<org>
-      endpointURL: http://minio.storage.svc:9000
+      endpointURL: http://seaweedfs.storage.svc:8333
       s3Credentials:
         accessKeyId:
-          name: minio-credentials
+          name: seaweedfs-credentials
           key: access-key
         secretAccessKey:
-          name: minio-credentials
+          name: seaweedfs-credentials
           key: secret-key
       wal:
         compression: gzip

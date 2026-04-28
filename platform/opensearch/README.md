@@ -110,7 +110,7 @@ flowchart LR
 | Index State Management | Automated index lifecycle (hot/warm/cold/delete) |
 | Anomaly Detection | ML-based anomaly detection on time-series data |
 | Alerting | Rule-based and anomaly-based alerting with webhook/email notifications |
-| Snapshot/Restore | Automated backups to MinIO/S3 |
+| Snapshot/Restore | Automated backups to SeaweedFS/S3 |
 | Cross-Cluster Search | Query across multiple OpenSearch clusters |
 | Security Plugin | Fine-grained RBAC, field-level and document-level security |
 | OpenSearch Dashboards | Visualization, dashboards, and notebook interface |
@@ -243,7 +243,7 @@ spec:
       {
         "name": "cold",
         "actions": [
-          { "snapshot": { "repository": "minio-backups", "snapshot": "siem-{{ctx.index}}" } }
+          { "snapshot": { "repository": "seaweedfs-backups", "snapshot": "siem-{{ctx.index}}" } }
         ],
         "transitions": [
           { "state_name": "delete", "conditions": { "min_index_age": "90d" } }

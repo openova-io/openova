@@ -287,7 +287,7 @@ placementSchema:
 
 For `active-active`, the Blueprint must be designed for it:
 - Stateless services: trivial.
-- Stateful: the Blueprint declares the replication strategy in its manifests (e.g. CNPG WAL streaming, MinIO bucket replication, Valkey REPLICAOF).
+- Stateful: the Blueprint declares the replication strategy in its manifests (e.g. CNPG WAL streaming, SeaweedFS bucket replication, Valkey REPLICAOF).
 
 Catalyst's projector uses the Placement spec to fan out manifests across the right vclusters at install time.
 

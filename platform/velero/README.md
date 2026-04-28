@@ -1,14 +1,14 @@
 # Velero
 
-Kubernetes backup/restore to archival S3 for disaster recovery. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in cloud archival storage (Cloudflare R2 / AWS S3 / etc.), not in MinIO (which is fast-tier in-cluster).
+Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in the `velero-backups` bucket on **SeaweedFS**, which is Catalyst's unified S3 encapsulation layer; SeaweedFS's cold-tier policy automatically transitions backup objects to the configured cloud archival backend (Cloudflare R2 / AWS S3 / Hetzner Object Storage / etc.) so backups survive cluster failure without any direct cloud-S3 call from Velero itself.
 
-**Status:** Accepted | **Updated:** 2026-04-27
+**Status:** Accepted | **Updated:** 2026-04-28
 
 ---
 
 ## Overview
 
-Velero provides Kubernetes-native backup with flexible storage backend options. Backups are stored in **Archival S3** (external storage), not in-cluster MinIO.
+Velero provides Kubernetes-native backup. **All Velero output goes to the same single S3 endpoint** — `seaweedfs.storage.svc:8333`, bucket `velero-backups`. SeaweedFS handles the rest: hot-tier in-cluster for fast restore of recent backups; cold-tier in cloud archival storage for backups beyond the configured warm-window.
 
 ```mermaid
 flowchart TB
@@ -18,7 +18,12 @@ flowchart TB
         PVs[Persistent Volumes]
     end
 
-    subgraph Archival["Archival S3 Options"]
+    subgraph SW["SeaweedFS (in-cluster S3 encapsulation)"]
+        Bucket[velero-backups bucket]
+        TierMgr[Tier Manager]
+    end
+
+    subgraph Archival["Cloud archive backend (cold tier)"]
         R2[Cloudflare R2]
         S3[AWS S3]
         GCS[GCP GCS]
@@ -28,21 +33,23 @@ flowchart TB
 
     Apps --> Velero
     PVs --> Velero
-    Velero -->|"Backup"| Archival
+    Velero -->|"Backup"| Bucket
+    Bucket --> TierMgr
+    TierMgr -->|"After warm window"| Archival
 ```
 
 ---
 
-## Why Archival S3?
+## Why route through SeaweedFS
 
-| Storage | Purpose | Use for Backup? |
-|---------|---------|-----------------|
-| MinIO | Fast in-cluster S3 | **No** |
-| Archival S3 | External cold storage | **Yes** |
+| Property | Direct cloud-S3 calls | Through SeaweedFS encapsulation |
+|---|---|---|
+| Number of S3 endpoints in Catalyst components | N (one per consumer × cloud) | **1** (`seaweedfs.storage.svc:8333`) |
+| Hot-restore latency for recent backups | Cloud round-trip | **Near-zero (in-cluster cache)** |
+| Audit / lifecycle / encryption boundary | Per-component | **One central boundary** |
+| Air-gap deployment | Requires direct cloud reachability | **Works with SeaweedFS-only mode** (see SRE §7) |
 
-**Velero backs up to Archival S3, not MinIO.**
-
-Reason: Backups must survive cluster failure. MinIO is inside the cluster.
+**Backups survive cluster failure** because SeaweedFS's cold tier is the cloud archival backend, not the in-cluster volumes. Even if the entire host cluster is destroyed, backups beyond the warm window already live in the cold backend (R2 / Glacier / etc.) and a restoring SeaweedFS can read them through.
 
 ---
 
