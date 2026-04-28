@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "build:catalog": "node scripts/build-catalog.mjs",
+    "predev": "npm run build:catalog",
+    "prebuild": "npm run build:catalog",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

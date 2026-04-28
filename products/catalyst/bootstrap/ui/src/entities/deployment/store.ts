@@ -8,6 +8,7 @@ import {
   type CloudProvider,
   type NodeSize,
   type TopologyTemplate,
+  type ProvisionResult,
 } from './model'
 
 interface WizardActions {
@@ -56,6 +57,13 @@ interface WizardActions {
   setGroupComponents: (groupId: string, componentIds: string[]) => void
   toggleGroupComponent: (groupId: string, componentId: string, allIds: string[]) => void
   setComponentsAppliedForProfile: (hash: string | null) => void
+  /** Toggle a Blueprint in the unified marketplace card grid (StepComponents). */
+  toggleBlueprint: (blueprintId: string) => void
+  /** Replace the entire selectedBlueprints list (e.g. when a preset is picked). */
+  setSelectedBlueprints: (ids: string[]) => void
+
+  // Step 7 — Provisioning result (captured by SSE done event)
+  setLastProvisionResult: (result: ProvisionResult | null) => void
 
   // Legacy
   addRegion: (region: Region) => void
@@ -176,6 +184,20 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/toggleGroupComponent'
           ),
+        toggleBlueprint: (blueprintId) =>
+          set(
+            (s) => ({
+              selectedBlueprints: s.selectedBlueprints.includes(blueprintId)
+                ? s.selectedBlueprints.filter((id) => id !== blueprintId)
+                : [...s.selectedBlueprints, blueprintId],
+            }),
+            false,
+            'wizard/toggleBlueprint'
+          ),
+        setSelectedBlueprints: (selectedBlueprints) =>
+          set({ selectedBlueprints }, false, 'wizard/setSelectedBlueprints'),
+        setLastProvisionResult: (lastProvisionResult) =>
+          set({ lastProvisionResult }, false, 'wizard/setLastProvisionResult'),
 
         addRegion: (region) =>
           set((s) => ({ regions: [...s.regions, region] }), false, 'wizard/addRegion'),
@@ -210,6 +232,15 @@ export const useWizardStore = create<WizardStore>()(
             p.regionCloudRegions = {}
             p.providerValidated = {}
             p.providerTokens = {}
+          }
+          // Coerce legacy persist payloads that lack new fields. Without
+          // these guards, the store returns `undefined` and toggleBlueprint
+          // (etc.) crashes on the .includes() call.
+          if (!Array.isArray(p.selectedBlueprints)) {
+            p.selectedBlueprints = []
+          }
+          if (p.lastProvisionResult === undefined) {
+            p.lastProvisionResult = null
           }
           // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
           const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']

@@ -46,11 +46,36 @@ export interface WizardState {
   credentialValidated: boolean
   componentGroups: Record<string, string[]>
   componentsAppliedForProfile: string | null
+  /**
+   * Selected Blueprints from the unified marketplace card grid in
+   * StepComponents. Each entry is a full Blueprint id (e.g. "bp-wordpress").
+   * Filtered by `visibility: 'listed'` — mandatory infra Blueprints are
+   * `unlisted` and never appear in this list (they're auto-installed by the
+   * bootstrap kit, regardless of the wizard user's choice). Per
+   * docs/INVIOLABLE-PRINCIPLES.md #2, every Application is the same
+   * `bp-<name>` shape regardless of category — no special cases per category.
+   */
+  selectedBlueprints: string[]
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
   selectedComponents: SelectedComponent[]
   airgap: boolean
   currentStep: number; completedSteps: number[]; deploymentId: string | null
+  /**
+   * Provisioner result captured by StepProvisioning when the SSE stream
+   * emits the terminal `event: done` with a result payload. Consumed by
+   * StepSuccess to render the Sovereign's console URL, control-plane IP,
+   * load-balancer IP, and GitOps repo URL. Null until provisioning finishes.
+   */
+  lastProvisionResult: ProvisionResult | null
+}
+
+export interface ProvisionResult {
+  sovereignFQDN: string
+  controlPlaneIP: string
+  loadBalancerIP: string
+  consoleURL: string
+  gitopsRepoURL: string
 }
 
 export const ORG_DEFAULTS = {
@@ -208,10 +233,15 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
   componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
   componentsAppliedForProfile: null,
+  // Empty by default — the user opts in to marketplace Blueprints in
+  // StepComponents. Mandatory infra (bp-cilium, bp-flux, bp-crossplane, ...)
+  // is `visibility: unlisted` and installed by the bootstrap kit regardless.
+  selectedBlueprints: [],
   regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
   haEnabled: false, selectedComponents: [],
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
+  lastProvisionResult: null,
 }
 
 /**
