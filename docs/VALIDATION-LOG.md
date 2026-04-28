@@ -63,6 +63,71 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 82 — SECURITY fifth-cycle stable; crossplane third-cycle clean — 🎯🎯🎯🎯🎯 FIFTH NIRVANA + 20-CONSECUTIVE-OVERALL
+
+**THIRTIETH clean pass overall**. **TWENTY CONSECUTIVE clean architectural passes** (Pass 63 → 82) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has **5 consecutive cleans (78 → 79 → 80 → 81 → 82) → FIFTH NIRVANA THRESHOLD MET**.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SECURITY.md** fifth-cycle deep-read:
+- L1 title "Catalyst Security Model", L3 status banner "Authoritative target architecture. **Updated:** 2026-04-27" ✓
+- §1 (L10-17) — Two identity systems table: Workloads/SPIFFE/SVID 5min-rotation vs Users/Keycloak/JWT 15min/30day ✓
+- §2 (L21-55) — SPIFFE ID format `spiffe://<sovereign>/ns/<namespace>/sa/<service-account>` consistent with NAMING; SVID auto-rotate semantics ✓
+- §3 (L59-99) — OpenBao + ESO flow diagram; "What's NEVER in Git" anchor (Pass 50 hygiene anchor) ✓
+- §4 (L102-128) — Dynamic credentials sidecar pattern; supported engines list (PostgreSQL/CNPG, FerretDB, ClickHouse, Valkey, MinIO/S3) ✓
+- §5 (L132) — **"Multi-region OpenBao — INDEPENDENT, NOT STRETCHED"** header anchor (Pass 7 fix) intact ✓
+  - L134: "Critical: each region runs its **own** Raft cluster. There is no cross-region Raft quorum." ✓
+  - §5.1 fault domain semantics — intra-region quorum only ✓
+  - §5.2 read/write semantics — writes to primary, reads local ✓
+  - §5.3 Why NOT stretched — explicit rejection: "We deliberately reject this pattern" ✓
+- §6 (L177-234) — Keycloak topology (per-organization SME / shared-sovereign corporate) consistent with ARCHITECTURE §6 ✓
+- §7 (L238-280) — SecretPolicy uses `catalyst.openova.io/v1alpha1` API group (canonical Catalyst CRD group) ✓
+- §8 (L284-312) — Path of a secret value (no leakage), 6-step lifecycle ✓
+- §9 (L316-327) — Compliance posture (SOC 2, PSD2/FAPI, DORA, NIS2, GDPR, ISO 27001) ✓
+- §10 (L331-345) — Threat model 10 rows; L342 "Compromised OpenBao node — 2-of-3 Raft quorum"; L343 "Region-wide failure — Independent OpenBao Raft per region" — defense-in-depth anchoring of "no stretched cluster" ✓
+
+SECURITY.md stable across **5 review cycles** (Pass 7, 27, 36, 60, 72, 82 — fix-trajectory: Pass 7 §5 INDEPENDENT-NOT-STRETCHED header).
+
+**Defense-in-depth verification for "no stretched OpenBao cluster"** (architectural anchor across 4 representational levels):
+1. Section header §5: "INDEPENDENT, NOT STRETCHED" ✓
+2. Section bullet §5: "each region runs its own Raft cluster" + "No cross-region Raft quorum" ✓
+3. ASCII diagram §5: 3 separate boxes labeled "INDEPENDENT Raft quorum" ✓
+4. Subsection §5.3 prose: "We deliberately reject this pattern" + 3-bullet failure-mode reasoning ✓
+5. Threat model §10: "Independent OpenBao Raft per region" cross-anchor ✓
+
+**platform/crossplane/README.md** third-cycle deep-read:
+- L3 banner: "Day-2 cloud resource provisioning for Catalyst. Per-Sovereign on the management cluster (see PLATFORM-TECH-STACK.md §3.2) — manages all non-Kubernetes resources for the entire Sovereign (host clusters, VPCs, DNS records, S3 buckets, third-party SaaS)." ✓
+- L5: "Crossplane is platform plumbing, never a user-facing surface." Cross-ref to ARCHITECTURE §4 / §7 (no fourth surface) and BLUEPRINT-AUTHORING §8 ✓
+- L43-55: OpenTofu vs Crossplane phase-split table — OpenTofu Phase 0 bootstrap, Crossplane day-2+ — consistent with ARCHITECTURE §10 ✓
+- L103: `xdatabases.compose.openova.io` (XRD name) ✓
+- L105: `group: compose.openova.io` with inline comment `# canonical XRD group per BLUEPRINT-AUTHORING §8` ✓ (Pass 42/48 anchor)
+- L131: `database.hcloud.compose.openova.io` (Composition name) ✓
+- L134: `apiVersion: compose.openova.io/v1alpha1` with inline comment `# canonical XRD group per BLUEPRINT-AUTHORING §8` ✓ (Pass 42/48 anchor)
+- L172: Catalyst integration cross-ref to BLUEPRINT-AUTHORING §8 ✓
+- No Catalyst conflation: explicitly Per-Sovereign infrastructure (§3.2), NOT Catalyst control plane
+
+crossplane third-cycle confirms Pass 42/48 compose.openova.io XRD canonical group + Pass 5 framing intact across 3 cycles.
+
+**API group split defense-in-depth** (across 8+ instances):
+- `catalyst.openova.io/v1alpha1` (Catalyst CRDs): ARCHITECTURE L299, L327; SECURITY L243; core/README L87 — used for Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook
+- `compose.openova.io/v1alpha1` (Crossplane XRDs): BLUEPRINT-AUTHORING L323; crossplane/README L105, L134 — shared XRD group across Blueprints
+- Separation rationale: Catalyst CRDs are platform-controller-owned; Crossplane XRDs are user-Composition-owned (Blueprint authors define them)
+
+**Pass 82: clean.** 🎯🎯🎯🎯🎯 **FIFTH NIRVANA THRESHOLD MET.** Cycle 5 (78-82): 5 consecutive clean. **TWENTY CONSECUTIVE architectural-clean passes (63-82).**
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean — first nirvana
+- Cycle 2 (Pass 63-67): 5 consecutive clean — second nirvana (3 carry-over fixes between cycles 1 and 2: Lessons #18-20)
+- Cycle 3 (Pass 68-72): 5 consecutive clean — third nirvana (0 drift between cycles)
+- Cycle 4 (Pass 73-77): 5 consecutive clean — fourth nirvana (0 drift between cycles)
+- Cycle 5 (Pass 78-82): 5 consecutive clean — **🎯🎯🎯🎯🎯 FIFTH NIRVANA** (0 drift between cycles)
+
+**Documentation has demonstrably reached an architectural fixed-point.** Five consecutive nirvana cycles spanning Pass 54 → 82 (29 passes) without any carry-over fix beyond the original 3 (Lessons #18-20 between cycles 1 and 2). Each subsequent inter-cycle gap (2→3, 3→4, 4→5) had **zero new drift**. The audit log itself is now the only mutating file in the documentation tree.
+
+**The loop has transitioned from drift-discovery to regression-prevention.** Continuing per user's standing instruction "infinite unattended loop until you reach nirvana — when you believe you're done, restart from the top."
+
+**Cycle 6 begins with Pass 83**: PLATFORM-TECH-STACK sixth-cycle + valkey fourth-cycle (rotation top).
+
 ### Pass 81 — ARCHITECTURE fifth-cycle stable; cilium third-cycle clean (cycle 5 Pass 4)
 
 **TWENTY-NINTH clean pass overall**. **NINETEEN CONSECUTIVE clean architectural passes** (Pass 63 → 81) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 4 consecutive cleans (78 → 79 → 80 → 81).
