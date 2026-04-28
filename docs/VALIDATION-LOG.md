@@ -63,6 +63,51 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 70 — README + CLAUDE fourth-cycle stable; matrix third-cycle clean
+
+**EIGHTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69, 70). **EIGHT CONSECUTIVE clean architectural passes** (63 → 70) spanning cycle 2 → cycle 3.
+
+Cycle 3 has 3 consecutive cleans (68 → 69 → 70). Two more (Pass 71, 72) clean would meet the renewed 5-consecutive nirvana threshold within cycle 3.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**README.md** fourth-cycle deep-read (Pass 28 + Pass 46 + previous cycles):
+- L1 title "OpenOva Catalyst" ✓
+- L5 banner: "Catalyst is the open-source platform built by OpenOva. It turns any Kubernetes cluster into a Sovereign" — Catalyst-as-platform / Sovereign-as-deployed-instance distinction explicit (Pass 26 framing).
+- L34-35 model-in-60-seconds box: "OpenOva (the company) publishes Catalyst (the platform). A deployed Catalyst is called a Sovereign." ✓
+- Documentation table (8 docs cross-referenced) consistent.
+- Stack table (~22 component-categorization rows) matches PTS §1 categorization.
+- Cloud providers table (5 providers) consistent.
+- Getting started: "marketplace.openova.io" + "catalyst-provisioner.openova.io" referenced canonically.
+- License section: "All Blueprints and the Catalyst control plane are open source. OpenOva charges for support, managed operations, and expert services — never for access to code."
+
+README stable across 4 review cycles.
+
+**CLAUDE.md** fourth-cycle deep-read (Pass 29 + Pass 46 prior fixes):
+- L46: "52 folders total, each currently README-only" — Pass 46 fix held (was "~60 folders") ✓
+- L77: "tenant (as platform terminology) → Organization" banned-term entry intact ✓
+- L80: "module / template (in Catalyst sense) → Blueprint" banned-term entries intact ✓
+- L130-131: Customer Sync `gitea.<location-code>.<sovereign-domain>/catalog/...` — Pass 29 DNS-canonical-form fix held ✓
+
+CLAUDE.md stable across 4 review cycles. The "Read these before doing anything" ordered list (GLOSSARY → IMPLEMENTATION-STATUS → ARCHITECTURE → NAMING-CONVENTION) correctly identifies the four keystone canonical docs.
+
+**platform/matrix/README.md** third-cycle deep-read (Pass 26 + Pass 32 prior confirms):
+- L1 title "Matrix/Synapse" ✓
+- L3 banner: "Decentralized chat and messaging using the Matrix protocol (Synapse server implementation). Application Blueprint (§4.5 — Communication). Used by bp-relay" ✓
+- L5 explicit Synapse-vs-bp-axon disambiguation: "'Synapse' here refers to the Matrix server implementation (the chat backend), NOT the deprecated OpenOva product noun (which has been retired in favor of bp-axon for the SaaS LLM gateway)" — anchors GLOSSARY banned-term entry "Synapse (as a product)" at the README banner level ✓
+- Integration table consistent (Keycloak SSO, CNPG backend, Grafana alerts, Stalwart email)
+
+matrix third-cycle confirms the Synapse disambiguation anchor (GLOSSARY → matrix README banner) intact across 3 review cycles. The architectural decision (rename OpenOva product Synapse → Axon, retain Matrix's Synapse server name) is preserved at multiple representational levels: GLOSSARY banned-terms table + matrix README L1 title + L3 banner + L5 explicit disambiguation note.
+
+**Pass 70: clean.** Eight consecutive architectural-clean passes (63-70).
+
+Convergence trajectory:
+- Cycle 1 Pass 54-58: 5 consecutive clean (1st nirvana)
+- Cycle 2 Pass 59 clean → 60-62 drift → 63-67 5 consecutive clean (renewed nirvana)
+- Cycle 3 Pass 68-70: 3 consecutive clean ✓ (so far)
+
+8 consecutive overall (63-70). The third cycle is exhibiting the same convergence pattern as cycle 2 minus the carry-over drift — strong evidence the carry-over catalog is fully exhausted.
+
 ### Pass 69 — TECHNOLOGY-FORECAST third-cycle + llm-gateway third-cycle stable
 
 **SEVENTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69). **SEVEN CONSECUTIVE clean architectural passes** (63 → 64 → 65 → 66 → 67 → 68 → 69) spanning cycle 2 → cycle 3.
