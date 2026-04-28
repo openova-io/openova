@@ -1,0 +1,14 @@
+{
+  "name": "openova-e2e-playwright",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Group L — Playwright UI smoke tests for Catalyst sovereign wizard, admin vouchers, and unified bp-<x> Blueprint card grid (issues #142, #143, #144).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --reporter=list",
+    "install:browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.46.0"
+  }
+}
