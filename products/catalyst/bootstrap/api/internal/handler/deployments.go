@@ -94,11 +94,15 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 	h.deployments.Store(id, dep)
 
+	// Capture status before launching the goroutine — runProvisioning races
+	// with this read otherwise (the goroutine takes dep.mu before mutating
+	// Status, but the response writer here reads it without the lock).
+	initialStatus := dep.Status
 	go h.runProvisioning(dep)
 
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"id":        id,
-		"status":    dep.Status,
+		"status":    initialStatus,
 		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", id),
 	})
 }
