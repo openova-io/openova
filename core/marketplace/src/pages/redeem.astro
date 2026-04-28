@@ -1,0 +1,218 @@
+---
+// #116 — public landing for voucher redemption.
+//
+// Reachable as `<sovereign-marketplace>/redeem?code=...`. The page is
+// unauthenticated — Franchisees distribute the URL via mobile-bill
+// inserts, partner channels, conferences (per docs/FRANCHISE-MODEL.md
+// §3) and the redeemer should not need to sign in to see what they're
+// being offered.
+//
+// Flow:
+//   1. Read ?code=... from the query string.
+//   2. POST to /api/billing/vouchers/redeem-preview to validate the code.
+//   3. Show {credit_omr, description, accepting_redemptions}.
+//   4. "Sign up to redeem" stashes the code in localStorage under
+//      `sme-pending-voucher` and routes the user to /plans (the start of
+//      the existing signup wizard). The CheckoutStep at the end of the
+//      wizard already supports the `promo_code` field on POST
+//      /billing/checkout — that's where actual redemption happens, inside
+//      the same transaction as the Order + credit_ledger writes.
+//
+// We deliberately do NOT call /billing/checkout from this page. Redemption
+// is transactional with the Order — splitting it out would risk a
+// partially-redeemed code with no order to show for it. See the comment
+// in core/services/billing/handlers/handlers.go around the original #91
+// fix for the rationale.
+
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Redeem voucher">
+  <div class="mx-auto max-w-2xl py-12">
+    <div id="redeem-loading" class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center">
+      <div class="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent"></div>
+      <p class="text-[var(--color-text-dim)]">Validating voucher…</p>
+    </div>
+
+    <div id="redeem-missing" class="hidden rounded-2xl border border-[var(--color-warn)]/30 bg-[var(--color-warn)]/10 p-8 text-center">
+      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">No voucher code</h1>
+      <p class="mt-2 text-sm text-[var(--color-text-dim)]">
+        This page expects a <code>?code=…</code> query parameter. If you have a voucher code, paste it below.
+      </p>
+      <form id="redeem-manual-form" class="mt-6 flex gap-2">
+        <input
+          id="redeem-manual-code"
+          type="text"
+          required
+          autocomplete="off"
+          placeholder="VOUCHER-CODE"
+          class="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm font-mono uppercase"
+        />
+        <button
+          type="submit"
+          class="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          Validate
+        </button>
+      </form>
+    </div>
+
+    <div id="redeem-not-valid" class="hidden rounded-2xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-8 text-center">
+      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Voucher not valid</h1>
+      <p id="redeem-not-valid-detail" class="mt-2 text-sm text-[var(--color-text-dim)]">
+        This code does not exist or has been retired.
+      </p>
+      <a
+        href="/plans"
+        class="mt-6 inline-block rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] no-underline"
+      >
+        Browse plans without a voucher
+      </a>
+    </div>
+
+    <div id="redeem-ended" class="hidden rounded-2xl border border-[var(--color-warn)]/30 bg-[var(--color-warn)]/10 p-8 text-center">
+      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">This campaign has ended</h1>
+      <p class="mt-2 text-sm text-[var(--color-text-dim)]">
+        The voucher <code id="redeem-ended-code" class="font-mono"></code> was for
+        <span id="redeem-ended-credit" class="font-semibold"></span> OMR of credit
+        but is no longer accepting redemptions.
+      </p>
+      <a
+        href="/plans"
+        class="mt-6 inline-block rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 no-underline"
+      >
+        Sign up without a voucher
+      </a>
+    </div>
+
+    <div id="redeem-valid" class="hidden">
+      <div class="rounded-2xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-8 text-center">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-success)]/20">
+          <svg class="h-6 w-6 text-[var(--color-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <p class="text-sm uppercase tracking-wide text-[var(--color-text-dim)]">Voucher valid</p>
+        <h1 id="redeem-valid-credit" class="mt-2 text-4xl font-bold text-[var(--color-text-strong)]">
+          —
+        </h1>
+        <p id="redeem-valid-desc" class="mt-2 text-sm text-[var(--color-text-dim)]"></p>
+        <p class="mt-4 text-xs text-[var(--color-text-dim)]">
+          Code: <code id="redeem-valid-code" class="font-mono"></code>
+        </p>
+
+        <button
+          id="redeem-cta"
+          class="mt-8 inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-8 py-3.5 text-base font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          Sign up to redeem
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+        </button>
+        <p class="mt-3 text-xs text-[var(--color-text-dim)]">
+          The credit is applied at checkout after you create your Organization.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Storage key shared with CheckoutStep: when a pending voucher is set,
+    // the checkout step will pre-fill the promo_code field.
+    const PENDING_VOUCHER_KEY = 'sme-pending-voucher';
+
+    function show(id: string) {
+      ['redeem-loading', 'redeem-missing', 'redeem-not-valid', 'redeem-ended', 'redeem-valid'].forEach(x => {
+        const el = document.getElementById(x);
+        if (el) el.classList.toggle('hidden', x !== id);
+      });
+    }
+
+    async function validate(code: string) {
+      show('redeem-loading');
+      try {
+        const res = await fetch('/api/billing/vouchers/redeem-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        if (res.status === 404) {
+          show('redeem-not-valid');
+          return;
+        }
+        if (res.status === 410) {
+          // Campaign ended — body still has credit + description.
+          const body = await res.json();
+          (document.getElementById('redeem-ended-code') as HTMLElement).textContent = body.code || code;
+          (document.getElementById('redeem-ended-credit') as HTMLElement).textContent = String(body.credit_omr ?? '');
+          show('redeem-ended');
+          return;
+        }
+        if (!res.ok) {
+          (document.getElementById('redeem-not-valid-detail') as HTMLElement).textContent =
+            'Could not validate the voucher right now. Please try again in a moment.';
+          show('redeem-not-valid');
+          return;
+        }
+        const body = await res.json();
+        (document.getElementById('redeem-valid-credit') as HTMLElement).textContent =
+          `${body.credit_omr} OMR credit`;
+        (document.getElementById('redeem-valid-desc') as HTMLElement).textContent =
+          body.description || 'Voucher credit will be applied to your first Organization.';
+        (document.getElementById('redeem-valid-code') as HTMLElement).textContent = body.code;
+
+        // Wire the CTA: stash the code, then route into the existing signup
+        // wizard. The wizard ends at /checkout where CheckoutStep reads
+        // sme-pending-voucher and applies it at POST /billing/checkout.
+        const cta = document.getElementById('redeem-cta');
+        if (cta) {
+          cta.addEventListener('click', () => {
+            try {
+              localStorage.setItem(PENDING_VOUCHER_KEY, body.code);
+            } catch (_) {}
+            window.location.href = '/plans';
+          });
+        }
+        show('redeem-valid');
+      } catch (e) {
+        (document.getElementById('redeem-not-valid-detail') as HTMLElement).textContent =
+          'Could not reach the voucher service. Please try again later.';
+        show('redeem-not-valid');
+      }
+    }
+
+    function init() {
+      const params = new URLSearchParams(window.location.search);
+      const code = (params.get('code') || '').trim().toUpperCase();
+      if (!code) {
+        show('redeem-missing');
+        const form = document.getElementById('redeem-manual-form') as HTMLFormElement | null;
+        const input = document.getElementById('redeem-manual-code') as HTMLInputElement | null;
+        if (form && input) {
+          form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const v = input.value.trim().toUpperCase();
+            if (!v) return;
+            // Push the code into the URL so refresh / sharing works as
+            // expected, then validate.
+            const url = new URL(window.location.href);
+            url.searchParams.set('code', v);
+            window.history.replaceState({}, '', url.toString());
+            validate(v);
+          });
+        }
+        return;
+      }
+      validate(code);
+    }
+
+    // The Layout's returning-user redirect script runs first; if it doesn't
+    // redirect (no token / no live workspace), we fire init.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  </script>
+</Layout>
