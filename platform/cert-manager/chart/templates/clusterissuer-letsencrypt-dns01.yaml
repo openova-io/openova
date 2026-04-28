@@ -1,0 +1,133 @@
+# clusterissuer-letsencrypt-dns01.yaml — Catalyst-curated TLS issuer for
+# OpenOva Sovereign clusters.
+#
+# Closes #113 — "[G] dns: validate TLS issuance via cert-manager Let's
+# Encrypt DNS-01 challenge".
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Why two ClusterIssuers in one file
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Wildcard certificates (e.g. *.omantel.omani.works) MUST be issued via
+# DNS-01: HTTP-01 cannot prove ownership of a wildcard hostname. The
+# canonical 6-record set written by catalyst-dns includes
+# `*.<sub>.<domain>`, and the Cilium Gateway's HTTPS listener serves that
+# wildcard via a single Certificate. So DNS-01 is the target state.
+#
+# However, cert-manager's DNS-01 webhook contract is DIFFERENT from
+# external-dns's webhook contract: external-dns expects a sidecar that
+# implements its own RPC schema (records.list / records.add / records.delete),
+# while cert-manager expects a webhook that implements
+# `webhook.acme.cert-manager.io/v1alpha1` (Present / CleanUp on a
+# ChallengeRequest CRD). The Catalyst external-dns webhook at
+# products/catalyst/bootstrap/api/cmd/external-dns-dynadot-webhook/ does
+# NOT satisfy the cert-manager contract and therefore CANNOT be reused
+# here. There is no upstream cert-manager-Dynadot webhook on
+# https://cert-manager.io/docs/configuration/acme/dns01/webhook/ as of
+# 2026-04-28.
+#
+# What we ship today (this file):
+#   - letsencrypt-dns01-prod   — TARGET STATE. Templated against a future
+#     Catalyst-built cert-manager-Dynadot webhook (issue
+#     #TBD: build cmd/cert-manager-dynadot-webhook/). Disabled by default
+#     so cert-manager doesn't try to use a webhook that isn't deployed.
+#   - letsencrypt-http01-prod  — INTERIM. Works today for the explicit
+#     hostnames (console, gitea, harbor, admin, api). Wildcard certs are
+#     NOT possible on this issuer; the Cilium Gateway must list each
+#     subdomain explicitly until the DNS-01 webhook is built.
+#
+# Operator runbook for activating DNS-01:
+#   1. Build + push ghcr.io/openova-io/openova/cert-manager-dynadot-webhook:<sha>
+#      (a Go binary implementing webhook.acme.cert-manager.io/v1alpha1
+#      against products/catalyst/bootstrap/api/internal/dynadot/).
+#   2. Deploy the webhook Service (e.g. cert-manager-webhook-dynadot in
+#      cert-manager namespace, port 443) and APIService registration.
+#   3. Set certManager.issuers.dns01.enabled=true in this chart's values.
+#   4. cert-manager will start using DNS-01; existing certs reissued at
+#      next renewal pick up the wildcard.
+#
+# Reference: https://cert-manager.io/docs/configuration/acme/dns01/
+
+{{- $issuers := .Values.certManager.issuers | default dict }}
+{{- $dns01 := $issuers.dns01 | default (dict "enabled" false) }}
+{{- $http01 := $issuers.http01 | default (dict "enabled" true) }}
+{{- $email := $issuers.email | default "ops@openova.io" }}
+{{- $server := $issuers.acmeServer | default "https://acme-v02.api.letsencrypt.org/directory" }}
+{{- if $dns01.enabled }}
+# ─── TARGET STATE: DNS-01 via Catalyst Dynadot webhook ────────────────────
+# Activated when the cert-manager-dynadot-webhook is deployed alongside
+# this chart. Issues wildcard certificates for the canonical Sovereign
+# record set (*.<sub>.<domain>).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01-prod
+  labels:
+    catalyst.openova.io/component: cert-manager
+    catalyst.openova.io/issuer-class: dns01
+spec:
+  acme:
+    server: {{ $server | quote }}
+    email: {{ $email | quote }}
+    privateKeySecretRef:
+      name: letsencrypt-dns01-prod-account-key
+    solvers:
+      - dns01:
+          webhook:
+            groupName: {{ $dns01.webhookGroupName | default "acme.dynadot.openova.io" | quote }}
+            solverName: {{ $dns01.webhookSolverName | default "dynadot" | quote }}
+            config:
+              # The webhook reads the same dynadot-api-credentials secret
+              # the catalyst-api and external-dns sidecar use, so the
+              # managed-domain allowlist and never-wipe rule are enforced
+              # by the SAME internal/dynadot/ package on every write path.
+              apiKeySecretRef:
+                name: dynadot-api-credentials
+                namespace: openova-system
+                key: api-key
+              apiSecretSecretRef:
+                name: dynadot-api-credentials
+                namespace: openova-system
+                key: api-secret
+              # Multi-domain: webhook reads DYNADOT_MANAGED_DOMAINS from
+              # the same secret's `domains` key (canonical) with the legacy
+              # `domain` key honoured as a fallback (per #108).
+              managedDomainsSecretRef:
+                name: dynadot-api-credentials
+                namespace: openova-system
+                key: domains
+{{- end }}
+{{- if $http01.enabled }}
+{{- if $dns01.enabled }}
+---
+{{- end }}
+# ─── INTERIM: HTTP-01 (no wildcard support) ───────────────────────────────
+# Works today; serves explicit hostnames (console, gitea, harbor, admin,
+# api). Cannot issue wildcard certs — the Gateway listener must enumerate
+# every subdomain until the DNS-01 webhook is built. See the runbook in
+# the file header for the cutover procedure.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http01-prod
+  labels:
+    catalyst.openova.io/component: cert-manager
+    catalyst.openova.io/issuer-class: http01
+    catalyst.openova.io/interim: "true"
+spec:
+  acme:
+    server: {{ $server | quote }}
+    email: {{ $email | quote }}
+    privateKeySecretRef:
+      name: letsencrypt-http01-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            # Cilium Gateway / cilium-ingress class exposes the ACME
+            # challenge path back to Let's Encrypt without manual route
+            # plumbing. Cluster overlays MAY override
+            # certManager.issuers.http01.ingressClassName via the
+            # bp-catalyst-platform values.yaml when a different ingress
+            # controller fronts the Sovereign.
+            ingressClassName: {{ $http01.ingressClassName | default "cilium" | quote }}
+{{- end }}

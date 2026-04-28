@@ -512,6 +512,150 @@ func TestIsManagedDomain_FromLegacySingleDomain(t *testing.T) {
 	}
 }
 
+// TestManagedDomains_TableDriven is the canonical multi-domain spec for #110.
+// Each row is one resolution-order scenario; together they assert that the
+// runtime configuration surface (DYNADOT_MANAGED_DOMAINS canonical →
+// DYNADOT_DOMAIN legacy → built-in defaults) behaves as documented in the
+// dynadot.go package comment.
+//
+// This complements the focused TestIsManagedDomain_* tests above by giving
+// a single row-per-scenario matrix that's easy to extend when (e.g.) a new
+// pool domain is added.
+func TestManagedDomains_TableDriven(t *testing.T) {
+	type queryCase struct {
+		domain string
+		want   bool
+	}
+	cases := []struct {
+		name        string
+		envMulti    string
+		envLegacy   string
+		wantSet     []string // sorted
+		queries     []queryCase
+	}{
+		{
+			name:     "canonical_multi_domain_env_list",
+			envMulti: "openova.io,omani.works,acme.io",
+			wantSet:  []string{"acme.io", "omani.works", "openova.io"},
+			queries: []queryCase{
+				{"openova.io", true},
+				{"omani.works", true},
+				{"acme.io", true},
+				{"customer-byo.com", false},
+			},
+		},
+		{
+			name:     "canonical_multi_domain_whitespace_separated",
+			envMulti: "openova.io  omani.works\tacme.io",
+			wantSet:  []string{"acme.io", "omani.works", "openova.io"},
+			queries: []queryCase{
+				{"acme.io", true},
+				{"openova.io", true},
+			},
+		},
+		{
+			name:     "case_insensitive_lookup_and_storage",
+			envMulti: "OPENOVA.IO, OMANI.WORKS",
+			wantSet:  []string{"omani.works", "openova.io"},
+			queries: []queryCase{
+				{"OPENOVA.IO", true},
+				{"openova.io", true},
+				{"Omani.Works", true},
+			},
+		},
+		{
+			name:     "whitespace_trimmed_in_query",
+			envMulti: "openova.io",
+			wantSet:  []string{"openova.io"},
+			queries: []queryCase{
+				{"  openova.io  ", true},
+				{"\topenova.io\n", true},
+			},
+		},
+		{
+			name:      "legacy_single_domain_fallback",
+			envMulti:  "",
+			envLegacy: "openova.io",
+			wantSet:   []string{"openova.io"},
+			queries: []queryCase{
+				{"openova.io", true},
+				// legacy path is exact-set, NOT defaults-augmented:
+				{"omani.works", false},
+			},
+		},
+		{
+			name:      "defaults_fallback_when_neither_env_set",
+			envMulti:  "",
+			envLegacy: "",
+			wantSet:   []string{"omani.works", "openova.io"},
+			queries: []queryCase{
+				{"openova.io", true},
+				{"omani.works", true},
+				{"customer-byo.com", false},
+			},
+		},
+		{
+			name:      "canonical_takes_precedence_over_legacy",
+			envMulti:  "acme.io,beta.io",
+			envLegacy: "openova.io", // ignored when DYNADOT_MANAGED_DOMAINS is non-empty
+			wantSet:   []string{"acme.io", "beta.io"},
+			queries: []queryCase{
+				{"acme.io", true},
+				{"beta.io", true},
+				{"openova.io", false},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DYNADOT_MANAGED_DOMAINS", tc.envMulti)
+			t.Setenv("DYNADOT_DOMAIN", tc.envLegacy)
+			ResetManagedDomains()
+			defer ResetManagedDomains()
+
+			gotSet := ManagedDomains()
+			if len(gotSet) != len(tc.wantSet) {
+				t.Fatalf("ManagedDomains() = %v, want %v", gotSet, tc.wantSet)
+			}
+			for i := range tc.wantSet {
+				if gotSet[i] != tc.wantSet[i] {
+					t.Errorf("ManagedDomains()[%d] = %q, want %q", i, gotSet[i], tc.wantSet[i])
+				}
+			}
+			for _, q := range tc.queries {
+				if got := IsManagedDomain(q.domain); got != q.want {
+					t.Errorf("IsManagedDomain(%q) = %v, want %v", q.domain, got, q.want)
+				}
+			}
+		})
+	}
+}
+
+// TestAddSovereignRecords_AllUseAddDNSToCurrentSetting verifies the
+// "never wipe records" rule applies on every iteration of the loop —
+// regression guard against #110 / feedback_dynadot_dns.md.
+func TestAddSovereignRecords_AllUseAddDNSToCurrentSetting(t *testing.T) {
+	srv, fake := newDynadotFakeServer()
+	defer srv.Close()
+
+	c := newClientPointingAt(srv.URL, "k", "s")
+	if err := c.AddSovereignRecords(context.Background(), "omani.works", "omantel", "10.20.30.40"); err != nil {
+		t.Fatalf("AddSovereignRecords: %v", err)
+	}
+	got := fake.recorded()
+	if len(got) != 6 {
+		t.Fatalf("expected 6 records, got %d", len(got))
+	}
+	for i, rr := range got {
+		if rr.AddDNSToCurrentSetting != "yes" {
+			t.Errorf("request %d (%s) missing add_dns_to_current_setting=yes — would WIPE existing DNS", i, rr.Subdomain)
+		}
+		if rr.Command != "set_dns2" {
+			t.Errorf("request %d wrong command: %q", i, rr.Command)
+		}
+	}
+}
+
 // TestSplitDomainsList covers the parser edge cases.
 func TestSplitDomainsList(t *testing.T) {
 	cases := []struct {

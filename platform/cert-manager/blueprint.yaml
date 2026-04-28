@@ -13,3 +13,26 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+
+  # ── Outputs advertised to dependent Blueprints (#113) ────────────────────
+  # Blueprints that issue Certificates (cilium-gateway, harbor, gitea, etc.)
+  # consume `issuerName` rather than hardcoding "letsencrypt-prod" so that
+  # operators can swap the active issuer (DNS-01 vs HTTP-01) via the
+  # bp-catalyst-platform umbrella values without editing every dependent
+  # chart. The chart's templates/clusterissuer-letsencrypt-dns01.yaml ships
+  # both issuers; this output names the one a dependent Blueprint should
+  # default to in production.
+  outputs:
+    # Default issuer name. Cluster overlays MAY override this to the DNS-01
+    # variant once the cert-manager-dynadot-webhook lands; until then the
+    # interim HTTP-01 issuer is the default since it's the one the chart's
+    # values.yaml enables out of the box.
+    issuerName: letsencrypt-http01-prod
+    # Kind is always ClusterIssuer for Catalyst — the wildcard cert lives
+    # in cilium-gateway and is consumed cluster-wide.
+    issuerKind: ClusterIssuer
+    # The TARGET-STATE issuer name. Dependents that want wildcard certs
+    # (e.g. the Gateway's TLS listener) pin to this; flipping
+    # certManager.issuers.dns01.enabled=true in the umbrella chart's values
+    # is the only operator action needed to activate it.
+    wildcardIssuerName: letsencrypt-dns01-prod
