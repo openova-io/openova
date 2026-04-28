@@ -63,6 +63,41 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 79 — TECHNOLOGY-FORECAST fourth-cycle stable; clickhouse third-cycle clean (cycle 5 Pass 2)
+
+**TWENTY-SEVENTH clean pass overall**. **SEVENTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 79) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 2 consecutive cleans (78 → 79).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/TECHNOLOGY-FORECAST-2027-2030.md** fourth-cycle deep-read (Pass 27, 45, 52, 54, 69 prior cycles):
+- L5 Updated: 2026-04-28 (Pass 52 stale-date fix held) ✓
+- L26 Mandatory Components (26) header ✓
+- L56 keycloak: "Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate" (Pass 27 swap intact) ✓
+- L64 A La Carte Components (27) header (Pass 45 fix held) ✓
+- L72 opensearch: "Application Blueprint — opt-in for SIEM (paired with ClickHouse + bp-specter)" (Pass 27 swap intact) ✓
+
+TECHNOLOGY-FORECAST stable across **4 review cycles** (Pass 27/45/52, Pass 54, Pass 69, Pass 79).
+
+**platform/clickhouse/README.md** third-cycle deep-read:
+- L3 banner: "Column-oriented OLAP database for real-time analytics. Application Blueprint (§4.1) — installed by Organizations that want OLAP. Used by bp-fabric and as the cold-storage tier of the SIEM pipeline (docs/SRE.md §10)." ✓
+- L127 `namespace: databases` ✓
+- L194 `kafka-kafka-bootstrap.databases.svc:9092` (Pass 52 cross-component sweep) ✓
+- L225 `http://minio.storage.svc:9000/clickhouse-cold/` (Pass 41 namespace) ✓
+- ReplicatedMergeTree multi-region replication consistent with PTS §4.1 + SRE §2.5
+
+clickhouse third-cycle confirms cross-component namespace consistency intact (databases for Kafka, storage for MinIO).
+
+**Pass 79: clean.** Seventeen consecutive architectural-clean passes (63-79).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana, 0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean (fourth nirvana, 0 drift)
+- Cycle 5 (Pass 78-79): 2 consecutive clean ✓ (so far)
+
+17 consecutive overall (63-79). Cycle 5 sustains the convergence pattern. Three more cycle-5 cleans (Pass 80-82) would meet the renewed 5-consecutive nirvana threshold within cycle 5 = fifth nirvana approach + 20-consecutive-overall.
+
 ### Pass 78 — SOVEREIGN-PROVISIONING fourth-cycle stable; cnpg fourth-cycle clean (cycle 5 Pass 1)
 
 **TWENTY-SIXTH clean pass overall**. **SIXTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 78) spanning cycles 2 → 3 → 4 → 5. Cycle 5 starts CLEAN.
