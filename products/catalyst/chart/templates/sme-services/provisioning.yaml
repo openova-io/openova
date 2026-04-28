@@ -140,7 +140,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: provisioning
-          image: ghcr.io/openova-io/openova-private/sme-provisioning:635eec7
+          image: ghcr.io/openova-io/openova/services-provisioning:635eec7
           imagePullPolicy: Always
           ports:
             - containerPort: 8084
@@ -182,7 +182,7 @@ spec:
             - name: GITHUB_OWNER
               value: "openova-io"
             - name: GITHUB_REPO
-              value: "openova-private"
+              value: "openova"
           resources:
             requests:
               cpu: 25m

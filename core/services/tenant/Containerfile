@@ -1,0 +1,15 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY shared/ shared/
+COPY tenant/go.mod tenant/go.sum tenant/
+WORKDIR /src/tenant
+RUN go mod download
+COPY tenant/ .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /tenant .
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /tenant /tenant
+EXPOSE 8083
+USER 65534
+ENTRYPOINT ["/tenant"]

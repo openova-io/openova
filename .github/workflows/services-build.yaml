@@ -1,0 +1,109 @@
+name: Build & Deploy Catalyst Backend Services
+
+on:
+  push:
+    paths: ['core/services/**']
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/openova-io/openova/services
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: core/services
+          file: core/services/${{ matrix.service }}/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}-${{ matrix.service }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_BASE }}-${{ matrix.service }}:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update deployment manifests with new SHA tags
+        run: |
+          SHA=$(echo $GITHUB_SHA | head -c 7)
+          DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+
+          for svc in auth catalog gateway tenant domain billing provisioning notification; do
+            FILE="${DEPLOY_DIR}/${svc}.yaml"
+            if [ -f "$FILE" ]; then
+              sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
+              echo "Updated ${svc} to SHA ${SHA}"
+            fi
+          done
+
+      - name: Commit and push manifest updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          SHA=$(echo $GITHUB_SHA | head -c 7)
+          DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+
+          # Re-applies the sed substitution against whatever state main is
+          # currently in. Needed because parallel/back-to-back CI runs both
+          # try to update the same image: lines — a plain `git pull --rebase`
+          # hits content conflicts since every SHA bump touches exactly the
+          # same lines a previous run just wrote. Idempotent reset-and-resed
+          # is conflict-free by construction.
+          apply_sed() {
+            for svc in auth catalog gateway tenant domain billing provisioning notification; do
+              FILE="${DEPLOY_DIR}/${svc}.yaml"
+              if [ -f "$FILE" ]; then
+                sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
+              fi
+            done
+          }
+
+          git add products/
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "deploy: update sme service images to ${SHA}"
+
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "push attempt $i failed — resetting to origin/main and re-applying sed"
+            git fetch origin main
+            git reset --hard origin/main
+            apply_sed
+            git add products/
+            if git diff --staged --quiet; then
+              echo "no changes after re-fetch — another run already shipped this SHA"
+              exit 0
+            fi
+            git commit -m "deploy: update sme service images to ${SHA}"
+          done
+          echo "push failed after 3 attempts"
+          exit 1
