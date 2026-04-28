@@ -63,6 +63,76 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 96 — IMPLEMENTATION-STATUS seventh-cycle stable; llm-gateway fourth-cycle clean (cycle 8 Pass 4)
+
+**FORTY-FOURTH clean pass overall**. **THIRTY-FOUR CONSECUTIVE clean architectural passes** (Pass 63 → 96) spanning cycles 2 → 8. Cycle 8 has 4 consecutive cleans (93 → 94 → 95 → 96).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/IMPLEMENTATION-STATUS.md** seventh-cycle deep-read:
+- L1-9 framing: bridge between target architecture and current code state; "If you find a claim elsewhere in this repo that contradicts this file, this file wins" escalation rule preserved ✓
+- L13-20 4-status legend: ✅ Implemented / 🚧 Partial / 📐 Design / ⏸ Deferred ✓
+- §1 Repository structure (L24-34): products/axon=✅; core/, products/catalyst/ umbrella, products/{cortex,fabric,fingate,relay} = 📐 ✓
+- §2 Catalyst control plane components (L38-65) — cross-ref to PTS §2:
+  - **§2.1 user-facing surfaces and backend services: 9 rows** (console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing) ✓ verified by direct count
+  - **§2.2 per-Sovereign supporting services: 6 rows** (Gitea, NATS JetStream, OpenBao, Keycloak, SPIRE, observability) ✓ verified by direct count
+  - **Total: 9 + 6 = 15 control-plane components matches PTS §1 control-plane (15)** ✓
+- §3 Per-host-cluster infrastructure (L67-89) — cross-ref to PTS §3:
+  - **17 rows** representing 21 components (some grouped: VPA/KEDA/Reloader on one row, MinIO/Velero/Harbor on another) ✓ verified by direct count
+  - Components match PTS §3 21-component list ✓
+- §4 CRDs (L93-108):
+  - **8 CRDs** (Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook) ✓ verified by direct count
+  - All 📐 status; matches GLOSSARY §Catalyst components implicit + ARCHITECTURE §12 ✓
+- §5 Surfaces (L112-119): 4 entries — UI/Git/API/kubectl(debug-only) — consistent with ARCHITECTURE §7 + GLOSSARY ✓
+- §6 Sovereigns running today (L123-129): openova=🚧 (legacy Contabo SME marketplace), omantel=📐, bankdhofar=📐 ✓
+- §7 Catalyst provisioner (L133-139): catalyst-provisioner.openova.io target service ✓
+- §8 What this means for newcomers (L143-152): scaffold-vs-target framing ✓
+- §9 How to update this file (L156-) ✓
+
+IMPLEMENTATION-STATUS.md stable across **7 review cycles** (Pass 11, 27, 38, 51, 65, 75, 86, 96 — fix-trajectory: maintenance-only, no structural fixes).
+
+**Defense-in-depth verification: component-count cross-document consistency** (across 4+ representational levels):
+1. PTS §1 categorization: 15 control-plane + 21 per-host-cluster + 27 Application Blueprints = 63 ✓
+2. IMPLEMENTATION-STATUS §2 control-plane: 9+6 = 15 ✓
+3. IMPLEMENTATION-STATUS §3 per-host-cluster: 21 components (in 17 rows) ✓
+4. IMPLEMENTATION-STATUS §4 CRDs: 8 (matches ARCHITECTURE §12) ✓
+5. ARCHITECTURE §3 topology box: 14 control-plane services (1 grouping) + per-host-cluster split-out cross-ref to PTS §3 ✓
+6. CLAUDE.md L46: "52 folders total" (= 25 mandatory-with-folder + 27 a-la-carte) ✓
+7. TECHNOLOGY-FORECAST: 26 mandatory header (25 in-table + OpenTel implicit) + 27 à-la-carte = 52 platform folders ✓
+8. BUSINESS-STRATEGY §5.1 + §5.3 + §8.4: "52 components" anchor preserved ✓
+
+Eight cross-document anchors all consistent.
+
+**platform/llm-gateway/README.md** fourth-cycle deep-read:
+- L1 title "LLM Gateway"
+- L3 banner: "Subscription-based proxy for LLM access via Claude Code. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.6). Catalyst's outbound LLM access point — routes between Claude API, GPT-4 API, self-hosted vLLM, and Axon (the SaaS gateway). Used by `bp-cortex`." ✓ — Pass 31 anchor
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- **DNS pattern split verified within single file** (4 instances):
+  - L72 image: `harbor.<location-code>.<sovereign-domain>/ai-hub/llm-gateway:latest` — control-plane DNS for Harbor (per NAMING §11.2 / §5.1) ✓
+  - L93 KEYCLOAK_URL: `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>` — control-plane DNS for Keycloak ✓
+  - L186 ANTHROPIC_BASE_URL: `https://llm-gateway.<env>.<sovereign-domain>/v1` — Application DNS for the gateway itself (per NAMING §11.2 Application pattern) ✓
+  - L189 claude config api_base: `https://llm-gateway.<env>.<sovereign-domain>/v1` — Application DNS ✓
+- L185 ANTHROPIC_API_KEY env var: explicitly "your-subscription-token" — subscription credential (NOT pay-as-you-go API key); aligned with Pass 31 subscription-proxy framing
+- L98-104 subscription tiers (Free/Pro/Enterprise)
+- L195-203 endpoints: `/v1/messages` Anthropic-compat, `/v1/chat/completions` OpenAI-compat
+
+llm-gateway fourth-cycle confirms Pass 31 banner + DNS split (control-plane Harbor/Keycloak + Application llm-gateway) intact across 4 cycles.
+
+**Defense-in-depth verification: DNS canonical patterns within single component README** (llm-gateway has both pattern types):
+1. Control-plane DNS used for Catalyst infrastructure dependencies (Harbor, Keycloak) — match NAMING §11.2 §5.1 control-plane pattern ✓
+2. Application DNS used for the component's own user-facing endpoint (llm-gateway) — match NAMING §11.2 Application pattern ✓
+3. Pattern selection is correct per component role (llm-gateway IS an Application; depends ON Catalyst control-plane Harbor/Keycloak) ✓
+
+This single-file two-pattern usage is the strongest possible defense-in-depth verification — same author touching both patterns within ~120 lines, both correct.
+
+**Pass 96: clean.** Thirty-four consecutive architectural-clean passes (63-96). Cycle 8 has 4 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-7: 35 consecutive clean (7 nirvana achieved)
+- Cycle 8 (Pass 93-96): 4 consecutive clean ✓ (so far)
+
+Total: 44 clean passes overall, 34 consecutive (Pass 63-96). **Pass 97 = potential EIGHTH NIRVANA THRESHOLD + 35-CONSECUTIVE.**
+
 ### Pass 95 — GLOSSARY seventh-cycle stable; langfuse fourth-cycle clean (cycle 8 Pass 3)
 
 **FORTY-THIRD clean pass overall**. **THIRTY-THREE CONSECUTIVE clean architectural passes** (Pass 63 → 95) spanning cycles 2 → 8. Cycle 8 has 3 consecutive cleans (93 → 94 → 95).
