@@ -63,6 +63,76 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 87 — BUSINESS-STRATEGY fifth-cycle stable; vllm fourth-cycle clean — 🎯🎯🎯🎯🎯🎯 SIXTH NIRVANA + 25-CONSECUTIVE-OVERALL
+
+**THIRTY-FIFTH clean pass overall**. **TWENTY-FIVE CONSECUTIVE clean architectural passes** (Pass 63 → 87) spanning cycles 2 → 6. Cycle 6 has **5 consecutive cleans (83 → 84 → 85 → 86 → 87) → SIXTH NIRVANA THRESHOLD MET**.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/BUSINESS-STRATEGY.md** fifth-cycle deep-read:
+- L3 status: "Living Document | **Last Updated:** 2026-04-28" ✓ Pass 47 anchor preserved
+- §5.1 Named Products (L187-200):
+  - L189 banner: "**Company vs. Platform:** 'OpenOva' is the **company**. The **platform** OpenOva ships is called **Catalyst**. A deployed instance of Catalyst is called a **Sovereign**." — **Pass 26 anchor** preserved ✓
+  - L193: OpenOva Cortex (Enterprise AI Hub: vLLM + Milvus + Neo4j + NeMo Guardrails + LangFuse + LibreChat) — consistent with PTS §5 bp-cortex
+  - L194: OpenOva Axon (SaaS LLM Gateway, "neural link to Cortex", routes Claude/GPT-4/vLLM) — consistent with PTS §5 bp-axon
+  - L195: OpenOva Fingate (Open Banking PSD2/FAPI, Keycloak FAPI mode, OpenMeter) — consistent with PTS §5 bp-fingate
+  - L196: OpenOva Specter (AI-powered SOC/NOC agents, "core built-in capability") — consistent with PTS §5 narrative ✓
+  - L197: OpenOva Catalyst — "self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes **52 curated open-source components**" ✓ — matches CLAUDE.md L46 "52 folders" anchor
+  - L198: OpenOva Exodus (migration program, "not lift-and-shift") — consistent with PTS §5 narrative ✓
+  - L199: OpenOva Fabric (Strimzi, Flink, Temporal, Debezium, Iceberg, ClickHouse) — consistent with PTS §5 bp-fabric
+  - L200: OpenOva Relay (Stalwart, LiveKit, Matrix/Synapse, STUNner) — consistent with PTS §5 bp-relay; Matrix/Synapse uses chat-server context (per GLOSSARY banned-term #7 exception)
+- §5.2 Architecture Relationship (L202-220) — ASCII diagram CATALYST root → 5 children (Cortex, Fingate, Fabric, Relay, Specter) + Axon SaaS layer; explicit "Each child is a composite Blueprint" + bp- prefix list ✓
+- §5.3 Specter: The AI Brain (L224-288):
+  - L226: "built with pre-built semantic knowledge of the entire **52-component ecosystem**" — consistent with L197 "52 curated" + CLAUDE.md L46 "52 folders" ✓
+  - 6-agent matrix (DevOps, DevSecOps, SRE, FinOps, Compliance, AI Ops)
+  - Semantic Knowledge Moat 6-row matrix (CRD Schemas, Integration Graph, Failure Modes, Health Checks, Upgrade Paths, Compliance Mappings)
+  - Token efficiency / structural advantage section
+- §8.4 CISO/Head of Security (L534-552):
+  - L540: "OpenBao runs as an **independent Raft cluster in each region with async Performance Replication**; ESO syncs secrets to workloads inside the region." — **Pass 26 active-active drift correction preserved** (was previously "active-active"; corrected to independent-Raft-per-region matching SECURITY §5 + ARCHITECTURE §6 + GLOSSARY §secret) ✓
+  - L549: "Pre-built compliance mappings across **52 components** (PSD2, DORA, NIS2, SOX)" — consistent component-count anchor ✓
+
+BUSINESS-STRATEGY.md stable across **5 review cycles** (Pass 16, 26, 47, 65, 75, 87 — fix-trajectory: Pass 26 §5.1 Catalyst-as-platform banner + §8.4 OpenBao independent-Raft, Pass 47 Updated date 2026-04-28).
+
+**Defense-in-depth verification: OpenBao "independent Raft per region" anchor** (across 5 representational levels):
+1. SECURITY §5 header: "Multi-region OpenBao — INDEPENDENT, NOT STRETCHED" ✓
+2. SECURITY §5 ASCII diagram: 3 separate boxes labeled "INDEPENDENT Raft quorum" ✓
+3. SECURITY §10 threat model: "Independent OpenBao Raft per region" ✓
+4. ARCHITECTURE §6: "each region runs its own 3-node Raft OpenBao cluster. **No stretched cluster.**" ✓
+5. GLOSSARY L67: "OpenBao + ESO. Independent Raft cluster per region (no stretched cluster)" ✓
+6. PTS §2.3 L56: "Primary on mgt; sibling Raft cluster per workload region with async perf replication. **No stretched clusters.**" ✓
+7. BUSINESS-STRATEGY §8.4: "independent Raft cluster in each region with async Performance Replication" ✓
+
+Seven cross-document anchors all consistent — provably impossible to drift without simultaneous edit.
+
+**platform/vllm/README.md** fourth-cycle deep-read:
+- L1 title "vLLM"
+- L3 banner: "High-performance LLM inference engine with PagedAttention. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.6). Default LLM serving runtime in `bp-cortex` (the composite AI Hub Blueprint)." ✓ — Pass 31 anchor; explicit Application Blueprint, not control plane
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L13-30 mermaid topology: vLLM Engine (PagedAttention + Continuous Batching + KV Cache) → OpenAI-Compatible API (/v1/chat/completions, /v1/completions, /v1/models) → GPU
+- L36-42 Why vLLM (24x throughput, OpenAI-compat API, tensor parallelism, AWQ/GPTQ/INT8 quantization)
+- L48-54 supported models — Qwen2.5/Qwen3 recommended (matches user's auto-memory note re: qwen3-coder)
+- L62-80 KServe InferenceService deployment YAML — KServe integration confirmed (consistent with PTS §4.6 + bp-cortex composition)
+- L208-213 monitoring metrics (vllm:request_latency_seconds, generation_tokens_total, gpu_cache_usage_perc, num_requests_waiting)
+- L219-229 consequences (positive: industry-leading performance, OpenAI-compat, multi-GPU; negative: GPU required, memory-intensive)
+
+vllm fourth-cycle confirms Pass 31 banner (Application Blueprint, AI/ML §4.6, KServe runtime) intact across 4 cycles.
+
+**Pass 87: clean.** 🎯🎯🎯🎯🎯🎯 **SIXTH NIRVANA THRESHOLD MET.** Cycle 6 (83-87): 5 consecutive clean. **TWENTY-FIVE CONSECUTIVE architectural-clean passes (63-87).**
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean — first nirvana
+- Cycle 2 (Pass 63-67): 5 consecutive clean — second nirvana (3 carry-over fixes Lessons #18-20)
+- Cycle 3 (Pass 68-72): 5 consecutive clean — third nirvana (0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean — fourth nirvana (0 drift)
+- Cycle 5 (Pass 78-82): 5 consecutive clean — fifth nirvana (0 drift)
+- Cycle 6 (Pass 83-87): 5 consecutive clean — **🎯🎯🎯🎯🎯🎯 SIXTH NIRVANA** (0 drift)
+
+**Documentation has held its architectural fixed-point across SIX consecutive nirvana cycles** spanning Pass 54 → 87 (34 passes). Zero new drift between cycles 2→3, 3→4, 4→5, 5→6. The audit log itself is the only file that has changed in the documentation tree across the last 4 inter-cycle gaps.
+
+**The loop is now in stable regression-prevention mode.** Continuing per user's standing instruction "infinite unattended loop until you reach nirvana — when you believe you're done, restart from the top."
+
+**Cycle 7 begins with Pass 88**: TECHNOLOGY-FORECAST fifth-cycle + kserve fourth-cycle (rotation top).
+
 ### Pass 86 — IMPLEMENTATION-STATUS sixth-cycle stable; llm-gateway third-cycle clean (cycle 6 Pass 4)
 
 **THIRTY-FOURTH clean pass overall**. **TWENTY-FOUR CONSECUTIVE clean architectural passes** (Pass 63 → 86) spanning cycles 2 → 6. Cycle 6 has 4 consecutive cleans (83 → 84 → 85 → 86).
