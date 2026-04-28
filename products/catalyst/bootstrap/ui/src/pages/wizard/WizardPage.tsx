@@ -7,8 +7,9 @@ import { StepProvider }    from './steps/StepProvider'
 import { StepCredentials } from './steps/StepCredentials'
 import { StepComponents }  from './steps/StepComponents'
 import { StepReview }      from './steps/StepReview'
+import { StepSuccess }     from './steps/StepSuccess'
 
-const STEPS = [StepOrg, StepTopology, StepProvider, StepCredentials, StepComponents, StepReview]
+const STEPS = [StepOrg, StepTopology, StepProvider, StepCredentials, StepComponents, StepReview, StepSuccess]
 
 const variants = {
   enter:  (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
