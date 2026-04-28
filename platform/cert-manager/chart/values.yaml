@@ -25,3 +25,36 @@ webhook:
     requests:
       cpu: 50m
       memory: 64Mi
+
+# ── Catalyst-managed ClusterIssuers (templates/clusterissuer-letsencrypt-dns01.yaml) ──
+# The Catalyst-curated wrapper ships TWO ClusterIssuers and lets the
+# operator pick the active one via these values:
+#
+#   - letsencrypt-dns01-prod  (TARGET STATE: wildcard-capable, requires the
+#                              cert-manager-dynadot-webhook image — disabled
+#                              by default until that webhook is built)
+#   - letsencrypt-http01-prod (INTERIM: explicit hostnames only, no
+#                              wildcards, works today via Cilium ingress)
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") all knobs are
+# runtime-configurable; cluster overlays in clusters/<sovereign>/ may set
+# certManager.issuers.* to flip between issuers without rebuilding the
+# Blueprint OCI artifact.
+certManager:
+  issuers:
+    # ACME account email used for renewal notifications. Per Sovereign
+    # convention this is ops@<pool-domain>.
+    email: ops@openova.io
+    # Production Let's Encrypt directory. Set to the staging URL during
+    # bring-up to avoid Let's Encrypt rate limits:
+    #   https://acme-staging-v02.api.letsencrypt.org/directory
+    acmeServer: https://acme-v02.api.letsencrypt.org/directory
+    dns01:
+      # Disabled until cmd/cert-manager-dynadot-webhook ships. See the
+      # runbook in templates/clusterissuer-letsencrypt-dns01.yaml.
+      enabled: false
+      webhookGroupName: acme.dynadot.openova.io
+      webhookSolverName: dynadot
+    http01:
+      enabled: true
+      ingressClassName: cilium
