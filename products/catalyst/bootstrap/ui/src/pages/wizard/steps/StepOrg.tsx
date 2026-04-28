@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { ORG_DEFAULTS, SOVEREIGN_POOL_DOMAINS, isValidSubdomain, isValidDomain, resolveSovereignDomain } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
+import { useSubdomainAvailability } from '@/shared/lib/useSubdomainAvailability'
 import { StepShell, useStepNav } from './_shared'
 
 const INDUSTRIES = [
@@ -95,6 +97,25 @@ export function StepOrg() {
   const col2 = '1fr 1fr'
   const col1 = '1fr'
 
+  // Hoist the availability hook so the Next button can react to it.
+  // Only meaningful in pool mode; in byo mode we pass empty subdomain to
+  // keep the hook idle. Closes #124.
+  const pool = SOVEREIGN_POOL_DOMAINS.find(p => p.id === store.sovereignPoolDomain) ?? SOVEREIGN_POOL_DOMAINS[0]!
+  const availability = useSubdomainAvailability(
+    store.sovereignDomainMode === 'pool' ? store.sovereignSubdomain : '',
+    pool.domain,
+  )
+
+  // Block Next while the subdomain is being checked, when it's taken,
+  // when it's invalid, or when the check itself failed (operator must
+  // resolve the issue or switch to BYO mode).
+  const nextBlocked =
+    store.sovereignDomainMode === 'pool' &&
+    (availability.status === 'taken' ||
+      availability.status === 'invalid' ||
+      availability.status === 'checking' ||
+      availability.status === 'error')
+
   function toggleCompliance(tag: string) {
     store.setOrgCompliance(
       store.orgCompliance.includes(tag)
@@ -108,6 +129,7 @@ export function StepOrg() {
       title="Tell us about your organisation"
       description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
       onNext={next}
+      nextDisabled={nextBlocked}
     >
       {/* Row 1: Name · Domain (always 2-col on tablet/desktop, 1-col on mobile) */}
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
@@ -157,7 +179,7 @@ export function StepOrg() {
       </div>
 
       {/* Sovereign domain — pool subdomain or BYO. Required to proceed. */}
-      <SovereignDomainSection />
+      <SovereignDomainSection availability={availability} />
 
       <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
         Fields marked <span style={{ color: 'var(--wiz-accent)' }}>default</span> are pre-filled.
@@ -182,7 +204,7 @@ export function StepOrg() {
  * - BYO domain must be a syntactically valid public domain (>= 2 labels)
  * - Cannot proceed to Next until at least one mode resolves to a non-empty domain
  */
-function SovereignDomainSection() {
+function SovereignDomainSection({ availability }: { availability: import('@/shared/lib/useSubdomainAvailability').AvailabilityResult }) {
   const store = useWizardStore()
   const resolved = resolveSovereignDomain(store)
   const subdomainValid = !store.sovereignSubdomain || isValidSubdomain(store.sovereignSubdomain)
@@ -228,17 +250,28 @@ function SovereignDomainSection() {
       {/* Mode body */}
       {store.sovereignDomainMode === 'pool' ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          {/* Subdomain input */}
+          {/* Subdomain input + availability status */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>Subdomain</span>
+            <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <span>Subdomain</span>
+              <SubdomainAvailabilityIndicator status={availability.status} />
+            </span>
             <input
               type="text"
               placeholder="e.g. omantel"
               value={store.sovereignSubdomain}
               onChange={e => store.setSovereignSubdomain(e.target.value)}
+              aria-invalid={availability.status === 'taken' || availability.status === 'invalid' || !subdomainValid}
+              aria-describedby={availability.status === 'taken' || availability.status === 'invalid' || availability.status === 'error' ? 'sovereign-subdomain-err' : undefined}
               style={{
                 height: 40, borderRadius: 8,
-                border: `1.5px solid ${subdomainValid ? 'var(--wiz-border)' : 'rgba(239,68,68,0.5)'}`,
+                border: `1.5px solid ${
+                  availability.status === 'taken' || availability.status === 'invalid' || !subdomainValid
+                    ? 'rgba(239,68,68,0.5)'
+                  : availability.status === 'available'
+                    ? 'rgba(74,222,128,0.5)'
+                  : 'var(--wiz-border)'
+                }`,
                 background: 'var(--wiz-bg-input)', color: 'var(--wiz-text-hi)',
                 fontSize: 13, padding: '0 12px', outline: 'none',
                 fontFamily: 'JetBrains Mono, monospace',
@@ -284,6 +317,44 @@ function SovereignDomainSection() {
         </div>
       )}
 
+      {/* Inline availability error — pool mode only.
+          Closes #124: surface a specific reason ("reserved", "exists", etc.)
+          before the user reaches Submit, with a one-line remediation hint
+          straight from the backend's SubdomainCheckResponse.detail field. */}
+      {store.sovereignDomainMode === 'pool' && (availability.status === 'taken' || availability.status === 'invalid' || availability.status === 'error') && (
+        <div
+          id="sovereign-subdomain-err"
+          role="alert"
+          style={{
+            display: 'flex', gap: 8, alignItems: 'flex-start',
+            borderRadius: 8,
+            border: '1px solid rgba(248,113,113,0.35)',
+            background: 'rgba(248,113,113,0.05)',
+            padding: '8px 10px',
+          }}
+        >
+          <AlertCircle size={13} style={{ color: '#F87171', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#F87171', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {availability.status === 'taken' && availability.reason === 'exists' && 'Subdomain is already taken'}
+              {availability.status === 'taken' && availability.reason === 'reserved' && 'Subdomain is reserved'}
+              {availability.status === 'taken' && availability.reason === 'unsupported-pool' && 'Pool domain not supported'}
+              {availability.status === 'taken' && availability.reason === 'lookup-error' && 'DNS lookup failed'}
+              {availability.status === 'invalid' && 'Invalid subdomain format'}
+              {availability.status === 'error' && 'Availability check unavailable'}
+              {availability.fqdn && (
+                <code style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', background: 'rgba(248,113,113,0.12)', padding: '1px 5px', borderRadius: 3 }}>
+                  {availability.fqdn}
+                </code>
+              )}
+            </div>
+            <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--wiz-text-md)', lineHeight: 1.5 }}>
+              {availability.detail ?? 'Pick a different subdomain to continue.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Helper text */}
       {store.sovereignDomainMode === 'pool' && (
         <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
@@ -297,5 +368,35 @@ function SovereignDomainSection() {
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * SubdomainAvailabilityIndicator — small status pill that updates live as
+ * useSubdomainAvailability runs. Renders next to the subdomain input label.
+ *
+ * Closes #124. Visual states match useSubdomainAvailability.AvailabilityStatus:
+ *   idle      → nothing shown
+ *   checking  → spinner + "checking…"
+ *   available → green check + "available"
+ *   taken     → red ring + "taken"
+ *   invalid   → red ring + "invalid"
+ *   error     → red ring + "check failed"
+ */
+function SubdomainAvailabilityIndicator({ status }: { status: import('@/shared/lib/useSubdomainAvailability').AvailabilityStatus }) {
+  if (status === 'idle') return null
+  const palette = {
+    checking:  { fg: 'var(--wiz-text-sub)',  label: 'checking…',    icon: <Loader2 size={10} className="animate-spin" /> },
+    available: { fg: '#4ADE80',              label: 'available',    icon: <CheckCircle2 size={10} /> },
+    taken:     { fg: '#F87171',              label: 'taken',        icon: <AlertCircle size={10} /> },
+    invalid:   { fg: '#F87171',              label: 'invalid',      icon: <AlertCircle size={10} /> },
+    error:     { fg: '#FBBF24',              label: 'check failed', icon: <AlertCircle size={10} /> },
+  } as const
+  const e = palette[status]
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: e.fg, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+      {e.icon}
+      {e.label}
+    </span>
   )
 }

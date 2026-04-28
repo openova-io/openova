@@ -33,6 +33,7 @@ func main() {
 	h := handler.New(log)
 	r.Get("/healthz", h.Health)
 	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
+	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
 	r.Post("/api/v1/deployments", h.CreateDeployment)
 	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
