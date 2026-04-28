@@ -63,6 +63,48 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 80 — README + CLAUDE fifth-cycle stable; coraza third-cycle clean (cycle 5 Pass 3)
+
+**TWENTY-EIGHTH clean pass overall**. **EIGHTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 80) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 3 consecutive cleans (78 → 79 → 80).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**README.md** fifth-cycle deep-read:
+- L34: "OpenOva (the company) publishes Catalyst (the platform)." — Pass 26 Catalyst-as-platform anchor preserved across 5 cycles ✓
+- L1 title "OpenOva Catalyst", L5 banner "Catalyst is the open-source platform built by OpenOva" — framing intact
+- 8-doc cross-reference table consistent
+- Stack table consistent with PTS §1
+- Getting started + license + contributing — all clean
+
+README stable across **5 review cycles** (Pass 28, 46, 70, 80).
+
+**CLAUDE.md** fifth-cycle deep-read:
+- L46: "52 folders total, each currently README-only" — Pass 46 inflated-count fix held ✓
+- L130-131: Customer Sync `gitea.<location-code>.<sovereign-domain>/catalog/bp-cilium/` + `bp-cortex/` — Pass 29 DNS canonical fix held ✓
+- L77 banned-term tenant→Organization, L80 banned-term module/template→Blueprint, L82 Synapse-product→Axon disambiguation — all 11 banned-terms entries match GLOSSARY exactly (Pass 44 cross-check held)
+- "Read these before doing anything" ordered list (GLOSSARY → IMPLEMENTATION-STATUS → ARCHITECTURE → NAMING-CONVENTION) intact
+
+CLAUDE.md stable across **5 review cycles** (Pass 29, 46, 70, 80).
+
+**platform/coraza/README.md** third-cycle deep-read:
+- L3 banner: "Web Application Firewall with OWASP Core Rule Set. Per-host-cluster infrastructure (§3.1) — runs at the DMZ edge of every host cluster Catalyst manages." ✓
+- L5 Category: WAF + DMZ ✓
+- L25 Cilium/Envoy ext_proc filter integration ✓
+- Compact, no drift surfaces
+
+coraza third-cycle confirms Pass 47 banner + integration table intact across 3 cycles.
+
+**Pass 80: clean.** Eighteen consecutive architectural-clean passes (63-80).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana, 0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean (fourth nirvana, 0 drift)
+- Cycle 5 (Pass 78-80): 3 consecutive clean ✓ (so far)
+
+18 consecutive overall (63-80). Two more cycle-5 cleans (Pass 81, 82) would meet the renewed 5-consecutive nirvana threshold within cycle 5 = fifth nirvana approach + 20-consecutive-overall (Pass 63-82).
+
 ### Pass 79 — TECHNOLOGY-FORECAST fourth-cycle stable; clickhouse third-cycle clean (cycle 5 Pass 2)
 
 **TWENTY-SEVENTH clean pass overall**. **SEVENTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 79) spanning cycles 2 → 3 → 4 → 5. Cycle 5 has 2 consecutive cleans (78 → 79).
