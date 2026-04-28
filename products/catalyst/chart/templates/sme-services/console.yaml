@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: console
-          image: ghcr.io/openova-io/openova/console:008d65d
+          image: ghcr.io/openova-io/openova/console:3c2f7e4
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
