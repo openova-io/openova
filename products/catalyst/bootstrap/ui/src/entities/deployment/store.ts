@@ -50,6 +50,16 @@ interface WizardActions {
   setHetznerProjectId: (projectId: string) => void
   setCredentialValidated: (validated: boolean) => void
 
+  // Step 4 — SSH keypair (Mode A: auto-generate / Mode B: paste existing)
+  setSshPublicKey: (key: string) => void
+  /** Mode A — captures a freshly generated keypair returned by
+   *  /api/v1/sshkey/generate. The privateKey is held only until the next
+   *  paste (Mode B) replaces it. */
+  setSshGenerated: (publicKey: string, privateKey: string, fingerprint: string) => void
+  /** Mode B / reset — pasted-key mode clears the private-key blob so the
+   *  wizard never accidentally exposes a stale private half. */
+  clearSshPrivateKey: () => void
+
   // AIR-GAP add-on
   setAirgap: (airgap: boolean) => void
 
@@ -162,6 +172,29 @@ export const useWizardStore = create<WizardStore>()(
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
 
+        setSshPublicKey: (sshPublicKey) =>
+          set(
+            // Pasted key — clear any private blob held over from a Mode-A
+            // generation in the same session. Fingerprint goes to '' since
+            // we don't ship a JS hashing library to recompute it client-side.
+            { sshPublicKey, sshPrivateKeyOnce: '', sshKeyGeneratedThisSession: false, sshFingerprint: '' },
+            false,
+            'wizard/setSshPublicKey',
+          ),
+        setSshGenerated: (publicKey, privateKey, fingerprint) =>
+          set(
+            {
+              sshPublicKey: publicKey,
+              sshPrivateKeyOnce: privateKey,
+              sshFingerprint: fingerprint,
+              sshKeyGeneratedThisSession: true,
+            },
+            false,
+            'wizard/setSshGenerated',
+          ),
+        clearSshPrivateKey: () =>
+          set({ sshPrivateKeyOnce: '' }, false, 'wizard/clearSshPrivateKey'),
+
         setAirgap: (airgap) => set({ airgap }, false, 'wizard/setAirgap'),
 
         setGroupComponents: (groupId, componentIds) =>
@@ -221,6 +254,21 @@ export const useWizardStore = create<WizardStore>()(
       }),
       {
         name: 'openova-catalyst-wizard',
+        // Per credential hygiene (docs/INVIOLABLE-PRINCIPLES.md #10), the
+        // private key from /api/v1/sshkey/generate is held in memory ONLY
+        // for the duration of the StepCredentials view. We strip it from
+        // anything that gets serialized into localStorage so a casual
+        // browser-storage inspection (or a stolen device snapshot) cannot
+        // recover the operator's break-glass key. The session flag is
+        // dropped for the same reason — a fresh tab should always re-prompt
+        // the user, not assume "I downloaded the .pem already" from a prior
+        // session.
+        partialize: (state) => {
+          const { sshPrivateKeyOnce: _omitPriv, sshKeyGeneratedThisSession: _omitFlag, ...rest } = state
+          // void to satisfy noUnusedLocals — these names exist solely to be omitted.
+          void _omitPriv; void _omitFlag
+          return rest as unknown as WizardState
+        },
         // Merge saved state with initial — handles new fields added after first install
         merge: (persisted, current) => {
           const p = { ...(persisted as Partial<WizardState>) }
@@ -242,6 +290,17 @@ export const useWizardStore = create<WizardStore>()(
           if (p.lastProvisionResult === undefined) {
             p.lastProvisionResult = null
           }
+          // SSH-key fields added after first install (#160) — coerce missing
+          // values so the StepCredentials SSH section renders cleanly on a
+          // legacy persisted payload.
+          if (typeof p.sshPublicKey !== 'string') p.sshPublicKey = ''
+          if (typeof p.sshFingerprint !== 'string') p.sshFingerprint = ''
+          // Always start a session with no private blob and no "generated
+          // this session" flag — partialize() omits them on save, this
+          // double-protects an older persist payload that may have
+          // accidentally retained them.
+          p.sshPrivateKeyOnce = ''
+          p.sshKeyGeneratedThisSession = false
           // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
           const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']
           if (p.componentGroups) {

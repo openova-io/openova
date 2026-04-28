@@ -34,6 +34,10 @@ func main() {
 	r.Get("/healthz", h.Health)
 	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
 	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
+	// SSH keypair generator — wizard's "auto-generate" Mode A path
+	// (issue #160). Returns publicKey + privateKey + fingerprint; the
+	// handler logs ONLY the fingerprint and never persists either half.
+	r.Post("/api/v1/sshkey/generate", h.GenerateSSHKey)
 	r.Post("/api/v1/deployments", h.CreateDeployment)
 	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
