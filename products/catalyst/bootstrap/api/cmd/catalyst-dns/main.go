@@ -32,47 +32,77 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot"
 )
 
-func main() {
-	apiKey := os.Getenv("DYNADOT_API_KEY")
-	apiSecret := os.Getenv("DYNADOT_API_SECRET")
-	domain := os.Getenv("DOMAIN")
-	subdomain := os.Getenv("SUBDOMAIN")
-	lbIP := os.Getenv("LB_IP")
-
-	if apiKey == "" || apiSecret == "" {
-		fail("DYNADOT_API_KEY and DYNADOT_API_SECRET must be set")
-	}
-	if domain == "" {
-		fail("DOMAIN must be set (e.g. omani.works)")
-	}
-	if subdomain == "" {
-		fail("SUBDOMAIN must be set (e.g. omantel)")
-	}
-	if lbIP == "" {
-		fail("LB_IP must be set (the Hetzner load balancer IPv4)")
-	}
-	if !dynadot.IsManagedDomain(domain) {
-		fail(fmt.Sprintf("DOMAIN %q is not in the managed-domain allowlist; refusing to write records", domain))
-	}
-
-	client := dynadot.New(apiKey, apiSecret)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	if err := client.AddSovereignRecords(ctx, domain, subdomain, lbIP); err != nil {
-		fail(fmt.Sprintf("write DNS: %v", err))
-	}
-
-	fmt.Printf("✓ Wrote 6 A records for *.%s.%s → %s via Dynadot\n", subdomain, domain, lbIP)
+// runArgs is the resolved configuration for a single catalyst-dns run.
+// Pulled out of main() so tests can drive the same logic without setenv
+// gymnastics — the binary's main() reads env into a runArgs and hands it
+// to run().
+type runArgs struct {
+	APIKey    string
+	APISecret string
+	Domain    string
+	Subdomain string
+	LBIP      string
 }
 
-func fail(msg string) {
-	fmt.Fprintf(os.Stderr, "catalyst-dns: %s\n", msg)
-	os.Exit(1)
+// run does the actual work: validates the args, builds a dynadot client,
+// writes the canonical 6-record set. Returns the success message (so callers
+// can choose where to print it) or an error.
+//
+// The client is built via newClient — tests substitute a client whose HTTP
+// transport is rewritten to a httptest.Server, so we never hit the real
+// Dynadot endpoint.
+func run(ctx context.Context, args runArgs, newClient func(apiKey, apiSecret string) *dynadot.Client) (string, error) {
+	if args.APIKey == "" || args.APISecret == "" {
+		return "", fmt.Errorf("DYNADOT_API_KEY and DYNADOT_API_SECRET must be set")
+	}
+	if args.Domain == "" {
+		return "", fmt.Errorf("DOMAIN must be set (e.g. omani.works)")
+	}
+	if args.Subdomain == "" {
+		return "", fmt.Errorf("SUBDOMAIN must be set (e.g. omantel)")
+	}
+	if args.LBIP == "" {
+		return "", fmt.Errorf("LB_IP must be set (the Hetzner load balancer IPv4)")
+	}
+	if !dynadot.IsManagedDomain(args.Domain) {
+		return "", fmt.Errorf("DOMAIN %q is not in the managed-domain allowlist; refusing to write records", args.Domain)
+	}
+
+	client := newClient(args.APIKey, args.APISecret)
+	if err := client.AddSovereignRecords(ctx, args.Domain, args.Subdomain, args.LBIP); err != nil {
+		return "", fmt.Errorf("write DNS: %w", err)
+	}
+	return fmt.Sprintf("✓ Wrote 6 A records for *.%s.%s → %s via Dynadot\n", args.Subdomain, args.Domain, args.LBIP), nil
+}
+
+// runFromEnv is the production entry point — reads env vars into a runArgs
+// and invokes run() with the real Dynadot client constructor.
+func runFromEnv(ctx context.Context, stdout, stderr io.Writer) int {
+	args := runArgs{
+		APIKey:    os.Getenv("DYNADOT_API_KEY"),
+		APISecret: os.Getenv("DYNADOT_API_SECRET"),
+		Domain:    os.Getenv("DOMAIN"),
+		Subdomain: os.Getenv("SUBDOMAIN"),
+		LBIP:      os.Getenv("LB_IP"),
+	}
+	msg, err := run(ctx, args, dynadot.New)
+	if err != nil {
+		fmt.Fprintf(stderr, "catalyst-dns: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, msg)
+	return 0
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	os.Exit(runFromEnv(ctx, os.Stdout, os.Stderr))
 }
