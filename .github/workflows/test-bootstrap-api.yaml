@@ -1,0 +1,46 @@
+name: Test — Bootstrap API (Go)
+
+# Runs the Go tests for the catalyst-api bootstrap service. This is the
+# primary host for several Group L tests:
+#   - #146 Dynadot multi-domain DNS write integration test
+#   - #145 bootstrap-kit installer integration test (Flux-driven)
+#   - #141 Hetzner end-to-end provisioning test (gated on HETZNER_TEST_TOKEN)
+#
+# The job is fast and runs on every push that touches the bootstrap module.
+
+on:
+  push:
+    paths:
+      - 'products/catalyst/bootstrap/api/**'
+      - '.github/workflows/test-bootstrap-api.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/catalyst/bootstrap/api/**'
+      - '.github/workflows/test-bootstrap-api.yaml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: products/catalyst/bootstrap/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run unit + integration tests
+        run: go test -race -count=1 ./...
