@@ -1,6 +1,6 @@
 # Documentation Validation Log
 
-**Last updated:** 2026-04-27.
+**Last updated:** 2026-04-28.
 
 This file is a trail of the multi-pass integrity validation done on the canonical docs after the Catalyst-unified rewrite (issue [#37](https://github.com/openova-io/openova/issues/37)). It captures what was verified, what was found, and how to repeat the audit.
 
@@ -57,6 +57,81 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - Phase-0 install order in ARCHITECTURE didn't match SOVEREIGN-PROVISIONING (Cilium-first vs cert-manager-first). Cilium-first is correct (CNI before pods can network). Aligned.
 - IMPLEMENTATION-STATUS section numbering had an awkward `§2bis` insertion. Renumbered to clean §1–§9 sequence.
 - Two residual "instance" usages in user-facing dialogs/comments converted to "Application".
+
+### Pass 106 — Group K documentation reconciliation (component count 53 → 56, IMPLEMENTATION-STATUS §7 flip, SOVEREIGN-PROVISIONING §3 deployed-reality, RUNBOOK-PROVISIONING new doc)
+
+**Date:** 2026-04-28. **Branch:** `group-k-docs`. **Issues closed:** #133, #135, #136, #137, #138, #139.
+
+This pass closes Group K (Documentation) of the Catalyst-Zero waterfall (#43 parent). It does NOT close #134 (omantel `📐 → ✅` flip) — per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #7 ("DoD E2E 2-pass GREEN on the current deployed SHA is the ONLY valid proof of done") and Lesson #26, the Sovereign cannot be flipped to ✅ until Group M end-to-end DoD lands. #134 is parked pending Group M.
+
+**Files updated (8 commits across 6 files + 1 new file):**
+
+| File | Commit | What changed |
+|---|---|---|
+| `CLAUDE.md` | 224d81e | L46: '53 folders total' → '56 folders total' |
+| `docs/AUDIT-PROCEDURE.md` | 224d81e | Grep #9 anchor 53 → 56; banned-list now matches '53 components' (the now-stale count); deep-read rotation 53 → 56 |
+| `docs/BUSINESS-STRATEGY.md` | 224d81e | 26 word-boundary occurrences of '53' → '56' (executive summary, principles, comparison tables, expert network, GTM) |
+| `docs/PROVISIONING-PLAN.md` | 224d81e | Group K execution-status row: anchor refreshed 53 → 56 (was 53→55 pending). §5 invariants clarified Pass 104→105 transition |
+| `docs/TECHNOLOGY-FORECAST-2027-2030.md` | 224d81e | L11 anchor 53 → 56. Mandatory header (26) → (29). +3 rows: spire (88/90/92 Rising), nats-jetstream (90/92/92 Rising), sealed-secrets (75/70/60 Declining — transient bootstrap) |
+| `docs/PLATFORM-TECH-STACK.md` | 7b24f96 | §1 categorization table: per-host-cluster row +sealed-secrets (bootstrap-only); Application Blueprints row +guacamole (was missing despite §4.5+§5 documenting it). §2.3: spire, nats-jetstream now hyperlink into platform/. §3.2: new sealed-secrets row with Phase-0/Phase-1 semantics |
+| `docs/IMPLEMENTATION-STATUS.md` | ab456d4 | §7 'Catalyst provisioner' flipped 📐 → 🚧 for all three rows. Notes now cross-link the actual code: products/catalyst/bootstrap/api/internal/provisioner/provisioner.go (374 lines, OpenTofu wrapper), infra/hetzner/main.tf (250-line module), and the 11 G2 charts published via blueprint-release.yaml |
+| `docs/SOVEREIGN-PROVISIONING.md` | 3a7ec9e | Status header: 'design-stage' → 'deployed shape exists; DoD pending'. §3 replaced ASCII target diagram with a 5-row table mapping each step to its concrete monorepo artifact. DNS records, OpenTofu state location, implementation-status banner all preserved |
+| `docs/RUNBOOK-PROVISIONING.md` | e8c3f6f | **New file.** Operator-level companion to SOVEREIGN-PROVISIONING.md (architectural contract) and PROVISIONING-PLAN.md (Catalyst-Zero waterfall). Audience: a Sovereign cloud team (e.g. omantel-cloud) onboarding via console.openova.io/sovereign. Pre-flight checklist + 7-step wizard walk + SSE phase explanation + Day-1 setup + troubleshooting matrix + idempotency notes + decommission flow |
+
+**Acceptance greps (post-update, run from repo root):**
+
+```bash
+$ grep -rE '\b53 components\b|\b53 platform components\b|\b53 curated\b|\b53-component\b' docs/ README.md CLAUDE.md | grep -v VALIDATION-LOG
+(no output — anchor is now 56 across the canon)
+
+$ ls -d platform/*/ | wc -l
+56
+
+$ grep -E '\b56\b' docs/BUSINESS-STRATEGY.md | wc -l
+26   (consistent with TF L11 + AUDIT-PROCEDURE + PLATFORM-TECH-STACK §1)
+```
+
+All 13 acceptance greps from `AUDIT-PROCEDURE.md` were re-run against the updated canon — clean (with VALIDATION-LOG self-references excluded as documented).
+
+**What did NOT change (preserved invariants per Lesson #21):**
+
+- The architectural model: Phase 0 OpenTofu → Phase 1 Crossplane day-2 → Flux GitOps → Blueprints install unit (per INVIOLABLE-PRINCIPLES.md #3).
+- Application = Gitea Repo invariant from Pass 103.
+- 5 conventional Gitea Orgs (`catalog`, `catalog-sovereign`, per-Catalyst-Organization, `system`).
+- SeaweedFS as unified S3 encapsulation (Pass 104 anchor).
+- OpenBao independent-Raft per region (no stretched clusters).
+- Banned-terms list (`tenant`, `Workspace`, `Lifecycle Manager`, etc.).
+
+**Lessons:** none new. This pass executed within existing principles cleanly. The pattern of "verify ground truth before claiming done" (Pass 103/Lesson #21 + Lesson #26) was applied correctly — #134 was NOT pre-flipped; #135 was flipped to 🚧 (not ✅) because runtime DoD is pending. Component count was verified by `ls -d platform/*/ | wc -l = 56` rather than trusting the orchestrator brief's "55" figure.
+
+---
+
+### Pass 105 — Catalyst-Zero consolidation + 11 G2 wrapper charts (architectural milestone)
+
+**Date:** 2026-04-28 (executed across multiple commits; this entry is the retroactive audit-log record). **Parent:** #43.
+
+**Significant cross-cutting work executed in commits 3c2f7e4 (Group A), 7646840 (Group B SME services), and 8c0f766 (Group F charts):**
+
+1. **Code consolidation (Group A — 9 tickets, commit 3c2f7e4):** moved `console`, `admin`, `marketplace` UIs and `marketplace-api` Go backend from `openova-private/apps/` and `openova-private/website/marketplace-api/` into `openova/core/`. CI workflows moved to `openova/.github/workflows/`. Catalyst-Zero deployment chart moved to `openova/products/catalyst/chart/`. Catalyst-Zero is now built from the public repo.
+
+2. **SME backend services migration (Group B — 10 tickets, commit 7646840):** legacy SME backend services moved into `openova/services/` (with the public repo as source of truth) and CI build pipeline live.
+
+3. **G2 wrapper Helm charts for the bootstrap kit (Group F — 14 tickets, commit 8c0f766):** real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every component in the canonical 11-component bootstrap kit. **Critically, this added 3 new platform/ folders that did not exist before:**
+   - `platform/spire/` — SPIFFE/SPIRE workload identity
+   - `platform/nats-jetstream/` — Catalyst control-plane event spine
+   - `platform/sealed-secrets/` — transient Phase-0 bootstrap-only secret distribution
+
+   This raised the platform/ folder count from **53 → 56**. The component-count anchors across CLAUDE.md, BUSINESS-STRATEGY.md, TECHNOLOGY-FORECAST-2027-2030.md, AUDIT-PROCEDURE.md, and PLATFORM-TECH-STACK.md were updated by Pass 106 (this audit log entry's predecessor) to reconcile with the new ground truth.
+
+4. **CI fan-out (`.github/workflows/blueprint-release.yaml`):** path-matrix CI publishes `bp-<name>:<semver>` OCI artifacts at `ghcr.io/openova-io/bp-<name>` per the unified Blueprint contract from BLUEPRINT-AUTHORING.md §1.
+
+**Acceptance:** the 11 G2 charts each have `Chart.yaml`, `values.yaml`, `templates/`, `blueprint.yaml`, are published to GHCR via CI on push to main, and are reconciled by Flux on the new Sovereign cluster in dependency order specified in SOVEREIGN-PROVISIONING.md §3. End-to-end DoD against a real Hetzner project is pending Group M.
+
+**What this pass intentionally did NOT do:** runtime verification of the 11-chart bootstrap kit on a freshly-provisioned Sovereign. That is Group M's responsibility. Per Lesson #26 ("structurally complete is not the same as runtime working"), this pass is recorded as 🚧, not ✅, in IMPLEMENTATION-STATUS.md §7.
+
+**Cross-references:** Pass 106 (this log entry follows it in chronological order, but is recorded above it in the file because it's the more recent change to the canon — the file is reverse-chronological from Pass 6 onwards).
+
+---
 
 ### Pass 104 — MinIO → SeaweedFS swap + Guacamole add (component refactor)
 
