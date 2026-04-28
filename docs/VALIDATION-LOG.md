@@ -63,6 +63,70 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 91 — SRE third-cycle stable; temporal third-cycle clean (cycle 7 Pass 4)
+
+**THIRTY-NINTH clean pass overall**. **TWENTY-NINE CONSECUTIVE clean architectural passes** (Pass 63 → 91) spanning cycles 2 → 7. Cycle 7 has 4 consecutive cleans (88 → 89 → 90 → 91).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SRE.md** third-cycle deep-read:
+- §1 Overview (L10-)
+- §2 Multi-region strategy (L16-108):
+  - §2.1 Architecture, §2.2 Key principles, §2.3 Cross-region networking, §2.4 Split-brain protection
+  - §2.5 Data replication patterns (L90-108):
+    - L106 Gitea row: "Intra-cluster HA replicas + CNPG primary-replica (NOT cross-region mirror — see platform/gitea/README.md §'Multi-Region Strategy'). DR for Gitea is via mgt-cluster recovery, not bidirectional sync. | Seconds (intra-cluster only)" — **Pass 43 anchor preserved** ✓ (no bidirectional mirror)
+- §3 Progressive delivery (L110-): canary deployments, feature flags
+- §4 Auto-remediation (L134-): architecture, alert-to-action mapping, budget control
+- §5 Secret rotation (L197-)
+- §6 GDPR automation (L212-)
+- §7 Air-gap compliance (L226-): prerequisites, AI Hub air-gap considerations, content transfer
+- §8 Catalyst observability (L290-)
+- §9 SLOs (L320-): per-product SLOs (control plane, AI Hub, Open Banking, Data & Integration, Communication)
+- §12 Alertmanager configuration (L436-):
+  - L442 webhook URL: `https://gitea.<location-code>.<sovereign-domain>/api/v1/repos/<org>/platform/actions/dispatches` — **Pass 24 canonical DNS preserved** ✓
+  - L451 webhook URL: `https://gitea.<location-code>.<sovereign-domain>/api/v1/repos/<org>/cortex/actions/dispatches` — **Pass 24 canonical DNS preserved** ✓
+
+SRE.md stable across **3 review cycles** (Pass 24, 43, 75, 91 — fix-trajectory: Pass 24 §12 Alertmanager URLs canonical, Pass 43 §2.5 Gitea row no-bidirectional-mirror).
+
+**Defense-in-depth verification: Gitea "no bidirectional mirror"** (across 4+ representational levels):
+1. SRE §2.5 L106 row: "NOT cross-region mirror...DR via mgt-cluster recovery, not bidirectional sync" ✓
+2. platform/gitea/README §"Multi-Region Strategy" — referenced by SRE §2.5 cross-link ✓
+3. ARCHITECTURE §3 implicit (Gitea inside Catalyst control plane, single mgt cluster) ✓
+4. PTS §2.3 row: "Hosts public Blueprint catalog mirror, Org-private Blueprints, and per-Environment Gitea repos" — single per-Sovereign Gitea ✓
+
+**Defense-in-depth verification: Alertmanager Gitea webhook canonical** (across 2 representational levels):
+1. SRE §12 L442/L451: control-plane DNS pattern `gitea.<location-code>.<sovereign-domain>` ✓
+2. NAMING §11.2 §5.1 control-plane DNS pattern `{component}.{location-code}.{sovereign-domain}` — direct anchor match ✓
+
+**platform/temporal/README.md** third-cycle deep-read:
+- L1 title "Temporal"
+- L3 banner: "Durable workflow orchestration with saga + compensation. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.3 — Workflow & processing). Used by `bp-fabric` (composite Data & Integration Blueprint) for long-running, compensable workflows that span multiple Application services." ✓ — Pass 31 anchor; Application Blueprint, §4.3 Workflow; bp-fabric composer named
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L11-15 narrative: durable execution platform, saga patterns for distributed transactions, replaces fragile message-queue/cron-job/state-machine combinations
+- L13: "Within OpenOva, Temporal serves as the workflow orchestration engine for the **Fabric** data and integration product." — consistent with PTS §5 bp-fabric composition + BUSINESS-STRATEGY §5.1 L199 ✓
+- L21-55 mermaid topology: Workflow Clients → Temporal Server (Frontend, History, Matching, Internal Worker) → Persistence (PostgreSQL/CNPG, Elasticsearch/OpenSearch) → Application Workers
+- L37-38 Persistence backends: CNPG + OpenSearch — both Application Blueprints (PTS §4.1)
+- L57+ Saga pattern sequence diagram
+
+temporal third-cycle confirms Pass 31 banner (Application Blueprint, §4.3 Workflow, bp-fabric composer) intact across 3 cycles.
+
+**Bidirectional cross-reference verification** (temporal ↔ PTS §4.3 ↔ bp-fabric):
+- PTS §4.3 row: `**[temporal](../platform/temporal/)** | Saga orchestration + compensation` ✓
+- temporal/README L3: "Application Blueprint (see PTS §4.3 — Workflow & processing)" ✓
+- PTS §5 bp-fabric: "Composes...strimzi, flink, **temporal**, debezium, iceberg, clickhouse, minio" ✓
+- BUSINESS-STRATEGY §5.1 L199: "OpenOva Fabric...built on Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, and ClickHouse" ✓
+- TECHNOLOGY-FORECAST A La Carte L84: "temporal | 68 | 72 | 75 | Rising | Saga orchestration gaining relevance" ✓
+
+Five-document chain consistent.
+
+**Pass 91: clean.** Twenty-nine consecutive architectural-clean passes (63-91). Cycle 7 has 4 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-6: 30 consecutive clean (6 nirvana achieved)
+- Cycle 7 (Pass 88-91): 4 consecutive clean ✓ (so far)
+
+Total: 39 clean passes overall, 29 consecutive (Pass 63-91). **Pass 92 = potential SEVENTH NIRVANA THRESHOLD + 30-CONSECUTIVE.**
+
 ### Pass 90 — PERSONAS-AND-JOURNEYS sixth-cycle stable; ferretdb third-cycle clean (cycle 7 Pass 3)
 
 **THIRTY-EIGHTH clean pass overall**. **TWENTY-EIGHT CONSECUTIVE clean architectural passes** (Pass 63 → 90) spanning cycles 2 → 7. Cycle 7 has 3 consecutive cleans (88 → 89 → 90).
