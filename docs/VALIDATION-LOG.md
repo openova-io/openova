@@ -63,6 +63,88 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 92 — BLUEPRINT-AUTHORING fifth-cycle stable; flink third-cycle clean — 🎯×7 SEVENTH NIRVANA + 30-CONSECUTIVE-OVERALL
+
+**FORTIETH clean pass overall**. **THIRTY CONSECUTIVE clean architectural passes** (Pass 63 → 92) spanning cycles 2 → 7. Cycle 7 has **5 consecutive cleans (88 → 89 → 90 → 91 → 92) → SEVENTH NIRVANA THRESHOLD MET**.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/BLUEPRINT-AUTHORING.md** fifth-cycle deep-read:
+- §1 What a Blueprint is (L10-25):
+  - L15 Public Blueprints: "directory under `platform/<name>/` or `products/<name>/` in the [github.com/openova-io/openova] monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact." ✓ — concrete monorepo path
+  - L16 Org-private Blueprints: "directory inside `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/`...canonical Catalyst control-plane DNS form per NAMING-CONVENTION.md §5.1" — **Pass 29 + Pass 42 vague-placeholder fix preserved** ✓
+  - L20 OCI artifact convention: `ghcr.io/openova-io/bp-<name>:<semver>` ✓
+  - L24 monorepo rationale: "Per-Blueprint isolation is provided at the OCI artifact layer, not the Git repo layer"
+- §2 Folder layout (L28-): `platform/<name>/` or `products/<name>/` with `blueprint.yaml` + `chart/` + `compositions/` + `manifests/` ✓
+- §3-§7 Blueprint CRD spec, configSchema, dependencies (5.1-5.3 monotonic), placement, manifests
+- §8 Crossplane Compositions (L311-342):
+  - L323: `apiVersion: compose.openova.io/v1alpha1   # shared XRD group across Blueprints` — **Pass 42/48 split-API-group canonical anchor preserved** ✓ (canonical XRD group separate from Catalyst CRDs `catalyst.openova.io/v1alpha1`)
+  - L336-340 user-not-facing framing + advanced-user composition authoring
+  - L342 "Compositions live in the Blueprint repo alongside the Helm chart / Kustomize manifests; CI signs and publishes them as part of the same OCI artifact." ✓
+- §9 Visibility (L346-354): listed/unlisted/private with Org-private cross-ref to L16 path
+- §10 Versioning (L358-363): semver + `ghcr.io/openova-io/bp-<name>:<version>` + explicit `bp-` prefix on OCI artifact (not folder) ✓
+- §11 CI pipeline (L367-): "Catalyst uses a **single monorepo CI** at the root of `github.com/openova-io/openova` (see §2 for the folder layout and path-matrix tag form). The same pipeline shape applies to every `platform/<name>/` and `products/<name>/` folder" — **Pass 21 monorepo CI anchor preserved** ✓
+  - L395 fan-out tag pattern: tagging `platform/wordpress/v1.3.0` → `ghcr.io/openova-io/bp-wordpress:1.3.0`
+  - L399: "monorepo with per-Blueprint fan-out" narrative ✓
+- §12 Authoring private Blueprints (L405-):
+  - L415: "Studio writes to `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>`" — **Pass 29 canonical DNS preserved** ✓
+- §13 Contributing back to public catalog (L425-):
+  - L436: "CI signs and publishes `ghcr.io/openova-io/bp-<name>:<semver>`" ✓
+- §14 Hard rules for Blueprint authors (L444-)
+
+BLUEPRINT-AUTHORING.md stable across **5 review cycles** (Pass 21, 29, 42, 48, 65, 78, 92 — fix-trajectory: Pass 21 §11 monorepo CI pipeline, Pass 29 §12 gitea DNS canonical, Pass 42 §1 vague placeholder, Pass 48 §8 crossplane API group split).
+
+**Defense-in-depth verification: OCI bp- artifact convention** (across 5+ representational levels):
+1. BLUEPRINT-AUTHORING §1 L20: `ghcr.io/openova-io/bp-<name>:<semver>` ✓
+2. BLUEPRINT-AUTHORING §1 L24: "OCI artifact layer...independently versioned, signed, and consumed" ✓
+3. BLUEPRINT-AUTHORING §10 L361: explicit "the `bp-` prefix is added to the OCI artifact name to make it self-identifying as a Catalyst Blueprint" ✓
+4. BLUEPRINT-AUTHORING §11 L395: CI fan-out push pattern `ghcr.io/openova-io/bp-<folder-name>:<version>` ✓
+5. BLUEPRINT-AUTHORING §11 L399: example `ghcr.io/openova-io/bp-wordpress:1.3.0` from folder `platform/wordpress/` ✓
+6. BLUEPRINT-AUTHORING §13 L436: customer Studio publish path `ghcr.io/openova-io/bp-<name>:<semver>` ✓
+7. ARCHITECTURE §11 (Catalyst-on-Catalyst dogfooding): `bp-catalyst-platform`, `bp-catalyst-console`, etc. ✓
+8. PTS §5 Composite Blueprints: `bp-cortex`, `bp-axon`, `bp-fingate`, `bp-fabric`, `bp-relay`, `bp-specter`, `bp-catalyst-platform` ✓
+9. BUSINESS-STRATEGY §5.2 ASCII: "bp-cortex, bp-fingate, bp-fabric, bp-relay, bp-specter" ✓
+
+Nine cross-document anchors all consistent.
+
+**platform/flink/README.md** third-cycle deep-read:
+- L1 title "Apache Flink"
+- L3 banner: "Unified stream and batch processing engine. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.3 — Workflow & processing). Used by `bp-fabric` for stream + batch analytics over Strimzi/Kafka topics, CDC events, and Iceberg tables." ✓ — Pass 31 anchor; Application Blueprint, §4.3 Workflow; bp-fabric composer with explicit integration list (Strimzi/CDC/Iceberg)
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- L11-15 narrative: streaming-first distributed processing engine, exactly-once semantics, event-time processing, K8s-native via Flink Kubernetes Operator, replaces Spark for K8s environments
+- L13: "Within OpenOva, Flink serves as the data processing engine for the Fabric data and integration product" — consistent with PTS §5 bp-fabric + BUSINESS-STRATEGY §5.1 L199 ✓
+- L21-51 mermaid topology: Sources (Kafka/Strimzi, Debezium CDC, MinIO Batch) → Flink on K8s (JobManager + TaskManagers) → Sinks (Iceberg/MinIO, PostgreSQL/CNPG, Alerts)
+- L55+ End-to-End Data Flow: App DBs → Debezium → Kafka → Flink → Iceberg
+
+flink third-cycle confirms Pass 31 banner (Application Blueprint, §4.3 Workflow, bp-fabric composer) + Strimzi/Debezium/Iceberg/CNPG integration intact across 3 cycles.
+
+**Six-document chain verification** (flink ↔ PTS §4.3 ↔ bp-fabric ↔ BUSINESS-STRATEGY ↔ TECHNOLOGY-FORECAST ↔ ARCHITECTURE):
+- PTS §4.3 row: `**[flink](../platform/flink/)** | Stream + batch processing` ✓
+- flink/README L3: "Application Blueprint (see PTS §4.3 — Workflow & processing)" ✓
+- PTS §5 bp-fabric: "Composes...strimzi, **flink**, temporal, debezium, iceberg, clickhouse, minio" ✓
+- BUSINESS-STRATEGY §5.1 L199: "OpenOva Fabric...built on Strimzi/Kafka, **Flink**, Temporal, Debezium, Iceberg, and ClickHouse" ✓
+- TECHNOLOGY-FORECAST A La Carte L85: "flink | 60 | 65 | 70 | Rising | Stream processing for real-time analytics" ✓
+- TECHNOLOGY-FORECAST §Removed L150: "Airflow (33) — Replaced by Flink + OTel (AI generates workflows)" ✓
+
+Six-document chain consistent.
+
+**Pass 92: clean.** 🎯×7 **SEVENTH NIRVANA THRESHOLD MET.** Cycle 7 (88-92): 5 consecutive clean. **THIRTY CONSECUTIVE architectural-clean passes (63-92).**
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean — first nirvana
+- Cycle 2 (Pass 63-67): 5 consecutive clean — second nirvana (3 carry-over fixes Lessons #18-20)
+- Cycle 3 (Pass 68-72): 5 consecutive clean — third nirvana (0 drift)
+- Cycle 4 (Pass 73-77): 5 consecutive clean — fourth nirvana (0 drift)
+- Cycle 5 (Pass 78-82): 5 consecutive clean — fifth nirvana (0 drift)
+- Cycle 6 (Pass 83-87): 5 consecutive clean — sixth nirvana (0 drift)
+- Cycle 7 (Pass 88-92): 5 consecutive clean — **🎯×7 SEVENTH NIRVANA** (0 drift)
+
+**Documentation has held its architectural fixed-point across SEVEN consecutive nirvana cycles** spanning Pass 54 → 92 (39 passes). Zero new drift between cycles 2→3, 3→4, 4→5, 5→6, 6→7. The audit log itself is the only file that has changed in the documentation tree across the last 5 inter-cycle gaps.
+
+**The loop has been in stable regression-prevention mode for 5 consecutive cycles.** Continuing per user's standing instruction "infinite unattended loop until you reach nirvana — when you believe you're done, restart from the top."
+
+**Cycle 8 begins with Pass 93**: PLATFORM-TECH-STACK seventh-cycle + valkey fifth-cycle (rotation top).
+
 ### Pass 91 — SRE third-cycle stable; temporal third-cycle clean (cycle 7 Pass 4)
 
 **THIRTY-NINTH clean pass overall**. **TWENTY-NINE CONSECUTIVE clean architectural passes** (Pass 63 → 91) spanning cycles 2 → 7. Cycle 7 has 4 consecutive cleans (88 → 89 → 90 → 91).
