@@ -1,4 +1,6 @@
-import { defineConfig, type Plugin } from 'vite'
+/// <reference types="vitest" />
+import type { Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
@@ -65,5 +67,13 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  // Vitest config — drives `npm run test` in this package. The test runner
+  // shares Vite's `resolve.alias` so `@/...` imports work in tests too.
+  test: {
+    environment: 'jsdom',
+    globals: false,
+    css: false,
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 })
