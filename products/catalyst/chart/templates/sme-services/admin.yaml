@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: admin
-          image: ghcr.io/openova-io/openova/admin:adfab8c
+          image: ghcr.io/openova-io/openova/admin:3c2f7e4
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
