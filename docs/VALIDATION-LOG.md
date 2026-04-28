@@ -63,6 +63,77 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 99 — SOVEREIGN-PROVISIONING sixth-cycle stable; cnpg sixth-cycle clean (cycle 9 Pass 2)
+
+**FORTY-SEVENTH clean pass overall**. **THIRTY-SEVEN CONSECUTIVE clean architectural passes** (Pass 63 → 99) spanning cycles 2 → 9. Cycle 9 has 2 consecutive cleans (98 → 99).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SOVEREIGN-PROVISIONING.md** sixth-cycle deep-read:
+- §1 Inputs, §2 catalyst-provisioner narrative
+- §3 Phase 0 — Bootstrap (L40-83):
+  - DNS records (L65-67): **Pass 29 canonical anchor preserved** ✓
+    - `gitea.<location-code>.<sovereign-domain>      A`
+    - `console.<location-code>.<sovereign-domain>    A`
+    - `admin.<location-code>.<sovereign-domain>      A`
+  - All 3 records use canonical control-plane DNS pattern from NAMING §11.2 §5.1
+- §4 Phase 1 — Hand-off (L85-103):
+  - L94: cross-ref to PTS §2.3 ✓
+  - **Self-sufficiency 8-bullet list — Pass 41 anchor preserved** ✓:
+    1. Crossplane (L96)
+    2. OpenBao (L97)
+    3. JetStream (L98)
+    4. Keycloak (L99)
+    5. **SPIFFE/SPIRE** (L100) — Pass 41 fix preserved
+    6. Gitea (L101)
+    7. **Observability stack (Grafana + Alloy + Loki + Mimir + Tempo)** (L102) — Pass 41 fix preserved
+    8. Catalyst control plane (9 services) (L103)
+- §5 Phase 2 — Day-1 setup (L107-)
+  - L109: console.<location-code>.<sovereign-domain> canonical control-plane DNS ✓
+- §6 Phase 3 — Steady-state operation (L133-)
+- §7 Multi-region topology (§7.1 Single-region SME, §7.2 Multi-region corporate)
+- §8 Adding a region post-provisioning
+- §9 Air-gap deployment
+- §10 Migration and decommission
+
+**Phase alignment cross-check** (SOVEREIGN-PROVISIONING ↔ ARCHITECTURE):
+- SP §3 Phase 0 Bootstrap ↔ ARCHITECTURE §10 Phase 0 Bootstrap ✓
+- SP §4 Phase 1 Hand-off ↔ ARCHITECTURE §10 Phase 1 Hand-off ✓
+- SP §5 Phase 2 Day-1 setup ↔ ARCHITECTURE §10 Phase 2 Day-1 setup ✓
+- SP §6 Phase 3 Steady-state ↔ ARCHITECTURE §10 Phase 3 Steady-state ✓
+4-phase alignment preserved across 6 review cycles.
+
+SOVEREIGN-PROVISIONING.md stable across **6 review cycles** (Pass 14, 29, 41, 65, 78, 89, 99 — fix-trajectory: Pass 29 DNS canonical, Pass 41 self-sufficiency SPIRE + observability).
+
+**platform/cnpg/README.md** sixth-cycle deep-read:
+- L1 title "CNPG (CloudNative PostgreSQL)"
+- L3 banner: "Production-grade PostgreSQL operator. **Application Blueprint** (see PLATFORM-TECH-STACK.md §4.1 — Data services). Used by Organizations that want managed Postgres; also the underlying engine for FerretDB (MongoDB-compatible) and Gitea metadata. Replication via WAL streaming to async standby (Application-tier choice)." ✓ — Pass 31 anchor; Application Blueprint, §4.1 Data services; multiple consumers explicitly named (FerretDB, Gitea metadata)
+- L5 status: "Accepted | Updated: 2026-04-27" ✓
+- Single-region + Multi-Region DR mermaid diagrams
+- Cluster definition with namespace `databases` + 3 instances HA
+- Multi-Region DR via WAL streaming to standby + MinIO archive
+- PgBouncer pooler integration
+
+cnpg sixth-cycle confirms Pass 31 banner (Application Blueprint, §4.1 Data services, FerretDB+Gitea consumers, WAL streaming DR) intact across 6 cycles.
+
+**Triangulated cross-reference verification** (cnpg ↔ PTS ↔ ferretdb ↔ TECHNOLOGY-FORECAST ↔ Catalyst Gitea):
+- cnpg/README L3: "underlying engine for FerretDB (MongoDB-compatible) and Gitea metadata" ✓
+- PTS §4.1: `cnpg | PostgreSQL operator | WAL streaming (async primary-replica)` ✓
+- PTS §4.1: `ferretdb | MongoDB wire protocol on PostgreSQL | Via CNPG WAL streaming` ✓
+- ferretdb/README L25: "CNPG — PostgreSQL backend (required dependency)" ✓
+- TECHNOLOGY-FORECAST §Removed L149: "MongoDB → FerretDB on CNPG (no SSPL)" ✓
+- BUSINESS-STRATEGY narrative consistent
+
+Five-document chain mutually reinforcing across 6 review cycles.
+
+**Pass 99: clean.** Thirty-seven consecutive architectural-clean passes (63-99). Cycle 9 has 2 consecutive cleans.
+
+Convergence trajectory:
+- Cycles 1-8: 40 consecutive clean passes (8 nirvana achieved)
+- Cycle 9 (Pass 98-99): 2 consecutive clean ✓ (so far)
+
+Total: 47 clean passes overall, 37 consecutive (Pass 63-99). **Pass 100 = milestone (50 total expected mid-cycle 9; 38-consecutive).** Loop continues per user's standing instruction.
+
 ### Pass 98 — TECHNOLOGY-FORECAST sixth-cycle stable; kserve fifth-cycle clean (cycle 9 Pass 1 — RESTART FROM TOP)
 
 **FORTY-SIXTH clean pass overall**. **THIRTY-SIX CONSECUTIVE clean architectural passes** (Pass 63 → 98) spanning cycles 2 → 9. Cycle 9 begins after eighth nirvana threshold (Pass 97) per user's standing instruction "restart from the top."
