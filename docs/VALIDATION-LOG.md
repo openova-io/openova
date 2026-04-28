@@ -63,6 +63,42 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 69 — TECHNOLOGY-FORECAST third-cycle + llm-gateway third-cycle stable
+
+**SEVENTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68, 69). **SEVEN CONSECUTIVE clean architectural passes** (63 → 64 → 65 → 66 → 67 → 68 → 69) spanning cycle 2 → cycle 3.
+
+Both targets verified clean. Cycle 3 Pass 2 holds clean.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/TECHNOLOGY-FORECAST-2027-2030.md** third-cycle deep re-read (Pass 27, 45, 52, 54 prior fixes/scans):
+- §"Mandatory Components (26)" header: count matches body (25 platform/-folder rows + OpenTelemetry note = 26) ✓
+- §"A La Carte Components (27)" header: count matches body (27 rows including anthropic-adapter) — Pass 45 fix held ✓
+- L56 keycloak in Mandatory: "Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate" — Pass 27 swap intact ✓
+- L72 opensearch in A La Carte: "Application Blueprint — opt-in for SIEM (paired with ClickHouse + bp-specter)" — Pass 27 swap intact ✓
+- Pass 52 stale-date fix held (header L5 = 2026-04-28) ✓
+- §Product Impact Analysis: 5 product subsections (Cortex, Fingate, Fabric, Relay, Specter) all consistent
+- §Removed Components: Backstage replaced by Catalyst console (canonical naming) intact
+
+TECHNOLOGY-FORECAST stable across 3 review cycles (Pass 27/45/52, Pass 54, Pass 69).
+
+**platform/llm-gateway/README.md** third-cycle deep-read (Pass 25, 32 prior fixes):
+- L72 image: `harbor.<location-code>.<sovereign-domain>/ai-hub/llm-gateway:latest` — Pass 32 image-registry fix held ✓
+- L92-94 KEYCLOAK_URL: `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>` — Pass 25 fix #1 held ✓
+- L186 ANTHROPIC_BASE_URL: `https://llm-gateway.<env>.<sovereign-domain>/v1` — Pass 25 fix #2 held ✓
+- L189 api_base: same canonical Application DNS form — Pass 25 fix #3 held ✓
+
+llm-gateway third-cycle confirms all four prior architectural fixes (Pass 25 × 3 + Pass 32 × 1) intact across multiple representational levels (image registry, Keycloak URL, env-var, CLI command).
+
+**Pass 69: clean.** Seven consecutive architectural-clean passes (63-69).
+
+Convergence trajectory:
+- Cycle 1 Pass 54-58: 5 consecutive clean (1st nirvana)
+- Cycle 2 Pass 59 clean → 60-62 drift → 63-67 5 consecutive clean (renewed nirvana)
+- Cycle 3 Pass 68-69: 2 consecutive clean ✓ (so far in cycle 3)
+
+7 consecutive overall (63-69) spanning cycle 2-3 boundary. The carry-over catalog from cycle 1 was provably finite (3 instances Pass 60-62) and fully exhausted; cycle 3 thus far surfaces no new drift.
+
 ### Pass 68 — BUSINESS-STRATEGY fourth-cycle stable; livekit clean (cycle 3 Pass 1)
 
 **SIXTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66, 67, 68). **SIX CONSECUTIVE clean architectural passes** (63 → 64 → 65 → 66 → 67 → 68) spanning the cycle 2 → cycle 3 transition.
