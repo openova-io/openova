@@ -63,6 +63,48 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 66 — SRE second-cycle stable; gitea third-cycle clean
+
+Both targets verified clean. **FOURTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65, 66). **FOUR CONSECUTIVE clean architectural passes** (63 → 64 → 65 → 66) in the new cycle.
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/SRE.md** second-cycle deep re-read (Pass 24 + Pass 43 fixes):
+- §1 Overview: clean.
+- §2 Multi-region strategy: §2.1-§2.4 clean. §2.5 Data replication patterns table — Pass 43 Gitea row fix intact ("Intra-cluster HA replicas + CNPG primary-replica (NOT cross-region mirror — see platform/gitea/README.md §'Multi-Region Strategy')"). All other rows (CNPG, FerretDB, Strimzi/Kafka, Valkey, ClickHouse, OpenSearch, Milvus, Neo4j, MinIO, Harbor) consistent with respective component READMEs.
+- §3 Progressive delivery: Flagger (canary) + Flipt (feature flags) "components to watch" — clean.
+- §4 Auto-remediation: 3 alert-to-action mapping subsections (Catalyst control plane / AI Hub / Open Banking) — all internally consistent.
+- §5 Secret rotation: Defaults match SECURITY §7 exactly.
+- §6 GDPR automation: clean.
+- §7 Air-gap compliance: clean.
+- §8 Catalyst observability: `catalyst-grafana` namespace ✓ (Pass 43 cross-checked dual-categorization with KEDA's `mimir.monitoring.svc`).
+- §9 SLOs: 5 SLO subsections (control plane / AI Hub / Open Banking / Data&Integration / Communication) — internally consistent.
+- §10 GPU operations: clean.
+- §11 Vector database operations: clean.
+- §12 Alertmanager configuration: Pass 24 URL fixes intact ✓.
+- §13 Incident response: clean.
+- §14 Runbooks: `apiVersion: catalyst.openova.io/v1alpha1` Runbook CRD ✓.
+
+SRE.md second-cycle confirms Pass 24 + Pass 43 architectural fixes intact across all 14 sections.
+
+**platform/gitea/README.md** third-cycle deep-read (Pass 35 fix):
+- L16 Overview bullet: "HA via intra-cluster replicas (not cross-region mirror — see Multi-Region section below)" — anchor at bullet level ✓
+- L50: `## Multi-Region Strategy` section header ✓
+- L52: prose explicitly stating "intra-cluster HA (multiple replicas + CNPG primary-replica), not cross-region bidirectional mirror" — Pass 43 SRE.md fix anchored on this gitea README content ✓
+- L76: `**Why not cross-region bidirectional mirror?**` subsection — explicit-rejection prose with rationale ✓
+- L94 + L155: `namespace: gitea` ✓
+- L165: `GITEA_INSTANCE_URL: https://gitea.<location-code>.<sovereign-domain>` — Pass 35 fix held ✓
+
+gitea third-cycle confirms architectural anchoring at four representational levels (Overview bullet, section header, subsection header, explicit-rejection prose) — same defense-in-depth pattern as openbao's "no stretched cluster" anchoring (Pass 65 noted).
+
+**Pass 66: clean.** Four consecutive architectural-clean passes (63, 64, 65, 66) in the new cycle.
+
+Convergence trajectory updated:
+- Old cycle Pass 54-58 (5 consecutive): nirvana approach met
+- New cycle Pass 59 clean → 60-62 drift (carry-over) → 63-66 clean (4 consecutive)
+
+If Pass 67 also clean → 5 CONSECUTIVE clean within the new cycle = renewed nirvana approach. The carry-over catalog is provably finite — surfaced in Pass 60-62 as 3 distinct structural side-effects (alignment, hostname, ordering), worked through, no recurrence in Pass 63-66.
+
 ### Pass 65 — BLUEPRINT-AUTHORING third-cycle stable; openbao third-cycle clean
 
 Both targets verified clean. **THIRTEENTH clean pass overall** (28, 44, 49, 50, 54, 55, 56, 57, 58, 59, 63, 64, 65). **THREE CONSECUTIVE clean architectural passes** (63 → 64 → 65) in the new cycle.
