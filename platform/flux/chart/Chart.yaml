@@ -9,6 +9,6 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 dependencies:
-  - name: flux
-    version: "2.4.0"
-    repository: "oci://ghcr.io/fluxcd-community/charts"
+  - name: flux2
+    version: "2.13.0"
+    repository: https://fluxcd-community.github.io/helm-charts

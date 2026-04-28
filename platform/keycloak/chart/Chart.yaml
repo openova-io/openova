@@ -10,5 +10,5 @@ maintainers:
     email: catalyst@openova.io
 dependencies:
   - name: keycloak
-    version: "25.0.6"
+    version: "24.7.1"
     repository: https://charts.bitnami.com/bitnami

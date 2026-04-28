@@ -9,6 +9,6 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 dependencies:
-  - name: nats-jetstream
+  - name: nats
     version: "2.10.22"
     repository: https://nats-io.github.io/k8s/helm/charts

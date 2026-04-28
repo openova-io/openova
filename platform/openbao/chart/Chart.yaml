@@ -10,5 +10,5 @@ maintainers:
     email: catalyst@openova.io
 dependencies:
   - name: openbao
-    version: "2.1.0"
+    version: "0.16.0"
     repository: https://openbao.github.io/openbao-helm
