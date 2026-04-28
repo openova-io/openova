@@ -123,6 +123,58 @@ When a franchisee winds down (rare but supported), all their tenants can migrate
 
 ---
 
+## Voucher shape propagates automatically (#118)
+
+A common question on franchise rollout: "How do I make sure the voucher schema, role gating, and redemption flow are identical on a franchised Sovereign vs Catalyst-Zero?"
+
+The answer is **you don't have to** — they are guaranteed identical by construction.
+
+| Component | Where it lives | How it reaches a franchised Sovereign |
+|---|---|---|
+| Voucher schema (`promo_codes` table + `promo_redemptions` + `credit_ledger`) | `core/services/billing/store/store.go` `Migrate()` | Runs on first start of the billing pod. Same migration code on every Sovereign → identical schema. |
+| Voucher CRUD endpoints (`/billing/vouchers/*`, `/billing/admin/promos`) | `core/services/billing/handlers/routes.go` | Compiled into the same billing image. Every Sovereign pulls the same SHA-pinned `core/services/billing` image from GHCR. |
+| Voucher issuer role gating (`requireVoucherIssuer`) | `core/services/billing/handlers/handlers.go` | Same image, same compiled-in policy. The role check resolves against the JWT claims served by the per-Sovereign Keycloak — same JWT shape on every Sovereign. |
+| Voucher admin UI (Billing → Vouchers section, role-gated nav) | `core/admin/src/components/{AdminShell,BillingPage}.svelte` | Same admin image. Same Svelte build. Same UI on every Sovereign. |
+| Public redemption landing (`/redeem?code=...`) | `core/marketplace/src/pages/redeem.astro` | Same marketplace image. Reachable at `<sovereign-marketplace-host>/redeem` on every Sovereign. |
+| Atomic redemption transaction (`RedeemPromoCode`) | `core/services/billing/store/store.go` | Same image. Same FOR UPDATE lock + tx-scoped INSERT/UPDATE/INSERT sequence. |
+
+**There is no Voucher CRD.** Vouchers are not a Kubernetes resource — they are rows in the per-Sovereign billing service's Postgres database. So "CRD propagation" is a non-issue: there is no CRD to propagate. The voucher *behaviour* is propagated by virtue of every Sovereign running the same Catalyst Blueprint suite (the bp-catalyst-platform umbrella), which pulls the same SHA-pinned core service images.
+
+**The smoke test for this invariant:**
+
+```bash
+# On any Sovereign (replace SOV with the per-Sovereign API host):
+SOV=https://api.<sovereign-domain>
+
+# 1. Schema check — list vouchers (will be empty on a fresh Sovereign).
+curl -s -H "Authorization: Bearer $TOKEN" "$SOV/billing/vouchers/list" | jq .
+# Expected: []
+
+# 2. Endpoint shape check — issue a voucher, confirm round-trip.
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"SMOKE-TEST","credit_omr":10,"description":"smoke","active":true,"max_redemptions":1}' \
+  "$SOV/billing/vouchers/issue" | jq .
+# Expected: { "code": "SMOKE-TEST", "credit_omr": 10, ... }
+
+# 3. Public preview — no auth required.
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"code":"SMOKE-TEST"}' \
+  "$SOV/billing/vouchers/redeem-preview" | jq .
+# Expected: { "code":"SMOKE-TEST", "credit_omr":10, "active":true, "accepting_redemptions":true }
+
+# 4. Cleanup — revoke (soft-delete).
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  "$SOV/billing/vouchers/revoke/SMOKE-TEST" | jq .
+# Expected: { "ok": true }
+```
+
+Run this on Catalyst-Zero AND on any new franchised Sovereign immediately after first provisioning. If the four steps return the expected shapes, the voucher surface is correctly propagated. If any returns a 404 or an unexpected shape, the SHA-pinned image deployed on that Sovereign has drifted from main — investigate `clusters/<sovereign>/...` to confirm the billing image tag matches a known-good `core/services/billing` SHA.
+
+This propagation invariant is part of the broader Catalyst-as-platform anchor: **same Blueprints, same images, same shape on every Sovereign.** Drift is an operational anomaly, not a feature.
+
+---
+
 ## Deferred to follow-up
 
 - Voucher CRD lifting from billing-DB row to first-class Catalyst CRD (so vouchers appear in `kubectl get vouchers` and are audit-loggable via JetStream events). Currently they live in the `core/services/billing` Postgres database, accessed via the admin UI's REST endpoints.

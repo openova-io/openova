@@ -28,11 +28,9 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/openova-io/openova/core/services/billing/store"
 	"github.com/openova-io/openova/core/services/shared/respond"
@@ -184,7 +182,3 @@ func (h *Handler) RedeemVoucherPreview(w http.ResponseWriter, r *http.Request) {
 	respond.OK(w, preview)
 }
 
-// _ keep the time import in scope for future tracing/metric work without
-// triggering an unused-import error in the meantime.
-var _ = time.Now
-var _ = fmt.Sprintf
