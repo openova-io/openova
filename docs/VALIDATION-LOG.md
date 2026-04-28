@@ -63,6 +63,46 @@ ARCHITECTURE §10 had 3 phases; SOVEREIGN-PROVISIONING §3-§6 has 4 phases. Ali
 - ARCHITECTURE §3 topology diagram listed Crossplane, Flux, Harbor, grafana-stack INSIDE the Catalyst control-plane block. But §11 and PLATFORM-TECH-STACK §3 both classify these as per-host-cluster infrastructure (not Catalyst control plane). Topology diagram corrected; per-host-cluster infra now shown as a separate line referencing PLATFORM-TECH-STACK §3 for the full list. Also added the previously-missing `provisioning` row.
 - JetStream Account scoping was contradictory: ARCHITECTURE §5 said "Per-Org account: ws.{org}-{env_type}.>" (ambiguous), NAMING-CONVENTION §11.2 said "One JetStream Account scoped to ws.{org}-{env_type}.>" (per-Env), GLOSSARY+SECURITY+PLATFORM-TECH-STACK said per-Org. Reconciled to: one Account per Organization, subjects within use prefix `ws.{org}-{env_type}.>` for per-Environment partitioning. Fixed in ARCHITECTURE §5 and NAMING-CONVENTION §11.2.
 
+### Pass 75 — GLOSSARY fifth-cycle stable; openbao fourth-cycle clean (cycle 4 Pass 3)
+
+**TWENTY-THIRD clean pass overall**. **THIRTEEN CONSECUTIVE clean architectural passes** (Pass 63 → 75) spanning cycles 2 → 3 → 4. Cycle 4 has 3 consecutive cleans (73 → 74 → 75).
+
+Acceptance greps clean for all 13 carry-forward categories.
+
+**docs/GLOSSARY.md** fifth-cycle deep-read (Pass 31, 44, 50, 59, 67 prior cycles):
+- L15 OpenOva = company definition ✓ (Pass 26 framing)
+- L16 Catalyst = platform with 14 component grouping ✓
+- L17-22 Sovereign / Organization / Environment / Application / Blueprint / User core nouns ✓
+- L30 sovereign-admin role definition with rejected entity-nouns "operator", "tenant", "client" ✓
+- §Roles (7 entries) ✓
+- §Infrastructure (Cluster, vcluster, Building Block, Region, Env Type, Placement) ✓
+- §Catalyst components (14 entries union-equal to PTS §2 = 15 components via semantic groupings) ✓
+- §Persona-facing surfaces (UI/Git/API/kubectl/Crossplane-NOT-surface) ✓
+- §Banned terms (11 entries cross-checked vs CLAUDE.md per Pass 44) ✓
+- §Acronyms (7 entries: OCI, CRD, CQRS, ESO, SPIFFE/SPIRE, GSLB, PromotionPolicy-removed) ✓
+
+GLOSSARY substantively stable across **5 review cycles** (Pass 31, 44, 50, 59, 67, 75). The keystone canonical doc that all other docs derive terminology from.
+
+**platform/openbao/README.md** fourth-cycle deep-read (Pass 7, 31, 65 prior cycles):
+- L17 bullet: "Independent Raft cluster per region (no stretched cluster)" ✓
+- L24 section header: "Architecture: independent Raft per region (NOT a stretched cluster)" ✓
+- L26 prose: intra-region quorum + async Performance Replication primary → secondaries ✓
+- L60 Single-primary writes anchor ✓
+- L66 explicit rejection of active-active bidirectional design with rationale ✓
+- L108 ingress: `bao.<location-code>.<sovereign-domain>` — Pass 31 fix held ✓
+
+openbao fourth-cycle: defense-in-depth anchoring of "no stretched cluster" decision preserved across all four representational levels (bullet, section header, prose, explicit-rejection note) plus the Pass 31 ingress hostname fix in YAML config. The strongest defense-in-depth pattern in the canonical doc set.
+
+**Pass 75: clean.** Thirteen consecutive architectural-clean passes (63-75).
+
+Convergence trajectory:
+- Cycle 1 (Pass 54-58): 5 consecutive clean
+- Cycle 2 (Pass 63-67): 5 consecutive clean (renewed nirvana)
+- Cycle 3 (Pass 68-72): 5 consecutive clean (third nirvana)
+- Cycle 4 (Pass 73-75): 3 consecutive clean ✓ (so far)
+
+13 consecutive overall (63-75). Two more cycle-4 cleans (Pass 76, 77) would meet the renewed 5-consecutive nirvana threshold within cycle 4 = fourth nirvana approach.
+
 ### Pass 74 — NAMING-CONVENTION fifth-cycle stable; neo4j third-cycle clean (cycle 4 Pass 2)
 
 **TWENTY-SECOND clean pass overall**. **TWELVE CONSECUTIVE clean architectural passes** (Pass 63 → 74) spanning cycles 2 → 3 → 4. Cycle 4 has 2 consecutive cleans (73 → 74).
