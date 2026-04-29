@@ -287,14 +287,23 @@ function ProductHeroStyles() {
         margin-bottom: 1.5rem;
         flex-wrap: wrap;
       }
+      /* Hero logo tile — neutral, high-contrast pill (matches the wizard
+         card and family-page tiles). Vendored component logos render in
+         mixed treatments; pinning the surface to a near-white pill plus a
+         1px subtle border keeps every brand mark legible in both wizard
+         themes without touching the asset files. The letter-mark fallback
+         (.mp-product-icon) shares the same surface for visual consistency
+         when a component has no vendored logo. */
       .mp-product-logo {
         width: 80px;
         height: 80px;
         border-radius: 18px;
-        object-fit: cover;
+        object-fit: contain;
         flex-shrink: 0;
-        background: var(--wiz-bg-card);
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--wiz-border-sub);
         padding: 8px;
+        box-sizing: border-box;
       }
       .mp-product-icon {
         width: 80px;
@@ -304,8 +313,9 @@ function ProductHeroStyles() {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--wiz-text-hi);
-        background: rgba(var(--wiz-accent-ch), 0.12);
+        color: #0f172a;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--wiz-border-sub);
         font-size: 1.75rem;
         font-weight: 700;
       }
