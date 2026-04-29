@@ -47,10 +47,17 @@ jobs:
 
       - name: Run unit tests
         working-directory: core/pool-domain-manager
-        # We deliberately skip the integration suite (PDM_TEST_DSN not
-        # available in CI without a Postgres service); the full integration
-        # run lives in test-bootstrap-api.yaml against an ephemeral CNPG.
-        run: go test ./internal/reserved/... ./internal/dynadot/...
+        # Unit suites that don't need a live Postgres: pdns httptest mock,
+        # allocator with fake DNS writer, dynadot env-resolution, reserved
+        # static list, registrar adapters. The full integration suite
+        # (store_test.go round-trip against CNPG) lives in
+        # test-bootstrap-api.yaml.
+        run: |
+          go test ./internal/pdns/... \
+                  ./internal/allocator/... \
+                  ./internal/dynadot/... \
+                  ./internal/reserved/... \
+                  ./internal/registrar/...
 
       - name: Login to GHCR
         uses: docker/login-action@v3

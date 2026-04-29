@@ -249,16 +249,18 @@ func (h *Handler) Commit(w http.ResponseWriter, r *http.Request) {
 		LoadBalancerIP:   req.LoadBalancerIP,
 	})
 	if err != nil {
-		// Allocator returns a wrapped "dynadot write" error AFTER the row was
-		// flipped to active. Surface 202 in that case so the caller knows the
-		// row is committed but DNS is pending.
-		if alloc != nil && strings.Contains(err.Error(), "dynadot write") {
+		// Allocator returns a wrapped "powerdns write" error AFTER the row
+		// was flipped to active. Surface 202 in that case so the caller
+		// knows the row is committed but the canonical 6-record set in the
+		// child zone is pending — calling Commit again with the same body
+		// is idempotent (PowerDNS PATCH replaces existing RRsets in place).
+		if alloc != nil && strings.Contains(err.Error(), "powerdns write") {
 			writeJSON(w, http.StatusAccepted, map[string]any{
-				"warning":     "row committed but Dynadot write failed; retry commit to publish DNS",
-				"detail":      err.Error(),
-				"poolDomain":  alloc.PoolDomain,
-				"subdomain":   alloc.Subdomain,
-				"state":       string(alloc.State),
+				"warning":        "row committed but PowerDNS write failed; retry commit to publish DNS",
+				"detail":         err.Error(),
+				"poolDomain":     alloc.PoolDomain,
+				"subdomain":      alloc.Subdomain,
+				"state":          string(alloc.State),
 				"sovereignFQDN":  alloc.SovereignFQDN,
 				"loadBalancerIP": alloc.LoadBalancerIP,
 			})
@@ -333,12 +335,14 @@ func (h *Handler) Release(w http.ResponseWriter, r *http.Request) {
 
 	alloc, err := h.Alloc.Release(r.Context(), domain, sub)
 	if err != nil {
-		// Partial: row deleted but Dynadot delete failed.
-		if alloc != nil && strings.Contains(err.Error(), "dynadot delete") {
+		// Partial: row deleted but PowerDNS teardown failed (either
+		// DeleteZone or RemoveNSDelegation surfaced an error). Operator
+		// can re-run Release — both PowerDNS calls are idempotent.
+		if alloc != nil && (strings.Contains(err.Error(), "powerdns delete zone") || strings.Contains(err.Error(), "powerdns remove delegation")) {
 			writeJSON(w, http.StatusAccepted, map[string]any{
-				"warning":  "row deleted but Dynadot delete failed; operator must clean up DNS manually",
-				"detail":   err.Error(),
-				"freed":    allocationResponse(alloc),
+				"warning": "row deleted but PowerDNS teardown failed; re-run release to clean up DNS (idempotent)",
+				"detail":  err.Error(),
+				"freed":   allocationResponse(alloc),
 			})
 			return
 		}
