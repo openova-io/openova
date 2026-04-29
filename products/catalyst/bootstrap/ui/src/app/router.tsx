@@ -16,6 +16,7 @@ import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
 import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
+import { ApplicationPage } from '@/pages/sovereign/ApplicationPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -46,16 +47,23 @@ const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path:
 // Success (full-screen)
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
 
-// Provision — real-time DAG showing tofu phases + Flux bootstrap as the
-// catalyst-api emits SSE events at /api/v1/deployments/<id>/logs. The
-// page is a SPA route (not a static .html) so it shares the wizard's
-// zustand store, the design tokens, the router base, and the build
-// pipeline. The deploymentId is the URL parameter — deep-linking to a
-// past provision is supported.
+// Provision — Sovereign Admin landing surface (formerly the real-time
+// DAG view). Renders the application card grid + phase banners. The
+// deploymentId is the URL parameter; deep-linking to a past provision
+// is supported. The same zustand store, design tokens, router base,
+// and build pipeline are shared with the wizard.
 const provisionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId',
   component: ProvisionPage,
+})
+
+// Per-Application detail page — reached by clicking any card on the
+// AdminPage grid. Tabs: Logs / Dependencies / Status / Overview.
+const provisionAppRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/app/$componentId',
+  component: ApplicationPage,
 })
 
 // Design showcase
@@ -85,6 +93,7 @@ const routeTree = rootRoute.addChildren([
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
   provisionRoute,
+  provisionAppRoute,
   designsRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,
