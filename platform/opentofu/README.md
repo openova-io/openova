@@ -69,7 +69,7 @@ opentofu/
 ├── modules/
 │   ├── <provider>-vm/    # Provider-specific VPS provisioning
 │   ├── k3s-cluster/      # K3s installation
-│   └── dns-failover/     # CoreDNS + k8gb
+│   └── dns-failover/     # PowerDNS authoritative + lua-records (see docs/MULTI-REGION-DNS.md)
 ├── environments/
 │   ├── <provider>-<region>/  # Per-environment configs
 │   └── ...
@@ -135,7 +135,7 @@ resource "<provider>_network" "k8s_network" {
 | Component | Reason |
 |-----------|--------|
 | traefik | Gateway API (Cilium) handles ingress |
-| servicelb | Cloud LB or k8gb DNS-based failover |
+| servicelb | Cloud LB + PowerDNS lua-records for cross-region failover |
 | local-storage | App-level replication |
 | flannel | Cilium CNI |
 
@@ -165,8 +165,8 @@ flowchart TB
         LB2[Cloud LB]
     end
 
-    subgraph DNS["DNS (k8gb + ExternalDNS)"]
-        GSLB[GSLB]
+    subgraph DNS["DNS (PowerDNS authoritative + lua-records + ExternalDNS)"]
+        GSLB[GSLB — ifurlup / pickclosest]
     end
 
     LB1 --> K8s1

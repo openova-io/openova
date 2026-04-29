@@ -82,7 +82,7 @@ export function StepInfrastructure() {
   return (
     <StepShell
       title="Configure your infrastructure"
-      description="Select regions and node sizes. Both regions run symmetric trust zone clusters — k8gb handles traffic distribution automatically."
+      description="Select regions and node sizes. Both regions run symmetric trust zone clusters — PowerDNS lua-records handle health-checked traffic distribution automatically."
       onNext={next}
       onBack={back}
       nextDisabled={!isValid}
@@ -93,7 +93,7 @@ export function StepInfrastructure() {
           <div>
             <p className="text-sm font-semibold text-[oklch(85%_0.01_250)]">Regions</p>
             <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5">
-              Select 1 region (single-site) or 2 regions (geographic redundancy via k8gb).
+              Select 1 region (single-site) or 2 regions (geographic redundancy via PowerDNS lua-records).
             </p>
           </div>
           {canAddRegion && (

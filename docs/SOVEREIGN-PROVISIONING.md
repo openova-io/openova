@@ -163,7 +163,7 @@ hz-nbg-mgt-prod                    hz-fsn-rtz-prod                hz-hel-rtz-pro
   catalog-svc, marketplace,
   console, admin, billing
 hz-nbg-dmz-prod                    hz-fsn-dmz-prod                hz-hel-dmz-prod
-  ingress, WAF, k8gb                ingress, WAF, k8gb              ingress, WAF, k8gb
+  ingress, WAF, PowerDNS            ingress, WAF, PowerDNS          ingress, WAF, PowerDNS
 ```
 
 The `mgt` building block is typically NOT replicated (one Catalyst control plane per Sovereign). The `rtz` and `dmz` blocks ARE replicated for workload HA.

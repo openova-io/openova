@@ -205,7 +205,7 @@ const NODES=[
   {id:'netbird',   label:'NetBird',       sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
   {id:'frpc',      label:'frpc',          sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:4},
   {id:'strongswan',label:'strongSwan',    sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:4},
-  {id:'k8gb',      label:'k8gb GSLB',     sub:'—',     group:'spine',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'powerdns',  label:'PowerDNS',      sub:'lua-records GSLB', group:'spine', region:'fsn1',state:'waiting',r:20,prog:0,   phase:4},
   // Stage 5 — Scaling (SURGE) + vCluster + Runtime security: needs SPINE up (6)
   {id:'vcluster',  label:'vCluster',      sub:'—',     group:'pilot',   region:'fsn1',state:'waiting',r:18,prog:0,   phase:5},
   {id:'vpa',       label:'VPA',           sub:'—',     group:'surge',   region:'fsn1',state:'waiting',r:20,prog:0,   phase:5},
@@ -277,7 +277,7 @@ const NODES=[
   {id:'n-netbird',   label:'NetBird',       sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
   {id:'n-frpc',      label:'frpc',          sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:4},
   {id:'n-strongswan',label:'strongSwan',    sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:4},
-  {id:'n-k8gb',      label:'k8gb GSLB',     sub:'—',     group:'spine',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
+  {id:'n-powerdns',  label:'PowerDNS',      sub:'lua-records GSLB', group:'spine', region:'nbg1',state:'waiting',r:20,prog:0,   phase:4},
   {id:'n-vcluster',  label:'vCluster',      sub:'—',     group:'pilot',   region:'nbg1',state:'waiting',r:18,prog:0,   phase:5},
   {id:'n-vpa',       label:'VPA',           sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:5},
   {id:'n-keda',      label:'KEDA',          sub:'—',     group:'surge',   region:'nbg1',state:'waiting',r:20,prog:0,   phase:5},
@@ -341,7 +341,7 @@ const TOPO=[
   {f:'certmgr',   t:'envoy'},{f:'envoy',     t:'coraza'},
   {f:'certmgr',   t:'extdns'},{f:'certmgr',   t:'netbird'},
   {f:'netbird',   t:'frpc'},{f:'netbird',   t:'strongswan'},
-  {f:'extdns',    t:'k8gb'},{f:'certmgr',   t:'vcluster'},
+  {f:'cnpg',      t:'powerdns'},{f:'certmgr',   t:'vcluster'},
   // Stage 3→4: Security core → Scaling (SURGE) + Runtime security
   {f:'certmgr',   t:'vpa'},{f:'certmgr',   t:'keda'},
   {f:'flux',      t:'reloader'},{f:'keda',     t:'continuum'},
@@ -384,7 +384,7 @@ const TOPO=[
 // ── Cross-region edges ─────────────────────────────────────────────────────────
 const XR=[
   {from:'netbird',  to:'n-netbird',  label:'VPN mesh'},
-  {from:'k8gb',     to:'n-k8gb',     label:'GSLB sync'},
+  {from:'powerdns', to:'n-powerdns', label:'PowerDNS zone replication (SOA NOTIFY + AXFR)'},
   {from:'cnpg',     to:'n-cnpg',     label:'PG replication'},
   {from:'strimzi',  to:'n-strimzi',  label:'MirrorMaker2'},
   {from:'velero',   to:'n-velero',   label:'DR backup'},
@@ -408,7 +408,7 @@ const LOGS={
   coraza:    {s:'waiting', lines:['Waiting for Envoy (Stage 4)…','Coraza WAF: OWASP CRS L7 web application firewall — runs as Envoy filter']},
   extdns:    {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','External DNS: auto-syncs K8s Ingress hostnames → Hetzner DNS']},
   envoy:     {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','Envoy: L7 proxy — gateway and Coraza WAF dataplane + Knative ingress']},
-  k8gb:      {s:'waiting', lines:['Waiting for External DNS + NetBird (Stage 4)…','k8gb: pairs with NBG1 for global DNS load balancing (GSLB)']},
+  powerdns:  {s:'waiting', lines:['Waiting for CNPG (Stage 3) + cert-manager…','PowerDNS: authoritative DNS + DNSSEC + lua-records — geo + health-checked failover GSLB across FSN1 ↔ NBG1']},
   netbird:   {s:'waiting', lines:['Waiting for cert-manager (Stage 3)…','NetBird: WireGuard mesh VPN — encrypted tunnel FSN1↔NBG1']},
   frpc:      {s:'waiting', lines:['Waiting for NetBird (Stage 4)…','frpc: fast reverse proxy tunnel through VPN mesh']},
   strongswan:{s:'waiting', lines:['Waiting for NetBird (Stage 4)…','strongSwan: IPsec site-to-site VPN gateway companion to NetBird']},

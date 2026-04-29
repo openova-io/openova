@@ -34,7 +34,7 @@ No parent (global scope)            →  Full encoding required
 
 ### 1.3 Building Blocks, Not Failover Roles
 
-Clusters are named by their **functional security zone** (building block), not by a failover role such as "primary" or "dr". Geographic redundancy is achieved by running the **same building blocks in multiple regions** — k8gb and GSLB handle traffic distribution. The cluster name never changes; the routing does. Calling a cluster "primary" is operationally incorrect because after failover the other region becomes active — the building block label remains stable regardless.
+Clusters are named by their **functional security zone** (building block), not by a failover role such as "primary" or "dr". Geographic redundancy is achieved by running the **same building blocks in multiple regions** — PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. The cluster name never changes; the routing does. Calling a cluster "primary" is operationally incorrect because after failover the other region becomes active — the building block label remains stable regardless.
 
 ### 1.4 Tags Carry What Names Cannot
 
@@ -371,7 +371,7 @@ metadata:
 
 ## 7. Multi-Region Architecture and Building Block Symmetry
 
-Geographic redundancy is achieved by deploying **the same building blocks in multiple regions**. Both clusters carry the same building block label; neither is designated "primary" or "dr". Traffic distribution is a routing concern owned by k8gb and GSLB — not a naming concern.
+Geographic redundancy is achieved by deploying **the same building blocks in multiple regions**. Both clusters carry the same building block label; neither is designated "primary" or "dr". Traffic distribution is a routing concern owned by PowerDNS lua-records (authoritative DNS-level GSLB) — not a naming concern. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) for the lua-record patterns.
 
 ```
 Region A (Falkenstein)              Region B (Helsinki)
@@ -388,9 +388,9 @@ hz-fsn-dmz-prod                     hz-hel-dmz-prod
   Ingress + WAF                       Ingress + WAF
   WireGuard endpoint                  WireGuard endpoint
 
-              ↕ k8gb authoritative DNS (per Application)
+              ↕ PowerDNS authoritative DNS (per Application, lua-records)
         marketing-site.acme-prod.omantel.openova.io
-              both regions registered — k8gb selects healthy endpoint
+              both regions registered — `ifurlup` selects healthy endpoint
 
 Management (one per Sovereign, single region recommended)
 ────────────────────────────────────────────────────────────
@@ -413,7 +413,7 @@ hz-nbg-mgt-prod
   cert-manager, Kyverno, Harbor, etc.) — see PLATFORM-TECH-STACK §1.
 ```
 
-When FSN becomes unavailable, `hz-hel-rtz-prod` serves all traffic for Applications with `placement: active-active` or `active-hotstandby`. The cluster name does not change. k8gb removes the FSN endpoint from DNS. Recovery is a routing event, not a renaming event.
+When FSN becomes unavailable, `hz-hel-rtz-prod` serves all traffic for Applications with `placement: active-active` or `active-hotstandby`. The cluster name does not change. The PowerDNS lua-record's `ifurlup` health check fails for the FSN backend and the authoritative answer drops it from the response set within the configured probe window. Recovery is a routing event, not a renaming event.
 
 ---
 
@@ -492,7 +492,7 @@ An Environment is realized by:
 | Mode | Vclusters | Notes |
 |---|---|---|
 | Single-region | 1 vcluster on one rtz cluster | SME default. No cross-region failover. |
-| Multi-region | N vclusters across regions × bb | Corporate / regulated default. k8gb routes Application traffic. |
+| Multi-region | N vclusters across regions × bb | Corporate / regulated default. PowerDNS lua-records route Application traffic across regions. |
 
 The Environment object's spec drives which vclusters get created; `environment-controller` (the Catalyst component) reconciles them.
 

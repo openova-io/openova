@@ -43,12 +43,12 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 | syft-grype | 90 | 92 | 94 | Rising | SBOM requirements accelerating |
 | coraza | 88 | 88 | 85 | Stable | WAF remains necessary for web apps |
 | external-dns | 90 | 88 | 85 | Stable | DNS synchronization is mechanical |
+| powerdns | 88 | 88 | 88 | Stable | Authoritative DNS + lua-records (geo + health-checked failover) — replaces k8gb in OpenOva's Catalyst stack |
 | grafana | 88 | 88 | 85 | Stable | AI may generate dashboards but metrics collection stays |
 | kyverno | 88 | 90 | 90 | Rising | Policy-as-code increasingly mandated |
 | crossplane | 78 | 80 | 82 | Rising | Cloud resource management via CRDs maturing |
 | opentofu | 82 | 80 | 75 | Declining | Bootstrap-only; Crossplane takes over day-2 |
 | gitea | 83 | 82 | 78 | Stable | Self-hosted Git remains important |
-| k8gb | 80 | 80 | 78 | Stable | DNS-based GSLB is proven |
 | keda | 80 | 82 | 85 | Rising | Event-driven autoscaling more relevant with AI |
 | vpa | 78 | 78 | 75 | Stable | Right-sizing is ongoing need |
 | reloader | 80 | 80 | 78 | Stable | Simple operator, high value |

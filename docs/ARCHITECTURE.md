@@ -67,7 +67,7 @@ Everything else is identical in code.
 │  └────────────────────────────────────────────────────────────────────┘ │
 │  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,         │
 │  cert-manager, External-Secrets, Kyverno, Harbor, Reloader, Trivy,       │
-│  Falco, Sigstore, Syft+Grype, VPA, KEDA, External-DNS, k8gb, Coraza,     │
+│  Falco, Sigstore, Syft+Grype, VPA, KEDA, External-DNS, PowerDNS, Coraza, │
 │  SeaweedFS, Velero, failover-controller) — see PLATFORM-TECH-STACK §3.   │
 │                                                                           │
 │  Workload host clusters: hz-fsn-rtz-prod, hz-hel-rtz-prod                 │
@@ -79,7 +79,8 @@ Everything else is identical in code.
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                           │
 │  DMZ host clusters: hz-fsn-dmz-prod, hz-hel-dmz-prod                      │
-│   Cilium Gateway, WAF (Coraza), k8gb DNS, WireGuard endpoints             │
+│   Cilium Gateway, WAF (Coraza), PowerDNS authoritative + lua-records,    │
+│   dnsdist rate-limit, WireGuard endpoints                                 │
 └─────────────────────────────────────────────────────────────────────────┘
                               ↕
                   Gitea (in management cluster) — 5 conventional Gitea Orgs

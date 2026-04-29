@@ -1,6 +1,6 @@
 # Litmus Chaos
 
-Chaos engineering experiments for Kubernetes. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.9 — Chaos engineering). Used to validate Catalyst's resilience guarantees (failover-controller behavior under network partition, OpenBao DR promotion, k8gb endpoint removal) — see [`docs/SRE.md`](../../docs/SRE.md) for the resilience model. Required by some compliance regimes (DORA, NIS2) as evidence of resilience testing.
+Chaos engineering experiments for Kubernetes. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.9 — Chaos engineering). Used to validate Catalyst's resilience guarantees (failover-controller behavior under network partition, OpenBao DR promotion, PowerDNS lua-record `ifurlup` endpoint removal) — see [`docs/SRE.md`](../../docs/SRE.md) for the resilience model. Required by some compliance regimes (DORA, NIS2) as evidence of resilience testing.
 
 **Category:** Chaos Engineering | **Type:** Application Blueprint
 

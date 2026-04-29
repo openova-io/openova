@@ -161,6 +161,22 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": []
   },
   {
+    "id": "bp-powerdns",
+    "slug": "powerdns",
+    "title": "PowerDNS",
+    "summary": "|",
+    "icon": "powerdns.svg",
+    "category": "infrastructure",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-2-gitops-and-iac",
+    "depends": [
+      "bp-cert-manager"
+    ]
+  },
+  {
     "id": "bp-sealed-secrets",
     "slug": "sealed-secrets",
     "title": "sealed-secrets",
@@ -213,6 +229,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/keycloak/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
+  "platform/powerdns/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/spire/blueprint.yaml"
 ] as const

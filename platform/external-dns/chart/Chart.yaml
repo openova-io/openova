@@ -9,9 +9,11 @@ description: |
   values overlay at helm install time.
 
   ExternalDNS synchronizes Kubernetes Gateway/Service/Ingress resources with
-  cloud DNS providers (Cloudflare, Hetzner DNS, Route53, GCP, Azure, Dynadot
-  via the Catalyst webhook), and pairs with k8gb for GSLB delegation per
-  platform/external-dns/README.md.
+  the per-Sovereign PowerDNS authoritative server (and any external cloud DNS
+  providers — Cloudflare, Hetzner DNS, Route53, GCP, Azure, Dynadot via the
+  Catalyst webhook). Geo + health-checked failover responses are owned by
+  PowerDNS lua-records, NOT by ExternalDNS. See platform/external-dns/README.md
+  and docs/MULTI-REGION-DNS.md.
 type: application
 keywords: [catalyst, blueprint, external-dns, dns]
 maintainers:
