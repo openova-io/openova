@@ -25,10 +25,11 @@
  * Sections lay their content out as `auto-fill / minmax(...)` CSS grids
  * so multiple small cards pack into the same row whenever the viewport
  * has room. The Components section is the canonical example: every
- * selected component renders as its own ComponentMiniCard rather than a
- * single per-family summary, so the operator can confirm exactly what
- * will be installed. The family overview chips remain above the
- * per-component grid for at-a-glance counts.
+ * selected component renders as its own ComponentMiniCard, pixel-mirrored
+ * from the marketplace `.stack-card` on
+ * https://marketplace.openova.io/review/, so the operator can confirm
+ * exactly what will be installed in the same visual rhythm they see
+ * across every other Catalyst surface.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene) the Hetzner
  * token and any registrar token are rendered as a fixed-length mask plus
@@ -55,7 +56,6 @@ import {
   findComponent,
   type ComponentEntry,
 } from './componentGroups'
-import { familyChipPalette } from '@/pages/marketplace/marketplaceCopy'
 
 /* ── Provider logos ──────────────────────────────────────────────── */
 const PROVIDER_LOGOS: Record<CloudProvider, React.ReactNode> = {
@@ -100,7 +100,12 @@ function Section({
       style={{
         borderRadius: 10,
         border: '1px solid var(--wiz-border-sub)',
-        background: 'var(--wiz-bg-xs)',
+        /* Section sits one elevation BELOW the cards inside it so the
+           card surfaces (--wiz-bg-input / --wiz-bg-card) lift visibly off
+           the section in both wizard themes. The previous --wiz-bg-xs
+           was the same near-white as the cards in light mode → cards
+           visually melted into the section ("white-on-white"). */
+        background: 'var(--wiz-bg-sub)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
@@ -146,8 +151,15 @@ function Field({
         gap: 2,
         padding: '5px 8px',
         borderRadius: 6,
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.04)',
+        /* Field chip — sits one elevation ABOVE the Section surface so
+           every chip lifts off the parent section in both wizard themes.
+           The previous hardcoded rgba(255,255,255,0.02) was invisible in
+           light mode (white over white). --wiz-bg-input flips to #f8fafc
+           in light (clearly above --wiz-bg-sub #f4f6f8 section) and to
+           rgba(255,255,255,0.05) in dark (clearly above --wiz-bg-sub
+           rgba(255,255,255,0.025) section). */
+        background: 'var(--wiz-bg-input)',
+        border: '1px solid var(--wiz-border-sub)',
         gridColumn: fullWidth ? '1 / -1' : undefined,
         minWidth: 0,
       }}
@@ -202,105 +214,50 @@ function FieldGrid({
   )
 }
 
-/* ── Component group mini-card (overview header) ─────────────────── */
-function GroupMiniCard({ gid }: { gid: string }) {
-  const store = useWizardStore()
-  const group = GROUPS.find(g => g.id === gid)
-  if (!group) return null
+/* ── Per-component mini card (one card per selected component) ────
+   Pixel-mirrors the canonical `.stack-card` on
+   https://marketplace.openova.io/review/ — the SME marketplace's review
+   surface. Same horizontal flex layout, same 40×40 logo tile, same
+   semibold name + low-key category pill + single-line description. The
+   review is the launch-confirmation surface and inherits the marketplace
+   "compact card grid" review aesthetic verbatim. Wizard tokens map to
+   the marketplace tokens 1:1 (light theme):
 
-  const selectedIds = store.componentGroups[gid] ?? []
-  const counts = { mandatory: 0, recommended: 0, optional: 0 }
-  for (const id of selectedIds) {
-    const comp = group.components.find(c => c.id === id)
-    if (comp) counts[comp.tier]++
-  }
-  const total = selectedIds.length
-  const hasAny = total > 0
+     marketplace `--color-bg`           → wizard `--wiz-bg-input`
+     marketplace `--color-border`       → wizard `--wiz-border`
+     marketplace `--color-text-strong`  → wizard `--wiz-text-hi`
+     marketplace `--color-text-dim`     → wizard `--wiz-text-md` (desc),
+                                                  `--wiz-text-sub` (cat)
 
-  return (
-    <div
-      style={{
-        borderRadius: 8,
-        padding: '6px 8px',
-        border: `1px solid ${hasAny ? 'var(--wiz-border-sub)' : 'rgba(255,255,255,0.04)'}`,
-        background: hasAny ? 'var(--wiz-bg-xs)' : 'transparent',
-        opacity: hasAny ? 1 : 0.38,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            color: hasAny ? 'var(--wiz-text-hi)' : 'var(--wiz-text-hint)',
-          }}
-        >
-          {group.productName}
-        </span>
-        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-          {counts.mandatory > 0 && (
-            <span
-              title="mandatory (incl. transitive-mandatory)"
-              style={{ fontSize: 9, fontWeight: 700, color: '#4ADE80', background: 'rgba(74,222,128,0.1)', borderRadius: 3, padding: '1px 5px' }}
-            >
-              M {counts.mandatory}
-            </span>
-          )}
-          {counts.recommended > 0 && (
-            <span
-              title="recommended"
-              style={{ fontSize: 9, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.1)', borderRadius: 3, padding: '1px 5px' }}
-            >
-              R {counts.recommended}
-            </span>
-          )}
-          {counts.optional > 0 && (
-            <span
-              title="user-selected optional"
-              style={{ fontSize: 9, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.1)', borderRadius: 3, padding: '1px 5px' }}
-            >
-              O {counts.optional}
-            </span>
-          )}
-          {total === 0 && <span style={{ fontSize: 9, color: 'var(--wiz-text-hint)' }}>—</span>}
-        </div>
-      </div>
-      <div style={{ fontSize: 9, color: 'var(--wiz-text-sub)', letterSpacing: '0.02em' }}>{group.subtitle}</div>
-    </div>
-  )
-}
-
-/* ── Per-component mini card (one card per selected component) ──── */
-const TIER_BADGE: Record<'mandatory' | 'recommended' | 'optional', { letter: string; bg: string; fg: string; label: string }> = {
-  mandatory:   { letter: 'M', bg: 'rgba(74,222,128,0.14)', fg: '#4ADE80', label: 'mandatory (incl. transitive)' },
-  recommended: { letter: 'R', bg: 'rgba(56,189,248,0.14)', fg: '#38BDF8', label: 'recommended' },
-  optional:    { letter: 'O', bg: 'rgba(167,139,250,0.14)', fg: '#A78BFA', label: 'user-selected optional' },
-}
+   Tier (M/R/O) is intentionally NOT shown — the canonical stack-card has
+   no tier indicator; the Components step prior to Review already enforces
+   tier semantics, and the review's job is to mirror the marketplace card
+   shape exactly. The category pill renders `entry.groupName` (PILOT,
+   SPINE, …) which is the wizard equivalent of `app.category`. */
 
 function LetterFallback({ name }: { name: string }) {
   const letter = (name[0] ?? '?').toUpperCase()
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
-  const hue = Math.abs(hash) % 360
   return (
     <span
       aria-hidden
       style={{
-        width: 22,
-        height: 22,
-        borderRadius: 6,
+        // .stack-icon equivalent — same 40×40, 10px-radius pill so the
+        // logo column geometry is identical whether or not the component
+        // has a vendored SVG. Near-white tile + dark-slate letter mirrors
+        // the LOGO_TILE_BG / LOGO_TILE_TEXT contract used elsewhere on
+        // the wizard and marketplace surfaces.
+        width: 40,
+        height: 40,
+        borderRadius: 10,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: '#fff',
-        fontSize: 11,
+        color: '#0f172a',
+        fontSize: 14,
         fontWeight: 700,
-        background: `oklch(58% 0.12 ${hue})`,
+        background: 'rgba(255,255,255,0.96)',
+        border: '1px solid var(--wiz-border-sub)',
       }}
     >
       {letter}
@@ -309,8 +266,6 @@ function LetterFallback({ name }: { name: string }) {
 }
 
 function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
-  const palette = familyChipPalette(entry.product)
-  const tier = TIER_BADGE[entry.tier]
   return (
     <div
       data-testid={`review-component-${entry.id}`}
@@ -318,88 +273,103 @@ function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
       data-tier={entry.tier}
       data-product={entry.product}
       style={{
-        borderRadius: 7,
-        padding: '6px 8px',
-        border: '1px solid var(--wiz-border-sub)',
-        background: 'var(--wiz-bg-xs)',
+        // .stack-card — display:flex; align-items:flex-start; gap:0.65rem;
+        // padding:0.65rem; background:var(--color-bg); border-radius:8px;
+        // border:1px solid var(--color-border); transition:border-color 0.15s.
         display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
+        alignItems: 'flex-start',
+        gap: '0.65rem',
+        padding: '0.65rem',
+        background: 'var(--wiz-bg-input)',
+        borderRadius: 8,
+        border: '1px solid var(--wiz-border)',
+        color: 'inherit',
+        textDecoration: 'none',
+        transition: 'border-color 0.15s',
         minWidth: 0,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-        {entry.logoUrl ? (
-          <span
-            aria-hidden
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              background: 'rgba(255,255,255,0.04)',
-              overflow: 'hidden',
-            }}
-          >
-            <img
-              src={entry.logoUrl}
-              alt=""
-              loading="lazy"
-              data-testid={`review-component-logo-${entry.id}`}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-            />
-          </span>
-        ) : (
-          <LetterFallback name={entry.name} />
-        )}
+      {entry.logoUrl ? (
+        <span
+          aria-hidden
+          style={{
+            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Vendored
+            // brand marks ship in mixed treatments (dark-on-transparent,
+            // white-on-transparent, full-colour); the near-white pill
+            // keeps every glyph legible regardless of theme.
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            background: 'rgba(255,255,255,0.96)',
+            border: '1px solid var(--wiz-border-sub)',
+            overflow: 'hidden',
+            padding: 4,
+            boxSizing: 'border-box',
+          }}
+        >
+          <img
+            src={entry.logoUrl}
+            alt=""
+            loading="lazy"
+            data-testid={`review-component-logo-${entry.id}`}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+          />
+        </span>
+      ) : (
+        <LetterFallback name={entry.name} />
+      )}
+      {/* .stack-body — flex:1; min-width:0. */}
+      <div style={{ flex: 1, minWidth: 0 }}>
         <span
           style={{
-            fontSize: 11,
-            fontWeight: 600,
+            // .stack-name — 0.82rem / 600 / line-height:1.2 / 0.4rem
+            // right margin to give the cat pill breathing room.
             color: 'var(--wiz-text-hi)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-            minWidth: 0,
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            lineHeight: 1.2,
+            marginRight: '0.4rem',
           }}
           title={entry.name}
         >
           {entry.name}
         </span>
         <span
-          title={tier.label}
           style={{
-            fontSize: 9,
-            fontWeight: 700,
-            color: tier.fg,
-            background: tier.bg,
+            // .stack-cat — 0.62rem / capitalize / 0.08rem 0.35rem padding
+            // / 3px radius / color-mix(border 50%, transparent) bg.
+            color: 'var(--wiz-text-sub)',
+            fontSize: '0.62rem',
+            textTransform: 'capitalize',
+            background: 'color-mix(in srgb, var(--wiz-border) 50%, transparent)',
+            padding: '0.08rem 0.35rem',
             borderRadius: 3,
-            padding: '1px 5px',
-            flexShrink: 0,
           }}
         >
-          {tier.letter}
+          {entry.groupName}
         </span>
+        <p
+          style={{
+            // .stack-desc — 0.72rem / line-height:1.4 / margin-top:0.2rem
+            // / single-line clamp via -webkit-box (matches the canonical
+            // -webkit-line-clamp: 1 rule on the marketplace card).
+            margin: '0.2rem 0 0',
+            color: 'var(--wiz-text-md)',
+            fontSize: '0.72rem',
+            lineHeight: 1.4,
+            display: '-webkit-box',
+            WebkitLineClamp: 1,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {entry.desc}
+        </p>
       </div>
-      <span
-        style={{
-          fontSize: 9,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          color: palette.fg,
-          background: palette.bg,
-          border: `1px solid ${palette.border}`,
-          borderRadius: 999,
-          padding: '1px 6px',
-          alignSelf: 'flex-start',
-        }}
-      >
-        {entry.groupName}
-      </span>
     </div>
   )
 }
@@ -428,7 +398,10 @@ function RegionCard({ row, index }: { row: ReviewRegionRow; index: number }) {
         borderRadius: 8,
         padding: '8px 10px',
         border: `1px solid ${row.isAirgap ? 'rgba(245,158,11,0.3)' : 'var(--wiz-border-sub)'}`,
-        background: row.isAirgap ? 'rgba(245,158,11,0.03)' : 'var(--wiz-bg-xs)',
+        /* RegionCard sits on the Section surface (--wiz-bg-sub) so it
+           uses --wiz-bg-input one elevation above for visible card lift
+           in both themes. Air-gap row keeps its amber tint. */
+        background: row.isAirgap ? 'rgba(245,158,11,0.03)' : 'var(--wiz-bg-input)',
         display: 'flex',
         flexDirection: 'column',
         gap: 5,
@@ -876,38 +849,34 @@ export function StepReview() {
           </FieldGrid>
         </Section>
 
-        {/* ── 5. Components ────────────────────────────────────── */}
+        {/* ── 5. Components ──────────────────────────────────────
+            Pixel-mirrors the canonical `.stack-grid` /  `.stack-card`
+            layout from https://marketplace.openova.io/review/. The
+            family-summary mini-card overview that previously lived above
+            the per-component grid was removed: every selected component
+            already renders as its own card with the family chip baked in
+            (`entry.groupName`), so a separate family-count strip was a
+            duplicate read of the same data. The tier legend below the
+            grid was likewise dropped — the marketplace stack-card has no
+            tier indicator, and the component step before review already
+            enforces tier semantics. The grid now uses the same `repeat(2,
+            1fr)` columns the marketplace ships, collapsing to a single
+            column under 700px. */}
         <Section
           title={`Components · ${totalComponents} selected`}
           testId="review-section-components"
-          bodyPadding={0}
+          bodyPadding="0.85rem 1rem"
         >
-          {/* Family overview — at-a-glance counts per product family.
-              Kept above the per-component grid so the operator can scan
-              "every family I expected" without counting cards. */}
-          <div
-            data-testid="review-component-families"
-            style={{
-              padding: '8px 12px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: 6,
-              borderBottom: '1px solid var(--wiz-border-sub)',
-            }}
-          >
-            {GROUPS.map(g => <GroupMiniCard key={g.id} gid={g.id} />)}
-          </div>
-
-          {/* Per-component grid — one card per selected component (incl.
-              mandatory). Operator sees EVERYTHING that will be installed.
-              auto-fill / minmax(180px) so 4-6 cards fit per row at 1440px. */}
           <div
             data-testid="review-component-cards"
+            className="review-stack-grid"
             style={{
-              padding: '8px 12px',
+              // .stack-grid — repeat(2, 1fr); gap: 0.5rem. The
+              // single-column collapse is handled by the matching
+              // <style> below so we do not need a JS media-query.
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: 6,
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '0.5rem',
             }}
           >
             {selectedComponentEntries.length > 0 ? (
@@ -920,29 +889,11 @@ export function StepReview() {
               </span>
             )}
           </div>
-
-          {/* Tier legend */}
-          <div
-            style={{
-              padding: '6px 12px',
-              borderTop: '1px solid var(--wiz-border-sub)',
-              display: 'flex',
-              gap: 12,
-              flexWrap: 'wrap',
-              fontSize: 10,
-              color: 'var(--wiz-text-sub)',
-            }}
-          >
-            <span>
-              <span style={{ color: '#4ADE80', fontWeight: 700 }}>M</span> mandatory (incl. transitive)
-            </span>
-            <span>
-              <span style={{ color: '#38BDF8', fontWeight: 700 }}>R</span> recommended
-            </span>
-            <span>
-              <span style={{ color: '#A78BFA', fontWeight: 700 }}>O</span> user-selected optional
-            </span>
-          </div>
+          <style>{`
+            @media (max-width: 700px) {
+              .review-stack-grid { grid-template-columns: 1fr !important; }
+            }
+          `}</style>
         </Section>
 
         {/* ── 6. Domain ────────────────────────────────────────── */}
