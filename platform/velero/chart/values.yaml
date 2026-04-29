@@ -1,0 +1,142 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `velero:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: velero
+    version: "12.0.1"
+    repo: "https://vmware-tanzu.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: velero) ────────────────────────
+velero:
+  # Pin upstream Velero image — DO NOT use floating tags.
+  image:
+    repository: docker.io/velero/velero
+    tag: "v1.18.0"
+    pullPolicy: IfNotPresent
+
+  # kubectl image (used by upgradeCRDs Job) — pin to a known-stable
+  # registry.k8s.io/kubectl version. Per-Sovereign overlays MAY pin a
+  # specific tag.
+  kubectl:
+    image:
+      repository: registry.k8s.io/kubectl
+
+  # Plugin init containers — REQUIRED for Velero to talk to ANY backup
+  # backend. The AWS plugin (S3-compatible) is the Catalyst standard
+  # because SeaweedFS exposes an S3 API. Per-Sovereign overlays append
+  # additional plugin init containers if a CSI snapshotter / cloud-native
+  # plugin is also needed.
+  initContainers:
+    - name: velero-plugin-for-aws
+      image: velero/velero-plugin-for-aws:v1.14.0
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+
+  # Resources — modest defaults sized for a solo Sovereign.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  # Metrics — Prometheus scraping enabled by upstream defaults; the
+  # ServiceMonitor / PodMonitor / PrometheusRule resources MUST default
+  # OFF per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles
+  # default false — kube-prometheus-stack CRDs may not exist on a fresh
+  # Sovereign).
+  metrics:
+    enabled: true
+    serviceMonitor:
+      autodetect: false
+      enabled: false
+    nodeAgentPodMonitor:
+      autodetect: false
+      enabled: false
+    prometheusRule:
+      autodetect: false
+      enabled: false
+
+  # CRD lifecycle — upgrade in place; never auto-cleanup.
+  upgradeCRDs: true
+  cleanUpCRDs: false
+
+  # BackupStorageLocation + VolumeSnapshotLocation — empty provider/bucket
+  # in this umbrella. Per-Sovereign overlays MUST replace `configuration:`
+  # with concrete values pointing at SeaweedFS:
+  #
+  #   configuration:
+  #     backupStorageLocation:
+  #       - name: default
+  #         provider: aws
+  #         bucket: velero-backups
+  #         default: true
+  #         config:
+  #           region: auto
+  #           s3ForcePathStyle: "true"
+  #           s3Url: http://seaweedfs-s3.openova-system.svc.cluster.local:8333
+  #         credential:
+  #           name: velero-seaweedfs-secret
+  #           key: cloud
+  configuration:
+    backupStorageLocation:
+      - name:
+        provider: ""
+        bucket: ""
+        default: false
+        accessMode: ReadWrite
+        credential:
+          name:
+          key:
+        config: {}
+    volumeSnapshotLocation:
+      - name:
+        provider: ""
+        credential:
+          name:
+          key:
+        config: {}
+
+  # Whether to create backupstoragelocation/volumesnapshotlocation CRs.
+  # Both flipped FALSE here so the chart renders with empty/placeholder
+  # configuration above; per-Sovereign overlays flip these on after they
+  # supply real config.
+  backupsEnabled: false
+  snapshotsEnabled: false
+
+  # Node Agent (file-system backup / restic) — DEFAULT FALSE; per-Sovereign
+  # overlays flip on if file-system backup is needed (CSI snapshots are
+  # the preferred path).
+  deployNodeAgent: false
+
+  # Credentials — chart auto-creates a Secret from `secretContents.cloud`
+  # ONLY when per-Sovereign overlay supplies that value. Default keeps
+  # `useSecret: true` and `existingSecret: ""` so the Secret is created
+  # but EMPTY at this layer — overlay populates it.
+  credentials:
+    useSecret: true
+    existingSecret: ""
+    secretContents: {}
+
+  # ServiceAccount + RBAC.
+  serviceAccount:
+    server:
+      create: true
+      name: velero
+  rbac:
+    create: true
+    clusterAdministrator: true
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+veleroOverlay:
+  networkPolicy:
+    enabled: false
