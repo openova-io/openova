@@ -15,8 +15,11 @@
 //   - write a tofu.auto.tfvars.json file for the OpenTofu module
 //   - exec `tofu init && tofu apply -auto-approve` and stream stdout to the
 //     wizard via SSE events
-//   - return tofu output values (control_plane_ip, load_balancer_ip,
-//     kubeconfig) as the Result the wizard's success screen consumes
+//   - return tofu output values (control_plane_ip, load_balancer_ip)
+//     as the Result the wizard's success screen consumes. The
+//     kubeconfig is NOT a tofu output — the new Sovereign's cloud-init
+//     PUTs it back over the bearer-token endpoint (issue #183), and
+//     the handler writes the path onto Result.KubeconfigPath.
 //
 // Crossplane adoption (Phase 1 hand-off) and bootstrap-kit installation
 // (Cilium → cert-manager → Flux → Crossplane → ... → bp-catalyst-platform)
@@ -132,6 +135,37 @@ type Request struct {
 	// write, both of which sit on the catalyst-api Pod's local FS at
 	// 0o600.
 	GHCRPullToken string `json:"-"`
+
+	// DeploymentID — catalyst-api's per-deployment identifier (16-char
+	// hex). Stamped onto the Request by the handler before tfvars are
+	// emitted so the OpenTofu cloud-init template can render the URL
+	// the new Sovereign's control plane PUTs its kubeconfig to:
+	//
+	//   PUT https://console.openova.io/sovereign/api/v1/deployments/{id}/kubeconfig
+	//
+	// json:"-" so the wizard's create-payload never carries this from
+	// the browser; the handler owns it. Persisting it on disk happens
+	// via the store.Record's own ID field — we don't duplicate the
+	// value into the redacted request.
+	DeploymentID string `json:"-"`
+
+	// KubeconfigBearerToken — 32-byte cryptographic-random token
+	// generated at CreateDeployment time, stamped here by the handler
+	// before tfvars are written. The plaintext value flows ONLY into
+	// the OpenTofu workdir (encrypted PVC, deleted on `tofu destroy`)
+	// and into the new Sovereign's cloud-init runcmd. The catalyst-api
+	// side persists ONLY the SHA-256 hash on the deployment record;
+	// the plaintext NEVER lands in the JSON store, never gets logged.
+	//
+	// On the new Sovereign, cloud-init renders this as a Bearer header
+	// on a single PUT to /api/v1/deployments/{id}/kubeconfig. The
+	// handler verifies SHA-256 of the received bearer matches the
+	// persisted hash via constant-time compare, then writes the
+	// kubeconfig file to /var/lib/catalyst/kubeconfigs/<id>.yaml.
+	//
+	// json:"-" so even if a future logging line marshals the Request
+	// wholesale, the token does not leak.
+	KubeconfigBearerToken string `json:"-"`
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
@@ -278,13 +312,19 @@ type Event struct {
 // outcome the Admin shell renders ("X of Y components installed") long
 // after the live SSE stream has closed.
 //
-// Kubeconfig holds the new Sovereign's k3s kubeconfig (raw YAML). It is
-// populated at the end of Phase 0 (out-of-band kubeconfig fetch) so the
-// HelmRelease watch loop, the wizard's "Download kubeconfig" button, and
-// the operator's GET /api/v1/deployments/<id>/kubeconfig all consume the
-// same source. The kubeconfig is rotated to a SPIFFE-issued identity in
-// Phase 2 — by then this field's role narrows to "first-time bootstrap
-// only," but the storage shape stays.
+// KubeconfigPath holds the absolute path to the new Sovereign's k3s
+// kubeconfig file on the catalyst-api PVC (typically
+// /var/lib/catalyst/kubeconfigs/<id>.yaml, mode 0600). It is populated
+// when the new Sovereign's cloud-init PUTs the kubeconfig back via the
+// bearer-token endpoint (issue #183, Option D). The HelmRelease watch
+// loop, the wizard's "Download kubeconfig" button, and the operator's
+// GET /api/v1/deployments/<id>/kubeconfig all read from this file.
+//
+// The plaintext kubeconfig contents NEVER land in the JSON record on
+// disk — only the file path is persisted. Per
+// docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene) the file is
+// chmod 0600 and the directory is owned by the catalyst-api process
+// UID on the PVC.
 type Result struct {
 	SovereignFQDN  string `json:"sovereignFQDN"`
 	ControlPlaneIP string `json:"controlPlaneIP"`
@@ -292,15 +332,12 @@ type Result struct {
 	ConsoleURL     string `json:"consoleURL"`
 	GitOpsRepoURL  string `json:"gitopsRepoURL"`
 
-	// Kubeconfig — raw YAML. Empty until the post-tofu-output fetch
-	// populates it. Persisted to the per-deployment store record so a
-	// catalyst-api Pod restart does not lose access to the new
-	// Sovereign cluster the previous Pod was watching. Per
-	// docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene), the
-	// store directory is 0o700 owned by the catalyst-api process UID
-	// — the kubeconfig never touches a wider permission domain than
-	// other per-deployment artefacts already on the same PVC.
-	Kubeconfig string `json:"kubeconfig,omitempty"`
+	// KubeconfigPath — absolute path to the kubeconfig YAML on the
+	// catalyst-api PVC. Empty until cloud-init PUTs the bytes back
+	// over the bearer-token endpoint. Persisted to the per-deployment
+	// store record so a catalyst-api Pod restart can re-read the file
+	// from disk and resume the Phase-1 HelmRelease watch.
+	KubeconfigPath string `json:"kubeconfigPath,omitempty"`
 
 	// ComponentStates — final state of every bp-* HelmRelease the
 	// Phase-1 watch observed, keyed by normalised component id. Set
@@ -571,6 +608,27 @@ func writeTfvars(deployDir string, req Request) error {
 		// directory is purged. Per docs/SECRET-ROTATION.md the token
 		// rotates yearly and is stored in 1Password — never in git.
 		"ghcr_pull_token": req.GHCRPullToken,
+
+		// Cloud-init kubeconfig postback (issue #183, Option D). The
+		// catalyst-api stamps deployment_id + kubeconfig_bearer_token
+		// onto the Request before writeTfvars is called: deployment_id
+		// keys the URL path /api/v1/deployments/<id>/kubeconfig the
+		// new Sovereign PUTs to; kubeconfig_bearer_token is the
+		// 32-byte random secret the new Sovereign attaches in the
+		// Authorization header. The catalyst-api persists ONLY the
+		// SHA-256 hash on the on-disk record; the plaintext lives in
+		// the per-deployment OpenTofu workdir (encrypted PVC) until
+		// `tofu destroy` removes it.
+		//
+		// catalyst_api_url is the public URL the new Sovereign PUTs
+		// back to — runtime variable per docs/INVIOLABLE-PRINCIPLES.md
+		// #4 so air-gapped franchises override without code changes.
+		"deployment_id":           req.DeploymentID,
+		"kubeconfig_bearer_token": req.KubeconfigBearerToken,
+		"catalyst_api_url": env(
+			"CATALYST_API_PUBLIC_URL",
+			"https://console.openova.io/sovereign",
+		),
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")

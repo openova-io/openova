@@ -12,10 +12,11 @@
 // observed transition into a provisioner.Event the SSE buffer carries.
 //
 // Lifecycle:
-//   - Skipped when dep.Result.Kubeconfig is empty. The Sovereign Admin
-//     surfaces the missing-kubeconfig case via a single warn event so
-//     the operator can fall back to docs/RUNBOOK-PROVISIONING.md
-//     §"Fetch kubeconfig via SSH" and retry.
+//   - Skipped when dep.Result.KubeconfigPath is empty OR points at a
+//     missing file. The Sovereign Admin surfaces the missing-
+//     kubeconfig case via a single warn event so the operator can
+//     fall back to docs/RUNBOOK-PROVISIONING.md §"Fetch kubeconfig
+//     via SSH" and retry.
 //   - Times out per CATALYST_PHASE1_WATCH_TIMEOUT (default 60m).
 //   - On termination, dep.Status flips to "ready" if every observed
 //     component reached "installed" OR there were no components and
@@ -51,19 +52,53 @@ const phase1WatchTimeoutEnv = "CATALYST_PHASE1_WATCH_TIMEOUT"
 // "deployment finished" semantics consistent: a deployment is done
 // only when both Phase 0 AND Phase 1 watch have terminated.
 func (h *Handler) runPhase1Watch(dep *Deployment) {
+	// At-most-once guard. Two callers can race to launch the watch:
+	// runProvisioning (after `tofu apply`) and PutKubeconfig (after
+	// the cloud-init postback). The first one through claims the
+	// goroutine; the second is a no-op. Without this, a duplicate
+	// run would spin up a second informer + emit a duplicate set of
+	// per-component events into the SSE buffer.
 	dep.mu.Lock()
-	kubeconfig := ""
+	if dep.phase1Started {
+		dep.mu.Unlock()
+		h.log.Info("phase 1 watch already running for this deployment; skipping duplicate launch",
+			"id", dep.ID,
+		)
+		return
+	}
+	dep.phase1Started = true
+	kubeconfigPath := ""
 	if dep.Result != nil {
-		kubeconfig = dep.Result.Kubeconfig
+		kubeconfigPath = dep.Result.KubeconfigPath
 	}
 	dep.mu.Unlock()
+
+	// Read the kubeconfig from disk. Plaintext lives only on the
+	// PVC at /var/lib/catalyst/kubeconfigs/<id>.yaml (chmod 0600),
+	// never in the on-disk JSON record. An empty path OR a missing
+	// file are both short-circuit cases — the wizard's FailureCard
+	// reads the emitted warn event so the operator can investigate
+	// the cloud-init postback.
+	kubeconfig := ""
+	if kubeconfigPath != "" {
+		raw, err := os.ReadFile(kubeconfigPath)
+		if err == nil {
+			kubeconfig = string(raw)
+		} else {
+			h.log.Warn("phase 1 watch: kubeconfig file not readable",
+				"id", dep.ID,
+				"path", kubeconfigPath,
+				"err", err,
+			)
+		}
+	}
 
 	if kubeconfig == "" {
 		h.emitWatchEvent(dep, provisioner.Event{
 			Time:    time.Now().UTC().Format(time.RFC3339),
 			Phase:   helmwatch.PhaseComponent,
 			Level:   "warn",
-			Message: "Phase-1 watch skipped: no kubeconfig is available on the catalyst-api side. Operator must fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment with the kubeconfig pre-populated to observe per-component install state.",
+			Message: "Phase-1 watch skipped: no kubeconfig is available on the catalyst-api side. The new Sovereign's cloud-init has not yet PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 is still in flight, or cloud-init failed to reach this endpoint. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment to observe per-component install state.",
 		})
 		h.markPhase1Done(dep, nil)
 		return

@@ -34,11 +34,14 @@
 //     have reached a terminal state (installed | failed) OR the timeout
 //     elapses (60 minutes default, override via
 //     CATALYST_PHASE1_WATCH_TIMEOUT).
-//   - On Pod restart, the deployment's persisted Result.Kubeconfig +
-//     Result.ComponentStates are rehydrated and the watch resumes from
-//     the cluster's current observed state (idempotent — emitting an
-//     "installed" event for an already-installed release is harmless;
-//     the SSE consumer keys off the State enum, not event count).
+//   - On Pod restart, the deployment's persisted Result.KubeconfigPath
+//     (file pointer; the plaintext kubeconfig lives at the path on
+//     the catalyst-api PVC at mode 0600 — issue #183, Option D) +
+//     Result.ComponentStates are rehydrated and the watch resumes
+//     from the cluster's current observed state (idempotent —
+//     emitting an "installed" event for an already-installed
+//     release is harmless; the SSE consumer keys off the State
+//     enum, not event count).
 package helmwatch
 
 import (
@@ -135,8 +138,10 @@ const (
 type Emit func(ev provisioner.Event)
 
 // Config — runtime configuration the Watcher reads. Production wires
-// this from environment + Deployment.Result.Kubeconfig; tests inject
-// via the Watcher constructor.
+// this from environment + the kubeconfig YAML loaded from
+// Deployment.Result.KubeconfigPath (the file the catalyst-api
+// reads at runPhase1Watch time, populated by the cloud-init PUT
+// per issue #183); tests inject via the Watcher constructor.
 type Config struct {
 	// KubeconfigYAML — raw bytes of the new Sovereign's k3s kubeconfig.
 	// Empty string is invalid (Watch returns an error immediately).
@@ -212,7 +217,7 @@ func NewWatcher(cfg Config, emit Emit) (*Watcher, error) {
 		return nil, errors.New("helmwatch: emit callback is required")
 	}
 	if strings.TrimSpace(cfg.KubeconfigYAML) == "" {
-		return nil, errors.New("helmwatch: kubeconfig is required (deployment.Result.Kubeconfig was empty)")
+		return nil, errors.New("helmwatch: kubeconfig is required (deployment.Result.KubeconfigPath was empty or the file was unreadable)")
 	}
 	if cfg.DynamicFactory == nil {
 		cfg.DynamicFactory = NewDynamicClientFromKubeconfig

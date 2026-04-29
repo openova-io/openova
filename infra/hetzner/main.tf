@@ -145,6 +145,26 @@ locals {
     ghcr_pull_username         = local.ghcr_pull_username
     ghcr_pull_token            = var.ghcr_pull_token
     ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
+
+    # Cloud-init kubeconfig postback (issue #183, Option D). When
+    # all three are non-empty, the template renders a runcmd that
+    # rewrites k3s.yaml's 127.0.0.1:6443 to the LB's public IPv4
+    # and PUTs the result to the catalyst-api with a Bearer header.
+    # When any is empty (legacy out-of-band fetch path), the runcmd
+    # is omitted entirely.
+    #
+    # load_balancer_ipv4 is interpolated from the hcloud_load_balancer
+    # resource at apply time. Referencing it here implicitly forces
+    # the LB to be created before the control-plane server boots —
+    # which is exactly the ordering we want, because the new
+    # Sovereign's curl PUT to catalyst-api needs to come from a
+    # source IP the firewall accepts (any 0.0.0.0/0 → 443 outbound)
+    # and arrive on a kubeconfig whose `server:` field is a
+    # public-routable address.
+    deployment_id           = var.deployment_id
+    kubeconfig_bearer_token = var.kubeconfig_bearer_token
+    catalyst_api_url        = var.catalyst_api_url
+    load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
   })
 
   worker_cloud_init = templatefile("${path.module}/cloudinit-worker.tftpl", {

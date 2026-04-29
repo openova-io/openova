@@ -20,6 +20,7 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -99,6 +100,29 @@ type Deployment struct {
 	pdmReservationToken string
 	pdmPoolDomain       string
 	pdmSubdomain        string
+
+	// kubeconfigBearerHash — hex-encoded SHA-256 of the 32-byte bearer
+	// token templated into the new Sovereign's cloud-init (issue #183).
+	// Persisted on the on-disk record so a Pod restart can still
+	// verify a delayed cloud-init PUT after the original Pod died.
+	// The plaintext bearer NEVER lives on this struct — it is
+	// generated in CreateDeployment, stamped onto the
+	// provisioner.Request just long enough for writeTfvars to render
+	// it, and then GC'd. The only durable copies are the cloud-init
+	// template inside the Sovereign's user_data and the SHA-256 hash
+	// here.
+	kubeconfigBearerHash string
+
+	// phase1Started gates the at-most-once launch of the Phase-1
+	// helmwatch goroutine. Two callers race to start it:
+	//   - runProvisioning, after `tofu apply` finishes
+	//   - PutKubeconfig, after cloud-init posts back the kubeconfig
+	// In the typical happy path cloud-init reaches healthz before
+	// `tofu apply` returns (the LB reconcile is the slowest part of
+	// Phase 0), so PutKubeconfig wins. A guard ensures the loser is
+	// a no-op rather than racing two informers against the same
+	// HelmRelease list.
+	phase1Started bool
 }
 
 // recordEvent appends ev to the durable history under the mutex, evicting
@@ -155,17 +179,18 @@ func (d *Deployment) isDone() bool {
 // can still complete the commit on rehydration.
 func (d *Deployment) toRecord() store.Record {
 	return store.Record{
-		ID:                  d.ID,
-		Status:              d.Status,
-		Request:             store.Redact(d.Request),
-		Result:              d.Result,
-		Error:               d.Error,
-		StartedAt:           d.StartedAt,
-		FinishedAt:          d.FinishedAt,
-		Events:              append([]provisioner.Event(nil), d.eventsBuf...),
-		PDMReservationToken: d.pdmReservationToken,
-		PDMPoolDomain:       d.pdmPoolDomain,
-		PDMSubdomain:        d.pdmSubdomain,
+		ID:                   d.ID,
+		Status:               d.Status,
+		Request:              store.Redact(d.Request),
+		Result:               d.Result,
+		Error:                d.Error,
+		StartedAt:            d.StartedAt,
+		FinishedAt:           d.FinishedAt,
+		Events:               append([]provisioner.Event(nil), d.eventsBuf...),
+		PDMReservationToken:  d.pdmReservationToken,
+		PDMPoolDomain:        d.pdmPoolDomain,
+		PDMSubdomain:         d.pdmSubdomain,
+		KubeconfigBearerHash: d.kubeconfigBearerHash,
 	}
 }
 
@@ -194,19 +219,39 @@ func fromRecord(rec store.Record) *Deployment {
 	close(closedDone)
 
 	dep := &Deployment{
-		ID:                  rec.ID,
-		Status:              rec.Status,
-		Request:             rec.Request.ToProvisionerRequest(),
-		Result:              rec.Result,
-		Error:               rec.Error,
-		StartedAt:           rec.StartedAt,
-		FinishedAt:          rec.FinishedAt,
-		eventsCh:            closedCh,
-		eventsBuf:           append([]provisioner.Event(nil), rec.Events...),
-		done:                closedDone,
-		pdmReservationToken: rec.PDMReservationToken,
-		pdmPoolDomain:       rec.PDMPoolDomain,
-		pdmSubdomain:        rec.PDMSubdomain,
+		ID:                   rec.ID,
+		Status:               rec.Status,
+		Request:              rec.Request.ToProvisionerRequest(),
+		Result:               rec.Result,
+		Error:                rec.Error,
+		StartedAt:            rec.StartedAt,
+		FinishedAt:           rec.FinishedAt,
+		eventsCh:             closedCh,
+		eventsBuf:            append([]provisioner.Event(nil), rec.Events...),
+		done:                 closedDone,
+		pdmReservationToken:  rec.PDMReservationToken,
+		pdmPoolDomain:        rec.PDMPoolDomain,
+		pdmSubdomain:         rec.PDMSubdomain,
+		kubeconfigBearerHash: rec.KubeconfigBearerHash,
+	}
+
+	// Kubeconfig file lost across restart → mark as failed. If the
+	// record claims a path but the file is missing, the helmwatch
+	// goroutine has nothing to watch with. Per the spec for #183 we
+	// surface this distinctly so the operator can investigate (PVC
+	// unmount, accidental delete, fs corruption) instead of seeing a
+	// stuck progress bar. The deployment record's Status was already
+	// "ready" or "failed" pre-restart; we leave that alone, only
+	// stamping a stricter Error message when KubeconfigPath has
+	// drifted from the file system.
+	if rec.Result != nil && rec.Result.KubeconfigPath != "" {
+		if _, err := os.Stat(rec.Result.KubeconfigPath); err != nil {
+			// Don't downgrade a healthy "ready" to "failed" silently;
+			// only flag this when the deployment is otherwise
+			// observable. The error message gives the operator
+			// enough to grep the PVC.
+			dep.Error = "kubeconfig file lost across catalyst-api restart: " + rec.Result.KubeconfigPath + " — " + err.Error()
+		}
 	}
 
 	// In-flight at restart time → failed. The wizard's FailureCard is
@@ -305,6 +350,7 @@ func (h *Handler) restoreFromStore() {
 		return
 	}
 
+	resumed := 0
 	for _, rec := range records {
 		dep := fromRecord(rec)
 		h.deployments.Store(dep.ID, dep)
@@ -321,11 +367,114 @@ func (h *Handler) restoreFromStore() {
 				)
 			}
 		}
+
+		// Resume the Phase-1 helmwatch goroutine after a Pod restart
+		// when the rehydrated deployment carries a KubeconfigPath
+		// pointing at an existing file (issue #183 spec gate #6).
+		// The previous Pod died mid-watch — the kubeconfig file
+		// survived on the PVC, so the new Pod can re-attach the
+		// informer and continue streaming per-component events to
+		// any wizard that polls /events or reopens the SSE stream.
+		//
+		// We skip resume for deployments whose Phase-1 already
+		// terminated (Result.Phase1FinishedAt != nil) — re-running
+		// the watcher on a finished deployment would just emit
+		// duplicate events. We also skip when the file is missing
+		// (fromRecord already stamped a clear Error on dep) and
+		// when Status is the rewritten-to-failed phase1-watching
+		// case — those are operator-actionable failures, not
+		// resumable runs.
+		if h.shouldResumePhase1(dep, rec) {
+			resumed++
+			h.resumePhase1Watch(dep)
+		}
 	}
 	h.log.Info("restored deployments from PVC",
 		"count", len(records),
+		"resumed", resumed,
 		"dir", h.store.Dir(),
 	)
+}
+
+// shouldResumePhase1 returns true when a rehydrated deployment is a
+// candidate for re-attaching the Phase-1 helmwatch goroutine. The
+// criteria are:
+//   - Result.KubeconfigPath is non-empty AND points at a readable file
+//   - Phase 1 has NOT already terminated (Phase1FinishedAt == nil)
+//   - Status was not rewritten by fromRecord — i.e. the original
+//     status was NOT phase1-watching (which fromRecord rewrote to
+//     failed). A genuinely-finished "ready" or "failed" deployment
+//     is not resumed; only one that survived a restart with the
+//     watch still owing work.
+//
+// Why we resume even when rec.Status is "ready" but Phase1FinishedAt
+// is nil: that combination is a contract violation — markPhase1Done
+// would have set Phase1FinishedAt before flipping Status to ready. If
+// we ever observe it, it's a residual bug or hand-edited record;
+// resume is the safer-default action because the helmwatch is
+// idempotent (it just observes HelmRelease.status).
+func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
+	if dep.Result == nil || dep.Result.KubeconfigPath == "" {
+		return false
+	}
+	if dep.Result.Phase1FinishedAt != nil {
+		return false
+	}
+	// fromRecord rewrites in-flight statuses (including
+	// "phase1-watching") to "failed" — those are not resumable.
+	if isInFlightStatus(rec.Status) {
+		return false
+	}
+	if _, err := os.Stat(dep.Result.KubeconfigPath); err != nil {
+		return false
+	}
+	return true
+}
+
+// resumePhase1Watch re-attaches a Phase-1 helmwatch goroutine to a
+// rehydrated deployment. The fromRecord path constructs the
+// Deployment with closed eventsCh + done channels (because the
+// previous Pod's runProvisioning goroutine no longer exists); we
+// allocate fresh ones here so emitWatchEvent + StreamLogs see a
+// live channel pair. A goroutine then runs runPhase1Watch which
+// closes them when the watch terminates.
+func (h *Handler) resumePhase1Watch(dep *Deployment) {
+	dep.mu.Lock()
+	dep.eventsCh = make(chan provisioner.Event, 256)
+	dep.done = make(chan struct{})
+	// The watcher will set phase1Started=true inside runPhase1Watch
+	// under the same lock; we leave it false here so the launch is
+	// correctly gated.
+	dep.phase1Started = false
+	// Re-flag the deployment as in-flight so isDone()/StreamLogs
+	// behave correctly while the resumed watch runs. Status flips
+	// back to "ready"/"failed" inside markPhase1Done when the
+	// watch terminates.
+	dep.Status = "phase1-watching"
+	dep.mu.Unlock()
+
+	h.log.Info("resuming phase 1 watch after pod restart",
+		"id", dep.ID,
+		"kubeconfigPath", dep.Result.KubeconfigPath,
+	)
+
+	go func() {
+		h.runPhase1Watch(dep)
+		// runPhase1Watch -> markPhase1Done flips Status terminal,
+		// but does NOT close the channels (the original
+		// runProvisioning closes them on the first-launch path).
+		// On resume we own them, so close here to release any
+		// SSE consumers waiting on `event: done`.
+		dep.mu.Lock()
+		select {
+		case <-dep.done:
+			// Already closed (defensive).
+		default:
+			close(dep.eventsCh)
+			close(dep.done)
+		}
+		dep.mu.Unlock()
+	}()
 }
 
 // State returns a JSON-safe snapshot for the GET endpoint.
@@ -407,13 +556,37 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := newID()
+
+	// Mint the cloud-init kubeconfig postback bearer token (issue
+	// #183, Option D) BEFORE kicking off the provisioner so
+	// writeTfvars renders the plaintext into the Sovereign's
+	// cloud-init. The plaintext lives on the provisioner.Request
+	// only — never on the Deployment struct, never in the on-disk
+	// JSON record. The hash is what we persist; constant-time
+	// compared on PUT to verify the inbound bearer.
+	bearerToken, bearerHash, err := newBearerToken()
+	if err != nil {
+		// crypto/rand failure is exceptional — the standard library
+		// only fails this when the OS RNG is unavailable. Surface as
+		// 500 so the wizard sees a coherent failure instead of a
+		// silent crash.
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  "bearer-token-generation-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	req.DeploymentID = id
+	req.KubeconfigBearerToken = bearerToken
+
 	dep := &Deployment{
-		ID:        id,
-		Status:    "provisioning",
-		Request:   req,
-		StartedAt: time.Now(),
-		eventsCh:  make(chan provisioner.Event, 256),
-		done:      make(chan struct{}),
+		ID:                   id,
+		Status:               "provisioning",
+		Request:              req,
+		StartedAt:            time.Now(),
+		eventsCh:             make(chan provisioner.Event, 256),
+		done:                 make(chan struct{}),
+		kubeconfigBearerHash: bearerHash,
 	}
 
 	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
@@ -711,6 +884,40 @@ func newID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// newBearerToken mints the cloud-init kubeconfig postback bearer
+// (issue #183, Option D). Returns (plaintextHex, sha256Hex, error).
+//
+// 32 bytes from crypto/rand → 64 hex chars. The plaintext NEVER
+// lands on disk on the catalyst-api side — it flows out via tfvars
+// into the new Sovereign's cloud-init user_data and is consumed
+// exactly once when the new control plane PUTs back its kubeconfig.
+// The SHA-256 hash is what we persist on the deployment record;
+// the PUT handler constant-time compares the inbound bearer's hash
+// to that value.
+//
+// Returns an error only when crypto/rand fails — the standard
+// library surfaces that exclusively when the OS RNG is unavailable,
+// which is catastrophic for the whole process. The
+// CreateDeployment caller translates the error into HTTP 500.
+func newBearerToken() (plaintext, hashHex string, err error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("crypto/rand: %w", err)
+	}
+	plaintext = hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(plaintext))
+	hashHex = hex.EncodeToString(sum[:])
+	return plaintext, hashHex, nil
+}
+
+// hashBearerToken returns the hex-encoded SHA-256 of the supplied
+// bearer plaintext. Used by the PUT /kubeconfig handler to compare
+// the inbound bearer to the persisted hash.
+func hashBearerToken(plaintext string) string {
+	sum := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(sum[:])
 }
 
 func mustJSON(v any) string {

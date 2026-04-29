@@ -187,6 +187,24 @@ spec:
             # credentials redacted; see internal/store/store.go.
             - name: CATALYST_DEPLOYMENTS_DIR
               value: /var/lib/catalyst/deployments
+            # CATALYST_KUBECONFIGS_DIR — sibling directory on the same
+            # PVC for the plaintext kubeconfigs the new Sovereign POSTs
+            # back via the bearer-token endpoint (issue #183, Option D).
+            # One <id>.yaml per deployment, mode 0600. The store JSON
+            # record carries only the file path + a SHA-256 hash of
+            # the bearer; the plaintext kubeconfig is NEVER serialized
+            # into the JSON.
+            - name: CATALYST_KUBECONFIGS_DIR
+              value: /var/lib/catalyst/kubeconfigs
+            # CATALYST_API_PUBLIC_URL — the public origin the new
+            # Sovereign's cloud-init PUTs its kubeconfig back to. The
+            # OpenTofu module templates this into the Sovereign's
+            # user_data so the Sovereign knows where to call. Per
+            # docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime
+            # configuration; air-gapped franchises override it
+            # without code change.
+            - name: CATALYST_API_PUBLIC_URL
+              value: https://console.openova.io/sovereign
             # CATALYST_GHCR_PULL_TOKEN — long-lived GHCR pull token that
             # the provisioner stamps onto every Request and the OpenTofu
             # cloud-init template writes into the new Sovereign's
@@ -254,15 +272,31 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/nonroot
-            # Deployments PVC — every catalyst-api restart that
-            # rehydrates from this directory closes the user-reported
-            # regression where a deployment id created at 12:57
-            # vanished after 6 image rolls. The store walks every
-            # *.json on startup; in-flight rows are rewritten to
-            # `failed` with operator instructions for purging
-            # orphaned Hetzner resources.
-            - name: deployments
-              mountPath: /var/lib/catalyst/deployments
+            # Catalyst PVC — mounted at /var/lib/catalyst so two
+            # subdirectories live on the same single-attach volume:
+            #
+            #   deployments/<id>.json   — flat-file deployment store.
+            #     Every catalyst-api restart that rehydrates from
+            #     this directory closes the user-reported regression
+            #     where a deployment id created at 12:57 vanished
+            #     after 6 image rolls. The store walks every *.json
+            #     on startup; in-flight rows are rewritten to
+            #     `failed` with operator instructions for purging
+            #     orphaned Hetzner resources.
+            #
+            #   kubeconfigs/<id>.yaml   — plaintext kubeconfig POSTed
+            #     back from cloud-init via the bearer-token endpoint
+            #     (issue #183, Option D). Mode 0600 per file. The
+            #     path is persisted in the deployment record so a
+            #     Pod restart mid-Phase-1 reattaches the helmwatch
+            #     goroutine.
+            #
+            # One PVC, one mount — keeps the failure modes (PVC
+            # unbind, fs full) bounded to one volume, and lets the
+            # Go process create both subdirectories on startup
+            # without a second volume claim or init container.
+            - name: catalyst
+              mountPath: /var/lib/catalyst
       volumes:
         - name: tmp
           emptyDir:
@@ -273,13 +307,14 @@ spec:
         - name: home
           emptyDir:
             sizeLimit: 256Mi
-        # Persistent deployment metadata — flat-file JSON store, one
-        # file per deployment id. The PVC must already exist in the
-        # same namespace under the name catalyst-api-deployments;
-        # see api-deployments-pvc.yaml in this chart. Single-attach
-        # (RWO) is fine because the Deployment is single-replica with
-        # the Recreate strategy declared above; a future HA rework
-        # would need RWX or a different persistence layer.
-        - name: deployments
+        # Persistent catalyst-api state — mounted at /var/lib/catalyst
+        # so deployments/ and kubeconfigs/ share one volume. The PVC
+        # must already exist in the same namespace under the name
+        # catalyst-api-deployments; see api-deployments-pvc.yaml in
+        # this chart. Single-attach (RWO) is fine because the
+        # Deployment is single-replica with the Recreate strategy
+        # declared above; a future HA rework would need RWX or a
+        # different persistence layer.
+        - name: catalyst
           persistentVolumeClaim:
             claimName: catalyst-api-deployments

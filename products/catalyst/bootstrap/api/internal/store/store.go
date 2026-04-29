@@ -76,6 +76,20 @@ type Record struct {
 	PDMReservationToken string `json:"pdmReservationToken,omitempty"`
 	PDMPoolDomain       string `json:"pdmPoolDomain,omitempty"`
 	PDMSubdomain        string `json:"pdmSubdomain,omitempty"`
+
+	// KubeconfigBearerHash — hex-encoded SHA-256 of the 32-byte bearer
+	// token issued at CreateDeployment time and templated into the
+	// new Sovereign's cloud-init (issue #183, Option D). The PUT
+	// /api/v1/deployments/{id}/kubeconfig handler computes SHA-256 of
+	// the received Authorization: Bearer token and constant-time
+	// compares to this value before accepting the kubeconfig.
+	//
+	// Persisting the HASH (not the plaintext) survives a Pod restart
+	// without exposing the bearer to anyone with read access to the
+	// PVC. The hash on its own is not sufficient to authorise a PUT;
+	// the cloud-init runcmd is the only holder of the plaintext, and
+	// it is consumed in a single PUT then discarded.
+	KubeconfigBearerHash string `json:"kubeconfigBearerHash,omitempty"`
 }
 
 // RedactedRequest is the on-disk projection of provisioner.Request with
