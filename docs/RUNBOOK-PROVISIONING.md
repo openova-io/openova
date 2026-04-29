@@ -123,8 +123,51 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 | `bp-cert-manager` reconciles but cert issuance fails | Let's Encrypt rate-limit (50 certs / week / domain) or DNS records not propagated | Check `cert-manager` events: `kubectl -n cert-manager describe challenge`; for rate-limit, wait. For DNS, dig the records: `dig console.<your-fqdn> +short` should return the LB IP |
 | `console.<sovereign-fqdn>` returns 404 / connection-refused | Per-Sovereign PowerDNS zone records not yet visible to public resolvers (parent-zone NS-delegation TTL ~15 min for pool, customer-registrar TTL for BYO byo-manual / byo-api) | `dig <sovereign-fqdn> NS` should return OpenOva NS; `dig console.<sovereign-fqdn>` should return the LB IP. Allow up to 30 min for DNS propagation |
 | Keycloak reset-password email never arrives | SMTP not configured in Keycloak realm yet | Reset via the catalyst-admin realm-admin flow inside the cluster: `kubectl -n catalyst-system exec -it keycloak-0 -- /opt/keycloak/bin/kcadm.sh ...` (the catalyst-admin path is documented in `clusters/<sovereign-fqdn>/keycloak/README.md`) |
+| Bootstrap-kit Kustomization stuck `Ready=False`; PVCs (bp-spire, bp-keycloak postgres, bp-openbao, bp-nats-jetstream, bp-gitea, bp-catalyst-platform postgres) all `Pending` indefinitely | StorageClass missing — k3s started without `local-path-provisioner` and the cluster has no default class for HelmReleases that don't pin `storageClassName` | See **StorageClass missing** below |
 
 **Escalation:** if the runbook doesn't unblock you, file an issue against `github.com/openova-io/openova` with the `area/platform` and `kind/provisioning` labels, including: Sovereign FQDN, region, last 50 SSE events, last 100 lines of `kubectl -n flux-system get events`, and the OpenTofu workdir contents (excluding `tofu.auto.tfvars.json` which contains the Hetzner token).
+
+### StorageClass missing
+
+**Symptom.** A fresh Sovereign reaches `flux-bootstrap` and the bootstrap-kit Kustomization stays `Ready=False` for 10+ minutes. `kubectl get pvc -A` shows every PVC in `Pending`:
+
+```
+$ kubectl get pvc -A
+NAMESPACE      NAME                         STATUS    VOLUME   CAPACITY   ...
+keycloak       data-keycloak-postgresql-0   Pending   ...
+spire-system   spire-data-spire-server-0    Pending   ...
+openbao        data-openbao-0               Pending   ...
+```
+
+`kubectl describe pvc <name>` reports `no persistent volumes available for this claim and no storage class is set`. `kubectl get sc` returns `No resources found`.
+
+**Root cause.** Pre-2026-04-29 the cloud-init template passed `--disable=local-storage` to the k3s installer, on the assumption that Crossplane would install hcloud-csi day-2 and register the StorageClass after `bp-crossplane` reconciled. That created a circular dependency: every PVC-using HelmRelease in the bootstrap-kit blocks waiting on a StorageClass that would only exist AFTER the bootstrap-kit had finished installing. Result: Sovereign deadlocks on first boot.
+
+**Resolution (current code).** Cloud-init keeps k3s' built-in `local-path-provisioner` and marks `local-path` as the default StorageClass BEFORE applying the Flux bootstrap manifest — see `infra/hetzner/cloudinit-control-plane.tftpl`. PVCs without an explicit `storageClassName` bind immediately to node-local storage on the control-plane node. For a single-node Sovereign on a CPX21/CPX31, that is the correct shape: data lives on the node, capacity is bounded by the disk (200 GB+ on the supported SKUs), and there are no other nodes for volumes to migrate to anyway.
+
+**Recovery for a Sovereign already provisioned without the fix** (e.g. omantel.omani.works on commit `d311d439` or earlier). Apply local-path-provisioner directly to the running cluster, then mark the class default — no reprovision required:
+
+```bash
+KUBECONFIG=/path/to/sovereign-kubeconfig
+
+# Install local-path-provisioner v0.0.30 (matches what k3s ships).
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
+
+# Wait for the controller pod.
+kubectl -n local-path-storage wait --for=condition=Ready pod -l app=local-path-provisioner --timeout=60s
+
+# Mark the local-path StorageClass default.
+kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# Verify; should print local-path with (default).
+kubectl get sc
+
+# Pending PVCs in the bootstrap-kit will bind on the next provisioner sync (~30s).
+# Watch them flip to Bound:
+kubectl get pvc -A -w
+```
+
+**Migrating to multi-node / hcloud-csi.** The local-path solution is correct for the solo-Sovereign target. Operators stepping up to multi-node (HA control-plane + workers carrying stateful workloads) migrate to hcloud-csi (Hetzner Cloud Volumes) as a separate, deliberate operation — `local-path` PVs are node-pinned and won't migrate when a Pod reschedules across nodes. Track this on the Sovereign's roadmap; it is not part of the cloud-init bootstrap.
 
 ---
 
