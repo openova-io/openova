@@ -124,6 +124,28 @@ spec:
           );
           CREATE UNIQUE INDEX IF NOT EXISTS namealgoindex ON tsigkeys(name, algorithm);
 
+          -- ─── Grant table ownership to the application user ─────────
+          -- postInitApplicationSQL runs as the postgres superuser (not the
+          -- database owner) so newly-created tables are owned by postgres
+          -- by default. PowerDNS connects as `pdns` and needs full DML
+          -- access — reassign every table + sequence to the owner.
+          DO $$
+          DECLARE
+            obj record;
+          BEGIN
+            FOR obj IN
+              SELECT n.nspname, c.relname, c.relkind
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = 'public'
+                AND c.relkind IN ('r','S')
+            LOOP
+              EXECUTE format('ALTER %s %I.%I OWNER TO %I',
+                CASE obj.relkind WHEN 'r' THEN 'TABLE' WHEN 'S' THEN 'SEQUENCE' END,
+                obj.nspname, obj.relname, '{{ .Values.postgres.cluster.owner | default "pdns" }}');
+            END LOOP;
+          END $$;
+
   postgresql:
     parameters:
       max_connections: "100"
