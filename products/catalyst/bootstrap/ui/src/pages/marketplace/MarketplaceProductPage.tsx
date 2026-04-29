@@ -3,17 +3,25 @@
  *
  * Reachable from a card-body click in the wizard grid. Surface contract:
  *
- *   • Hero title with version-style metadata (tier + family chip).
+ *   • Hero mirrors the canonical marketplace detail (.detail-hero in
+ *     core/marketplace/src/components/AppDetail.svelte): logo on the left,
+ *     name + tagline + meta-row (family + tier) in the centre, primary
+ *     CTA on the right.
  *   • Long-form positioning + integration paragraphs from COMPONENT_COPY.
  *   • Highlights bullets — feature surface.
  *   • Dependency graph: depends-on (this component pulls in X) and
- *     depended-on-by (X needs this component).
+ *     depended-on-by (X needs this component). Each badge is a Link to
+ *     the matching product detail page.
  *   • Family chip linking to the family portfolio page.
  *   • Upstream project link.
  *   • Select / Deselect CTA toggling the wizard store. Mandatory components
- *     show a read-only "INSTALLED ON EVERY SOVEREIGN" pill — they can't be
- *     toggled by design.
+ *     show a read-only "Always installed" pill — they can't be toggled by
+ *     design.
  *   • Back-to-wizard preserves wizard state (zustand + persist).
+ *
+ * Design language: every dimension and colour comes from the wizard's
+ * --wiz-* tokens, which mirror the canonical marketplace's --color-*
+ * tokens — same scale, same hierarchy, same flat surfaces.
  */
 
 import { useNavigate, useParams, Link } from '@tanstack/react-router'
@@ -27,51 +35,26 @@ import {
   type ComponentEntry,
 } from '@/pages/wizard/steps/componentGroups'
 import { componentCopy, familyChipPalette } from './marketplaceCopy'
+import { MarketplaceShellStyles } from './MarketplaceFamilyPage'
 
 interface DepBadgeProps {
   entry: ComponentEntry
 }
 
+/**
+ * DepBadge — small surface chip with mono-font name + dim group tag.
+ * Mirrors the canonical marketplace's .detail-dependencies li shape.
+ */
 function DepBadge({ entry }: DepBadgeProps) {
-  const palette = familyChipPalette(entry.product)
   return (
     <Link
       to="/marketplace/product/$componentId"
       params={{ componentId: entry.id }}
       data-testid={`marketplace-dep-${entry.id}`}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '0.4rem',
-        padding: '0.4rem 0.75rem',
-        borderRadius: 8,
-        background: 'var(--wiz-bg-sub)',
-        border: '1px solid var(--wiz-border-sub)',
-        textDecoration: 'none',
-        color: 'var(--wiz-text-md)',
-        fontSize: '0.82rem',
-        transition: 'border-color 0.15s, color 0.15s',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = palette.border
-        e.currentTarget.style.color = 'var(--wiz-text-hi)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--wiz-border-sub)'
-        e.currentTarget.style.color = 'var(--wiz-text-md)'
-      }}
+      className="mp-dep-tile"
     >
-      <span
-        aria-hidden
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 2,
-          background: palette.fg,
-        }}
-      />
-      <strong style={{ fontWeight: 600 }}>{entry.name}</strong>
-      <span style={{ color: 'var(--wiz-text-sub)' }}>· {entry.groupName}</span>
+      <strong>{entry.name}</strong>
+      <span className="mp-dep-tile-group">· {entry.groupName}</span>
     </Link>
   )
 }
@@ -85,20 +68,20 @@ export function MarketplaceProductPage() {
 
   if (!entry) {
     return (
-      <main className="marketplace-shell" data-testid="marketplace-product-not-found">
+      <main className="mp-shell" data-testid="marketplace-product-not-found">
         <button
           type="button"
-          className="marketplace-back"
+          className="mp-back"
           onClick={() => navigate({ to: '/wizard' })}
           data-testid="marketplace-back"
         >
           <ArrowLeft size={14} aria-hidden /> Back to wizard
         </button>
-        <h1 className="marketplace-title">Component not found</h1>
-        <p style={{ color: 'var(--wiz-text-md)' }}>
+        <h1 className="mp-title">Component not found</h1>
+        <p className="mp-paragraph">
           No component is registered under <code>{componentId}</code>.
         </p>
-        <ProductShellStyles />
+        <MarketplaceShellStyles />
       </main>
     )
   }
@@ -128,162 +111,98 @@ export function MarketplaceProductPage() {
   }
 
   return (
-    <main className="marketplace-shell" data-testid={`marketplace-product-${entry.id}`}>
+    <main className="mp-shell" data-testid={`marketplace-product-${entry.id}`}>
       <button
         type="button"
-        className="marketplace-back"
+        className="mp-back"
         onClick={() => navigate({ to: '/wizard' })}
         data-testid="marketplace-back"
       >
         <ArrowLeft size={14} aria-hidden /> Back to wizard
       </button>
 
-      <header
-        className="marketplace-hero"
-        style={{ borderColor: palette.border }}
-        data-testid="marketplace-product-hero"
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            gap: '1rem',
-            flexWrap: 'wrap',
-          }}
-        >
-          <div style={{ minWidth: 0, flex: '1 1 320px' }}>
+      {/* ── Hero ──────────────────────────────────────────────────────
+            Mirrors the canonical .detail-hero row from AppDetail.svelte:
+            logo on the left, name/tagline/meta in the centre, primary CTA
+            on the right. Bordered only at the bottom. */}
+      <header className="mp-product-hero" data-testid="marketplace-product-hero">
+        {entry.logoUrl ? (
+          <img
+            src={entry.logoUrl}
+            alt={`${entry.name} logo`}
+            className="mp-product-logo"
+          />
+        ) : (
+          <span className="mp-product-icon">{entry.name.charAt(0)}</span>
+        )}
+
+        <div className="mp-product-hero-body">
+          <h1 className="mp-title">{entry.name}</h1>
+          <p className="mp-subtitle">{entry.desc}</p>
+          <div className="mp-meta-row">
             {family && (
               <Link
                 to="/marketplace/family/$familyId"
                 params={{ familyId: family.id }}
                 data-testid="marketplace-product-family-chip"
+                className="mp-meta-chip mp-meta-family"
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  padding: '0.25rem 0.65rem',
-                  borderRadius: 999,
                   background: palette.bg,
                   color: palette.fg,
-                  border: `1px solid ${palette.border}`,
-                  textDecoration: 'none',
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  marginBottom: '0.85rem',
+                  borderColor: palette.border,
                 }}
               >
-                {family.name} family
+                {family.name}
               </Link>
-            )}
-            <h1 className="marketplace-title">{entry.name}</h1>
-            <p className="marketplace-subtitle">{entry.desc}</p>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: '0.5rem',
-              flexShrink: 0,
-            }}
-          >
-            {isMandatory ? (
-              <span
-                data-testid="marketplace-product-tier-pill"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  padding: '0.45rem 0.85rem',
-                  borderRadius: 999,
-                  background: 'rgba(74,222,128,0.16)',
-                  color: '#4ADE80',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                  border: '1px solid rgba(74,222,128,0.35)',
-                }}
-              >
-                <Lock size={11} strokeWidth={3} aria-hidden /> Installed on every Sovereign
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleToggle}
-                data-testid="marketplace-product-toggle"
-                aria-pressed={selected}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.55rem 1.1rem',
-                  borderRadius: 8,
-                  border: '1px solid ' + (selected ? '#4ADE80' : 'rgba(var(--wiz-accent-ch), 1)'),
-                  background: selected ? 'rgba(74,222,128,0.12)' : 'rgba(var(--wiz-accent-ch), 1)',
-                  color: selected ? '#4ADE80' : '#fff',
-                  font: 'inherit',
-                  fontSize: '0.88rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.15s, transform 0.1s, color 0.15s',
-                }}
-              >
-                {selected ? (
-                  <>
-                    <Check size={14} strokeWidth={3} aria-hidden /> Selected — click to remove
-                  </>
-                ) : (
-                  <>
-                    <Plus size={14} strokeWidth={2.5} aria-hidden /> Add to Sovereign
-                  </>
-                )}
-              </button>
             )}
             <span
               data-testid="marketplace-product-tier"
-              style={{
-                fontSize: '0.7rem',
-                fontWeight: 600,
-                padding: '0.15rem 0.5rem',
-                borderRadius: 999,
-                background:
-                  entry.tier === 'mandatory'
-                    ? 'rgba(74,222,128,0.16)'
-                    : entry.tier === 'recommended'
-                      ? 'rgba(56,189,248,0.16)'
-                      : 'rgba(167,139,250,0.16)',
-                color:
-                  entry.tier === 'mandatory'
-                    ? '#4ADE80'
-                    : entry.tier === 'recommended'
-                      ? '#38BDF8'
-                      : '#A78BFA',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-              }}
+              className={`mp-meta-chip mp-meta-tier mp-meta-tier-${entry.tier}`}
             >
               {entry.tier}
             </span>
           </div>
         </div>
+
+        {isMandatory ? (
+          <span
+            data-testid="marketplace-product-tier-pill"
+            className="mp-cta mp-cta-locked"
+          >
+            <Lock size={12} strokeWidth={2.5} aria-hidden /> Always installed
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={handleToggle}
+            data-testid="marketplace-product-toggle"
+            aria-pressed={selected}
+            className={`mp-cta ${selected ? 'mp-cta-added' : 'mp-cta-add'}`}
+          >
+            {selected ? (
+              <>
+                <Check size={14} strokeWidth={2.5} aria-hidden /> Remove from stack
+              </>
+            ) : (
+              <>
+                <Plus size={14} strokeWidth={2.5} aria-hidden /> Add to stack
+              </>
+            )}
+          </button>
+        )}
       </header>
 
-      <section className="marketplace-section">
-        <h2 className="marketplace-section-title">What it does</h2>
-        <p className="marketplace-paragraph">{copy.positioning}</p>
-        <p className="marketplace-paragraph">{copy.integration}</p>
+      <section className="mp-section">
+        <h2 className="mp-section-title">About</h2>
+        <p className="mp-paragraph">{copy.positioning}</p>
+        <p className="mp-paragraph">{copy.integration}</p>
       </section>
 
       {copy.highlights.length > 0 && (
-        <section className="marketplace-section">
-          <h2 className="marketplace-section-title">Highlights</h2>
+        <section className="mp-section">
+          <h2 className="mp-section-title">Highlights</h2>
           <ul
-            className="marketplace-bullets"
+            className="mp-bullets"
             data-testid="marketplace-product-highlights"
           >
             {copy.highlights.map((h, i) => (
@@ -294,15 +213,15 @@ export function MarketplaceProductPage() {
       )}
 
       {(directDeps.length > 0 || directDependents.length > 0) && (
-        <section className="marketplace-section">
-          <h2 className="marketplace-section-title">Dependency graph</h2>
+        <section className="mp-section">
+          <h2 className="mp-section-title">Dependency graph</h2>
           {directDeps.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <p className="marketplace-paragraph" style={{ marginBottom: '0.5rem' }}>
-                <strong style={{ color: 'var(--wiz-text-hi)' }}>{entry.name}</strong> requires:
+            <div className="mp-dep-block">
+              <p className="mp-paragraph mp-paragraph-lead">
+                <strong>{entry.name}</strong> requires:
               </p>
               <div
-                className="marketplace-deps"
+                className="mp-dep-tile-row"
                 data-testid="marketplace-product-depends"
               >
                 {directDeps.map((d) => (
@@ -312,12 +231,10 @@ export function MarketplaceProductPage() {
             </div>
           )}
           {directDependents.length > 0 && (
-            <div>
-              <p className="marketplace-paragraph" style={{ marginBottom: '0.5rem' }}>
-                Depended on by:
-              </p>
+            <div className="mp-dep-block">
+              <p className="mp-paragraph mp-paragraph-lead">Depended on by:</p>
               <div
-                className="marketplace-deps"
+                className="mp-dep-tile-row"
                 data-testid="marketplace-product-dependents"
               >
                 {directDependents.map((d) => (
@@ -329,21 +246,15 @@ export function MarketplaceProductPage() {
         </section>
       )}
 
-      <section className="marketplace-section">
-        <h2 className="marketplace-section-title">Upstream project</h2>
-        <p className="marketplace-paragraph">
+      <section className="mp-section">
+        <h2 className="mp-section-title">Upstream project</h2>
+        <p className="mp-paragraph">
           <a
             href={copy.upstreamUrl}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="marketplace-product-upstream"
-            style={{
-              color: 'var(--wiz-accent)',
-              fontWeight: 600,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-            }}
+            className="mp-link"
           >
             {copy.upstreamLabel}
             <ExternalLink size={12} aria-hidden />
@@ -351,86 +262,184 @@ export function MarketplaceProductPage() {
         </p>
       </section>
 
-      <ProductShellStyles />
+      <MarketplaceShellStyles />
+      <ProductHeroStyles />
     </main>
   )
 }
 
-/** Shell styles — duplicated identical block so each page is self-contained. */
-function ProductShellStyles() {
+/**
+ * Product-hero–specific styles. The shared shell styles (typography,
+ * sections, bullets, dep chips) come from <MarketplaceShellStyles />;
+ * this block adds the hero row geometry, the meta-chip variants, and the
+ * primary CTA — all calibrated to mirror the canonical marketplace's
+ * .detail-hero, .detail-meta, and .detail-add from AppDetail.svelte.
+ */
+function ProductHeroStyles() {
   return (
     <style>{`
-      .marketplace-shell {
-        max-width: 980px;
-        margin: 0 auto;
-        padding: 2rem 1.25rem 4rem;
-        color: var(--wiz-text-md);
-        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      .mp-product-hero {
+        display: flex;
+        align-items: flex-start;
+        gap: 1.2rem;
+        padding: 1.5rem 0 1.75rem;
+        border-bottom: 1px solid var(--wiz-border-sub);
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
       }
-      .marketplace-back {
+      .mp-product-logo {
+        width: 80px;
+        height: 80px;
+        border-radius: 18px;
+        object-fit: cover;
+        flex-shrink: 0;
+        background: var(--wiz-bg-card);
+        padding: 8px;
+      }
+      .mp-product-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: var(--wiz-text-hi);
+        background: rgba(var(--wiz-accent-ch), 0.12);
+        font-size: 1.75rem;
+        font-weight: 700;
+      }
+      .mp-product-hero-body {
+        flex: 1 1 320px;
+        min-width: 0;
+      }
+      .mp-meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.6rem;
+      }
+
+      /* Meta chips — match canonical .detail-meta span: 0.72rem font,
+         weight 600, radius 4px, 12% accent tint. */
+      .mp-meta-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.55rem;
+        border-radius: 4px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid transparent;
+        text-transform: capitalize;
+        letter-spacing: 0.01em;
+      }
+      .mp-meta-family {
+        transition: filter 0.15s;
+      }
+      .mp-meta-family:hover { filter: brightness(1.1); }
+
+      .mp-meta-tier-mandatory {
+        background: rgba(74, 222, 128, 0.16);
+        color: #4ADE80;
+      }
+      .mp-meta-tier-recommended {
+        background: rgba(56, 189, 248, 0.16);
+        color: #38BDF8;
+      }
+      .mp-meta-tier-optional {
+        background: rgba(167, 139, 250, 0.16);
+        color: #A78BFA;
+      }
+      [data-theme="light"] .mp-meta-tier-mandatory { color: #047857; background: rgba(5, 150, 105, 0.12); }
+      [data-theme="light"] .mp-meta-tier-recommended { color: #0369A1; background: rgba(2, 132, 199, 0.12); }
+      [data-theme="light"] .mp-meta-tier-optional { color: #7C3AED; background: rgba(124, 58, 237, 0.12); }
+
+      /* Primary CTA — mirrors .detail-add from AppDetail.svelte:
+         0.65rem 1.5rem padding, radius 8px, weight 600, 0.88rem font. */
+      .mp-cta {
+        flex-shrink: 0;
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
-        padding: 0.45rem 0.85rem;
-        background: transparent;
-        border: 1px solid var(--wiz-border-sub);
-        border-radius: 7px;
-        color: var(--wiz-text-md);
-        cursor: pointer;
+        padding: 0.6rem 1.4rem;
+        border-radius: 8px;
+        border: 1px solid rgba(var(--wiz-accent-ch), 1);
+        background: rgba(var(--wiz-accent-ch), 1);
+        color: #fff;
         font: inherit;
-        font-size: 0.85rem;
-        margin-bottom: 1.5rem;
-        transition: border-color 0.15s, color 0.15s;
-      }
-      .marketplace-back:hover {
-        border-color: rgba(var(--wiz-accent-ch), 0.6);
-        color: var(--wiz-text-hi);
-      }
-      .marketplace-hero {
-        padding: 1.5rem 1.6rem;
-        border-radius: 14px;
-        border: 1.5px solid var(--wiz-border-sub);
-        background: var(--wiz-bg-sub);
-        margin-bottom: 2rem;
-      }
-      .marketplace-title {
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--wiz-text-hi);
-        letter-spacing: -0.01em;
-      }
-      .marketplace-subtitle {
-        margin: 0.35rem 0 0;
-        font-size: 1rem;
-        color: var(--wiz-text-md);
-      }
-      .marketplace-section {
-        margin-bottom: 2rem;
-      }
-      .marketplace-section-title {
-        margin: 0 0 0.85rem;
-        font-size: 1.05rem;
+        font-size: 0.88rem;
         font-weight: 600;
-        color: var(--wiz-text-hi);
-        letter-spacing: -0.005em;
+        cursor: pointer;
+        text-decoration: none;
+        transition: filter 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+        white-space: nowrap;
       }
-      .marketplace-paragraph {
-        margin: 0 0 0.85rem;
-        line-height: 1.6;
-        color: var(--wiz-text-md);
+      .mp-cta-add:hover { filter: brightness(0.92); }
+      .mp-cta-added {
+        background: transparent;
+        color: var(--wiz-text-sub);
+        border-color: var(--wiz-border);
       }
-      .marketplace-bullets {
-        margin: 0;
-        padding-left: 1.25rem;
-        line-height: 1.6;
-        color: var(--wiz-text-md);
+      .mp-cta-added:hover {
+        color: rgba(239, 68, 68, 1);
+        border-color: rgba(239, 68, 68, 0.6);
       }
-      .marketplace-bullets li { margin-bottom: 0.4rem; }
-      .marketplace-deps {
+      .mp-cta-locked {
+        background: rgba(var(--wiz-success-ch), 0.16);
+        border-color: rgba(var(--wiz-success-ch), 0.35);
+        color: rgba(var(--wiz-success-ch), 1);
+        font-size: 0.78rem;
+        padding: 0.5rem 1rem;
+        cursor: default;
+      }
+
+      /* Dependency tile — small surface chip with mono-font name +
+         dim group tag, mirroring .detail-dependencies li. */
+      .mp-dep-block {
+        margin-bottom: 1rem;
+      }
+      .mp-dep-block:last-child { margin-bottom: 0; }
+      .mp-dep-tile-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        gap: 0.4rem;
+      }
+      .mp-dep-tile {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        padding: 0.3rem 0.65rem;
+        background: var(--wiz-bg-sub);
+        border: 1px solid var(--wiz-border-sub);
+        border-radius: 6px;
+        text-decoration: none;
+        color: var(--wiz-text-md);
+        font-size: 0.78rem;
+        font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .mp-dep-tile strong {
+        font-weight: 600;
+        color: var(--wiz-text-hi);
+      }
+      .mp-dep-tile-group {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        color: var(--wiz-text-sub);
+        font-size: 0.72rem;
+        text-transform: capitalize;
+      }
+      .mp-dep-tile:hover {
+        border-color: rgba(var(--wiz-accent-ch), 0.6);
+      }
+      .mp-dep-tile:hover strong {
+        color: var(--wiz-accent);
+      }
+
+      @media (max-width: 600px) {
+        .mp-product-hero { gap: 1rem; }
+        .mp-product-logo, .mp-product-icon { width: 64px; height: 64px; border-radius: 14px; font-size: 1.5rem; }
+        .mp-cta { font-size: 0.85rem; padding: 0.55rem 1.1rem; }
       }
     `}</style>
   )
