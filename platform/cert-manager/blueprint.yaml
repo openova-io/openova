@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
-  version: 1.0.0
+  version: 1.1.1
   card:
     title: cert-manager
     summary: TLS certificate automation. Lets Encrypt issuer with Dynadot DNS-01 for omani.works pool, HTTP-01 for BYO domains.
