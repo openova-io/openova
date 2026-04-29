@@ -7,6 +7,10 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
+
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -51,6 +55,19 @@ type Handler struct {
 	// NewWithPDM without a directory) keep working unchanged. Production
 	// always wires this via New() reading CATALYST_DEPLOYMENTS_DIR.
 	store *store.Store
+
+	// Phase-1 watch knobs — every field below is a test-only override
+	// for internal/helmwatch.Config. Production reads
+	// CATALYST_PHASE1_WATCH_TIMEOUT from env and uses
+	// helmwatch.NewDynamicClientFromKubeconfig /
+	// NewKubernetesClientFromKubeconfig. Tests inject a
+	// fake.NewSimpleDynamicClient via dynamicFactory and a tiny
+	// timeout via phase1WatchTimeout so termination behaviour is
+	// deterministic.
+	dynamicFactory     func(string) (dynamic.Interface, error)
+	coreFactory        func(string) (kubernetes.Interface, error)
+	phase1WatchTimeout time.Duration
+	phase1WatchResync  time.Duration
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate

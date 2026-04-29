@@ -168,20 +168,92 @@ func (r *Request) Validate() error {
 }
 
 // Event is a single progress event streamed back to the wizard via SSE.
+//
+// Component / State are populated for Phase-1 component events emitted by
+// the HelmRelease watch loop (internal/helmwatch). For Phase-0 OpenTofu
+// events these stay empty so the existing wire format is unchanged — no
+// existing field is removed or renamed; only two optional fields are
+// added. The Admin shell's "logs filtered by event.component === id"
+// path keys off Component; the per-app status pill keys off State.
+//
+// State semantics (Phase-1 watch only):
+//
+//   - "pending"    — HelmRelease appeared in the cluster but Ready
+//     condition not yet observed, OR Ready=False with a
+//     `dependency 'X' is not ready` message (the
+//     component is waiting upstream of itself)
+//   - "installing" — Ready=Unknown, or Ready=False with reason
+//     `Progressing` / message `Reconciliation in progress`
+//   - "installed"  — Ready=True
+//   - "degraded"   — Ready=True transitioned to Ready=False without
+//     InstallFailed/UpgradeFailed (a healthy install
+//     that lost readiness post-install)
+//   - "failed"     — Ready=False with reason InstallFailed /
+//     UpgradeFailed / ChartPullError /
+//     ArtifactFailed (the install actually broke,
+//     not waiting on deps)
+//
+// For phase: "component-log" events, Component is set, State is empty,
+// Level carries the helm-controller log level, and Message is the raw
+// log line.
 type Event struct {
 	Time    string `json:"time"`
 	Phase   string `json:"phase"`
 	Level   string `json:"level"` // info | warn | error
 	Message string `json:"message"`
+
+	// Component is the normalised component id for Phase-1 events
+	// ("bp-cilium" → "cilium"). Empty for Phase-0 OpenTofu events.
+	Component string `json:"component,omitempty"`
+
+	// State is one of pending|installing|installed|degraded|failed for
+	// phase: "component" events; empty for Phase-0 events and for
+	// phase: "component-log" events (which carry the original log
+	// level instead).
+	State string `json:"state,omitempty"`
 }
 
-// Result captures the OpenTofu outputs the wizard's success screen needs.
+// Result captures the OpenTofu outputs the wizard's success screen needs
+// PLUS the Phase-1 component watch terminal state.
+//
+// ComponentStates and Phase1FinishedAt are populated by the HelmRelease
+// watch loop in internal/helmwatch. They are the durable per-component
+// outcome the Admin shell renders ("X of Y components installed") long
+// after the live SSE stream has closed.
+//
+// Kubeconfig holds the new Sovereign's k3s kubeconfig (raw YAML). It is
+// populated at the end of Phase 0 (out-of-band kubeconfig fetch) so the
+// HelmRelease watch loop, the wizard's "Download kubeconfig" button, and
+// the operator's GET /api/v1/deployments/<id>/kubeconfig all consume the
+// same source. The kubeconfig is rotated to a SPIFFE-issued identity in
+// Phase 2 — by then this field's role narrows to "first-time bootstrap
+// only," but the storage shape stays.
 type Result struct {
 	SovereignFQDN  string `json:"sovereignFQDN"`
 	ControlPlaneIP string `json:"controlPlaneIP"`
 	LoadBalancerIP string `json:"loadBalancerIP"`
 	ConsoleURL     string `json:"consoleURL"`
 	GitOpsRepoURL  string `json:"gitopsRepoURL"`
+
+	// Kubeconfig — raw YAML. Empty until the post-tofu-output fetch
+	// populates it. Persisted to the per-deployment store record so a
+	// catalyst-api Pod restart does not lose access to the new
+	// Sovereign cluster the previous Pod was watching. Per
+	// docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene), the
+	// store directory is 0o700 owned by the catalyst-api process UID
+	// — the kubeconfig never touches a wider permission domain than
+	// other per-deployment artefacts already on the same PVC.
+	Kubeconfig string `json:"kubeconfig,omitempty"`
+
+	// ComponentStates — final state of every bp-* HelmRelease the
+	// Phase-1 watch observed, keyed by normalised component id. Set
+	// when the watch loop terminates (all-installed, all-installed-or-
+	// failed, or timeout).
+	ComponentStates map[string]string `json:"componentStates,omitempty"`
+
+	// Phase1FinishedAt — UTC timestamp the watch loop terminated.
+	// nil while Phase 1 is in flight or has not started.
+	Phase1FinishedAt *time.Time `json:"phase1FinishedAt,omitempty"`
 }
 
 // Provisioner runs `tofu init && tofu apply` against the canonical
