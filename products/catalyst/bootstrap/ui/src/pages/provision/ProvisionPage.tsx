@@ -449,7 +449,11 @@ interface ProvisionPageProps {
 }
 
 export function ProvisionPage({ disableStream = false }: ProvisionPageProps = {}) {
-  const params = useParams({ from: '/sovereign/provision/$deploymentId' as never }) as {
+  // Route id is registered against the router's INTERNAL path
+  // (`/provision/$deploymentId`) — basepath '/sovereign' is stripped before
+  // route matching. Using the basepath-prefixed string here threw
+  // "Invariant failed" on every navigation.
+  const params = useParams({ from: '/provision/$deploymentId' as never }) as {
     deploymentId: string
   }
   const deploymentId = params.deploymentId
