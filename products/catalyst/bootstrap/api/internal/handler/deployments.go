@@ -891,24 +891,43 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 // drift.
 func (h *Handler) emitWatchEvent(dep *Deployment, ev provisioner.Event) {
 	recorded := h.recordEventAndPersist(dep, ev)
+
+	// Synchronise channel send with the close() path in
+	// resumePhase1Watch (which closes dep.eventsCh under dep.mu after
+	// the watch loop returns). Without this guard a helmwatch
+	// goroutine still in-flight when resumePhase1Watch closes
+	// eventsCh races the close — the race detector flags the read
+	// of eventsCh against the close write. Holding dep.mu here makes
+	// the close-vs-send linearisation point unambiguous, and the
+	// `done` short-circuit prevents a panic-on-closed-channel send.
+	dep.mu.Lock()
+	closed := false
 	select {
-	case dep.eventsCh <- recorded:
+	case <-dep.done:
+		closed = true
 	default:
 	}
+	if !closed {
+		select {
+		case dep.eventsCh <- recorded:
+		default:
+		}
+	}
+	bridge := dep.jobsBridge
+	if h.jobs != nil && bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, dep.ID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
 
 	// Forward Phase-1 component events to the jobs bridge. Phase-0
 	// OpenTofu events have no Job analogue and are silently dropped
 	// inside the bridge (it filters on Phase=="component" + non-
-	// empty Component).
-	if h.jobs == nil {
+	// empty Component). The bridge write is best-effort: a failure
+	// does NOT abort the SSE feed.
+	if bridge == nil {
 		return
 	}
-	dep.mu.Lock()
-	if dep.jobsBridge == nil {
-		dep.jobsBridge = jobs.NewBridge(h.jobs, dep.ID)
-	}
-	bridge := dep.jobsBridge
-	dep.mu.Unlock()
 	if err := bridge.OnProvisionerEvent(recorded); err != nil {
 		h.log.Warn("jobs bridge: forward failed",
 			"id", dep.ID,
