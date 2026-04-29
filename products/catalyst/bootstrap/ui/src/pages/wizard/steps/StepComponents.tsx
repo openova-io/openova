@@ -62,6 +62,7 @@ import {
   type GroupDef,
 } from './componentGroups'
 import { STEP_COMPONENTS_COPY } from './stepComponentsCopy'
+import { getLogoToneStyle } from './logoTone'
 import { familyChipPalette } from '@/pages/marketplace/marketplaceCopy'
 
 /** Sort: selected first (cart-like UX from marketplace), then alphabetical. */
@@ -78,38 +79,42 @@ function sortComponents(
 }
 
 /**
- * Logo tile — neutral high-contrast surface.
+ * Logo tile — per-asset tone, mirroring the canonical SME marketplace.
  *
- * The component-logos vendored under `public/component-logos/` are upstream
- * brand marks rendered as-shipped. Some are dark glyphs designed against a
- * white backdrop, some are white glyphs on transparent (designed for dark
- * surfaces), some are full-colour. To guarantee every brand mark reads
- * cleanly in BOTH dark- and light-mode wizard themes we render every tile
- * on a near-white pill regardless of the active app theme. The pill is
- * also the surface used for the IconFallback letter-mark, so the wizard
- * keeps a single visual rhythm across `<img>` and letter-mark cards.
+ * The marketplace at https://marketplace.openova.io/apps/ ships every
+ * app logo as a PNG with the brand-correct surface BAKED IN — Cal.com
+ * is a dark-grey PNG, Mautic is dark-blue, full-colour brand marks
+ * ship transparent. The tile chrome is therefore zero (transparent
+ * background, no padding, no border) — see `core/marketplace/.../AppsStep.svelte`
+ * `.app-logo` rule. The wizard cannot do that because component logos
+ * are vendored as raw upstream SVGs (no baked backplate). A universal
+ * "near-white" tile (commit 691467b4) over-corrected and dropped
+ * white-on-transparent glyphs (Temporal, LiveKit, Mimir, Tempo,
+ * Velero, OpenBao …) into the white pill — the contrast bug surfaced
+ * by the user.
  *
- * Keep these constants in sync with the equivalent rules in
- * `MarketplaceFamilyPage.tsx` (.mp-related-logo / .mp-related-icon) and
- * `MarketplaceProductPage.tsx` (.mp-product-logo / .mp-product-icon) — the
- * component-logo tile is a single visual contract across the wizard and
- * the marketplace surfaces.
+ * Mirroring the marketplace's *spirit* therefore means: pick the
+ * tile surface PER ASSET via `logoTone.ts`, not globally. Two tones:
+ *
+ *   - `light` — slate-900 backplate for white-glyph assets.
+ *   - `color` — slate-100 backplate for full-colour and dark-glyph
+ *               assets (default).
+ *
+ * Both tones are theme-INDEPENDENT — the asset's natural surface,
+ * exactly like marketplace PNGs ship the same regardless of card
+ * theme. Keep in sync with `.mp-related-logo` / `.mp-related-icon`
+ * in `MarketplaceFamilyPage.tsx` and `.mp-product-logo` /
+ * `.mp-product-icon` in `MarketplaceProductPage.tsx` — the
+ * component-logo tile is a single visual contract across the
+ * wizard and the marketplace surfaces.
  */
-const LOGO_TILE_BG = 'rgba(255,255,255,0.96)'
 const LOGO_TILE_RADIUS = 10
 const LOGO_TILE_PADDING = 6
-/**
- * Letter colour for the IconFallback mark. The tile is always near-white,
- * so we need a stable DARK foreground regardless of which app theme the
- * card is rendered under. `--wiz-text-hi` flips between dark (light mode)
- * and light (dark mode), so we pin a fixed slate hex here to keep the
- * letter readable against the white tile in both themes.
- */
-const LOGO_TILE_TEXT = '#0f172a'
 
 /** Letter-pill icon when a component has no logo URL. */
-function IconFallback({ name }: { name: string }) {
-  const letter = (name[0] ?? '?').toUpperCase()
+function IconFallback({ entry }: { entry: ComponentEntry }) {
+  const letter = (entry.name[0] ?? '?').toUpperCase()
+  const tone = getLogoToneStyle(entry.id)
   return (
     <span
       aria-hidden
@@ -122,11 +127,11 @@ function IconFallback({ name }: { name: string }) {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: LOGO_TILE_TEXT,
+        color: tone.text,
         fontSize: '1.2rem',
         fontWeight: 700,
-        background: LOGO_TILE_BG,
-        border: '1px solid var(--wiz-border-sub)',
+        background: tone.background,
+        border: `1px solid ${tone.border}`,
       }}
     >
       {letter}
@@ -136,7 +141,8 @@ function IconFallback({ name }: { name: string }) {
 
 /** Logo block — vendored SVG when available, letter-mark fallback otherwise. */
 function ComponentLogo({ entry }: { entry: ComponentEntry }) {
-  if (!entry.logoUrl) return <IconFallback name={entry.name} />
+  if (!entry.logoUrl) return <IconFallback entry={entry} />
+  const tone = getLogoToneStyle(entry.id)
   return (
     <span
       aria-hidden
@@ -149,8 +155,8 @@ function ComponentLogo({ entry }: { entry: ComponentEntry }) {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        background: LOGO_TILE_BG,
-        border: '1px solid var(--wiz-border-sub)',
+        background: tone.background,
+        border: `1px solid ${tone.border}`,
         overflow: 'hidden',
         padding: LOGO_TILE_PADDING,
         boxSizing: 'border-box',

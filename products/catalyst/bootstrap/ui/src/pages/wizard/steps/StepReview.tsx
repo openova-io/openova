@@ -56,6 +56,7 @@ import {
   findComponent,
   type ComponentEntry,
 } from './componentGroups'
+import { getLogoToneStyle } from './logoTone'
 
 /* ── Provider logos ──────────────────────────────────────────────── */
 const PROVIDER_LOGOS: Record<CloudProvider, React.ReactNode> = {
@@ -235,17 +236,19 @@ function FieldGrid({
    shape exactly. The category pill renders `entry.groupName` (PILOT,
    SPINE, …) which is the wizard equivalent of `app.category`. */
 
-function LetterFallback({ name }: { name: string }) {
-  const letter = (name[0] ?? '?').toUpperCase()
+function LetterFallback({ entry }: { entry: ComponentEntry }) {
+  const letter = (entry.name[0] ?? '?').toUpperCase()
+  const tone = getLogoToneStyle(entry.id)
   return (
     <span
       aria-hidden
       style={{
         // .stack-icon equivalent — same 40×40, 10px-radius pill so the
         // logo column geometry is identical whether or not the component
-        // has a vendored SVG. Near-white tile + dark-slate letter mirrors
-        // the LOGO_TILE_BG / LOGO_TILE_TEXT contract used elsewhere on
-        // the wizard and marketplace surfaces.
+        // has a vendored SVG. Per-asset tone (see logoTone.ts) so a
+        // letter-mark fallback for a `light`-tone component reads on
+        // a dark backplate, mirroring the `<img>` tile contract used
+        // elsewhere on the wizard and marketplace surfaces.
         width: 40,
         height: 40,
         borderRadius: 10,
@@ -253,11 +256,11 @@ function LetterFallback({ name }: { name: string }) {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: '#0f172a',
+        color: tone.text,
         fontSize: 14,
         fontWeight: 700,
-        background: 'rgba(255,255,255,0.96)',
-        border: '1px solid var(--wiz-border-sub)',
+        background: tone.background,
+        border: `1px solid ${tone.border}`,
       }}
     >
       {letter}
@@ -266,6 +269,7 @@ function LetterFallback({ name }: { name: string }) {
 }
 
 function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
+  const tone = getLogoToneStyle(entry.id)
   return (
     <div
       data-testid={`review-component-${entry.id}`}
@@ -293,10 +297,11 @@ function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
         <span
           aria-hidden
           style={{
-            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Vendored
-            // brand marks ship in mixed treatments (dark-on-transparent,
-            // white-on-transparent, full-colour); the near-white pill
-            // keeps every glyph legible regardless of theme.
+            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Per-asset
+            // tone (see logoTone.ts) — slate-900 backplate for white-glyph
+            // marks (Temporal, LiveKit, Mimir, Tempo, …), slate-100 for
+            // colour and dark-glyph marks. Mirrors the marketplace's
+            // PNG-baked surface idea with metadata-driven backplates.
             width: 40,
             height: 40,
             borderRadius: 10,
@@ -304,8 +309,8 @@ function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            background: 'rgba(255,255,255,0.96)',
-            border: '1px solid var(--wiz-border-sub)',
+            background: tone.background,
+            border: `1px solid ${tone.border}`,
             overflow: 'hidden',
             padding: 4,
             boxSizing: 'border-box',
@@ -320,7 +325,7 @@ function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
           />
         </span>
       ) : (
-        <LetterFallback name={entry.name} />
+        <LetterFallback entry={entry} />
       )}
       {/* .stack-body — flex:1; min-width:0. */}
       <div style={{ flex: 1, minWidth: 0 }}>
