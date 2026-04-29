@@ -26,15 +26,17 @@ import (
 
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/allocator"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/dynadot"
+	registrar "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/reserved"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/store"
 )
 
 // Handler holds the dependencies shared by every endpoint.
 type Handler struct {
-	Alloc *allocator.Allocator
-	Store *store.Store // exposed for /healthz Ping
-	Log   *slog.Logger
+	Alloc    *allocator.Allocator
+	Store    *store.Store // exposed for /healthz Ping
+	Log      *slog.Logger
+	Registry registrar.Registry // populated by main via SetRegistry
 }
 
 // New constructs a Handler.
@@ -55,6 +57,9 @@ func (h *Handler) Routes() *chi.Mux {
 			r.Post("/commit", h.Commit)
 			r.Delete("/release", h.Release)
 		})
+		r.Route("/registrar/{registrar}", func(r chi.Router) {
+			r.Post("/set-ns", h.SetNS)
+		})
 	})
 	return r
 }
@@ -72,10 +77,14 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"status":         "ok",
 		"managedDomains": dynadot.ManagedDomains(),
-	})
+	}
+	if h.Registry != nil {
+		out["registrars"] = h.Registry.Names()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ── Reserved-list ──────────────────────────────────────────────────────
