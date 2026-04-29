@@ -252,14 +252,60 @@ runcmd:
   #   --flannel-backend=none        Cilium replaces flannel.
   #   --disable=traefik             Cilium Gateway replaces traefik.
   #   --disable=servicelb           Hetzner LB handles ingress.
-  #   --disable=local-storage       Crossplane-provisioned hcloud-csi instead.
   #   --disable-network-policy      Cilium handles NetworkPolicy.
   #   --tls-san=${sovereign_fqdn}   API server cert valid for the sovereign FQDN.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+  #
+  # NOTE: --disable=local-storage is intentionally NOT passed. k3s ships a
+  # built-in local-path-provisioner (Rancher) and registers a `local-path`
+  # StorageClass. That is the canonical solo-Sovereign StorageClass:
+  # PVCs (bp-spire data dir, bp-keycloak postgres, bp-openbao raft store,
+  # bp-nats-jetstream, bp-gitea, bp-catalyst-platform postgres) bind to
+  # node-local storage on the single CPX21/CPX31 control-plane node and
+  # come up immediately. Operators upgrading to multi-node migrate to
+  # hcloud-csi (Hetzner Cloud Volumes) as a separate, deliberate step —
+  # see docs/RUNBOOK-PROVISIONING.md §"StorageClass missing".
+  #
+  # Architectural background: the prior version of this template passed
+  # `--disable=local-storage` with the intent that Crossplane would
+  # install hcloud-csi day-2 and register the StorageClass after
+  # bp-crossplane reconciled. That created a circular dependency: the
+  # 11-component bootstrap kit (bp-spire / bp-keycloak / bp-openbao / …)
+  # all carry PVCs whose bind step blocks waiting for a StorageClass that
+  # would only exist AFTER bp-crossplane had finished installing AND
+  # provisioned hcloud-csi. Result on a fresh Sovereign: every PVC stuck
+  # Pending forever, bootstrap-kit deadlocked. Keeping local-path solves
+  # the circularity by giving the cluster a default StorageClass at boot.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
+
+  # ── Default StorageClass: local-path (k3s built-in) ─────────────────────
+  #
+  # k3s ships local-path-provisioner (deployment in kube-system,
+  # `app=local-path-provisioner`) and registers a `local-path`
+  # StorageClass on first boot. We need the StorageClass to exist AND
+  # be marked default BEFORE Flux applies the bootstrap-kit Kustomization
+  # below — otherwise the 11-component bootstrap kit (bp-spire,
+  # bp-keycloak postgres, bp-openbao, bp-nats-jetstream, bp-gitea,
+  # bp-catalyst-platform postgres) ships HelmReleases with PVCs that
+  # have no `storageClassName` set, expecting the cluster default to
+  # take over. Without a default, every one of those PVCs sits Pending
+  # waiting on a class that nobody nominates, and the bootstrap-kit
+  # Kustomization deadlocks.
+  #
+  # Sequence:
+  #   1. Wait for the local-path-provisioner pod to be Ready (it is the
+  #      controller that watches PVCs and creates hostPath PVs).
+  #   2. Patch the `local-path` StorageClass with the
+  #      `storageclass.kubernetes.io/is-default-class: "true"` annotation.
+  #   3. Verify the StorageClass exists — fail loudly if not, so the
+  #      Sovereign provisioner surfaces a clear error rather than letting
+  #      Flux reconcile into a broken state.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system wait --for=condition=Ready pod -l app=local-path-provisioner --timeout=60s'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch storageclass local-path -p ''{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'''
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc -o name | grep -q "^storageclass.storage.k8s.io/local-path$" || { echo "FATAL: local-path StorageClass missing after k3s install — see docs/RUNBOOK-PROVISIONING.md StorageClass missing section" >&2; exit 1; }'
 
 %{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
   # ── Cloud-init kubeconfig postback (issue #183, Option D) ───────────────
