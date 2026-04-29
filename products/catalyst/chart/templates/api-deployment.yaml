@@ -5,6 +5,78 @@ metadata:
   labels:
     app.kubernetes.io/name: catalyst-api
     app.kubernetes.io/component: api
+  annotations:
+    # `kustomize.toolkit.fluxcd.io/force: enabled` is the durable
+    # remediation for the `RollingUpdate -> Recreate` strategy-flip
+    # collision documented in docs/CHART-AUTHORING.md §"Strategy flips
+    # on existing Deployments".
+    #
+    # Failure mode this addresses
+    # ---------------------------
+    # On 2026-04-29 the `catalyst` Flux Kustomization on contabo-mkt
+    # stuck at Ready=False with:
+    #
+    #   Deployment.apps "catalyst-api" is invalid:
+    #     spec.strategy.rollingUpdate: Forbidden:
+    #       may not be specified when strategy `type` is 'Recreate'
+    #
+    # Root cause: the live Deployment had been previously created with
+    # the default `RollingUpdate` strategy (so `rollingUpdate.maxSurge=25%`
+    # and `maxUnavailable=25%` were present on the live object, owned
+    # by the `kubectl-client-side-apply` field manager). Flux's
+    # kustomize-controller submits this manifest via Server-Side Apply
+    # with field manager `kustomize-controller`. SSA's contract is
+    # "set the fields you declare" — it does NOT remove fields owned
+    # by other managers. Result: post-merge object had `type: Recreate`
+    # AND the residual `rollingUpdate.*` block, which the API server's
+    # validator rejects as invalid (Recreate forbids any rollingUpdate
+    # keys). SSA is REQUIRED to reject the merge. No SSA-only chart
+    # change can fix this.
+    #
+    # Why `$patch: replace` does NOT solve this
+    # -----------------------------------------
+    # The Strategic Merge Patch directive `$patch: replace` would tell
+    # an SMP-aware merger to REPLACE the strategy block instead of
+    # merging into it. But:
+    #   - SSA rejects `$patch` outright with "field not declared in
+    #     schema" (it's not in apps/v1 Deployment).
+    #   - kubectl strict-decoding rejects `$patch` on CREATE under any
+    #     mode with "unknown field spec.strategy.$patch" — so adding
+    #     it to the chart manifest BREAKS fresh installs.
+    # `$patch: replace` is a runtime SMP directive, never a chart-spec
+    # value. It belongs in a Kustomize `patches:` entry (where the
+    # kustomize binary consumes it at build time and emits a clean
+    # output) — never inline in a base resource.
+    #
+    # Why the Flux force annotation IS the right fix
+    # ----------------------------------------------
+    # When kustomize-controller's SSA submission fails dry-run with an
+    # Invalid response, this annotation directs the controller to
+    # recover by deleting and recreating THIS resource specifically
+    # (not the whole Kustomization). The recreated Deployment has no
+    # residual `rollingUpdate.*` fields — the regression cannot
+    # recur on the rebuilt object.
+    #
+    # That is NOT a "kubectl delete bandaid": the annotation is part
+    # of the IaC manifest, version-controlled, applied declaratively
+    # via Flux on every reconciliation, scoped to this single
+    # Deployment, and removed only by editing the chart. Per
+    # docs/INVIOLABLE-PRINCIPLES.md #3 (Follow the documented
+    # architecture, exactly — Flux is the ONLY GitOps reconciler) and
+    # #4 (Never hardcode — runtime configuration in Git, not in shell
+    # history): the remediation lives in source control.
+    #
+    # Why this Deployment in particular tolerates a recreate: the
+    # spec declares `strategy.type: Recreate`, so the steady-state
+    # update path is delete-and-recreate anyway. Flux falling back to
+    # delete-and-recreate on a strategy-flip is a no-op relative to a
+    # normal pod-spec change. The deployments PVC is ReadWriteOnce;
+    # the recreate flow detaches it from the old Pod before mounting
+    # it on the new one, which is exactly the contract `Recreate`
+    # enforces. State persistence is maintained because the PVC
+    # itself is NOT recreated by this annotation — only the
+    # Deployment resource is.
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
   replicas: 1
   # Recreate strategy is required because the deployments PVC is RWO
@@ -14,6 +86,19 @@ spec:
   # (NFS, CephFS) is the path to HA, but Catalyst-Zero today is
   # single-replica by design — the wizard is interactive and PDM owns
   # cross-tenant isolation, so a single API server is sufficient.
+  #
+  # The strategy-flip regression that bit contabo-mkt on 2026-04-29
+  # (apply over a pre-existing RollingUpdate Deployment fails with
+  # `spec.strategy.rollingUpdate: Forbidden`) is recovered by the
+  # `kustomize.toolkit.fluxcd.io/force: enabled` annotation above —
+  # see that annotation's comment for the full failure-mode analysis
+  # and the docs/CHART-AUTHORING.md §"Strategy flips on existing
+  # Deployments" entry. Do NOT add an inline `$patch: replace` here:
+  # it BREAKS fresh installs (kubectl strict-decoding rejects
+  # `spec.strategy.$patch` on create), and Flux's SSA path strips it
+  # anyway. The integration test at tests/integration/strategy-flip.yaml
+  # asserts both the recovery path works and the regression mode is
+  # still detected.
   strategy:
     type: Recreate
   selector:

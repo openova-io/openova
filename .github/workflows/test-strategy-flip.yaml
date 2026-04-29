@@ -1,0 +1,84 @@
+name: Test — Strategy flip regression (RollingUpdate -> Recreate)
+
+# Defends the Catalyst chart against the contabo-mkt outage of
+# 2026-04-29. See docs/CHART-AUTHORING.md §"Strategy flips on
+# existing Deployments" for the full failure-mode analysis. The
+# integration test runner at tests/integration/strategy-flip.sh
+# encodes the contract; this workflow gives it a kind cluster and
+# kubectl.
+#
+# This is a chart-authoring gate. It runs whenever:
+#   - the catalyst-api Deployment manifest changes (the canonical
+#     resource that triggered the regression)
+#   - the strategy-flip integration test changes
+#   - the chart-authoring documentation changes
+#
+# Keep the trigger list tight; a chart-author touching unrelated
+# files should not pay this gate's cold-start cost.
+
+on:
+  push:
+    paths:
+      - 'products/catalyst/chart/templates/api-deployment.yaml'
+      - 'tests/integration/strategy-flip.yaml'
+      - 'tests/integration/strategy-flip.sh'
+      - 'docs/CHART-AUTHORING.md'
+      - '.github/workflows/test-strategy-flip.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/templates/api-deployment.yaml'
+      - 'tests/integration/strategy-flip.yaml'
+      - 'tests/integration/strategy-flip.sh'
+      - 'docs/CHART-AUTHORING.md'
+      - '.github/workflows/test-strategy-flip.yaml'
+  workflow_dispatch:
+
+jobs:
+  strategy-flip-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind cluster
+        uses: helm/kind-action@v1
+        with:
+          # Pinned kind version so a kind release that ships with a
+          # different K8s server cannot silently change the regression's
+          # error string. Bumping the kind version is a deliberate
+          # chart-authoring decision — re-run the local test, update
+          # the assertion ConfigMap if needed, and PR together.
+          cluster_name: strategy-flip-test
+          version: v0.25.0
+          # K8s 1.30+ enforces strict-decoding on apps/v1 Deployment by
+          # default — that is the version where `$patch: replace`
+          # inline in a base resource started failing CREATE with
+          # "unknown field" errors. Locking to 1.30.6 ensures the test
+          # exercises the same decoding path Flux's contabo-mkt cluster
+          # runs (k3s 1.30 series).
+          node_image: kindest/node:v1.30.6
+
+      - name: Verify kind cluster ready
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl version --short || kubectl version
+
+      - name: Run strategy-flip integration test
+        run: bash tests/integration/strategy-flip.sh
+
+      - name: Show kubectl events on failure
+        if: failure()
+        run: |
+          # Surface anything the test runner did not already print.
+          # The test cleans up its namespaces in a trap, so this only
+          # fires when the runner errored mid-flight before the trap
+          # had a chance to log full context.
+          echo "=== test namespace events ==="
+          kubectl get events -n strategy-flip-test --sort-by=.lastTimestamp 2>&1 || true
+          echo "=== fresh-install namespace events ==="
+          kubectl get events -n strategy-flip-fresh --sort-by=.lastTimestamp 2>&1 || true
+          echo "=== chart manifest under test ==="
+          cat products/catalyst/chart/templates/api-deployment.yaml || true
