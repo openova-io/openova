@@ -1,18 +1,23 @@
 /**
- * StepComponents.test.tsx — vitest coverage for the corporate platform
- * component grid (GitHub issue #161).
+ * StepComponents.test.tsx — vitest coverage for the wizard's two-tab
+ * platform-component picker (GitHub issues #161, #162).
  *
  * Covers:
- *   - search filter narrows visible cards
- *   - category chip filter narrows visible cards (groupId)
- *   - sort: selected items float to top, then alphabetical
- *   - mandatory cards are locked — clicking them is a no-op + toast
- *   - cascading add: selecting Harbor pulls in cnpg + seaweedfs + valkey
- *   - cascading remove: removing cnpg opens a confirm dialog listing
- *     every dependent that would be removed; cancel keeps state intact;
- *     confirm cascades through the impact set
- *   - store invariants: every mandatory id is always present, ids are
- *     sorted + de-duplicated, persisted shape round-trips through merge
+ *   - Tab 1 ("Choose Your Stack") — non-mandatory only
+ *       - search narrows visible cards
+ *       - category chip filter narrows visible cards (groupId)
+ *       - sort: selected items float to top, then alphabetical
+ *       - cascade-add: selecting Harbor pulls in cnpg + seaweedfs + valkey
+ *       - cascade-remove: confirm dialog flow, mandatory protection
+ *       - reset-to-defaults restores the canonical selection
+ *   - Tab 2 ("Always Included") — mandatory only, read-only, grouped
+ *       - lists every mandatory component
+ *       - groups by product (PILOT, GUARDIAN, …)
+ *       - has no search input
+ *       - has no toggle button on cards
+ *       - tab counter equals the catalog's mandatory count
+ *   - Tab switch state — clicking tabs swaps the body without losing state
+ *   - Catalog invariants — dependency graph integrity, store invariants
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -25,6 +30,7 @@ import {
   resolveTransitiveDependents,
   findComponent,
   computeDefaultSelection,
+  GROUPS,
 } from './componentGroups'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -40,15 +46,15 @@ function resetStore(extra: Partial<typeof INITIAL_WIZARD_STATE> = {}) {
 }
 
 beforeEach(() => {
-  // Each test starts with the catalog default selection so we exercise the
-  // real-world "wizard just opened, mandatory + recommended pre-selected"
-  // shape.
   resetStore()
 })
 
 afterEach(() => {
   cleanup()
 })
+
+const NON_MANDATORY = ALL_COMPONENTS.filter((c) => c.tier !== 'mandatory')
+const MANDATORY = ALL_COMPONENTS.filter((c) => c.tier === 'mandatory')
 
 /* ── Catalog sanity ───────────────────────────────────────────────── */
 
@@ -87,17 +93,75 @@ describe('component catalog', () => {
       expect(findComponent(id)!.dependencies ?? []).toEqual([])
     }
   })
+
+  it('every component carries a logoUrl (default `/component-logos/<id>.svg`)', () => {
+    for (const c of ALL_COMPONENTS) {
+      expect(c.logoUrl).toBe(`/component-logos/${c.id}.svg`)
+    }
+  })
 })
 
-/* ── Render: card grid ────────────────────────────────────────────── */
+/* ── Tabs ─────────────────────────────────────────────────────────── */
 
-describe('card grid', () => {
-  it('renders a card for every catalog entry', () => {
+describe('tabs', () => {
+  it('renders both tabs with correct counters', () => {
+    render(<StepComponents />)
+    const choose = screen.getByTestId('tab-choose')
+    const always = screen.getByTestId('tab-always')
+    expect(choose).toBeTruthy()
+    expect(always).toBeTruthy()
+    expect(always.textContent).toMatch(new RegExp(`Always Included \\(${MANDATORY.length}\\)`))
+  })
+
+  it('Choose Your Stack tab is active by default', () => {
+    render(<StepComponents />)
+    expect(screen.getByTestId('tab-choose').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-always').getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('clicking the "Always Included" tab switches the body', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.getByTestId('tab-always').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('always-included-tab')).toBeTruthy()
+    // Choose-tab grid + search not in the DOM in always tab
+    expect(screen.queryByTestId('component-grid')).toBeNull()
+    expect(screen.queryByTestId('component-search')).toBeNull()
+  })
+
+  it('switching back to Choose Your Stack restores the grid', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    fireEvent.click(screen.getByTestId('tab-choose'))
+    expect(screen.getByTestId('component-grid')).toBeTruthy()
+    expect(screen.getByTestId('component-search')).toBeTruthy()
+  })
+
+  it('Choose-tab counter reflects user-controllable selection (recommended + optional)', () => {
+    // Default state: every recommended is selected. Counter should equal
+    // the recommended count (no optional selected).
+    const recommendedCount = ALL_COMPONENTS.filter((c) => c.tier === 'recommended').length
+    render(<StepComponents />)
+    const choose = screen.getByTestId('tab-choose')
+    expect(choose.textContent).toMatch(new RegExp(`Choose Your Stack \\(${recommendedCount}\\)`))
+  })
+})
+
+/* ── Tab 1: Choose Your Stack — render + filter ───────────────────── */
+
+describe('Tab 1 (Choose Your Stack) — card grid', () => {
+  it('renders a card for every NON-mandatory catalog entry', () => {
     render(<StepComponents />)
     const grid = screen.getByTestId('component-grid')
-    // One button per component
-    for (const c of ALL_COMPONENTS) {
+    for (const c of NON_MANDATORY) {
       expect(within(grid).getByTestId(`component-card-${c.id}`)).toBeTruthy()
+    }
+  })
+
+  it('does NOT render mandatory cards in Tab 1', () => {
+    render(<StepComponents />)
+    for (const c of MANDATORY) {
+      expect(screen.queryByTestId(`component-card-${c.id}`)).toBeNull()
     }
   })
 
@@ -105,41 +169,50 @@ describe('card grid', () => {
     render(<StepComponents />)
     const counter = screen.getByTestId('selected-counter')
     const expected = computeDefaultSelection().length
-    expect(counter.textContent).toMatch(new RegExp(`Selected \\(${expected}\\) of ${ALL_COMPONENTS.length}`))
+    expect(counter.textContent).toMatch(
+      new RegExp(`Selected \\(${expected}\\) of ${ALL_COMPONENTS.length}`),
+    )
   })
 
   it('renders an "Includes:" hint for components with dependencies', () => {
     render(<StepComponents />)
-    expect(screen.getByTestId('includes-harbor').textContent).toMatch(/Includes:/)
-    expect(screen.getByTestId('includes-harbor').textContent).toMatch(/CloudNative PG/)
+    // langfuse is non-mandatory and has deps (cnpg) — visible in Tab 1
+    expect(screen.getByTestId('includes-langfuse').textContent).toMatch(/Includes:/)
+    expect(screen.getByTestId('includes-langfuse').textContent).toMatch(/CloudNative PG/)
   })
 
-  it('mandatory cards carry a MANDATORY tier badge', () => {
+  it('non-mandatory cards carry a recommended/optional tier badge', () => {
     render(<StepComponents />)
-    expect(screen.getByTestId('tier-flux').textContent).toMatch(/MANDATORY/)
-    expect(screen.getByTestId('tier-cilium').textContent).toMatch(/MANDATORY/)
+    expect(screen.getByTestId('tier-grafana').textContent).toMatch(/RECOMMENDED/)
+    expect(screen.getByTestId('tier-clickhouse').textContent).toMatch(/OPTIONAL/)
+  })
+
+  it('renders an <img> logo for each non-mandatory card', () => {
+    render(<StepComponents />)
+    expect(screen.getByTestId('logo-grafana')).toBeTruthy()
+    expect(screen.getByTestId('logo-grafana').getAttribute('src')).toBe('/component-logos/grafana.svg')
   })
 })
 
-/* ── Search filter ────────────────────────────────────────────────── */
+/* ── Search filter (Tab 1) ────────────────────────────────────────── */
 
-describe('search filter', () => {
+describe('Tab 1 — search filter', () => {
   it('narrows visible cards to matching name / description', () => {
     render(<StepComponents />)
     const input = screen.getByTestId('component-search') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'harbor' } })
-    expect(screen.getByTestId('component-card-harbor')).toBeTruthy()
-    expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
-    expect(screen.queryByTestId('component-card-grafana')).toBeNull()
+    fireEvent.change(input, { target: { value: 'grafana' } })
+    expect(screen.getByTestId('component-card-grafana')).toBeTruthy()
+    expect(screen.queryByTestId('component-card-clickhouse')).toBeNull()
+    expect(screen.queryByTestId('component-card-langfuse')).toBeNull()
   })
 
   it('matches against group name (e.g. "fabric")', () => {
     render(<StepComponents />)
     const input = screen.getByTestId('component-search') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'fabric' } })
+    // cnpg is recommended (non-mandatory) and lives in fabric
     expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
-    expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
-    expect(screen.queryByTestId('component-card-flux')).toBeNull()
+    expect(screen.queryByTestId('component-card-grafana')).toBeNull()
   })
 
   it('shows the empty-state when nothing matches', () => {
@@ -150,99 +223,63 @@ describe('search filter', () => {
   })
 })
 
-/* ── Category filter ──────────────────────────────────────────────── */
+/* ── Category filter (Tab 1) ──────────────────────────────────────── */
 
-describe('category filter', () => {
-  it('renders one chip per group + an "All" chip', () => {
+describe('Tab 1 — category filter', () => {
+  it('renders an "All" chip plus chips for groups with at least one non-mandatory', () => {
     render(<StepComponents />)
     expect(screen.getByTestId('category-chip-all')).toBeTruthy()
-    for (const id of ['pilot', 'spine', 'surge', 'silo', 'guardian', 'insights', 'fabric', 'cortex', 'relay']) {
+    // Groups that have at least one recommended/optional entry
+    const groupsWithChoose = new Set(NON_MANDATORY.map((c) => c.groupId))
+    for (const id of groupsWithChoose) {
       expect(screen.getByTestId(`category-chip-${id}`)).toBeTruthy()
     }
   })
 
   it('clicking a category chip narrows the grid to that group', () => {
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('category-chip-pilot'))
-    // Pilot has flux, crossplane, gitea, opentofu, vcluster
-    expect(screen.getByTestId('component-card-flux')).toBeTruthy()
-    expect(screen.getByTestId('component-card-vcluster')).toBeTruthy()
-    expect(screen.queryByTestId('component-card-cilium')).toBeNull()
-    expect(screen.queryByTestId('component-card-harbor')).toBeNull()
+    fireEvent.click(screen.getByTestId('category-chip-fabric'))
+    // Fabric non-mandatories include cnpg, valkey, strimzi, debezium, …
+    expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
+    expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
+    expect(screen.queryByTestId('component-card-grafana')).toBeNull()
   })
 
   it('toggling the same chip a second time clears the filter', () => {
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('category-chip-pilot'))
-    fireEvent.click(screen.getByTestId('category-chip-pilot'))
-    expect(screen.getByTestId('component-card-cilium')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('category-chip-fabric'))
+    fireEvent.click(screen.getByTestId('category-chip-fabric'))
+    expect(screen.getByTestId('component-card-grafana')).toBeTruthy()
   })
 })
 
 /* ── Sort: selected first ─────────────────────────────────────────── */
 
-describe('sort: selected first', () => {
+describe('Tab 1 — sort: selected first', () => {
   it('selected components float to the top of the grid', () => {
-    // Empty selection so we can pick known optional components and verify
-    // they jump to the top after selection.
     resetStore({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     render(<StepComponents />)
-
-    // Filter to FABRIC so the assertion is small + deterministic
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-
-    // Pick an optional: clickhouse
     fireEvent.click(screen.getByTestId('component-card-clickhouse'))
-
-    // Re-query the grid in DOM order and assert clickhouse is first
     const grid = screen.getByTestId('component-grid')
     const cards = within(grid).getAllByRole('button')
-    const ids = cards.map(c => c.getAttribute('data-testid'))
+    const ids = cards.map((c) => c.getAttribute('data-testid'))
     expect(ids[0]).toBe('component-card-clickhouse')
-  })
-})
-
-/* ── Mandatory rejection ──────────────────────────────────────────── */
-
-describe('mandatory cards', () => {
-  it('clicking a mandatory card never removes it', () => {
-    render(<StepComponents />)
-    const before = useWizardStore.getState().selectedComponents.includes('flux')
-    expect(before).toBe(true)
-    fireEvent.click(screen.getByTestId('component-card-flux'))
-    const after = useWizardStore.getState().selectedComponents.includes('flux')
-    expect(after).toBe(true)
-  })
-
-  it('clicking a mandatory card emits a "mandatory" toast', () => {
-    render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('component-card-flux'))
-    const toast = screen.getByTestId('toast-mandatory')
-    expect(toast.textContent).toMatch(/Flux CD is mandatory/i)
   })
 })
 
 /* ── Cascading add ────────────────────────────────────────────────── */
 
 describe('cascading add', () => {
-  it('selecting Harbor adds cnpg + seaweedfs + valkey', () => {
-    // Reset to mandatories only — Harbor is mandatory in the catalog so
-    // we have to remove it via an internal raw-state set, then re-add via
-    // the action to exercise the cascade. Simpler: pick a non-mandatory
-    // component with deps. clickhouse has no deps, but ferretdb depends
-    // on cnpg only — let's pick milvus (deps: seaweedfs).
-    resetStore({ selectedComponents: [...MANDATORY_COMPONENT_IDS].filter(id => id !== 'harbor').sort() })
-    // Drop seaweedfs (it's mandatory so we have to bypass the action)
-    useWizardStore.setState({ selectedComponents: useWizardStore.getState().selectedComponents.filter(id => id !== 'seaweedfs' && id !== 'milvus') })
-
+  it('selecting a non-mandatory component adds its deps via the store', () => {
+    useWizardStore.setState({ selectedComponents: [] })
     useWizardStore.getState().addComponent('milvus')
     const sel = useWizardStore.getState().selectedComponents
     expect(sel).toContain('milvus')
     expect(sel).toContain('seaweedfs')
   })
 
-  it('selecting Harbor (raw store call) cascades to cnpg + seaweedfs + valkey', () => {
-    // Strip everything to nothing, then ask the store to add harbor.
+  it('store cascades Harbor → cnpg + seaweedfs + valkey', () => {
     useWizardStore.setState({ selectedComponents: [] })
     useWizardStore.getState().addComponent('harbor')
     const sel = useWizardStore.getState().selectedComponents
@@ -254,7 +291,11 @@ describe('cascading add', () => {
 
   it('UI emits a single toast announcing the cascade', () => {
     // Strip optional deps so cascade actually fires
-    useWizardStore.setState({ selectedComponents: useWizardStore.getState().selectedComponents.filter(id => !['langfuse', 'cnpg'].includes(id)) })
+    useWizardStore.setState({
+      selectedComponents: useWizardStore.getState().selectedComponents.filter(
+        (id) => !['langfuse', 'cnpg'].includes(id),
+      ),
+    })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('component-card-langfuse'))
     const toast = screen.getByTestId('toast-added')
@@ -275,20 +316,19 @@ describe('cascading add', () => {
 
 describe('cascading remove', () => {
   it('opens a confirm dialog when removing a component with dependents', () => {
-    // cnpg is recommended (not mandatory) so removable. Default state has
-    // both cnpg and gitea (gitea depends on cnpg).
     useWizardStore.setState({
-      selectedComponents: [...new Set([
-        ...useWizardStore.getState().selectedComponents,
-        'cnpg', 'gitea',
-      ])].sort(),
+      selectedComponents: [
+        ...new Set([
+          ...useWizardStore.getState().selectedComponents,
+          'cnpg',
+          'gitea',
+        ]),
+      ].sort(),
     })
     render(<StepComponents />)
-    // Filter to fabric so cnpg is visible and easy to find
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
     fireEvent.click(screen.getByTestId('component-card-cnpg'))
     expect(screen.getByTestId('cascade-dialog')).toBeTruthy()
-    // The dialog must list at least one dependent
     const list = screen.getByTestId('cascade-dependents')
     expect(list.textContent).toMatch(/Gitea|Harbor|Keycloak/)
   })
@@ -303,7 +343,6 @@ describe('cascading remove', () => {
   })
 
   it('confirm cascades through the impact set', () => {
-    // Build a tight scenario: only optional/recommended ids that depend on cnpg
     useWizardStore.setState({
       selectedComponents: ['cnpg', 'langfuse', 'librechat', 'matrix', 'temporal'].sort(),
     })
@@ -320,9 +359,6 @@ describe('cascading remove', () => {
   })
 
   it('mandatory components are NEVER removed even via cascade', () => {
-    // gitea + harbor are mandatory and depend on cnpg. If user confirms
-    // removing cnpg, those mandatory dependents must stay; non-mandatory
-    // dependents (keycloak, langfuse, …) cascade out.
     useWizardStore.setState({
       selectedComponents: [...computeDefaultSelection()].sort(),
     })
@@ -345,12 +381,103 @@ describe('cascading remove', () => {
   })
 })
 
+/* ── Tab 2: Always Included ───────────────────────────────────────── */
+
+describe('Tab 2 (Always Included) — read-only mandatory grid', () => {
+  it('renders a card for every mandatory component', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const tab = screen.getByTestId('always-included-tab')
+    for (const c of MANDATORY) {
+      expect(within(tab).getByTestId(`component-card-${c.id}`)).toBeTruthy()
+    }
+  })
+
+  it('does NOT render any non-mandatory components', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const tab = screen.getByTestId('always-included-tab')
+    for (const c of NON_MANDATORY) {
+      expect(within(tab).queryByTestId(`component-card-${c.id}`)).toBeNull()
+    }
+  })
+
+  it('groups mandatory components by product', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    // Every group that has at least one mandatory has a section header
+    for (const g of GROUPS) {
+      const hasMandatory = g.components.some((c) => c.tier === 'mandatory')
+      if (hasMandatory) {
+        expect(screen.getByTestId(`always-included-section-${g.id}`)).toBeTruthy()
+      }
+    }
+  })
+
+  it('groups with zero mandatories are NOT rendered as sections', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    for (const g of GROUPS) {
+      const hasMandatory = g.components.some((c) => c.tier === 'mandatory')
+      if (!hasMandatory) {
+        expect(screen.queryByTestId(`always-included-section-${g.id}`)).toBeNull()
+      }
+    }
+  })
+
+  it('has no search input', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.queryByTestId('component-search')).toBeNull()
+  })
+
+  it('has no category chips', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.queryByTestId('category-chips')).toBeNull()
+  })
+
+  it('mandatory cards render an INFRASTRUCTURE pill (not MANDATORY)', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const tier = screen.getByTestId('tier-flux')
+    expect(tier.textContent).toMatch(/INFRASTRUCTURE/)
+    expect(tier.textContent).not.toMatch(/MANDATORY/)
+  })
+
+  it('cards have NO toggle button', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.queryByTestId('toggle-flux')).toBeNull()
+  })
+
+  it('renders the foundational-platform blurb at the top', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.getByTestId('always-included-blurb').textContent).toMatch(
+      /platform components run on every Sovereign/i,
+    )
+  })
+
+  it('clicking a mandatory card never adds/removes it', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const before = useWizardStore.getState().selectedComponents.includes('flux')
+    fireEvent.click(screen.getByTestId('component-card-flux'))
+    const after = useWizardStore.getState().selectedComponents.includes('flux')
+    expect(before).toBe(true)
+    expect(after).toBe(true)
+    // No mandatory toast either — read-only cards do not push toasts
+    expect(screen.queryByTestId('toast-mandatory')).toBeNull()
+  })
+})
+
 /* ── Store invariants ─────────────────────────────────────────────── */
 
 describe('store invariants', () => {
   it('selectedComponents is always sorted', () => {
     useWizardStore.setState({ selectedComponents: [] })
-    useWizardStore.getState().addComponent('harbor') // adds harbor + cnpg + seaweedfs + valkey
+    useWizardStore.getState().addComponent('harbor')
     const sel = useWizardStore.getState().selectedComponents
     const sortedCopy = [...sel].sort()
     expect(sel).toEqual(sortedCopy)
@@ -373,7 +500,6 @@ describe('store invariants', () => {
     useWizardStore.setState({ selectedComponents: [] })
     useWizardStore.getState().resetSelectedComponentsToDefault()
     const sel = useWizardStore.getState().selectedComponents
-    // Every mandatory id present
     for (const id of MANDATORY_COMPONENT_IDS) {
       expect(sel).toContain(id)
     }
@@ -396,12 +522,11 @@ describe('store invariants', () => {
   })
 })
 
-/* ── Reset to defaults button ─────────────────────────────────────── */
+/* ── Reset to defaults ────────────────────────────────────────────── */
 
 describe('reset to defaults', () => {
   it('clicking the reset button restores the default selection', () => {
     render(<StepComponents />)
-    // Select an optional, then reset
     fireEvent.click(screen.getByTestId('component-card-clickhouse'))
     expect(useWizardStore.getState().selectedComponents).toContain('clickhouse')
     fireEvent.click(screen.getByTestId('reset-defaults'))
@@ -417,8 +542,10 @@ describe('reset to defaults', () => {
 describe('reverse-graph helpers', () => {
   it('resolveTransitiveDependents includes every component that needs cnpg directly or transitively', () => {
     const dependents = resolveTransitiveDependents('cnpg')
-    // Direct dependents
-    for (const id of ['gitea', 'keycloak', 'harbor', 'ferretdb', 'temporal', 'langfuse', 'librechat', 'matrix', 'superset', 'openmeter']) {
+    for (const id of [
+      'gitea', 'keycloak', 'harbor', 'ferretdb', 'temporal',
+      'langfuse', 'librechat', 'matrix', 'superset', 'openmeter',
+    ]) {
       expect(dependents).toContain(id)
     }
   })
@@ -428,8 +555,6 @@ describe('reverse-graph helpers', () => {
   })
 
   it('act() suppresses unhandled promise warnings — sanity', () => {
-    // Smoke test that act() works. Avoids the test-runner flagging this
-    // file as having no tests.
     act(() => undefined)
     expect(true).toBe(true)
   })

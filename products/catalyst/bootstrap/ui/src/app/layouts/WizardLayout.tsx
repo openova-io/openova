@@ -32,8 +32,15 @@ export function WizardLayout() {
     <div className="corp-body">
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="corp-header">
-        <Link to={IS_SAAS ? '/app/dashboard' : '/'} className="corp-logo">
-          <OOLogo h={22} id="wiz-logo" />
+        {/* Brand mark — 32px target height per issue #162 spec.
+            The route `/` redirects to the wizard home for non-SaaS;
+            for SaaS it lands on the dashboard from where the wizard
+            is reachable. The canonical brand SVG is also vendored at
+            /openova-logo.svg under the wizard's public dir, so the
+            same mark can be used by static pages (e.g. provision.html)
+            that don't run React. */}
+        <Link to={IS_SAAS ? '/app/dashboard' : '/'} className="corp-logo" data-testid="wizard-logo">
+          <OOLogo h={32} id="wiz-logo" />
           <div className="corp-brand">
             <div className="corp-brand-primary">OpenOva</div>
             <div className="corp-brand-secondary">Corporate</div>
