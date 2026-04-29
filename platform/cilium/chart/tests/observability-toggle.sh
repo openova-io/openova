@@ -33,8 +33,16 @@ trap 'rm -rf "$TMP"' EXIT
 
 cd "$CHART_DIR"
 
-# Resolve subcharts (idempotent — uses Chart.lock if present).
-helm dependency build >/dev/null
+# Resolve subcharts only if not already vendored. CI's earlier
+# `helm dependency build` step (in blueprint-release.yaml) populates
+# chart/charts/ before this test runs, and re-running `helm dep build`
+# from inside the test step fails on a CI runner that hasn't `helm repo
+# add`-ed the upstream chart repo. Locally, dev runs invoke this test
+# from a fresh worktree where chart/charts/ is empty — so we still
+# resolve when needed.
+if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
+  helm dependency build >/dev/null
+fi
 
 # ── Case 1: default render must NOT contain monitoring.coreos.com ────────
 echo "[observability-toggle] Case 1: default render produces no ServiceMonitor"

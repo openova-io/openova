@@ -16,7 +16,12 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 cd "$CHART_DIR"
-helm dependency build >/dev/null
+# See bp-cilium tests/observability-toggle.sh for rationale: skip helm
+# dep build when charts/ is already vendored (CI populates it before
+# this step runs, and re-running on CI without `helm repo add` fails).
+if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
+  helm dependency build >/dev/null
+fi
 
 echo "[observability-toggle] Case 1: default render produces no ServiceMonitor"
 helm template smoke-cm . > "$TMP/default.yaml"
