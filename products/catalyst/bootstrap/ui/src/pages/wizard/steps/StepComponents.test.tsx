@@ -100,22 +100,30 @@ describe('component catalog', () => {
     }
   })
 
-  it('every component without an explicit override carries the default logoUrl `/component-logos/<id>.svg`', () => {
-    // In Vitest BASE_URL is `/`, so basePath() emits `/component-logos/<id>.svg`.
+  it('every component carries an upstream brand mark or an explicit fallback', () => {
+    // In Vitest BASE_URL is `/`, so basePath() emits `/component-logos/<id>.<ext>`.
     // In production Vite injects BASE_URL=/sovereign/ at build time and the
-    // same expression emits `/sovereign/component-logos/<id>.svg`.
+    // same expression emits `/sovereign/component-logos/<id>.<ext>`. Most
+    // upstream projects ship an SVG; a few (Loki, Mimir, Tempo, Trivy,
+    // ntfy, NetBird, …) only publish PNG-form brand marks, in which case
+    // the component sets `logoUrl` explicitly to the .png path.
     for (const c of ALL_COMPONENTS) {
-      if (c.logoUrl === null) continue // explicit fallback (e.g. powerdns)
-      expect(c.logoUrl).toBe(`/component-logos/${c.id}.svg`)
+      if (c.logoUrl === null) continue // explicit letter-mark fallback
+      expect(c.logoUrl).toMatch(
+        new RegExp(`^/component-logos/${c.id}\\.(svg|png)$`),
+      )
     }
   })
 
   it('components flagged with logoUrl: null fall back to the letter-mark', () => {
-    // PowerDNS has no upstream brand mark — it should render via IconFallback,
-    // not an <img> element. Verified at the data layer + render layer.
-    const powerdns = findComponent('powerdns')
-    expect(powerdns).toBeTruthy()
-    expect(powerdns!.logoUrl).toBeNull()
+    // PowerDNS, BGE, and the OpenOva-internal Axon / Continuum / Specter
+    // components have no upstream brand mark suitable for the card — they
+    // render via IconFallback, not an <img> element.
+    for (const id of ['powerdns', 'bge', 'axon', 'continuum', 'specter']) {
+      const entry = findComponent(id)
+      expect(entry).toBeTruthy()
+      expect(entry!.logoUrl).toBeNull()
+    }
   })
 })
 

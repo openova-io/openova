@@ -35,8 +35,14 @@
  * (un-promoted) list is preserved in `RAW_COMPONENTS` for tests.
  *
  * ── Logo path convention (#173) ──────────────────────────────────────
- * Brand SVGs are vendored under
- *   `products/catalyst/bootstrap/ui/public/component-logos/<id>.svg`.
+ * Brand assets are vendored under
+ *   `products/catalyst/bootstrap/ui/public/component-logos/<id>.{svg,png}`.
+ * Each card renders the canonical upstream brand mark — the file under
+ * public/ is sourced directly from the project's official artwork
+ * (CNCF artwork repo or the project's own repository). When an upstream
+ * publishes only a raster mark, the file is `<id>.png` and the
+ * component sets `logoUrl` explicitly to override the SVG default.
+ *
  * The UI is mounted at the Vite `base` path (`/sovereign/` in prod, `/`
  * in dev / test). To stay base-aware without hardcoding `/sovereign/`
  * (INVIOLABLE PRINCIPLE #4) every default logo URL is derived from
@@ -44,9 +50,12 @@
  * `import.meta.env.BASE_URL`. Change `base` in vite.config and every
  * logo URL follows automatically.
  *
- * `logoUrl: null` disables the SVG and renders the letter-mark fallback
- * (`IconFallback` in StepComponents.tsx). Use this for components with
- * no upstream brand SVG suitable for a square card tile.
+ * `logoUrl: null` disables the asset and renders the letter-mark fallback
+ * (`IconFallback` in StepComponents.tsx). Reserved for components with
+ * no upstream brand mark suitable for a square card tile (e.g. PowerDNS,
+ * BGE — a model-family identifier rather than a branded product — and
+ * the OpenOva-internal Axon / Continuum / Specter components whose
+ * brand marks are not yet finalized).
  */
 
 import { path as basePath } from '@/shared/config/urls'
@@ -76,13 +85,15 @@ export interface ComponentDef {
    */
   dependencies?: string[]
   /**
-   * URL to the brand logo SVG vendored under
-   * `products/catalyst/bootstrap/ui/public/component-logos/<id>.svg`.
-   * Defaults to `/component-logos/<id>.svg` per id when omitted.
-   * `null` means no upstream logo and the wizard will render the
-   * letter-mark fallback. Per INVIOLABLE-PRINCIPLES #4 the value is
-   * configuration, not code — swap the file under public/ to change
-   * the rendered logo without touching application source.
+   * URL to the brand asset vendored under
+   * `products/catalyst/bootstrap/ui/public/component-logos/<id>.{svg,png}`.
+   * Defaults to `/component-logos/<id>.svg` per id when omitted. Set
+   * explicitly when the upstream ships a PNG-only mark (e.g. Tempo,
+   * Loki, Mimir). `null` means no upstream brand mark suitable for the
+   * card and the wizard will render the letter-mark fallback. Per
+   * INVIOLABLE-PRINCIPLES #4 the value is configuration, not code — swap
+   * the file under public/ to change the rendered logo without touching
+   * application source.
    */
   logoUrl?: string | null
 }
@@ -173,18 +184,18 @@ export const GROUPS: GroupDef[] = [
     required: true,
     components: [
       { id: 'cilium',       name: 'Cilium',       desc: 'CNI & eBPF service mesh',                                  tier: 'mandatory',   dependencies: [] },
-      { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',                              tier: 'mandatory',   dependencies: [] },
+      { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',                              tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/coraza.png') },
       // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
       // Lua-records (ifurlup, pickclosest, ifportup) cover geo + health-checked failover
       // natively — see docs/MULTI-REGION-DNS.md for the failover patterns.
       // PowerDNS has no single-glyph upstream brand mark suitable for a
       // square card tile — render the letter-mark fallback instead (#173).
       { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records', tier: 'mandatory',   dependencies: ['cnpg'], logoUrl: null },
-      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'] },
+      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'], logoUrl: basePath('component-logos/external-dns.png') },
       { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                                                 tier: 'mandatory',   dependencies: [] },
       { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                                           tier: 'recommended', dependencies: [] },
-      { id: 'netbird',      name: 'NetBird',      desc: 'Mesh VPN',                                                 tier: 'mandatory',   dependencies: [] },
-      { id: 'strongswan',   name: 'strongSwan',   desc: 'IPsec gateway',                                            tier: 'optional',    dependencies: [] },
+      { id: 'netbird',      name: 'NetBird',      desc: 'Mesh VPN',                                                 tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/netbird.png') },
+      { id: 'strongswan',   name: 'strongSwan',   desc: 'IPsec gateway',                                            tier: 'optional',    dependencies: [], logoUrl: basePath('component-logos/strongswan.png') },
     ],
   },
   {
@@ -195,7 +206,9 @@ export const GROUPS: GroupDef[] = [
       { id: 'vpa',       name: 'VPA',       desc: 'Vertical pod autoscaling',  tier: 'mandatory',   dependencies: [] },
       { id: 'keda',      name: 'KEDA',      desc: 'Event-driven autoscaling',  tier: 'mandatory',   dependencies: [] },
       { id: 'reloader',  name: 'Reloader',  desc: 'Config-change pod reload',  tier: 'mandatory',   dependencies: [] },
-      { id: 'continuum', name: 'Continuum', desc: 'HA orchestration',          tier: 'recommended', dependencies: [] },
+      // Continuum is an OpenOva-internal component without a finalized
+      // upstream brand mark — render the letter-mark fallback (#173).
+      { id: 'continuum', name: 'Continuum', desc: 'HA orchestration',          tier: 'recommended', dependencies: [], logoUrl: null },
     ],
   },
   {
@@ -216,8 +229,8 @@ export const GROUPS: GroupDef[] = [
     components: [
       { id: 'falco',            name: 'Falco',           desc: 'Runtime threat detection',     tier: 'recommended', dependencies: [] },
       { id: 'kyverno',          name: 'Kyverno',         desc: 'Policy as code',               tier: 'mandatory',   dependencies: [] },
-      { id: 'trivy',            name: 'Trivy',           desc: 'Vulnerability scanning',       tier: 'recommended', dependencies: [] },
-      { id: 'syft-grype',       name: 'Syft + Grype',    desc: 'SBOM & CVE analysis',          tier: 'recommended', dependencies: [] },
+      { id: 'trivy',            name: 'Trivy',           desc: 'Vulnerability scanning',       tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/trivy.png') },
+      { id: 'syft-grype',       name: 'Syft + Grype',    desc: 'SBOM & CVE analysis',          tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/syft-grype.png') },
       { id: 'sigstore',         name: 'Sigstore',        desc: 'Supply chain trust',           tier: 'recommended', dependencies: [] },
       { id: 'keycloak',         name: 'Keycloak',        desc: 'Identity & access management', tier: 'recommended', dependencies: ['cnpg'] },
       { id: 'openbao',          name: 'OpenBao',         desc: 'Secrets vault',                tier: 'mandatory',   dependencies: [] },
@@ -233,12 +246,12 @@ export const GROUPS: GroupDef[] = [
       { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',      tier: 'recommended', dependencies: ['seaweedfs'] },
       { id: 'opentelemetry', name: 'OpenTelemetry', desc: 'Unified telemetry pipeline', tier: 'recommended', dependencies: [] },
       { id: 'alloy',         name: 'Alloy',         desc: 'Telemetry agent',            tier: 'recommended', dependencies: [] },
-      { id: 'loki',          name: 'Loki',          desc: 'Log aggregation',            tier: 'recommended', dependencies: ['seaweedfs'] },
-      { id: 'mimir',         name: 'Mimir',         desc: 'Metrics store',              tier: 'recommended', dependencies: ['seaweedfs'] },
-      { id: 'tempo',         name: 'Tempo',         desc: 'Distributed tracing',        tier: 'recommended', dependencies: ['seaweedfs'] },
+      { id: 'loki',          name: 'Loki',          desc: 'Log aggregation',            tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/loki.png') },
+      { id: 'mimir',         name: 'Mimir',         desc: 'Metrics store',              tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
+      { id: 'tempo',         name: 'Tempo',         desc: 'Distributed tracing',        tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/tempo.png') },
       { id: 'opensearch',    name: 'OpenSearch',    desc: 'Search & analytics',         tier: 'recommended', dependencies: [] },
       { id: 'litmus',        name: 'Litmus',        desc: 'Chaos engineering',          tier: 'optional',    dependencies: [] },
-      { id: 'openmeter',     name: 'OpenMeter',     desc: 'Usage metering',             tier: 'optional',    dependencies: ['cnpg'] },
+      { id: 'openmeter',     name: 'OpenMeter',     desc: 'Usage metering',             tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
       // Specter — AIOps brain (anomaly + correlation). Per operator's
       // dependency-model feedback (issue #175): Specter requires the
       // entire CORTEX family at runtime — vector store (Milvus),
@@ -251,7 +264,9 @@ export const GROUPS: GroupDef[] = [
       // the store's `addComponent` path). Result: selecting Specter adds
       // the full CORTEX family even if the user never opens the CORTEX
       // chip.
-      { id: 'specter',       name: 'Specter',       desc: 'AIOps brain',                tier: 'optional',    dependencies: ['bge', 'milvus', 'langfuse', 'vllm', 'kserve'] },
+      // Specter is an OpenOva-internal component without a finalized
+      // upstream brand mark — render the letter-mark fallback (#173).
+      { id: 'specter',       name: 'Specter',       desc: 'AIOps brain',                tier: 'optional',    dependencies: ['bge', 'milvus', 'langfuse', 'vllm', 'kserve'], logoUrl: null },
     ],
   },
   /* ── À LA CARTE ───────────────────────────────────────────────── */
@@ -267,7 +282,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'flink',      name: 'Apache Flink',   desc: 'Stream processing',          tier: 'optional',    dependencies: [] },
       { id: 'temporal',   name: 'Temporal',       desc: 'Workflow orchestration',     tier: 'optional',    dependencies: ['cnpg'] },
       { id: 'clickhouse', name: 'ClickHouse',     desc: 'Analytics database',         tier: 'optional',    dependencies: [] },
-      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB-compatible DB',      tier: 'optional',    dependencies: ['cnpg'] },
+      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB-compatible DB',      tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/ferretdb.png') },
       { id: 'iceberg',    name: 'Iceberg',        desc: 'Data lakehouse format',      tier: 'optional',    dependencies: ['seaweedfs'] },
       { id: 'superset',   name: 'Superset',       desc: 'BI & dashboards',            tier: 'optional',    dependencies: ['cnpg'] },
     ],
@@ -290,12 +305,16 @@ export const GROUPS: GroupDef[] = [
       // family dependency).
       { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform',      tier: 'mandatory', dependencies: [] },
       { id: 'knative',   name: 'Knative',   desc: 'Serverless runtime',          tier: 'optional',  dependencies: [] },
-      { id: 'axon',      name: 'Axon',      desc: 'LLM gateway (SaaS)',          tier: 'recommended', dependencies: [] },
+      // Axon is an OpenOva-internal component without a finalized
+      // upstream brand mark — render the letter-mark fallback (#173).
+      { id: 'axon',      name: 'Axon',      desc: 'LLM gateway (SaaS)',          tier: 'recommended', dependencies: [], logoUrl: null },
       { id: 'neo4j',     name: 'Neo4j',     desc: 'Graph database',              tier: 'optional',  dependencies: [] },
-      { id: 'vllm',      name: 'vLLM',      desc: 'LLM inference engine',        tier: 'optional',  dependencies: [] },
+      { id: 'vllm',      name: 'vLLM',      desc: 'LLM inference engine',        tier: 'optional',  dependencies: [], logoUrl: basePath('component-logos/vllm.png') },
       { id: 'milvus',    name: 'Milvus',    desc: 'Vector database',             tier: 'optional',  dependencies: ['seaweedfs'] },
-      { id: 'bge',       name: 'BGE',       desc: 'Embedding model server',      tier: 'optional',  dependencies: [] },
-      { id: 'langfuse',  name: 'LangFuse',  desc: 'LLM observability & tracing', tier: 'optional',  dependencies: ['cnpg'] },
+      // BGE is a model-family identifier (BAAI General Embedding) rather
+      // than a branded product — render the letter-mark fallback (#173).
+      { id: 'bge',       name: 'BGE',       desc: 'Embedding model server',      tier: 'optional',  dependencies: [], logoUrl: null },
+      { id: 'langfuse',  name: 'LangFuse',  desc: 'LLM observability & tracing', tier: 'optional',  dependencies: ['cnpg'], logoUrl: basePath('component-logos/langfuse.png') },
       { id: 'librechat', name: 'LibreChat', desc: 'AI chat interface',           tier: 'optional',  dependencies: ['cnpg'] },
     ],
   },
@@ -308,7 +327,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC video & audio',         tier: 'recommended', dependencies: [] },
       { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes TURN/STUN gateway', tier: 'recommended', dependencies: [] },
       { id: 'matrix',   name: 'Matrix',   desc: 'Federated messaging',          tier: 'optional',    dependencies: ['cnpg'] },
-      { id: 'ntfy',     name: 'Ntfy',     desc: 'Push notifications',           tier: 'optional',    dependencies: [] },
+      { id: 'ntfy',     name: 'Ntfy',     desc: 'Push notifications',           tier: 'optional',    dependencies: [], logoUrl: basePath('component-logos/ntfy.png') },
     ],
   },
 ]
