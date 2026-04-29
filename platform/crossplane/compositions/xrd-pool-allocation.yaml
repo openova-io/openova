@@ -1,0 +1,128 @@
+# XRD: XDynadotPoolAllocation — Crossplane wrapper over pool-domain-manager.
+#
+# The PDM HTTP API (introduced in #163) is the SOLE caller of api.dynadot.com
+# in the OpenOva fleet. Most call paths go via catalyst-api during the
+# wizard's lifecycle. This XR exists for the operator-driven path: an
+# operator who wants to PRE-allocate a name (e.g. reserve `omantel.omani.works`
+# for a Sovereign that hasn't been provisioned yet) commits a YAML to Git
+# and Crossplane converges PDM to match.
+#
+# Per docs/BLUEPRINT-AUTHORING.md §8 the canonical XRD group is
+# compose.openova.io/v1alpha1 — NOT catalyst.openova.io.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #3 this Composition is the
+# ONLY way operators declaratively manage pool allocations. The wizard's
+# imperative path (catalyst-api → PDM HTTP) and this declarative path both
+# write to the same PDM database — there is one source of truth.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #4 every value
+# (poolDomain, subdomain, sovereignFQDN, loadBalancerIP) is a schema field —
+# no hardcoded names.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xdynadotpoolallocations.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: pool-domain-manager
+spec:
+  group: compose.openova.io
+  names:
+    kind: XDynadotPoolAllocation
+    plural: xdynadotpoolallocations
+  claimNames:
+    kind: DynadotPoolAllocation
+    plural: dynadotpoolallocations
+  defaultCompositionRef:
+    name: dynadot-pool-allocation.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [poolDomain, subdomain, sovereignFQDN, loadBalancerIP]
+                  properties:
+                    poolDomain:
+                      type: string
+                      description: |
+                        OpenOva-managed pool domain (e.g. omani.works,
+                        openova.io). Must appear in PDM's runtime
+                        DYNADOT_MANAGED_DOMAINS env var or the Composition
+                        will fail to reserve.
+                      pattern: '^[a-z0-9][a-z0-9.-]+[a-z0-9]$'
+                    subdomain:
+                      type: string
+                      description: |
+                        Single RFC 1035 label (a-z, 0-9, hyphens). The
+                        Composition reserves '<subdomain>.<poolDomain>' in
+                        PDM and writes the canonical 6-record set to
+                        Dynadot at commit time.
+                      pattern: '^[a-z][a-z0-9-]{0,61}[a-z0-9]$'
+                    sovereignFQDN:
+                      type: string
+                      description: |
+                        Final FQDN the Sovereign answers on. Usually
+                        '<subdomain>.<poolDomain>' but can differ for
+                        operator-staged migrations.
+                    loadBalancerIP:
+                      type: string
+                      description: |
+                        IPv4 of the Hetzner Load Balancer that fronts the
+                        Sovereign. Operator obtains this from the prior
+                        XHetznerLoadBalancer status.loadBalancerIP.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+                    createdBy:
+                      type: string
+                      description: |
+                        Audit-trail string written into pool_allocations.
+                        Defaults to 'crossplane' when omitted.
+                  description: |
+                    PDM allocation parameters. The full lifecycle (reserve →
+                    commit) is encoded in the Composition; the operator only
+                    needs to supply these four fields plus the optional
+                    audit-trail attribution.
+            status:
+              type: object
+              properties:
+                state:
+                  type: string
+                  description: PDM-reported state (reserved | active).
+                  enum: [reserved, active]
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: TTL deadline when state=reserved.
+                reservationToken:
+                  type: string
+                  format: uuid
+                  description: |
+                    Returned by /reserve; consumed by /commit. Operators
+                    don't typically read this — Crossplane chains the calls
+                    automatically — but it is exposed for debugging.
+      additionalPrinterColumns:
+        - name: POOL
+          type: string
+          jsonPath: .spec.parameters.poolDomain
+        - name: SUBDOMAIN
+          type: string
+          jsonPath: .spec.parameters.subdomain
+        - name: STATE
+          type: string
+          jsonPath: .status.state
+        - name: LB-IP
+          type: string
+          jsonPath: .spec.parameters.loadBalancerIP
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp
