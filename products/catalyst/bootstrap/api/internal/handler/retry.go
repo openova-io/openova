@@ -142,6 +142,12 @@ func (h *Handler) retryPhase0(w http.ResponseWriter, dep *Deployment, phase stri
 	dep.FinishedAt = time.Time{}
 	dep.mu.Unlock()
 
+	// Persist the retry-init state — a Pod restart between this point
+	// and the first goroutine emit otherwise leaves the on-disk record
+	// at "failed" from the previous run, so the wizard's Retry click
+	// would silently no-op from the user's view.
+	h.persistDeployment(dep)
+
 	go h.runProvisioningRetry(dep, phase)
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -185,7 +191,7 @@ func (h *Handler) retryPhase1(w http.ResponseWriter, dep *Deployment, phase stri
 				"on the new Sovereign's kube-context. See docs/RUNBOOK-PROVISIONING.md " +
 				"§Rollback-procedures-per-phase for the full procedure.",
 		}
-		recorded := dep.recordEvent(ev)
+		recorded := h.recordEventAndPersist(dep, ev)
 		select {
 		case dep.eventsCh <- recorded:
 		default:
@@ -215,7 +221,11 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 	go func() {
 		defer close(teeDone)
 		for ev := range producer {
-			recorded := dep.recordEvent(ev)
+			// Same persistence story as runProvisioning — every retry
+			// event lands on disk so a Pod restart mid-retry still has
+			// the full history (original attempt + retry banner +
+			// whatever the retry produced before the kill).
+			recorded := h.recordEventAndPersist(dep, ev)
 			select {
 			case dep.eventsCh <- recorded:
 			default:
@@ -252,6 +262,8 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 	}
 	dep.mu.Unlock()
 	close(dep.done)
+	// Terminal persist for the retry — same reason as runProvisioning.
+	h.persistDeployment(dep)
 }
 
 // validatePhaseID — exported helper for tests.

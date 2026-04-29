@@ -26,6 +26,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
 // EventBufferCap bounds the per-deployment in-memory event slice. A long-
@@ -129,6 +130,192 @@ func (d *Deployment) isDone() bool {
 	}
 }
 
+// toRecord serializes the deployment for the on-disk store. Caller MUST
+// hold dep.mu — every persistence path (recordEventAndPersist on append,
+// runProvisioning on terminal state, CreateDeployment on row creation,
+// retry handlers on retry-init) calls this under the lock so the
+// snapshot is internally consistent.
+//
+// The credential fields are dropped via store.Redact; see
+// internal/store/store.go for the redaction list. The PDM reservation
+// token is preserved (per-deployment opaque identifier) so a Pod
+// restart in the gap between `tofu apply` returning and PDM /commit
+// can still complete the commit on rehydration.
+func (d *Deployment) toRecord() store.Record {
+	return store.Record{
+		ID:                  d.ID,
+		Status:              d.Status,
+		Request:             store.Redact(d.Request),
+		Result:              d.Result,
+		Error:               d.Error,
+		StartedAt:           d.StartedAt,
+		FinishedAt:          d.FinishedAt,
+		Events:              append([]provisioner.Event(nil), d.eventsBuf...),
+		PDMReservationToken: d.pdmReservationToken,
+		PDMPoolDomain:       d.pdmPoolDomain,
+		PDMSubdomain:        d.pdmSubdomain,
+	}
+}
+
+// fromRecord rehydrates a Deployment from an on-disk record. Used by
+// Handler.restoreFromStore at startup.
+//
+// The eventsCh and done channels are created closed: the runProvisioning
+// goroutine no longer exists for a deployment loaded from disk (the
+// catalyst-api Pod that ran it died), so the SSE replay path must
+// behave as if the deployment is finished. StreamLogs.isDone() is the
+// branch that distinguishes "in-flight, tail the channel" from
+// "completed, replay then emit done"; loaded deployments take the
+// completed branch unconditionally.
+//
+// If the on-disk Status is in-flight ("provisioning" / "tofu-applying"
+// / "pending"), it is rewritten to "failed" with an explanatory error
+// per the architectural requirement: a Pod restart during `tofu apply`
+// orphans real Hetzner resources, and the wizard's FailureCard MUST
+// surface that to the operator instead of showing a stuck progress
+// bar forever. The orphaned resources are listed in the error message
+// so the operator knows where to clean up.
+func fromRecord(rec store.Record) *Deployment {
+	closedCh := make(chan provisioner.Event)
+	closedDone := make(chan struct{})
+	close(closedCh)
+	close(closedDone)
+
+	dep := &Deployment{
+		ID:                  rec.ID,
+		Status:              rec.Status,
+		Request:             rec.Request.ToProvisionerRequest(),
+		Result:              rec.Result,
+		Error:               rec.Error,
+		StartedAt:           rec.StartedAt,
+		FinishedAt:          rec.FinishedAt,
+		eventsCh:            closedCh,
+		eventsBuf:           append([]provisioner.Event(nil), rec.Events...),
+		done:                closedDone,
+		pdmReservationToken: rec.PDMReservationToken,
+		pdmPoolDomain:       rec.PDMPoolDomain,
+		pdmSubdomain:        rec.PDMSubdomain,
+	}
+
+	// In-flight at restart time → failed. The wizard's FailureCard is
+	// the right surface for this state — operator must purge the
+	// orphaned cloud resources by hand because catalyst-api can't
+	// resume an OpenTofu run mid-apply (state-lock + the workdir on
+	// /tmp emptyDir died with the previous Pod).
+	if isInFlightStatus(rec.Status) {
+		dep.Status = "failed"
+		dep.Error = "catalyst-api restarted during provisioning — this deployment was abandoned mid-apply. Hetzner resources tagged with `catalyst-deployment-id=" + rec.ID + "` are orphans and must be purged manually (hcloud server, lb, network, firewall, ssh-key) before retrying. The wizard cannot resume — start a new deployment."
+		dep.FinishedAt = time.Now()
+	}
+	return dep
+}
+
+func isInFlightStatus(s string) bool {
+	switch s {
+	case "pending", "provisioning", "tofu-applying", "flux-bootstrapping":
+		return true
+	}
+	return false
+}
+
+// recordEventAndPersist appends ev to the durable history, persists the
+// deployment to disk under the lock, and returns the event. This is the
+// hot path — every emit goes through here. Persistence is best-effort:
+// if disk write fails (full PVC, unmount), we log and continue. The
+// in-memory state remains authoritative for the live SSE consumer; the
+// on-disk gap is reported through h.log so an operator can spot it.
+//
+// We persist under d.mu so concurrent emits can't tear the on-disk
+// record. The store's own mutex serializes the temp-file rename
+// against any concurrent Save (e.g. the terminal-state Save in
+// runProvisioning racing the last emitted event).
+func (h *Handler) recordEventAndPersist(d *Deployment, ev provisioner.Event) provisioner.Event {
+	d.mu.Lock()
+	if len(d.eventsBuf) >= EventBufferCap {
+		copy(d.eventsBuf, d.eventsBuf[1:])
+		d.eventsBuf = d.eventsBuf[:len(d.eventsBuf)-1]
+	}
+	d.eventsBuf = append(d.eventsBuf, ev)
+	rec := d.toRecord()
+	d.mu.Unlock()
+
+	if h.store != nil {
+		if err := h.store.Save(rec); err != nil {
+			h.log.Warn("persist deployment after event failed",
+				"id", d.ID,
+				"err", err,
+			)
+		}
+	}
+	return ev
+}
+
+// persistDeployment serializes the current state under the lock and
+// writes it. Used at terminal state (runProvisioning end) and at
+// row creation (CreateDeployment). Same best-effort policy as
+// recordEventAndPersist.
+func (h *Handler) persistDeployment(d *Deployment) {
+	if h.store == nil {
+		return
+	}
+	d.mu.Lock()
+	rec := d.toRecord()
+	d.mu.Unlock()
+	if err := h.store.Save(rec); err != nil {
+		h.log.Warn("persist deployment failed",
+			"id", d.ID,
+			"err", err,
+		)
+	}
+}
+
+// restoreFromStore reads every record from h.store and registers each
+// in h.deployments. Called from New() after the store wires up so the
+// catalyst-api process restored from a Pod restart still answers
+// /api/v1/deployments/<id> for every deployment the previous Pod knew
+// about. Per-file decode failures are logged but do not abort the
+// load — the user-facing requirement is "as many deployments as
+// possible recovered" not "all-or-nothing".
+func (h *Handler) restoreFromStore() {
+	if h.store == nil {
+		return
+	}
+	records, err := h.store.LoadAll(func(path string, e error) {
+		h.log.Warn("skipping unreadable deployment record",
+			"path", path,
+			"err", e,
+		)
+	})
+	if err != nil {
+		h.log.Error("restoreFromStore: walk failed; running with empty in-memory state",
+			"err", err,
+		)
+		return
+	}
+
+	for _, rec := range records {
+		dep := fromRecord(rec)
+		h.deployments.Store(dep.ID, dep)
+		// If the load step rewrote a stuck in-flight status to failed,
+		// re-persist so the on-disk state matches what we serve. This
+		// is the architectural promise: the wizard reading
+		// /deployments/<id> after a Pod restart sees a coherent
+		// terminal state, not a ghost still labelled "provisioning".
+		if dep.Status != rec.Status && h.store != nil {
+			if err := h.store.Save(dep.toRecord()); err != nil {
+				h.log.Warn("re-persist rewritten in-flight record failed",
+					"id", dep.ID,
+					"err", err,
+				)
+			}
+		}
+	}
+	h.log.Info("restored deployments from PVC",
+		"count", len(records),
+		"dir", h.store.Dir(),
+	)
+}
+
 // State returns a JSON-safe snapshot for the GET endpoint.
 //
 // numEvents surfaces the buffer size so callers polling /deployments/{id}
@@ -230,6 +417,15 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.deployments.Store(id, dep)
+
+	// Persist the freshly-created deployment row before kicking off
+	// the goroutine. If the catalyst-api Pod is killed in the gap
+	// between Store and the first emit, the next Pod's restoreFromStore
+	// rehydrates it as "failed: catalyst-api restarted during
+	// provisioning" so the wizard's FailureCard renders. Without this
+	// initial Save, the row wouldn't exist on disk yet and the wizard
+	// would see a 404.
+	h.persistDeployment(dep)
 
 	// Capture status before launching the goroutine — runProvisioning races
 	// with this read otherwise (the goroutine takes dep.mu before mutating
@@ -348,7 +544,15 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	go func() {
 		defer close(teeDone)
 		for ev := range producer {
-			recorded := dep.recordEvent(ev)
+			// recordEventAndPersist appends to the durable buffer AND
+			// rewrites the on-disk record. The user-reported regression
+			// (deployment id 5cd1bceaaacb71f6 disappeared after a Pod
+			// restart at 12:57) is closed by this single line: every
+			// event the wizard sees has also hit ext4 by the time the
+			// goroutine moves to the next iteration, so a Pod kill
+			// loses at most the in-flight event the producer hadn't
+			// emitted yet.
+			recorded := h.recordEventAndPersist(dep, ev)
 			// Non-blocking send to the live channel — if no SSE consumer is
 			// attached, the eventsCh buffer (256) absorbs the burst; once
 			// full we drop on the live side ONLY (the durable buffer still
@@ -389,6 +593,15 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	}
 	dep.mu.Unlock()
 	close(dep.done)
+
+	// Terminal-state persist. The recordEventAndPersist loop above
+	// already wrote the last per-event snapshot, but the terminal
+	// status / Result / FinishedAt mutations happen after the producer
+	// channel closed — so we need one more Save to capture them. This
+	// is the line that guarantees a `status: ready` deployment on
+	// disk after a clean run, instead of "still provisioning" frozen
+	// at the last emitted event.
+	h.persistDeployment(dep)
 
 	// PDM lifecycle: on success, /commit with the LB IP; on failure, /release
 	// so the reservation TTL doesn't have to expire to free the name. PDM is

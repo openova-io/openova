@@ -1,0 +1,34 @@
+# PVC backing the catalyst-api flat-file deployment store.
+#
+# One JSON record per deployment id (16-char hex), checked in by the
+# `internal/store` package. 1Gi accommodates several thousand
+# deployment records (each typically <100KB even with a 10k-event
+# tail) — the Catalyst-Zero franchise model targets a few thousand
+# Sovereigns per year per franchise, so a single-digit Gi PVC outlives
+# years of operation. Operators who want longer event retention can
+# bump this without code change.
+#
+# RWO is the right access mode because the catalyst-api Deployment
+# above is single-replica with strategy=Recreate; a rolling update or
+# HA upgrade would need RWX (NFS / CephFS) or a different persistence
+# layer. The PVC is in the same namespace as the Deployment so the
+# claim binding resolves locally.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: catalyst-api-deployments
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: api
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName intentionally omitted — clusters that have a
+  # default StorageClass (Hetzner Cloud Volumes via hcloud-csi, k3s
+  # local-path-provisioner, OpenEBS, ...) bind via the default. Per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 the SC is a runtime parameter,
+  # not a hardcoded code value; operators with a non-default SC can
+  # override via Kustomize patch in their cluster overlay.

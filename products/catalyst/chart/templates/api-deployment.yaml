@@ -7,6 +7,15 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: 1
+  # Recreate strategy is required because the deployments PVC is RWO
+  # (single-attach). A rolling update would try to schedule a second
+  # Pod that mounts the same PVC, which Kubernetes rejects as a
+  # MultiAttachError. RWX with a multi-writer-aware filesystem
+  # (NFS, CephFS) is the path to HA, but Catalyst-Zero today is
+  # single-replica by design — the wizard is interactive and PDM owns
+  # cross-tenant isolation, so a single API server is sufficient.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: catalyst-api
@@ -17,6 +26,21 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
+      # fsGroup applies to the volumes mounted into the Pod so the
+      # non-root container UID (65534) can write to the deployments
+      # PVC. Without this, Hetzner Cloud Volumes default to root:root
+      # and the catalyst-api process gets EACCES on every store.Save —
+      # surfacing as the "deployment store unavailable" warning at
+      # startup and silent persistence failures at runtime.
+      #
+      # fsGroupChangePolicy: OnRootMismatch limits the chown traversal
+      # to first start (where the volume is freshly provisioned with
+      # the wrong UID). Subsequent restarts skip the recursive chown
+      # if the root dir already matches, keeping Pod start times
+      # bounded as the deployments directory grows.
+      securityContext:
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: catalyst-api
           image: ghcr.io/openova-io/openova/catalyst-api:e28b169
@@ -71,6 +95,13 @@ spec:
             # the writable emptyDir backs the per-Sovereign workdir tree.
             - name: CATALYST_TOFU_WORKDIR
               value: /tmp/catalyst/tofu
+            # CATALYST_DEPLOYMENTS_DIR — flat-file store for deployment
+            # records (one JSON file per deployment id). Backed by the
+            # PVC mount below so deployments persist across Pod
+            # restarts. Each record is the full Deployment state with
+            # credentials redacted; see internal/store/store.go.
+            - name: CATALYST_DEPLOYMENTS_DIR
+              value: /var/lib/catalyst/deployments
           resources:
             requests:
               cpu: 50m
@@ -108,6 +139,15 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/nonroot
+            # Deployments PVC — every catalyst-api restart that
+            # rehydrates from this directory closes the user-reported
+            # regression where a deployment id created at 12:57
+            # vanished after 6 image rolls. The store walks every
+            # *.json on startup; in-flight rows are rewritten to
+            # `failed` with operator instructions for purging
+            # orphaned Hetzner resources.
+            - name: deployments
+              mountPath: /var/lib/catalyst/deployments
       volumes:
         - name: tmp
           emptyDir:
@@ -118,3 +158,13 @@ spec:
         - name: home
           emptyDir:
             sizeLimit: 256Mi
+        # Persistent deployment metadata — flat-file JSON store, one
+        # file per deployment id. The PVC must already exist in the
+        # same namespace under the name catalyst-api-deployments;
+        # see api-deployments-pvc.yaml in this chart. Single-attach
+        # (RWO) is fine because the Deployment is single-replica with
+        # the Recreate strategy declared above; a future HA rework
+        # would need RWX or a different persistence layer.
+        - name: deployments
+          persistentVolumeClaim:
+            claimName: catalyst-api-deployments
