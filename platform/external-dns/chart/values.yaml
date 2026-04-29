@@ -1,50 +1,98 @@
-# Catalyst Blueprint wrapper metadata — read by the bootstrap-kit installer.
-# The installer combines the upstream chart reference below with the values
-# overlay also in this file when running 'helm install'.
+# Catalyst Blueprint umbrella metadata — the upstream chart is now resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries
+# both:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `external-dns:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#   3. Catalyst overlay values consumed by templates/ (e.g. `externalDns:`
+#      governs templates/networkpolicy.yaml + ServiceMonitor + ExternalSecret).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
 
 catalystBlueprint:
   upstream:
     chart: external-dns
-    version: "1.15.0"
+    version: "1.15.2"
     repo: "https://kubernetes-sigs.github.io/external-dns/"
+    # Catalyst rationale for this upstream:
+    # - kubernetes-sigs is the canonical publisher
+    # - 1.15.x line — last release validated against Kubernetes 1.31
+    # - Native `pdns` provider speaks PowerDNS REST API directly (no
+    #   sidecar shim) — pairs with the in-cluster bp-powerdns Service
+    #   and the powerdns-api-credentials Secret it creates
+    # - Apache-2.0 licence
 
-# Catalyst-curated ExternalDNS values per platform/external-dns/README.md.
-#
-# Defaults assume a Catalyst Sovereign with the Dynadot multi-domain webhook
-# provider for OpenOva-managed zones; per-Sovereign provider selection
-# (cloudflare/hetzner/route53/gcp/azure/dynadot) is overlaid via the Crossplane
-# Composition that materializes the bp-external-dns HelmRelease at runtime.
-
+# ─── Upstream chart values (subchart key: external-dns) ───────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `external-dns:` key flow into that subchart unchanged.
 external-dns:
-  # Default to a generic webhook provider; the per-Sovereign Composition
-  # overrides `provider` + the matching credentials Secret reference at apply
-  # time. Catalyst-Zero (openova.io) uses the Dynadot multi-domain webhook
-  # (platform/external-dns/policies/dynadot-multi-domain.yaml).
-  provider: webhook
+  # Native PowerDNS provider — talks to the in-cluster bp-powerdns Service
+  # (powerdns.openova-system.svc.cluster.local:8081) over the REST API.
+  # Per the user-facing brief: PowerDNS webhook adapter or native `pdns`
+  # provider — the native one ships in upstream 0.15.x and avoids running
+  # a separate webhook sidecar for the OpenOva-managed PowerDNS path.
+  # Per-Sovereign cluster overlays MAY replace this with `provider: webhook`
+  # plus the Catalyst Dynadot webhook (platform/external-dns/policies/
+  # dynadot-multi-domain.yaml) when the Sovereign owns Dynadot-registered
+  # apex zones.
+  provider:
+    name: pdns
 
+  # Extra args drive the native `pdns` provider. Per-Sovereign overlays
+  # MAY replace --pdns-server with the cross-cluster hostname when
+  # ExternalDNS runs on a node that doesn't co-locate PowerDNS.
+  #
+  # The bp-powerdns chart creates the `powerdns` Service in the
+  # `openova-system` namespace exposing the webserver on port 8081.
+  # ExternalDNS resolves that across-namespace via the FQDN.
+  extraArgs:
+    - --pdns-server=http://powerdns.openova-system.svc.cluster.local:8081
+    - --pdns-api-version=v1
+
+  # API key for the PowerDNS REST API — read from the `powerdns-api-
+  # credentials` Secret rendered by bp-powerdns (templates/api-credentials-
+  # secret.yaml). The native provider reads it from the
+  # EXTERNAL_DNS_PDNS_API_KEY env var.
+  #
+  # Per-Sovereign overlays MAY override `secretKeyRef.name` when the
+  # Secret is materialized by ExternalSecret/Crossplane from OpenBao
+  # (templates/externalsecret.yaml in this chart) instead of being
+  # rendered inline by bp-powerdns.
+  env:
+    - name: EXTERNAL_DNS_PDNS_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: powerdns-api-credentials
+          key: api-key
+
+  # Sources — Service + Ingress per the user-facing brief. Gateway-API
+  # sources (httproute, grpcroute, tlsroute) MAY be added by a per-Sovereign
+  # overlay once Cilium Gateway is the chosen ingress on that cluster.
   sources:
     - service
     - ingress
-    - gateway-httproute
-    - gateway-grpcroute
-    - gateway-tlsroute
+
+  # `sync` policy — ExternalDNS owns the record set. Stale records on
+  # resource removal are deleted, NOT left dangling. (Brief: policy: sync.)
+  policy: sync
 
   # TXT-record ownership — must be unique per host cluster so two clusters
-  # don't fight over the same record set. Composition overlays the Sovereign
-  # ID at install time.
+  # don't fight over the same record set. Per-Sovereign overlays SET this
+  # to the Sovereign FQDN (e.g. "omantel.omani.works") so each Sovereign
+  # owns its own ownership state.
+  registry: txt
   txtOwnerId: openova
   txtPrefix: "_externaldns."
 
-  # Domain filters — empty by default; the Composition writes the per-Sovereign
-  # zone list (e.g. ["openova.io", "omantel.omani.works"]) at apply time.
+  # Domain filters — empty by default per the user-facing brief.
+  # Per-Sovereign overlays write the zone list (e.g.
+  # ["openova.io", "omantel.omani.works"]) at apply time.
   domainFilters: []
-
-  policy: sync
-
-  # RBAC — ExternalDNS needs read on Service/Ingress/HTTPRoute/GRPCRoute and
-  # write on its own ConfigMap for ownership state.
-  rbac:
-    create: true
 
   # Resources — modest defaults for the per-cluster controller.
   resources:
@@ -55,11 +103,72 @@ external-dns:
       cpu: 200m
       memory: 256Mi
 
-  # ServiceMonitor enabled so the Catalyst observability stack
-  # (platform/grafana + bp-prometheus) scrapes ExternalDNS metrics.
+  # ServiceMonitor — DEFAULT FALSE per the observability-toggle rule for
+  # the bp-* family. Per-Sovereign overlays flip this on once Prometheus
+  # Operator is installed on the cluster.
   serviceMonitor:
-    enabled: true
+    enabled: false
 
-  # Single replica is fine — ExternalDNS is leader-elected and the workload is
-  # IO-bound on the DNS API, not CPU-bound.
+  # Single replica — ExternalDNS uses leader election internally and the
+  # workload is IO-bound on the DNS API, not CPU-bound.
   replicas: 1
+
+  # RBAC — ExternalDNS needs read on Service/Ingress; cluster-scoped.
+  rbac:
+    create: true
+
+  # Service account — ExternalDNS handles its own SA creation by default.
+  serviceAccount:
+    create: true
+    name: external-dns
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Knobs for the Catalyst-curated NetworkPolicy + ServiceMonitor +
+# ExternalSecret rendered by templates/. Per INVIOLABLE-PRINCIPLES #4
+# everything here is runtime-configurable; cluster overlays MAY override
+# without rebuilding the Blueprint OCI artifact.
+externalDns:
+  # NetworkPolicy — locks the ExternalDNS pod down to: egress to the
+  # in-cluster powerdns Service + DNS resolution + cluster API. Default
+  # ON; per-Sovereign overlays MAY disable for debugging.
+  networkPolicy:
+    enabled: true
+    # The egress allowlist resolves PowerDNS by namespace + Service name.
+    powerdnsNamespace: openova-system
+    powerdnsServiceName: powerdns
+    powerdnsApiPort: 8081
+
+  # ServiceMonitor (Catalyst overlay variant) — ALSO default FALSE per the
+  # observability-toggle rule. The upstream subchart's ServiceMonitor block
+  # above governs scraping of external-dns itself; this Catalyst-side
+  # ServiceMonitor template is reserved for any auxiliary metrics endpoints
+  # (e.g. webhook sidecars) that future per-Sovereign overlays may add.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    namespace: ""
+
+  # ExternalSecret — Phase 2+ target state pulls the PowerDNS API key from
+  # OpenBao via the Catalyst ClusterSecretStore. DEFAULT FALSE — Phase 0
+  # uses the inline Secret rendered by bp-powerdns. When OpenBao is
+  # provisioned on the Sovereign and external-secrets-operator is running,
+  # the operator flips this on.
+  externalSecret:
+    enabled: false
+    # OpenBao path that holds the PowerDNS API key, populated by
+    # pool-domain-manager / catalyst-api at zone-creation time. The path
+    # MUST match the Vault/OpenBao layout documented in
+    # docs/PLATFORM-OPENBAO.md.
+    refreshInterval: 1h
+    secretStoreRef:
+      name: openbao
+      kind: ClusterSecretStore
+    target:
+      name: powerdns-api-credentials
+    data:
+      - secretKey: api-key
+        remoteRef:
+          # Operator-overridable — per-Sovereign Composition writes the
+          # actual remoteKey at apply time.
+          key: "secret/data/sovereign/powerdns"
+          property: api-key
