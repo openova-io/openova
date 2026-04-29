@@ -245,10 +245,9 @@ function LetterFallback({ entry }: { entry: ComponentEntry }) {
       style={{
         // .stack-icon equivalent — same 40×40, 10px-radius pill so the
         // logo column geometry is identical whether or not the component
-        // has a vendored SVG. Per-asset tone (see logoTone.ts) so a
-        // letter-mark fallback for a `light`-tone component reads on
-        // a dark backplate, mirroring the `<img>` tile contract used
-        // elsewhere on the wizard and marketplace surfaces.
+        // has a vendored SVG. Per-brand surface (see logoTone.ts) so the
+        // letter-mark fallback inherits the same tile colour the
+        // `<img>` tiles use elsewhere on the wizard and marketplace.
         width: 40,
         height: 40,
         borderRadius: 10,
@@ -297,11 +296,11 @@ function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
         <span
           aria-hidden
           style={{
-            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Per-asset
-            // tone (see logoTone.ts) — slate-900 backplate for white-glyph
-            // marks (Temporal, LiveKit, Mimir, Tempo, …), slate-100 for
-            // colour and dark-glyph marks. Mirrors the marketplace's
-            // PNG-baked surface idea with metadata-driven backplates.
+            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Per-brand
+            // surface (see logoTone.ts) — each tile uses the brand's own
+            // canonical surface colour (Alloy on Grafana orange, FerretDB
+            // on its navy, Temporal on its blue, …). Mirrors how each
+            // project displays its mark on its own homepage.
             width: 40,
             height: 40,
             borderRadius: 10,

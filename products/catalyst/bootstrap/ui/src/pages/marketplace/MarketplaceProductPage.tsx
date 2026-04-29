@@ -90,11 +90,11 @@ export function MarketplaceProductPage() {
   const family = findProduct(entry.product)
   const palette = familyChipPalette(entry.product)
   const copy = componentCopy(entry.id)
-  // Per-asset logo tone — see logoTone.ts. Drives the hero tile's
-  // background/border colour pair so a white-glyph component (Temporal,
-  // LiveKit, Mimir, …) renders against a dark backplate even on this
-  // detail surface, mirroring the per-asset PNG approach the canonical
-  // SME marketplace uses.
+  // Per-brand surface — see logoTone.ts. Drives the hero tile's
+  // background/border colour pair so each project's mark sits on its
+  // own canonical brand surface (Alloy on Grafana orange, FerretDB on
+  // its navy, Temporal on its blue, …) — exactly how each project
+  // displays its mark on its own homepage / press kit.
   const tone = getLogoToneStyle(entry.id)
   const tileStyle: React.CSSProperties = {
     background: tone.background,
