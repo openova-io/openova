@@ -248,14 +248,20 @@ dnsdist:
     limits:   { cpu: 250m, memory: 256Mi }
   config: |
     -- Catalyst dnsdist policy. Forwards to the in-cluster powerdns
-    -- Service; rate-limits per source IP; logs to stderr (k8s log).
+    -- Service; rate-limits per source IP. Lua-records-ready downstream.
+    --
+    -- Backend address resolution: dnsdist 1.9 newServer{address=...}
+    -- requires IP[:port], not a hostname. Kubernetes auto-injects the
+    -- POWERDNS_SERVICE_HOST env var into every pod in the same namespace
+    -- as the powerdns Service — that gives us the ClusterIP without
+    -- needing an init container to do DNS resolution. (DNS-name parsing
+    -- on dnsdist newServer would require a setResolver call before, and
+    -- pinning a hostname in cluster is no different than pinning an IP.)
     setLocal('0.0.0.0:53')
-    setLocal('[::]:53')
-    addLocal('0.0.0.0:53', { reusePort=true })
+    addLocal('[::]:53', { reusePort=true })
 
-    -- Backend: in-cluster powerdns Service (ClusterIP, port 5353)
-    -- The hostname is resolved by Kubernetes DNS at dnsdist startup.
-    newServer({ address='powerdns:5353', name='powerdns-auth' })
+    local backend = os.getenv("POWERDNS_SERVICE_HOST") or "127.0.0.1"
+    newServer({ address = backend .. ":5353", name = 'powerdns-auth' })
 
     -- ─── Rate limiting ───────────────────────────────────────────────
     -- Hits per IP within a 1s window; once exceeded, drop further queries
@@ -265,11 +271,8 @@ dnsdist:
       DropAction()
     )
 
-    -- ─── Logging ────────────────────────────────────────────────────
+    -- ─── Health checks + verbose logging off ────────────────────────
     setVerboseHealthChecks(false)
-    -- 1% sampling to stderr (k8s log) so we have observability without
-    -- hot-path logging cost.
-    addAction(AllRule(), DnstapLogAction("dnstap-stderr", false, function(dq) return math.random() < 0.01 end))
 
 # REST API ingress — operator-only access at pdns.openova.io/api.
 api:
