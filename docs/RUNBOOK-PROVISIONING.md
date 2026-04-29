@@ -128,6 +128,75 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 
 ---
 
+### bp-flux double-install — version-pin invariant
+
+**Live incident:** omantel.omani.works, 2026-04-29 — Flux controllers deleted by the FIRST reconcile of `bp-flux`. Cluster lost its GitOps engine in-place; the only recovery is a full reprovision.
+
+#### What happened
+
+1. Cloud-init runs early in the bootstrap sequence and installs Flux core via:
+
+   ```
+   curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml \
+     | kubectl apply -f -
+   ```
+
+   This is intentional — Flux must exist BEFORE the `flux-system/GitRepository` + `Kustomization` that pulls `clusters/<sovereign-fqdn>/bootstrap-kit/` can be reconciled.
+2. Cloud-init then applies the GitRepository + Kustomization. Flux begins reconciling `clusters/<sovereign-fqdn>/bootstrap-kit/03-flux.yaml`, which is a `HelmRelease` for `bp-flux`.
+3. helm-controller runs `helm install` for `bp-flux` against the running cluster. The chart's umbrella declares `dependencies: [{ name: flux2, version: <X> }]` — the upstream community chart that ships its own copies of Flux's CRDs and controller Deployments.
+4. If the chart's subchart version ships a DIFFERENT upstream Flux release than cloud-init installed, Helm tries to update the existing Flux CRDs to a new schema. The apiserver rejects the update with:
+
+   ```
+   status.storedVersions[0]: Invalid value: "v1": must appear in spec.versions
+   ```
+
+   because the version stored in the existing CRDs (from cloud-init's install) isn't in the new chart's `spec.versions`.
+5. Helm rolls back the failed install. The rollback **deletes** the existing Flux controller Deployments (helm-controller, source-controller, kustomize-controller, image-automation-controller, image-reflector-controller, notification-controller).
+6. The cluster has no Flux. Every subsequent HelmRelease in the bootstrap kit halts. The cluster is unrecoverable in-place — the only fix is `tofu destroy` + reprovision.
+
+#### The invariant
+
+**Cloud-init's `flux2 v<X.Y.Z>/install.yaml` URL pin and the bp-flux umbrella chart's `flux2` subchart `appVersion` MUST be the same upstream Flux version.** They cannot drift.
+
+The fluxcd-community chart's `appVersion` field is the upstream Flux release tag the chart ships. Mapping:
+
+| cloud-init URL | community chart (`flux2` dep) | upstream `appVersion` |
+|---|---|---|
+| `v2.4.0` | `2.14.1` | `2.4.0` (current) |
+| `v2.3.0` | `2.13.0` | `2.3.0` |
+
+#### Where the invariant is enforced
+
+- `infra/hetzner/cloudinit-control-plane.tftpl` — pins the install.yaml URL (currently `v2.4.0`).
+- `platform/flux/chart/Chart.yaml` — pins the subchart (currently `flux2: 2.14.1`).
+- `platform/flux/chart/values.yaml` — `catalystBlueprint.upstream.version` mirrors the dep pin (provenance metadata).
+- `platform/flux/chart/tests/version-pin-replay.sh` — CI gate; replays the catastrophic precondition and FAILS the build if the two pins ever drift.
+- `clusters/_template/bootstrap-kit/03-flux.yaml` and `clusters/<sovereign-fqdn>/bootstrap-kit/03-flux.yaml` — the HelmRelease declares `install.disableTakeOwnership: false`, `upgrade.disableTakeOwnership: false`, and `upgrade.preserveValues: true` so helm-controller adopts the cloud-init-installed Flux objects rather than re-creating them and rolling back on conflict.
+
+#### How to bump Flux version safely
+
+When an upgrade to a newer Flux release is desired, the bump must land in **one PR** and touch all four pin sites at once:
+
+1. Pick the target upstream Flux version (e.g. `v2.5.1`).
+2. Find the matching community chart version from `https://fluxcd-community.github.io/helm-charts/index.yaml` — match on `appVersion: 2.5.1`.
+3. Update `infra/hetzner/cloudinit-control-plane.tftpl` install.yaml URL → `v2.5.1`.
+4. Update `platform/flux/chart/Chart.yaml` `flux2` dep → the matching community chart version.
+5. Update `platform/flux/chart/values.yaml` `catalystBlueprint.upstream.version` to match.
+6. Bump `platform/flux/chart/Chart.yaml` `version:` (semver patch).
+7. Update `clusters/_template/bootstrap-kit/03-flux.yaml` and every `clusters/<sovereign-fqdn>/bootstrap-kit/03-flux.yaml` to the new bp-flux version.
+8. Run `bash platform/flux/chart/tests/version-pin-replay.sh` locally — must pass.
+9. PR; `blueprint-release.yaml` rebuilds bp-flux; subchart-guard CI must be green.
+
+The `version-pin-replay.sh` test is the gate. CI rejects any PR that bumps one pin without the other.
+
+#### Existing Sovereigns
+
+Sovereigns provisioned before this fix (any cluster running `bp-flux:1.1.1` or earlier with the `flux2: 2.13.0` subchart against a `v2.4.0` cloud-init install) are at risk on next bp-flux reconcile and may already be broken. The recovery procedure is full reprovision (`tofu destroy` → `tofu apply` with the corrected manifests). There is no in-place recovery for a cluster whose Flux controllers have been deleted by a Helm rollback.
+
+The omantel.omani.works cluster used to live-verify the failure mode is currently in this state and is being held for reprovision against `bp-flux:1.1.2`.
+
+---
+
 ### Phase 1 watch shows 0 HelmReleases
 
 **Symptom.** The wizard's progress page reaches `flux-bootstrap` successfully, then the Sovereign Admin banner shows the warning:

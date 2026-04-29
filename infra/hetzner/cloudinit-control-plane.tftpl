@@ -337,8 +337,30 @@ runcmd:
   # Install Flux core. Cilium is now the cluster's CNI, so Flux pods will
   # actually start. Flux then reconciles clusters/${sovereign_fqdn}/ which
   # adopts the Helm release above as bp-cilium and continues with
-  # bp-cert-manager, bp-flux (host-level Flux, distinct from this Flux
-  # which is the CONTROL-PLANE Flux), bp-crossplane, etc.
+  # bp-cert-manager, bp-flux (which ADOPTS this Flux install rather than
+  # reinstalls — see version-pin invariant below), bp-crossplane, etc.
+  #
+  # CRITICAL VERSION-PIN INVARIANT — DO NOT CHANGE IN ISOLATION
+  # -----------------------------------------------------------
+  # The version pinned in the URL below MUST match the upstream Flux
+  # release that `platform/flux/chart/Chart.yaml`'s `flux2` subchart
+  # bundles, otherwise bp-flux's HelmRelease runs `helm install` on top
+  # of THIS Flux installation with a different upstream version, the
+  # CRD `status.storedVersions` mismatches, Helm install fails, rollback
+  # fires, and rollback DELETES the running Flux controllers — leaving
+  # the cluster with no GitOps engine, unrecoverable in-place.
+  #
+  # Live verified on omantel.omani.works on 2026-04-29 — every Sovereign
+  # provisioned without this pin in sync was destroyed minutes after
+  # bp-flux's first reconcile. See docs/RUNBOOK-PROVISIONING.md
+  # §"bp-flux double-install".
+  #
+  # Mapping (cloud-init install.yaml -> chart subchart -> appVersion):
+  #   v2.4.0  ->  flux2 2.14.1  ->  appVersion 2.4.0  <- CURRENT
+  #   v2.3.0  ->  flux2 2.13.0  ->  appVersion 2.3.0
+  #
+  # CI gate `platform/flux/chart/tests/version-pin-replay.sh` rejects
+  # divergence between this URL's version and the chart's subchart pin.
   - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
 

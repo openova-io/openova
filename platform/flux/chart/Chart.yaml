@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-flux
-version: 1.1.1
+version: 1.1.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
@@ -16,11 +16,30 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to fluxcd/flux2 2.13.0 (matches
-# platform/flux/blueprint.yaml + values.yaml `catalystBlueprint.upstream
-# .version`). Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
-# version is operator-bumpable via PR + Blueprint release.
+# bundles it into the OCI artifact.
+#
+# CRITICAL VERSION-PIN INVARIANT — DO NOT BUMP IN ISOLATION
+# ----------------------------------------------------------
+# This subchart version MUST match the upstream Flux release that
+# `infra/hetzner/cloudinit-control-plane.tftpl` installs at cluster
+# bootstrap time, otherwise helm-controller's reconcile of bp-flux runs
+# `helm install` on top of an already-installed Flux of a DIFFERENT
+# version. The CRD `status.storedVersions` mismatch fails the install,
+# Helm rolls back, and the rollback DELETES the running Flux controllers
+# — leaving the cluster with no GitOps engine, unrecoverable in-place.
+# Live verified on omantel.omani.works on 2026-04-29 (see
+# docs/RUNBOOK-PROVISIONING.md §"bp-flux double-install").
+#
+# Mapping (community chart -> flux2 appVersion -> cloud-init install.yaml):
+#   flux2 2.14.1  ->  appVersion 2.4.0  ->  cloud-init v2.4.0  <- CURRENT
+#   flux2 2.13.0  ->  appVersion 2.3.0  ->  cloud-init v2.3.0
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release, but BOTH this dep version
+# AND cloudinit-control-plane.tftpl's flux2 install.yaml URL must move
+# together in the same PR. CI gate `tests/version-pin-replay.sh` rejects
+# divergence.
 dependencies:
   - name: flux2
-    version: "2.13.0"
+    version: "2.14.1"
     repository: "https://fluxcd-community.github.io/helm-charts"
