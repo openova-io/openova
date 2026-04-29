@@ -14,7 +14,7 @@
 | C — Cutover Catalyst-Zero | 8 | ✅ Flux is now reconciling Catalyst-Zero from `github.com/openova-io/openova` (public repo) — confirmed via `kubectl get gitrepository -A` returning `openova-public` source serving the catalyst-platform Kustomization | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07, 8c40984 (Group C cutover merge) |
 | D — Wizard | 10 | 🚧 Domain capture + Hetzner project ID added; AppsStep replacement pending | 854a063 |
 | E — Provisioner backend | 13 | 🚧 Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
-| F — Bootstrap-kit Helm charts | 14 | ✅ All 12 G2 wrapper charts (original 11 + bp-powerdns #167) + blueprint-release CI live | 8c0f766, 0190c605 |
+| F — Bootstrap-kit Helm charts | 14 | ✅ All 11 bp-* umbrella charts (the 10 leaves + bp-catalyst-platform; bp-powerdns ships separately for Catalyst-Zero only) at v1.1.0 — each declares its upstream chart under `Chart.yaml`'s `dependencies:` so `helm dependency build` packages the upstream payload into the OCI artefact (the v1.0.0 / v1.0.1 artefacts were hollow — Catalyst overlays only — and broke Phase 1 on every Sovereign). blueprint-release CI now runs four hollow-chart guards on every publish | 8c0f766, 0190c605, 43aff202, e42799fa, 54418bd5, 35dcb84d, bdeb0f54 |
 | G — DNS multi-domain | 6 | ✅ Superseded by PowerDNS authoritative (#167) + pool-domain-manager (#163) + registrar adapters (#170) — Dynadot is now one of five registrar adapters inside PDM, not the authoritative DNS surface | db4f21a, 0190c605 (#167), 2854d652 (#163), 567d7e1f (#170) |
 | H — Franchise model | 7 | 🚧 docs/FRANCHISE-MODEL.md authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
 | I — Wizard UX | 6 | 📐 SSE event log pane + step indicator pending |  |
@@ -175,7 +175,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 ### Phase 5 — Bootstrap kit Helm charts (G2 quality)
 
-**What:** Real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS with Catalyst-specific values, includes a `blueprint.yaml` per the unified Blueprint contract from `BLUEPRINT-AUTHORING.md` §1, publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out.
+**What:** Real Catalyst-curated **umbrella** Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS by declaring it as a Helm subchart dependency under `Chart.yaml`'s `dependencies:`, applies Catalyst-curated values + overlay templates (NetworkPolicy, ClusterIssuer, ExternalSecret, ServiceMonitor) on top, includes a `blueprint.yaml` per the unified Blueprint contract from [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §11.1, and publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out — with four hollow-chart guards verifying the upstream subchart is present at build / package / push / pull (`54418bd5`/`35dcb84d`/`bdeb0f54`). Hollow charts (Catalyst overlays only, no upstream subchart bytes) are forbidden because they pass the blueprint-release CI smoke-test but break Phase 1 on every Sovereign that installs them.
 
 **Components (in dependency order):**
 1. `platform/cilium/chart/` (CNI must come first)

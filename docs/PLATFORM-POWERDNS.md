@@ -187,7 +187,7 @@ The Flux-managed deployment lives in `clusters/contabo-mkt/apps/powerdns/` in `o
 ```
 clusters/contabo-mkt/apps/powerdns/
 ├── kustomization.yaml         # references the chart
-├── helmrelease.yaml           # pulls bp-powerdns:1.0.6 from ghcr.io/openova-io
+├── helmrelease.yaml           # pulls bp-powerdns:1.1.0 from ghcr.io/openova-io
 ├── helm-repository.yaml       # OCI HelmRepository pointing at ghcr.io/openova-io
 ├── namespace.yaml             # openova-system (already exists)
 ├── api-credentials-secret.yaml  # ExternalSecret reading from openbao
@@ -206,7 +206,7 @@ The HelmRelease's `values:` block carries cluster-specific overrides (replicaCou
 - [x] lua-records enabled by default
 - [x] dnsdist companion with 100 qps default rate limit
 - [x] REST API at `pdns.openova.io/api` behind Traefik basicAuth
-- [x] CI publishes `bp-powerdns:1.0.6` cosign-signed + SBOM-attested (current chart version on main; see [`platform/powerdns/Chart.yaml`](../platform/powerdns/Chart.yaml))
+- [x] CI publishes `bp-powerdns:1.1.0` cosign-signed + SBOM-attested (current chart version on main; see [`platform/powerdns/Chart.yaml`](../platform/powerdns/Chart.yaml))
 - [x] Cluster manifest in private repo `clusters/contabo-mkt/apps/powerdns/`
 - [x] `kubectl get cluster pdns-pg -n openova-system` healthy — running today
 - [x] `kubectl get deploy powerdns -n openova-system` 1/1 ready — running today (replicaCount=1 on Contabo-mkt; default chart value is 3 for production Sovereigns)
@@ -232,7 +232,7 @@ htpasswd -nbB operator "$op_pw"   # → operator:$2y$05$<hash>
 
 # 4. Apply (Flux reconciles automatically every 1m)
 git -C openova-private add clusters/contabo-mkt/apps/powerdns/
-git commit -m "deploy(powerdns): initial bp-powerdns:1.0.6 on contabo-mkt"
+git commit -m "deploy(powerdns): initial bp-powerdns:1.1.0 on contabo-mkt"
 git push
 
 # 5. Wait for reconcile

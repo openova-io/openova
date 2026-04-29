@@ -111,28 +111,28 @@ The wizard validates the token against `POST /api/v1/credentials/validate` and t
 
 ## Step 3 — Click Provision and watch the SSE event stream
 
-Click **Review** → **Provision**. The wizard POSTs to `POST /api/v1/deployments` on `console.openova.io` (which proxies to catalyst-api). The response carries a `deployment-id` and `streamURL`.
+Click **Review** → **Provision**. The wizard POSTs to `POST /api/v1/deployments` on `console.openova.io` (which proxies to catalyst-api). The response carries a `deployment-id` and `streamURL`, and the wizard redirects to the **Sovereign Admin landing surface** at `/sovereign/provision/$deploymentId` (route module [`AdminPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/sovereign/AdminPage.tsx) — the legacy DAG `ProvisionPage.tsx` is now a 22-line re-export shim per `4047ba1d`).
 
-The wizard's progress page connects to `GET /api/v1/deployments/{id}/logs` (Server-Sent Events) and renders a per-phase progress widget. **You will see 11 phases** in dependency order (Phase 0 owned by catalyst-api's OpenTofu wrapper; Phase 1 by Flux on the new Sovereign):
+The page connects to `GET /api/v1/deployments/{id}/logs` (Server-Sent Events). **Phase 0** (5 phases owned by catalyst-api's bundled OpenTofu wrapper — Tofu CLI v1.11.6 + `infra/hetzner/` module baked into the image at `9b6c297d`/`61c61226`) renders as a top-of-page banner; **Phase 1** (per-component HelmRelease watch on the new Sovereign cluster, emitting per-component SSE events shaped `phase: "component", component: <id>, state: pending|installing|installed|failed|degraded` from `internal/helmwatch/` per `5be6bcba`) renders as the **Application card grid** — every Application installed on this Sovereign gets a card with status pill flipping as the events arrive. Click any card for the per-Application page at `/sovereign/provision/$deploymentId/app/$componentId` ([`ApplicationPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/sovereign/ApplicationPage.tsx)) with Overview / Logs / Dependencies / Status tabs.
 
 | Phase | Owner | Typical duration |
 |---|---|---|
 | `tofu-init`        | catalyst-api OpenTofu workdir | <30s |
 | `tofu-plan`        | catalyst-api OpenTofu workdir | ~30s |
 | `tofu-apply`       | catalyst-api OpenTofu workdir | 4–6 min (hcloud server creation) |
-| `tofu-output`      | catalyst-api OpenTofu workdir | <5s |
-| `flux-bootstrap`   | catalyst-api OpenTofu workdir | ~1 min (cloud-init handshake) |
-| `cilium`           | Flux on new Sovereign | 1–2 min |
-| `cert-manager`     | Flux on new Sovereign | ~1 min |
-| `flux`             | Flux on new Sovereign (self) | <30s |
-| `crossplane`       | Flux on new Sovereign | 1–2 min |
-| `sealed-secrets`   | Flux on new Sovereign | ~30s |
-| `spire`            | Flux on new Sovereign | ~1 min |
-| `jetstream`        | Flux on new Sovereign | ~1 min |
-| `openbao`          | Flux on new Sovereign | 1–2 min |
-| `keycloak`         | Flux on new Sovereign | 2–3 min |
-| `gitea`            | Flux on new Sovereign | 1–2 min |
-| `bp-catalyst-platform` | Flux on new Sovereign | 2–3 min |
+| `tofu-output`      | catalyst-api OpenTofu workdir | <5s (also exposed at `GET /api/v1/deployments/{id}/kubeconfig`) |
+| `flux-bootstrap`   | cloud-init on new control plane | ~1 min (k3s install → Cilium-via-Helm → Flux core → GitRepository + bootstrap-kit + infrastructure-config Kustomizations applied per `e571ec7a`/`54872009`/`34c8de84`/`2da4c43c`) |
+| `component: cilium`           | Flux on new Sovereign (adopts the cloud-init Helm release) | <30s |
+| `component: cert-manager`     | Flux on new Sovereign | ~1 min |
+| `component: flux`             | Flux on new Sovereign (self) | <30s |
+| `component: crossplane`       | Flux on new Sovereign | 1–2 min |
+| `component: sealed-secrets`   | Flux on new Sovereign | ~30s |
+| `component: spire`            | Flux on new Sovereign | ~1 min |
+| `component: nats-jetstream`   | Flux on new Sovereign | ~1 min |
+| `component: openbao`          | Flux on new Sovereign | 1–2 min |
+| `component: keycloak`         | Flux on new Sovereign | 2–3 min |
+| `component: gitea`            | Flux on new Sovereign | 1–2 min |
+| `component: bp-catalyst-platform` | Flux on new Sovereign (umbrella over the 10 leaves + bp-external-dns) | 2–3 min |
 
 Total wall-clock: **~10–12 minutes** for a clean run. The progress widget uses cf60bd7's failed-phase UX — if any phase goes red, you get a **Retry phase** button.
 

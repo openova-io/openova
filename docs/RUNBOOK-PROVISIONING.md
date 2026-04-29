@@ -1,6 +1,6 @@
 # Runbook — Provisioning a New Sovereign
 
-**Status:** Operator-level procedure. **Updated:** 2026-04-29.
+**Status:** Operator-level procedure. **Updated:** 2026-04-29 (Reconcile Pass 3).
 **Audience:** Sovereign cloud team (e.g. `omantel-cloud`) onboarding their first Sovereign via Catalyst-Zero. Read this with [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) (the architectural contract) and [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md) (the Catalyst-Zero waterfall).
 
 ---
@@ -11,7 +11,7 @@ A new **Sovereign** — a self-sufficient deployed Catalyst — provisioned end-
 
 - A k3s cluster running on Hetzner Cloud servers in your chosen region
 - Cilium CNI + Gateway API as ingress, Flux as GitOps reconciler, Crossplane as day-2 IaC
-- The 12-component bootstrap kit installed and reconciling cleanly: cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform
+- The 11 bp-* umbrella Helm charts at v1.1.0 installed and reconciling cleanly: cilium (installed first by cloud-init via Helm and adopted by Flux) → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → bp-catalyst-platform (umbrella over the 10 leaves + bp-external-dns). bp-powerdns runs on Catalyst-Zero only.
 - Reachable URLs: `console.<your-fqdn>`, `gitea.<your-fqdn>`, `admin.<your-fqdn>` (TLS via cert-manager + Let's Encrypt)
 - Initial sovereign-admin user in Keycloak's `catalyst-admin` realm
 - The Sovereign is now self-sufficient — the catalyst-provisioner has zero ongoing connection to it (Phase 1 hand-off complete)
@@ -34,7 +34,7 @@ Gather all of the following BEFORE opening the wizard. The wizard does not save 
 | **Organisation profile** | Org name, industry, size, HQ, compliance frame; the sovereign-admin email is captured at Step 6 (Domain) so it pairs with the Sovereign's external surface | Email must be deliverable — Keycloak sends the password reset there |
 | **Topology choice** | Single-region (SME default) or 1-CP-1-worker minimal vs `ha_enabled=true` (3-CP HA) + `worker_count` ≥ 1; control-plane + worker SKU pickers driven by `PROVIDER_NODE_SIZES[provider]` (#176) | Wizard surfaces these as form fields |
 
-**Cost estimate for a default single-region run:** 1× control-plane CPX21 (~€8/mo) + 1× worker CPX31 (~€16/mo) + 1× lb11 (~€6/mo) + ~€1 storage = **~€31/mo** before workload growth. HA topology (3 CPs + 2 workers) is closer to ~€80/mo.
+**Cost estimate for a default single-region run** (using the wizard's recommended Hetzner SKUs from `PROVIDER_NODE_SIZES.hetzner`): 1× control-plane CPX32 (4 vCPU AMD / 8 GB / ~€0.0232/hr ≈ €17/mo) — or `cx42` (8 vCPU Intel / 16 GB ≈ €25/mo) when the operator picks the larger Intel default — plus 1× worker CPX32 (or empty for solo Sovereigns where `worker_count = 0`) plus 1× lb11 (~€6/mo) plus ~€1 storage = **~€25–€55/mo** before workload growth. HA topology (3 CPs + 2 workers) is closer to ~€80–€120/mo.
 
 ---
 
@@ -62,25 +62,39 @@ The wizard's Vite scaffold lives at [`products/catalyst/bootstrap/ui/`](../produ
 | 6. Domain | Pool subdomain OR BYO (manual NS / registrar API), per #169's three-mode flow, plus the sovereign-admin email | Pool = PDM `/v1/reserve`. BYO byo-api = registrar token (Cloudflare/Namecheap/GoDaddy/OVH/Dynadot, #170). BYO byo-manual = wizard surfaces NS list to paste at customer registrar |
 | 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
-### 3. Watch the SSE event stream
+### 3. Watch the Sovereign Admin landing surface
 
-Once you click **Provision**, the wizard's progress page shows a live event log streamed from the catalyst-api `/v1/sovereigns/{id}/events` endpoint. Phases you will see:
+Once you click **Provision**, the wizard redirects to the Sovereign Admin landing surface at `/sovereign/provision/$deploymentId` (route module [`AdminPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/sovereign/AdminPage.tsx); the legacy `ProvisionPage.tsx` DAG view was gutted at `4047ba1d` and replaced with an Application card grid — every Application installed on this Sovereign renders as a card from first paint, with a status pill that flips `pending → installing → installed | failed | degraded` as the catalyst-api emits per-component HelmRelease events). Click any card for the per-Application page at `/sovereign/provision/$deploymentId/app/$componentId` ([`ApplicationPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/sovereign/ApplicationPage.tsx)) with Overview / Logs / Dependencies / Status tabs.
+
+The catalyst-api SSE stream (`GET /api/v1/deployments/{id}/logs`) emits two phase shapes:
 
 ```
+# Phase 0 — OpenTofu run inside the catalyst-api Pod (Tofu CLI + infra/hetzner/
+# module bundled in the image, both shipped at 9b6c297d / 61c61226):
 tofu-init       Initialising OpenTofu working directory
-tofu-plan       Planning Hetzner resources (network, firewall, server, LB, DNS)
+tofu-plan       Planning Hetzner resources (network, firewall, server, LB)
 tofu-apply      Applying — this provisions real Hetzner resources, please wait
-tofu-output     Reading OpenTofu outputs (control_plane_ip, load_balancer_ip)
-flux-bootstrap  Cloud-init has bootstrapped Flux + Crossplane in the new
-                cluster — Flux will now reconcile clusters/<sovereign-fqdn>/
-                from the public OpenOva monorepo, installing the 12-component
-                bootstrap kit and bp-catalyst-platform umbrella in dependency
-                order.
+tofu-output     Reading OpenTofu outputs (control_plane_ip, load_balancer_ip,
+                kubeconfig — also exposed at GET /api/v1/deployments/{id}/kubeconfig)
+flux-bootstrap  Cloud-init on the new control plane has installed k3s, then
+                installed Cilium first via Helm with k8sServiceHost=127.0.0.1
+                (e571ec7a / 54872009 — breaks the CNI bootstrap deadlock),
+                then installed Flux core, then applied the GitRepository plus
+                the bootstrap-kit + infrastructure-config Kustomizations
+                (split at 34c8de84 / 2da4c43c so Crossplane CRDs are not
+                applied before the controller is healthy).
+
+# Phase 1 — per-component HelmRelease events from internal/helmwatch/ (5be6bcba):
+phase: "component", component: "cilium",         state: "installed"
+phase: "component", component: "cert-manager",   state: "installing"
+phase: "component", component: "openbao",        state: "pending"
+…
+phase: "component", component: "bp-catalyst-platform", state: "installed"
 ```
 
-After `flux-bootstrap`, the wizard polls Flux Kustomizations on the new cluster (via the catalyst-api which has temporary kubeconfig from the OpenTofu output) and shows a per-Kustomization readiness grid. Steady-state takes 25–55 minutes from `tofu-apply` to `bp-catalyst-platform: Ready=True`.
+Steady-state takes 25–55 minutes from `tofu-apply` to every component card showing `installed`. If you reconnect mid-run (browser reload), the AdminPage replays the persisted SSE history via `GET /api/v1/deployments/{id}/events` — the catalyst-api persists every event to `/var/lib/catalyst/deployments/<id>.json` (PVC-backed, RWO 1Gi `catalyst-api-deployments` per `418cead0`) so a Pod restart mid-Phase-1 does not lose state.
 
-**If the SSE stream goes silent for >60s:** the catalyst-api connection may have dropped (browser refresh recovers; events queue server-side). If it is silent for >5 minutes during `tofu-apply`, check the Hetzner Cloud Console for stuck server creation — most often this is API rate-limiting under your project; it resolves itself.
+**If the SSE stream goes silent for >60s:** the catalyst-api connection may have dropped (browser refresh replays from the persisted event log). If it is silent for >5 minutes during `tofu-apply`, check the Hetzner Cloud Console for stuck server creation — most often this is API rate-limiting under your project; it resolves itself.
 
 ### 4. First login
 
@@ -118,8 +132,9 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 | `tofu plan` fails with `403 Forbidden` from hcloud | Hetzner token has only Read scope, or expired | Generate a new Read+Write token; re-run wizard with same FQDN |
 | `tofu plan` fails with `quota exceeded` | Hetzner project default limits (typically 10 servers, 1 LB) | Open a Hetzner support ticket to raise limits; re-run when granted |
 | `tofu apply` hangs at `hcloud_server.control_plane[0]: Still creating...` for >10 min | Hetzner regional capacity transient | Wait 15 min total; if still stuck, cancel + re-run with a different region |
-| `flux-bootstrap` shows `connection refused` from kubectl | Cilium CNI not yet up (chicken-and-egg with API server readiness) | Wait — k3s + Cilium + Flux take ~5 min to converge before `kubectl` works through Flux |
-| `bp-cilium` Kustomization stuck at `Ready=Unknown` for >10 min | Network configuration mismatch (most likely cloud-init didn't pass `--flannel-backend=none` correctly) | SSH into the control-plane node (the IP is visible in the Hetzner Cloud Console; SSH key is the one you provided) and run `journalctl -u k3s -n 100`; share the output with OpenOva support |
+| `flux-bootstrap` shows `connection refused` from kubectl | Cloud-init Cilium-via-Helm rollout still in progress (Cilium installs BEFORE Flux per `e571ec7a`/`54872009`, but the rollout takes ~30–60s before the apiserver-via-127.0.0.1 path is healthy) | Wait — the cloud-init script runs `kubectl rollout status ds/cilium --timeout=240s` before applying the flux-bootstrap manifest, so a transient `connection refused` here usually clears within a minute |
+| `bp-cilium` HelmRelease stuck at `Ready=Unknown` for >10 min | Cloud-init's Helm install of Cilium failed to complete; Flux can't adopt a release that isn't there | SSH into the control-plane node (the IP is visible in the Hetzner Cloud Console; SSH key is the one you provided) and run `journalctl -u k3s -n 100` plus `cat /var/log/cloud-init-output.log`; share the output with OpenOva support |
+| `infrastructure-config` Kustomization stuck at `Ready=Unknown` while `bootstrap-kit` is Ready | Crossplane Provider package took longer than the configured timeout to become Healthy | The `infrastructure-config` Kustomization has `dependsOn: bootstrap-kit` + `wait: true` (per `34c8de84`/`2da4c43c`) so this is normal during the first reconcile; wait — Provider/ProviderConfig install + ProviderRevision Healthy takes 1–3 min on a fresh Sovereign |
 | `bp-cert-manager` reconciles but cert issuance fails | Let's Encrypt rate-limit (50 certs / week / domain) or DNS records not propagated | Check `cert-manager` events: `kubectl -n cert-manager describe challenge`; for rate-limit, wait. For DNS, dig the records: `dig console.<your-fqdn> +short` should return the LB IP |
 | `console.<sovereign-fqdn>` returns 404 / connection-refused | Per-Sovereign PowerDNS zone records not yet visible to public resolvers (parent-zone NS-delegation TTL ~15 min for pool, customer-registrar TTL for BYO byo-manual / byo-api) | `dig <sovereign-fqdn> NS` should return OpenOva NS; `dig console.<sovereign-fqdn>` should return the LB IP. Allow up to 30 min for DNS propagation |
 | Keycloak reset-password email never arrives | SMTP not configured in Keycloak realm yet | Reset via the catalyst-admin realm-admin flow inside the cluster: `kubectl -n catalyst-system exec -it keycloak-0 -- /opt/keycloak/bin/kcadm.sh ...` (the catalyst-admin path is documented in `clusters/<sovereign-fqdn>/keycloak/README.md`) |
