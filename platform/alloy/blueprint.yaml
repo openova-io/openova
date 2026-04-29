@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: alloy
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 1.0.0
+  card:
+    title: Alloy
+    family: insights
+    description: Grafana Alloy — telemetry collector (logs/metrics/traces, OTLP-native) for the LGTM observability stack.
+    docs: https://grafana.com/docs/alloy/latest/

@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-alloy
+description: |
+  Catalyst Blueprint umbrella chart for Grafana Alloy. Depends on the
+  upstream `alloy` chart (grafana/helm-charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `alloy:` key in values.yaml.
+
+  Alloy is the unified telemetry collector for the LGTM stack — receives
+  OTLP / Prometheus scrape / log tails and forwards to bp-loki (logs),
+  bp-mimir (metrics), bp-tempo (traces). Default controller is DaemonSet
+  (one pod per node) so node + pod metrics + container logs are collected.
+type: application
+version: 1.0.0
+appVersion: "v1.16.0"
+keywords: [catalyst, blueprint, alloy, observability, otlp, telemetry, collector]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to grafana/alloy 1.8.0 (appVersion v1.16.0) — current stable on
+# 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: alloy
+    version: "1.8.0"
+    repository: "https://grafana.github.io/helm-charts"
