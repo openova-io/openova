@@ -116,18 +116,35 @@ jobs:
           # so the prebuild script silently produced an empty array — the
           # page rendered only the 2 supernodes. Asserting the bundle
           # contains every bp-* id makes that regression impossible.
-          BUNDLE=$(docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test -c \
-            'find /usr/share/nginx/html/assets -name "index-*.js" -print -quit')
+          #
+          # Implementation note: we extract the entire bundle once via
+          # `tar c -C ... --transform`, then grep locally. Earlier we ran
+          # `grep` inside docker run -c "..." and the nested quote escaping
+          # produced false negatives (bp-cilium was in the bundle but the
+          # grep argument matched a literal `"bp-cilium"` whose surrounding
+          # quotes were eaten by shell expansion). Local grep on the
+          # extracted file removes that whole class of escaping bugs.
+          BUNDLE_TMP=$(mktemp)
+          docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test \
+            -c 'cat $(find /usr/share/nginx/html/assets -name "index-*.js" | head -1)' \
+            > "$BUNDLE_TMP"
+          BUNDLE_BYTES=$(wc -c < "$BUNDLE_TMP")
+          echo "Bundle size: $BUNDLE_BYTES bytes"
+          if [ "$BUNDLE_BYTES" -lt 100000 ]; then
+            echo "Bootstrap-kit smoke FAILED: bundle suspiciously small ($BUNDLE_BYTES bytes)"
+            docker stop smoke-ui
+            exit 1
+          fi
           for bp in bp-cilium bp-cert-manager bp-flux bp-crossplane bp-sealed-secrets \
                     bp-spire bp-nats-jetstream bp-openbao bp-keycloak bp-gitea ; do
-            if ! docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test -c \
-                 "grep -q '\"${bp}\"' $BUNDLE" ; then
+            if ! grep -q -F "$bp" "$BUNDLE_TMP" ; then
               echo "Bootstrap-kit smoke FAILED: ${bp} missing from bundle"
               docker stop smoke-ui
               exit 1
             fi
             echo "Bootstrap-kit smoke OK: ${bp}"
           done
+          rm -f "$BUNDLE_TMP"
 
           docker stop smoke-ui
           echo "All smoke tests passed."
