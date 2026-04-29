@@ -1,26 +1,34 @@
 // StepComponents — corporate platform component grid.
 //
-// Visual contract: pixel-matches the SME marketplace card pattern at
-// core/marketplace/src/components/AppsStep.svelte. Two tabs:
+// Visual contract: a single flat marketplace card grid (no family-group
+// headers). Two tabs:
 //
 //   1. "Choose Your Stack" (default)  — non-mandatory components.
 //      Search + category chip filter, sort-selected-first, cascade-add
-//      and cascade-remove dependency logic.
+//      and cascade-remove dependency logic. Cards carry a clickable family
+//      chip (top-right of the body) and a clickable card body — both
+//      navigate to their respective marketplace pages. An explicit
+//      "Select / Selected" button is the only path that toggles the
+//      wizard store, so click handlers never collide with navigation.
 //
 //   2. "Always Included"               — mandatory infra. Read-only.
 //      Grouped by product (PILOT, GUARDIAN, …), no search, no toggle UI.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md:
-//   #2 — never compromise quality: SME marketplace is the proven shape;
-//        this step copies its surface 1:1 (height, padding, hover, chips,
-//        toast slot) so the SME and corporate products feel like a family.
-//   #4 — never hardcode: tabs, tiers, logos, dependency edges — every
-//        catalog fact comes from componentGroups.ts. Logo URLs default to
+//   #2 — never compromise quality: the operator-facing UX is the SME
+//        marketplace shape with explicit click affordances. Family-group
+//        section headers were removed because they fragmented the page
+//        layout; the family relationship is now surfaced via a chip on
+//        each card that links to the dedicated family portfolio page.
+//   #4 — never hardcode: tabs, tiers, logos, dependency edges, family
+//        chip palettes — every catalog and presentation fact comes from
+//        componentGroups.ts and marketplaceCopy.ts. Logo URLs default to
 //        `/component-logos/<id>.svg` so swapping a file under public/
 //        rebrands the card without touching application source.
 
 import { useMemo, useState, useCallback } from 'react'
-import { Search, Plus, Check, Lock, Info, Layers } from 'lucide-react'
+import { Search, Plus, Check, Lock, Info } from 'lucide-react'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
@@ -30,14 +38,12 @@ import {
   PRODUCTS,
   findComponent,
   componentsByProduct,
-  resolveProductComponentClosure,
-  isProductFullySelected,
   resolveTransitiveDependents,
   type ComponentEntry,
   type GroupDef,
-  type Product,
 } from './componentGroups'
 import { STEP_COMPONENTS_COPY } from './stepComponentsCopy'
+import { familyChipPalette } from '@/pages/marketplace/marketplaceCopy'
 
 /** Sort: selected first (cart-like UX from marketplace), then alphabetical. */
 function sortComponents(
@@ -175,10 +181,13 @@ interface ComponentCardProps {
 }
 
 function ComponentCard({ entry, selected, onToggle, readOnly = false }: ComponentCardProps) {
+  const navigate = useNavigate()
   const isMandatoryCard = entry.tier === 'mandatory'
   const includesNote = (entry.dependencies ?? []).length > 0
     ? `${STEP_COMPONENTS_COPY.includesPrefix} ${(entry.dependencies ?? []).map(d => findComponent(d)?.name ?? d).join(', ')}`
     : null
+
+  const palette = familyChipPalette(entry.product)
 
   const cardClass = [
     'corp-comp-card',
@@ -187,25 +196,57 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
     isMandatoryCard ? 'mandatory' : '',
   ].filter(Boolean).join(' ')
 
+  // Card body click — navigate to the marketplace product detail page.
+  // Read-only cards (Tab 2) are inert. Chip and toggle button clicks
+  // below stop propagation so they never reach this handler.
+  const handleBodyClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    if (readOnly) return
+    if ((e.target as HTMLElement).closest('a, button')) return
+    navigate({
+      to: '/marketplace/product/$componentId',
+      params: { componentId: entry.id },
+    })
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={selected}
+    <div
       data-testid={`component-card-${entry.id}`}
       data-selected={selected ? 'true' : 'false'}
       data-tier={entry.tier}
       className={cardClass}
-      // Disable click handling for read-only cards entirely so
-      // keyboard activation can't bypass the no-toggle contract.
-      disabled={readOnly && !onToggle}
+      role={readOnly ? undefined : 'group'}
+      aria-label={`${entry.name} component card`}
+      onClick={handleBodyClick}
     >
       <ComponentLogo entry={entry} />
 
       <div className="corp-comp-body">
         <div className="corp-comp-top">
           <span className="corp-comp-name">{entry.name}</span>
-          <span className="corp-comp-cat">{entry.groupName}</span>
+          {/* Family chip — top-right corner of the body. Clickable: routes
+              to the family portfolio page. Stops propagation so the card
+              body click handler doesn't also fire. Suppressed in read-only
+              Tab 2 because that surface already groups by family. */}
+          {readOnly ? (
+            <span className="corp-comp-cat">{entry.groupName}</span>
+          ) : (
+            <Link
+              to="/marketplace/family/$familyId"
+              params={{ familyId: entry.product }}
+              data-testid={`family-chip-${entry.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="corp-comp-family-chip"
+              style={{
+                background: palette.bg,
+                color: palette.fg,
+                border: `1px solid ${palette.border}`,
+              }}
+              aria-label={`Open ${entry.groupName} family portfolio`}
+              title={`Open ${entry.groupName} family portfolio`}
+            >
+              {entry.groupName}
+            </Link>
+          )}
         </div>
         <p className="corp-comp-desc">{entry.desc}</p>
         <div className="corp-comp-chips">
@@ -253,29 +294,33 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
         )}
       </div>
 
-      {/* Selected status corner — bottom-right, mirrors SME .status-corner.
-          Suppressed in read-only mode (Tab 2); selection isn't a concept
-          there. */}
-      {selected && !readOnly && (
-        <div
-          className="corp-comp-status"
-          data-testid={`selected-${entry.id}`}
-        >
-          <span className="corp-comp-status-pill">
-            <span className="corp-comp-status-dot" /> {STEP_COMPONENTS_COPY.selectedPill}
-          </span>
-        </div>
-      )}
-
-      {/* Add/remove circle button (top-right). Hidden in read-only mode.
-          Default-hidden then revealed on hover, matching SME's
-          .app-add-btn opacity-0 → 1 transition. */}
+      {/* Explicit Select / Selected button — bottom-right. Stops
+          propagation so card-body clicks don't navigate when the operator
+          intends to toggle. Suppressed in read-only Tab 2. */}
       {!readOnly && (
-        <span aria-hidden className="corp-comp-add-btn" data-testid={`toggle-${entry.id}`}>
-          {selected ? <Check size={16} strokeWidth={3} /> : <Plus size={16} strokeWidth={2.5} />}
-        </span>
+        <button
+          type="button"
+          aria-pressed={selected}
+          aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggle?.()
+          }}
+          data-testid={`toggle-${entry.id}`}
+          className={`corp-comp-toggle ${selected ? 'selected' : ''}`}
+        >
+          {selected ? (
+            <>
+              <Check size={13} strokeWidth={3} aria-hidden /> {STEP_COMPONENTS_COPY.selectedPill}
+            </>
+          ) : (
+            <>
+              <Plus size={13} strokeWidth={2.75} aria-hidden /> Add
+            </>
+          )}
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -590,125 +635,6 @@ function EmptyStateCard() {
   )
 }
 
-/* ── Product section (Tab 1 grouped view) ─────────────────────────── */
-
-interface ProductSectionProps {
-  product: Product
-  items: ComponentEntry[]
-  cols: string
-  selectedSet: ReadonlySet<string>
-  onToggleComponent: (entry: ComponentEntry) => void
-  onAddProduct: (product: Product) => void
-  onRemoveProduct: (product: Product) => void
-}
-
-function ProductSection({
-  product,
-  items,
-  cols,
-  selectedSet,
-  onToggleComponent,
-  onAddProduct,
-  onRemoveProduct,
-}: ProductSectionProps) {
-  const allMembers = componentsByProduct(product.id)
-  // "Family fully selected" = every member that the operator can control
-  // (i.e. every non-mandatory member, because mandatory members are
-  // already selected and not user-toggleable in Tab 1) is in selectedSet.
-  // For mandatory products we use the full-membership check so the CTA
-  // can still render meaningfully (though such products typically don't
-  // appear in Tab 1 since their members are filtered out).
-  const userToggleableMembers = allMembers.filter(c => c.tier !== 'mandatory')
-  const allSelected = isProductFullySelected(product.id, selectedSet)
-  const selectedMembers = allMembers.filter(c => selectedSet.has(c.id)).length
-
-  return (
-    <section data-testid={`product-section-${product.id}`}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '0.75rem',
-          padding: '0.55rem 0.75rem',
-          marginBottom: '0.5rem',
-          borderRadius: 10,
-          background: 'var(--wiz-bg-xs)',
-          border: '1px solid var(--wiz-border-sub)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
-          <Layers size={14} aria-hidden style={{ color: 'var(--wiz-accent)' }} />
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span
-              data-testid={`product-name-${product.id}`}
-              style={{
-                color: 'var(--wiz-text-hi)',
-                fontSize: '0.85rem',
-                fontWeight: 700,
-                letterSpacing: '0.05em',
-              }}
-            >
-              {product.name}
-              <span
-                style={{
-                  marginLeft: 8,
-                  color: 'var(--wiz-text-sub)',
-                  fontWeight: 500,
-                  letterSpacing: 0,
-                  fontSize: '0.78rem',
-                }}
-              >
-                {product.subtitle}
-              </span>
-            </span>
-            <span
-              data-testid={`product-summary-${product.id}`}
-              style={{ color: 'var(--wiz-text-sub)', fontSize: '0.7rem' }}
-            >
-              {STEP_COMPONENTS_COPY.productCardSubtitle(product, selectedMembers, allMembers.length)}
-            </span>
-          </div>
-        </div>
-        {userToggleableMembers.length > 0 && (
-          <button
-            type="button"
-            data-testid={`product-cta-${product.id}`}
-            onClick={() => (allSelected ? onRemoveProduct(product) : onAddProduct(product))}
-            style={{
-              padding: '0.35rem 0.75rem',
-              borderRadius: 999,
-              border: '1px solid ' + (allSelected ? '#F87171' : 'rgba(var(--wiz-accent-ch), 1)'),
-              background: allSelected ? 'rgba(248,113,113,0.1)' : 'rgba(var(--wiz-accent-ch), 0.12)',
-              color: allSelected ? '#F87171' : 'var(--wiz-accent)',
-              cursor: 'pointer',
-              font: 'inherit',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-            }}
-          >
-            {allSelected
-              ? STEP_COMPONENTS_COPY.productDeselectAll(product)
-              : STEP_COMPONENTS_COPY.productSelectAll(product)}
-          </button>
-        )}
-      </header>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}>
-        {items.map(entry => (
-          <ComponentCard
-            key={entry.id}
-            entry={entry}
-            selected={selectedSet.has(entry.id)}
-            onToggle={() => onToggleComponent(entry)}
-          />
-        ))}
-      </div>
-    </section>
-  )
-}
-
 /* ── Step ─────────────────────────────────────────────────────────── */
 
 type TabKey = 'choose' | 'always'
@@ -778,25 +704,6 @@ export function StepComponents() {
     }
     return sortComponents(result, selectedSet)
   }, [query, activeCategory, selectedSet, choosePool])
-
-  /**
-   * Visible items grouped by product family, in PRODUCTS declaration
-   * order. Used to render product headers + the "select entire product"
-   * CTA in Tab 1's grouped view. When there's a search query we bypass
-   * grouping (see Tab 1 render below) — partial-text matches shouldn't
-   * fragment into mostly-empty product sections.
-   */
-  const productSectionsForVisible = useMemo(() => {
-    const byProduct = new Map<string, ComponentEntry[]>()
-    for (const entry of visible) {
-      const arr = byProduct.get(entry.product) ?? []
-      arr.push(entry)
-      byProduct.set(entry.product, arr)
-    }
-    return PRODUCTS
-      .filter(p => byProduct.has(p.id))
-      .map((product) => ({ product, items: byProduct.get(product.id) ?? [] }))
-  }, [visible])
 
   const cols = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : 'repeat(3, minmax(0, 1fr))'
 
@@ -893,48 +800,6 @@ export function StepComponents() {
     pushToast('removed', t.primary, t.extra)
     setPendingRemoval(null)
   }, [pendingRemoval, store, pushToast])
-
-  /* ── Product card handlers (Tab 1 product header CTA) ──────── */
-  const handleAddProduct = useCallback(
-    (product: Product) => {
-      const before = new Set(selectedSet)
-      const closure = resolveProductComponentClosure(product.id)
-      store.addProduct(product.id)
-      const newlyAdded = closure
-        .filter((id) => !before.has(id))
-        .map((id) => findComponent(id))
-        .filter((c): c is ComponentEntry => !!c)
-      const t = STEP_COMPONENTS_COPY.toastProductAdded(product, newlyAdded)
-      pushToast('added', t.primary, t.extra)
-    },
-    [selectedSet, pushToast, store],
-  )
-
-  const handleRemoveProduct = useCallback(
-    (product: Product) => {
-      const beforeSel = new Set(selectedSet)
-      const productMembers = componentsByProduct(product.id).filter(
-        (c) => c.tier !== 'mandatory',
-      )
-      // Build the impact set the same way the store will (every product
-      // member + every cascading dependent).
-      const impacted = new Set<string>()
-      for (const c of productMembers) {
-        impacted.add(c.id)
-        for (const dep of resolveTransitiveDependents(c.id)) {
-          if (findComponent(dep)?.tier !== 'mandatory') impacted.add(dep)
-        }
-      }
-      const removedEntries = [...impacted]
-        .filter((id) => beforeSel.has(id))
-        .map((id) => findComponent(id))
-        .filter((c): c is ComponentEntry => !!c)
-      store.removeProduct(product.id)
-      const t = STEP_COMPONENTS_COPY.toastProductRemoved(product, removedEntries)
-      pushToast('removed', t.primary, t.extra)
-    },
-    [selectedSet, pushToast, store],
-  )
 
   return (
     <StepShell
@@ -1145,47 +1010,23 @@ export function StepComponents() {
             </span>
           </div>
 
-          {/* Card grid — grouped by product family when there is no
-              search query active. Search results render flat (no product
-              headers) so partial-string matches across families don't
-              fragment into mostly-empty sections. */}
-          {query ? (
-            <div
-              data-testid="component-grid"
-              style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}
-            >
-              {visible.map((entry) => (
-                <ComponentCard
-                  key={entry.id}
-                  entry={entry}
-                  selected={selectedSet.has(entry.id)}
-                  onToggle={() => handleToggle(entry)}
-                />
-              ))}
-              {visible.length === 0 && (
-                <EmptyStateCard />
-              )}
-            </div>
-          ) : (
-            <div
-              data-testid="component-grid"
-              style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}
-            >
-              {productSectionsForVisible.map(({ product, items }) => (
-                <ProductSection
-                  key={product.id}
-                  product={product}
-                  items={items}
-                  cols={cols}
-                  selectedSet={selectedSet}
-                  onToggleComponent={handleToggle}
-                  onAddProduct={handleAddProduct}
-                  onRemoveProduct={handleRemoveProduct}
-                />
-              ))}
-              {productSectionsForVisible.length === 0 && <EmptyStateCard />}
-            </div>
-          )}
+          {/* Single flat marketplace card grid — no family-group section
+              headers. Family relationship is conveyed through the
+              clickable family chip on each card (see ComponentCard). */}
+          <div
+            data-testid="component-grid"
+            style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}
+          >
+            {visible.map((entry) => (
+              <ComponentCard
+                key={entry.id}
+                entry={entry}
+                selected={selectedSet.has(entry.id)}
+                onToggle={() => handleToggle(entry)}
+              />
+            ))}
+            {visible.length === 0 && <EmptyStateCard />}
+          </div>
         </>
       )}
 
@@ -1202,8 +1043,6 @@ export function StepComponents() {
         />
       )}
 
-      {/* SME-marketplace pixel-perfect card surface — single source of
-          card visual rules. Matches AppsStep.svelte's .app-card 1:1. */}
       <style>{`
         @keyframes corp-toast-in {
           from { transform: translateY(-16px); opacity: 0; }
@@ -1236,7 +1075,7 @@ export function StepComponents() {
           border-bottom-color: rgba(var(--wiz-accent-ch), 1);
         }
 
-        /* ── Card (mirrors AppsStep .app-card) ─────────────────────── */
+        /* ── Card ────────────────────────────────────────────────── */
         .corp-comp-card {
           position: relative;
           background: var(--wiz-bg-sub);
@@ -1251,7 +1090,7 @@ export function StepComponents() {
           color: inherit;
           text-align: left;
           font: inherit;
-          height: 108px;
+          height: 130px;
           overflow: hidden;
         }
         .corp-comp-card:hover {
@@ -1266,6 +1105,7 @@ export function StepComponents() {
         .corp-comp-card.read-only {
           cursor: default;
           opacity: 0.92;
+          height: 108px;
         }
         .corp-comp-card.read-only:hover {
           transform: none;
@@ -1285,12 +1125,16 @@ export function StepComponents() {
           display: flex;
           flex-direction: column;
           gap: 0.25rem;
-          padding-right: 4.5rem;
+          padding-right: 0.4rem;
+          padding-bottom: 1.85rem;
           overflow: hidden;
+        }
+        .corp-comp-card.read-only .corp-comp-body {
+          padding-bottom: 0;
         }
         .corp-comp-top {
           display: flex;
-          align-items: baseline;
+          align-items: center;
           gap: 0.5rem;
         }
         .corp-comp-name {
@@ -1313,6 +1157,27 @@ export function StepComponents() {
           border-radius: 3px;
           flex-shrink: 0;
         }
+
+        /* Family chip — clickable, top-right of card body. */
+        .corp-comp-family-chip {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.15rem 0.55rem;
+          border-radius: 999px;
+          font-size: 0.62rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          text-decoration: none;
+          flex-shrink: 0;
+          line-height: 1.4;
+          transition: filter 0.15s, transform 0.1s;
+        }
+        .corp-comp-family-chip:hover {
+          filter: brightness(1.15);
+          transform: translateY(-1px);
+        }
+
         .corp-comp-desc {
           margin: 0;
           color: var(--wiz-text-md);
@@ -1344,78 +1209,46 @@ export function StepComponents() {
           white-space: nowrap;
         }
 
-        /* Selected status pill — bottom-right */
-        .corp-comp-status {
+        /* Explicit Select / Selected toggle — bottom-right of the card.
+           Always visible, so the click affordance is never hidden behind
+           hover state. The card body's onClick is the navigation path,
+           and this button stops propagation to keep the two distinct. */
+        .corp-comp-toggle {
           position: absolute;
           bottom: 0.5rem;
           right: 0.55rem;
-          pointer-events: none;
-        }
-        .corp-comp-status-pill {
           display: inline-flex;
           align-items: center;
           gap: 0.3rem;
-          padding: 0.15rem 0.55rem;
+          padding: 0.3rem 0.7rem;
           border-radius: 999px;
-          font-size: 0.65rem;
-          font-weight: 600;
-          line-height: 1.4;
-          letter-spacing: 0.03em;
-          background: rgba(74,222,128,0.16);
-          color: #4ADE80;
-        }
-        .corp-comp-status-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: currentColor;
-          display: inline-block;
-        }
-
-        /* Add/remove button — top-right, hidden until hover (SME pattern) */
-        .corp-comp-add-btn {
-          position: absolute;
-          top: 0.6rem;
-          right: 0.6rem;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          opacity: 0;
-          transform: scale(0.8);
-          transition: opacity 0.15s, transform 0.15s, background 0.15s;
           background: rgba(var(--wiz-accent-ch), 1);
           color: #fff;
+          border: 1px solid rgba(var(--wiz-accent-ch), 1);
+          font: inherit;
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          cursor: pointer;
+          transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
           z-index: 2;
-          pointer-events: none;
-          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
         }
-        .corp-comp-card:hover .corp-comp-add-btn {
-          opacity: 1;
-          transform: scale(1);
+        .corp-comp-toggle:hover {
+          transform: translateY(-1px);
+          filter: brightness(1.05);
         }
-        .corp-comp-card.in-cart .corp-comp-add-btn {
-          background: #4ADE80;
-          opacity: 1;
-          transform: scale(1);
+        .corp-comp-toggle.selected {
+          background: rgba(74,222,128,0.18);
+          color: #4ADE80;
+          border-color: rgba(74,222,128,0.5);
         }
-        .corp-comp-card.mandatory .corp-comp-add-btn {
-          /* Mandatory cards never appear in Tab 1 grid (the choose pool
-             excludes mandatory) so this rule only applies to direct
-             rendering by AlwaysIncludedTab — there the add button is
-             suppressed entirely via readOnly. Defensive fallback: tint
-             the icon green if it ever leaks through. */
-          background: rgba(74,222,128,0.85);
+        .corp-comp-toggle.selected:hover {
+          background: rgba(74,222,128,0.28);
         }
 
         /* Tablet/mobile */
-        @media (max-width: 1080px) {
-          .corp-comp-body { padding-right: 4rem; }
-        }
         @media (max-width: 768px) {
-          .corp-comp-card { height: auto; min-height: 108px; }
+          .corp-comp-card { height: auto; min-height: 130px; }
         }
       `}</style>
     </StepShell>

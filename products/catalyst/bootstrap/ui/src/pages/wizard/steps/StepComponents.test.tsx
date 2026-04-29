@@ -20,8 +20,24 @@
  *   - Catalog invariants — dependency graph integrity, store invariants
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react'
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+  within,
+  type RenderResult,
+} from '@testing-library/react'
+import {
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+  createRoute,
+  createMemoryHistory,
+  Outlet,
+} from '@tanstack/react-router'
 import { StepComponents } from './StepComponents'
 import {
   ALL_COMPONENTS,
@@ -41,6 +57,67 @@ import {
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
+/**
+ * StepComponents now navigates to `/marketplace/family/<id>` and
+ * `/marketplace/product/<id>` from the family chip and card body, so it
+ * requires a TanStack Router context to render. The render helper below
+ * keeps the existing synchronous test signature (`render(<X />)`) by:
+ *
+ *   1. Building a single router with stub marketplace + wizard routes at
+ *      module load.
+ *   2. Pre-loading the router once via `beforeAll` so route matches are
+ *      ready before any test queries the DOM.
+ *   3. Threading the test's UI through a module-scoped slot read by the
+ *      index route's component, so each test renders different content
+ *      without rebuilding the router.
+ *
+ * After every test we reset the router to `/` so the next render starts
+ * from the clean wizard surface (chip / body click navigations done
+ * inside a test never bleed into the next).
+ */
+let TEST_UI_SLOT: React.ReactNode = null
+
+const __testRootRoute = createRootRoute({ component: () => <Outlet /> })
+const __testIndexRoute = createRoute({
+  getParentRoute: () => __testRootRoute,
+  path: '/',
+  component: () => <>{TEST_UI_SLOT}</>,
+})
+const __testFamilyRoute = createRoute({
+  getParentRoute: () => __testRootRoute,
+  path: '/marketplace/family/$familyId',
+  component: () => <div data-testid="stub-marketplace-family" />,
+})
+const __testProductRoute = createRoute({
+  getParentRoute: () => __testRootRoute,
+  path: '/marketplace/product/$componentId',
+  component: () => <div data-testid="stub-marketplace-product" />,
+})
+const __testWizardRoute = createRoute({
+  getParentRoute: () => __testRootRoute,
+  path: '/wizard',
+  component: () => <div data-testid="stub-wizard" />,
+})
+const __testRouteTree = __testRootRoute.addChildren([
+  __testIndexRoute,
+  __testFamilyRoute,
+  __testProductRoute,
+  __testWizardRoute,
+])
+const __testRouter = createRouter({
+  routeTree: __testRouteTree,
+  history: createMemoryHistory({ initialEntries: ['/'] }),
+})
+
+beforeAll(async () => {
+  await __testRouter.load()
+})
+
+function render(ui: React.ReactElement): RenderResult {
+  TEST_UI_SLOT = ui
+  return rtlRender(<RouterProvider router={__testRouter} />)
+}
+
 /* ── Fixtures ─────────────────────────────────────────────────────── */
 
 function resetStore(extra: Partial<typeof INITIAL_WIZARD_STATE> = {}) {
@@ -55,8 +132,17 @@ beforeEach(() => {
   resetStore()
 })
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
+  TEST_UI_SLOT = null
+  // After a test that navigated away from `/` (chip / card body click)
+  // the router would otherwise stay on the marketplace stub for the
+  // next render. Reset by navigating home and waiting for matches.
+  if (__testRouter.state.location.pathname !== '/') {
+    await act(async () => {
+      await __testRouter.navigate({ to: '/' })
+    })
+  }
 })
 
 const NON_MANDATORY = ALL_COMPONENTS.filter((c) => c.tier !== 'mandatory')
@@ -294,15 +380,15 @@ describe('Tab 1 — category filter', () => {
 /* ── Sort: selected first ─────────────────────────────────────────── */
 
 describe('Tab 1 — sort: selected first', () => {
-  it('selected components float to the top of the FABRIC product section', () => {
+  it('selected components float to the top of the flat grid', () => {
     resetStore({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-clickhouse'))
-    // Tab 1 renders product sections — the section, not the outer grid,
-    // is the right scope for the "selected-first" sort assertion.
-    const section = screen.getByTestId('product-section-fabric')
-    const cards = within(section).getAllByTestId(/^component-card-/)
+    fireEvent.click(screen.getByTestId('toggle-clickhouse'))
+    // The wizard now renders a single flat grid (no per-family product
+    // section headers). Sort assertion scopes to that grid.
+    const grid = screen.getByTestId('component-grid')
+    const cards = within(grid).getAllByTestId(/^component-card-/)
     const ids = cards.map((c) => c.getAttribute('data-testid'))
     expect(ids[0]).toBe('component-card-clickhouse')
   })
@@ -339,7 +425,7 @@ describe('cascading add', () => {
       selectedComponents: before.filter((id) => !cortexIds.includes(id)),
     })
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('component-card-langfuse'))
+    fireEvent.click(screen.getByTestId('toggle-langfuse'))
     const toast = screen.getByTestId('toast-added')
     expect(toast.textContent).toMatch(/LangFuse added/)
     expect(toast.textContent).toMatch(/CORTEX family/)
@@ -374,7 +460,7 @@ describe('cascading remove', () => {
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-strimzi'))
+    fireEvent.click(screen.getByTestId('toggle-strimzi'))
     expect(screen.getByTestId('cascade-dialog')).toBeTruthy()
     const list = screen.getByTestId('cascade-dependents')
     expect(list.textContent).toMatch(/Debezium/)
@@ -392,7 +478,7 @@ describe('cascading remove', () => {
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-strimzi'))
+    fireEvent.click(screen.getByTestId('toggle-strimzi'))
     fireEvent.click(screen.getByTestId('cascade-cancel'))
     expect(useWizardStore.getState().selectedComponents).toContain('strimzi')
     expect(screen.queryByTestId('cascade-dialog')).toBeNull()
@@ -405,7 +491,7 @@ describe('cascading remove', () => {
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-strimzi'))
+    fireEvent.click(screen.getByTestId('toggle-strimzi'))
     fireEvent.click(screen.getByTestId('cascade-confirm'))
     const sel = useWizardStore.getState().selectedComponents
     expect(sel).not.toContain('strimzi')
@@ -592,7 +678,7 @@ describe('store invariants', () => {
 describe('reset to defaults', () => {
   it('clicking the reset button restores the default selection', () => {
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('component-card-clickhouse'))
+    fireEvent.click(screen.getByTestId('toggle-clickhouse'))
     expect(useWizardStore.getState().selectedComponents).toContain('clickhouse')
     fireEvent.click(screen.getByTestId('reset-defaults'))
     expect(useWizardStore.getState().selectedComponents).not.toContain('clickhouse')
@@ -831,50 +917,43 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     // bge lives under CORTEX (optional product, no category chip in Tab 1
     // when filtered to fabric — switch chip first).
     fireEvent.click(screen.getByTestId('category-chip-cortex'))
-    fireEvent.click(screen.getByTestId('component-card-bge'))
+    fireEvent.click(screen.getByTestId('toggle-bge'))
     const toast = screen.getByTestId('toast-added')
     expect(toast.textContent).toMatch(/BGE added/)
     expect(toast.textContent).toMatch(/CORTEX family/)
   })
 })
 
-/* ── product-section header rendering ───────────────────────────── */
+/* ── Flat grid + family chip ───────────────────────────────────── */
 
-describe('Tab 1 — product sections (issue #175)', () => {
-  it('renders a product section per product with non-mandatory members', () => {
+describe('Tab 1 — flat grid (no per-family section headers)', () => {
+  it('renders a single flat component grid (no product-section headers)', () => {
     render(<StepComponents />)
+    expect(screen.getByTestId('component-grid')).toBeTruthy()
+    // Per-family section headers were removed in the chip + product-detail
+    // refactor — the catalog is one flat marketplace grid now.
     for (const p of PRODUCTS) {
-      const userToggleable = componentsByProduct(p.id).filter(
-        (c) => c.tier !== 'mandatory',
-      )
-      if (userToggleable.length > 0) {
-        expect(screen.getByTestId(`product-section-${p.id}`)).toBeTruthy()
-      }
+      expect(screen.queryByTestId(`product-section-${p.id}`)).toBeNull()
     }
   })
 
-  it('CORTEX product section exposes a "select entire product" CTA', () => {
-    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+  it('every non-mandatory card carries a clickable family chip', () => {
     render(<StepComponents />)
-    expect(screen.getByTestId('product-cta-cortex')).toBeTruthy()
-  })
-
-  it('clicking CORTEX product CTA selects every CORTEX component', () => {
-    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
-    render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('product-cta-cortex'))
-    const sel = useWizardStore.getState().selectedComponents
-    for (const c of componentsByProduct('cortex')) {
-      expect(sel).toContain(c.id)
+    for (const c of NON_MANDATORY) {
+      const chip = screen.queryByTestId(`family-chip-${c.id}`)
+      expect(chip).toBeTruthy()
+      // Anchor element so clicking dispatches navigation through the
+      // tanstack router context.
+      expect(chip!.tagName.toLowerCase()).toBe('a')
+      expect(chip!.textContent).toMatch(new RegExp(c.groupName, 'i'))
     }
   })
 
-  it('product CTA toast announces the family addition', () => {
-    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+  it('every non-mandatory card surfaces an explicit Add / Selected toggle button', () => {
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('product-cta-cortex'))
-    const toast = screen.getByTestId('toast-added')
-    expect(toast.textContent).toMatch(/CORTEX family added/)
+    for (const c of NON_MANDATORY) {
+      expect(screen.getByTestId(`toggle-${c.id}`)).toBeTruthy()
+    }
   })
 })
 
