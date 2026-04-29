@@ -36,6 +36,7 @@ import {
 } from '@/pages/wizard/steps/componentGroups'
 import { componentCopy, familyChipPalette } from './marketplaceCopy'
 import { MarketplaceShellStyles } from './MarketplaceFamilyPage'
+import { getLogoToneStyle } from '@/pages/wizard/steps/logoTone'
 
 interface DepBadgeProps {
   entry: ComponentEntry
@@ -89,6 +90,16 @@ export function MarketplaceProductPage() {
   const family = findProduct(entry.product)
   const palette = familyChipPalette(entry.product)
   const copy = componentCopy(entry.id)
+  // Per-asset logo tone — see logoTone.ts. Drives the hero tile's
+  // background/border colour pair so a white-glyph component (Temporal,
+  // LiveKit, Mimir, …) renders against a dark backplate even on this
+  // detail surface, mirroring the per-asset PNG approach the canonical
+  // SME marketplace uses.
+  const tone = getLogoToneStyle(entry.id)
+  const tileStyle: React.CSSProperties = {
+    background: tone.background,
+    borderColor: tone.border,
+  }
   const directDeps = (entry.dependencies ?? [])
     .map((id) => findComponent(id))
     .filter((c): c is ComponentEntry => !!c)
@@ -131,9 +142,15 @@ export function MarketplaceProductPage() {
             src={entry.logoUrl}
             alt={`${entry.name} logo`}
             className="mp-product-logo"
+            style={tileStyle}
           />
         ) : (
-          <span className="mp-product-icon">{entry.name.charAt(0)}</span>
+          <span
+            className="mp-product-icon"
+            style={{ ...tileStyle, color: tone.text }}
+          >
+            {entry.name.charAt(0)}
+          </span>
         )}
 
         <div className="mp-product-hero-body">
@@ -287,21 +304,21 @@ function ProductHeroStyles() {
         margin-bottom: 1.5rem;
         flex-wrap: wrap;
       }
-      /* Hero logo tile — neutral, high-contrast pill (matches the wizard
-         card and family-page tiles). Vendored component logos render in
-         mixed treatments; pinning the surface to a near-white pill plus a
-         1px subtle border keeps every brand mark legible in both wizard
-         themes without touching the asset files. The letter-mark fallback
-         (.mp-product-icon) shares the same surface for visual consistency
-         when a component has no vendored logo. */
+      /* Hero logo tile — geometry only. The tile *surface* (background,
+         border, fallback letter colour) is driven per-asset by
+         logoTone.ts → inline style on the element above, mirroring the
+         canonical SME marketplace's per-asset PNG approach. Keep this
+         rule's geometry (size, radius, padding, object-fit) in sync
+         with the matching tiles in StepComponents.tsx (.corp-comp-card),
+         StepReview.tsx (ComponentMiniCard) and MarketplaceFamilyPage.tsx
+         (.mp-related-logo). */
       .mp-product-logo {
         width: 80px;
         height: 80px;
         border-radius: 18px;
         object-fit: contain;
         flex-shrink: 0;
-        background: rgba(255, 255, 255, 0.96);
-        border: 1px solid var(--wiz-border-sub);
+        border: 1px solid transparent;
         padding: 8px;
         box-sizing: border-box;
       }
@@ -313,9 +330,7 @@ function ProductHeroStyles() {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: #0f172a;
-        background: rgba(255, 255, 255, 0.96);
-        border: 1px solid var(--wiz-border-sub);
+        border: 1px solid transparent;
         font-size: 1.75rem;
         font-weight: 700;
       }

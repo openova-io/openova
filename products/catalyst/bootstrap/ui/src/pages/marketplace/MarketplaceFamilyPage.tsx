@@ -33,6 +33,7 @@ import {
   type Product,
 } from '@/pages/wizard/steps/componentGroups'
 import { FAMILY_COPY, componentCopy, familyChipPalette } from './marketplaceCopy'
+import { getLogoToneStyle } from '@/pages/wizard/steps/logoTone'
 
 interface MemberRowProps {
   entry: ComponentEntry
@@ -45,6 +46,17 @@ interface MemberRowProps {
  * card; matches the marketplace's restrained motion.
  */
 function MemberRow({ entry }: MemberRowProps) {
+  const tone = getLogoToneStyle(entry.id)
+  // Per-asset tone overrides — see logoTone.ts and the .mp-related-logo
+  // CSS rule below. Inline style is the cleanest way to vary the tile
+  // surface per-component without exploding into one CSS class per
+  // component-id; the static rule still owns geometry (size, radius,
+  // padding, object-fit), and inline style only overrides the
+  // background / border colour pair driven by the tone metadata.
+  const tileStyle: React.CSSProperties = {
+    background: tone.background,
+    borderColor: tone.border,
+  }
   return (
     <Link
       to="/marketplace/product/$componentId"
@@ -58,9 +70,15 @@ function MemberRow({ entry }: MemberRowProps) {
           alt={`${entry.name} logo`}
           className="mp-related-logo"
           loading="lazy"
+          style={tileStyle}
         />
       ) : (
-        <span className="mp-related-icon">{entry.name.charAt(0)}</span>
+        <span
+          className="mp-related-icon"
+          style={{ ...tileStyle, color: tone.text }}
+        >
+          {entry.name.charAt(0)}
+        </span>
       )}
       <div className="mp-related-body">
         <strong>{entry.name}</strong>
@@ -426,24 +444,21 @@ export function MarketplaceShellStyles() {
         border-color: rgba(var(--wiz-accent-ch), 0.6);
         transform: translateY(-1px);
       }
-      /* Logo tile — neutral, high-contrast pill. The vendored component
-         logos under public/component-logos/ ship in mixed treatments
-         (dark-on-transparent, white-on-transparent, full-colour). To
-         guarantee readability across both wizard themes we pin every
-         tile to a near-white background with a 1px subtle border so the
-         brand mark reads cleanly in dark and light mode alike. The
-         letter-mark fallback (.mp-related-icon) shares the same surface
-         so member-row tiles stay visually consistent whether or not the
-         component has a vendored logo. Keep in sync with the matching
-         tile in StepComponents.tsx and MarketplaceProductPage.tsx. */
+      /* Logo tile — geometry only. The tile *surface* (background,
+         border, fallback letter colour) is driven per-asset by
+         logoTone.ts → inline style on the element below, mirroring
+         the canonical SME marketplace's per-asset PNG approach.
+         Keep this rule's geometry (size, radius, padding, object-fit)
+         in sync with the matching tiles in StepComponents.tsx (.corp-comp-card),
+         StepReview.tsx (ComponentMiniCard) and MarketplaceProductPage.tsx
+         (.mp-product-logo). */
       .mp-related-logo {
         width: 36px;
         height: 36px;
         border-radius: 8px;
         object-fit: contain;
         flex-shrink: 0;
-        background: rgba(255, 255, 255, 0.96);
-        border: 1px solid var(--wiz-border-sub);
+        border: 1px solid transparent;
         padding: 6px;
         box-sizing: border-box;
       }
@@ -455,9 +470,7 @@ export function MarketplaceShellStyles() {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: #0f172a;
-        background: rgba(255, 255, 255, 0.96);
-        border: 1px solid var(--wiz-border-sub);
+        border: 1px solid transparent;
         font-size: 0.95rem;
         font-weight: 700;
       }
