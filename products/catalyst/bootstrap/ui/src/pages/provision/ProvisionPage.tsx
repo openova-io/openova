@@ -1118,7 +1118,7 @@ function DagNodes({ nodes, layout, selectedNodeId, onSelect }: DagNodesProps) {
         const stroke = colorFor(n)
         const isSelected = selectedNodeId === n.id
         const labelColor =
-          n.status === 'pending' ? 'rgba(255,255,255,0.45)' : colorFor(n)
+          n.status === 'pending' ? 'var(--lo)' : colorFor(n)
         const arc =
           n.prog && n.prog > 0 && n.status !== 'pending' ? (
             <circle
@@ -1340,10 +1340,10 @@ const provisionCss = `
 .provision-shell .ll{display:flex;gap:9px;align-items:flex-start}
 .provision-shell .ll-ts{color:var(--hint);flex-shrink:0;font-size:8.5px;min-width:54px}
 .provision-shell .ll-msg{flex:1;word-break:break-word;white-space:pre-wrap}
-.provision-shell .ll-info .ll-msg{color:rgba(255,255,255,.78)}
+.provision-shell .ll-info .ll-msg{color:var(--md)}
 .provision-shell .ll-warn .ll-msg{color:var(--warn)}
 .provision-shell .ll-error .ll-msg{color:var(--err)}
-.provision-shell .ll-meta{font-size:8.5px;color:var(--hint);background:rgba(255,255,255,.04);padding:0 5px;border-radius:3px;margin-right:5px}
+.provision-shell .ll-meta{font-size:8.5px;color:var(--hint);background:var(--s1);padding:0 5px;border-radius:3px;margin-right:5px}
 .provision-shell .lempty{padding:14px;color:var(--hint);font-size:10.5px;line-height:1.6}
 .provision-shell .failure-card{margin:14px;padding:18px 22px;border-radius:12px;border:1px solid rgba(248,113,113,.35);background:rgba(248,113,113,.06);color:var(--md);display:flex;flex-direction:column;gap:10px}
 .provision-shell .failure-card-head{display:flex;align-items:center;gap:10px}
@@ -1355,7 +1355,7 @@ const provisionCss = `
 .provision-shell .failure-card-meta strong{color:var(--lo);font-weight:600;margin-right:4px}
 .provision-shell .failure-card-meta code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--hi)}
 .provision-shell .failure-card-hint{font-size:11px;color:var(--md)}
-.provision-shell .failure-card-hint code{font-family:'JetBrains Mono',monospace;color:var(--hi);background:rgba(255,255,255,.04);padding:2px 6px;border-radius:4px}
+.provision-shell .failure-card-hint code{font-family:'JetBrains Mono',monospace;color:var(--hi);background:var(--s1);padding:2px 6px;border-radius:4px}
 .provision-shell .failure-card-actions{display:flex;gap:10px;margin-top:4px}
 .provision-shell .failure-card-actions .ibtn{height:32px;padding:0 14px;font-size:11px}
 @media(max-width:900px){.provision-shell .sidebar{width:0}}
