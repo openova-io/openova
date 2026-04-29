@@ -1,0 +1,35 @@
+apiVersion: v2
+name: bp-langfuse
+description: |
+  Catalyst Blueprint umbrella chart for Langfuse — LLM observability
+  platform (traces, evaluations, prompt management, cost attribution).
+  Depends on the upstream `langfuse` chart (langfuse/langfuse-k8s) as a
+  Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact. Catalyst-curated values flow into the upstream
+  subchart under the `langfuse:` key in values.yaml.
+
+  Per docs/CLAUDE.md `langfuse.md` Catalyst routes Langfuse's persistent
+  state through Catalyst-managed dependencies — NOT the bundled Bitnami
+  subcharts:
+    - PostgreSQL via cnpg.io/Cluster (Catalyst standard, see bp-cnpg).
+    - ClickHouse via bp-clickhouse (when authored).
+    - Redis via bp-valkey (when authored).
+    - Object storage via SeaweedFS (bp-seaweedfs) S3-compatible endpoint.
+
+  All four bundled deploys are disabled by default; per-Sovereign overlays
+  wire the external endpoints + Secret references.
+type: application
+version: 1.0.0
+appVersion: "3.171.0"
+keywords: [catalyst, blueprint, langfuse, observability, llm, ai]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to langfuse/langfuse 1.5.28 (appVersion 3.171.0) — current stable
+# on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: langfuse
+    version: "1.5.28"
+    repository: "https://langfuse.github.io/langfuse-k8s"

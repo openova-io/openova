@@ -1,0 +1,162 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `langfuse:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: langfuse
+    version: "1.5.28"
+    repo: "https://langfuse.github.io/langfuse-k8s"
+
+# ─── Upstream chart values (subchart key: langfuse) ──────────────────────
+langfuse:
+  # ──────────────────────────────────────────────────────────────────────
+  # Catalyst convention: ALL bundled Bitnami subcharts are disabled.
+  # Catalyst manages persistent state via its own Blueprints:
+  #   - postgresql.deploy=false  →  cnpg.io/Cluster (bp-cnpg)
+  #   - redis.deploy=false        →  bp-valkey (when authored)
+  #   - clickhouse.deploy=false   →  bp-clickhouse (when authored)
+  #   - s3.deploy=false           →  SeaweedFS S3 (bp-seaweedfs)
+  # Per-Sovereign overlays wire the external hostnames + Secret references
+  # to the resources Catalyst already provisions on the host cluster.
+  # ──────────────────────────────────────────────────────────────────────
+
+  # Core langfuse application config.
+  langfuse:
+    # Pin upstream Langfuse image — DO NOT use floating tags.
+    image:
+      tag: "3.171.0"
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+
+    # Default replicas — solo-Sovereign minimum is 1 each. Per-Sovereign
+    # overlays bump for HA. Each component (web, worker) follows this.
+    replicas: 1
+
+    # Required secrets — Catalyst convention: all secret VALUES live in a
+    # K8s Secret named `langfuse-secrets` in the install namespace, which
+    # the per-Sovereign overlay creates (via SealedSecret in Phase 0,
+    # ExternalSecret + OpenBao in Phase 2+). The umbrella ships only the
+    # POINTERS so the chart renders cleanly without leaking credentials
+    # into git.
+    salt:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: salt
+    encryptionKey:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: encryptionKey
+    nextauth:
+      url: ""
+      secret:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: nextauthSecret
+
+    # Telemetry to Langfuse Inc. — DEFAULT FALSE per
+    # docs/INVIOLABLE-PRINCIPLES.md "no phone-home by default".
+    features:
+      telemetryEnabled: false
+      signUpDisabled: true
+      experimentalFeaturesEnabled: false
+
+    nodeEnv: production
+
+    # Ingress — DEFAULT FALSE; per-Sovereign overlays expose Langfuse via
+    # cilium-gateway HTTPRoute.
+    ingress:
+      enabled: false
+
+    serviceAccount:
+      create: true
+
+  # PostgreSQL — Catalyst routes via cnpg.io/Cluster (bp-cnpg). The
+  # bundled Bitnami subchart is OFF; per-Sovereign overlays MUST set
+  # `postgresql.host` to the cnpg `<cluster>-rw` Service and reference a
+  # Secret created by the cnpg Cluster's `bootstrap.initdb.secret`.
+  postgresql:
+    deploy: false
+    host: "langfuse-postgres-rw"
+    port: 5432
+    auth:
+      username: postgres
+      database: postgres_langfuse
+      existingSecret: "langfuse-postgresql-secret"
+      secretKeys:
+        userPasswordKey: password
+        adminPasswordKey: password
+    migration:
+      autoMigrate: true
+
+  # Redis / Valkey — Catalyst routes via bp-valkey (when authored). The
+  # bundled Bitnami subchart is OFF; per-Sovereign overlays MUST set
+  # `redis.host` + reference an `existingSecret`.
+  redis:
+    deploy: false
+    host: "langfuse-redis"
+    port: 6379
+    auth:
+      username: "default"
+      existingSecret: "langfuse-redis-secret"
+      existingSecretPasswordKey: password
+
+  # ClickHouse — Catalyst routes via bp-clickhouse (when authored). The
+  # bundled Bitnami subchart is OFF; per-Sovereign overlays MUST set
+  # `clickhouse.host` + reference an `existingSecret`.
+  clickhouse:
+    deploy: false
+    host: "langfuse-clickhouse"
+    httpPort: 8123
+    nativePort: 9000
+    database: default
+    auth:
+      username: default
+      existingSecret: "langfuse-clickhouse-secret"
+      existingSecretKey: password
+    migration:
+      url: "clickhouse://default@langfuse-clickhouse:9000"
+      ssl: false
+      autoMigrate: true
+    clusterEnabled: false
+    shards: 1
+    replicaCount: 1
+
+  # S3 — Catalyst routes via SeaweedFS (bp-seaweedfs) S3-compatible
+  # endpoint. The bundled Bitnami MinIO subchart is OFF; per-Sovereign
+  # overlays MUST set `s3.endpoint` + reference Secrets for accessKeyId
+  # and secretAccessKey.
+  s3:
+    deploy: false
+    storageProvider: "s3"
+    bucket: "langfuse"
+    region: "auto"
+    endpoint: "http://seaweedfs-s3.openova-system.svc.cluster.local:8333"
+    forcePathStyle: true
+    accessKeyId:
+      secretKeyRef:
+        name: "langfuse-s3-secret"
+        key: accessKeyId
+    secretAccessKey:
+      secretKeyRef:
+        name: "langfuse-s3-secret"
+        key: secretAccessKey
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for the cnpg.io/Cluster + ExternalSecret + NetworkPolicy
+# overlays added in a follow-up PR once bp-cnpg outputs are wired.
+langfuseOverlay:
+  # cnpg.io/Cluster overlay — DEFAULT FALSE because the cnpg CRDs may not
+  # exist on a fresh cluster. Per-Sovereign overlays flip this on once
+  # bp-cnpg has reconciled.
+  cnpgCluster:
+    enabled: false
+    instances: 1
+    storage:
+      size: 20Gi
+  networkPolicy:
+    enabled: false
