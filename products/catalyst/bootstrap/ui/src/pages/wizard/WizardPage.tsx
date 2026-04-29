@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useWizardStore } from '@/entities/deployment/store'
 import { StepOrg }         from './steps/StepOrg'
+import { StepDomain }      from './steps/StepDomain'
 import { StepTopology }    from './steps/StepTopology'
 import { StepProvider }    from './steps/StepProvider'
 import { StepCredentials } from './steps/StepCredentials'
@@ -9,7 +10,10 @@ import { StepComponents }  from './steps/StepComponents'
 import { StepReview }      from './steps/StepReview'
 import { StepSuccess }     from './steps/StepSuccess'
 
-const STEPS = [StepOrg, StepTopology, StepProvider, StepCredentials, StepComponents, StepReview, StepSuccess]
+// StepDomain promoted into its own step for #169 — three-mode (pool /
+// byo-manual / byo-api) UX needs more vertical space than fits inside the
+// org-profile step.
+const STEPS = [StepOrg, StepDomain, StepTopology, StepProvider, StepCredentials, StepComponents, StepReview, StepSuccess]
 
 const variants = {
   enter:  (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),

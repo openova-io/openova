@@ -78,6 +78,21 @@ func doSetNS(t *testing.T, h *Handler, registrarName string, body string) *httpt
 	return rec
 }
 
+func doValidate(t *testing.T, h *Handler, registrarName string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/registrar/{registrar}", func(r chi.Router) {
+			r.Post("/validate", h.Validate)
+		})
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/registrar/"+registrarName+"/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
 const supersecretToken = "totally-secret-token-7Hf83KjzQ2"
 
 func TestSetNSHappy(t *testing.T) {
@@ -242,6 +257,99 @@ func TestPropagationHint(t *testing.T) {
 	}
 	if propagationHint("unknown") == "" {
 		t.Error("unknown registrar must still get a generic hint")
+	}
+}
+
+// ── /validate (#169) ──────────────────────────────────────────────────
+
+func TestValidateHappy(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare"}
+	h, logBuf := newTestHandler(t, a)
+	rec := doValidate(t, h, "cloudflare",
+		`{"domain":"example.com","token":"`+supersecretToken+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp ValidateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Valid || resp.Registrar != "cloudflare" || resp.Domain != "example.com" {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if a.gotToken != supersecretToken {
+		t.Fatalf("adapter did not receive token (got %q)", a.gotToken)
+	}
+	// Crucial — Validate MUST NOT call SetNameservers.
+	if a.gotNS != nil {
+		t.Fatalf("Validate accidentally flipped NS: %v", a.gotNS)
+	}
+	if strings.Contains(logBuf.String(), supersecretToken) {
+		t.Fatalf("LEAKED token in logs: %s", logBuf.String())
+	}
+}
+
+func TestValidateInvalidToken(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare", validateErr: registrar.ErrInvalidToken}
+	h, _ := newTestHandler(t, a)
+	rec := doValidate(t, h, "cloudflare",
+		`{"domain":"x.com","token":"`+supersecretToken+`"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestValidateDomainNotInAccount(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare", validateErr: registrar.ErrDomainNotInAccount}
+	h, _ := newTestHandler(t, a)
+	rec := doValidate(t, h, "cloudflare",
+		`{"domain":"x.com","token":"t"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestValidateUnsupportedRegistrar(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare"}
+	h, _ := newTestHandler(t, a)
+	rec := doValidate(t, h, "fakehost",
+		`{"domain":"x.com","token":"t"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestValidateMissingFields(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare"}
+	h, _ := newTestHandler(t, a)
+	for _, body := range []string{
+		`{"token":"t"}`,
+		`{"domain":"x.com"}`,
+	} {
+		rec := doValidate(t, h, "cloudflare", body)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("body %q → status %d, want 422", body, rec.Code)
+		}
+	}
+}
+
+func TestValidateBadJSON(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare"}
+	h, _ := newTestHandler(t, a)
+	rec := doValidate(t, h, "cloudflare", `not-json`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestValidateResponseDoesNotEchoToken(t *testing.T) {
+	a := &fakeAdapter{name: "cloudflare"}
+	h, _ := newTestHandler(t, a)
+	rec := doValidate(t, h, "cloudflare",
+		`{"domain":"x.com","token":"`+supersecretToken+`"}`)
+	body, _ := io.ReadAll(rec.Body)
+	if bytes.Contains(body, []byte(supersecretToken)) {
+		t.Fatalf("response body leaks token: %s", string(body))
 	}
 }
 

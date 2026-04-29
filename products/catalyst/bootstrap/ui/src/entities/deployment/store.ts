@@ -63,11 +63,17 @@ interface WizardActions {
   setOrgHeadquarters: (hq: string) => void
   setOrgCompliance: (tags: string[]) => void
 
-  // Step 1 — Sovereign domain (pool or BYO)
+  // Step 1 — Sovereign domain (pool, byo-manual, byo-api)
   setSovereignDomainMode: (mode: import('./model').DomainMode) => void
   setSovereignPoolDomain: (id: string) => void
   setSovereignSubdomain: (subdomain: string) => void
   setSovereignByoDomain: (domain: string) => void
+
+  // Step 1 — BYO-api registrar credentials (#169 BYO Flow B)
+  setRegistrarType: (registrar: import('./model').RegistrarType | null) => void
+  setRegistrarToken: (token: string) => void
+  setRegistrarTokenValidated: (validated: boolean) => void
+  clearRegistrarCredentials: () => void
 
   // Step 2 — Topology (resets per-region providers when topology changes)
   setTopology: (topology: TopologyTemplate) => void
@@ -174,16 +180,61 @@ export const useWizardStore = create<WizardStore>()(
 
         // Sovereign-domain setters
         setSovereignDomainMode: (sovereignDomainMode) =>
-          set({ sovereignDomainMode }, false, 'wizard/setSovereignDomainMode'),
+          set(
+            () => {
+              // Switching modes wipes anything that doesn't apply, so the
+              // wizard never carries a stale registrar token into byo-manual
+              // (or vice versa) and never silently keeps the typed BYO
+              // domain when the user switches back to pool.
+              if (sovereignDomainMode === 'pool') {
+                return {
+                  sovereignDomainMode,
+                  sovereignByoDomain: '',
+                  registrarType: null,
+                  registrarToken: '',
+                  registrarTokenValidated: false,
+                }
+              }
+              if (sovereignDomainMode === 'byo-manual') {
+                return {
+                  sovereignDomainMode,
+                  sovereignSubdomain: '',
+                  registrarType: null,
+                  registrarToken: '',
+                  registrarTokenValidated: false,
+                }
+              }
+              // byo-api — keep typed domain; force a re-validation.
+              return {
+                sovereignDomainMode,
+                sovereignSubdomain: '',
+                registrarTokenValidated: false,
+              }
+            },
+            false,
+            'wizard/setSovereignDomainMode',
+          ),
         setSovereignPoolDomain: (sovereignPoolDomain) =>
           set({ sovereignPoolDomain }, false, 'wizard/setSovereignPoolDomain'),
         setSovereignSubdomain: (sovereignSubdomain) =>
-          // normalize: lowercase, strip whitespace; keep validation in the form layer
           set({ sovereignSubdomain: sovereignSubdomain.toLowerCase().replace(/\s+/g, '') },
               false, 'wizard/setSovereignSubdomain'),
         setSovereignByoDomain: (sovereignByoDomain) =>
           set({ sovereignByoDomain: sovereignByoDomain.toLowerCase().trim() },
               false, 'wizard/setSovereignByoDomain'),
+
+        // BYO-api registrar credentials (#169) — token never persists to
+        // localStorage (partialize() strips it). Every mutation invalidates
+        // the validated flag so a typo'd or rotated token must be re-proved.
+        setRegistrarType: (registrarType) =>
+          set({ registrarType, registrarTokenValidated: false }, false, 'wizard/setRegistrarType'),
+        setRegistrarToken: (registrarToken) =>
+          set({ registrarToken, registrarTokenValidated: false }, false, 'wizard/setRegistrarToken'),
+        setRegistrarTokenValidated: (registrarTokenValidated) =>
+          set({ registrarTokenValidated }, false, 'wizard/setRegistrarTokenValidated'),
+        clearRegistrarCredentials: () =>
+          set({ registrarType: null, registrarToken: '', registrarTokenValidated: false },
+              false, 'wizard/clearRegistrarCredentials'),
 
         // Reset regionProviders and regionCloudRegions when topology changes
         setTopology: (topology) =>
@@ -382,14 +433,41 @@ export const useWizardStore = create<WizardStore>()(
         // the user, not assume "I downloaded the .pem already" from a prior
         // session.
         partialize: (state) => {
-          const { sshPrivateKeyOnce: _omitPriv, sshKeyGeneratedThisSession: _omitFlag, ...rest } = state
-          // void to satisfy noUnusedLocals — these names exist solely to be omitted.
-          void _omitPriv; void _omitFlag
+          // Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene):
+          //   • sshPrivateKeyOnce — Mode-A break-glass private key
+          //   • registrarToken    — BYO Flow B registrar API credential
+          // Both are in-memory only. registrarTokenValidated drops too —
+          // a fresh tab must re-prove the token even if the password
+          // manager re-fills the field.
+          const {
+            sshPrivateKeyOnce: _omitPriv,
+            sshKeyGeneratedThisSession: _omitGenFlag,
+            registrarToken: _omitTok,
+            registrarTokenValidated: _omitTokFlag,
+            ...rest
+          } = state
+          void _omitPriv; void _omitGenFlag; void _omitTok; void _omitTokFlag
           return rest as unknown as WizardState
         },
         // Merge saved state with initial — handles new fields added after first install
         merge: (persisted, current) => {
           const p = { ...(persisted as Partial<WizardState>) }
+          // #169 — legacy 'byo' value from earlier wizard runs maps to
+          // 'byo-manual'. Anything outside the new vocabulary falls back
+          // to 'pool' (safer than carrying a corrupted value forward).
+          const validModes: import('./model').DomainMode[] = ['pool', 'byo-manual', 'byo-api']
+          const persistedMode = (p as { sovereignDomainMode?: string }).sovereignDomainMode
+          if (persistedMode === 'byo') {
+            p.sovereignDomainMode = 'byo-manual'
+          } else if (persistedMode && !validModes.includes(persistedMode as import('./model').DomainMode)) {
+            p.sovereignDomainMode = 'pool'
+          }
+          // Always start with cleared registrar credentials — partialize()
+          // already strips them, this double-protects an older payload that
+          // accidentally retained them.
+          p.registrarType = (p.registrarType ?? null) as import('./model').RegistrarType | null
+          p.registrarToken = ''
+          p.registrarTokenValidated = false
           // Sanitize stale topology values
           const validTopologies: TopologyTemplate[] = ['citadel', 'triangle', 'dual', 'zoned', 'compact', 'solo']
           if (p.topology && !validTopologies.includes(p.topology)) {

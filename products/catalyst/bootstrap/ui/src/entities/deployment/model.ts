@@ -15,7 +15,61 @@ export interface SelectedComponent {
   id: string; name: string; version: string; category: string; required: boolean; dependencies: string[]
 }
 
-export type DomainMode = 'pool' | 'byo'
+/**
+ * Domain delegation mode. Closes #169.
+ *
+ *  - 'pool'       OpenOva-managed pool (e.g. omani.works) — PDM owns DNS.
+ *  - 'byo-manual' Customer brings their own domain. They paste the OpenOva
+ *                 nameservers into their registrar's UI by hand. Wizard
+ *                 polls until propagation completes, then continues.
+ *  - 'byo-api'    Customer brings their own domain AND provides registrar
+ *                 API credentials. catalyst-api/PDM flips the NS records
+ *                 via the registrar's REST API on their behalf.
+ *
+ * Legacy 'byo' is preserved as an alias for 'byo-manual' so persisted
+ * Zustand state from earlier wizard runs still loads cleanly. The store's
+ * merge() coerces the legacy value.
+ */
+export type DomainMode = 'pool' | 'byo-manual' | 'byo-api'
+
+/** Legacy persistence alias. Treat 'byo' as 'byo-manual' on load. */
+export const LEGACY_BYO_MODE = 'byo' as const
+
+/**
+ * Registrar identifier for BYO-api mode. Mirrors the adapter names PDM
+ * exposes via /api/v1/registrar/{registrar}/set-ns. Keep this list in sync
+ * with `core/pool-domain-manager/internal/registrar/` subpackages.
+ */
+export type RegistrarType = 'cloudflare' | 'namecheap' | 'godaddy' | 'ovh' | 'dynadot'
+
+export interface RegistrarOption {
+  id: RegistrarType
+  label: string
+  tokenHint: string
+}
+
+export const REGISTRAR_OPTIONS: RegistrarOption[] = [
+  { id: 'cloudflare', label: 'Cloudflare', tokenHint: 'API token with Zone:Edit + DNS:Edit permission for the domain' },
+  { id: 'namecheap',  label: 'Namecheap',  tokenHint: 'apiUser:apiKey:clientIP — Namecheap requires the calling IP' },
+  { id: 'godaddy',    label: 'GoDaddy',    tokenHint: 'API key:secret (production tier)' },
+  { id: 'ovh',        label: 'OVH',        tokenHint: 'appKey:appSecret:consumerKey' },
+  { id: 'dynadot',    label: 'Dynadot',    tokenHint: 'API key from Dynadot account → Tools → API' },
+]
+
+/**
+ * Default OpenOva nameservers the customer must delegate their BYO domain
+ * to. These are OpenOva-operated PowerDNS instances reachable from the
+ * public internet.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4: when a runtime endpoint is wired
+ * (catalyst-api /api/v1/dns/nameservers, future), the wizard will fetch
+ * these instead of importing the constant.
+ */
+export const OPENOVA_NAMESERVERS: readonly string[] = [
+  'ns1.openova.io',
+  'ns2.openova.io',
+  'ns3.openova.io',
+] as const
 
 export interface SovereignPoolDomain {
   /** Pool domain owned by OpenOva (or by a franchised Sovereign owner). Sovereign tenants pick a subdomain under it. */
@@ -27,15 +81,27 @@ export interface SovereignPoolDomain {
 export interface WizardState {
   orgName: string; orgDomain: string; orgEmail: string; orgIndustry: string
   orgSize: string; orgHeadquarters: string; orgCompliance: string[]
-  /** 'pool' = use a shared OpenOva-provided domain like omani.works with a sovereign-chosen subdomain.
-   *  'byo'  = customer brings their own domain. */
+  /** Three-mode selector — see DomainMode docstring. Closes #169. */
   sovereignDomainMode: DomainMode
   /** When sovereignDomainMode='pool', which pool domain to use (id, e.g. 'omani-works'). */
   sovereignPoolDomain: string
   /** When sovereignDomainMode='pool', the subdomain the customer types (e.g. 'omantel' → omantel.omani.works). */
   sovereignSubdomain: string
-  /** When sovereignDomainMode='byo', the full domain the customer brings (e.g. 'sovereign.acme-bank.com'). */
+  /** When sovereignDomainMode in ('byo-manual','byo-api'), the full domain
+   *  the customer brings (e.g. 'acme.com' or 'sovereign.acme-bank.com'). */
   sovereignByoDomain: string
+  /** When sovereignDomainMode='byo-api', the registrar adapter to use. */
+  registrarType: RegistrarType | null
+  /**
+   * When sovereignDomainMode='byo-api', the customer's API token. Held in
+   * memory ONLY — partialize() in the store strips it before localStorage
+   * persist (same hygiene as the SSH private key per
+   * docs/INVIOLABLE-PRINCIPLES.md #10).
+   */
+  registrarToken: string
+  /** True after POST /api/v1/registrar/{r}/validate (validation-only call)
+   *  reports the credentials work and the domain is in the account. */
+  registrarTokenValidated: boolean
   topology: TopologyTemplate | null
   regionProviders: Record<number, CloudProvider>
   regionCloudRegions: Record<number, string>
@@ -288,6 +354,9 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   sovereignPoolDomain: SOVEREIGN_POOL_DOMAINS[0]!.id,
   sovereignSubdomain: '',
   sovereignByoDomain: '',
+  registrarType: null,
+  registrarToken: '',
+  registrarTokenValidated: false,
   topology: 'zoned',
   regionProviders: {}, regionCloudRegions: {},
   providerTokens: {}, providerValidated: {},
@@ -317,7 +386,13 @@ export function resolveSovereignDomain(state: Pick<WizardState, 'sovereignDomain
     if (!pool || !state.sovereignSubdomain) return ''
     return `${state.sovereignSubdomain}.${pool.domain}`
   }
+  // BYO modes both consume the same byoDomain field.
   return state.sovereignByoDomain.trim()
+}
+
+/** Convenience type-guard for the two BYO variants. */
+export function isByoMode(mode: DomainMode): mode is 'byo-manual' | 'byo-api' {
+  return mode === 'byo-manual' || mode === 'byo-api'
 }
 
 /** Validate that the chosen subdomain is a syntactically valid DNS label per RFC 1035. */

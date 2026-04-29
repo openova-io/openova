@@ -41,6 +41,11 @@ func main() {
 	r.Post("/api/v1/deployments", h.CreateDeployment)
 	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
+	// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
+	// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
+	// called from CreateDeployment when domainMode == byo-api.
+	r.Post("/api/v1/registrar/{registrar}/validate", h.ValidateRegistrar)
+	r.Post("/api/v1/registrar/{registrar}/set-ns", h.SetNSRegistrar)
 	// Phase-retry endpoint for the wizard's failed-phase UX (issue #125).
 	// Phase 0 retries re-run `tofu apply` against the existing workdir;
 	// Phase 1 retries emit operator instructions per the architectural

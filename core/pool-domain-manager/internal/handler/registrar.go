@@ -44,6 +44,104 @@ func (h *Handler) SetRegistry(r registrar.Registry) {
 	h.Registry = r
 }
 
+// ValidateRequest is the JSON body for POST /api/v1/registrar/{r}/validate.
+//
+// The validate endpoint is the read-only twin of /set-ns: it asks the
+// adapter to confirm credentials work and the domain is in the account,
+// without flipping any nameservers. The wizard's BYO Flow B (#169) uses
+// this before letting the customer continue, so a typo in the token
+// surfaces at the prompt instead of mid-provisioning.
+//
+// Same hygiene rules as SetNSRequest — the Token field never gets logged
+// (we never call h.Log with the whole struct).
+type ValidateRequest struct {
+	Domain string `json:"domain"`
+	Token  string `json:"token"`
+}
+
+// ValidateResponse is the JSON reply on success.
+type ValidateResponse struct {
+	Valid     bool   `json:"valid"`
+	Registrar string `json:"registrar"`
+	Domain    string `json:"domain"`
+}
+
+// Validate handles POST /api/v1/registrar/{registrar}/validate.
+//
+// Closes #169 ([I] wizard: StepDomain — BYO with two delegation flows).
+// The wizard calls this BEFORE letting the customer hit Continue so a
+// bad token surfaces at the prompt, not during provisioning. The endpoint
+// performs adapter.ValidateToken only — no writes, no NS flip, nothing
+// the customer hasn't yet consented to.
+func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
+	registrarName := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "registrar")))
+
+	if h.Registry == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "no-registrars-configured",
+			"detail": "this PDM build has no registrar adapters wired in",
+		})
+		return
+	}
+
+	adapter, err := h.Registry.Lookup(registrarName)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error":     "unsupported-registrar",
+			"detail":    "no adapter for registrar " + registrarName,
+			"supported": h.Registry.Names(),
+		})
+		return
+	}
+
+	var req ValidateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":  "invalid-body",
+			"detail": "request body must be JSON {domain, token}",
+		})
+		return
+	}
+	domain := strings.ToLower(strings.TrimSpace(req.Domain))
+	token := req.Token
+
+	if domain == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "missing-domain",
+			"detail": "domain is required",
+		})
+		return
+	}
+	if token == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "missing-token",
+			"detail": "registrar API credentials are required",
+		})
+		return
+	}
+
+	if err := adapter.ValidateToken(r.Context(), token, domain); err != nil {
+		h.Log.Info("registrar validate: failed",
+			"registrar", registrarName,
+			"domain", domain,
+			"outcome", classifyOutcome(err),
+		)
+		writeRegistrarErr(w, err, registrarName, domain)
+		return
+	}
+
+	h.Log.Info("registrar validate: ok",
+		"registrar", registrarName,
+		"domain", domain,
+		"outcome", "ok",
+	)
+	writeJSON(w, http.StatusOK, ValidateResponse{
+		Valid:     true,
+		Registrar: registrarName,
+		Domain:    domain,
+	})
+}
+
 // SetNSRequest is the JSON body for POST /api/v1/registrar/{r}/set-ns.
 //
 // IMPORTANT: do NOT add struct tags that mark Token as loggable. The

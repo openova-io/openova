@@ -59,6 +59,11 @@ func (h *Handler) Routes() *chi.Mux {
 		})
 		r.Route("/registrar/{registrar}", func(r chi.Router) {
 			r.Post("/set-ns", h.SetNS)
+			// /validate is the read-only twin of /set-ns — checks that the
+			// supplied token CAN reach the registrar and CAN see the named
+			// domain, without flipping any nameservers. The wizard's BYO
+			// Flow B uses this before letting the customer hit Continue.
+			r.Post("/validate", h.Validate)
 		})
 	})
 	return r
