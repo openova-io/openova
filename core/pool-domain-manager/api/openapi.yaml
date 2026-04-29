@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: pool-domain-manager
+  version: 1.0.0
+  description: |
+    Central authority for OpenOva-pool subdomain allocation. Closes #163.
+    The PDM is the SOLE source of truth for which (poolDomain, subdomain)
+    pairs have been reserved or activated across the OpenOva fleet, and the
+    SOLE service in the fleet that calls api.dynadot.com.
+
+    State machine per (domain, subdomain) pair:
+
+        NULL ─reserve→ RESERVED ─commit→ ACTIVE
+                          │              │
+                          expire/        release/
+                          release        destroy
+                          ↓              ↓
+                        NULL          NULL
+
+servers:
+  - url: http://pool-domain-manager.openova-system.svc.cluster.local:8080
+    description: In-cluster catalyst-api → PDM call path
+  - url: https://pool.openova.io
+    description: Operator-facing endpoint (auth-gated)
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        '200':
+          description: PDM is healthy and CNPG is reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  managedDomains:
+                    type: array
+                    items: { type: string }
+        '503':
+          description: PDM is up but CNPG is unreachable
+
+  /api/v1/reserved:
+    get:
+      summary: Canonical reserved-subdomain list
+      responses:
+        '200':
+          description: List of reserved subdomain labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reserved:
+                    type: array
+                    items: { type: string }
+
+  /api/v1/pool/{domain}/check:
+    get:
+      summary: Fast availability read
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sub
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Always 200 — clients use body.available, not status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckResult'
+
+  /api/v1/pool/{domain}/reserve:
+    post:
+      summary: Atomic reserve with TTL
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subdomain]
+              properties:
+                subdomain: { type: string }
+                createdBy: { type: string }
+      responses:
+        '201':
+          description: Reservation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReserveResponse'
+        '409':
+          description: Subdomain already taken
+        '422':
+          description: Invalid input (format / unsupported pool)
+
+  /api/v1/pool/{domain}/commit:
+    post:
+      summary: Promote reservation → active and write Dynadot records
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subdomain, reservationToken, sovereignFQDN, loadBalancerIP]
+              properties:
+                subdomain: { type: string }
+                reservationToken: { type: string, format: uuid }
+                sovereignFQDN: { type: string }
+                loadBalancerIP: { type: string, format: ipv4 }
+      responses:
+        '200': { description: Committed }
+        '202': { description: Committed in DB; Dynadot retry needed }
+        '403': { description: Reservation token mismatch }
+        '404': { description: No reservation exists }
+        '409': { description: Already active }
+        '410': { description: Reservation TTL expired }
+
+  /api/v1/pool/{domain}/release:
+    delete:
+      summary: Free a (pool, subdomain) and remove Dynadot records
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subdomain]
+              properties:
+                subdomain: { type: string }
+      responses:
+        '200': { description: Released }
+        '202': { description: Row deleted; Dynadot delete partial }
+        '404': { description: No allocation exists }
+
+  /api/v1/pool/{domain}/list:
+    get:
+      summary: Operator-facing list of allocations
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: All allocations for the pool
+
+components:
+  schemas:
+    CheckResult:
+      type: object
+      properties:
+        available: { type: boolean }
+        reason: { type: string }
+        detail: { type: string }
+        fqdn: { type: string }
+
+    ReserveResponse:
+      type: object
+      properties:
+        poolDomain: { type: string }
+        subdomain: { type: string }
+        state: { type: string, enum: [reserved] }
+        reservedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        reservationToken: { type: string, format: uuid }
+        createdBy: { type: string }

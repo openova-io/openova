@@ -1,0 +1,38 @@
+# pool-domain-manager — central authority for OpenOva-pool subdomain
+# allocation. Per docs/INVIOLABLE-PRINCIPLES.md the image is statically
+# compiled, runs as a non-root numeric UID, and ships nothing beyond the
+# binary + CA bundle.
+#
+# Two stages:
+#   build  — golang:1.23-alpine with go modules cached
+#   final  — alpine:3.20 minimal runtime (CA certs + the binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /app
+
+# Cache layer for go.mod / go.sum so day-to-day source rebuilds skip the
+# module download.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=$(cat /etc/hostname)" \
+    -o /pdm ./cmd/pdm
+
+# Use a minimal runtime stage. We need:
+#   - ca-certificates so the Dynadot HTTPS calls can verify the API cert
+#   - tzdata so timestamps render correctly in operator logs
+# Nothing else.
+FROM docker.io/library/alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /pdm /pdm
+
+# Alpine 3.20 already ships UID 65534 as `nobody`. Reuse that rather than
+# creating a duplicate `nonroot` account. The numeric form satisfies
+# runAsNonRoot=true + runAsUser=65534 in the Deployment.
+USER 65534:65534
+
+EXPOSE 8080
+ENTRYPOINT ["/pdm"]
