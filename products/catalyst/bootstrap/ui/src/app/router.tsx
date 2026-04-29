@@ -13,6 +13,7 @@ import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
+import { JobsDepsVizDemo } from '@/pages/designs/JobsDepsVizDemo'
 import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
 import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
@@ -20,6 +21,7 @@ import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
+import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -80,6 +82,17 @@ const provisionJobsRoute = createRoute({
   component: JobsPage,
 })
 
+// Jobs timeline (Gantt-style retrospective). Static segment, MUST be
+// registered BEFORE the dynamic $jobId route below so TanStack Router
+// resolves `/jobs/timeline` to this surface, not to JobDetail with
+// jobId="timeline". Stretch deliverable for epic openova-io/openova#204
+// item 11 (sub-ticket #206).
+const provisionJobsTimelineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/jobs/timeline',
+  component: JobsTimeline,
+})
+
 // Per-Job detail page (epic #204) — surfaces the GitLab-CI-runner-style
 // execution log viewer + Dependencies + Apps tabs. Reachable from the
 // JobsTable row "open detail" link (parallel agent's scope) and from
@@ -105,6 +118,11 @@ const legacyProvisionRoute = createRoute({
 
 // Design showcase
 const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
+const designsJobsDepsVizRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/designs/jobs-deps-viz',
+  component: JobsDepsVizDemo,
+})
 
 // Marketplace — long-form family portfolio + product detail surfaces
 // reachable from the wizard's component-card chips (family) and card body
@@ -132,9 +150,11 @@ const routeTree = rootRoute.addChildren([
   provisionRoute,
   provisionAppRoute,
   provisionJobsRoute,
+  provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   legacyProvisionRoute,
   designsRoute,
+  designsJobsDepsVizRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,
 ])
