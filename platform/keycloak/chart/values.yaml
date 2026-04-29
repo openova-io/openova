@@ -28,3 +28,19 @@ keycloak:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 2Gi }
+  # Metrics + ServiceMonitor + PrometheusRule — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false). The upstream
+  # bitnami/keycloak chart's `metrics.serviceMonitor.enabled` and
+  # `metrics.prometheusRule.enabled` render monitoring.coreos.com/v1
+  # resources which the apiserver rejects on a fresh Sovereign before
+  # bp-kube-prometheus-stack ships the CRDs. Upstream already defaults
+  # all three to false — set explicitly so a future upstream bump cannot
+  # regress this. Operator opts in via per-cluster overlay (issue #182).
+  metrics:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+    prometheusRule:
+      enabled: false

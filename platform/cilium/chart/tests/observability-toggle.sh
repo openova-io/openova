@@ -93,4 +93,18 @@ if grep -q "monitoring.coreos.com" "$TMP/off.yaml"; then
 fi
 echo "  PASS"
 
+# ── Case 4: default render must NOT contain Hubble relay/ui Deployments ──
+# Hubble relay+ui pull in the kube-prometheus-stack CRDs transitively —
+# bp-cilium must not render either by default on a fresh Sovereign.
+echo "[observability-toggle] Case 4: default render produces no hubble-relay / hubble-ui resources"
+if grep -qE "name: (smoke-cilium-)?hubble-relay$" "$TMP/default.yaml"; then
+  echo "FAIL: default render of bp-cilium contains hubble-relay — must default false." >&2
+  exit 1
+fi
+if grep -qE "name: (smoke-cilium-)?hubble-ui$" "$TMP/default.yaml"; then
+  echo "FAIL: default render of bp-cilium contains hubble-ui — must default false." >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[observability-toggle] All bp-cilium observability-toggle gates green."

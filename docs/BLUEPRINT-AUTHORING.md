@@ -536,13 +536,37 @@ If a Blueprint exposes a more elaborate observability surface (e.g. a chart that
 
 ### Existing exemplars
 
-| Blueprint | Toggle | Default |
-|---|---|---|
-| bp-cilium | `cilium.prometheus.serviceMonitor.enabled` | `false` |
-| bp-cilium | `cilium.prometheus.enabled` | `false` |
-| bp-cert-manager | `cert-manager.prometheus.servicemonitor.enabled` | `false` |
-| bp-cert-manager | `cert-manager.prometheus.enabled` | `false` |
-| bp-crossplane | `crossplane.metrics.enabled` | `false` |
+Every bootstrap-kit Blueprint at v1.1.1+ ships every observability surface defaulted off. The table below is the complete audit (issue #182):
+
+| Blueprint | Toggle | Default | Why |
+|---|---|---|---|
+| bp-cilium | `cilium.prometheus.enabled` | `false` | Renders ServiceMonitor when true |
+| bp-cilium | `cilium.prometheus.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor — CRD ships with kube-prometheus-stack |
+| bp-cilium | `cilium.hubble.relay.enabled` | `false` | Relay Deployment depends on hubble metrics scraping |
+| bp-cilium | `cilium.hubble.ui.enabled` | `false` | UI Deployment depends on relay |
+| bp-cilium | `cilium.hubble.metrics.enabled` | `null` | A populated list triggers an unconditional metrics ServiceMonitor render in the upstream chart |
+| bp-cilium | `cilium.hubble.metrics.serviceMonitor.enabled` | `false` | Belt-and-braces |
+| bp-cert-manager | `cert-manager.prometheus.enabled` | `false` | Upstream defaults true historically; we override |
+| bp-cert-manager | `cert-manager.prometheus.servicemonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-flux | `flux2.prometheus.podMonitor.create` | `false` | monitoring.coreos.com/v1 PodMonitor |
+| bp-crossplane | `crossplane.metrics.enabled` | `false` | Upstream emits prometheus.io/scrape annotation only — kept off for uniformity |
+| bp-sealed-secrets | `sealed-secrets.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-spire | `spire.global.spire.recommendations.enabled` | `false` | Cascades prometheus exporters into spire-server / spire-agent |
+| bp-spire | `spire.global.spire.recommendations.prometheus` | `false` | Belt-and-braces inside the recommendations bundle |
+| bp-nats-jetstream | `nats.promExporter.enabled` | `false` | Sidecar exporter container |
+| bp-nats-jetstream | `nats.promExporter.podMonitor.enabled` | `false` | monitoring.coreos.com/v1 PodMonitor |
+| bp-openbao | `openbao.injector.metrics.enabled` | `false` | injector metrics endpoint |
+| bp-openbao | `openbao.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-keycloak | `keycloak.metrics.enabled` | `false` | Statistics endpoint |
+| bp-keycloak | `keycloak.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-keycloak | `keycloak.metrics.prometheusRule.enabled` | `false` | monitoring.coreos.com/v1 PrometheusRule |
+| bp-gitea | `gitea.gitea.metrics.enabled` | `false` | Built-in /metrics endpoint |
+| bp-gitea | `gitea.gitea.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-gitea | `gitea.postgresql.metrics.enabled` | `false` | bitnami postgresql exporter sidecar |
+| bp-gitea | `gitea.postgresql.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-gitea | `gitea.postgresql.metrics.prometheusRule.enabled` | `false` | monitoring.coreos.com/v1 PrometheusRule |
+| bp-powerdns | `powerdns.serviceMonitor.enabled` | `false` | Forward-compatibility guard — current upstream pschichtel/powerdns 0.10.0 has no ServiceMonitor template, but a future upstream bump must not silently regress |
+| bp-powerdns | `powerdns.metrics.enabled` | `false` | Forward-compatibility guard |
 
 Operators flip these on at `clusters/<sovereign>/bootstrap-kit/*` once `bp-kube-prometheus-stack` (Application Blueprint) reconciles.
 

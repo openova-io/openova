@@ -20,6 +20,20 @@ spire:
     spire:
       clusterName: catalyst
       trustDomain: catalyst.local
+      # Recommendations bundle — DEFAULT OFF.
+      #
+      # Per docs/INVIOLABLE-PRINCIPLES.md #4 and
+      # docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles must
+      # default false). When `recommendations.enabled: true` the upstream
+      # spire chart cascades `prometheus: true` into every spire-server /
+      # spire-agent telemetry block, which can trigger ServiceMonitor
+      # rendering. Upstream already defaults `enabled: false` — we set
+      # it explicitly here so a future upstream bump cannot regress this
+      # on a fresh Sovereign before bp-kube-prometheus-stack reconciles
+      # (issue #182). Operator opts in via per-cluster overlay.
+      recommendations:
+        enabled: false
+        prometheus: false
   spire-server:
     ca_subject:
       country: DE

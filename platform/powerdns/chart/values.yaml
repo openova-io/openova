@@ -100,6 +100,21 @@ powerdns:
       cpu: 500m
       memory: 512Mi
 
+  # ─── Observability — DEFAULT OFF ─────────────────────────────────────
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and
+  # docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles must
+  # default false). The upstream pschichtel/powerdns 0.10.0 chart does
+  # not currently render any monitoring.coreos.com/v1 resources — but
+  # we declare the rule explicitly here as a forward-compatibility
+  # guard: a future upstream bump that adds a ServiceMonitor template
+  # cannot regress a fresh-Sovereign install before
+  # bp-kube-prometheus-stack reconciles. Operator opts in via
+  # per-cluster overlay (issue #182).
+  serviceMonitor:
+    enabled: false
+  metrics:
+    enabled: false
+
   powerdns:
     # ─── REST API + webserver ───────────────────────────────────────────
     # API key + webserver password flow from a Catalyst-managed K8s Secret

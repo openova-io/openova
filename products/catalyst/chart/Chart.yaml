@@ -26,28 +26,28 @@ dependencies:
     version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-flux
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-crossplane
     version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-sealed-secrets
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-spire
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-nats-jetstream
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-openbao
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-keycloak
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-gitea
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-external-dns
     version: 1.0.0
