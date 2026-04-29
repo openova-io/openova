@@ -29,11 +29,39 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = resolve(__dirname, '../../../../..')
+
+// REPO_ROOT can be overridden via env (set by the docker build) so the
+// script can find platform/, products/, and clusters/_template/bootstrap-kit/
+// even when the docker build context is the UI subdirectory rather than the
+// repo root. Without an override, fall back to the relative path that works
+// for `npm run dev` and `npm run build` invoked from the UI dir.
+const REPO_ROOT = process.env.OPENOVA_REPO_ROOT
+  ? resolve(process.env.OPENOVA_REPO_ROOT)
+  : resolve(__dirname, '../../../../..')
 const PLATFORM_DIR = resolve(REPO_ROOT, 'platform')
 const PRODUCTS_DIR = resolve(REPO_ROOT, 'products')
 const BOOTSTRAP_KIT_DIR = resolve(REPO_ROOT, 'clusters/_template/bootstrap-kit')
 const OUT_FILE = resolve(__dirname, '../src/shared/constants/catalog.generated.ts')
+
+// Fail loudly if the source dirs are missing — silently producing an empty
+// BOOTSTRAP_KIT[] is what shipped a broken provision page where only the
+// 2 supernodes rendered. No bandaid: every Catalyst image MUST be built
+// against the real source-of-truth tree.
+for (const [name, dir] of [
+  ['platform', PLATFORM_DIR],
+  ['products', PRODUCTS_DIR],
+  ['clusters/_template/bootstrap-kit', BOOTSTRAP_KIT_DIR],
+]) {
+  if (!existsSync(dir)) {
+    console.error(
+      `[build-catalog] FATAL: ${name} directory missing at ${dir}. ` +
+      `Set OPENOVA_REPO_ROOT to a checkout containing platform/, products/, ` +
+      `and clusters/_template/bootstrap-kit/, or run from the UI dir with the ` +
+      `repo's relative layout intact.`,
+    )
+    process.exit(1)
+  }
+}
 
 /**
  * Tiny YAML reader sufficient for the Blueprint CRD shape declared in

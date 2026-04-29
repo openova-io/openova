@@ -42,7 +42,11 @@ jobs:
       - name: Build UI image (test)
         uses: docker/build-push-action@v6
         with:
-          context: openova-src/products/catalyst/bootstrap/ui
+          # Build context is the repo root so the Vite prebuild script can
+          # walk platform/, products/, clusters/_template/bootstrap-kit/ to
+          # populate the catalog + BOOTSTRAP_KIT. The Containerfile fails
+          # the build if any of those dirs is missing.
+          context: openova-src
           file: openova-src/products/catalyst/bootstrap/ui/Containerfile
           push: false
           load: true
@@ -105,13 +109,37 @@ jobs:
             echo "Logo smoke OK: /${path} HTTP $CODE"
           done
 
+          # Bootstrap-kit regression guard: the Provision page reads
+          # BOOTSTRAP_KIT from the bundled catalog.generated.ts to render
+          # the per-Blueprint bubbles. An earlier revision shipped with a
+          # docker context that didn't include clusters/_template/bootstrap-kit/
+          # so the prebuild script silently produced an empty array — the
+          # page rendered only the 2 supernodes. Asserting the bundle
+          # contains every bp-* id makes that regression impossible.
+          BUNDLE=$(docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test -c \
+            'find /usr/share/nginx/html/assets -name "index-*.js" -print -quit')
+          for bp in bp-cilium bp-cert-manager bp-flux bp-crossplane bp-sealed-secrets \
+                    bp-spire bp-nats-jetstream bp-openbao bp-keycloak bp-gitea ; do
+            if ! docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test -c \
+                 "grep -q '\"${bp}\"' $BUNDLE" ; then
+              echo "Bootstrap-kit smoke FAILED: ${bp} missing from bundle"
+              docker stop smoke-ui
+              exit 1
+            fi
+            echo "Bootstrap-kit smoke OK: ${bp}"
+          done
+
           docker stop smoke-ui
           echo "All smoke tests passed."
 
       - name: Push UI image
         uses: docker/build-push-action@v6
         with:
-          context: openova-src/products/catalyst/bootstrap/ui
+          # Build context is the repo root so the Vite prebuild script can
+          # walk platform/, products/, clusters/_template/bootstrap-kit/ to
+          # populate the catalog + BOOTSTRAP_KIT. The Containerfile fails
+          # the build if any of those dirs is missing.
+          context: openova-src
           file: openova-src/products/catalyst/bootstrap/ui/Containerfile
           push: true
           tags: |
