@@ -77,7 +77,7 @@ describe('AppsPage — header', () => {
   it('mounts inside the PortalShell (sidebar present)', async () => {
     renderProvision('d-1')
     expect(await screen.findByTestId('sov-portal-shell')).toBeTruthy()
-    expect(screen.getByTestId('sov-sidebar')).toBeTruthy()
+    expect(screen.getByTestId('admin-sidebar')).toBeTruthy()
   })
 })
 
