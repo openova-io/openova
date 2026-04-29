@@ -1,6 +1,5 @@
 import { useWizardStore } from '@/entities/deployment/store'
-import type { NodeSize, TopologyTemplate } from '@/entities/deployment/model'
-import { HETZNER_NODE_SIZES } from '@/shared/constants/hetzner'
+import type { TopologyTemplate } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
@@ -326,210 +325,6 @@ function AirgapAddon() {
   )
 }
 
-/* ── Node-size SKU card ─────────────────────────────────────────────
-   Visual mirror of the previous StepInfrastructure NodeSizeCard but
-   restyled to match the Topology step's inline-CSS aesthetic. Source of
-   truth for the SKU list is HETZNER_NODE_SIZES — never hardcoded here. */
-function SkuCard({
-  sku,
-  selected,
-  onSelect,
-  accent = '#38BDF8',
-}: {
-  sku: typeof HETZNER_NODE_SIZES[number]
-  selected: boolean
-  onSelect: () => void
-  accent?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      style={{
-        textAlign: 'left',
-        display: 'flex', flexDirection: 'column', gap: 5,
-        padding: '10px 12px', borderRadius: 9, cursor: 'pointer',
-        border: selected ? `1.5px solid ${accent}80` : '1.5px solid var(--wiz-border-sub)',
-        background: selected ? `${accent}12` : 'var(--wiz-bg-xs)',
-        boxShadow: selected ? `0 0 0 3px ${accent}10` : 'none',
-        transition: 'all 0.15s',
-        fontFamily: 'Inter, sans-serif',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: selected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>{sku.label}</span>
-        {sku.recommended && (
-          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#22C55E', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 3, padding: '1px 5px' }}>recommended</span>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--wiz-text-sub)', flexWrap: 'wrap' }}>
-        <span>{sku.vcpu} vCPU</span>
-        <span>·</span>
-        <span>{sku.ram} GB RAM</span>
-        <span>·</span>
-        <span>{sku.disk} GB SSD</span>
-      </div>
-      <div style={{ fontSize: 10, color: 'var(--wiz-text-hint)', lineHeight: 1.4 }}>{sku.description}</div>
-      <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontFamily: 'JetBrains Mono, monospace' }}>
-        €{sku.priceHour.toFixed(3)}/hr · €{sku.priceMonth.toFixed(2)}/mo
-      </div>
-    </button>
-  )
-}
-
-/* ── Node-sizing panel — control plane + worker SKU + worker count ──
-   Closes the wizard polish ask "Selecting the shapes of the worker
-   nodes should be there". Lives inside the topology step so the SKU
-   selection is visible at the moment the user picks the topology that
-   determines how many regions × workers will run.
-
-   Defaults (set by store.setTopology):
-     • SOLO topology     → 0 workers (control-plane carries everything in
-                                       an evaluation deployment).
-     • Multi-region      → 3 workers per region (etcd-quorum-class HA).
-
-   Validation:
-     • workerCount ≥ 0 (− stepper clamps at 0).
-     • workerCount > 0 ⇒ workerSize must be set (defaults to cx22 from
-       INITIAL_WIZARD_STATE, so this is always satisfied unless persist
-       state was hand-edited). The Next button surface disables until
-       this invariant holds. */
-function NodeSizingPanel() {
-  const store = useWizardStore()
-  const isMulti = store.topology !== null && store.topology !== 'solo'
-  const minWorkerCount = isMulti ? 3 : 0
-  // No upper bound — we mirror StepInfrastructure's prior cap of 6
-  // because Hetzner project quotas typically allow ~10 instances per
-  // project; 6 workers + 1-3 control plane stays comfortably inside that.
-  const maxWorkerCount = 6
-  const workerCountInvalid = store.workerCount > 0 && !store.workerSize
-
-  return (
-    <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Control-plane SKU */}
-      <div>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)', marginBottom: 6 }}>
-          Control-plane node shape
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginBottom: 8, lineHeight: 1.4 }}>
-          Hetzner SKU for the k3s control-plane node{isMulti ? 's (one per region — three when HA is enabled)' : ''}.
-          The control-plane runs etcd, the API server, and {store.workerCount === 0 ? 'all workloads in this evaluation deployment' : 'core platform addons'}.
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-          {HETZNER_NODE_SIZES.map((s) => (
-            <SkuCard
-              key={s.id}
-              sku={s}
-              selected={store.controlPlaneSize === s.id}
-              onSelect={() => store.setControlPlaneSize(s.id as NodeSize)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Worker count + SKU */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)' }}>
-            Worker nodes per region
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}>
-              {store.workerCount} worker{store.workerCount !== 1 ? 's' : ''}
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button
-                type="button"
-                aria-label="Decrease worker count"
-                onClick={() => store.setWorkerCount(Math.max(minWorkerCount, store.workerCount - 1))}
-                disabled={store.workerCount <= minWorkerCount}
-                style={{
-                  width: 26, height: 26, borderRadius: 6,
-                  border: '1px solid var(--wiz-border)',
-                  background: 'var(--wiz-bg-input)',
-                  color: store.workerCount <= minWorkerCount ? 'var(--wiz-text-hint)' : 'var(--wiz-text-md)',
-                  fontSize: 14, fontWeight: 700,
-                  cursor: store.workerCount <= minWorkerCount ? 'default' : 'pointer',
-                  opacity: store.workerCount <= minWorkerCount ? 0.5 : 1,
-                  fontFamily: 'Inter, sans-serif',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >−</button>
-              <input
-                type="number"
-                min={minWorkerCount}
-                max={maxWorkerCount}
-                value={store.workerCount}
-                onChange={(e) => {
-                  const raw = parseInt(e.target.value, 10)
-                  if (Number.isNaN(raw)) return
-                  store.setWorkerCount(Math.min(maxWorkerCount, Math.max(minWorkerCount, raw)))
-                }}
-                style={{
-                  width: 48, height: 26, borderRadius: 6,
-                  border: '1px solid var(--wiz-border)',
-                  background: 'var(--wiz-bg-input)', color: 'var(--wiz-text-hi)',
-                  fontSize: 12, textAlign: 'center', outline: 'none',
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
-              />
-              <button
-                type="button"
-                aria-label="Increase worker count"
-                onClick={() => store.setWorkerCount(Math.min(maxWorkerCount, store.workerCount + 1))}
-                disabled={store.workerCount >= maxWorkerCount}
-                style={{
-                  width: 26, height: 26, borderRadius: 6,
-                  border: '1px solid var(--wiz-border)',
-                  background: 'var(--wiz-bg-input)',
-                  color: store.workerCount >= maxWorkerCount ? 'var(--wiz-text-hint)' : 'var(--wiz-text-md)',
-                  fontSize: 14, fontWeight: 700,
-                  cursor: store.workerCount >= maxWorkerCount ? 'default' : 'pointer',
-                  opacity: store.workerCount >= maxWorkerCount ? 0.5 : 1,
-                  fontFamily: 'Inter, sans-serif',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >+</button>
-            </div>
-          </div>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginBottom: 8, lineHeight: 1.4 }}>
-          {isMulti
-            ? `Each of the ${store.topology === 'citadel' ? 4 : store.topology === 'triangle' ? 3 : 2} regions provisions this many workers. Multi-region topologies require at least 3 workers per region for meaningful workload headroom.`
-            : 'Single-region evaluation deployments default to 0 workers — the control plane carries all workloads. Add workers if you intend to run production traffic against this deployment.'}
-        </div>
-
-        {store.workerCount > 0 && (
-          <>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)', marginBottom: 6 }}>
-              Worker node shape
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginBottom: 8, lineHeight: 1.4 }}>
-              Hetzner SKU applied to every worker. Pick the shape that fits the heaviest workload you expect to schedule on a single worker.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-              {HETZNER_NODE_SIZES.map((s) => (
-                <SkuCard
-                  key={s.id}
-                  sku={s}
-                  selected={store.workerSize === s.id}
-                  onSelect={() => store.setWorkerSize(s.id as NodeSize)}
-                  accent="#A78BFA"
-                />
-              ))}
-            </div>
-            {workerCountInvalid && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#F87171', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Pick a worker SKU before continuing — workerCount is {store.workerCount} but workerSize is unset.
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
 /* ── StepTopology ───────────────────────────────────────────────── */
 export function StepTopology() {
   const store = useWizardStore()
@@ -539,13 +334,11 @@ export function StepTopology() {
   const selected = TOPOLOGIES.find(t => t.id === store.topology) ?? null
   const twoPaneLayout = bp === 'desktop'
 
-  // Validation:
-  //   • A topology must be selected.
-  //   • If workerCount > 0, workerSize must also be set. (workerCount can
-  //     be 0 — solo evaluation deployments run everything on the control
-  //     plane and require no workers.)
-  const sizingValid = !(store.workerCount > 0 && !store.workerSize)
-  const canProceed = !!store.topology && sizingValid
+  // Validation: a topology must be selected. SKU + worker-count validation
+  // happens in StepProvider, where each region has access to its own
+  // provider's SKU vocabulary (cx32 ≠ Standard_D4s_v5 ≠ m6i.xlarge — picking
+  // sizing here would force a one-vendor catalog, which is the wrong shape).
+  const canProceed = !!store.topology
 
   return (
     <StepShell
@@ -639,14 +432,11 @@ export function StepTopology() {
         </div>
       </div>
 
-      {/* Node sizing — only after a topology is picked. The panel reads
-          and writes store.controlPlaneSize, store.workerSize, and
-          store.workerCount, all already part of WizardState and persisted
-          through partialize(). Replaces the previously-orphaned
-          StepInfrastructure step (never wired into WizardPage's STEPS
-          array) so the SKU + worker-count selectors are actually visible
-          to the user. */}
-      {store.topology && <NodeSizingPanel />}
+      {/* Sizing intentionally lives in StepProvider, NOT here. SKU
+          vocabulary is per-provider — Hetzner cx32 means nothing on Azure
+          — so each region's control-plane + worker SKU pickers are
+          rendered next to that region's provider chooser, where the
+          catalog is unambiguous. */}
     </StepShell>
   )
 }

@@ -3,6 +3,7 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
+import { PROVIDER_NODE_SIZES, defaultNodeSizeId, findNodeSize } from '@/shared/constants/providerSizes'
 import { StepShell, useStepNav } from './_shared'
 
 /* ── Provider definitions with logos ─────────────────────────────── */
@@ -67,11 +68,11 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
         }}
       >
         {selected?.logo}
-        <span style={{ flex: 1, fontSize: 12, fontWeight: selected ? 500 : 400, color: selected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-sub)' }}>
+        <span style={{ flex: 1, fontSize: 12, fontWeight: selected ? 500 : 400, color: selected ? 'var(--wiz-text-hi)' : 'var(--wiz-text-sub)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {selected ? selected.label : placeholder}
         </span>
         {selected?.sublabel && (
-          <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)' }}>{selected.sublabel}</span>
+          <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)', flexShrink: 0 }}>{selected.sublabel}</span>
         )}
         <ChevronDown size={13} style={{ color: 'var(--wiz-text-sub)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
       </div>
@@ -81,7 +82,7 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
           borderRadius: 9, border: '1px solid var(--wiz-border)',
           background: 'var(--wiz-panel-bg)', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-          overflow: 'hidden',
+          overflow: 'hidden', maxHeight: 320, overflowY: 'auto',
         }}>
           {options.map(o => {
             const active = o.value === value
@@ -112,17 +113,68 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
   )
 }
 
+/**
+ * Build SKU dropdown options for a provider — pulls labels + specs from
+ * the per-provider catalog so this UI never hardcodes a SKU literal.
+ */
+function skuOptions(provider: CloudProvider): SelectOption[] {
+  return PROVIDER_NODE_SIZES[provider].map((s) => ({
+    value: s.id,
+    label: s.label,
+    sublabel: `${s.vcpu} vCPU · ${s.ram} GB · €${s.priceHour.toFixed(3)}/hr`,
+  }))
+}
+
+/* ── Per-region cost rollup ───────────────────────────────────────── */
+function regionHourlyCost(
+  provider: CloudProvider | undefined,
+  cpId: string | undefined,
+  wkId: string | undefined,
+  wkCount: number,
+): number {
+  if (!provider) return 0
+  const cp = cpId ? findNodeSize(provider, cpId) : undefined
+  const wk = wkId ? findNodeSize(provider, wkId) : undefined
+  const cpCost = cp ? cp.priceHour : 0
+  const wkCost = wk ? wk.priceHour * Math.max(0, wkCount) : 0
+  return cpCost + wkCost
+}
+
 /* ── RegionCard ──────────────────────────────────────────────────── */
-function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSelectProvider, onSelectCloudRegion, isAirgap }: {
+function RegionCard({
+  index,
+  label,
+  selectedProvider,
+  selectedCloudRegion,
+  controlPlaneSizeId,
+  workerSizeId,
+  workerCount,
+  onSelectProvider,
+  onSelectCloudRegion,
+  onSelectControlPlaneSize,
+  onSelectWorkerSize,
+  onSelectWorkerCount,
+  isAirgap,
+}: {
   index: number
   label: string
   selectedProvider: CloudProvider | undefined
   selectedCloudRegion: string | undefined
+  controlPlaneSizeId: string | undefined
+  workerSizeId: string | undefined
+  workerCount: number
   onSelectProvider: (p: CloudProvider) => void
   onSelectCloudRegion: (r: string) => void
+  onSelectControlPlaneSize: (id: string) => void
+  onSelectWorkerSize: (id: string) => void
+  onSelectWorkerCount: (n: number) => void
   isAirgap?: boolean
 }) {
-  const isConfigured = !!selectedProvider && !!selectedCloudRegion
+  const isConfigured =
+    !!selectedProvider &&
+    !!selectedCloudRegion &&
+    !!controlPlaneSizeId &&
+    (workerCount === 0 || !!workerSizeId)
   const providerDef = PROVIDERS.find(p => p.id === selectedProvider)
 
   const accentColor  = isAirgap ? 'rgba(245,158,11,0.5)'  : 'rgba(56,189,248,0.22)'
@@ -137,6 +189,11 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
         value: r.id, label: r.label, sublabel: r.location,
       }))
     : []
+
+  const cpOptions = selectedProvider ? skuOptions(selectedProvider) : []
+  const wkOptions = selectedProvider ? skuOptions(selectedProvider) : []
+
+  const hourly = regionHourlyCost(selectedProvider, controlPlaneSizeId, workerSizeId, workerCount)
 
   return (
     <div style={{
@@ -176,9 +233,14 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
             </div>
           )}
         </div>
+        {selectedProvider && controlPlaneSizeId && (
+          <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            €{hourly.toFixed(3)}/hr
+          </div>
+        )}
       </div>
 
-      {/* Dropdowns */}
+      {/* Pickers */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }}>Provider</div>
@@ -201,6 +263,53 @@ function RegionCard({ index, label, selectedProvider, selectedCloudRegion, onSel
             />
           </div>
         )}
+
+        {selectedProvider && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }}>Control-plane size</div>
+            <CustomSelect
+              value={controlPlaneSizeId ?? ''}
+              onChange={v => onSelectControlPlaneSize(v)}
+              options={cpOptions}
+              placeholder="Select size…"
+            />
+          </div>
+        )}
+
+        {selectedProvider && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)' }}>Worker nodes</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkerCount(Math.max(0, workerCount - 1))}
+                  style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                  aria-label="Decrease worker count"
+                >−</button>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-hi)', minWidth: 18, textAlign: 'center' }}>{workerCount}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkerCount(Math.min(50, workerCount + 1))}
+                  style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                  aria-label="Increase worker count"
+                >+</button>
+              </div>
+            </div>
+            {workerCount > 0 ? (
+              <CustomSelect
+                value={workerSizeId ?? ''}
+                onChange={v => onSelectWorkerSize(v)}
+                options={wkOptions}
+                placeholder="Select worker size…"
+              />
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', padding: '6px 0' }}>
+                No worker nodes — control plane runs all workloads (solo mode).
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -218,7 +327,15 @@ export function StepProvider() {
   const hasAirgap    = store.airgap
   const totalCards   = regionCount + (hasAirgap ? 1 : 0)
 
-  /* On first visit: apply HQ hint, or fall back to first provider + first region */
+  /* On first visit: apply HQ hint, or fall back to first provider + first region.
+     Each region also gets the chosen provider's recommended starter SKU so the
+     wizard never lands on the step with empty SKU dropdowns — the operator can
+     change them, but a sensible default is preselected.
+
+     Per-provider defaults: cx42 (hetzner), c7.xlarge.2 (huawei), E5.Flex.4.32
+     (oci), m6i.xlarge (aws), Standard_D4s_v5 (azure) — each provider's
+     recommended:true SKU from PROVIDER_NODE_SIZES. Worker count starts at 0
+     (solo mode) — the operator bumps it explicitly to add workers. */
   useEffect(() => {
     if (Object.keys(store.regionProviders).length > 0) return
     const provider = hint?.provider ?? PROVIDERS[0].id
@@ -228,12 +345,25 @@ export function StepProvider() {
       const regions = PROVIDER_REGIONS[provider]
       const region  = hint?.regions[i % hint.regions.length] ?? regions[i % regions.length].id
       store.setRegionCloudRegion(i, region)
+      const cp = defaultNodeSizeId(provider)
+      store.setRegionControlPlaneSize(i, cp)
+      store.setRegionWorkerSize(i, cp)
+      store.setRegionWorkerCount(i, 0)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const allConfigured = Array.from({ length: totalCards }, (_, i) => i)
-    .every(i => !!store.regionProviders[i] && !!store.regionCloudRegions[i])
+    .every((i) => {
+      const provider = store.regionProviders[i]
+      const cloudRegion = store.regionCloudRegions[i]
+      const cpId = store.regionControlPlaneSizes[i]
+      const wkCount = store.regionWorkerCounts[i] ?? 0
+      const wkId = store.regionWorkerSizes[i]
+      if (!provider || !cloudRegion || !cpId) return false
+      if (wkCount > 0 && !wkId) return false
+      return true
+    })
 
   function handleSelectProvider(i: number, provider: CloudProvider) {
     store.setRegionProvider(i, provider)
@@ -241,7 +371,22 @@ export function StepProvider() {
     const regions = PROVIDER_REGIONS[provider]
     const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
     store.setRegionCloudRegion(i, hintRegion ?? regions[0].id)
+    const cp = defaultNodeSizeId(provider)
+    store.setRegionControlPlaneSize(i, cp)
+    store.setRegionWorkerSize(i, cp)
+    store.setRegionWorkerCount(i, 0)
   }
+
+  /* Total estimated cost across all regions — each at its OWN provider's
+     pricing. A mixed-provider topology computes correctly because each
+     region's contribution is looked up in its own PROVIDER_NODE_SIZES table. */
+  const totalHourly = Array.from({ length: totalCards }, (_, i) => i).reduce((acc, i) => {
+    const provider = store.regionProviders[i]
+    const cpId = store.regionControlPlaneSizes[i]
+    const wkId = store.regionWorkerSizes[i]
+    const wkCount = store.regionWorkerCounts[i] ?? 0
+    return acc + regionHourlyCost(provider, cpId, wkId, wkCount)
+  }, 0)
 
   /* Max 3 cards per row */
   const gridCols = `repeat(${Math.min(totalCards, 3)}, 1fr)`
@@ -249,7 +394,7 @@ export function StepProvider() {
   return (
     <StepShell
       title="Cloud provider per region"
-      description="Choose a provider and region for each topology slot. You can mix providers across regions."
+      description="Pick a provider, region, and instance sizes for each topology slot. Provider, region, and SKU vocabularies are independent — Hetzner cx32 means nothing on AWS, so each region's SKUs come from its own provider's catalog."
       onNext={() => { if (allConfigured) next() }}
       onBack={back}
       nextDisabled={!allConfigured}
@@ -269,8 +414,14 @@ export function StepProvider() {
             label={label}
             selectedProvider={store.regionProviders[i]}
             selectedCloudRegion={store.regionCloudRegions[i]}
+            controlPlaneSizeId={store.regionControlPlaneSizes[i]}
+            workerSizeId={store.regionWorkerSizes[i]}
+            workerCount={store.regionWorkerCounts[i] ?? 0}
             onSelectProvider={p => handleSelectProvider(i, p)}
             onSelectCloudRegion={r => store.setRegionCloudRegion(i, r)}
+            onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(i, id)}
+            onSelectWorkerSize={id => store.setRegionWorkerSize(i, id)}
+            onSelectWorkerCount={n => store.setRegionWorkerCount(i, n)}
           />
         ))}
 
@@ -282,11 +433,35 @@ export function StepProvider() {
             label="AIR-GAP Region"
             selectedProvider={store.regionProviders[regionCount]}
             selectedCloudRegion={store.regionCloudRegions[regionCount]}
+            controlPlaneSizeId={store.regionControlPlaneSizes[regionCount]}
+            workerSizeId={store.regionWorkerSizes[regionCount]}
+            workerCount={store.regionWorkerCounts[regionCount] ?? 0}
             onSelectProvider={p => handleSelectProvider(regionCount, p)}
             onSelectCloudRegion={r => store.setRegionCloudRegion(regionCount, r)}
+            onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(regionCount, id)}
+            onSelectWorkerSize={id => store.setRegionWorkerSize(regionCount, id)}
+            onSelectWorkerCount={n => store.setRegionWorkerCount(regionCount, n)}
             isAirgap
           />
         )}
+      </div>
+
+      {/* Total cost rollup — sums each region's (cp + worker*count) at its
+          OWN provider's pricing. Operators see one bottom-line figure
+          alongside the per-region breakdown above. */}
+      <div style={{
+        marginTop: 6,
+        borderRadius: 8, padding: '9px 12px',
+        background: 'rgba(56,189,248,0.04)',
+        border: '1px solid rgba(56,189,248,0.12)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+      }}>
+        <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}>
+          Estimated infrastructure cost across {totalCards} region{totalCards > 1 ? 's' : ''}
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-accent)' }}>
+          €{totalHourly.toFixed(3)}/hr · €{(totalHourly * 730).toFixed(0)}/mo
+        </span>
       </div>
     </StepShell>
   )

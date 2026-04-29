@@ -1,7 +1,16 @@
 import { computeDefaultSelection } from '@/pages/wizard/steps/componentGroups'
 
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
-export type NodeSize = 'cx22' | 'cx32' | 'cx42' | 'cx52'
+/**
+ * NodeSize is a free-form string — the native instance-type id the chosen
+ * provider uses. The legal values per provider live in
+ * `shared/constants/providerSizes.ts` (PROVIDER_NODE_SIZES). The wizard
+ * never compares NodeSize against a closed union: hetzner emits 'cx32' /
+ * 'cax41', AWS emits 'm6i.xlarge', Azure emits 'Standard_D4s_v5', and so on.
+ * The OpenTofu module receives the literal string and validates it against
+ * the provider's API.
+ */
+export type NodeSize = string
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
 export type TopologyTemplate = 'citadel' | 'triangle' | 'dual' | 'zoned' | 'compact' | 'solo'
 
@@ -105,6 +114,23 @@ export interface WizardState {
   topology: TopologyTemplate | null
   regionProviders: Record<number, CloudProvider>
   regionCloudRegions: Record<number, string>
+  /**
+   * Per-region SKU selection. Each array is indexed parallel to
+   * regionProviders / regionCloudRegions: index 0 holds Region 1's choices,
+   * index 1 holds Region 2's, and so on for whatever count the chosen
+   * topology dictates (plus 1 for the AIR-GAP add-on when enabled).
+   *
+   * The legacy single-valued controlPlaneSize / workerSize / workerCount
+   * fields are still present for back-compat (the migration in store.merge()
+   * hydrates these arrays from them on first load), but every code path
+   * that reads sizing post per-provider rework uses the per-region arrays.
+   * The OpenTofu Request payload sent to catalyst-api carries both: the
+   * Regions[] array is canonical, and the singular fields mirror Regions[0]
+   * so the existing solo-Hetzner happy path keeps working.
+   */
+  regionControlPlaneSizes: string[]
+  regionWorkerSizes: string[]
+  regionWorkerCounts: number[]
   providerTokens: Partial<Record<CloudProvider, string>>
   providerValidated: Partial<Record<CloudProvider, boolean>>
   provider: CloudProvider | null
@@ -359,6 +385,9 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   registrarTokenValidated: false,
   topology: 'zoned',
   regionProviders: {}, regionCloudRegions: {},
+  regionControlPlaneSizes: [],
+  regionWorkerSizes: [],
+  regionWorkerCounts: [],
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
   sshPublicKey: '', sshKeyGeneratedThisSession: false, sshPrivateKeyOnce: '', sshFingerprint: '',
@@ -368,7 +397,12 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // StepComponents. Mandatory infra (bp-cilium, bp-flux, bp-crossplane, ...)
   // is `visibility: unlisted` and installed by the bootstrap kit regardless.
   selectedBlueprints: [],
-  regions: [], controlPlaneSize: 'cx22', workerSize: 'cx22', workerCount: 0,
+  // Legacy single-valued sizing kept for back-compat. The per-region
+  // arrays above are canonical from the per-provider rework onwards.
+  // controlPlaneSize / workerSize default to '' so a first-load that
+  // hasn't visited StepProvider yet doesn't synthesize a hetzner-only
+  // literal that won't pass validation against a non-hetzner provider.
+  regions: [], controlPlaneSize: '', workerSize: '', workerCount: 0,
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
