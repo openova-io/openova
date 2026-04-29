@@ -13,6 +13,8 @@ import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
+import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
+import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -48,6 +50,21 @@ const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/succ
 // Design showcase
 const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
 
+// Marketplace — long-form family portfolio + product detail surfaces
+// reachable from the wizard's component-card chips (family) and card body
+// (product). Wizard state lives in zustand+persist (localStorage) so
+// navigation across these routes never drops the operator's selection.
+const marketplaceFamilyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/marketplace/family/$familyId',
+  component: MarketplaceFamilyPage,
+})
+const marketplaceProductRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/marketplace/product/$componentId',
+  component: MarketplaceProductPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -57,6 +74,8 @@ const routeTree = rootRoute.addChildren([
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
   designsRoute,
+  marketplaceFamilyRoute,
+  marketplaceProductRoute,
 ])
 
 // basepath mirrors Vite's `base: '/sovereign/'` so internal <Link> and
