@@ -77,6 +77,14 @@ func main() {
 	// Phase 1 retries emit operator instructions per the architectural
 	// contract (Flux owns Phase 1 reconciliation).
 	r.Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
+	// Jobs/Executions REST surface (issue #205, sub of epic #204) — the
+	// table-view UX reads this in parallel to the existing SSE events
+	// feed. The 4 endpoints are read-only; every mutation flows
+	// through the helmwatch bridge in internal/jobs.
+	r.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
+	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
+	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
+	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

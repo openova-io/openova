@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -123,6 +124,13 @@ type Deployment struct {
 	// a no-op rather than racing two informers against the same
 	// HelmRelease list.
 	phase1Started bool
+
+	// jobsBridge — per-deployment helmwatch → Job/Execution/LogLine
+	// bridge (issue #205, sub of epic #204). Allocated on first
+	// component event in emitWatchEvent. Nil-tolerant: the emit path
+	// no-ops the forward when bridge is nil OR the Handler's jobs
+	// store is nil (tests without persistence).
+	jobsBridge *jobs.Bridge
 }
 
 // recordEvent appends ev to the durable history under the mutex, evicting
@@ -872,11 +880,42 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 // burst; once full we drop on the LIVE side only — the durable
 // buffer still has the event so the next /events poll or SSE
 // reconnect replays it.
+//
+// The same call also forwards Phase-1 component events to the per-
+// deployment jobs.Bridge, which materialises Jobs / Executions / LogLines
+// into the new /api/v1/deployments/{id}/jobs surface (issue #205, sub
+// of epic #204). The bridge write is best-effort: a failure does NOT
+// abort the SSE feed (the durable buffer is the contract for
+// /api/v1/deployments/{id}/events; the jobs surface is a parallel
+// projection). Errors are logged at warn so an operator can spot
+// drift.
 func (h *Handler) emitWatchEvent(dep *Deployment, ev provisioner.Event) {
 	recorded := h.recordEventAndPersist(dep, ev)
 	select {
 	case dep.eventsCh <- recorded:
 	default:
+	}
+
+	// Forward Phase-1 component events to the jobs bridge. Phase-0
+	// OpenTofu events have no Job analogue and are silently dropped
+	// inside the bridge (it filters on Phase=="component" + non-
+	// empty Component).
+	if h.jobs == nil {
+		return
+	}
+	dep.mu.Lock()
+	if dep.jobsBridge == nil {
+		dep.jobsBridge = jobs.NewBridge(h.jobs, dep.ID)
+	}
+	bridge := dep.jobsBridge
+	dep.mu.Unlock()
+	if err := bridge.OnProvisionerEvent(recorded); err != nil {
+		h.log.Warn("jobs bridge: forward failed",
+			"id", dep.ID,
+			"phase", recorded.Phase,
+			"component", recorded.Component,
+			"err", err,
+		)
 	}
 }
 

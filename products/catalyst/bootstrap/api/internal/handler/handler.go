@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -55,6 +56,13 @@ type Handler struct {
 	// NewWithPDM without a directory) keep working unchanged. Production
 	// always wires this via New() reading CATALYST_DEPLOYMENTS_DIR.
 	store *store.Store
+
+	// jobs — Jobs/Executions/LogLines persistence (issue #205, sub of
+	// epic #204). Nil-tolerant the same way as `store` above: tests
+	// building Handler{} directly run without a jobs store; production
+	// New() wires this from CATALYST_EXECUTIONS_DIR. The 4 jobs HTTP
+	// handlers respond 503 when this is nil.
+	jobs *jobs.Store
 
 	// kubeconfigsDir — directory the cloud-init postback handler
 	// (PutKubeconfig, issue #183) writes the new Sovereign's
@@ -173,6 +181,25 @@ func New(log *slog.Logger) *Handler {
 		h.restoreFromStore()
 	}
 
+	// Jobs/Executions store (issue #205) — same PVC mount, different
+	// subdirectory. CATALYST_EXECUTIONS_DIR overrides the default per
+	// docs/INVIOLABLE-PRINCIPLES.md #4. A failure to create the store
+	// is logged + non-fatal, mirroring the deployment store's CI
+	// fallback path.
+	jobsDir := os.Getenv(jobs.EnvDir)
+	if jobsDir == "" {
+		jobsDir = jobs.DefaultDir
+	}
+	js, err := jobs.NewStore(jobsDir)
+	if err != nil {
+		log.Warn("jobs store unavailable; jobs/executions API will return 503",
+			"dir", jobsDir,
+			"err", err,
+		)
+	} else {
+		h.jobs = js
+	}
+
 	return h
 }
 
@@ -205,6 +232,17 @@ func NewWithStore(log *slog.Logger, client pdmClient, st *store.Store) *Handler 
 		h.restoreFromStore()
 	}
 	return h
+}
+
+// NewWithJobsStore is a test-only constructor that wires an in-memory
+// Handler with a jobs.Store rooted at a t.TempDir(). The 4 jobs HTTP
+// handlers can be exercised end-to-end against this construction
+// without standing up the full deployment store / PDM stack.
+func NewWithJobsStore(log *slog.Logger, js *jobs.Store) *Handler {
+	return &Handler{
+		log:  log,
+		jobs: js,
+	}
 }
 
 // NewWithStoreAndKubeconfigsDir is the persistence-aware constructor
