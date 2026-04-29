@@ -1,0 +1,55 @@
+{{- /*
+PowerDNS REST API ingress — operator-only.
+
+Exposes the in-cluster powerdns webserver at .Values.api.host
+(default pdns.openova.io) on path .Values.api.path (/api). Traefik
+basicAuth middleware gates the surface; the Secret holding bcrypt(operator:<password>)
+is referenced by name (.Values.api.basicAuth.secretName) — the plaintext
+NEVER lives in values.yaml or this chart.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #10 (credentials never appear in source
+or commits) the basicAuth Secret is created out-of-band by the
+private-repo cluster manifest at clusters/contabo-mkt/apps/powerdns/.
+*/}}
+{{- if .Values.api.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Values.api.middlewareName | default "powerdns-api-auth" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ .Values.api.basicAuth.secretName | default "powerdns-api-basicauth" | quote }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: powerdns-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.api.tls.issuer | default "letsencrypt-prod" | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace (.Values.api.middlewareName | default "powerdns-api-auth") | quote }}
+spec:
+  ingressClassName: {{ .Values.api.ingressClassName | default "traefik" | quote }}
+  {{- if .Values.api.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.api.host | quote }}
+      secretName: {{ .Values.api.tls.secretName | default "powerdns-api-tls" | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.api.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.api.path | default "/api" | quote }}
+            pathType: {{ .Values.api.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: powerdns                       # subchart's Service name (matches chart fullname when nameOverride empty)
+                port:
+                  number: {{ .Values.powerdns.powerdns.webserver.bindPort | default 8081 }}
+{{- end }}

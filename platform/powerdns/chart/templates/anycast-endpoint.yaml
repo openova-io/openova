@@ -1,0 +1,46 @@
+{{- /*
+Public NS endpoint Service — placeholder until XHetznerFloatingIP
+Crossplane composition is authored.
+
+Per #167 the target state is anycast Floating IPs across regions
+(ns1.openova.io, ns2.openova.io, ns3.openova.io). The right primitive
+is a Crossplane XHetznerFloatingIP composite that allocates Hetzner
+Floating IPs and binds them to the dnsdist replicas across regions
+(via hcloud_floating_ip_assignment).
+
+Until that composition lands (gap explicitly disclosed in
+templates/crossplane-floatingip.yaml + the Phase-1 deferral comment in
+the public-repo PR description), this Service is the operational
+stand-in. Catalyst overlays MAY override `.Values.anycast.serviceType`
+to NodePort/ClusterIP on bare-metal Sovereigns where direct host
+networking provides the public endpoint.
+
+Frontend: dnsdist (rate-limited). Backend (skipped here, dnsdist routes
+in-cluster) is the upstream powerdns Service.
+*/}}
+{{- if .Values.anycast.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.anycast.serviceName | default "powerdns-anycast" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/role: public-ns-endpoint
+  {{- with .Values.anycast.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.anycast.serviceType | default "LoadBalancer" }}
+  selector:
+    app.kubernetes.io/name: dnsdist
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    {{- range .Values.anycast.ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .targetPort }}
+      protocol: {{ .protocol }}
+    {{- end }}
+{{- end }}

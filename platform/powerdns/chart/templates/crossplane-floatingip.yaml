@@ -1,0 +1,56 @@
+{{- /*
+XHetznerFloatingIP — target-state public NS endpoint via Crossplane.
+
+GAP DISCLOSURE (per docs/INVIOLABLE-PRINCIPLES.md #8 — every divergence
+must be disclosed in the same change that introduces it):
+
+The XHetznerFloatingIP CompositeResourceDefinition + Composition does NOT
+yet exist in platform/crossplane/compositions/. The composition family
+currently authored is:
+  - xrd-server.yaml          (XHetznerServer)
+  - xrd-network.yaml         (XHetznerNetwork)
+  - xrd-firewall.yaml        (XHetznerFirewall)
+  - xrd-loadbalancer.yaml    (XHetznerLoadBalancer)
+  - xrd-pool-allocation.yaml (XDynadotPoolAllocation)
+
+XHetznerFloatingIP would wrap:
+  - hcloud_floating_ip                      (the IP itself)
+  - hcloud_floating_ip_assignment           (binding to a server)
+  - DNS A record at ns{1,2,3}.openova.io    (already covered by external-dns + PDM)
+
+Until that composition is authored (tracked as a follow-up in the public
+openova repo, #167 phase-2), this template ships a DISABLED placeholder
+XR — it renders only when .Values.crossplane.floatingIP.enabled=true,
+which the Phase-0 cluster overlays leave at false. The
+templates/anycast-endpoint.yaml Service of type=LoadBalancer is the
+operational stand-in.
+
+When the composition lands, the operator:
+  1. Authors platform/crossplane/compositions/xrd-floating-ip.yaml +
+     composition-floating-ip.yaml in the public openova repo
+  2. Bumps bp-powerdns to 1.1.0 with this template enabled by default
+  3. Cluster overlays flip .Values.crossplane.floatingIP.enabled=true
+  4. The placeholder Service in anycast-endpoint.yaml is removed by
+     setting .Values.anycast.enabled=false in the same overlay
+
+This file is not deleted in the cutover — it stays as the canonical
+target-state shape so a fresh chart install on a new Sovereign produces
+a Floating IP automatically once the composition exists.
+*/}}
+{{- if .Values.crossplane.floatingIP.enabled }}
+apiVersion: compose.openova.io/v1alpha1
+kind: HetznerFloatingIP
+metadata:
+  name: {{ .Values.crossplane.floatingIP.name | default "pdns-public-ns" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+spec:
+  parameters:
+    name: {{ .Values.crossplane.floatingIP.name | default "pdns-public-ns" | quote }}
+    type: ipv4
+    region: {{ .Values.crossplane.floatingIP.region | default "fsn1" | quote }}
+    description: "Catalyst PowerDNS public NS anycast endpoint"
+  providerConfigRef:
+    name: default-hcloud
+{{- end }}
