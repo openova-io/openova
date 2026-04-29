@@ -230,7 +230,13 @@ export const GROUPS: GroupDef[] = [
     description: 'Unified metrics, logs, traces, dashboards, and AI-powered operations',
     required: true,
     components: [
-      { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',      tier: 'recommended', dependencies: ['seaweedfs'] },
+      // Grafana itself stores users / dashboards / alerts in SQLite (default)
+      // or PostgreSQL/MySQL when scaled HA — it does NOT require object
+      // storage. Loki / Mimir / Tempo (its companion stores) need seaweedfs;
+      // Grafana the dashboard server does not. (audit 2026-04 — was
+      // listing seaweedfs as a hard dep, which over-cascaded SILO-internal
+      // coupling onto every Grafana selection.)
+      { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',      tier: 'recommended', dependencies: [] },
       { id: 'opentelemetry', name: 'OpenTelemetry', desc: 'Unified telemetry pipeline', tier: 'recommended', dependencies: [] },
       { id: 'alloy',         name: 'Alloy',         desc: 'Telemetry agent',            tier: 'recommended', dependencies: [] },
       { id: 'loki',          name: 'Loki',          desc: 'Log aggregation',            tier: 'recommended', dependencies: ['seaweedfs'] },
@@ -296,7 +302,13 @@ export const GROUPS: GroupDef[] = [
       { id: 'milvus',    name: 'Milvus',    desc: 'Vector database',             tier: 'optional',  dependencies: ['seaweedfs'] },
       { id: 'bge',       name: 'BGE',       desc: 'Embedding model server',      tier: 'optional',  dependencies: [] },
       { id: 'langfuse',  name: 'LangFuse',  desc: 'LLM observability & tracing', tier: 'optional',  dependencies: ['cnpg'] },
-      { id: 'librechat', name: 'LibreChat', desc: 'AI chat interface',           tier: 'optional',  dependencies: ['cnpg'] },
+      // LibreChat persists conversations / users / presets in MongoDB.
+      // OpenOva's MongoDB drop-in is FerretDB (FABRIC), which itself runs
+      // on cnpg — so cnpg comes along transitively via FerretDB. The
+      // earlier dep `['cnpg']` was wrong: LibreChat does not speak
+      // PostgreSQL and would not start with cnpg alone. (audit 2026-04 —
+      // confirmed against https://www.librechat.ai/docs/user_guides/mongodb)
+      { id: 'librechat', name: 'LibreChat', desc: 'AI chat interface',           tier: 'optional',  dependencies: ['ferretdb'] },
     ],
   },
   {
@@ -414,11 +426,18 @@ export const PRODUCTS: Product[] = [
     // [...] when chosen the entire family needs to be selected." So
     // selecting any CORTEX member cascades the rest of the family.
     cascadeOnMemberSelection: true,
-    // CORTEX members rely on FABRIC primitives at runtime (cnpg for
-    // langfuse/librechat). Selecting any CORTEX member therefore cascades
-    // FABRIC at the family level so operators don't end up with a
-    // half-installed AI stack.
-    familyDependencies: ['fabric'],
+    // No family-level dependencies. Audit 2026-04 (issue: "selecting
+    // Spector brings the entire fabric family"): the previous
+    // `['fabric']` value was over-broad — the only real cross-family
+    // need from CORTEX was cnpg (LangFuse) and a Mongo-compatible store
+    // (LibreChat). Both are encoded at the COMPONENT level via
+    // `dependencies` (langfuse → cnpg, librechat → ferretdb → cnpg) and
+    // the only one that's truly always-on (cnpg) is mandatory by
+    // transitive promotion. CORTEX has no runtime requirement on
+    // Strimzi / Debezium / Flink / Temporal / ClickHouse / Iceberg /
+    // Superset, so dragging the entire FABRIC family in when an operator
+    // picks Specter or BGE was incorrect.
+    familyDependencies: [],
   },
   {
     id: 'relay',
