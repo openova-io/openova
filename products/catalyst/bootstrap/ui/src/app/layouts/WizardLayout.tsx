@@ -7,6 +7,12 @@ import { useWizardNav } from '@/shared/lib/wizardNav'
 import { useTheme } from '@/shared/lib/useTheme'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
+/**
+ * Wizard step list — these are the seven progress stops the user can see and
+ * navigate. StepSuccess is the terminal destination after StepReview launches
+ * provisioning; it is not part of the visible progress, so it is not in this
+ * list. Closes #174.
+ */
 export const WIZARD_STEPS = [
   { id: 1, label: 'Organisation', desc: 'Name, domain, contact'         },
   { id: 2, label: 'Domain',       desc: 'Pool or BYO + delegation'      },
@@ -18,9 +24,22 @@ export const WIZARD_STEPS = [
 ]
 
 /**
- * Unified wizard shell — horizontal stepper matching the SME product
- * (sme.openova.io). Dark/light theme, flat palette, same card surfaces,
- * so the two products feel like a single family.
+ * Unified wizard shell — the seven-step progress indicator lives in the top
+ * header band (NOT the step body), matching the nova/core console page-header
+ * pattern. Closes GitHub issue #174.
+ *
+ * Header contract (kept in sync with `core/console/src/components/Sidebar.svelte`
+ * — the only branded chrome in nova today):
+ *   - 56px tall (h-14) — same as nova's logo row
+ *   - 1px solid border-bottom using a theme-driven border token
+ *   - 16px horizontal padding
+ *   - Brand mark + wordmark on the left
+ *   - Theme toggle + Exit on the right
+ *   - Step indicator slotted into the centre of the header band, with an
+ *     accessible mobile fallback ("Step X of Y · Label") below 720px
+ *
+ * Every dimension/colour comes from the wizard's CSS-variable token set
+ * (`--wiz-*` in `src/app/globals.css`); no inline literals.
  */
 export function WizardLayout() {
   const { currentStep, setStep } = useWizardStore()
@@ -28,25 +47,74 @@ export function WizardLayout() {
   const { theme, toggle } = useTheme()
   const totalSteps = WIZARD_STEPS.length
   const progressPct = Math.round((currentStep / totalSteps) * 100)
+  const currentLabel =
+    WIZARD_STEPS.find((s) => s.id === currentStep)?.label ?? ''
 
   return (
     <div className="corp-body">
       {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="corp-header">
-        {/* Brand mark — 32px target height per issue #162 spec.
-            The route `/` redirects to the wizard home for non-SaaS;
-            for SaaS it lands on the dashboard from where the wizard
-            is reachable. The canonical brand SVG is also vendored at
-            /openova-logo.svg under the wizard's public dir, so the
-            same mark can be used by static pages (e.g. provision.html)
-            that don't run React. */}
+      <header
+        className="corp-header"
+        data-testid="wizard-header"
+        aria-label="Wizard header"
+      >
+        {/* Brand block — clicking returns home (per #162). The OOLogo SVG
+            renders the canonical OpenOva mark from /brand/logo-mark.svg. */}
         <Link to={IS_SAAS ? '/app/dashboard' : '/'} className="corp-logo" data-testid="wizard-logo">
-          <OOLogo h={32} id="wiz-logo" />
+          <OOLogo h={28} id="wiz-logo" />
           <div className="corp-brand">
             <div className="corp-brand-primary">OpenOva</div>
-            <div className="corp-brand-secondary">Corporate</div>
+            <div className="corp-brand-secondary">Catalyst</div>
           </div>
         </Link>
+
+        {/* Step indicator — desktop layout sits inline with the header,
+            mirroring nova's "page chrome" treatment. The breakpoint mirror
+            in CSS swaps to a compact "Step X of Y" string on mobile. */}
+        <nav
+          className="corp-stepper"
+          data-testid="wizard-stepper"
+          aria-label="Wizard progress"
+        >
+          {WIZARD_STEPS.map((step, i) => {
+            const done    = step.id < currentStep
+            const active  = step.id === currentStep
+            const clickable = done
+
+            return (
+              <Fragment key={step.id}>
+                <button
+                  type="button"
+                  data-testid={`wizard-step-${step.id}`}
+                  className={`corp-step ${active ? 'active' : ''} ${done ? 'done' : ''}`}
+                  onClick={() => clickable && setStep(step.id)}
+                  disabled={!clickable && !active}
+                  aria-current={active ? 'step' : undefined}
+                  title={step.label}
+                >
+                  <span className="corp-step-num">
+                    {done ? <Check size={12} strokeWidth={2.75} /> : step.id}
+                  </span>
+                  <span className="corp-step-label">{step.label}</span>
+                </button>
+                {i < WIZARD_STEPS.length - 1 && (
+                  <span
+                    className={`corp-step-sep ${done ? 'done' : ''}`}
+                    aria-hidden
+                  />
+                )}
+              </Fragment>
+            )
+          })}
+        </nav>
+
+        {/* Mobile-only collapsed indicator — hidden on desktop via CSS. */}
+        <div className="corp-stepper-compact" data-testid="wizard-stepper-compact" aria-hidden>
+          <strong>Step {currentStep}</strong>
+          <span>of {totalSteps}</span>
+          <span className="corp-stepper-compact-label">· {currentLabel}</span>
+        </div>
+
         <div className="corp-header-actions">
           <button
             onClick={toggle}
@@ -64,39 +132,9 @@ export function WizardLayout() {
         </div>
       </header>
 
-      {/* ── Stepper + content ─────────────────────────────────── */}
+      {/* ── Step body — stepper has been hoisted into the header above,
+            so the body now starts directly with the step's title/form. ── */}
       <main className="corp-main">
-        <nav className="corp-stepper" aria-label="Wizard progress">
-          {WIZARD_STEPS.map((step, i) => {
-            const done    = step.id < currentStep
-            const active  = step.id === currentStep
-            const clickable = done
-
-            return (
-              <Fragment key={step.id}>
-                <button
-                  type="button"
-                  className={`corp-step ${active ? 'active' : ''} ${done ? 'done' : ''}`}
-                  onClick={() => clickable && setStep(step.id)}
-                  disabled={!clickable && !active}
-                  aria-current={active ? 'step' : undefined}
-                >
-                  <span className="corp-step-num">
-                    {done ? <Check size={14} strokeWidth={2.5} /> : step.id}
-                  </span>
-                  <span className="corp-step-label">{step.label}</span>
-                </button>
-                {i < WIZARD_STEPS.length - 1 && (
-                  <span
-                    className={`corp-step-sep ${done ? 'done' : ''}`}
-                    aria-hidden
-                  />
-                )}
-              </Fragment>
-            )
-          })}
-        </nav>
-
         <div className="corp-step-content">
           <Outlet />
         </div>
@@ -164,27 +202,30 @@ export function WizardLayout() {
           font-family: Inter, ui-sans-serif, system-ui, sans-serif;
         }
 
-        /* ── Header (mirrors SME's sme-header) ────────────────────── */
+        /* ── Header — mirrors nova's chrome (h-14, 16px X-padding,
+              theme-token border-bottom). ───────────────────────────── */
         .corp-header {
           position: sticky;
           top: 0;
           z-index: 100;
-          background: color-mix(in srgb, var(--wiz-page-bg) 90%, transparent);
+          background: color-mix(in srgb, var(--wiz-page-bg) 92%, transparent);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          border-bottom: 1px solid rgba(var(--wiz-ch), 0.08);
-          padding: 0.9rem 1.5rem;
+          border-bottom: 1px solid var(--wiz-border);
+          height: 56px;                /* nova h-14 — single source of truth */
+          padding: 0 1rem;             /* nova px-4 */
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          gap: 1.25rem;
         }
 
         .corp-logo {
           display: flex;
           align-items: center;
-          gap: 0.65rem;
+          gap: 0.55rem;
           text-decoration: none;
           color: inherit;
+          flex-shrink: 0;
         }
 
         .corp-brand { line-height: 1; }
@@ -208,15 +249,17 @@ export function WizardLayout() {
         .corp-header-actions {
           display: flex;
           align-items: center;
-          gap: 0.5rem;
+          gap: 0.4rem;
+          margin-left: auto;
+          flex-shrink: 0;
         }
 
         .corp-icon-btn {
           background: transparent;
-          border: 1px solid rgba(var(--wiz-ch), 0.1);
+          border: 1px solid var(--wiz-border);
           color: var(--wiz-text-sub);
-          width: 34px;
-          height: 34px;
+          width: 30px;
+          height: 30px;
           border-radius: 7px;
           cursor: pointer;
           display: inline-flex;
@@ -232,54 +275,52 @@ export function WizardLayout() {
           background: rgba(var(--wiz-accent-ch), 0.1);
         }
 
-        /* ── Main ─────────────────────────────────────────────────── */
-        .corp-main {
-          flex: 1;
-          width: 100%;
-          max-width: 1100px;
-          margin: 0 auto;
-          padding: 2rem 1.25rem 4rem;
-        }
-
-        /* ── Stepper (mirrors SME's .stepper) ─────────────────────── */
+        /* ── Step indicator — sits inline with the header on desktop,
+              collapses on mobile. ───────────────────────────────────── */
         .corp-stepper {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 0.35rem;
-          margin-bottom: 2.25rem;
-          flex-wrap: nowrap;
+          gap: 0.3rem;
+          flex: 1;
+          min-width: 0;
         }
 
         .corp-step {
-          display: flex;
-          flex-direction: column;
+          display: inline-flex;
+          flex-direction: row;
           align-items: center;
-          gap: 0.35rem;
+          gap: 0.45rem;
           background: transparent;
           border: none;
           color: var(--wiz-text-sub);
           cursor: pointer;
-          padding: 0.25rem 0.4rem;
+          padding: 0.2rem 0.45rem;
           font: inherit;
+          border-radius: 6px;
+          transition: color 0.15s ease, background 0.15s ease;
+        }
+
+        .corp-step:hover:not(:disabled) {
+          color: var(--wiz-text-md);
         }
 
         .corp-step:disabled {
           cursor: not-allowed;
-          opacity: 0.6;
         }
 
         .corp-step-num {
-          width: 32px;
-          height: 32px;
+          width: 22px;
+          height: 22px;
           border-radius: 50%;
           background: rgba(var(--wiz-ch), 0.04);
-          border: 2px solid rgba(var(--wiz-ch), 0.15);
-          display: flex;
+          border: 1.5px solid rgba(var(--wiz-ch), 0.15);
+          display: inline-flex;
           align-items: center;
           justify-content: center;
           font-weight: 600;
-          font-size: 0.88rem;
+          font-size: 11px;
+          flex-shrink: 0;
           transition: all 0.2s ease;
         }
 
@@ -287,7 +328,7 @@ export function WizardLayout() {
           background: rgba(var(--wiz-accent-ch), 1);
           border-color: rgba(var(--wiz-accent-ch), 1);
           color: #fff;
-          box-shadow: 0 0 0 4px rgba(var(--wiz-accent-ch), 0.15);
+          box-shadow: 0 0 0 3px rgba(var(--wiz-accent-ch), 0.15);
         }
 
         .corp-step.done .corp-step-num {
@@ -301,26 +342,54 @@ export function WizardLayout() {
           font-weight: 600;
         }
 
-        .corp-step.done {
+        .corp-step.done .corp-step-label {
           color: var(--wiz-text-md);
         }
 
         .corp-step-label {
-          font-size: 0.8rem;
+          font-size: 12px;
           line-height: 1.2;
           white-space: nowrap;
         }
 
         .corp-step-sep {
-          width: 44px;
-          height: 2px;
+          width: 18px;
+          height: 1.5px;
           background: rgba(var(--wiz-ch), 0.15);
-          margin-top: -20px;  /* visually centre between circles */
+          flex-shrink: 0;
           transition: background 0.2s ease;
         }
 
         .corp-step-sep.done {
-          background: rgba(var(--wiz-success-ch), 1);
+          background: rgba(var(--wiz-success-ch), 0.6);
+        }
+
+        /* Mobile-collapsed step indicator — hidden on desktop. */
+        .corp-stepper-compact {
+          display: none;
+          align-items: center;
+          gap: 0.35rem;
+          color: var(--wiz-text-md);
+          font-size: 13px;
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+        }
+        .corp-stepper-compact strong { color: var(--wiz-text-hi); font-weight: 700; }
+        .corp-stepper-compact-label {
+          color: var(--wiz-text-sub);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        /* ── Main ─────────────────────────────────────────────────── */
+        .corp-main {
+          flex: 1;
+          width: 100%;
+          max-width: 1100px;
+          margin: 0 auto;
+          padding: 2rem 1.25rem 4rem;
         }
 
         .corp-step-content {
@@ -443,16 +512,23 @@ export function WizardLayout() {
           .corp-step-footer-info { font-size: 0.8rem; }
         }
 
-        /* ── Responsive — 6 steps need to stay legible on small screens ── */
-        @media (max-width: 900px) {
-          .corp-step-sep { width: 28px; }
+        /* ── Responsive header — at narrow widths drop the per-step labels
+              first, then collapse the whole stepper into a "Step X of Y"
+              string so the 7 dots don't overflow on phones. ─────────── */
+        @media (max-width: 1024px) {
+          .corp-step-label { display: none; }
+          .corp-step-sep { width: 12px; }
         }
 
         @media (max-width: 720px) {
-          .corp-step-label { display: none; }
-          .corp-step-num { width: 28px; height: 28px; font-size: 0.8rem; }
-          .corp-step-sep { width: 20px; margin-top: 0; }
-          .corp-stepper { gap: 0.15rem; }
+          .corp-header { gap: 0.65rem; }
+          .corp-stepper { display: none; }
+          .corp-stepper-compact { display: flex; }
+          .corp-brand-secondary { display: none; }
+        }
+
+        @media (max-width: 480px) {
+          .corp-stepper-compact-label { display: none; }
         }
       `}</style>
     </div>
