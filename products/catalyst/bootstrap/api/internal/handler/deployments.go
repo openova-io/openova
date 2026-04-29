@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -123,6 +124,13 @@ type Deployment struct {
 	// a no-op rather than racing two informers against the same
 	// HelmRelease list.
 	phase1Started bool
+
+	// jobsBridge — per-deployment helmwatch → Job/Execution/LogLine
+	// bridge (issue #205, sub of epic #204). Allocated on first
+	// component event in emitWatchEvent. Nil-tolerant: the emit path
+	// no-ops the forward when bridge is nil OR the Handler's jobs
+	// store is nil (tests without persistence).
+	jobsBridge *jobs.Bridge
 }
 
 // recordEvent appends ev to the durable history under the mutex, evicting
@@ -872,11 +880,61 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 // burst; once full we drop on the LIVE side only — the durable
 // buffer still has the event so the next /events poll or SSE
 // reconnect replays it.
+//
+// The same call also forwards Phase-1 component events to the per-
+// deployment jobs.Bridge, which materialises Jobs / Executions / LogLines
+// into the new /api/v1/deployments/{id}/jobs surface (issue #205, sub
+// of epic #204). The bridge write is best-effort: a failure does NOT
+// abort the SSE feed (the durable buffer is the contract for
+// /api/v1/deployments/{id}/events; the jobs surface is a parallel
+// projection). Errors are logged at warn so an operator can spot
+// drift.
 func (h *Handler) emitWatchEvent(dep *Deployment, ev provisioner.Event) {
 	recorded := h.recordEventAndPersist(dep, ev)
+
+	// Synchronise channel send with the close() path in
+	// resumePhase1Watch (which closes dep.eventsCh under dep.mu after
+	// the watch loop returns). Without this guard a helmwatch
+	// goroutine still in-flight when resumePhase1Watch closes
+	// eventsCh races the close — the race detector flags the read
+	// of eventsCh against the close write. Holding dep.mu here makes
+	// the close-vs-send linearisation point unambiguous, and the
+	// `done` short-circuit prevents a panic-on-closed-channel send.
+	dep.mu.Lock()
+	closed := false
 	select {
-	case dep.eventsCh <- recorded:
+	case <-dep.done:
+		closed = true
 	default:
+	}
+	if !closed {
+		select {
+		case dep.eventsCh <- recorded:
+		default:
+		}
+	}
+	bridge := dep.jobsBridge
+	if h.jobs != nil && bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, dep.ID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+
+	// Forward Phase-1 component events to the jobs bridge. Phase-0
+	// OpenTofu events have no Job analogue and are silently dropped
+	// inside the bridge (it filters on Phase=="component" + non-
+	// empty Component). The bridge write is best-effort: a failure
+	// does NOT abort the SSE feed.
+	if bridge == nil {
+		return
+	}
+	if err := bridge.OnProvisionerEvent(recorded); err != nil {
+		h.log.Warn("jobs bridge: forward failed",
+			"id", dep.ID,
+			"phase", recorded.Phase,
+			"component", recorded.Component,
+			"err", err,
+		)
 	}
 }
 
