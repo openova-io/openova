@@ -1,0 +1,100 @@
+{{- /*
+dnsdist companion — query rate-limiting + DDoS posture in front of every
+PowerDNS replica.
+
+Per #167 the public NS endpoints carry full DDoS exposure; dnsdist's
+MaxQPSIPRule is the first line of defence. The companion runs as a
+separate Deployment so the upstream powerdns chart stays unmodified.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 the qps threshold + image refs +
+backend address all come from values.yaml.
+*/}}
+{{- if .Values.dnsdist.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dnsdist-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.dnsdistLabels" . | nindent 4 }}
+data:
+  dnsdist.conf: |
+    {{- tpl .Values.dnsdist.config . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dnsdist
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.dnsdistLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.dnsdist.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dnsdist
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-powerdns.dnsdistLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/dnsdist.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 953
+        runAsGroup: 953
+        fsGroup: 953
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dnsdist
+          image: "{{ .Values.dnsdist.image.repository }}:{{ .Values.dnsdist.image.tag | default "1.9" }}"
+          imagePullPolicy: {{ .Values.dnsdist.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - --supervised
+            - --config=/etc/dnsdist/dnsdist.conf
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE     # dnsdist binds :53 directly
+          resources:
+            {{- toYaml .Values.dnsdist.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dnsdist
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: dnsdist-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dnsdist
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.dnsdistLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.dnsdist.service.type | default "ClusterIP" }}
+  selector:
+    app.kubernetes.io/name: dnsdist
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: dns-udp, port: 53, targetPort: dns-udp, protocol: UDP }
+    - { name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP }
+{{- end }}

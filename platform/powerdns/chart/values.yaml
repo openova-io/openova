@@ -1,0 +1,311 @@
+# Catalyst Blueprint wrapper metadata — read by the bootstrap-kit installer.
+# The installer combines the upstream chart reference below with the values
+# overlay also in this file when running 'helm install'.
+#
+# PowerDNS does NOT publish an official Helm chart. After surveying the
+# Artifact Hub catalogue (curl https://artifacthub.io/api/v1/packages/search?
+# ts_query_web=powerdns) the only verified-publisher chart that tracks the
+# canonical PowerDNS Authoritative image (docker.io/powerdns/pdns-auth-50)
+# at appVersion 5.0.3 is `pschichtel/powerdns` 0.10.0 from
+# https://schich.tel/helm-charts. We pin that as the upstream reference;
+# the Catalyst overlay adds:
+#   - CNPG-backed gpgsql backend (separate `pdns-pg` cluster in this chart)
+#   - DNSSEC enabled by default (api-rectify + ECDSAP256SHA256 keys)
+#   - lua-records support
+#   - dnsdist companion for query rate-limiting
+#   - REST API ingress at pdns.openova.io behind Traefik basicAuth
+#   - placeholder anycast endpoint Service (XHetznerFloatingIP composition
+#     not yet authored — see Crossplane gap note in
+#     templates/crossplane-floatingip.yaml)
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally-
+# meaningful value flows from this file or from a referenced K8s Secret —
+# image tags come from the upstream chart's `image.repository:appVersion`
+# default, never duplicated here.
+
+catalystBlueprint:
+  upstream:
+    chart: powerdns
+    version: "0.10.0"
+    repo: "https://schich.tel/helm-charts"
+    # Catalyst rationale for this upstream:
+    # - Verified publisher on Artifact Hub
+    # - Tracks docker.io/powerdns/pdns-auth-50 (canonical PowerDNS image)
+    # - appVersion 5.0.3 — current stable Authoritative line
+    # - Templates support the gpgsql backend driver out of the box
+    # - Apache-2.0 / MIT-style permissive licence on the chart itself
+
+# ─── Upstream chart values (subchart key: powerdns) ───────────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `powerdns:` key flow into that subchart unchanged.
+powerdns:
+  # 3 replicas across regions — anycast-fronted public NS endpoints
+  # (per #167 acceptance criteria). Each replica connects to the same CNPG
+  # database; PowerDNS Authoritative is stateless beyond the database.
+  replicaCount: 3
+
+  image:
+    # tag: null → upstream chart falls back to .Chart.AppVersion (5.0.3).
+    # Per INVIOLABLE-PRINCIPLES #4 we don't pin a literal tag here — the
+    # chart's appVersion is the single source of truth and bumping the
+    # upstream version in `catalystBlueprint.upstream.version` above
+    # propagates the new image tag automatically.
+    pullPolicy: IfNotPresent
+
+  podSecurityContext:
+    fsGroup: 953              # PowerDNS image's `pdns` group
+    runAsNonRoot: true
+    runAsUser: 953            # PowerDNS image's `pdns` user
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 953
+    runAsGroup: 953
+    capabilities:
+      drop:
+        - ALL
+      # PowerDNS binds to UDP/53 + TCP/53 in production; the upstream
+      # chart's containerPort 5353 keeps the workload non-privileged.
+      # When/if we run on :53 directly we re-add NET_BIND_SERVICE here.
+
+  service:
+    # ClusterIP is fine for the chart's own DNS service — the public NS
+    # endpoints are realised by the placeholder LoadBalancer Service in
+    # templates/anycast-endpoint.yaml (replaced by XHetznerFloatingIP
+    # once that Crossplane composition is authored — see
+    # templates/crossplane-floatingip.yaml).
+    type: ClusterIP
+
+  ingress:
+    # The chart's own ingress (chart-example.local) is disabled — the
+    # operator API ingress is rendered by templates/api-ingress.yaml so
+    # we can layer Traefik basicAuth middleware on top.
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  powerdns:
+    # ─── REST API + webserver ───────────────────────────────────────────
+    # API key + webserver password flow from a Catalyst-managed K8s Secret
+    # (`powerdns-api-credentials` — see templates/secret.yaml). Per
+    # INVIOLABLE-PRINCIPLES #4 + #10 the values are NEVER inlined here.
+    # The upstream chart's secretRef helper takes flat name+key fields
+    # (see powerdns.secretRef in upstream _helpers.tpl).
+    api:
+      key:
+        name: powerdns-api-credentials
+        key: api-key
+    webserver:
+      bindPort: 8081
+      # Webserver/API listener is exposed in-cluster only. The
+      # api-ingress.yaml Ingress is the sanctioned external entry point;
+      # operator basicAuth + TLS terminate at Traefik before reaching pdns.
+      allowFrom: 0.0.0.0/0
+      password:
+        name: powerdns-api-credentials
+        key: webserver-password
+
+    # ─── DNS UPDATE (RFC 2136) ──────────────────────────────────────────
+    # Off — Catalyst writes records via the REST API only (cert-manager
+    # webhook + external-dns webhook + crossplane DNS XR all use the
+    # API).
+    dnsupdate:
+      enabled: false
+
+    # ─── Database backend (gpgsql via CNPG) ─────────────────────────────
+    # The CNPG-managed `pdns-pg` cluster is rendered by
+    # templates/cnpg-cluster.yaml (separate from `pdm-pg`). CNPG generates
+    # a `pdns-pg-app` Secret with keys host/port/dbname/user/password
+    # which the upstream chart consumes via secretRef indirection.
+    db:
+      driver: gpgsql
+      host:
+        name: pdns-pg-app
+        key: host
+      port:
+        name: pdns-pg-app
+        key: port
+      name:
+        name: pdns-pg-app
+        key: dbname
+      username:
+        name: pdns-pg-app
+        key: username
+      password:
+        name: pdns-pg-app
+        key: password
+
+    # ─── Catalyst additionalConfig ──────────────────────────────────────
+    # PowerDNS-Authoritative directives layered on top of the upstream
+    # chart's defaults. Source of truth for DNSSEC + lua-records + zone-
+    # cache + multi-master posture — all the bits that distinguish the
+    # OpenOva production NS from a vanilla pdns deployment.
+    #
+    # Reference: https://doc.powerdns.com/authoritative/settings.html
+    additionalConfig: |
+      # ── DNSSEC ────────────────────────────────────────────────────────
+      # `default-soa-edit-signed=INCEPTION-EPOCH` keeps SOA serials in sync
+      # across replicas after every signed-zone change. `direct-dnskey=yes`
+      # serves DNSKEY/CDS/CDNSKEY records that operators publish manually
+      # (e.g. for chained-trust handoff). DNSSEC keys are generated per-zone
+      # via `pdnsutil add-zone-key <zone> ksk active ecdsa256` — automated
+      # by the catalyst-dns sidecar after zone creation. Per #167 every
+      # Sovereign zone is DNSSEC-signed (ECDSAP256SHA256, algo 13).
+      default-soa-edit-signed=INCEPTION-EPOCH
+      direct-dnskey=yes
+
+      # ── Records that mutate behaviour ────────────────────────────────
+      # `enable-lua-records=yes` enables PowerDNS Lua records used by
+      # Catalyst for geo-aware + health-checked failover (replaces the
+      # k8gb component listed in componentGroups.ts). Reference:
+      # https://doc.powerdns.com/authoritative/lua-records/index.html
+      enable-lua-records=yes
+
+      # ── Performance tuning ───────────────────────────────────────────
+      # `query-cache-ttl=20` smooths bursts (normal default) without
+      # sacrificing rapid record-update propagation. `cache-ttl=20` caps
+      # the packet cache. Both align with the dnsdist companion's
+      # rate-limiting posture — bursts that survive dnsdist hit a warm
+      # cache.
+      query-cache-ttl=20
+      cache-ttl=20
+
+      # ── REST API CORS ────────────────────────────────────────────────
+      # The Catalyst console posts to /api/v1 from console.openova.io;
+      # the api-ingress.yaml Ingress sets the Access-Control-Allow-Origin
+      # header at the Traefik layer, but PowerDNS itself must permit the
+      # method+header set its own webserver returns.
+      webserver-allow-from=0.0.0.0/0,::/0
+
+      # ── Logging ──────────────────────────────────────────────────────
+      log-dns-queries=no              # off in prod — dnsdist captures
+      log-dns-details=no
+      loglevel=4                      # warning + above
+
+# ─── Catalyst additions (rendered by templates/) ──────────────────────────
+
+# CNPG-managed Postgres for PowerDNS zones+records. Separate from `pdm-pg`
+# (pool-domain-manager) so the two components scale independently and a
+# DB outage in one doesn't cascade. Per INVIOLABLE-PRINCIPLES #4 every
+# value is configurable.
+postgres:
+  # ─── Cluster ────────────────────────────────────────────────────────
+  cluster:
+    name: pdns-pg
+    namespace: openova-system
+    instances: 1                 # bump to 3 alongside replicaCount=3 once we move beyond Phase-0 single-region
+    storageSize: 5Gi
+    storageClass: local-path     # Contabo k3s default; Sovereign Hetzner clusters override to hcloud-volumes
+    pgVersion: "16"
+    database: pdns
+    owner: pdns
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+  # ─── Schema bootstrap ───────────────────────────────────────────────
+  # PowerDNS gpgsql driver expects a specific schema; we apply it via a
+  # CNPG `bootstrap.initdb.postInitApplicationSQL` block referenced by
+  # cnpg-cluster.yaml. Pinned to the gpgsql 5.0.3 schema published at
+  # https://github.com/PowerDNS/pdns/tree/auth-5.0.3/modules/gpgsqlbackend
+  schemaURL: "https://raw.githubusercontent.com/PowerDNS/pdns/auth-5.0.3/modules/gpgsqlbackend/schema.pgsql.sql"
+
+# dnsdist companion — query rate-limiting + DDoS posture in front of every
+# PowerDNS replica. Defaults: 100 qps per source IP, configurable.
+dnsdist:
+  enabled: true
+  image:
+    # Official dnsdist image; tag tracked alongside Authoritative line.
+    repository: docker.io/powerdns/dnsdist-19
+    tag: ""                         # falls back to chart-level appVersion if needed
+    pullPolicy: IfNotPresent
+  replicaCount: 1                   # scale alongside Sovereign expansion; single instance fronts one region
+  service:
+    type: ClusterIP                 # public exposure goes through the anycast endpoint, not directly
+  ratelimit:
+    qpsPerSource: 100               # queries/sec per source IP
+    blockSeconds: 60                # how long a violator stays blocked
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 256Mi }
+  config: |
+    -- Catalyst dnsdist policy. Forwards to the in-cluster powerdns
+    -- Service; rate-limits per source IP; logs to stderr (k8s log).
+    setLocal('0.0.0.0:53')
+    setLocal('[::]:53')
+    addLocal('0.0.0.0:53', { reusePort=true })
+
+    -- Backend: in-cluster powerdns Service (ClusterIP, port 5353)
+    -- The hostname is resolved by Kubernetes DNS at dnsdist startup.
+    newServer({ address='powerdns:5353', name='powerdns-auth' })
+
+    -- ─── Rate limiting ───────────────────────────────────────────────
+    -- Hits per IP within a 1s window; once exceeded, drop further queries
+    -- for blockSeconds. Catalyst defaults: 100 qps per source IP.
+    addAction(
+      MaxQPSIPRule({{ .Values.dnsdist.ratelimit.qpsPerSource | default 100 }}),
+      DropAction()
+    )
+
+    -- ─── Logging ────────────────────────────────────────────────────
+    setVerboseHealthChecks(false)
+    -- 1% sampling to stderr (k8s log) so we have observability without
+    -- hot-path logging cost.
+    addAction(AllRule(), DnstapLogAction("dnstap-stderr", false, function(dq) return math.random() < 0.01 end))
+
+# REST API ingress — operator-only access at pdns.openova.io/api.
+api:
+  enabled: true
+  host: pdns.openova.io
+  path: /api
+  pathType: Prefix
+  ingressClassName: traefik
+  tls:
+    enabled: true
+    secretName: powerdns-api-tls
+    issuer: letsencrypt-prod
+  basicAuth:
+    enabled: true
+    secretName: powerdns-api-basicauth      # bcrypt(operator:<password>) — managed out-of-band, see api-ingress.yaml
+  middlewareName: powerdns-api-auth
+
+# Anycast public NS endpoint — placeholder until XHetznerFloatingIP
+# Crossplane composition is authored. The Service of type=LoadBalancer
+# below is a Phase-0 stand-in; per #167 the target state is anycast
+# Floating IPs across regions.
+anycast:
+  enabled: true
+  serviceName: powerdns-anycast
+  serviceType: LoadBalancer       # placeholder — Hetzner LB allocates a public IPv4
+  annotations:
+    # Cluster overlays MAY add hcloud annotations here once a Hetzner-
+    # managed Sovereign hosts the workload (e.g.
+    #   load-balancer.hetzner.cloud/location: fsn1
+    #   load-balancer.hetzner.cloud/use-private-ip: "true"
+    # — left empty here so Contabo k3s skips the LB allocation and
+    # falls back to NodePort/external-IP routing during Phase-0).
+    catalyst.openova.io/comment: |
+      Placeholder Service. Replaced by XHetznerFloatingIP once the
+      Crossplane composition is authored (see
+      templates/crossplane-floatingip.yaml).
+  ports:
+    - { name: dns-udp, port: 53, targetPort: dns-udp, protocol: UDP }
+    - { name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP }
+
+# Crossplane XHetznerFloatingIP target-state config. Disabled by default;
+# operator flips this on after the composition lands (tracking issue
+# linked from templates/crossplane-floatingip.yaml).
+crossplane:
+  floatingIP:
+    enabled: false                # gap: XHetznerFloatingIP composition not yet authored
+    name: pdns-public-ns          # name used when the XR is created
+    region: fsn1                  # initial region; multi-region added as the composition matures

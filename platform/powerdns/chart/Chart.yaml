@@ -1,0 +1,31 @@
+apiVersion: v2
+name: bp-powerdns
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
+  Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
+  companion, Traefik api-ingress, placeholder anycast endpoint) on top of
+  the upstream Helm chart. The bootstrap-kit installer
+  (products/catalyst/bootstrap/api/internal/bootstrap/) reads the upstream
+  chart reference from values.yaml's catalystBlueprint metadata block and
+  applies the values overlay at helm install time.
+
+  Mirrors the bp-cilium / bp-keycloak / bp-cert-manager wrapper shape:
+  Chart.yaml lists the upstream chart as a Helm dependency so
+  `helm dependency build` resolves it; values.yaml carries both the
+  catalystBlueprint metadata block and the upstream subchart values.
+type: application
+keywords: [catalyst, blueprint, powerdns, dns, dnssec, lua-records, dnsdist]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to pschichtel/powerdns 0.10.0
+# (verified publisher on Artifact Hub, tracks docker.io/powerdns/pdns-auth-50
+# at appVersion 5.0.3 — see values.yaml `catalystBlueprint.upstream` for
+# the rationale).
+dependencies:
+  - name: powerdns
+    version: "0.10.0"
+    repository: "https://schich.tel/helm-charts"

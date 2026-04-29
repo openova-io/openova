@@ -1,0 +1,65 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-powerdns
+  labels:
+    catalyst.openova.io/category: per-host-cluster-infrastructure
+    catalyst.openova.io/section: pts-3-2-gitops-and-iac
+spec:
+  version: 1.0.0
+  card:
+    title: PowerDNS
+    summary: |
+      Authoritative DNS for every Sovereign zone (pool + BYO). Per-zone
+      DNSSEC (ECDSAP256SHA256), lua-records for geo + health-checked
+      failover, dnsdist front-end for query rate-limiting + DDoS posture,
+      REST API at pdns.openova.io/api (operator-only). Replaces k8gb.
+    icon: powerdns.svg
+    category: infrastructure
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      replicaCount:
+        type: integer
+        default: 3
+        description: PowerDNS Authoritative replicas. Each connects to the same CNPG database.
+      dnssec:
+        type: boolean
+        default: true
+        description: |
+          DNSSEC ON (ECDSAP256SHA256) per #167 acceptance. Off requires explicit
+          override in cluster overlay AND a documented exception.
+      luaRecords:
+        type: boolean
+        default: true
+        description: PowerDNS Lua records — geo + health-checked failover. Replaces k8gb.
+      dnsdistEnabled:
+        type: boolean
+        default: true
+        description: Companion dnsdist for query rate-limiting (default 100 qps per source IP).
+      qpsPerSource:
+        type: integer
+        default: 100
+        description: dnsdist MaxQPSIPRule threshold per source IP.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # the public NS endpoints span regions
+  manifests:
+    chart: ./chart
+  # Hard depends — these primitives MUST be present in-cluster before
+  # bp-powerdns reconciles cleanly:
+  #   - postgresql.cnpg.io/v1.Cluster CRD (CNPG operator) consumed by
+  #     templates/cnpg-cluster.yaml. Catalyst-Zero installs CNPG as a
+  #     mandatory platform component (FABRIC group, componentGroups.ts
+  #     `cnpg`); the wrapper Blueprint bp-cnpg is on the roadmap as a
+  #     follow-up — until then we depend on the CRD being present, not
+  #     on a sibling Blueprint.
+  #   - cert-manager.io/v1.ClusterIssuer (letsencrypt-prod) referenced by
+  #     templates/api-ingress.yaml. bp-cert-manager already exists.
+  #   - traefik.io/v1alpha1.Middleware CRD — Traefik is the Catalyst-Zero
+  #     ingress controller and is a fixture of every Sovereign.
+  depends:
+    - bp-cert-manager
+  upgrades:
+    from: ["0.x"]

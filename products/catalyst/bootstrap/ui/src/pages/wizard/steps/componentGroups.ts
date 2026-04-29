@@ -61,14 +61,17 @@ export const GROUPS: GroupDef[] = [
     description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
     required: true,
     components: [
-      { id: 'cilium',       name: 'Cilium',       desc: 'CNI & eBPF service mesh',         tier: 'mandatory',   dependencies: [] },
-      { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',     tier: 'mandatory',   dependencies: [] },
-      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',           tier: 'mandatory',   dependencies: [] },
-      { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                        tier: 'mandatory',   dependencies: [] },
-      { id: 'k8gb',         name: 'k8gb',         desc: 'Global server load balancing',    tier: 'mandatory',   dependencies: ['external-dns'] },
-      { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                  tier: 'recommended', dependencies: [] },
-      { id: 'netbird',      name: 'NetBird',      desc: 'Mesh VPN',                        tier: 'mandatory',   dependencies: [] },
-      { id: 'strongswan',   name: 'strongSwan',   desc: 'IPsec gateway',                   tier: 'optional',    dependencies: [] },
+      { id: 'cilium',       name: 'Cilium',       desc: 'CNI & eBPF service mesh',                                  tier: 'mandatory',   dependencies: [] },
+      { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',                              tier: 'mandatory',   dependencies: [] },
+      // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
+      // Replaces the historical k8gb component: lua-records cover geo + health-checked
+      // failover, so the dedicated GSLB controller is no longer needed.
+      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records (replaces k8gb)', tier: 'mandatory',   dependencies: ['cnpg'] },
+      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'] },
+      { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                                                 tier: 'mandatory',   dependencies: [] },
+      { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                                           tier: 'recommended', dependencies: [] },
+      { id: 'netbird',      name: 'NetBird',      desc: 'Mesh VPN',                                                 tier: 'mandatory',   dependencies: [] },
+      { id: 'strongswan',   name: 'strongSwan',   desc: 'IPsec gateway',                                            tier: 'optional',    dependencies: [] },
     ],
   },
   {
