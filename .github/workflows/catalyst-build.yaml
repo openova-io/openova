@@ -184,6 +184,40 @@ jobs:
           done
           echo "All API smoke tests passed."
 
+      # tofu CLI smoke test — the runtime image bundles the OpenTofu CLI
+      # because internal/provisioner execs `tofu init / plan / apply` (see
+      # internal/provisioner/provisioner.go runTofu()). Without the binary
+      # every Launch SSE stream returns:
+      #   tofu init: exec: "tofu": executable file not found in $PATH
+      # We assert (a) `tofu version` succeeds inside the image and (b) the
+      # output matches the EXPECTED_TOFU_VERSION pinned here, which must
+      # stay in lockstep with the TOFU_VERSION ARG in the Containerfile.
+      # When you bump the version in the Containerfile, bump it here too.
+      - name: Smoke test API — verify OpenTofu CLI is installed
+        env:
+          EXPECTED_TOFU_VERSION: 1.11.6
+        run: |
+          set -euo pipefail
+          OUT=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
+            -c 'tofu version')
+          echo "$OUT"
+          if ! echo "$OUT" | grep -q "^OpenTofu v${EXPECTED_TOFU_VERSION}\$"; then
+            echo "Smoke test FAILED: expected 'OpenTofu v${EXPECTED_TOFU_VERSION}', got:"
+            echo "$OUT"
+            exit 1
+          fi
+          echo "Smoke test OK: OpenTofu v${EXPECTED_TOFU_VERSION} present on PATH."
+
+          # Re-assert the binary is executable for the actual runtime UID
+          # (65534, set in api-deployment.yaml securityContext.runAsUser).
+          # `--user` overrides the image USER directive, simulating the K8s
+          # securityContext: a missing exec bit or wrong owner here would
+          # surface as a Launch failure in production, never in CI, so we
+          # gate it at build time.
+          docker run --rm --user 65534:65534 --entrypoint sh \
+            ${{ env.API_IMAGE }}:test -c 'tofu version | head -1'
+          echo "Smoke test OK: tofu executable as UID 65534."
+
       - name: Push API image
         uses: docker/build-push-action@v6
         with:

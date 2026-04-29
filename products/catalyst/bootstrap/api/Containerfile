@@ -1,9 +1,14 @@
 # catalyst-api — Catalyst-Zero's provisioner backend.
 #
-# This image needs helm + kubectl on PATH because internal/bootstrap exec's
-# them when installing the 11-component bootstrap kit into a freshly-
-# provisioned Sovereign. We use Alpine + the static binaries so the runtime
-# stays small (~80MB) while still having both tools available.
+# This image needs helm + kubectl + tofu on PATH because:
+#   - internal/bootstrap execs helm + kubectl when installing the
+#     11-component bootstrap kit into a freshly-provisioned Sovereign;
+#   - internal/provisioner execs `tofu init / plan / apply` against the
+#     bundled infra/hetzner/ module — the catalyst-api Pod IS the OpenTofu
+#     runner, so the CLI must be in the image (no network fetch at
+#     provision time).
+# We use Alpine + the static binaries so the runtime stays small while
+# still having all three tools available.
 #
 # Build context: this Containerfile expects the public openova repo root as
 # its build context (i.e. `docker build -f products/catalyst/bootstrap/api/
@@ -13,6 +18,8 @@
 # be present inside the image. provisioner.New() reads
 # CATALYST_TOFU_MODULE_PATH (default /infra/hetzner) and stages those files
 # into a per-deployment workdir on every Launch.
+
+# ---------- Stage 1: build the Go binaries ----------
 FROM docker.io/library/golang:1.23-alpine AS build
 WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
@@ -26,6 +33,42 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/ap
 # to it. See infra/hetzner/main.tf comments around null_resource.dns_pool.
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/catalyst-dns
 
+# ---------- Stage 2: download + verify the OpenTofu CLI ----------
+# The catalyst-api Pod IS the OpenTofu runner — provisioner.runTofu() execs
+# the `tofu` binary directly (see internal/provisioner/provisioner.go). The
+# binary therefore MUST be present in the runtime image; without it every
+# Launch fails with `exec: "tofu": executable file not found in $PATH`.
+#
+# Pinned to a specific version (no `latest`) for reproducible builds, with
+# a SHA256 checksum from the canonical release-checksums file
+# (https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/
+# tofu_${TOFU_VERSION}_SHA256SUMS) verified before extraction. We branch on
+# $TARGETARCH so the same Containerfile works under buildx multi-arch
+# (linux/amd64 + linux/arm64); the CI workflow today is amd64 only but the
+# Sovereign-side rebuild path may need arm64 in future.
+FROM docker.io/library/alpine:3.20 AS tofu
+ARG TARGETARCH=amd64
+ARG TOFU_VERSION=1.11.6
+# SHA256 from tofu_${TOFU_VERSION}_SHA256SUMS, fetched from the canonical
+# OpenTofu GitHub release. Update both values together when bumping the
+# pinned version.
+ARG TOFU_SHA256_AMD64=02800fafa2753a9f50c38483e2fdf5bc353fd62895eb9e25eec9a5145df3a69e
+ARG TOFU_SHA256_ARM64=d4f2ab15776925864b049bb329d69682851de6f5204f256e9fa86d07a0308850
+RUN apk add --no-cache ca-certificates curl tar \
+    && mkdir -p /out \
+    && case "${TARGETARCH}" in \
+        amd64) TOFU_SHA256="${TOFU_SHA256_AMD64}" ;; \
+        arm64) TOFU_SHA256="${TOFU_SHA256_ARM64}" ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/tofu.tar.gz \
+        "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && echo "${TOFU_SHA256}  /tmp/tofu.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/tofu.tar.gz -C /tmp tofu \
+    && install -m 0755 /tmp/tofu /out/tofu \
+    && /out/tofu version
+
+# ---------- Stage 3: runtime ----------
 FROM docker.io/library/alpine:3.20
 
 # kubectl + helm must be on PATH so internal/bootstrap can exec them when
@@ -41,6 +84,10 @@ RUN apk add --no-cache ca-certificates curl bash \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && rm -rf /tmp/linux-amd64 \
     && chmod +x /usr/local/bin/helm
+
+# tofu CLI from the verified-checksum builder stage. Installed mode 0755 so
+# every user (including UID 65534 from runAsUser) can execute it.
+COPY --from=tofu /out/tofu /usr/local/bin/tofu
 
 COPY --from=build /catalyst-api /catalyst-api
 COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
