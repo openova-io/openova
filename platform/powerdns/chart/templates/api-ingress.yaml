@@ -12,6 +12,18 @@ or commits) the basicAuth Secret is created out-of-band by the
 private-repo cluster manifest at clusters/contabo-mkt/apps/powerdns/.
 */}}
 {{- if .Values.api.enabled }}
+{{- /*
+Capabilities gate (issue #190): the `traefik.io/v1alpha1` Middleware CRD
+ships with the Traefik ingress controller. k3s ships Traefik by default
+on most Sovereigns, but a Sovereign overlay MAY disable Traefik (e.g. in
+favour of cilium-only ingress) — in that case the CRD is absent and the
+apiserver rejects this Middleware with `no matches for kind Middleware
+in version traefik.io/v1alpha1`. The Capabilities check skips the
+Middleware while still rendering the Ingress below, so the auth posture
+must then be supplied by the cluster overlay's chosen ingress controller
+(per docs/INVIOLABLE-PRINCIPLES.md #4 — never hardcode ingress class).
+*/}}
+{{- if .Capabilities.APIVersions.Has "traefik.io/v1alpha1" }}
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -22,6 +34,7 @@ metadata:
 spec:
   basicAuth:
     secret: {{ .Values.api.basicAuth.secretName | default "powerdns-api-basicauth" | quote }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -32,7 +45,12 @@ metadata:
     {{- include "bp-powerdns.labels" . | nindent 4 }}
   annotations:
     cert-manager.io/cluster-issuer: {{ .Values.api.tls.issuer | default "letsencrypt-prod" | quote }}
+    {{- /* Traefik router middleware annotation only renders when the Traefik
+    Middleware CRD is present (gated above). When Traefik is absent the
+    auth posture moves to the Sovereign's chosen ingress controller. */}}
+    {{- if .Capabilities.APIVersions.Has "traefik.io/v1alpha1" }}
     traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace (.Values.api.middlewareName | default "powerdns-api-auth") | quote }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.api.ingressClassName | default "traefik" | quote }}
   {{- if .Values.api.tls.enabled }}

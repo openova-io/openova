@@ -17,7 +17,20 @@ this on once kube-prometheus-stack is installed.
 Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
 labels) is operator-tunable.
 */}}
-{{- if .Values.externalDns.serviceMonitor.enabled }}
+{{- /*
+Capabilities gate: bp-kube-prometheus-stack ships the
+`monitoring.coreos.com/v1` CRD that backs ServiceMonitor — it is NOT in
+the bootstrap-kit. On a cold install of a fresh Sovereign the apiserver
+rejects ServiceMonitor resources with `no matches for kind ServiceMonitor
+in version monitoring.coreos.com/v1`. The Capabilities check skips this
+template entirely until the observability tier is reconciled, at which
+point the CRD is registered and the gate becomes a no-op. This is the
+architectural pattern from issue #190 — defense in depth alongside the
+values-toggle (`externalDns.serviceMonitor.enabled`) so an operator
+flipping the toggle on a Sovereign that hasn't reached Phase 2 doesn't
+break the bp-external-dns reconcile.
+*/}}
+{{- if and .Values.externalDns.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
