@@ -39,7 +39,10 @@ spec:
       labels:
         {{- include "bp-powerdns.dnsdistLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/dnsdist.yaml") . | sha256sum }}
+        # Hash the rendered dnsdist.conf (post-tpl) so a values change rolls
+        # the Deployment automatically. Avoid `include "<this file>"` —
+        # that's a recursive template self-reference and Helm rejects it.
+        checksum/config: {{ tpl .Values.dnsdist.config . | sha256sum }}
     spec:
       securityContext:
         runAsNonRoot: true
