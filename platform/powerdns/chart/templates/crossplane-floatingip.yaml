@@ -37,7 +37,18 @@ This file is not deleted in the cutover — it stays as the canonical
 target-state shape so a fresh chart install on a new Sovereign produces
 a Floating IP automatically once the composition exists.
 */}}
-{{- if .Values.crossplane.floatingIP.enabled }}
+{{- /*
+Capabilities gate (issue #190): the `compose.openova.io/v1alpha1`
+HetznerFloatingIP CRD is registered by the Catalyst Crossplane
+composition family (platform/crossplane/compositions/xrd-floating-ip.yaml,
+not yet authored — see GAP DISCLOSURE above). On a Sovereign without
+that composition reconciled, the apiserver rejects the XR with `no
+matches for kind HetznerFloatingIP in version compose.openova.io/v1alpha1`.
+The Capabilities check skips this template until the CRD is registered;
+combined with the values toggle (`crossplane.floatingIP.enabled`, default
+false) the placeholder ships safely on every Sovereign.
+*/}}
+{{- if and .Values.crossplane.floatingIP.enabled (.Capabilities.APIVersions.Has "compose.openova.io/v1alpha1") }}
 apiVersion: compose.openova.io/v1alpha1
 kind: HetznerFloatingIP
 metadata:

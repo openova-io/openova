@@ -18,7 +18,19 @@ password}.secretRef).
 `enableSuperuserAccess: true` so that operators can run `pdnsutil`
 schema-altering commands inside the database during DNSSEC key
 rotations and zone imports.
+
+Capabilities gate (issue #190): bp-cnpg ships the `postgresql.cnpg.io/v1`
+CRD that backs Cluster — it is NOT in the bootstrap-kit. On a cold
+install of a fresh Sovereign before bp-cnpg is reconciling, the apiserver
+rejects this Cluster with `no matches for kind Cluster in version
+postgresql.cnpg.io/v1`. The Capabilities check skips this template until
+the CRD is registered, at which point the gate becomes a no-op. The
+Sovereign's bootstrap order MUST land bp-cnpg before bp-powerdns; the
+gate exists so a misordered cluster overlay surfaces as `no Cluster
+created yet` rather than a hard install failure of the entire bp-powerdns
+release.
 */}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -161,3 +173,4 @@ spec:
 
   monitoring:
     enablePodMonitor: false
+{{- end }}
