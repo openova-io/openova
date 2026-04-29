@@ -403,6 +403,69 @@ Catalyst's `blueprint-controller` watches the GHCR catalog and registers new ver
 
 ---
 
+## 11.1 Umbrella shape (hard contract — CI-enforced)
+
+**Every Blueprint chart at `platform/<name>/chart/` (and `products/<name>/chart/` for composite Blueprints) MUST be an *umbrella chart*: it MUST declare its upstream chart(s) under `dependencies:` in `Chart.yaml` so `helm dependency build` pulls the upstream payload into the published OCI artifact.**
+
+Hollow charts — wrappers that carry only Catalyst overlay templates (NetworkPolicy, ClusterIssuer, ExternalSecret, ServiceMonitor) without an upstream subchart dependency — are **forbidden**. CI rejects them.
+
+### Why
+
+Earlier this cycle, `bp-cert-manager:1.0.0` shipped as a hollow chart: it carried only a `ClusterIssuer` template and **no upstream `cert-manager` subchart bytes**. Flux installed it on every Sovereign. Phase 1 broke on every Sovereign because cert-manager itself was never deployed — there was no controller, no CRDs, and the curated `ClusterIssuer` had nothing to register against. The artifact looked legitimate (right name, right version, signed, SBOM-attested) but the upstream payload was simply not there.
+
+The fix is structural: the published OCI artifact's `<chart_name>/charts/` directory MUST contain the upstream chart at the version pinned by `Chart.yaml`'s `dependencies:` block.
+
+### What CI enforces
+
+`.github/workflows/blueprint-release.yaml` runs four hollow-chart guards on every publish:
+
+| Stage | Guard | Failure mode caught |
+|---|---|---|
+| After `helm dependency build` | Working-tree `chart/charts/<dep>-<ver>.tgz` (or unpacked `chart/charts/<dep>/Chart.yaml`) exists for every `dependencies:` entry. | Missing/wrong repo URL, dependency-build silently skipped a dep. |
+| After `helm package` | `tar -tzf` listing of the produced `.tgz` contains `<chart_name>/charts/<dep>-<ver>.tgz` (or unpacked) for every `dependencies:` entry. | `.helmignore` mishap, packaging-time stripping. |
+| After `helm push` | `helm pull` round-trips the artifact from GHCR; the pulled `.tgz` listing again contains every declared subchart. | Registry-side path mangling, OCI manifest rewriting. |
+| Always | `helm template` smoke render with default values produces non-trivial output; rendered manifests uploaded as workflow artifact for forensics. | Render-broken templates, schema violations, missing required values. |
+
+**Any single guard failing fails the whole publish job.** A hollow Blueprint can never reach a Sovereign through the sanctioned CI path.
+
+### Authoring rule
+
+Every umbrella `Chart.yaml` declares the upstream chart(s) it wraps:
+
+```yaml
+# platform/cilium/chart/Chart.yaml
+apiVersion: v2
+name: bp-cilium
+version: 1.1.0
+type: application
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned upstream version matches
+# platform/cilium/blueprint.yaml + values.yaml's
+# `catalystBlueprint.upstream.version`.
+dependencies:
+  - name: cilium
+    version: "1.16.5"
+    repository: "https://helm.cilium.io"
+```
+
+Catalyst-curated overlay templates (NetworkPolicy, ServiceMonitor, ClusterIssuer, ExternalSecret) live under `chart/templates/` alongside the dependency declaration. At install time Helm renders the upstream subchart **and** the Catalyst overlay — both ship from the same OCI artifact.
+
+The version pinned in `dependencies:` MUST match the version recorded in `platform/<name>/blueprint.yaml` and the `catalystBlueprint.upstream.version` field in `values.yaml`. Operators bump all three together via PR + Blueprint release per Inviolable Principle #4 (no hardcoding).
+
+Composite umbrellas (`products/catalyst/chart/`) follow the same rule: each leaf Blueprint they bundle is declared under `dependencies:`.
+
+### Verifying an existing artifact
+
+```bash
+helm pull oci://ghcr.io/openova-io/bp-cilium --version 1.1.0
+tar -tzf bp-cilium-1.1.0.tgz | grep '^bp-cilium/charts/cilium/' | head
+```
+
+A non-empty result proves the upstream subchart is inside the OCI artifact.
+
+---
+
 ## 12. Authoring private Blueprints (in a customer Sovereign)
 
 For corporate customers: the Org's platform team can author private Blueprints without involving OpenOva.

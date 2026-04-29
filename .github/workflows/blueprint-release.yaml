@@ -13,6 +13,35 @@
 # original 11 plus bp-powerdns added at #167) plus every other Catalyst-
 # curated wrapper chart. Application-Blueprint charts (cnpg, valkey, etc.)
 # follow the same shape once authored.
+#
+# ─────────────────────────────────────────────────────────────────────
+# Hollow-chart guard (issue #181)
+# ─────────────────────────────────────────────────────────────────────
+# Every umbrella Blueprint chart MUST declare its upstream chart(s) under
+# `dependencies:` in Chart.yaml so `helm dependency build` pulls the
+# upstream payload into the OCI artifact at publish time. Earlier in this
+# cycle, bp-cert-manager:1.0.0 shipped as a "hollow chart" — only an
+# overlay (ClusterIssuer template) with no upstream cert-manager subchart
+# bytes — and Phase 1 broke on every Sovereign because cert-manager
+# itself was never installed. See docs/BLUEPRINT-AUTHORING.md
+# §"Umbrella shape".
+#
+# This workflow now structurally verifies the upstream payload is present
+# at every stage of the publish pipeline:
+#
+#   1. After `helm dependency build` — assert the working-tree
+#      chart/charts/<dep>-<ver>.tgz (or unpacked chart/charts/<dep>/) exists
+#      for every entry in Chart.yaml `dependencies:`.
+#   2. After `helm package` — `tar -tzf` the produced .tgz and assert
+#      every declared dep is inside the package's charts/ directory.
+#   3. After `helm push` — `helm pull` the artifact back from GHCR and
+#      re-verify the deps survived the round-trip.
+#   4. `helm template` smoke render — chart MUST render with default
+#      values; rendered manifests are uploaded as a workflow artifact for
+#      forensics.
+#
+# Any one of those steps failing fails the whole build — hollow charts
+# can never reach a Sovereign.
 
 name: Blueprint Release
 
@@ -100,6 +129,16 @@ jobs:
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
 
+      - name: Install yq (declared-deps parser)
+        run: |
+          # We need a streaming YAML parser to read Chart.yaml's dependencies:
+          # block reliably; awk/grep on YAML is fragile and would let a
+          # subtly malformed Chart.yaml slip past the hollow-chart guard.
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -141,10 +180,146 @@ jobs:
         if: steps.chart.outputs.skip != 'true'
         run: helm dependency build "${{ matrix.path }}/chart"
 
+      # ──────────────────────────────────────────────────────────────
+      # GUARD 1 — hollow-chart check on the working tree
+      # ──────────────────────────────────────────────────────────────
+      # After `helm dependency build`, every entry in Chart.yaml's
+      # `dependencies:` block MUST have a corresponding artifact under
+      # chart/charts/. Helm accepts either form:
+      #   chart/charts/<dep-name>-<dep-version>.tgz       (packed)
+      #   chart/charts/<dep-name>/Chart.yaml              (unpacked vendored)
+      # Either is fine; ZERO of them is a hollow chart and we fail loudly.
+      - name: "Verify upstream subcharts present in working tree (post-dependency-build)"
+        if: steps.chart.outputs.skip != 'true'
+        id: verify_workdir
+        run: |
+          set -euo pipefail
+          chart_dir="${{ matrix.path }}/chart"
+          chart_yaml="$chart_dir/Chart.yaml"
+          dep_count=$(yq '.dependencies | length // 0' "$chart_yaml")
+          echo "Declared dependencies: $dep_count"
+          if [ "$dep_count" -eq 0 ]; then
+            echo "::error title=Hollow chart::Chart $chart_yaml declares NO dependencies. Every Blueprint umbrella chart at platform/<name>/chart/ MUST declare its upstream chart under \`dependencies:\` per docs/BLUEPRINT-AUTHORING.md §11.1 Umbrella shape. See issue #181."
+            exit 1
+          fi
+          missing=0
+          for i in $(seq 0 $((dep_count - 1))); do
+            dep_name=$(yq ".dependencies[$i].name"       "$chart_yaml")
+            dep_ver=$(yq  ".dependencies[$i].version"    "$chart_yaml")
+            dep_repo=$(yq ".dependencies[$i].repository" "$chart_yaml")
+            packed="$chart_dir/charts/${dep_name}-${dep_ver}.tgz"
+            unpacked="$chart_dir/charts/${dep_name}/Chart.yaml"
+            if [ -f "$packed" ]; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $packed"
+            elif [ -f "$unpacked" ]; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $unpacked (unpacked)"
+            else
+              echo "::error title=Subchart not pulled::Declared dependency '${dep_name}' (version='${dep_ver}', repo='${dep_repo}') was not pulled by \`helm dependency build\`. Expected $packed OR $unpacked. Investigate the dependency repository / Chart.lock; do NOT publish a hollow chart."
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            exit 1
+          fi
+          echo "All $dep_count declared upstream subcharts present in working tree."
+
       - name: Helm package
         if: steps.chart.outputs.skip != 'true'
         run: |
+          mkdir -p /tmp/charts
           helm package "${{ matrix.path }}/chart" --destination /tmp/charts
+
+      # ──────────────────────────────────────────────────────────────
+      # GUARD 2 — hollow-chart check inside the packaged tgz
+      # ──────────────────────────────────────────────────────────────
+      # `helm package` builds the OCI payload from the working tree, but
+      # we don't trust transitive bugs / .helmignore mishaps to leave
+      # chart/charts/ behind. Crack the produced .tgz and assert every
+      # declared dep is inside <chart_name>/charts/ in the package.
+      - name: "Verify upstream subcharts present in packaged tgz (post-helm-package)"
+        if: steps.chart.outputs.skip != 'true'
+        id: verify_package
+        run: |
+          set -euo pipefail
+          chart_yaml="${{ matrix.path }}/chart/Chart.yaml"
+          name="${{ steps.chart.outputs.name }}"
+          version="${{ steps.chart.outputs.version }}"
+          tgz="/tmp/charts/${name}-${version}.tgz"
+          if [ ! -f "$tgz" ]; then
+            echo "::error title=Package missing::Expected $tgz from helm package."
+            exit 1
+          fi
+          echo "Inspecting $tgz"
+          listing="/tmp/${name}-${version}.listing.txt"
+          tar -tzf "$tgz" > "$listing"
+          echo "  total entries: $(wc -l < "$listing")"
+          dep_count=$(yq '.dependencies | length // 0' "$chart_yaml")
+          missing=0
+          for i in $(seq 0 $((dep_count - 1))); do
+            dep_name=$(yq ".dependencies[$i].name"    "$chart_yaml")
+            dep_ver=$(yq  ".dependencies[$i].version" "$chart_yaml")
+            packed_in_tgz="${name}/charts/${dep_name}-${dep_ver}.tgz"
+            unpacked_in_tgz="${name}/charts/${dep_name}/Chart.yaml"
+            if grep -qx "$packed_in_tgz" "$listing"; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $packed_in_tgz"
+            elif grep -qx "$unpacked_in_tgz" "$listing"; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $unpacked_in_tgz (unpacked)"
+            else
+              echo "::error title=Hollow package::Packaged tgz $tgz does NOT contain upstream subchart '${dep_name}' (version='${dep_ver}'). Refusing to publish a hollow chart."
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "── package listing (first 200 lines) ──"
+            head -200 "$listing"
+            exit 1
+          fi
+          echo "All $dep_count declared upstream subcharts present inside packaged tgz."
+
+      # ──────────────────────────────────────────────────────────────
+      # SMOKE — `helm template` must render with default values
+      # ──────────────────────────────────────────────────────────────
+      # A chart can be structurally complete but render-broken (bad
+      # template, missing required value, schema violation). Render the
+      # packaged chart with defaults; on render failure the build dies
+      # and the rendered output (if any) ships as a workflow artifact
+      # for forensics.
+      - name: "Helm template smoke render (default values)"
+        if: steps.chart.outputs.skip != 'true'
+        id: smoke
+        run: |
+          set -euo pipefail
+          name="${{ steps.chart.outputs.name }}"
+          version="${{ steps.chart.outputs.version }}"
+          tgz="/tmp/charts/${name}-${version}.tgz"
+          mkdir -p /tmp/render
+          render_out="/tmp/render/${name}-${version}.default.yaml"
+          # `helm template` against the packaged tgz exercises the same
+          # bytes Flux will install at runtime — including subchart
+          # rendering. A leaf umbrella with the upstream subchart
+          # present should produce upstream resources here.
+          if ! helm template "smoke-${name}" "$tgz" \
+                --namespace "smoke-${name}" \
+                > "$render_out" 2> /tmp/render/stderr.log; then
+            echo "::error title=helm template failed::Default-values render of $tgz failed; see uploaded artifact and stderr below."
+            cat /tmp/render/stderr.log >&2
+            exit 1
+          fi
+          lines=$(wc -l < "$render_out")
+          echo "Rendered $lines lines to $render_out"
+          if [ "$lines" -lt 5 ]; then
+            echo "::error title=Empty render::Rendered output is suspiciously short ($lines lines). A working umbrella with an upstream subchart should produce many more resources."
+            exit 1
+          fi
+
+      - name: "Upload smoke render as workflow artifact"
+        if: ${{ always() && steps.chart.outputs.skip != 'true' && steps.smoke.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blueprint-smoke-render-${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}
+          path: /tmp/render/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Helm push to GHCR
         if: steps.chart.outputs.skip != 'true'
@@ -159,6 +334,61 @@ jobs:
           digest=$(helm push "$file" oci://ghcr.io/openova-io 2>&1 | tee /dev/stderr | awk '/Digest:/{print $2}')
           echo "ref=ghcr.io/openova-io/${name}:${version}" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # ──────────────────────────────────────────────────────────────
+      # GUARD 3 — hollow-chart check after round-trip through GHCR
+      # ──────────────────────────────────────────────────────────────
+      # Pull the just-pushed artifact back from GHCR and re-verify deps
+      # survived. This catches any registry-side stripping, manifest
+      # rewriting, or path mangling — and proves end consumers (Flux
+      # helm-controller on every Sovereign) will see the upstream
+      # subchart bytes.
+      - name: "Verify upstream subcharts present in pulled OCI artifact (post-helm-push)"
+        if: steps.chart.outputs.skip != 'true'
+        id: verify_pull
+        run: |
+          set -euo pipefail
+          name="${{ steps.chart.outputs.name }}"
+          version="${{ steps.chart.outputs.version }}"
+          # `chart_yaml` is referenced relative to $GITHUB_WORKSPACE — DO NOT
+          # cd elsewhere before reading it. We pin `helm pull` output via
+          # --destination so the read of the source-tree Chart.yaml stays
+          # rooted at the checked-out repo root.
+          chart_yaml="${GITHUB_WORKSPACE}/${{ matrix.path }}/chart/Chart.yaml"
+          mkdir -p /tmp/pulled
+          helm pull "oci://ghcr.io/openova-io/${name}" --version "${version}" \
+            --destination /tmp/pulled
+          pulled_tgz="/tmp/pulled/${name}-${version}.tgz"
+          if [ ! -f "$pulled_tgz" ]; then
+            echo "::error title=Pull failed::helm pull did not produce $pulled_tgz; cannot verify GHCR contents."
+            ls -la /tmp/pulled
+            exit 1
+          fi
+          listing="/tmp/pulled/${name}-${version}.pulled.listing.txt"
+          tar -tzf "$pulled_tgz" > "$listing"
+          echo "  pulled entries: $(wc -l < "$listing")"
+          dep_count=$(yq '.dependencies | length // 0' "$chart_yaml")
+          missing=0
+          for i in $(seq 0 $((dep_count - 1))); do
+            dep_name=$(yq ".dependencies[$i].name"    "$chart_yaml")
+            dep_ver=$(yq  ".dependencies[$i].version" "$chart_yaml")
+            packed_in_tgz="${name}/charts/${dep_name}-${dep_ver}.tgz"
+            unpacked_in_tgz="${name}/charts/${dep_name}/Chart.yaml"
+            if grep -qx "$packed_in_tgz" "$listing"; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $packed_in_tgz (in GHCR artifact)"
+            elif grep -qx "$unpacked_in_tgz" "$listing"; then
+              echo "  ✓ ${dep_name} ${dep_ver}  →  $unpacked_in_tgz (in GHCR artifact, unpacked)"
+            else
+              echo "::error title=Hollow OCI artifact::GHCR-pulled $pulled_tgz does NOT contain upstream subchart '${dep_name}' (version='${dep_ver}'). The artifact at ghcr.io/openova-io/${name}:${version} is hollow — Flux will install it but the upstream payload will be missing on every Sovereign. Refusing to leave this published."
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "── pulled-artifact listing (first 200 lines) ──"
+            head -200 "$listing"
+            exit 1
+          fi
+          echo "All $dep_count declared upstream subcharts present in pulled GHCR artifact."
 
       - name: Cosign keyless sign
         if: steps.chart.outputs.skip != 'true'
@@ -200,3 +430,4 @@ jobs:
           echo "- **Digest:** \`${{ steps.push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Cosigned:** ✓ (keyless via GitHub OIDC)" >> "$GITHUB_STEP_SUMMARY"
           echo "- **SBOM attested:** ✓ (SPDX-JSON)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Subchart guards:** ✓ working tree, ✓ packaged tgz, ✓ pulled OCI artifact, ✓ helm template smoke" >> "$GITHUB_STEP_SUMMARY"
