@@ -1,0 +1,30 @@
+apiVersion: v2
+name: bp-loki
+description: |
+  Catalyst Blueprint umbrella chart for Grafana Loki. Depends on the
+  upstream `loki` chart (grafana/helm-charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `loki:` key in values.yaml.
+
+  Default deployment shape is SingleBinary (one Loki StatefulSet) — minimum
+  for a solo Sovereign. SimpleScalable / Distributed modes are a values
+  toggle (`loki.deploymentMode`) once a regional Sovereign needs HA log
+  ingestion. Object storage is filesystem (PVC) by default; per-Sovereign
+  overlays MUST flip storage to S3 (SeaweedFS / cloud) when SimpleScalable
+  or Distributed is selected — the upstream chart enforces this.
+type: application
+version: 1.0.0
+appVersion: "3.6.7"
+keywords: [catalyst, blueprint, loki, observability, logs]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to grafana/loki 7.0.0 (appVersion 3.6.7) — current stable on
+# 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: loki
+    version: "7.0.0"
+    repository: "https://grafana.github.io/helm-charts"
