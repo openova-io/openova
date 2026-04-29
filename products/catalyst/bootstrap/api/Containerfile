@@ -4,11 +4,20 @@
 # them when installing the 11-component bootstrap kit into a freshly-
 # provisioned Sovereign. We use Alpine + the static binaries so the runtime
 # stays small (~80MB) while still having both tools available.
+#
+# Build context: this Containerfile expects the public openova repo root as
+# its build context (i.e. `docker build -f products/catalyst/bootstrap/api/
+# Containerfile .` run from the repo root). That is required so the runtime
+# image can bundle the canonical OpenTofu module under infra/hetzner/ — the
+# catalyst-api Pod is itself the OpenTofu runner, so the .tf sources have to
+# be present inside the image. provisioner.New() reads
+# CATALYST_TOFU_MODULE_PATH (default /infra/hetzner) and stages those files
+# into a per-deployment workdir on every Launch.
 FROM docker.io/library/golang:1.23-alpine AS build
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
-COPY . .
+COPY products/catalyst/bootstrap/api/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api
 # catalyst-dns helper — invoked by the OpenTofu module's null_resource.dns_pool
 # via local-exec at Phase-0 apply time. Lives at /usr/local/bin/catalyst-dns
@@ -35,6 +44,16 @@ RUN apk add --no-cache ca-certificates curl bash \
 
 COPY --from=build /catalyst-api /catalyst-api
 COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
+
+# Bundle the canonical OpenTofu module. provisioner.stageModule() copies these
+# .tf / .tftpl files into a per-deployment workdir at Launch; the path is
+# CATALYST_TOFU_MODULE_PATH (default /infra/hetzner — see provisioner.New()).
+# Copying the FULL tree (main.tf, variables.tf, outputs.tf, versions.tf,
+# cloudinit-*.tftpl, plus any future submodules under modules/) keeps the
+# image self-contained: the OpenTofu run inside this Pod has every file the
+# module references, with no network fetch needed at provision time.
+COPY infra/hetzner/ /infra/hetzner/
+
 # Alpine 3.20 already ships UID 65534 as `nobody`. Reuse that rather than
 # creating a duplicate `nonroot` account (adduser would fail with
 # "uid '65534' in use"). The numeric form satisfies runAsNonRoot in K8s.

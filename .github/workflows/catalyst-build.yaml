@@ -147,10 +147,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push API image
+      # Build context is the public openova repo root (openova-src/), not just
+      # products/catalyst/bootstrap/api/, because the runtime image bundles the
+      # canonical OpenTofu module from infra/hetzner/. The Containerfile's
+      # COPY paths are written relative to the repo root accordingly. Without
+      # this, /infra/hetzner/ is missing inside the image and every Launch
+      # fails with `stage tofu module: open /infra/hetzner: no such file or
+      # directory`.
+      - name: Build API image (test)
         uses: docker/build-push-action@v6
         with:
-          context: openova-src/products/catalyst/bootstrap/api
+          context: openova-src
+          file: openova-src/products/catalyst/bootstrap/api/Containerfile
+          push: false
+          load: true
+          tags: ${{ env.API_IMAGE }}:test
+
+      # Smoke test — the catalyst-api Pod is the OpenTofu runner, so the .tf
+      # sources MUST be present at /infra/hetzner/ inside the image. Anything
+      # less ships a broken image that fails on every Launch with `stage tofu
+      # module: open /infra/hetzner: no such file or directory`. Failure of
+      # this step fails the build.
+      - name: Smoke test API — verify infra/hetzner/ is bundled
+        run: |
+          set -euo pipefail
+          LISTING=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
+            -c 'ls -la /infra/hetzner/')
+          echo "$LISTING"
+          for f in main.tf variables.tf outputs.tf versions.tf \
+                   cloudinit-control-plane.tftpl cloudinit-worker.tftpl ; do
+            if ! echo "$LISTING" | grep -q " ${f}\$"; then
+              echo "Smoke test FAILED: /infra/hetzner/${f} missing from image"
+              exit 1
+            fi
+            echo "Smoke test OK: /infra/hetzner/${f} present"
+          done
+          echo "All API smoke tests passed."
+
+      - name: Push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: openova-src
           file: openova-src/products/catalyst/bootstrap/api/Containerfile
           push: true
           tags: |
