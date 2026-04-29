@@ -228,41 +228,30 @@ resource "hcloud_load_balancer_service" "https" {
   destination_port = 31443
 }
 
-# ── DNS: managed pool only (BYO Sovereigns: customer points own CNAME) ────
+# ── DNS: deliberately NOT a tofu concern ──────────────────────────────────
 #
-# When domain_mode=pool and dynadot creds provided, we shell out to a
-# helper Go binary the catalyst-api ships (so the OpenTofu module doesn't
-# embed the Dynadot HTTP client). The binary is `/usr/local/bin/catalyst-dns`
-# inside the catalyst-api container; tofu invokes it via local-exec.
+# Per the PDM (pool-domain-manager) ownership boundary set at #168, ALL
+# Dynadot writes for managed pool subdomains flow through the central
+# pool-domain-manager service. The lifecycle is:
 #
-# Records written:
-#   *.<subdomain>.<pool-domain>     A → load balancer IP
-#   console.<subdomain>.<pool-domain>  A → load balancer IP
-#   gitea.<subdomain>.<pool-domain>    A → load balancer IP
-#   harbor.<subdomain>.<pool-domain>   A → load balancer IP
-#   admin.<subdomain>.<pool-domain>    A → load balancer IP
-#   api.<subdomain>.<pool-domain>      A → load balancer IP
-
-resource "null_resource" "dns_pool" {
-  count = var.domain_mode == "pool" ? 1 : 0
-
-  triggers = {
-    lb_ip       = hcloud_load_balancer.main.ipv4
-    sovereign   = var.sovereign_fqdn
-    pool_domain = var.pool_domain
-    subdomain   = var.sovereign_subdomain
-  }
-
-  provisioner "local-exec" {
-    command = "/usr/local/bin/catalyst-dns"
-    environment = {
-      DYNADOT_API_KEY    = var.dynadot_key
-      DYNADOT_API_SECRET = var.dynadot_secret
-      DOMAIN             = var.pool_domain
-      SUBDOMAIN          = var.sovereign_subdomain
-      LB_IP              = hcloud_load_balancer.main.ipv4
-    }
-  }
-
-  depends_on = [hcloud_load_balancer.main]
-}
+#   1. catalyst-api receives POST /v1/deployments. Before launching
+#      `tofu apply`, it calls PDM /reserve to put the subdomain on hold
+#      with a TTL. (See deployments.go:127.)
+#   2. `tofu apply` runs THIS module — provisioning Hetzner network,
+#      firewall, server, load balancer. NO DNS writes here.
+#   3. catalyst-api reads the LB IP from the tofu outputs and calls PDM
+#      /commit (deployments.go:247). PDM writes the canonical record set
+#      via the Dynadot API.
+#   4. On any tofu failure, catalyst-api calls PDM /release so the
+#      subdomain returns to the available pool.
+#
+# A previous revision of this module also wrote DNS via a `null_resource`
+# with a `local-exec` provisioner shelling out to `/usr/local/bin/catalyst-dns`.
+# That created a dual-ownership pattern — both tofu AND PDM writing
+# Dynadot — which (a) duplicated work, (b) put credentials in two places,
+# and (c) failed on every Launch with an opaque "Invalid field in API
+# request" Dynadot error. The null_resource was removed in this commit;
+# DNS is now a single-owner concern (PDM) end-to-end.
+#
+# BYO Sovereigns continue to own their own DNS — the customer points their
+# CNAME at the LB IP shown on the success screen.
