@@ -1,7 +1,7 @@
 # Catalyst-Zero Provisioning Plan
 
-**Status:** Authoritative working plan — **execution underway**. **Updated:** 2026-04-28.
-**Owner:** OpenOva engineering. **Parent issue:** [#43](https://github.com/openova-io/openova/issues/43). **Sub-tickets:** A–M groups, [#45–#155](https://github.com/openova-io/openova/issues?q=is%3Aopen+%5B+).
+**Status:** Authoritative working plan — **execution underway**. **Updated:** 2026-04-29.
+**Owner:** OpenOva engineering. **Parent issue:** [#43](https://github.com/openova-io/openova/issues/43). **Sub-tickets:** A–M groups, [#45–#175](https://github.com/openova-io/openova/issues?q=is%3Aopen+%5B+). Post-Group-M continuation tickets (#161, #162, #163, #167, #168, #169, #170, #171, #173, #174, #175) extend the plan with the per-Sovereign PowerDNS zone model, pool-domain-manager + registrar adapters, three-mode StepDomain (pool/byo-manual/byo-api), the wizard StepComponents redesign, and k8gb retirement.
 
 ---
 
@@ -11,15 +11,15 @@
 |---|---|---|---|
 | A — Code consolidation | 9 | ✅ Done | 3c2f7e4 |
 | B — SME backend services | 10 | ✅ Source migrated; CI workflow live | 7646840 |
-| C — Cutover Catalyst-Zero | 8 | 🚧 CI builds live; Flux source repoint pending | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07 |
+| C — Cutover Catalyst-Zero | 8 | ✅ Flux is now reconciling Catalyst-Zero from `github.com/openova-io/openova` (public repo) — confirmed via `kubectl get gitrepository -A` returning `openova-public` source serving the catalyst-platform Kustomization | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07, 8c40984 (Group C cutover merge) |
 | D — Wizard | 10 | 🚧 Domain capture + Hetzner project ID added; AppsStep replacement pending | 854a063 |
 | E — Provisioner backend | 13 | 🚧 Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
 | F — Bootstrap-kit Helm charts | 14 | ✅ All 11 G2 wrapper charts + blueprint-release CI live | 8c0f766 |
-| G — DNS multi-domain | 6 | 🚧 Dynadot client + manifest env vars done; subdomain-reservation check pending | db4f21a |
+| G — DNS multi-domain | 6 | ✅ Superseded by PowerDNS authoritative (#167) + pool-domain-manager (#163) + registrar adapters (#170) — Dynadot is now one of five registrar adapters inside PDM, not the authoritative DNS surface | db4f21a, 0190c605 (#167), 2854d652 (#163), 567d7e1f (#170) |
 | H — Franchise model | 7 | 🚧 docs/FRANCHISE-MODEL.md authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
 | I — Wizard UX | 6 | 📐 SSE event log pane + step indicator pending |  |
 | J — Hetzner infra | 6 | 🚧 cloud-init in repo; firewall + k3s flags wired into provisioner | 07b4bcf |
-| K — Documentation | 8 | 🚧 IMPLEMENTATION-STATUS + core/README + products/catalyst/README updated; component-count anchor refreshed 53 → 56 (spire + nats-jetstream + sealed-secrets factored in) | 3c2f7e4, 8c0f766, group-k-docs |
+| K — Documentation | 8 | 🚧 IMPLEMENTATION-STATUS + core/README + products/catalyst/README updated; component-count anchor refreshed 53 → 56 (spire + nats-jetstream + sealed-secrets factored in); reconcile-pass-1 (2026-04-29) refreshed canonical docs against PowerDNS/PDM/registrar-adapter ground truth | 3c2f7e4, 8c0f766, group-k-docs, reconcile-pass-1 |
 | L — Testing | 8 | 📐 Playwright + integration tests pending |  |
 | M — End-to-end DoD | 9 | 📐 Awaiting Hetzner credentials from operator + first OCI-artifact CI runs to complete |  |
 
@@ -103,7 +103,7 @@ These agreements survive any context compaction and apply to every phase of the 
 7. **The Vite scaffold at `products/catalyst/bootstrap/ui/`** merges into `core/console/src/pages/sovereign/`. It does not become its own deployable.
 8. **Sovereign-provisioning wizard target URL: `console.openova.io/sovereign`.** Captured fields include domain (BYO or pool), Hetzner Cloud API token, Hetzner project ID, Hetzner region (runtime parameter, never hardcoded), plus the marketplace-style App selection.
 9. **The Hetzner region is a runtime parameter chosen by the wizard user.** Never hardcoded anywhere in code.
-10. **Dynadot covers all OpenOva domains.** The `dynadot-api-credentials` K8s secret in `openova-system` is account-scoped and covers `openova.io` plus `omani.works` (and any other domain in the same Dynadot account). The secret's `domain` field can be extended to a list as needed; the API key/secret remain the same.
+10. **Dynadot is OpenOva's registrar of record for the pool domains.** The `dynadot-api-credentials` K8s secret in `openova-system` is account-scoped and covers `openova.io` plus `omani.works` (and any other domain in the same Dynadot account). Post-#167/#170 Dynadot is **not** authoritative DNS for any Sovereign zone — bp-powerdns is. Dynadot is one of five registrar adapters PDM uses to (a) keep the OpenOva pool domains' parent-zone NS records pointing at OpenOva PowerDNS and (b) honour `byo-api` Sovereigns whose customer happens to use Dynadot.
 
 ---
 
@@ -160,14 +160,15 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 ### Phase 4 — Provisioner backend
 
-**What:** Extend `core/marketplace-api/provisioner/` (existing Go module) with Hetzner Cloud API client + OpenTofu invocation + bootstrap-kit installer. Real backend that takes wizard input → calls Hetzner → returns Sovereign provisioning state via SSE.
+**What:** Build the wizard's backend at [`products/catalyst/bootstrap/api/`](../products/catalyst/bootstrap/api/) (the Go service deployed as `catalyst-api` in the `catalyst` namespace on Catalyst-Zero). Real backend that takes wizard input → calls OpenTofu → returns Sovereign provisioning state via SSE. Per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3, **no cloud APIs are called from Go directly** — OpenTofu owns Phase 0, Crossplane owns day-2, and Hetzner client code is reserved for read-only credential validation.
 
 **Outputs:**
-- `core/marketplace-api/provisioner/hetzner.go` — Hetzner Cloud API client (servers, networks, load balancers, firewalls, DNS pointed at Dynadot)
-- `core/marketplace-api/provisioner/opentofu.go` — invokes OpenTofu modules from `infra/hetzner/`
-- `core/marketplace-api/provisioner/bootstrap.go` — orchestrates the 11-component bootstrap kit (Cilium → cert-manager → Flux → Crossplane → Sealed Secrets → SPIRE → JetStream → OpenBao → Keycloak → Gitea → bp-catalyst-platform), in dependency order
-- `core/marketplace-api/handlers/provisioner.go` — REST endpoints `POST /v1/sovereigns`, `GET /v1/sovereigns/{id}/events` (SSE)
-- `infra/hetzner/main.tf` — OpenTofu module
+- [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve`, streams stdout/stderr lines to the wizard via SSE
+- [`products/catalyst/bootstrap/api/internal/hetzner/`](../products/catalyst/bootstrap/api/internal/hetzner/) — read-only Hetzner client for credential validation (`POST /api/v1/credentials/validate`); never used to mutate cloud state
+- [`products/catalyst/bootstrap/api/internal/pdm/`](../products/catalyst/bootstrap/api/internal/pdm/) — PDM client (`/v1/reserve`, `/v1/commit`, `/v1/validate`) for pool-subdomain allocation and registrar-token validation
+- [`products/catalyst/bootstrap/api/internal/dynadot/`](../products/catalyst/bootstrap/api/internal/dynadot/) — Dynadot client (used as one registrar adapter inside PDM's adapter set, not for direct DNS writes from this service)
+- [`products/catalyst/bootstrap/api/internal/handler/`](../products/catalyst/bootstrap/api/internal/handler/) — REST handlers including `POST /api/v1/deployments`, `GET /api/v1/deployments/{id}/logs` (SSE), `POST /api/v1/deployments/{id}/phases/{phase}/retry`, `POST /api/v1/credentials/validate`, `POST /api/v1/subdomains/check`, `GET /api/v1/registrars`
+- [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) — OpenTofu module (network, firewall, ssh-key, control-plane + worker servers, load balancer)
 - VALIDATION-LOG entry: Pass 108
 
 **Commit message:** `feat(provisioner): real Hetzner Sovereign provisioning end-to-end`
@@ -198,17 +199,21 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 **Commit messages:** `feat(bp-<name>): G2 Catalyst-curated chart for <name> per BLUEPRINT-AUTHORING contract`
 
-### Phase 6 — Dynadot extension for omani.works
+### Phase 6 — DNS architecture: PowerDNS authoritative + PDM + registrar adapters
 
-**What:** Extend the K8s secret `dynadot-api-credentials` (in namespace `openova-system`) so its `domain` field is a list including both `openova.io` and `omani.works`. Add a Crossplane Composition or external-dns config so the provisioner can programmatically write A records `*.omantel.omani.works` → new Hetzner LB IP.
+**What:** The DNS architecture has two layers. **Authoritative DNS** lives on bp-powerdns (#167) — every Sovereign zone (pool: `omantel.omani.works`, BYO: `acme.bank.com`) gets its own PowerDNS zone with DNSSEC + lua-records. **Allocation + registrar control** lives on the pool-domain-manager service (#163), which exposes registrar adapters (#170) for byo-api flow:
+
+- **Pool subdomains** (e.g. `<sub>.omani.works`, `<sub>.openova.io`): PDM `/v1/reserve` checks availability, `/v1/commit` creates the per-Sovereign PowerDNS zone, writes the canonical 6-record set, and updates the parent zone's NS delegation via the OpenOva Dynadot registrar adapter.
+- **BYO with manual NS-flip** (`byo-manual`): wizard surfaces the OpenOva NS list; customer pastes them into their own registrar UI; catalyst-api polls until propagation; PDM `/v1/commit` then writes the canonical record set into the new PowerDNS zone (no parent-zone change from OpenOva).
+- **BYO with API NS-flip** (`byo-api`): customer picks their registrar from the supported list (Cloudflare, Namecheap, GoDaddy, OVH, Dynadot — #170), pastes a token; PDM `/v1/validate` confirms scope read-only; on commit, the matching registrar adapter flips the NS records to OpenOva's NS set.
 
 **Outputs:**
-- Updated K8s secret (apply via sealed-secrets, not raw kubectl) — the secret update goes through Flux GitOps just like everything else
-- `platform/external-dns/policies/dynadot-multi-domain.yaml` — config that handles both domains
-- `core/marketplace-api/provisioner/dns.go` — Dynadot API client extended with multi-domain support
-- VALIDATION-LOG entry: Pass 120
+- [`core/pool-domain-manager/`](../core/pool-domain-manager/) — Go service deployed at `pool-domain-manager` in `openova-system`, CNPG-backed `pdm-pg`. Modules: `internal/allocator`, `internal/pdns`, `internal/registrar`, `internal/dynadot`, `internal/reserved`, `internal/store`. CI: [`.github/workflows/pool-domain-manager-build.yaml`](../.github/workflows/pool-domain-manager-build.yaml).
+- [`platform/crossplane/compositions/composition-pool-allocation.yaml`](../platform/crossplane/compositions/composition-pool-allocation.yaml) + matching XRD — declarative Crossplane wrapper around PDM `/v1/reserve` so Sovereign provisioning runs through the canonical IaC path.
+- [`platform/powerdns/`](../platform/powerdns/) — bp-powerdns wrapper chart (Chart.yaml, values.yaml, blueprint.yaml, templates) with DNSSEC + lua-records on by default, dnsdist companion for rate-limiting.
+- VALIDATION-LOG entry: Pass 120 (component-count refresh + PDM landing).
 
-**Commit message:** `feat(dns): Dynadot multi-domain support for omani.works as Sovereign-pool subdomain`
+**Commit message:** `feat(dns): bp-powerdns + pool-domain-manager + registrar adapters for pool/byo flows`
 
 ### Phase 7 — Franchise model docs + voucher propagation
 

@@ -101,7 +101,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Runtime security** | Falco (eBPF) |
 | **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
 | **WAF** | Coraza (OWASP CRS) |
-| **GSLB** | PowerDNS authoritative + lua-records (`ifurlup`, `pickclosest`) — see [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md) |
+| **DNS** | PowerDNS authoritative per Sovereign zone + DNSSEC + lua-records (`ifurlup`, `pickclosest`); pool-domain-manager allocates pool subdomains and flips parent-zone NS via registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) — see [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md), [`docs/PLATFORM-POWERDNS.md`](docs/PLATFORM-POWERDNS.md) |
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 

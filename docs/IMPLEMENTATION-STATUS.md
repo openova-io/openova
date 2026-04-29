@@ -1,6 +1,6 @@
 # Catalyst Implementation Status
 
-**Status:** Authoritative. Living document. **Updated:** 2026-04-27
+**Status:** Authoritative. Living document. **Updated:** 2026-04-29
 
 This document is the **bridge** between the target architecture (described in [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md), etc.) and the current state of the code in this repository.
 
@@ -75,7 +75,8 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 |---|---|---|
 | Cilium | 🚧 | README only. |
 | External-DNS | 🚧 | README only. |
-| PowerDNS | ✅ | bp-powerdns:1.0.5 deployed on contabo-mkt — replaces the historical k8gb GSLB role via lua-records. See [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) and [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
+| PowerDNS | ✅ | bp-powerdns:1.0.6 deployed on contabo-mkt (#167; gpgsql-dnssec=yes) — authoritative DNS for every Sovereign zone (pool + BYO), CNPG-backed Postgres at `pdns-pg`, dnsdist front-end. Replaces the historical k8gb GSLB role via lua-records. See [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) and [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
+| pool-domain-manager (PDM) | ✅ | Deployed at `pool-domain-manager` in `openova-system` (#163, #168, #170). CNPG-backed `pdm-pg`. Allocates pool subdomains under `omani.works`/`openova.io`, owns the per-Sovereign PowerDNS zone lifecycle, and exposes registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) for BYO Flow B (registrar-API NS-flip). REST API: `/v1/reserve`, `/v1/commit`, `/v1/validate`, `/v1/registrars`. Source: [`core/pool-domain-manager/`](../core/pool-domain-manager/). |
 | Coraza | 🚧 | README only. |
 | Flux | 🚧 | README only. Per-vcluster Flux is a Catalyst-managed convention not yet implemented. |
 | Crossplane | 🚧 | README only. |
@@ -139,7 +140,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 |---|---|---|
 | `catalyst-provisioner.openova.io` always-on service | 🚧 | Designed in [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §2. Catalyst-Zero (Contabo k3s, namespace `catalyst`) IS the catalyst-provisioner today. Real Go provisioning code lives at [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — a thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from wizard input, runs `tofu init && tofu plan && tofu apply` against [`infra/hetzner/`](../infra/hetzner/), and streams events back to the wizard via SSE. Per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3, no cloud APIs called from Go code; OpenTofu does Phase 0, Crossplane adopts day-2 management at Phase 1 hand-off. End-to-end DoD against a real Hetzner project pending Group M (#43 waterfall). |
 | Hetzner OpenTofu modules | 🚧 | Canonical module at [`infra/hetzner/`](../infra/hetzner/) — `main.tf` provisions VPC + subnet + firewall + SSH key + control-plane and worker servers (variable count, ha_enabled toggle) + load balancer + DNS via the catalyst-dns helper for managed pool domains. `cloudinit-control-plane.tftpl` installs k3s and bootstraps Flux pointing at `clusters/<sovereign-fqdn>/` in this monorepo. `cloudinit-worker.tftpl` joins workers via the project-derived k3s token. All values are runtime variables — no hardcoded region, sizes, or k3s flags per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #4. |
-| Bootstrap kit (cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → bp-catalyst-platform) | 🚧 | **All 11 G2 wrapper Helm charts exist** under `platform/<x>/chart/` (Pass 105, commit 8c0f766) including the new platform/spire/, platform/nats-jetstream/, platform/sealed-secrets/. Each carries a `blueprint.yaml`, `values.yaml`, `Chart.yaml`, and is published as `bp-<name>:<semver>` OCI artifact via `.github/workflows/blueprint-release.yaml`. Flux on the new cluster reconciles `clusters/<sovereign-fqdn>/` to install them in the dependency order specified in [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §3. Steady-state DoD pending real Hetzner provisioning (Group M). |
+| Bootstrap kit (cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform) | 🚧 | **All 12 G2 wrapper Helm charts exist** under `platform/<x>/chart/` (Pass 105, commit 8c0f766; bp-powerdns added at commit 0190c605 for #167) including the new platform/spire/, platform/nats-jetstream/, platform/sealed-secrets/, platform/powerdns/. Each carries a `blueprint.yaml`, `values.yaml`, `Chart.yaml`, and is published as `bp-<name>:<semver>` OCI artifact via `.github/workflows/blueprint-release.yaml`. Flux on the new cluster reconciles `clusters/<sovereign-fqdn>/` to install them in the dependency order specified in [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §3. Steady-state DoD pending real Hetzner provisioning (Group M). |
 
 ---
 

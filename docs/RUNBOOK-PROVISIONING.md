@@ -1,6 +1,6 @@
 # Runbook — Provisioning a New Sovereign
 
-**Status:** Operator-level procedure. **Updated:** 2026-04-28.
+**Status:** Operator-level procedure. **Updated:** 2026-04-29.
 **Audience:** Sovereign cloud team (e.g. `omantel-cloud`) onboarding their first Sovereign via Catalyst-Zero. Read this with [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) (the architectural contract) and [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md) (the Catalyst-Zero waterfall).
 
 ---
@@ -11,7 +11,7 @@ A new **Sovereign** — a self-sufficient deployed Catalyst — provisioned end-
 
 - A k3s cluster running on Hetzner Cloud servers in your chosen region
 - Cilium CNI + Gateway API as ingress, Flux as GitOps reconciler, Crossplane as day-2 IaC
-- The 11-component bootstrap kit installed and reconciling cleanly: cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → bp-catalyst-platform
+- The 12-component bootstrap kit installed and reconciling cleanly: cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform
 - Reachable URLs: `console.<your-fqdn>`, `gitea.<your-fqdn>`, `admin.<your-fqdn>` (TLS via cert-manager + Let's Encrypt)
 - Initial sovereign-admin user in Keycloak's `catalyst-admin` realm
 - The Sovereign is now self-sufficient — the catalyst-provisioner has zero ongoing connection to it (Phase 1 hand-off complete)
@@ -30,7 +30,7 @@ Gather all of the following BEFORE opening the wizard. The wizard does not save 
 | **Hetzner Cloud API token** | Inside the project: Security → API Tokens → New Token, scope **Read & Write** | Save it once — it is shown only at creation |
 | **Hetzner region** | One of: `fsn1` (Falkenstein), `nbg1` (Nuremberg), `hel1` (Helsinki), `ash` (Ashburn US East), `hil` (Hillsboro US West) | Wizard validates against this list |
 | **SSH public key** | Your sovereign-admin break-glass keypair — generate with `ssh-keygen -t ed25519 -C "sovereign-admin@<your-org>" -f ~/.ssh/sovereign_admin` | The PUBLIC half (`*.pub`) is what the wizard takes |
-| **Sovereign domain** | One of: (a) BYO — your own registered domain, you'll point a CNAME post-provisioning; (b) Pool — pick a subdomain under `omani.works` or another Sovereign-pool domain offered by the wizard | Wizard reserves your subdomain choice if pool |
+| **Sovereign domain** | Three modes (post-#169): (a) **Pool** — pick a subdomain under `omani.works` / `openova.io` (the wizard reserves it via PDM `/v1/reserve` and creates the per-Sovereign PowerDNS zone on commit); (b) **BYO with manual NS-flip** (`byo-manual`) — bring your own registered domain; the wizard shows the OpenOva NS records you paste into your registrar UI; (c) **BYO with API NS-flip** (`byo-api`) — bring your own domain plus a registrar API token (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) and OpenOva flips NS for you | Wizard validates registrar tokens read-only (`POST /api/v1/registrars/validate`) before accepting |
 | **Organisation name + email** | Your organisation's display name + the email that becomes the initial sovereign-admin in Keycloak | Email must be deliverable — Keycloak sends the password reset there |
 | **Topology choice** | Single-region (SME default) or 1-CP-1-worker minimal vs `ha_enabled=true` (3-CP HA) + `worker_count` ≥ 1 | Wizard surfaces these as form fields |
 
@@ -50,16 +50,16 @@ Log in as a Catalyst-Zero user (your existing OpenOva-issued credentials) and cl
 
 ### 2. Walk the 7-step wizard
 
-The wizard's Vite scaffold lives at `products/catalyst/bootstrap/ui/`. Each step writes its inputs into the wizard's local store; nothing is sent to the catalyst-api until **Review** + **Provision**.
+The wizard's Vite scaffold lives at [`products/catalyst/bootstrap/ui/`](../products/catalyst/bootstrap/ui/). Each step writes its inputs into the wizard's local store; nothing is sent to the catalyst-api until **Review** + **Provision**. The 7-step indicator lives in the page header (per #174); per-step ordering is canonical from `WIZARD_STEPS` in `src/app/layouts/WizardLayout.tsx`.
 
 | Step | What it captures | Notes |
 |---|---|---|
-| 1. Org | Name, email | Becomes the initial sovereign-admin |
-| 2. Provider | Cloud (Hetzner only today) | More providers per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §9.1 — design only |
-| 3. Credentials | Hetzner token, project ID | Token is sent once over TLS to catalyst-api; never logged |
-| 4. Infrastructure | Region, control-plane size, worker size, worker count, ha_enabled | All values runtime-configurable per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #4 |
-| 5. Topology | Single-region vs multi-region | Multi-region is design only at first launch — single-region is the supported path |
-| 6. Components | Initial App selection (unified marketplace card grid) | Apps are added post-provisioning too — only pre-select the must-haves |
+| 1. Organisation | Org name, contact email, sovereign-admin email | Becomes the initial sovereign-admin |
+| 2. Domain | Pool subdomain OR BYO (manual NS / registrar API), per #169's three-mode flow | Pool = PDM `/v1/reserve`. BYO byo-api = registrar token (Cloudflare/Namecheap/GoDaddy/OVH/Dynadot, #170). BYO byo-manual = wizard surfaces NS list to paste at customer registrar |
+| 3. Topology | Regions, building blocks (mgt + rtz/dmz), HA toggles | Single-region is the supported path at first launch — multi-region remains design-only |
+| 4. Provider | Cloud per region (Hetzner today; AWS / GCP / Azure / OCI / Huawei per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §9.1 are design-only) | |
+| 5. Credentials | Hetzner Cloud API token + project ID, SSH public key | Validated read-only via `POST /api/v1/credentials/validate` before advancing; the token is sent once over TLS, never logged, redacted from SSE event stream |
+| 6. Components | Two-tab StepComponents (#161, #162): a "Mandatory infra" tab listing the always-installed blueprint set and an "Apps" tab with the optional-Application card grid | Apps are added post-provisioning too — only pre-select the must-haves. Per #175 dependency-aware cascades pull transitive deps automatically (e.g. picking Harbor pulls in cnpg + seaweedfs + valkey) |
 | 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
 ### 3. Watch the SSE event stream
@@ -73,7 +73,7 @@ tofu-apply      Applying — this provisions real Hetzner resources, please wait
 tofu-output     Reading OpenTofu outputs (control_plane_ip, load_balancer_ip)
 flux-bootstrap  Cloud-init has bootstrapped Flux + Crossplane in the new
                 cluster — Flux will now reconcile clusters/<sovereign-fqdn>/
-                from the public OpenOva monorepo, installing the 11-component
+                from the public OpenOva monorepo, installing the 12-component
                 bootstrap kit and bp-catalyst-platform umbrella in dependency
                 order.
 ```
@@ -121,7 +121,7 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/var/lib/catalyst/
 | `flux-bootstrap` shows `connection refused` from kubectl | Cilium CNI not yet up (chicken-and-egg with API server readiness) | Wait — k3s + Cilium + Flux take ~5 min to converge before `kubectl` works through Flux |
 | `bp-cilium` Kustomization stuck at `Ready=Unknown` for >10 min | Network configuration mismatch (most likely cloud-init didn't pass `--flannel-backend=none` correctly) | SSH into the control-plane node (the IP is visible in the Hetzner Cloud Console; SSH key is the one you provided) and run `journalctl -u k3s -n 100`; share the output with OpenOva support |
 | `bp-cert-manager` reconciles but cert issuance fails | Let's Encrypt rate-limit (50 certs / week / domain) or DNS records not propagated | Check `cert-manager` events: `kubectl -n cert-manager describe challenge`; for rate-limit, wait. For DNS, dig the records: `dig console.<your-fqdn> +short` should return the LB IP |
-| `console.<sovereign-fqdn>` returns 404 / connection-refused | DNS record not yet propagated (managed-pool: Dynadot TTL ~15 min); for BYO: customer hasn't pointed CNAME yet | `dig` the FQDN; ensure it resolves to the LB IP. Allow up to 30 min for DNS propagation |
+| `console.<sovereign-fqdn>` returns 404 / connection-refused | Per-Sovereign PowerDNS zone records not yet visible to public resolvers (parent-zone NS-delegation TTL ~15 min for pool, customer-registrar TTL for BYO byo-manual / byo-api) | `dig <sovereign-fqdn> NS` should return OpenOva NS; `dig console.<sovereign-fqdn>` should return the LB IP. Allow up to 30 min for DNS propagation |
 | Keycloak reset-password email never arrives | SMTP not configured in Keycloak realm yet | Reset via the catalyst-admin realm-admin flow inside the cluster: `kubectl -n catalyst-system exec -it keycloak-0 -- /opt/keycloak/bin/kcadm.sh ...` (the catalyst-admin path is documented in `clusters/<sovereign-fqdn>/keycloak/README.md`) |
 
 **Escalation:** if the runbook doesn't unblock you, file an issue against `github.com/openova-io/openova` with the `area/platform` and `kind/provisioning` labels, including: Sovereign FQDN, region, last 50 SSE events, last 100 lines of `kubectl -n flux-system get events`, and the OpenTofu workdir contents (excluding `tofu.auto.tfvars.json` which contains the Hetzner token).
@@ -149,7 +149,7 @@ If you need to tear down a Sovereign you just provisioned (e.g. test run):
    → OpenBao final state exported and stored encrypted (download link in admin UI)
    → DNS records removed
    → Cloud resources reclaimed
-2. (For pool domains only) Wait 15 min for Dynadot to release the DNS records
+2. (For pool domains only) PDM releases the subdomain reservation and prunes the per-Sovereign PowerDNS zone; the parent-zone NS-delegation update at the registrar (Dynadot for pool) propagates within ~15 min TTL
 3. (Manual cleanup) tofu destroy -auto-approve in the catalyst-api workdir for that Sovereign
 ```
 

@@ -1,7 +1,7 @@
 # Catalyst Architecture
 
-**Status:** Authoritative target architecture. **Updated:** 2026-04-27.
-**Implementation:** Most of what this document describes is **design-stage** — see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) for what exists in code today vs what is design.
+**Status:** Authoritative target architecture. **Updated:** 2026-04-29.
+**Implementation:** Most of what this document describes is **design-stage** — see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) for what exists in code today vs what is design. The DNS plane (bp-powerdns + pool-domain-manager + registrar adapters) is deployed today in `openova-system` on Catalyst-Zero.
 
 This document describes the architecture of **Catalyst** — the OpenOva platform. For terminology, defer to [`GLOSSARY.md`](GLOSSARY.md). For naming, defer to [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md). For current code state, defer to [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
@@ -382,8 +382,10 @@ Every Application is its own Gitea repo and its own Flux Kustomization. The depe
 ```
 Phase 0  Bootstrap (one-shot, runs from catalyst-provisioner.openova.io)
 ─────────────────────────────────────────────────────────────────────
-1. OpenTofu provisions: VPC, host nodes, load balancers, DNS records,
-   object storage on the target cloud provider (Hetzner / AWS / etc.)
+1. OpenTofu provisions: VPC, host nodes, load balancers, object storage
+   on the target cloud provider (Hetzner / AWS / etc.). DNS is NOT
+   written here — it flows through the PowerDNS / pool-domain-manager
+   plane (see step 3 below + docs/PLATFORM-POWERDNS.md).
 2. Bootstrap kit installs in order:
    a. Cilium (CNI + Gateway API)              ← network must come first
    b. cert-manager                            ← TLS for everything below
@@ -395,7 +397,15 @@ Phase 0  Bootstrap (one-shot, runs from catalyst-provisioner.openova.io)
    h. OpenBao cluster (3 nodes, region-local Raft)
    i. Keycloak (per `keycloakTopology` choice)
    j. Gitea (with public Blueprint mirror seeded)
-   k. Catalyst control plane (umbrella Blueprint: bp-catalyst-platform)
+   k. PowerDNS (bp-powerdns) + dnsdist        ← per-Sovereign authoritative
+                                                DNS zone, DNSSEC, lua-records
+   l. Catalyst control plane (umbrella Blueprint: bp-catalyst-platform)
+3. Pool-domain-manager (running on the OpenOva-run Catalyst-Zero, NOT
+   on the new Sovereign) calls `/v1/commit`: creates the per-Sovereign
+   PowerDNS zone, writes the canonical 6-record set via the PowerDNS
+   REST API, and updates the parent-zone NS delegation via the matching
+   registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot)
+   — see docs/SOVEREIGN-PROVISIONING.md §3 + docs/PLATFORM-POWERDNS.md.
 
 Phase 1  Hand-off (~5 minutes after Phase 0 starts)
 ─────────────────────────────────────────────────────────────────────
@@ -444,7 +454,7 @@ bp-catalyst-platform                 ← umbrella
 └── depends: bp-catalyst-observability    ← OTel + Grafana stack
 ```
 
-(Cilium, Flux, Crossplane, Cert-manager, Kyverno, Harbor, External-Secrets, Reloader, Falco, Sigstore, Syft+Grype are **per-host-cluster infrastructure**, not Catalyst control-plane components — see [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §1. They get installed once per host cluster, before Catalyst itself.)
+(Cilium, Flux, Crossplane, Cert-manager, Kyverno, Harbor, External-Secrets, Reloader, Falco, Sigstore, Syft+Grype, **PowerDNS** are **per-host-cluster infrastructure**, not Catalyst control-plane components — see [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §1. They get installed once per host cluster, before Catalyst itself. The pool-domain-manager (PDM) is deployed on the OpenOva-run Catalyst-Zero only — it is part of the bootstrap surface, not the per-Sovereign control plane.)
 
 Installing `bp-catalyst-platform` once gives you a working Sovereign. Same Blueprint installed on Hetzner = the openova Sovereign. Same Blueprint installed on AWS for a bank = that bank's Sovereign. Same Blueprint installed on Hetzner for a telco = the omantel Sovereign. **One artifact. Zero divergence.**
 

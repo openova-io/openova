@@ -1,7 +1,7 @@
 # Glossary
 
 > **Status:** Canonical. Single source of truth for OpenOva terminology.
-> **Updated:** 2026-04-27.
+> **Updated:** 2026-04-29.
 > **Note:** Terms here describe the agreed model. For which terms map to currently-implemented code vs design-stage, see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 Every other document defers to this file. When a term in another doc looks contested, this file wins. New terminology is proposed here first, then propagated.
@@ -65,6 +65,8 @@ Every other document defers to this file. When a term in another doc looks conte
 | **environment-controller** | Reconciles the **Environment CRD**: creates the vcluster(s), bootstraps Flux inside (watching the appropriate branch across the Org's Application repos), wires the webhook, generates pull credentials. |
 | **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign Gitea Org-private repos), validates and registers Blueprint CRDs. |
 | **billing** | Per-Org metering, invoicing. |
+| **pool-domain-manager (PDM)** | Bootstrap-surface service that allocates pool subdomains under OpenOva-owned domains (`omani.works`, `openova.io`), creates the per-Sovereign PowerDNS zone, writes its canonical 6-record set, and updates the parent-zone NS delegation via a registrar adapter. Lives on the OpenOva-run Catalyst-Zero only, not on every Sovereign. CNPG-backed. Source: `core/pool-domain-manager/`. |
+| **Registrar Adapter** | One of five PDM-internal clients (Cloudflare, Namecheap, GoDaddy, OVH, Dynadot) that flips parent-zone NS records via the registrar's API. Used by PDM for (a) pool sovereigns at the OpenOva Dynadot account and (b) BYO sovereigns in `byo-api` mode where the customer pastes a registrar token. |
 | **identity** | Keycloak (per-Organization realm in SME-style Sovereigns; per-Sovereign realm in corporate-style) + SPIFFE/SPIRE for workload identity. |
 | **secret** | OpenBao + External Secrets Operator (ESO). Independent Raft cluster per region (no stretched cluster); cross-region perf replication is async. |
 | **event-spine** | NATS JetStream — pub/sub + Streams + KV bucket. Workload-identity-scoped Accounts per Organization. Replaces what was previously specified as "Redpanda + Valkey" for the control plane. |

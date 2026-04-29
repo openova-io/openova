@@ -1,10 +1,82 @@
 # Documentation Validation Log
 
-**Last updated:** 2026-04-28.
+**Last updated:** 2026-04-29.
 
 This file is a trail of the multi-pass integrity validation done on the canonical docs after the Catalyst-unified rewrite (issue [#37](https://github.com/openova-io/openova/issues/37)). It captures what was verified, what was found, and how to repeat the audit.
 
 > If a future contributor wants to validate that docs remain consistent, this file is the **playbook**. Run the same greps. Read the same files in the same order.
+
+---
+
+### Reconcile Pass 1 — 2026-04-29 (drift fixed)
+
+**Date:** 2026-04-29. **Branch:** `docs/reconcile-pass-1`. **Base:** main @ `dd578d1c`. **Skill:** `reconcile-catalyst-docs full`. **Trigger:** post-major-architectural-changes batch (#161, #162, #163, #167, #168, #169, #170, #171, #173, #174, #175). **Verdict:** ✅ drift fixed — canonical docs realigned with deployed-cluster ground truth on the DNS plane (PowerDNS authoritative + pool-domain-manager + registrar adapters), three-mode StepDomain wizard flow, two-tab StepComponents UX, k8gb retirement, and the 12-component bootstrap kit.
+
+This is the first Reconcile pass (the audit log's prior 107 passes were `audit-catalyst-docs` Audit-Pass-N entries; Reconcile-Pass-N entries follow the `reconcile-catalyst-docs` skill spec at `~/.claude/skills/reconcile-catalyst-docs/SKILL.md`). The audit-skill counterpart will continue numbering at Pass 108+; the reconcile-skill numbers are independent.
+
+**Ground truth at HEAD `dd578d1c`:**
+- 56 platform components (`ls platform/ | wc -l = 56`) — anchor matches docs.
+- 6 products (axon, catalyst, cortex, fabric, fingate, relay) — README §"What's in this repo" matches.
+- 11 Blueprint folders (`find . -name blueprint.yaml | wc -l = 11`).
+- 14 Helm Chart.yaml files (11 platform + axon + catalyst + cilium = 14).
+- 18 OCI artifacts published to `ghcr.io/openova-io/` (catalyst-{api,ui}, contact-api, marketplace-api, sme-{admin,auth,billing,catalog,console,domain,gateway,marketplace,notification,portal,provisioning,tenant}, website, openova-website).
+- Live in `openova-system` on Catalyst-Zero: `pool-domain-manager` (image `ghcr.io/openova-io/openova/pool-domain-manager:f777394`), `powerdns` (`bp-powerdns:1.0.6`), `dnsdist`, CNPG-managed `pdm-pg` + `pdns-pg`.
+- componentGroups.ts: 63 unique component IDs across 11 groups (5 core + 2 side + 4 a-la-carte). 62 SVG logos vendored under `public/component-logos/` (powerdns missing — open follow-up #173 covers card-logo render fix).
+- Wizard step ordering (per `WIZARD_STEPS` in `WizardLayout.tsx`, post #169 + #174): **Org → Domain → Topology → Provider → Credentials → Components → Review** (the prior order documented in RUNBOOK-PROVISIONING.md was stale).
+
+**Drift identified and fixed (six categories per skill spec):**
+
+A. **Numerical drift (3):**
+- `IMPLEMENTATION-STATUS.md` L78 claimed `bp-powerdns:1.0.5`; actual chart at `platform/powerdns/chart/Chart.yaml` is **1.0.6** (commit 6e9b9fe8 fixed gpgsql-dnssec for #167 followup). Updated.
+- `COMPONENT-LOGOS.md` L30 claimed "63 SVG files"; `ls public/component-logos/*.svg | wc -l = 62`. Updated to 62 with a callout that `powerdns` has no vendored SVG yet (covered by open #173).
+- Bootstrap kit was claimed as 11-component across 5 docs (SOVEREIGN-PROVISIONING §3 step 4, IMPLEMENTATION-STATUS §7, RUNBOOK-PROVISIONING §1+§3, ARCHITECTURE §10). Reality is 12 (bp-powerdns added at #167). Updated coherently across all five.
+
+B. **Service drift (4):**
+- `pool-domain-manager` (PDM) — deployed in `openova-system` since #163, was not mentioned in IMPLEMENTATION-STATUS.md, ARCHITECTURE.md, PLATFORM-TECH-STACK.md, GLOSSARY.md, or PROVISIONING-PLAN.md. Added to all five.
+- Registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, #170) — code at `core/pool-domain-manager/internal/registrar/` was undocumented. Added to GLOSSARY (new term), SOVEREIGN-PROVISIONING.md §1, RUNBOOK-PROVISIONING.md, DEMO-RUNBOOK.md, ORCHESTRATOR-STATE.md, PROVISIONING-PLAN.md Phase 6.
+- `bp-powerdns` was added to PLATFORM-TECH-STACK.md §3.1 (powerdns row) but was missing from ARCHITECTURE.md §10 bootstrap-kit listing and §11 Catalyst-on-Catalyst dependency tree. Updated both.
+- `dnsdist` is live in cluster as the rate-limit shield in front of PowerDNS; only mentioned in PLATFORM-POWERDNS.md and PLATFORM-TECH-STACK.md §7.4 — no other doc-level update needed.
+
+C. **Architectural drift (5):**
+- `SOVEREIGN-PROVISIONING.md` §3 step 2 described DNS as `null_resource.dns_pool → catalyst-dns helper invoking the Dynadot API`. Post-#167/#168/#170 the DNS architecture is: bp-powerdns is authoritative, PDM `/v1/commit` writes the canonical 6-record set into the per-Sovereign zone via the PowerDNS REST API, and parent-zone NS-delegation is updated by the matching registrar adapter. Rewrote step 2 + step 5 + the "DNS records written in Phase 0" code block.
+- `DEMO-RUNBOOK.md` Step 4 had the same Dynadot-direct narrative. Rewrote to PDM `/v1/commit` flow with the registrar-adapter NS-flip; preserved the troubleshooting `set_dns2`-warning prose since the Dynadot adapter still uses that endpoint internally.
+- `ORCHESTRATOR-STATE.md` Step 6 ("DNS auto-writes via Dynadot") rewritten to PDM commit + registrar-adapter NS-flip.
+- `PROVISIONING-PLAN.md` Phase 4 named `core/marketplace-api/provisioner/{hetzner,opentofu,bootstrap}.go` as the provisioner location. Real code is at `products/catalyst/bootstrap/api/internal/{provisioner,hetzner,pdm,dynadot,handler}/`. Phase 4 outputs section rewritten with accurate file-paths (and the no-cloud-API-from-Go invariant explicit per INVIOLABLE-PRINCIPLES #3).
+- `PROVISIONING-PLAN.md` Phase 6 was titled "Dynadot extension for omani.works" — superseded entirely by the bp-powerdns + PDM + registrar-adapters architecture. Rewrote as "DNS architecture: PowerDNS authoritative + PDM + registrar adapters" with the three-mode flow (pool / byo-manual / byo-api) and the registrar adapter list.
+
+D. **Process drift (2):**
+- `RUNBOOK-PROVISIONING.md` §2 wizard-step table listed the OLD ordering (Org → Provider → Credentials → Infrastructure → Topology → Components → Review). Real ordering (per `WIZARD_STEPS` since #169 + #174) is Org → Domain → Topology → Provider → Credentials → Components → Review. Updated; added the three-mode StepDomain detail and the two-tab StepComponents (Mandatory infra + Apps) per #161/#162/#175.
+- `DEMO-RUNBOOK.md` Step 2 wizard-step table claimed an 8-step wizard with Domain at step 8. Real wizard is 7 steps with Domain at step 2. Rewrote to the canonical 7-step ordering and pulled the registrar / token / subdomain validation hooks (`POST /api/v1/credentials/validate`, `POST /api/v1/subdomains/check`).
+
+E. **Cross-doc inconsistency (3):**
+- "Group G — DNS multi-domain" was 🚧 in three docs (PROVISIONING-PLAN.md §"Execution status", ORCHESTRATOR-STATE.md §"Group status", and IMPLEMENTATION-STATUS.md indirectly). Group G is **closed-out by a different architecture** (#167 + #163 + #170) — the original Group G plan (Dynadot multi-domain extension) was never executed because the team built PowerDNS-authoritative + PDM instead. Updated all three docs to ✅ with cross-references to the superseding tickets.
+- "Group C — Catalyst-Zero cutover" was 🚧 in PROVISIONING-PLAN.md but ✅ in ORCHESTRATOR-STATE.md. Live `kubectl get gitrepository -A` confirms `openova-public` (the public repo) is reconciling `catalyst-platform` Kustomization → C is done. Updated PROVISIONING-PLAN.md to ✅.
+- README.md "Stack at a glance" listed the GSLB row as `PowerDNS authoritative + lua-records`; expanded to also mention pool-domain-manager + registrar adapters since those are part of the DNS plane.
+
+F. **Stale terminology / banned terms (1):**
+- The 11-grep banned-terms scan over `docs/`, `platform/*/README.md`, `products/*/README.md`, `core/README.md`, `README.md`, `CLAUDE.md` returned only structural false-positives (the K8s Operator pattern hits and "tenant" in `multi-tenant`-style PSD2 contexts), which are GLOSSARY-permitted exemptions. No new banned-term residuals introduced post-#171 k8gb-retire (every k8gb residual is a legitimate "removed at #171, replaced by lua-records" reference in MULTI-REGION-DNS.md, PLATFORM-POWERDNS.md, IMPLEMENTATION-STATUS.md, and TECHNOLOGY-FORECAST-2027-2030.md).
+
+**Files updated (14, plus this VALIDATION-LOG entry):**
+
+- `README.md` — DNS row in Stack-at-a-glance.
+- `docs/ARCHITECTURE.md` — date stamp; §10 bootstrap-kit step 1+2 (DNS posture); new step 3 for PDM `/v1/commit`; §11 dependency tree footer (PowerDNS as per-host-cluster, PDM as bootstrap-surface).
+- `docs/SOVEREIGN-PROVISIONING.md` — date stamp; §1 inputs row for sovereign domain (three modes); §3 step 2 (DNS plane), step 4 (12-component bootstrap kit including bp-powerdns), step 5 (external-dns against PowerDNS), DNS-records code block, "Implementation status" footer.
+- `docs/PROVISIONING-PLAN.md` — date stamp + sub-tickets range; Group C ✅, Group G ✅, Group K row updated; agreement #10 reframed (Dynadot is registrar-of-record, not authoritative DNS); Phase 4 outputs rewritten to canonical paths; Phase 6 retitled and rewritten.
+- `docs/IMPLEMENTATION-STATUS.md` — date stamp; PowerDNS row 1.0.5→1.0.6; new pool-domain-manager row; bootstrap-kit row 11→12 with bp-powerdns added.
+- `docs/PLATFORM-TECH-STACK.md` — date stamp; §2.2 backend services adds pool-domain-manager.
+- `docs/MULTI-REGION-DNS.md` — Updated header date to clarify Reconcile Pass 1; example-records note updated to credit PDM `/v1/commit` for the canonical-set write; §3.1 updated to a three-line ASCII showing PDM / external-dns / catalyst-dns separation.
+- `docs/PLATFORM-POWERDNS.md` — Acceptance checklist refreshed (1.0.6 chart, deploy/clusters healthy today); helmrelease + commit-message version bumps to 1.0.6; In-cluster consumers list reordered (PDM first, replacing the prior "catalyst-dns" line).
+- `docs/RUNBOOK-PROVISIONING.md` — date stamp; sovereign-domain prerequisite (three-mode); §2 wizard-step table to canonical ordering; §3 SSE phases note 12-component kit; troubleshooting row 9 (DNS) reframed for PowerDNS; decommission step 2 reframed for PDM release.
+- `docs/DEMO-RUNBOOK.md` — date stamp; Pre-flight pool-subdomain note (PDM commit flow); Step 2 wizard fields updated to 7-step canonical ordering; Step 4 rewritten for PDM /v1/commit + registrar-adapter NS-flip; Step 5 cert-manager DNS-01 webhook updated to cert-manager-webhook-pdns; Final-step VALIDATION-LOG entry note updated.
+- `docs/ORCHESTRATOR-STATE.md` — date stamp + commit ref `dd578d1c`; Group G row ✅; architectural compliance section refreshed (5 XRDs not 4, 12 OCI artifacts not 11, DNS architecture row added); DoD step 6 reframed.
+- `docs/COMPONENT-LOGOS.md` — 63 → 62 with the powerdns-missing-svg callout.
+- `docs/GLOSSARY.md` — date stamp; new entries for pool-domain-manager (PDM) and Registrar Adapter.
+
+**Reconcile Pass 1: drift fixed across 14 files (13 docs + this VALIDATION-LOG entry; 1 commit, branched `docs/reconcile-pass-1` from main @ `dd578d1c`).**
+
+**Escalations:** none. Every drift item identified was a doc-side claim that could be brought into line with the deployed code without requiring code changes. The one borderline case — `COMPONENT-LOGOS.md` claiming 63 vendored SVGs vs reality of 62 — could be fixed code-side (vendor a `powerdns.svg`) but that is already tracked under #173 (component-card logo render fix), so the doc patch records the gap rather than pre-empting the open ticket's resolution. Per INVIOLABLE-PRINCIPLES #2 ("never compromise from quality"), the doc reflects reality and points at the open ticket — not a quiet fudge.
+
+**Lessons:** none new. The drift surfaced was the expected post-architectural-batch shape (DNS plane swap, wizard reordering, k8gb retirement) and the existing INVIOLABLE-PRINCIPLES + AUDIT-PROCEDURE machinery sufficed to bound the patch set. Future Reconcile passes following large architectural batches should follow the same six-category rubric.
 
 ---
 

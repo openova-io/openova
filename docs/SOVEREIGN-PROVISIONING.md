@@ -1,7 +1,7 @@
 # Sovereign Provisioning
 
-**Status:** Authoritative procedure. **Updated:** 2026-04-28.
-**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, and 11 G2 wrapper Helm charts all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+**Status:** Authoritative procedure. **Updated:** 2026-04-29.
+**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, 11 G2 wrapper Helm charts, the per-Sovereign PowerDNS zone model (#167/#168), and the pool-domain-manager (PDM) with registrar adapters (#163/#170) all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 
@@ -14,7 +14,7 @@ How to provision a new **Sovereign** — a self-sufficient deployed instance of 
 | Cloud provider | Hetzner / AWS / GCP / Azure / OCI / Huawei | Hetzner is the most-tested path. |
 | Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
 | Sovereign name | e.g. `omantel`, `bankdhofar` | Slug, lowercase, 3–32 chars. |
-| Sovereign domain | e.g. `omantel.openova.io`, `bankdhofar.com` | Customers may use openova subdomains initially, then migrate. |
+| Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes (#169): **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot (#170). |
 | Region(s) | 1+ | Single-region simplest for SME; 2+ for regulated/HA. |
 | Building blocks per region | typically `mgt` + `rtz` (+ `dmz`) | At minimum `mgt` + `rtz`. |
 | Keycloak topology | `per-organization` (SME) / `shared-sovereign` (corporate) | Determines Keycloak deployment shape. |
@@ -44,29 +44,29 @@ The implementation maps cleanly onto two artifacts in this monorepo:
 | Step | Lives in | What runs |
 |---|---|---|
 | 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3). |
-| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — operator adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. DNS records written via [`null_resource.dns_pool`](../infra/hetzner/main.tf) → catalyst-dns helper invoking the Dynadot API (managed pool domains only; BYO Sovereigns require the customer to point their own CNAME at the LB IP). |
+| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — operator adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. **DNS is authoritative on PowerDNS (#167/#168)** — the per-Sovereign PowerDNS zone is created by pool-domain-manager (PDM) `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, #170) flips the NS records at the customer's registrar. `byo-manual` Sovereigns instead show the OpenOva NS list in the wizard and poll until the customer's own registrar propagates the delegation. |
 | 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. From this point Flux owns the cluster. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl) using the project-derived k3s_token. |
-| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 11 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-catalyst-platform (umbrella). |
-| 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) written through the Crossplane provider rather than Dynadot directly. Phase 1 begins (see §4). |
+| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 12 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-powerdns (per-Sovereign authoritative zone, #167) → bp-catalyst-platform (umbrella). |
+| 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) are written by `external-dns` against the per-Sovereign PowerDNS zone via the PowerDNS REST API (NOT against the registrar). Phase 1 begins (see §4). |
 
 The wizard's progress page polls Flux Kustomizations on the new cluster and renders steady-state to the user when every Kustomization is `Ready=True`.
 
-**DNS records written in Phase 0:**
+**DNS records written in Phase 0** — into the per-Sovereign PowerDNS zone (`<sovereign-fqdn>.`), see [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Per-Sovereign zone model":
 
 ```
-*.<subdomain>.<pool-domain>          A → load balancer IP
-console.<subdomain>.<pool-domain>    A → load balancer IP
-gitea.<subdomain>.<pool-domain>      A → load balancer IP
-harbor.<subdomain>.<pool-domain>    A → load balancer IP
-admin.<subdomain>.<pool-domain>      A → load balancer IP
-api.<subdomain>.<pool-domain>        A → load balancer IP
+@                A → load balancer IP
+*                A → load balancer IP
+console          A → load balancer IP
+api              A → load balancer IP
+gitea            A → load balancer IP
+harbor           A → load balancer IP
 ```
 
-(Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.)
+The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly-created Sovereign zone via the PowerDNS REST API. The wildcard A record covers every additional subdomain a Sovereign might add at runtime (`axon`, `umami`, `langfuse`, etc.) without re-issuing certificates. Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.
 
 **OpenTofu state:** kept in the catalyst-api PVC under `/var/lib/catalyst/tofu/<sovereign-fqdn>/` — re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the operator MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on a single PVC.
 
-**Implementation status:** the Go wrapper, OpenTofu module, and 11 G2 wrapper charts all exist today (verified at [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
+**Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at #167) all exist today (verified at [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
 
 Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
 

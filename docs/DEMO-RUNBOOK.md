@@ -1,6 +1,6 @@
 # Demo Runbook — First Franchised Sovereign End-to-End (DoD)
 
-**Status:** Operator-level. **Updated:** 2026-04-28. **Scope:** `docs/ORCHESTRATOR-STATE.md` §"What still needs to happen for DoD" — every step turned into a copy-paste procedure for the omantel.omani.works DoD demo.
+**Status:** Operator-level. **Updated:** 2026-04-29. **Scope:** `docs/ORCHESTRATOR-STATE.md` §"What still needs to happen for DoD" — every step turned into a copy-paste procedure for the omantel.omani.works DoD demo.
 
 This runbook is the **single document** an operator follows to take the omantel demo from "console.openova.io is the only running cluster" through to "fictional Omantel SME tenant has redeemed a voucher and created their first Org+Env+App on a freshly-provisioned Hetzner Sovereign at `omantel.omani.works`."
 
@@ -18,7 +18,7 @@ Before opening anything, gather:
 | **Hetzner API token (Read+Write)** | Inside the project: Security → API Tokens → New Token. Save the token once — it is shown only at creation. **NEVER paste it into Slack, GitHub, or commit messages.** It goes only into the wizard's password-style input field. |
 | **Hetzner project ID** | Visible in the Cloud Console URL after selecting the project, e.g. `https://console.hetzner.cloud/projects/<numeric-id>/...`. |
 | **SSH public key** | Generate fresh if you don't already have a sovereign-admin keypair: `ssh-keygen -t ed25519 -C "sovereign-admin@omantel" -f ~/.ssh/omantel_sovereign_admin`. The PUBLIC half (`*.pub`) is what the wizard takes. |
-| **Pool subdomain reserved** | We will pick `omantel` under the `omani.works` pool domain. The pool domain's Dynadot credentials are already in K8s secret `dynadot-api-credentials/openova-system` on Catalyst-Zero — the wizard injects them automatically when domain mode = "pool". |
+| **Pool subdomain reserved** | We will pick `omantel` under the `omani.works` pool domain. PDM `/v1/reserve` checks availability against `pdm-pg`; on commit it (a) creates the per-Sovereign PowerDNS zone for `omantel.omani.works`, (b) writes the canonical 6-record set, and (c) updates the parent-zone NS delegation via the OpenOva Dynadot registrar adapter using the K8s secret `dynadot-api-credentials/openova-system`. |
 | **Catalyst-Zero login** | Your existing OpenOva-issued credentials for `console.openova.io`. Confirm you can log in BEFORE running the demo. |
 | **kubectl context to Contabo** | For Step 1 only. SSH+kubectl on the Contabo VPS as user `openova`. |
 
@@ -75,26 +75,28 @@ This is the **kickoff for the omantel.omani.works Sovereign**. Closes ticket [#1
 https://console.openova.io/sovereign
 ```
 
-Click **New Sovereign**. Walk the 7-step wizard:
+Click **New Sovereign**. Walk the 7-step wizard (canonical order from `WIZARD_STEPS`, Org → Domain → Topology → Provider → Credentials → Components → Review):
 
 | Step | Field | Value for omantel demo |
 |---|---|---|
-| 1. Org | Organisation name | `Omantel Cloud` |
-| 1. Org | Organisation email | The omantel-admin email — becomes initial sovereign-admin in Keycloak |
-| 2. Provider | Cloud | Hetzner Cloud |
-| 3. Credentials | Hetzner API token | Paste the Read+Write token from Pre-flight |
-| 3. Credentials | Hetzner project ID | The numeric project ID from Pre-flight |
-| 4. Infrastructure | Region | `fsn1` (Falkenstein) — closest EU region with capacity for the demo |
-| 4. Infrastructure | Control plane size | `cpx21` (default) |
-| 4. Infrastructure | Worker size | `cpx31` (default) |
-| 4. Infrastructure | Worker count | `1` |
-| 4. Infrastructure | HA enabled | `false` (single-CP demo; HA is supported but adds €€ for the demo) |
-| 5. Topology | Single-region vs multi-region | Single-region |
-| 6. Components | Initial App selection | Leave defaults (apps come post-provisioning anyway) |
-| 7. SSH key | SSH public key | Paste the `*.pub` content from Pre-flight |
-| 8. Domain | Domain mode | **Pool** |
-| 8. Domain | Pool domain | `omani.works` |
-| 8. Domain | Subdomain | `omantel` |
+| 1. Organisation | Organisation name | `Omantel Cloud` |
+| 1. Organisation | Contact / sovereign-admin email | The omantel-admin email — becomes initial sovereign-admin in Keycloak |
+| 2. Domain | Domain mode | **Pool** (per #169 the other modes are `byo-manual` and `byo-api`) |
+| 2. Domain | Pool domain | `omani.works` |
+| 2. Domain | Subdomain | `omantel` (validated via `POST /api/v1/subdomains/check` → PDM `/v1/reserve`) |
+| 3. Topology | Single-region vs multi-region | Single-region |
+| 4. Provider | Cloud | Hetzner Cloud |
+| 4. Provider | Region | `fsn1` (Falkenstein) — closest EU region with capacity for the demo |
+| 4. Provider | Control plane size | `cpx21` (default) |
+| 4. Provider | Worker size | `cpx31` (default) |
+| 4. Provider | Worker count | `1` |
+| 4. Provider | HA enabled | `false` (single-CP demo; HA is supported but adds €€ for the demo) |
+| 5. Credentials | Hetzner API token | Paste the Read+Write token from Pre-flight (validated read-only via `POST /api/v1/credentials/validate`) |
+| 5. Credentials | Hetzner project ID | The numeric project ID from Pre-flight |
+| 5. Credentials | SSH public key | Paste the `*.pub` content from Pre-flight |
+| 6. Components | Mandatory infra tab | Read-only — bp-cilium, bp-flux, bp-crossplane, bp-cert-manager, bp-spire, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea, bp-sealed-secrets, bp-powerdns. Always installed. |
+| 6. Components | Apps tab | Leave defaults (apps come post-provisioning anyway). Per #175 dependency-aware cascades pull transitive deps automatically. |
+| 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
 The wizard validates the token against `POST /api/v1/credentials/validate` and the subdomain against `POST /api/v1/subdomains/check` before letting you advance. If either rejects:
 
@@ -153,28 +155,38 @@ The response is a JSON object with the new `streamURL`; reconnect the SSE stream
 
 ---
 
-## Step 4 — DNS auto-write to `*.omantel.omani.works`
+## Step 4 — DNS auto-write to the per-Sovereign PowerDNS zone
 
-While Phase 0 (`tofu-apply`) is finishing, the OpenTofu module's `null_resource.dns_pool` (in [`infra/hetzner/main.tf`](../infra/hetzner/main.tf)) invokes the `catalyst-dns` helper binary with the LB IP as input. This writes the canonical 6-record set to Dynadot:
+After `tofu-output` resolves the LB IP, catalyst-api calls the pool-domain-manager (PDM) `/v1/commit` endpoint. PDM's commit transaction (#163, #167, #168, #170):
+
+1. **Creates the per-Sovereign PowerDNS zone** `omantel.omani.works.` on the bp-powerdns deployment in `openova-system` (CNPG-backed `pdns-pg`, DNSSEC-signed with ECDSAP256SHA256, lua-records enabled).
+2. **Writes the canonical 6-record set** into that zone via the PowerDNS REST API (`PATCH /api/v1/servers/localhost/zones/omantel.omani.works.`):
 
 ```
-*.omantel.omani.works          A → <LB-IP>
-console.omantel.omani.works    A → <LB-IP>
-gitea.omantel.omani.works      A → <LB-IP>
-harbor.omantel.omani.works     A → <LB-IP>
-admin.omantel.omani.works      A → <LB-IP>
-api.omantel.omani.works        A → <LB-IP>
+@                A → <LB-IP>
+*                A → <LB-IP>
+console          A → <LB-IP>
+api              A → <LB-IP>
+gitea            A → <LB-IP>
+harbor           A → <LB-IP>
 ```
 
-**Verify after `tofu-apply` completes:**
+3. **Updates the parent-zone NS delegation.** For pool sovereigns this means PDM's Dynadot registrar adapter writes `omantel NS ns1.openova.io / ns2.openova.io / ns3.openova.io` into the `omani.works` zone at Dynadot. For BYO `byo-api` sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, #170) does the same NS-flip at the customer's registrar; for `byo-manual` PDM skips the NS-flip and the wizard polls until the customer paste the NS list themselves.
+
+**Verify after PDM /v1/commit completes:**
 
 ```bash
 LB_IP=$(curl -sH "Authorization: Bearer ${YOUR_CONSOLE_TOKEN}" \
   "https://console.openova.io/api/v1/deployments/${DEPLOYMENT_ID}" \
   | jq -r '.result.loadBalancerIP')
 
+# Authoritative answer from the per-Sovereign PowerDNS zone:
+dig +short console.omantel.omani.works @ns1.openova.io
+# Expected: <LB-IP>
+
+# Recursive resolver answer (gated by parent-zone NS-delegation TTL):
 dig +short console.omantel.omani.works
-# Expected: <LB-IP> (within ~15 min — Dynadot TTL)
+# Expected: <LB-IP> (within ~15 min — parent-zone NS TTL at Dynadot)
 
 dig +short '*.omantel.omani.works'
 # Expected: <LB-IP>
@@ -182,11 +194,11 @@ dig +short '*.omantel.omani.works'
 
 **If DNS doesn't propagate within 30 min:**
 
-- The Dynadot API silently dedupes by `(subdomain, type)` — re-running the deployment is safe and re-asserts the records.
-- Check Dynadot panel manually: log into https://www.dynadot.com → Domain Settings → omani.works → DNS Settings. The 6 records should be visible.
-- **Never run `set_dns2` by hand for exploration** — each call wipes all records. See `~/.claude/projects/.../memory/feedback_dynadot_dns.md`. The right path is re-running the wizard's deployment, which uses `add_dns_to_current_setting=yes`.
+- Confirm the per-Sovereign zone exists: `kubectl -n openova-system exec deploy/powerdns -- pdnsutil list-zone omantel.omani.works`. Missing means PDM `/v1/commit` failed — check `kubectl -n openova-system logs deploy/pool-domain-manager` for the registrar-adapter error.
+- Confirm the parent-zone NS delegation: `dig omantel.omani.works NS @ns1.dynadot.com` should return `ns1.openova.io.` etc. Missing means the registrar-adapter NS-flip failed — re-run `POST /api/v1/deployments/${DEPLOYMENT_ID}/phases/dns/retry`.
+- **Never run `set_dns2` by hand for exploration** — each call wipes all records. See `~/.claude/projects/.../memory/feedback_dynadot_dns.md`. The right path is re-running PDM `/v1/commit` via the wizard retry endpoint, which uses `add_dns_to_current_setting=yes` inside the Dynadot adapter.
 
-Closes the DNS portion of the DoD; Group G's Dynadot multi-domain support (#108–#113) is what makes `omani.works` a valid pool domain.
+Closes the DNS portion of the DoD; the per-Sovereign PowerDNS zone model (#167/#168) + PDM commit (#163) + registrar adapters (#170) is what makes `omani.works` a usable pool domain.
 
 ---
 
@@ -194,7 +206,7 @@ Closes the DNS portion of the DoD; Group G's Dynadot multi-domain support (#108�
 
 Once `bp-cert-manager` is `Ready=True` (Phase 1 phase #2) and the DNS records resolve, cert-manager's ClusterIssuer triggers Let's Encrypt:
 
-- **Preferred:** DNS-01 challenge using the Dynadot webhook from Group G #113 if completed
+- **Preferred:** DNS-01 challenge using cert-manager-webhook-pdns against the per-Sovereign PowerDNS zone (#167); enables wildcard certs.
 - **Fallback:** HTTP-01 challenge (works as long as `*.omantel.omani.works` resolves to the LB and the Gateway routes `/.well-known/acme-challenge` to cert-manager's solver pod)
 
 **Verify:**
@@ -410,7 +422,7 @@ cat >> docs/VALIDATION-LOG.md <<'EOF'
 DoD Met:
 - [x] Group C cutover applied, Flux reconciled clean
 - [x] Wizard provisioned omantel.omani.works in ~10 min
-- [x] DNS auto-written via Dynadot pool domain
+- [x] DNS authoritative on the per-Sovereign PowerDNS zone; parent-zone NS-delegation written by PDM via the Dynadot registrar adapter
 - [x] TLS auto-issued via cert-manager + Let's Encrypt
 - [x] omantel-admin logged into console.omantel.omani.works
 - [x] Voucher issued via /admin/billing
@@ -464,7 +476,7 @@ After destroy, **verify**:
 ```bash
 # Hetzner Cloud Console → Servers → empty for the project
 # Hetzner Cloud Console → Load balancers → empty for the project
-dig +short console.omantel.omani.works  # may still resolve until Dynadot TTL expires (~15 min)
+dig +short console.omantel.omani.works  # may still resolve until parent-zone NS-delegation TTL expires (~15 min, set at Dynadot for pool sovereigns)
 ```
 
 The voucher row stays in the billing DB (soft-delete preserves audit trail per #91). To purge for a true cold start, drop the per-Sovereign Postgres PVC — but for the DoD demo, leaving the row is correct.

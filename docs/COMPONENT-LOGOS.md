@@ -27,11 +27,15 @@ which Vite serves from the wizard's `public/` directory. To override:
 
 ## Current asset status
 
-The 63 SVG files currently in `public/component-logos/` are **stylised
+The 62 SVG files currently in `public/component-logos/` are **stylised
 brand-color marks** authored in-house, not copies of the upstream
 projects' official logo files. They preserve each project's brand colour
 (taken from the project's documented brand pages or in-product palette)
-and use a recognisable shape mark — not the trademarked logotype.
+and use a recognisable shape mark — not the trademarked logotype. The
+componentGroups.ts catalog references one additional component
+(`powerdns`) whose SVG has not yet been vendored — the wizard renders
+the letter-mark fallback for it until a logo is added (see issue #173
+for the open card-logo follow-up).
 
 This avoids the licence ambiguity of vendoring third-party art into a
 public repository while still producing a visually distinctive grid. The

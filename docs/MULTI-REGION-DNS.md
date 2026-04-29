@@ -1,6 +1,6 @@
 # Multi-Region DNS — health-checked failover with PowerDNS lua-records
 
-**Status:** Authoritative. **Updated:** 2026-04-29.
+**Status:** Authoritative. **Updated:** 2026-04-29 (Reconcile Pass 1).
 
 This document is the canonical reference for **how Catalyst routes traffic across regions**. Geographic redundancy in OpenOva is realized at the **authoritative DNS** layer, not at the K8s controller layer. PowerDNS lua-records (`ifurlup`, `ifportup`, `pickclosest`, `pickrandom`, `pickwhashed`) provide everything Catalyst needs:
 
@@ -33,7 +33,7 @@ The architectural cost difference is large enough that the deletion is the right
 
 Every Catalyst Sovereign zone is hosted on PowerDNS. The records below sit alongside ordinary A/AAAA/CNAME records that `external-dns` writes via the PowerDNS REST API. Lua-record syntax follows the [upstream PowerDNS documentation](https://doc.powerdns.com/authoritative/lua-records/index.html).
 
-> **Note on examples.** Backend IPv4 addresses (`5.161.42.18`, `95.217.189.42`) and the FQDN `primary.example.com` below are placeholders — they illustrate the lua-record shape only. Real records are written by the `catalyst-dns` controller from the per-Sovereign Application Placement spec; see `core/catalyst-dns/` and [`docs/PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"In-cluster consumers".
+> **Note on examples.** Backend IPv4 addresses (`5.161.42.18`, `95.217.189.42`) and the FQDN `primary.example.com` below are placeholders — they illustrate the lua-record shape only. The canonical 6-record set per Sovereign zone is written by **pool-domain-manager** (PDM, `core/pool-domain-manager/`) on `/v1/commit`; lua-records (geo / health-check policy) are written by the **catalyst-dns** controller (Catalyst control-plane sidecar) from each Application's Placement spec — see [`docs/PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"In-cluster consumers".
 
 ### 2.1 Active-active across two regions, health-checked
 
@@ -102,9 +102,10 @@ api.acme.com.  IN  LUA  A "pickwhashed({{80, '5.161.42.18'}, {20, '95.217.189.42
 
 ### 3.1 Where lua-records are written
 
-Lua-records are part of each Sovereign's PowerDNS zone, alongside the canonical 6-record set ([`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Per-Sovereign zone model"). They are written by the **catalyst-dns** controller (sidecar to the Catalyst control plane on the `mgt` cluster), NOT by `external-dns`:
+Lua-records are part of each Sovereign's PowerDNS zone, alongside the canonical 6-record set ([`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Per-Sovereign zone model"). The 6-record set is written once at provisioning by **pool-domain-manager** (PDM `/v1/commit`); ongoing A/AAAA/CNAME records are written by **external-dns**; LUA records are written by the **catalyst-dns** controller (sidecar to the Catalyst control plane on the `mgt` cluster):
 
 ```
+PDM         ──► PowerDNS REST API ──► canonical 6-record set (one-shot at provision)
 external-dns ──► PowerDNS REST API ──► A/AAAA/CNAME records (per-region LB IPs)
 catalyst-dns ──► PowerDNS REST API ──► LUA records (geo / health-check policy)
 ```

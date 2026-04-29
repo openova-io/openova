@@ -1,7 +1,7 @@
 # Platform Tech Stack
 
-**Status:** Authoritative target stack. **Updated:** 2026-04-27.
-**Implementation:** Component READMEs exist; Catalyst control-plane glue is design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
+**Status:** Authoritative target stack. **Updated:** 2026-04-29.
+**Implementation:** Component READMEs exist; Catalyst control-plane glue is mostly design-stage. The DNS plane (bp-powerdns + pool-domain-manager + registrar adapters) is **deployed today** in `openova-system` on Catalyst-Zero — see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 Every component in Catalyst, what it does, and where it sits — control plane, application layer, or both. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 
@@ -45,6 +45,7 @@ These components make a Kubernetes cluster a Sovereign. Installed exactly once p
 | **environment-controller** | Reconciles Environment CRD: vcluster + Flux-bootstrap (watching the appropriate branch across the Org's Application repos) + webhooks. |
 | **blueprint-controller** | Watches Blueprint sources (this monorepo + per-Sovereign `catalog-sovereign` Gitea Org + Org-private `shared-blueprints` repos), registers Blueprint CRDs. |
 | **billing** | Per-Organization metering, invoicing. |
+| **pool-domain-manager (PDM)** | Allocates pool subdomains (under `omani.works` / `openova.io`), owns the per-Sovereign PowerDNS zone lifecycle (`/v1/reserve` → `/v1/commit` writes the 6-record set + parent-zone NS delegation), and exposes registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot — #170) for BYO `byo-api` flow's NS-flip. CNPG-backed `pdm-pg`. Source: [`core/pool-domain-manager/`](../core/pool-domain-manager/). Lives on the OpenOva-run Catalyst-Zero (the catalyst-provisioner), not on every Sovereign — it is part of the bootstrap surface, not the per-Sovereign control plane. |
 
 ### 2.3 Per-Sovereign supporting services
 
