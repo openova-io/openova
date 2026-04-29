@@ -101,6 +101,22 @@ COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
 # module references, with no network fetch needed at provision time.
 COPY infra/hetzner/ /infra/hetzner/
 
+# Pre-create the deployments-store directory with the runtime UID's
+# ownership so the catalyst-api process (UID 65534) can write to it.
+# In K8s the Pod template's securityContext.fsGroup=65534 chown-walks
+# the PVC at attach time, but docker bind-mounts (used by the
+# manual-proof harness in the ticket: `docker run -v /tmp/catalyst-
+# test:/var/lib/catalyst/deployments`) inherit the host directory's
+# permissions, NOT the image's. The store's New() probes writability
+# at process start; if the bind-mount isn't writable, the Pod logs
+# "deployment store unavailable" and falls back to in-memory state
+# (no panic). This mkdir guarantees the in-image path exists with
+# correct ownership for the K8s case where the PVC is empty on
+# first attach.
+RUN mkdir -p /var/lib/catalyst/deployments \
+    && chown -R 65534:65534 /var/lib/catalyst \
+    && chmod 0700 /var/lib/catalyst/deployments
+
 # Alpine 3.20 already ships UID 65534 as `nobody`. Reuse that rather than
 # creating a duplicate `nonroot` account (adduser would fail with
 # "uid '65534' in use"). The numeric form satisfies runAsNonRoot in K8s.
