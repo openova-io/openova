@@ -43,6 +43,21 @@ import (
 // Tests inject a much shorter value via Handler.phase1WatchTimeout.
 const phase1WatchTimeoutEnv = "CATALYST_PHASE1_WATCH_TIMEOUT"
 
+// phase1MinBootstrapKitHRsEnv — env var override for the lower bound
+// on observed bp-* HelmReleases below which the terminate-on-all-done
+// gate is suppressed. Default helmwatch.DefaultMinBootstrapKitHRs
+// (11) tracks the canonical bootstrap-kit count. A future kit that
+// ships more or fewer components only needs this env flipped on the
+// catalyst-api Deployment — no code change required.
+const phase1MinBootstrapKitHRsEnv = "CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS"
+
+// phase1FirstSeenTimeoutEnv — env var override for the first-seen
+// gate window. If zero bp-* HelmReleases appear within this window,
+// the watcher emits a single warn event ("bootstrap-kit not
+// reconciling") and CONTINUES the watch (HRs may still appear). The
+// watch's overall budget is phase1WatchTimeoutEnv.
+const phase1FirstSeenTimeoutEnv = "CATALYST_PHASE1_FIRST_SEEN_TIMEOUT"
+
 // runPhase1Watch builds a helmwatch.Watcher and runs it to completion.
 // All emit goes through h.emitWatchEvent so the durable buffer + SSE
 // channel get every per-component event.
@@ -100,7 +115,8 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 			Level:   "warn",
 			Message: "Phase-1 watch skipped: no kubeconfig is available on the catalyst-api side. The new Sovereign's cloud-init has not yet PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 is still in flight, or cloud-init failed to reach this endpoint. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment to observe per-component install state.",
 		})
-		h.markPhase1Done(dep, nil)
+		// Short-circuit path — no watch ever ran, so outcome is empty.
+		h.markPhase1Done(dep, nil, "")
 		return
 	}
 
@@ -115,7 +131,8 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 			Level:   "error",
 			Message: fmt.Sprintf("Phase-1 watch could not start: %v — Sovereign cluster is up (Phase 0 succeeded) but per-component state will not stream from this catalyst-api. Operator may run `kubectl get helmrelease -n flux-system` against the new Sovereign for ad-hoc diagnostics.", err),
 		})
-		h.markPhase1Done(dep, nil)
+		// Short-circuit path — no watch ever ran, so outcome is empty.
+		h.markPhase1Done(dep, nil, "")
 		return
 	}
 
@@ -129,7 +146,14 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 			"err", watchErr,
 		)
 	}
-	h.markPhase1Done(dep, finalStates)
+	// Read the watch's terminal classification BEFORE markPhase1Done
+	// — Outcome() must be called after Watch returns so the watcher
+	// has set its final value. The Sovereign Admin's wizard banner
+	// reads dep.Result.Phase1Outcome to render the right
+	// operator-actionable diagnostic (e.g. "Flux on the new cluster
+	// isn't reconciling the bootstrap-kit Kustomization").
+	outcome := watcher.Outcome()
+	h.markPhase1Done(dep, finalStates, outcome)
 }
 
 // phase1WatchConfigForDeployment — builds the helmwatch.Config the
@@ -137,17 +161,33 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 // to verify env-var parse + factory wiring without standing up a
 // real cluster.
 //
-// h.phase1WatchTimeout is a test-only override; production reads the
-// env var unmodified.
+// h.phase1WatchTimeout / h.phase1MinBootstrapKitHRs /
+// h.phase1FirstSeenTimeout are test-only overrides; production reads
+// the env vars unmodified. Per docs/INVIOLABLE-PRINCIPLES.md #4 every
+// knob is runtime-configurable — no constant is hardcoded into the
+// build that an operator can't override at the catalyst-api
+// Deployment level.
 func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig string) helmwatch.Config {
 	timeout := h.phase1WatchTimeout
 	if timeout == 0 {
 		timeout = helmwatch.CompileWatchTimeout(envOrEmpty(phase1WatchTimeoutEnv))
 	}
 
+	minHRs := h.phase1MinBootstrapKitHRs
+	if minHRs == 0 {
+		minHRs = helmwatch.CompileMinBootstrapKitHRs(envOrEmpty(phase1MinBootstrapKitHRsEnv))
+	}
+
+	firstSeen := h.phase1FirstSeenTimeout
+	if firstSeen == 0 {
+		firstSeen = helmwatch.CompileFirstSeenTimeout(envOrEmpty(phase1FirstSeenTimeoutEnv))
+	}
+
 	cfg := helmwatch.Config{
-		KubeconfigYAML: kubeconfig,
-		WatchTimeout:   timeout,
+		KubeconfigYAML:     kubeconfig,
+		WatchTimeout:       timeout,
+		MinBootstrapKitHRs: minHRs,
+		FirstSeenTimeout:   firstSeen,
 	}
 	if h.dynamicFactory != nil {
 		cfg.DynamicFactory = h.dynamicFactory
@@ -165,7 +205,17 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 // Status accordingly. Holds dep.mu for the whole transition so a
 // State() snapshot from another goroutine can't observe Status=ready
 // without ComponentStates yet being committed.
-func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string) {
+//
+// The `outcome` argument is the watcher's terminal classification
+// (helmwatch.OutcomeReady / OutcomeFailed / OutcomeTimeout /
+// OutcomeFluxNotReconciling), or empty when no watch was ever run
+// (kubeconfig short-circuit, NewWatcher failure). The Sovereign
+// Admin's wizard banner reads dep.Result.Phase1Outcome to render the
+// right operator-actionable diagnostic — in particular,
+// "flux-not-reconciling" tells the operator to inspect the
+// bootstrap-kit Kustomization on the new cluster instead of
+// retrying provisioning.
+func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string, outcome string) {
 	now := time.Now().UTC()
 
 	dep.mu.Lock()
@@ -179,6 +229,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string)
 	}
 	dep.Result.ComponentStates = finalStates
 	dep.Result.Phase1FinishedAt = &now
+	dep.Result.Phase1Outcome = outcome
 
 	failed := 0
 	for _, s := range finalStates {
@@ -189,6 +240,14 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string)
 
 	dep.FinishedAt = time.Now()
 	switch {
+	case outcome == helmwatch.OutcomeFluxNotReconciling:
+		// Watch terminated because zero HelmReleases were ever
+		// observed on the new Sovereign — Flux on that cluster is
+		// not reconciling the bootstrap-kit Kustomization. This is
+		// a hard failure; the operator must investigate
+		// flux-system before any retry.
+		dep.Status = "failed"
+		dep.Error = "Phase 1 watch saw zero HelmReleases — the bootstrap-kit Kustomization on the new Sovereign is not reconciling. Operator: inspect `flux get kustomization -n flux-system` and `kubectl describe kustomization -n flux-system` on the new cluster (see docs/RUNBOOK-PROVISIONING.md §\"Phase 1 watch shows 0 HelmReleases\")."
 	case failed > 0:
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 finished with %d failed component(s); see ComponentStates for the per-component breakdown", failed)
@@ -201,6 +260,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string)
 		"componentCount", len(finalStates),
 		"failedCount", failed,
 		"finalStatus", dep.Status,
+		"phase1Outcome", outcome,
 	)
 }
 

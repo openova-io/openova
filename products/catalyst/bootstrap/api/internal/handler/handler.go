@@ -66,16 +66,27 @@ type Handler struct {
 
 	// Phase-1 watch knobs — every field below is a test-only override
 	// for internal/helmwatch.Config. Production reads
-	// CATALYST_PHASE1_WATCH_TIMEOUT from env and uses
+	// CATALYST_PHASE1_WATCH_TIMEOUT,
+	// CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS,
+	// CATALYST_PHASE1_FIRST_SEEN_TIMEOUT from env and uses
 	// helmwatch.NewDynamicClientFromKubeconfig /
 	// NewKubernetesClientFromKubeconfig. Tests inject a
 	// fake.NewSimpleDynamicClient via dynamicFactory and a tiny
 	// timeout via phase1WatchTimeout so termination behaviour is
 	// deterministic.
-	dynamicFactory     func(string) (dynamic.Interface, error)
-	coreFactory        func(string) (kubernetes.Interface, error)
-	phase1WatchTimeout time.Duration
-	phase1WatchResync  time.Duration
+	//
+	// phase1MinBootstrapKitHRs lets tests with a small fake cluster
+	// (3-5 HRs) still exercise the all-done termination path without
+	// having to seed the canonical 11-component bootstrap-kit. Zero
+	// means "fall back to env var → DefaultMinBootstrapKitHRs",
+	// non-zero means "use this value". phase1FirstSeenTimeout works
+	// the same way for the first-seen warn window.
+	dynamicFactory           func(string) (dynamic.Interface, error)
+	coreFactory              func(string) (kubernetes.Interface, error)
+	phase1WatchTimeout       time.Duration
+	phase1WatchResync        time.Duration
+	phase1MinBootstrapKitHRs int
+	phase1FirstSeenTimeout   time.Duration
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate

@@ -348,6 +348,30 @@ type Result struct {
 	// Phase1FinishedAt — UTC timestamp the watch loop terminated.
 	// nil while Phase 1 is in flight or has not started.
 	Phase1FinishedAt *time.Time `json:"phase1FinishedAt,omitempty"`
+
+	// Phase1Outcome — terminal classification of the Phase-1 watch.
+	// One of:
+	//
+	//   - "ready"                — all observed components installed,
+	//                              ≥ MinBootstrapKitHRs were observed
+	//   - "failed"                — all observed components terminal
+	//                              AND ≥ MinBootstrapKitHRs were
+	//                              observed, but at least one failed
+	//   - "timeout"               — overall WatchTimeout elapsed with
+	//                              partial state (≥1 HR observed)
+	//   - "flux-not-reconciling"  — overall WatchTimeout elapsed with
+	//                              ZERO HelmReleases ever observed.
+	//                              The bootstrap-kit Kustomization on
+	//                              the new Sovereign isn't reconciling.
+	//                              Operator playbook in
+	//                              docs/RUNBOOK-PROVISIONING.md
+	//                              §"Phase 1 watch shows 0 HelmReleases".
+	//
+	// Empty while Phase 1 is in flight or was skipped (no kubeconfig).
+	// The Sovereign Admin's wizard banner reads this to render the
+	// right operator-actionable diagnostic instead of an opaque
+	// "stuck" pill.
+	Phase1Outcome string `json:"phase1Outcome,omitempty"`
 }
 
 // Provisioner runs `tofu init && tofu apply` against the canonical
