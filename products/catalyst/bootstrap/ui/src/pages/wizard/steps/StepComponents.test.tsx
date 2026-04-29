@@ -25,10 +25,16 @@ import { render, screen, fireEvent, cleanup, act, within } from '@testing-librar
 import { StepComponents } from './StepComponents'
 import {
   ALL_COMPONENTS,
+  RAW_COMPONENTS,
   MANDATORY_COMPONENT_IDS,
+  TRANSITIVE_MANDATORY_PROMOTIONS,
+  PRODUCTS,
   resolveTransitiveDependencies,
   resolveTransitiveDependents,
+  resolveProductComponentClosure,
   findComponent,
+  findProduct,
+  componentsByProduct,
   computeDefaultSelection,
   GROUPS,
 } from './componentGroups'
@@ -234,8 +240,11 @@ describe('Tab 1 — search filter', () => {
     render(<StepComponents />)
     const input = screen.getByTestId('component-search') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'fabric' } })
-    // cnpg is recommended (non-mandatory) and lives in fabric
-    expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
+    // strimzi is recommended (non-mandatory) and lives in fabric. cnpg
+    // / valkey were here pre-#175 but the transitive-mandatory promotion
+    // has lifted them into Tab 2 ("Always Included") so we use a member
+    // that is still user-toggleable in Tab 1.
+    expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
     expect(screen.queryByTestId('component-card-grafana')).toBeNull()
   })
 
@@ -263,10 +272,15 @@ describe('Tab 1 — category filter', () => {
   it('clicking a category chip narrows the grid to that group', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    // Fabric non-mandatories include cnpg, valkey, strimzi, debezium, …
-    expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
+    // Fabric non-mandatories (post-#175 promotion) include strimzi,
+    // debezium, flink, temporal, clickhouse, ferretdb, iceberg, superset.
     expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
+    expect(screen.getByTestId('component-card-debezium')).toBeTruthy()
     expect(screen.queryByTestId('component-card-grafana')).toBeNull()
+    // cnpg / valkey are mandatory after #175 and should not surface
+    // in Tab 1 even when their parent product is filtered to.
+    expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
+    expect(screen.queryByTestId('component-card-valkey')).toBeNull()
   })
 
   it('toggling the same chip a second time clears the filter', () => {
@@ -280,13 +294,15 @@ describe('Tab 1 — category filter', () => {
 /* ── Sort: selected first ─────────────────────────────────────────── */
 
 describe('Tab 1 — sort: selected first', () => {
-  it('selected components float to the top of the grid', () => {
+  it('selected components float to the top of the FABRIC product section', () => {
     resetStore({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
     fireEvent.click(screen.getByTestId('component-card-clickhouse'))
-    const grid = screen.getByTestId('component-grid')
-    const cards = within(grid).getAllByRole('button')
+    // Tab 1 renders product sections — the section, not the outer grid,
+    // is the right scope for the "selected-first" sort assertion.
+    const section = screen.getByTestId('product-section-fabric')
+    const cards = within(section).getAllByTestId(/^component-card-/)
     const ids = cards.map((c) => c.getAttribute('data-testid'))
     expect(ids[0]).toBe('component-card-clickhouse')
   })
@@ -314,18 +330,21 @@ describe('cascading add', () => {
   })
 
   it('UI emits a single toast announcing the cascade', () => {
-    // Strip optional deps so cascade actually fires
+    // Strip every CORTEX member so the family cascade fires when we
+    // click LangFuse. cnpg is a transitive-mandatory now and stays
+    // selected, but the toast surfaces the CORTEX family addition.
+    const before = useWizardStore.getState().selectedComponents
+    const cortexIds = ['kserve', 'knative', 'axon', 'neo4j', 'vllm', 'milvus', 'bge', 'langfuse', 'librechat']
     useWizardStore.setState({
-      selectedComponents: useWizardStore.getState().selectedComponents.filter(
-        (id) => !['langfuse', 'cnpg'].includes(id),
-      ),
+      selectedComponents: before.filter((id) => !cortexIds.includes(id)),
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('component-card-langfuse'))
     const toast = screen.getByTestId('toast-added')
     expect(toast.textContent).toMatch(/LangFuse added/)
-    expect(toast.textContent).toMatch(/Also added/)
-    expect(toast.textContent).toMatch(/CloudNative PG/)
+    expect(toast.textContent).toMatch(/CORTEX family/)
+    // BGE / Milvus / vLLM are CORTEX members the cascade pulls in.
+    expect(toast.textContent).toMatch(/(BGE|Milvus|vLLM)/)
   })
 
   it('store action is idempotent — adding the same id twice is a no-op', () => {
@@ -340,57 +359,72 @@ describe('cascading add', () => {
 
 describe('cascading remove', () => {
   it('opens a confirm dialog when removing a component with dependents', () => {
+    // strimzi (recommended, fabric) has Debezium depending on it, so
+    // toggling-off strimzi triggers the cascade-remove confirm. Replaces
+    // the pre-#175 cnpg test (cnpg was promoted to mandatory by the
+    // transitive-mandatory rule and no longer surfaces in Tab 1).
     useWizardStore.setState({
       selectedComponents: [
         ...new Set([
           ...useWizardStore.getState().selectedComponents,
-          'cnpg',
-          'gitea',
+          'strimzi',
+          'debezium',
         ]),
       ].sort(),
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-cnpg'))
+    fireEvent.click(screen.getByTestId('component-card-strimzi'))
     expect(screen.getByTestId('cascade-dialog')).toBeTruthy()
     const list = screen.getByTestId('cascade-dependents')
-    expect(list.textContent).toMatch(/Gitea|Harbor|Keycloak/)
+    expect(list.textContent).toMatch(/Debezium/)
   })
 
   it('cancel keeps the component selected', () => {
+    useWizardStore.setState({
+      selectedComponents: [
+        ...new Set([
+          ...useWizardStore.getState().selectedComponents,
+          'strimzi',
+          'debezium',
+        ]),
+      ].sort(),
+    })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-cnpg'))
+    fireEvent.click(screen.getByTestId('component-card-strimzi'))
     fireEvent.click(screen.getByTestId('cascade-cancel'))
-    expect(useWizardStore.getState().selectedComponents).toContain('cnpg')
+    expect(useWizardStore.getState().selectedComponents).toContain('strimzi')
     expect(screen.queryByTestId('cascade-dialog')).toBeNull()
   })
 
   it('confirm cascades through the impact set', () => {
+    // strimzi → debezium is a non-mandatory chain we can fully unwind.
     useWizardStore.setState({
-      selectedComponents: ['cnpg', 'langfuse', 'librechat', 'matrix', 'temporal'].sort(),
+      selectedComponents: ['strimzi', 'debezium'].sort(),
     })
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('component-card-cnpg'))
+    fireEvent.click(screen.getByTestId('component-card-strimzi'))
     fireEvent.click(screen.getByTestId('cascade-confirm'))
     const sel = useWizardStore.getState().selectedComponents
-    expect(sel).not.toContain('cnpg')
-    expect(sel).not.toContain('langfuse')
-    expect(sel).not.toContain('librechat')
-    expect(sel).not.toContain('matrix')
-    expect(sel).not.toContain('temporal')
+    expect(sel).not.toContain('strimzi')
+    expect(sel).not.toContain('debezium')
   })
 
   it('mandatory components are NEVER removed even via cascade', () => {
+    // cnpg is mandatory after #175 — `removeComponent('cnpg')` is a
+    // no-op AND never cascades through to keycloak / gitea / harbor.
     useWizardStore.setState({
       selectedComponents: [...computeDefaultSelection()].sort(),
     })
     useWizardStore.getState().removeComponent('cnpg')
     const sel = useWizardStore.getState().selectedComponents
-    expect(sel).toContain('gitea') // mandatory — protected
-    expect(sel).toContain('harbor') // mandatory — protected
-    expect(sel).not.toContain('keycloak') // recommended — cascaded out
+    expect(sel).toContain('gitea')   // mandatory — protected
+    expect(sel).toContain('harbor')  // mandatory — protected
+    expect(sel).toContain('keycloak') // recommended — protected because
+                                     // cnpg (its dep) is no-op'd
+    expect(sel).toContain('cnpg')   // refused removal
   })
 
   it('removeComponent on a mandatory id is a no-op', () => {
@@ -426,23 +460,30 @@ describe('Tab 2 (Always Included) — read-only mandatory grid', () => {
     }
   })
 
-  it('groups mandatory components by product', () => {
+  it('groups mandatory components by product (post-promotion catalog)', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
-    // Every group that has at least one mandatory has a section header
+    // Every group that has at least one mandatory in the POST-promotion
+    // catalog has a section header. cnpg / valkey were lifted to
+    // mandatory by #175 so FABRIC now qualifies even though raw GROUPS
+    // declared its members as recommended/optional.
     for (const g of GROUPS) {
-      const hasMandatory = g.components.some((c) => c.tier === 'mandatory')
+      const hasMandatory = ALL_COMPONENTS.some(
+        (c) => c.product === g.id && c.tier === 'mandatory',
+      )
       if (hasMandatory) {
         expect(screen.getByTestId(`always-included-section-${g.id}`)).toBeTruthy()
       }
     }
   })
 
-  it('groups with zero mandatories are NOT rendered as sections', () => {
+  it('products with zero mandatories (post-promotion) are NOT rendered as sections', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
     for (const g of GROUPS) {
-      const hasMandatory = g.components.some((c) => c.tier === 'mandatory')
+      const hasMandatory = ALL_COMPONENTS.some(
+        (c) => c.product === g.id && c.tier === 'mandatory',
+      )
       if (!hasMandatory) {
         expect(screen.queryByTestId(`always-included-section-${g.id}`)).toBeNull()
       }
@@ -581,5 +622,301 @@ describe('reverse-graph helpers', () => {
   it('act() suppresses unhandled promise warnings — sanity', () => {
     act(() => undefined)
     expect(true).toBe(true)
+  })
+})
+
+/* ── #175 fix A: transitive-mandatory promotion ──────────────────── */
+
+describe('transitive-mandatory promotion (issue #175 fix A)', () => {
+  it('cnpg starts as recommended in raw data', () => {
+    const raw = RAW_COMPONENTS.find((c) => c.id === 'cnpg')
+    expect(raw).toBeDefined()
+    expect(raw!.tier).toBe('recommended')
+  })
+
+  it('cnpg is mandatory in the post-promotion catalog', () => {
+    expect(findComponent('cnpg')!.tier).toBe('mandatory')
+  })
+
+  it('valkey is mandatory in the post-promotion catalog', () => {
+    expect(findComponent('valkey')!.tier).toBe('mandatory')
+  })
+
+  it('TRANSITIVE_MANDATORY_PROMOTIONS includes cnpg + valkey', () => {
+    expect(TRANSITIVE_MANDATORY_PROMOTIONS).toContain('cnpg')
+    expect(TRANSITIVE_MANDATORY_PROMOTIONS).toContain('valkey')
+  })
+
+  it('every promoted component is reachable from a raw mandatory seed', () => {
+    const rawById = new Map(RAW_COMPONENTS.map((c) => [c.id, c]))
+    const seeds = RAW_COMPONENTS.filter((c) => c.tier === 'mandatory').map((c) => c.id)
+    const reachable = new Set<string>(seeds)
+    const queue = [...seeds]
+    while (queue.length > 0) {
+      const next = queue.shift()!
+      const entry = rawById.get(next)
+      if (!entry) continue
+      for (const dep of entry.dependencies ?? []) {
+        if (!reachable.has(dep)) {
+          reachable.add(dep)
+          queue.push(dep)
+        }
+      }
+    }
+    for (const id of TRANSITIVE_MANDATORY_PROMOTIONS) {
+      expect(reachable.has(id)).toBe(true)
+    }
+  })
+
+  it('cnpg does NOT appear in Tab 1 ("Choose Your Stack")', () => {
+    render(<StepComponents />)
+    expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
+  })
+
+  it('cnpg DOES appear in Tab 2 ("Always Included")', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
+  })
+
+  it('valkey DOES appear in Tab 2 ("Always Included")', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.getByTestId('component-card-valkey')).toBeTruthy()
+  })
+
+  it('promoted components are grouped under their owning product in Tab 2', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    // cnpg lives in FABRIC; the FABRIC section should now appear in
+    // Tab 2 because of cnpg / valkey's promotion.
+    const fabricSection = screen.getByTestId('always-included-section-fabric')
+    expect(within(fabricSection).getByTestId('component-card-cnpg')).toBeTruthy()
+    expect(within(fabricSection).getByTestId('component-card-valkey')).toBeTruthy()
+  })
+})
+
+/* ── #175 fix B: product-family model ────────────────────────────── */
+
+describe('product-family model (issue #175 fix B)', () => {
+  it('every product has a corresponding GROUPS entry', () => {
+    for (const p of PRODUCTS) {
+      expect(GROUPS.find((g) => g.id === p.id)).toBeDefined()
+    }
+  })
+
+  it('every product.components matches GROUPS members', () => {
+    for (const p of PRODUCTS) {
+      const group = GROUPS.find((g) => g.id === p.id)!
+      const groupIds = group.components.map((c) => c.id)
+      expect(p.components.sort()).toEqual([...groupIds].sort())
+    }
+  })
+
+  it('CORTEX has cascadeOnMemberSelection=true (per operator)', () => {
+    expect(findProduct('cortex')!.cascadeOnMemberSelection).toBe(true)
+  })
+
+  it('FABRIC has cascadeOnMemberSelection=false (à-la-carte)', () => {
+    expect(findProduct('fabric')!.cascadeOnMemberSelection).toBe(false)
+  })
+
+  it('CORTEX familyDependencies include FABRIC (cnpg-backed members)', () => {
+    expect(findProduct('cortex')!.familyDependencies).toContain('fabric')
+  })
+
+  it('Specter component-level deps cover the major CORTEX runtime members', () => {
+    const specter = findComponent('specter')!
+    for (const dep of ['bge', 'milvus', 'langfuse', 'vllm', 'kserve']) {
+      expect(specter.dependencies).toContain(dep)
+    }
+  })
+})
+
+/* ── store: addProduct / removeProduct ──────────────────────────── */
+
+describe('store: addProduct cascade', () => {
+  it('addProduct(cortex) adds every CORTEX component', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addProduct('cortex')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of componentsByProduct('cortex')) {
+      expect(sel).toContain(c.id)
+    }
+  })
+
+  it('addProduct(cortex) cascades to FABRIC components via familyDependencies', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addProduct('cortex')
+    const sel = useWizardStore.getState().selectedComponents
+    // FABRIC's strimzi (and other recommended/optional members) are
+    // pulled in via the family-dependency cascade.
+    expect(sel).toContain('strimzi')
+    expect(sel).toContain('clickhouse')
+  })
+
+  it('addProduct(unknown) is a no-op', () => {
+    useWizardStore.setState({ selectedComponents: ['flux'] })
+    useWizardStore.getState().addProduct('this-product-does-not-exist')
+    expect(useWizardStore.getState().selectedComponents).toEqual(['flux'])
+  })
+})
+
+describe('store: removeProduct cascade', () => {
+  it('removeProduct(cortex) drops every non-mandatory CORTEX member', () => {
+    const fullCortex = resolveProductComponentClosure('cortex')
+    useWizardStore.setState({
+      selectedComponents: [...new Set([...MANDATORY_COMPONENT_IDS, ...fullCortex])].sort(),
+    })
+    useWizardStore.getState().removeProduct('cortex')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of componentsByProduct('cortex')) {
+      if (c.tier === 'mandatory') continue
+      expect(sel).not.toContain(c.id)
+    }
+  })
+
+  it('removeProduct(cortex) preserves CORTEX mandatory members (kserve)', () => {
+    const fullCortex = resolveProductComponentClosure('cortex')
+    useWizardStore.setState({
+      selectedComponents: [...new Set([...MANDATORY_COMPONENT_IDS, ...fullCortex])].sort(),
+    })
+    useWizardStore.getState().removeProduct('cortex')
+    expect(useWizardStore.getState().selectedComponents).toContain('kserve')
+  })
+
+  it('removeProduct(unknown) is a no-op', () => {
+    useWizardStore.setState({ selectedComponents: ['flux'] })
+    useWizardStore.getState().removeProduct('this-product-does-not-exist')
+    expect(useWizardStore.getState().selectedComponents).toEqual(['flux'])
+  })
+})
+
+/* ── cross-product cascade through addComponent ─────────────────── */
+
+describe('addComponent → product family cascade (CORTEX)', () => {
+  it('selecting BGE cascades to every CORTEX component', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addComponent('bge')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of componentsByProduct('cortex')) {
+      expect(sel).toContain(c.id)
+    }
+  })
+
+  it('selecting Specter cascades to every CORTEX component', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addComponent('specter')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of componentsByProduct('cortex')) {
+      expect(sel).toContain(c.id)
+    }
+  })
+
+  it('selecting clickhouse (FABRIC à-la-carte) does NOT cascade FABRIC', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addComponent('clickhouse')
+    const sel = useWizardStore.getState().selectedComponents
+    expect(sel).toContain('clickhouse')
+    // Strimzi belongs to FABRIC but FABRIC is à-la-carte; clickhouse
+    // should not pull it in.
+    expect(sel).not.toContain('strimzi')
+  })
+
+  it('selecting BGE emits a CORTEX-family toast', () => {
+    useWizardStore.setState({
+      selectedComponents: [...MANDATORY_COMPONENT_IDS].sort(),
+    })
+    render(<StepComponents />)
+    // bge lives under CORTEX (optional product, no category chip in Tab 1
+    // when filtered to fabric — switch chip first).
+    fireEvent.click(screen.getByTestId('category-chip-cortex'))
+    fireEvent.click(screen.getByTestId('component-card-bge'))
+    const toast = screen.getByTestId('toast-added')
+    expect(toast.textContent).toMatch(/BGE added/)
+    expect(toast.textContent).toMatch(/CORTEX family/)
+  })
+})
+
+/* ── product-section header rendering ───────────────────────────── */
+
+describe('Tab 1 — product sections (issue #175)', () => {
+  it('renders a product section per product with non-mandatory members', () => {
+    render(<StepComponents />)
+    for (const p of PRODUCTS) {
+      const userToggleable = componentsByProduct(p.id).filter(
+        (c) => c.tier !== 'mandatory',
+      )
+      if (userToggleable.length > 0) {
+        expect(screen.getByTestId(`product-section-${p.id}`)).toBeTruthy()
+      }
+    }
+  })
+
+  it('CORTEX product section exposes a "select entire product" CTA', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    render(<StepComponents />)
+    expect(screen.getByTestId('product-cta-cortex')).toBeTruthy()
+  })
+
+  it('clicking CORTEX product CTA selects every CORTEX component', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('product-cta-cortex'))
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of componentsByProduct('cortex')) {
+      expect(sel).toContain(c.id)
+    }
+  })
+
+  it('product CTA toast announces the family addition', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('product-cta-cortex'))
+    const toast = screen.getByTestId('toast-added')
+    expect(toast.textContent).toMatch(/CORTEX family added/)
+  })
+})
+
+/* ── i18n: every operator-visible string is sourced from the copy
+       module, not literal in JSX. We can't introspect the string
+       table directly here but a smoke check at render confirms the
+       module is wired up. ─────────────────────────────────────────*/
+
+describe('i18n copy module wired into UI', () => {
+  it('blurb in Tab 2 matches the copy module value', () => {
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    expect(screen.getByTestId('always-included-blurb').textContent).toMatch(
+      /platform components run on every Sovereign/i,
+    )
+  })
+
+  it('reset-defaults button is present and labelled from the copy module', () => {
+    render(<StepComponents />)
+    expect(screen.getByTestId('reset-defaults').textContent).toMatch(/Reset to defaults/i)
+  })
+})
+
+/* ── catalog re-validation post-promotion ────────────────────────── */
+
+describe('post-promotion catalog invariants', () => {
+  it('ALL_COMPONENTS and RAW_COMPONENTS share the same id set', () => {
+    const a = ALL_COMPONENTS.map((c) => c.id).sort()
+    const r = RAW_COMPONENTS.map((c) => c.id).sort()
+    expect(a).toEqual(r)
+  })
+
+  it('every component has a `product` field equal to its groupId', () => {
+    for (const c of ALL_COMPONENTS) {
+      expect(c.product).toBe(c.groupId)
+    }
+  })
+
+  it('mandatory deps remain present in the default selection', () => {
+    const defaults = new Set(computeDefaultSelection())
+    for (const id of MANDATORY_COMPONENT_IDS) {
+      expect(defaults.has(id)).toBe(true)
+    }
   })
 })
