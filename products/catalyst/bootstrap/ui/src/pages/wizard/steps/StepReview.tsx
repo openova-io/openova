@@ -13,7 +13,7 @@
  *   3. Provider           — per-region: logo+name, region label, control-
  *                           plane SKU, worker SKU+count, hourly cost. Each
  *                           region's SKU comes from its own provider's
- *                           catalog (PROVIDER_NODE_SIZES[provider]); cx32
+ *                           catalog (PROVIDER_NODE_SIZES[provider]); CPX32
  *                           does not exist on Azure, m6i.xlarge does not
  *                           exist on Hetzner. The footer rolls each
  *                           region's (cp + worker*count) into the total.

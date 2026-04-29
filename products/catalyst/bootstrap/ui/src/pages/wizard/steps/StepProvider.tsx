@@ -118,11 +118,17 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
  * the per-provider catalog so this UI never hardcodes a SKU literal.
  */
 function skuOptions(provider: CloudProvider): SelectOption[] {
-  return PROVIDER_NODE_SIZES[provider].map((s) => ({
-    value: s.id,
-    label: s.label,
-    sublabel: `${s.vcpu} vCPU · ${s.ram} GB · €${s.priceHour.toFixed(3)}/hr`,
-  }))
+  return PROVIDER_NODE_SIZES[provider].map((s) => {
+    // Disk shown verbatim when the provider lists local SSD; cloud-disk
+    // SKUs (AWS EBS-only, Azure variable, Huawei/OCI cloud volume) render
+    // their literal disk descriptor.
+    const diskStr = typeof s.disk === 'number' ? `${s.disk} GB SSD` : s.disk
+    return {
+      value: s.id,
+      label: s.label,
+      sublabel: `${s.vcpu} vCPU · ${s.ram} GB · ${diskStr} · €${s.priceHour.toFixed(4)}/hr · €${s.priceMonth.toFixed(2)}/mo`,
+    }
+  })
 }
 
 /* ── Per-region cost rollup ───────────────────────────────────────── */
@@ -332,10 +338,11 @@ export function StepProvider() {
      wizard never lands on the step with empty SKU dropdowns — the operator can
      change them, but a sensible default is preselected.
 
-     Per-provider defaults: cx42 (hetzner), c7.xlarge.2 (huawei), E5.Flex.4.32
-     (oci), m6i.xlarge (aws), Standard_D4s_v5 (azure) — each provider's
-     recommended:true SKU from PROVIDER_NODE_SIZES. Worker count starts at 0
-     (solo mode) — the operator bumps it explicitly to add workers. */
+     Per-provider defaults: CPX32 (hetzner), c7n.xlarge.2 (huawei),
+     VM.Standard.E5.Flex.2.16 (oci), m6i.xlarge (aws), Standard_D4s_v5
+     (azure) — each provider's recommended:true SKU from PROVIDER_NODE_SIZES.
+     Worker count starts at 0 (solo mode) — the operator bumps it explicitly
+     to add workers. */
   useEffect(() => {
     if (Object.keys(store.regionProviders).length > 0) return
     const provider = hint?.provider ?? PROVIDERS[0].id
@@ -394,7 +401,7 @@ export function StepProvider() {
   return (
     <StepShell
       title="Cloud provider per region"
-      description="Pick a provider, region, and instance sizes for each topology slot. Provider, region, and SKU vocabularies are independent — Hetzner cx32 means nothing on AWS, so each region's SKUs come from its own provider's catalog."
+      description="Pick a provider, region, and instance sizes for each topology slot. Provider, region, and SKU vocabularies are independent — Hetzner CPX32 means nothing on AWS, so each region's SKUs come from its own provider's catalog."
       onNext={() => { if (allConfigured) next() }}
       onBack={back}
       nextDisabled={!allConfigured}
