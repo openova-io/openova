@@ -61,7 +61,13 @@ powerdns:
 
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: true
+    # readOnlyRootFilesystem MUST be false: the upstream chart's
+    # /usr/local/sbin/pdns_server-startup script writes rendered
+    # /etc/powerdns/pdns.d/*.conf at container start, and the upstream
+    # template doesn't expose an emptyDir mount we could redirect that
+    # path to. Locking the rootfs would crash-loop the pod (verified on
+    # Contabo k3s — Errno 30 Read-only file system: '/etc/powerdns/pdns.d/0-api.conf.conf').
+    readOnlyRootFilesystem: false
     runAsNonRoot: true
     runAsUser: 953
     runAsGroup: 953
@@ -224,9 +230,12 @@ postgres:
 dnsdist:
   enabled: true
   image:
-    # Official dnsdist image; tag tracked alongside Authoritative line.
+    # Official dnsdist image. Repo `powerdns/dnsdist-19` carries the 1.9.x
+    # line (matches Authoritative 5.0.x release cadence). Pin a concrete
+    # tag here — the dnsdist Deployment template defaults to the value
+    # below when image.tag is unset.
     repository: docker.io/powerdns/dnsdist-19
-    tag: ""                         # falls back to chart-level appVersion if needed
+    tag: "1.9.14"
     pullPolicy: IfNotPresent
   replicaCount: 1                   # scale alongside Sovereign expansion; single instance fronts one region
   service:
