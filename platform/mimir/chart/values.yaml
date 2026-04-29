@@ -1,0 +1,106 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `mimir-distributed:` key flow into the upstream subchart
+# unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: mimir-distributed
+    version: "6.0.6"
+    repo: "https://grafana.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: mimir-distributed) ─────────────
+mimir-distributed:
+  # Pin the global image tag — DO NOT use floating tags.
+  image:
+    repository: grafana/mimir
+    tag: "3.0.4"
+    pullPolicy: IfNotPresent
+
+  # Per-component replicas — solo-Sovereign minimum is 1 each. Per-Sovereign
+  # overlays scale these up and flip zoneAwareReplication on for HA.
+  alertmanager:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  distributor:
+    replicas: 1
+  ingester:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  querier:
+    replicas: 1
+  query_frontend:
+    replicas: 1
+  query_scheduler:
+    replicas: 1
+  store_gateway:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  compactor:
+    replicas: 1
+  ruler:
+    replicas: 1
+  overrides_exporter:
+    replicas: 1
+
+  # Gateway (nginx in front of Mimir) — keep enabled, scale to 1.
+  gateway:
+    enabled: true
+    replicas: 1
+
+  # Bundled MinIO — DEFAULT ON only as a stop-gap so the chart renders;
+  # Catalyst routes object storage through SeaweedFS. Per-Sovereign
+  # overlays MUST set `minio.enabled: false` AND wire S3 credentials
+  # pointing at SeaweedFS (or cloud object storage) before production use.
+  # The bundled MinIO is single-replica, ephemeral-friendly, and not for
+  # production data.
+  minio:
+    enabled: true
+
+  # Kafka (ingest-storage architecture) — DISABLED. The classic blocks-
+  # storage architecture is the Catalyst default; Kafka ingest-storage is
+  # an opt-in path that requires bp-strimzi to be reconciled first.
+  kafka:
+    enabled: false
+
+  # MetaMonitoring (ServiceMonitor + Grafana dashboards) — DEFAULT FALSE
+  # per docs/BLUEPRINT-AUTHORING.md §11.2.
+  metaMonitoring:
+    serviceMonitor:
+      enabled: false
+    dashboards:
+      enabled: false
+    grafanaAgent:
+      installOperator: false
+      logs:
+        enabled: false
+      metrics:
+        enabled: false
+
+  # Smoke + continuous-test pods — disabled in production.
+  smoke_test:
+    enabled: false
+  continuous_test:
+    enabled: false
+
+  # rollout-operator subchart — keep enabled (it manages zone-aware rollouts
+  # and is referenced by the upstream chart even with zone-awareness off).
+  rollout_operator:
+    enabled: true
+    replicas: 1
+
+  # Service account — chart manages its own.
+  serviceAccount:
+    create: true
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+mimirOverlay:
+  networkPolicy:
+    enabled: false

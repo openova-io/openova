@@ -1,0 +1,29 @@
+apiVersion: v2
+name: bp-mimir
+description: |
+  Catalyst Blueprint umbrella chart for Grafana Mimir. Depends on the
+  upstream `mimir-distributed` chart (grafana/helm-charts) as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into this
+  artifact. Catalyst-curated values flow into the upstream subchart under
+  the `mimir-distributed:` key in values.yaml.
+
+  Mimir is the metrics storage tier of the LGTM stack. The upstream chart
+  is microservice-mode by default; per-component replicas are scaled to 1
+  for a solo Sovereign and zone-aware replication is disabled. Per-Sovereign
+  overlays scale per-component replicas + flip zone-aware-replication on
+  for HA Sovereigns.
+type: application
+version: 1.0.0
+appVersion: "3.0.4"
+keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to grafana/mimir-distributed 6.0.6 (appVersion 3.0.4) — current
+# stable on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) the version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: mimir-distributed
+    version: "6.0.6"
+    repository: "https://grafana.github.io/helm-charts"
