@@ -719,7 +719,14 @@ test.describe('@cosmetic-guard admin sidebar parity', () => {
 
 test.describe('@cosmetic-guard app-detail layout', () => {
   test('AppDetail renders the canonical sections (Jobs is now also a tab — issue #204)', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/app/temporal')
+    // bp-cilium is in BOOTSTRAP_KIT — always resolved by
+    // applicationCatalog.resolveApplications() regardless of the
+    // wizard's selectedComponents, so the page mounts the full
+    // section + tablist tree even with an empty zustand store.
+    // Earlier revisions used `temporal` here, which is NOT in the
+    // bootstrap kit and only resolves when the operator selected it
+    // in the wizard — that turned the test red on a fresh CI run.
+    await page.goto('provision/test-deployment-id/app/bp-cilium')
     await page.waitForLoadState('domcontentloaded')
 
     // Issue #204 founder spec item #9: "AppDetail → Jobs tab filtered
@@ -843,7 +850,11 @@ test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => 
   })
 
   test('4. AppDetail page has a tab labelled "Jobs"', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/app/temporal')
+    // bp-cilium is in BOOTSTRAP_KIT — always resolves regardless of
+    // the wizard's selectedComponents. Using a non-bootstrap-kit
+    // componentId here would render the not-found block and the
+    // tablist would never mount.
+    await page.goto('provision/test-deployment-id/app/bp-cilium')
     await page.waitForLoadState('domcontentloaded')
 
     // Founder spec issue #204 item #9: "AppDetail → Jobs tab filtered
