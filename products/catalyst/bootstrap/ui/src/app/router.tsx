@@ -19,6 +19,7 @@ import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
+import { JobDetail } from '@/pages/sovereign/JobDetail'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -72,12 +73,24 @@ const provisionAppRoute = createRoute({
 
 // Global jobs list — pixel-ported from core/console JobsPage.svelte.
 // Vertical stack of expand-in-place rows (Phase 0 + cluster-bootstrap +
-// per-component install jobs). NO `/job/$jobId` route — clicking an
-// app-name navigates to that component's AppDetail page.
+// per-component install jobs).
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
+})
+
+// Per-Job detail page (epic #204) — surfaces the GitLab-CI-runner-style
+// execution log viewer + Dependencies + Apps tabs. Reachable from the
+// JobsTable row "open detail" link (parallel agent's scope) and from
+// deep links shared in Slack / runbook / failure email. The path lives
+// under /provision/$deploymentId/jobs/$jobId so it is namespaced by
+// deployment, not the legacy /job/$jobId pattern that the cosmetic
+// guards still reject for the main JobsPage row click.
+const provisionJobDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/jobs/$jobId',
+  component: JobDetail,
 })
 
 // Legacy DAG provision view — preserved at a sub-path so existing
@@ -119,6 +132,7 @@ const routeTree = rootRoute.addChildren([
   provisionRoute,
   provisionAppRoute,
   provisionJobsRoute,
+  provisionJobDetailRoute,
   legacyProvisionRoute,
   designsRoute,
   marketplaceFamilyRoute,
