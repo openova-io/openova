@@ -1,49 +1,53 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.0.1
-appVersion: 1.0.1
+version: 1.1.0
+appVersion: 1.1.0
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
   Deployed via Flux on Catalyst-Zero (Contabo k3s) and on every franchised Sovereign provisioned by Catalyst-Zero.
   Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
 
-  Umbrella that depends on the 11 leaf bootstrap-kit Blueprints
+  Umbrella that depends on the 10 leaf bootstrap-kit Blueprints
   (cilium, cert-manager, flux, crossplane, sealed-secrets, spire,
-  nats-jetstream, openbao, keycloak, gitea, external-dns) — each
-  resolved as an OCI artifact at ghcr.io/openova-io/bp-<name>.
+  nats-jetstream, openbao, keycloak, gitea) plus bp-external-dns —
+  each resolved as an OCI artifact at ghcr.io/openova-io/bp-<name>.
+  As of 1.1.0 each leaf is itself a proper Helm umbrella that depends on
+  its upstream chart (cert-manager, cilium, flux2, crossplane, ...) so
+  installing bp-catalyst-platform brings up the full upstream payload —
+  no Catalyst-side bootstrap installer is required.
 type: application
 
 dependencies:
   - name: bp-cilium
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-cert-manager
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-flux
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-crossplane
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-sealed-secrets
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-spire
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-nats-jetstream
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-openbao
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-keycloak
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-gitea
-    version: 1.0.0
+    version: 1.1.0
     repository: oci://ghcr.io/openova-io
   - name: bp-external-dns
     version: 1.0.0
