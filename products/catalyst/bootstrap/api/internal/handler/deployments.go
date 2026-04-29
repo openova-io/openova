@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -63,8 +64,8 @@ const EventBufferCap = 10000
 // (replay-then-emit-done) versus still running (replay-then-tail-
 // channel).
 type Deployment struct {
-	ID     string
-	Status string // pending | provisioning | tofu-applying | flux-bootstrapping | phase1-watching | ready | failed
+	ID         string
+	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | phase1-watching | ready | failed
 	Request    provisioner.Request
 	Result     *provisioner.Result
 	Error      string
@@ -384,6 +385,20 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	if req.SovereignDomainMode == "pool" {
 		req.DynadotAPIKey = h.dynadotAPIKey
 		req.DynadotAPISecret = h.dynadotAPISecret
+	}
+
+	// Stamp the GHCR pull token from CATALYST_GHCR_PULL_TOKEN onto the
+	// Request BEFORE Validate() so a missing-secret misconfiguration
+	// surfaces here as 400 with a clear pointer to docs/SECRET-ROTATION.md
+	// rather than 5 minutes into the runProvisioning goroutine. The
+	// provisioner.New() inside runProvisioning re-stamps the same env
+	// var as a defense-in-depth: if the env was missing here but the
+	// Pod was rolled in between, the late stamp picks it up.
+	//
+	// The wizard payload NEVER carries this field — Request.GHCRPullToken
+	// is `json:"-"` precisely so the wire format cannot inject it.
+	if tok := os.Getenv("CATALYST_GHCR_PULL_TOKEN"); tok != "" {
+		req.GHCRPullToken = tok
 	}
 
 	if err := req.Validate(); err != nil {

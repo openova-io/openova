@@ -102,6 +102,36 @@ spec:
             # credentials redacted; see internal/store/store.go.
             - name: CATALYST_DEPLOYMENTS_DIR
               value: /var/lib/catalyst/deployments
+            # CATALYST_GHCR_PULL_TOKEN — long-lived GHCR pull token that
+            # the provisioner stamps onto every Request and the OpenTofu
+            # cloud-init template writes into the new Sovereign's
+            # flux-system/ghcr-pull Secret so Flux source-controller
+            # can pull private bp-* OCI artifacts from
+            # ghcr.io/openova-io/. Without this, Phase 1 stalls at
+            # bp-cilium with "secrets ghcr-pull not found" — verified
+            # live on omantel.omani.works pre-fix.
+            #
+            # optional: true — when the Secret or key is missing the
+            # Pod still starts (with the env var unset). The
+            # provisioner's Validate() rejects deployments that need
+            # the token (Phase 1 bootstrap-kit pulls private bp-*
+            # charts) with a clear pointer to docs/SECRET-ROTATION.md,
+            # so a misconfigured catalyst-api fails fast on
+            # /api/v1/deployments POST instead of silently mid-apply.
+            # /healthz, /api/v1/credentials/validate, and the BYO
+            # registrar proxy keep working — they don't read the
+            # token at all.
+            #
+            # Rotation: yearly, see docs/SECRET-ROTATION.md. The Secret
+            # is created out-of-band by an operator (never via Flux,
+            # never committed to git) — the chart references it but
+            # does not template it.
+            - name: CATALYST_GHCR_PULL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-ghcr-pull-token
+                  key: token
+                  optional: true
           resources:
             requests:
               cpu: 50m

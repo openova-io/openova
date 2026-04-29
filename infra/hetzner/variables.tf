@@ -244,6 +244,50 @@ variable "dynadot_secret" {
   sensitive   = true
 }
 
+# ── GHCR pull token ───────────────────────────────────────────────────────
+#
+# Long-lived GHCR token (GitHub PAT or fine-grained token, scope
+# `packages:read` on `openova-io`) that the new Sovereign's Flux
+# source-controller uses to pull the private bp-* OCI artifacts from
+# `ghcr.io/openova-io/`. Cloud-init writes this into the
+# flux-system/ghcr-pull Secret on the freshly-installed k3s control
+# plane BEFORE applying the GitRepository + Kustomization that wires up
+# clusters/<sovereign-fqdn>/.
+#
+# Without this, every HelmRepository CR in
+# clusters/<sovereign-fqdn>/bootstrap-kit/ (each carrying
+# `secretRef: name: ghcr-pull`) errors with:
+#   failed to get authentication secret 'flux-system/ghcr-pull':
+#     secrets "ghcr-pull" not found
+# Phase 1 stalls at bp-cilium and the bootstrap kit never lands. The
+# operator-applied workaround (kubectl apply the secret by hand) is not
+# durable across reprovisioning of the same Sovereign.
+#
+# Source: catalyst-api Pod mounts this from the
+# `catalyst-ghcr-pull-token` Kubernetes Secret in the catalyst namespace
+# as the env var CATALYST_GHCR_PULL_TOKEN. Rotation policy + storage:
+# docs/SECRET-ROTATION.md.
+variable "ghcr_pull_token" {
+  type        = string
+  description = <<-EOT
+    GHCR pull token (GitHub PAT or fine-grained token, scope `packages:read`
+    on openova-io). Written to flux-system/ghcr-pull at cloud-init time so
+    Flux source-controller can pull private bp-* OCI artifacts.
+
+    Empty default exists so the OpenTofu module renders for BYO
+    catalyst-api Pods that have not yet adopted the
+    `catalyst-ghcr-pull-token` Secret; provisioner.Validate() in
+    products/catalyst/bootstrap/api/internal/provisioner enforces
+    non-empty for managed-pool deployments where Phase 1 absolutely
+    needs the token. Sensitive — never logged, never committed to git.
+
+    Rotation policy: yearly, stored in 1Password — see
+    docs/SECRET-ROTATION.md.
+  EOT
+  sensitive   = true
+  default     = ""
+}
+
 # ── GitOps source for Flux bootstrap ──────────────────────────────────────
 
 variable "gitops_repo_url" {

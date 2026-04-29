@@ -114,6 +114,49 @@ write_files:
       backend = systemd
 %{ endif ~}
 
+  # ── flux-system/ghcr-pull Secret ─────────────────────────────────────
+  #
+  # Every HelmRepository CR in clusters/${sovereign_fqdn}/bootstrap-kit/
+  # references `secretRef: name: ghcr-pull` because the bp-* OCI artifacts
+  # at `ghcr.io/openova-io/` are PRIVATE. Without this Secret, the
+  # source-controller logs:
+  #
+  #   failed to get authentication secret 'flux-system/ghcr-pull':
+  #     secrets "ghcr-pull" not found
+  #
+  # …and Phase 1 stalls at bp-cilium. The operator workaround (kubectl
+  # apply the Secret by hand after Flux installs) is not durable across
+  # re-provisioning of the same Sovereign — every fresh control-plane
+  # boots without the Secret.
+  #
+  # We write the Secret into flux-system at cloud-init time, BEFORE
+  # /var/lib/catalyst/flux-bootstrap.yaml is applied, so the GitRepository +
+  # Kustomization land into a cluster that already has working GHCR creds.
+  # The apply step is in runcmd: below; the manifest itself lives here.
+  #
+  # Token rotation policy: yearly, stored in 1Password under
+  # "Catalyst — GHCR pull token (catalyst-ghcr-pull-token)". See
+  # docs/SECRET-ROTATION.md. The token NEVER lives in git.
+  - path: /var/lib/catalyst/ghcr-pull-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-pull
+        namespace: flux-system
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: ${base64encode(jsonencode({
+          auths = {
+            "ghcr.io" = {
+              username = ghcr_pull_username
+              password = ghcr_pull_token
+              auth     = ghcr_pull_auth_b64
+            }
+          }
+        }))}
+
   # Flux GitRepository + Kustomization that take over after k3s is up.
   # The clusters/${sovereign_fqdn}/ directory in the public OpenOva monorepo
   # contains a Kustomization tree that installs the 11-component bootstrap
@@ -261,6 +304,22 @@ runcmd:
   # which is the CONTROL-PLANE Flux), bp-crossplane, etc.
   - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
+
+  # ── flux-system/ghcr-pull Secret (applied BEFORE GitRepository) ──────
+  #
+  # Apply the docker-registry pull secret rendered above. This MUST land
+  # before the GitRepository + Kustomization in flux-bootstrap.yaml,
+  # because the bootstrap-kit Kustomization includes HelmRepository CRs
+  # that reference this Secret by name; the source-controller resolves
+  # them on its first reconciliation tick and a missing Secret propagates
+  # as a Ready=False/AuthError state that has been observed to persist
+  # for 5+ minutes even after the Secret is later applied.
+  #
+  # Idempotent: `kubectl apply` against an existing Secret is a no-op
+  # when the manifest's bytes match. A reprovision (same Sovereign FQDN)
+  # rewrites this with the same content; a token rotation propagates
+  # through here on the next cloud-init render.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
 
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
   # owns the cluster: pulls clusters/${sovereign_fqdn}/, installs Cilium

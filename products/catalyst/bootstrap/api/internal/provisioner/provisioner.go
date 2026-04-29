@@ -104,6 +104,34 @@ type Request struct {
 	// point their own CNAME at the LB IP shown in the success screen).
 	DynadotAPIKey    string `json:"-"`
 	DynadotAPISecret string `json:"-"`
+
+	// GHCRPullToken is a long-lived GHCR pull token (GitHub PAT or fine-
+	// grained token with `packages:read` on `openova-io`) handed to the
+	// new Sovereign at cloud-init time so it can pull the private bp-*
+	// OCI artifacts from `ghcr.io/openova-io/`. Without this, every
+	// HelmRepository CR in clusters/<sovereign-fqdn>/bootstrap-kit/
+	// (each carrying `secretRef: name: ghcr-pull`) errors with
+	// `failed to get authentication secret 'flux-system/ghcr-pull':
+	// secrets "ghcr-pull" not found` on a fresh Sovereign — Phase 1
+	// stalls at bp-cilium and the bootstrap kit never lands.
+	//
+	// Source of truth: the catalyst-api Pod mounts this from the
+	// `catalyst-ghcr-pull-token` Kubernetes Secret in the `catalyst`
+	// namespace as the env var CATALYST_GHCR_PULL_TOKEN. New() reads
+	// the env var at startup; Provision() stamps it onto the Request
+	// before writing tofu.auto.tfvars.json so OpenTofu can render the
+	// cloud-init template with the token interpolated into the
+	// flux-system/ghcr-pull Secret manifest.
+	//
+	// json:"-" is load-bearing: the field MUST NOT serialize to disk.
+	// Persisted deployment records (internal/store) are redacted of
+	// every credential, but redaction only fires on fields the store's
+	// RedactedRequest projection knows about — keeping this off the
+	// wire entirely is the simpler invariant. The value is only ever
+	// in memory between New()'s env read and the tofu.auto.tfvars.json
+	// write, both of which sit on the catalyst-api Pod's local FS at
+	// 0o600.
+	GHCRPullToken string `json:"-"`
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
@@ -163,6 +191,35 @@ func (r *Request) Validate() error {
 	}
 	if strings.TrimSpace(r.SSHPublicKey) == "" {
 		return errors.New("SSH public key is required (sovereign-admin break-glass + cluster bootstrap)")
+	}
+
+	// GHCR pull token: required for managed-pool deployments. Phase 1
+	// (Flux reconciling clusters/<sovereign-fqdn>/bootstrap-kit) pulls
+	// the bp-* OCI artifacts from `ghcr.io/openova-io/` which is a
+	// PRIVATE registry path; without a token the source-controller
+	// errors `secrets "ghcr-pull" not found` and bp-cilium never
+	// installs.
+	//
+	// Why scoped to domain_mode=pool: managed-pool Sovereigns are the
+	// catalyst-platform's reference deployment shape (omani.works,
+	// follow-on franchise pool domains). BYO Sovereigns go through
+	// the same Phase 1, but the BYO registrar proxy + Flow B path
+	// (issue #169) is the orthogonal track for that work; the
+	// requirement here is to land the durable-secret fix without
+	// blocking BYO catalyst-api Pod startup when the operator has
+	// not yet created `catalyst-ghcr-pull-token`. BYO deployments
+	// will still fail Phase 1 if the token is missing — the failure
+	// surfaces from the new cluster's Flux logs instead of from this
+	// validator. The BYO+token requirement gets enforced once the
+	// Flow B work also lands a token-on-Request stamp. See section F
+	// in the fix-cloudinit-ghcr-pull-secret-durable rollout notes.
+	//
+	// We surface the pool-mode error from Validate() rather than from
+	// runProvisioning() so a misconfigured catalyst-api Pod fails
+	// fast at /api/v1/deployments POST time instead of after 5 min
+	// of `tofu apply`.
+	if r.SovereignDomainMode == "pool" && strings.TrimSpace(r.GHCRPullToken) == "" {
+		return errors.New("GHCR pull token is required for managed-pool deployments (CATALYST_GHCR_PULL_TOKEN missing on catalyst-api — see docs/SECRET-ROTATION.md)")
 	}
 	return nil
 }
@@ -266,19 +323,46 @@ type Provisioner struct {
 	// this is a per-Sovereign subdirectory, persisted via the catalyst-api
 	// PVC so re-runs (`tofu apply` again with same vars) are idempotent.
 	WorkDir string
+	// GHCRPullToken is the long-lived GHCR pull token mounted from the
+	// `catalyst-ghcr-pull-token` Secret in the catalyst namespace as the
+	// env var CATALYST_GHCR_PULL_TOKEN. Stamped onto every Request in
+	// Provision() before writeTfvars(). Empty when the env var is
+	// missing — Validate() rejects such deployments with a fail-fast
+	// error so the operator notices the misconfiguration before
+	// `tofu apply` runs.
+	GHCRPullToken string
 }
 
 // New returns a Provisioner with paths read from environment.
+//
+// CATALYST_GHCR_PULL_TOKEN is read here once at startup. If the env var is
+// missing the Provisioner is still constructed (so the catalyst-api Pod
+// comes up cleanly and the wizard endpoints not requiring it — the BYO
+// flows that do not invoke Phase-1 bootstrap-kit, and the diagnostic
+// endpoints — keep working). Provision() stamps the token onto every
+// Request, and Validate() rejects deployments where the field is empty
+// with a clear pointer to docs/SECRET-ROTATION.md.
 func New() *Provisioner {
 	return &Provisioner{
-		ModulePath: env("CATALYST_TOFU_MODULE_PATH", "/infra/hetzner"),
-		WorkDir:    env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
+		ModulePath:    env("CATALYST_TOFU_MODULE_PATH", "/infra/hetzner"),
+		WorkDir:       env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
+		GHCRPullToken: os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
 	}
 }
 
 // Provision runs the full sequence. Emits events into the channel; returns
 // Result on success.
 func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- Event) (*Result, error) {
+	// Stamp the GHCR pull token from the Provisioner (read once from
+	// CATALYST_GHCR_PULL_TOKEN at New()) onto every Request BEFORE
+	// validation. The handler does not — and must not — accept this
+	// from the wizard payload, so the env-loaded value is the only
+	// source. Stamping before Validate() lets the validator reject
+	// the deployment with a clear error when the env var is missing.
+	if strings.TrimSpace(req.GHCRPullToken) == "" {
+		req.GHCRPullToken = p.GHCRPullToken
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -467,9 +551,9 @@ func writeTfvars(deployDir string, req Request) error {
 		"ssh_public_key": req.SSHPublicKey,
 
 		// Domain
-		"domain_mode":   req.SovereignDomainMode, // pool | byo
-		"pool_domain":   req.SovereignPoolDomain,
-		"dynadot_key":   req.DynadotAPIKey,    // empty when domain_mode != "pool"
+		"domain_mode":    req.SovereignDomainMode, // pool | byo
+		"pool_domain":    req.SovereignPoolDomain,
+		"dynadot_key":    req.DynadotAPIKey, // empty when domain_mode != "pool"
 		"dynadot_secret": req.DynadotAPISecret,
 
 		// GitOps source — Flux on the new cluster watches this for
@@ -477,6 +561,16 @@ func writeTfvars(deployDir string, req Request) error {
 		// override for air-gap (operator-mirrored Gitea).
 		"gitops_repo_url": env("CATALYST_GITOPS_REPO_URL", "https://github.com/openova-io/openova"),
 		"gitops_branch":   env("CATALYST_GITOPS_BRANCH", "main"),
+
+		// GHCR pull token — interpolated into the cloud-init template so
+		// the new Sovereign's Flux source-controller can pull private
+		// bp-* OCI artifacts from `ghcr.io/openova-io/`. Marked sensitive
+		// in variables.tf; OpenTofu never logs the value to stdout. The
+		// tofu.auto.tfvars.json file containing it is 0o600 on the
+		// catalyst-api Pod's local FS and is wiped when the deployment
+		// directory is purged. Per docs/SECRET-ROTATION.md the token
+		// rotates yearly and is stored in 1Password — never in git.
+		"ghcr_pull_token": req.GHCRPullToken,
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")

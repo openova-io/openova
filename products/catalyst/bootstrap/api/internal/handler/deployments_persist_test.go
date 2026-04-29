@@ -307,6 +307,10 @@ func TestPersistence_InFlightStatusBecomesFailedOnRestart(t *testing.T) {
 // redaction marker, no plaintext secret anywhere.
 func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	// Pool-mode requires CATALYST_GHCR_PULL_TOKEN; the test placeholder
+	// must NOT appear on disk (the redaction invariant covers it via
+	// the json:"-" tag on Request.GHCRPullToken).
+	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_REDACT_PLACEHOLDER_DO_NOT_LEAK")
 	pdm.ResetManagedDomains()
 
 	dir := t.TempDir()
@@ -361,6 +365,10 @@ func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 			"HCLOUD-TOKEN-DO-NOT-LEAK",
 			"DYNADOT-KEY-DO-NOT-LEAK",
 			"DYNADOT-SECRET-DO-NOT-LEAK",
+			// GHCR pull token must NEVER reach disk; Request.GHCRPullToken
+			// is `json:"-"`. A regression that drops the tag would leak
+			// here.
+			"ghp_TEST_REDACT_PLACEHOLDER_DO_NOT_LEAK",
 		}
 		for _, s := range secrets {
 			if strings.Contains(string(raw), s) {

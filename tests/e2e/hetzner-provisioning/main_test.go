@@ -10,18 +10,18 @@
 //
 // What this test does when HETZNER_TEST_TOKEN is set:
 //
-//	 1. Generates a unique sovereign FQDN for the run (test-<run-id>.openova.io)
-//	 2. Stages the canonical infra/hetzner/ OpenTofu module into a temp dir
-//	 3. Renders tofu.auto.tfvars.json with the test inputs
-//	 4. tofu init && tofu apply -auto-approve
-//	 5. Asserts:
-//	      - apply succeeded
-//	      - control_plane_ip + load_balancer_ip outputs are non-empty IPv4
-//	      - control plane SSH-reachable (TCP/22 with a brief retry)
-//	      - load balancer reachable (TCP/443 with a longer retry — Flux
-//	        needs a few minutes to install Cilium + the Gateway)
-//	 6. tofu destroy -auto-approve (always runs, even on test failure)
-//	 7. Verifies destroy actually freed the resources (tofu state list empty)
+//  1. Generates a unique sovereign FQDN for the run (test-<run-id>.openova.io)
+//  2. Stages the canonical infra/hetzner/ OpenTofu module into a temp dir
+//  3. Renders tofu.auto.tfvars.json with the test inputs
+//  4. tofu init && tofu apply -auto-approve
+//  5. Asserts:
+//     - apply succeeded
+//     - control_plane_ip + load_balancer_ip outputs are non-empty IPv4
+//     - control plane SSH-reachable (TCP/22 with a brief retry)
+//     - load balancer reachable (TCP/443 with a longer retry — Flux
+//     needs a few minutes to install Cilium + the Gateway)
+//  6. tofu destroy -auto-approve (always runs, even on test failure)
+//  7. Verifies destroy actually freed the resources (tofu state list empty)
 //
 // When HETZNER_TEST_TOKEN is absent the test skips — NEVER mocks. Per
 // docs/INVIOLABLE-PRINCIPLES.md principle #2, "no mocks where the test
@@ -38,6 +38,7 @@ package hetznerprovisioning
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -256,6 +258,12 @@ func TestHetznerE2E_ProvisionAndTeardown(t *testing.T) {
 		"dynadot_secret":      "",
 		"gitops_repo_url":     envOr("HETZNER_TEST_GITOPS_URL", "https://github.com/openova-io/openova"),
 		"gitops_branch":       envOr("HETZNER_TEST_GITOPS_BRANCH", "main"),
+		// GHCR pull token — populated from the test runner's env so the
+		// throwaway Sovereign actually pulls bp-* charts in Phase 1.
+		// The test harness skips when HETZNER_TEST_TOKEN is absent, so
+		// we don't need a fallback for this either; HETZNER_TEST_GHCR_PULL_TOKEN
+		// is wired through in the same CI workflow that holds HETZNER_TEST_TOKEN.
+		"ghcr_pull_token": envOr("HETZNER_TEST_GHCR_PULL_TOKEN", ""),
 	}
 
 	stageModule(t, root, workDir, vars)
@@ -339,6 +347,168 @@ func TestHarness_NoHetznerCredsSkips(t *testing.T) {
 		// "doesn't run when the secret is absent" requirement.
 		sub.Errorf("requireRealHetzner returned without skipping despite missing %s", tokenEnv)
 	})
+}
+
+// TestCloudInit_RendersGHCRPullSecret is a render-only integration test for
+// the durable-secret fix (`fix(cloudinit): create flux-system/ghcr-pull
+// secret on Sovereign so private bp-* charts pull cleanly`).
+//
+// It does NOT touch real Hetzner. It stages the canonical OpenTofu module
+// into a temp dir with a sample GHCR token, runs `tofu init && tofu
+// validate` (the no-op render path), then pulls the rendered cloud-init
+// out of the OpenTofu state via `tofu console <<< local.control_plane_cloud_init`
+// and asserts:
+//
+//  1. The cloud-init output contains a `Secret` named `ghcr-pull` in
+//     `flux-system`.
+//  2. The Secret's `.dockerconfigjson` field decodes to a valid JSON
+//     object with `auths."ghcr.io".password == <sample token>` and a
+//     non-empty `auth` field.
+//  3. The runcmd block applies the secret BEFORE the flux-bootstrap
+//     manifest, matching the ordering invariant the runtime depends on.
+//
+// Skipped when the `tofu` CLI isn't on PATH, so this runs cleanly on dev
+// laptops and in CI runners that have it. The CI workflow installs
+// OpenTofu in a step before the Go test step.
+func TestCloudInit_RendersGHCRPullSecret(t *testing.T) {
+	if _, err := exec.LookPath("tofu"); err != nil {
+		t.Skipf("tofu CLI not on PATH — skipping cloud-init render test (CI provisions tofu before this test)")
+	}
+
+	root := repoRoot(t)
+	workDir := t.TempDir()
+
+	// Sample token — clearly not a real PAT. The cloud-init template
+	// interpolates it into auths."ghcr.io".password and into the base64
+	// auth field; the test asserts it round-trips through both.
+	const sampleToken = "ghp_RENDER_TEST_NOT_A_REAL_TOKEN_DO_NOT_LEAK"
+
+	vars := map[string]any{
+		"sovereign_fqdn":      "render-test.openova.io",
+		"sovereign_subdomain": "render-test",
+		"org_name":            "Render-Test",
+		"org_email":           "render-test@openova.io",
+		"hcloud_token":        "render-test-not-real",
+		"hcloud_project_id":   "render-test",
+		"region":              "fsn1",
+		"control_plane_size":  "cx42",
+		"worker_size":         "cx32",
+		"worker_count":        0,
+		"ha_enabled":          false,
+		"ssh_public_key":      "ssh-ed25519 AAAA render-test-not-a-real-key",
+		"domain_mode":         "byo",
+		"pool_domain":         "",
+		"dynadot_key":         "",
+		"dynadot_secret":      "",
+		"gitops_repo_url":     "https://github.com/openova-io/openova",
+		"gitops_branch":       "main",
+		"ghcr_pull_token":     sampleToken,
+	}
+	stageModule(t, root, workDir, vars)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := tofu(t, ctx, workDir, "render-test-not-real", "init", "-input=false", "-no-color", "-backend=false"); err != nil {
+		t.Fatalf("tofu init (no backend): %v", err)
+	}
+	if err := tofu(t, ctx, workDir, "render-test-not-real", "validate", "-no-color"); err != nil {
+		t.Fatalf("tofu validate: %v", err)
+	}
+
+	// Pull the rendered cloud-init via `tofu console`. The console reads
+	// from stdin; we feed an expression that prints the local.
+	consoleCmd := exec.CommandContext(ctx, "tofu", "console", "-no-color")
+	consoleCmd.Dir = workDir
+	consoleCmd.Stdin = strings.NewReader("local.control_plane_cloud_init\n")
+	consoleCmd.Env = append(os.Environ(),
+		"HCLOUD_TOKEN=render-test-not-real",
+		"TF_INPUT=false",
+		"TF_IN_AUTOMATION=true",
+	)
+	consoleOut, err := consoleCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tofu console: %v\n%s", err, consoleOut)
+	}
+	rendered := string(consoleOut)
+
+	// Assertion 1 — the rendered cloud-init contains a Secret named
+	// `ghcr-pull` in `flux-system` of type kubernetes.io/dockerconfigjson.
+	for _, want := range []string{
+		"name: ghcr-pull",
+		"namespace: flux-system",
+		"type: kubernetes.io/dockerconfigjson",
+		".dockerconfigjson:",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered cloud-init missing %q\n--- rendered (truncated) ---\n%s", want, truncate(rendered, 4000))
+		}
+	}
+
+	// Assertion 2 — the Secret applies BEFORE flux-bootstrap.yaml in
+	// runcmd. Find the line indices and assert the order.
+	idxSecretApply := strings.Index(rendered, "kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml")
+	idxFluxApply := strings.Index(rendered, "kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml")
+	if idxSecretApply < 0 {
+		t.Errorf("rendered cloud-init missing the ghcr-pull-secret apply step")
+	}
+	if idxFluxApply < 0 {
+		t.Errorf("rendered cloud-init missing the flux-bootstrap apply step")
+	}
+	if idxSecretApply >= 0 && idxFluxApply >= 0 && idxSecretApply >= idxFluxApply {
+		t.Errorf("ghcr-pull Secret must apply BEFORE flux-bootstrap (idxSecret=%d, idxFlux=%d) — Phase-1 reconcile would race the auth secret",
+			idxSecretApply, idxFluxApply)
+	}
+
+	// Assertion 3 — the rendered base64 .dockerconfigjson decodes to a
+	// JSON object whose auths."ghcr.io".password == sampleToken.
+	// The cloud-init heredoc uses YAML's `data: { .dockerconfigjson: <b64> }`
+	// shape; pull the value via a regex and decode.
+	re := regexp.MustCompile(`(?m)^\s*\.dockerconfigjson:\s*([A-Za-z0-9+/=]+)`)
+	m := re.FindStringSubmatch(rendered)
+	if m == nil {
+		t.Fatalf("could not locate .dockerconfigjson in rendered cloud-init")
+	}
+	dec, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatalf("base64 decode .dockerconfigjson: %v", err)
+	}
+	var parsed struct {
+		Auths map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Auth     string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := json.Unmarshal(dec, &parsed); err != nil {
+		t.Fatalf("json decode: %v\nraw: %s", err, dec)
+	}
+	ghcr, ok := parsed.Auths["ghcr.io"]
+	if !ok {
+		t.Fatalf(`auths["ghcr.io"] missing — decoded: %s`, dec)
+	}
+	if ghcr.Password != sampleToken {
+		t.Errorf("password = %q, want %q (sample token did not round-trip through templatefile)", ghcr.Password, sampleToken)
+	}
+	if ghcr.Username == "" {
+		t.Errorf("username must be non-empty (registry audit trail), got empty")
+	}
+	if ghcr.Auth == "" {
+		t.Errorf("auth must be non-empty (legacy docker config compat), got empty")
+	}
+	// auth = base64(username:password)
+	wantAuth := base64.StdEncoding.EncodeToString([]byte(ghcr.Username + ":" + ghcr.Password))
+	if ghcr.Auth != wantAuth {
+		t.Errorf("auth = %q, want %q (base64(username:password) mismatch)", ghcr.Auth, wantAuth)
+	}
+}
+
+// truncate clips a long string with an explicit ellipsis so test failures
+// that include the rendered cloud-init don't blow out CI log limits.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "\n…(truncated)…"
 }
 
 func isIPv4(s string) bool {

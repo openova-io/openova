@@ -18,6 +18,11 @@ import (
 
 func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	// Pool-mode deployments require a GHCR pull token (Phase 1 pulls
+	// private bp-* OCI artifacts from ghcr.io/openova-io). The chart
+	// mounts CATALYST_GHCR_PULL_TOKEN from the catalyst-ghcr-pull-token
+	// Secret; tests inject a placeholder so Validate() does not 400.
+	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}
@@ -57,6 +62,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 
 func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{

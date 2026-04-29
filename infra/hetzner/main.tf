@@ -108,6 +108,23 @@ locals {
     hil  = "us-west"
   }, var.region, "eu-central")
 
+  # GHCR pull token + the dockerconfigjson `auth` field, computed once here
+  # so the cloud-init template stays a clean string-interpolation.
+  #
+  # The dockerconfigjson Secret format wants a top-level `auth` value of
+  # base64("<username>:<token>"). Computing it inside the templatefile()
+  # via OpenTofu's `base64encode()` would force the template to know about
+  # OpenTofu functions; deriving it here keeps the template a pure heredoc
+  # that emits valid YAML regardless of who renders it (production
+  # provisioner, integration test harness, `tofu console`).
+  #
+  # `ghcr_pull_username` is the GHCR convention: the username is fixed for
+  # token-based auth — GitHub validates the token, not the username. We use
+  # `openova-bot` as a stable identity string so audit logs in CI / GHCR
+  # pulls show a recognisable principal.
+  ghcr_pull_username  = "openova-bot"
+  ghcr_pull_auth_b64  = base64encode("${local.ghcr_pull_username}:${var.ghcr_pull_token}")
+
   # Cloud-init for the control-plane node — installs k3s, then Flux, then
   # writes the Flux GitRepository + Kustomization that points at
   # clusters/<sovereign-fqdn>/ in the public OpenOva monorepo.
@@ -125,6 +142,9 @@ locals {
     gitops_branch              = var.gitops_branch
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
+    ghcr_pull_username         = local.ghcr_pull_username
+    ghcr_pull_token            = var.ghcr_pull_token
+    ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
   })
 
   worker_cloud_init = templatefile("${path.module}/cloudinit-worker.tftpl", {
