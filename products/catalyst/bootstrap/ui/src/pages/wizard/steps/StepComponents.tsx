@@ -79,33 +79,23 @@ function sortComponents(
 }
 
 /**
- * Logo tile — per-asset tone, mirroring the canonical SME marketplace.
+ * Logo tile — per-brand surface sourced from each project's canonical
+ * homepage / press kit. See `logoTone.ts` for the per-id map.
  *
- * The marketplace at https://marketplace.openova.io/apps/ ships every
- * app logo as a PNG with the brand-correct surface BAKED IN — Cal.com
- * is a dark-grey PNG, Mautic is dark-blue, full-colour brand marks
- * ship transparent. The tile chrome is therefore zero (transparent
- * background, no padding, no border) — see `core/marketplace/.../AppsStep.svelte`
- * `.app-logo` rule. The wizard cannot do that because component logos
- * are vendored as raw upstream SVGs (no baked backplate). A universal
- * "near-white" tile (commit 691467b4) over-corrected and dropped
- * white-on-transparent glyphs (Temporal, LiveKit, Mimir, Tempo,
- * Velero, OpenBao …) into the white pill — the contrast bug surfaced
- * by the user.
+ * Each component renders against its own brand surface — Alloy on
+ * Grafana orange, FerretDB on its navy, Temporal on its signature
+ * blue, Cilium on its dark navy, etc. The marketplace bakes brand
+ * surfaces into PNGs; the wizard achieves the same effect with
+ * per-id metadata so vendored upstream SVGs (transparent
+ * background) read crisply against the brand tile.
  *
- * Mirroring the marketplace's *spirit* therefore means: pick the
- * tile surface PER ASSET via `logoTone.ts`, not globally. Two tones:
- *
- *   - `light` — slate-900 backplate for white-glyph assets.
- *   - `color` — slate-100 backplate for full-colour and dark-glyph
- *               assets (default).
- *
- * Both tones are theme-INDEPENDENT — the asset's natural surface,
- * exactly like marketplace PNGs ship the same regardless of card
- * theme. Keep in sync with `.mp-related-logo` / `.mp-related-icon`
- * in `MarketplaceFamilyPage.tsx` and `.mp-product-logo` /
- * `.mp-product-icon` in `MarketplaceProductPage.tsx` — the
- * component-logo tile is a single visual contract across the
+ * The brand surface is theme-INDEPENDENT — homepage logos look the
+ * same regardless of viewer theme. The card BODY surrounding the
+ * tile still flips with the wizard theme (`--wiz-bg-input`); only
+ * the LOGO TILE is brand-locked. Keep in sync with `.mp-related-logo`
+ * / `.mp-related-icon` in `MarketplaceFamilyPage.tsx` and
+ * `.mp-product-logo` / `.mp-product-icon` in `MarketplaceProductPage.tsx`
+ * — the component-logo tile is a single visual contract across the
  * wizard and the marketplace surfaces.
  */
 const LOGO_TILE_RADIUS = 10

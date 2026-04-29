@@ -47,12 +47,12 @@ interface MemberRowProps {
  */
 function MemberRow({ entry }: MemberRowProps) {
   const tone = getLogoToneStyle(entry.id)
-  // Per-asset tone overrides — see logoTone.ts and the .mp-related-logo
+  // Per-brand surface override — see logoTone.ts and the .mp-related-logo
   // CSS rule below. Inline style is the cleanest way to vary the tile
   // surface per-component without exploding into one CSS class per
   // component-id; the static rule still owns geometry (size, radius,
   // padding, object-fit), and inline style only overrides the
-  // background / border colour pair driven by the tone metadata.
+  // background / border colour pair driven by per-id brand metadata.
   const tileStyle: React.CSSProperties = {
     background: tone.background,
     borderColor: tone.border,
