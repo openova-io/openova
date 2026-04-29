@@ -1,0 +1,80 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `tempo:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: tempo
+    version: "1.24.4"
+    repo: "https://grafana.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: tempo) ─────────────────────────
+tempo:
+  # Single-binary StatefulSet — solo-Sovereign default.
+  replicas: 1
+
+  # Pin upstream Tempo image tag — DO NOT use floating tags.
+  tempo:
+    registry: docker.io
+    repository: grafana/tempo
+    tag: "2.9.0"
+    pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 1Gi
+    multitenancyEnabled: false
+    reportingEnabled: false
+
+    # Metrics generator — DEFAULT FALSE. Pulls in remote_write to Mimir
+    # which must be reconciled first. Per-Sovereign overlays flip this on
+    # once bp-mimir is up.
+    metricsGenerator:
+      enabled: false
+
+    # Storage backend — local PVC default. Per-Sovereign overlays MUST
+    # replace this with S3 (SeaweedFS or cloud) for HA Sovereigns.
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+  # Persistence — required for trace retention.
+  persistence:
+    enabled: true
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    enabled: false
+
+  # Service — ClusterIP; ingress wired by per-Sovereign overlays.
+  service:
+    type: ClusterIP
+
+  # NetworkPolicy — DEFAULT FALSE; the Catalyst-side NetworkPolicy template
+  # in templates/ (when added) governs this for all bp-* charts uniformly.
+  networkPolicy:
+    enabled: false
+
+  # tempoQuery (legacy Tempo Query container) — DISABLED. Grafana queries
+  # Tempo directly via the trace API.
+  tempoQuery:
+    enabled: false
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+tempoOverlay:
+  networkPolicy:
+    enabled: false

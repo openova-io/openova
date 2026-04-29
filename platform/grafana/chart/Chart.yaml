@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-grafana
+description: |
+  Catalyst Blueprint umbrella chart for Grafana. Depends on the upstream
+  `grafana` chart (grafana/helm-charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `grafana:` key in values.yaml.
+
+  Visualization layer of the LGTM observability stack — pairs with bp-loki
+  (logs), bp-tempo (traces), bp-mimir (metrics), and bp-alloy or
+  bp-opentelemetry (collection).
+type: application
+version: 1.0.0
+appVersion: "12.3.1"
+keywords: [catalyst, blueprint, grafana, observability, dashboards]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to grafana/grafana 10.5.15 (appVersion 12.3.1) — current stable on
+# 2026-04-29, validated against Kubernetes 1.31. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: grafana
+    version: "10.5.15"
+    repository: "https://grafana.github.io/helm-charts"

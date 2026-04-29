@@ -1,0 +1,124 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `loki:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: loki
+    version: "7.0.0"
+    repo: "https://grafana.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: loki) ──────────────────────────
+loki:
+  # SingleBinary mode — solo-Sovereign default. One Loki StatefulSet does
+  # ingestion + querying + compaction. Per-Sovereign overlays flip this to
+  # `SimpleScalable` (read/write/backend pods) or `Distributed` once HA is
+  # required AND object storage is wired. The upstream chart will refuse to
+  # render SimpleScalable/Distributed against filesystem storage.
+  deploymentMode: SingleBinary
+
+  # Loki core config — SingleBinary uses filesystem storage out of the box.
+  # Per-Sovereign overlays MUST replace `storage:` with `s3:` (SeaweedFS or
+  # cloud object storage) before flipping deploymentMode.
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    storage:
+      type: filesystem
+      bucketNames:
+        chunks: chunks
+        ruler: ruler
+        admin: admin
+    # Pin upstream image — DO NOT use floating tags.
+    image:
+      registry: docker.io
+      repository: grafana/loki
+      tag: "3.6.7"
+      pullPolicy: IfNotPresent
+
+  # SingleBinary StatefulSet — 1 replica, 10Gi PVC for chunks + index.
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 1Gi
+
+  # SimpleScalable / Distributed pools — DEFAULT 0 replicas. Per-Sovereign
+  # overlays bump these (and flip `deploymentMode`) when scaling out.
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+
+  # Gateway (nginx in front of Loki) — DISABLED for SingleBinary; the
+  # SingleBinary StatefulSet serves directly. SimpleScalable overlays flip
+  # this on.
+  gateway:
+    enabled: false
+
+  # Memcached for chunks/results cache — disabled for SingleBinary; not
+  # needed at solo-Sovereign scale.
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+
+  # Loki Canary (synthetic log producer/verifier) — DISABLED by default;
+  # drains a DaemonSet pod per node and pulls in monitoring CRDs.
+  lokiCanary:
+    enabled: false
+
+  # Helm test pods — DISABLED. We don't ship `helm test` infra in production.
+  test:
+    enabled: false
+
+  # Bundled MinIO subchart — DISABLED. Catalyst routes object storage
+  # through SeaweedFS when SimpleScalable/Distributed is selected; never
+  # MinIO embedded.
+  minio:
+    enabled: false
+
+  # Monitoring (dashboards + PrometheusRules) — DEFAULT FALSE per
+  # docs/BLUEPRINT-AUTHORING.md §11.2. Enabled by per-Sovereign overlays
+  # once kube-prometheus-stack is reconciled.
+  monitoring:
+    dashboards:
+      enabled: false
+    rules:
+      enabled: false
+    serviceMonitor:
+      enabled: false
+    selfMonitoring:
+      enabled: false
+      grafanaAgent:
+        installOperator: false
+    lokiCanary:
+      enabled: false
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+lokiOverlay:
+  networkPolicy:
+    enabled: false

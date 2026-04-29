@@ -1,0 +1,35 @@
+apiVersion: v2
+name: bp-velero
+description: |
+  Catalyst Blueprint umbrella chart for Velero. Depends on the upstream
+  `velero` chart (vmware-tanzu/helm-charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `velero:` key in values.yaml.
+
+  Velero is the per-host-cluster backup engine. Per docs/PLATFORM-TECH-
+  STACK.md §3.5, ALL Velero output goes to the same single S3 endpoint —
+  SeaweedFS (Catalyst's unified S3 encapsulation layer). SeaweedFS
+  handles tiered storage: hot in-cluster for recent backups, cold to a
+  cloud archival backend (Cloudflare R2 / Hetzner Object Storage / etc.)
+  when objects age past the warm window.
+
+  Per-Sovereign overlays MUST set `velero.configuration.backupStorage
+  Location` to point at SeaweedFS (provider: aws, s3ForcePathStyle: true,
+  s3Url pointing at the SeaweedFS S3 service) and supply credentials via
+  the `credentials` block.
+type: application
+version: 1.0.0
+appVersion: "1.18.0"
+keywords: [catalyst, blueprint, velero, backup, disaster-recovery]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to vmware-tanzu/velero 12.0.1 (appVersion 1.18.0) — current
+# stable on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) the version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: velero
+    version: "12.0.1"
+    repository: "https://vmware-tanzu.github.io/helm-charts"

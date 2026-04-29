@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: velero
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 1.0.0
+  card:
+    title: Velero
+    family: insights
+    description: Kubernetes-native backup and disaster recovery. Backups land in SeaweedFS (Catalyst's unified S3 layer), which transitions to a cloud archival backend.
+    docs: https://velero.io/docs/

@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-tempo
+description: |
+  Catalyst Blueprint umbrella chart for Grafana Tempo. Depends on the
+  upstream `tempo` chart (grafana/helm-charts) — single-binary mode — as
+  a Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact. Catalyst-curated values flow into the upstream
+  subchart under the `tempo:` key in values.yaml.
+
+  Default deployment shape is single-binary (one Tempo StatefulSet) —
+  minimum for a solo Sovereign. The microservice-mode variant (upstream
+  `tempo-distributed` chart) is a values toggle once a regional Sovereign
+  needs HA trace ingestion; per-Sovereign overlays MAY swap the upstream
+  dependency by republishing this chart with a different `dependencies:`
+  entry.
+type: application
+version: 1.0.0
+appVersion: "2.9.0"
+keywords: [catalyst, blueprint, tempo, observability, traces]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to grafana/tempo 1.24.4 (appVersion 2.9.0, single-binary) — current
+# stable on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) the version is operator-bumpable via PR + Blueprint release.
+# To switch to microservice mode, swap this entry for `tempo-distributed`
+# and republish.
+dependencies:
+  - name: tempo
+    version: "1.24.4"
+    repository: "https://grafana.github.io/helm-charts"

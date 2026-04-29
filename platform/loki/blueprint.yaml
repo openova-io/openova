@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: loki
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 1.0.0
+  card:
+    title: Loki
+    family: insights
+    description: Log aggregation backend for the LGTM observability stack. Single-binary mode for solo Sovereign; scalable mode is a values toggle.
+    docs: https://grafana.com/docs/loki/latest/

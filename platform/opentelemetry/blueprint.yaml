@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: opentelemetry
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 1.0.0
+  card:
+    title: OpenTelemetry Collector
+    family: insights
+    description: Vendor-neutral telemetry collector (OTLP receiver/forwarder). Sibling to bp-alloy — Catalyst supports both; per-Sovereign overlays choose one.
+    docs: https://opentelemetry.io/docs/collector/

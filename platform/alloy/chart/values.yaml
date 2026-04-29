@@ -1,0 +1,96 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `alloy:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: alloy
+    version: "1.8.0"
+    repo: "https://grafana.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: alloy) ─────────────────────────
+alloy:
+  # Pin upstream Alloy image tag — DO NOT use floating tags.
+  image:
+    registry: "docker.io"
+    repository: grafana/alloy
+    tag: "v1.16.0"
+    pullPolicy: IfNotPresent
+
+  # Alloy runtime config. Empty by default — the upstream chart ships an
+  # empty configMap that Alloy starts up against. Per-Sovereign overlays
+  # populate `alloy.configMap.content` with the full Alloy config (OTLP
+  # receivers + forwarders to Loki/Mimir/Tempo). Catalyst-side templates/
+  # may render a default config in a follow-up PR once those Blueprints
+  # have outputs declared.
+  alloy:
+    configMap:
+      create: true
+      content: ''
+
+    clustering:
+      enabled: false
+
+    # Storage path — emptyDir by default; per-Sovereign overlays MAY pin a
+    # PVC for persistent WAL.
+    storagePath: /tmp/alloy
+
+    # Resources — modest defaults; per-Sovereign overlays bump for high-
+    # cardinality clusters.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 512Mi
+
+  # Controller — DaemonSet default (one Alloy pod per node) so node-level
+  # metrics + container log tails work. Per-Sovereign overlays MAY flip to
+  # `deployment` for a centralised collector model.
+  controller:
+    type: daemonset
+    replicas: 1
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    enabled: false
+
+  # Service — ClusterIP; UI at port 12345.
+  service:
+    enabled: true
+    type: ClusterIP
+
+  # Ingress — DEFAULT FALSE; per-Sovereign overlays expose the Alloy UI via
+  # cilium-gateway HTTPRoute when needed.
+  ingress:
+    enabled: false
+
+  # NetworkPolicy — DEFAULT FALSE; the Catalyst-side NetworkPolicy template
+  # in templates/ (when added) governs this for all bp-* charts uniformly.
+  networkPolicy:
+    enabled: false
+
+  # RBAC — chart manages cluster-scoped Role+Binding so Alloy can discover
+  # pod/node/service targets.
+  rbac:
+    create: true
+  serviceAccount:
+    create: true
+    name: ""
+
+  # CRDs — alloy ships PodLogs CRDs as opt-in install. DEFAULT FALSE because
+  # they're cluster-scoped + may collide with existing kube-prometheus-stack
+  # operator install. Per-Sovereign overlays flip on once the operator
+  # is reconciled.
+  crds:
+    create: false
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+alloyOverlay:
+  networkPolicy:
+    enabled: false

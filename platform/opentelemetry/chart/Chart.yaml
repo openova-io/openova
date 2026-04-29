@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-opentelemetry
+description: |
+  Catalyst Blueprint umbrella chart for the OpenTelemetry Collector.
+  Depends on the upstream `opentelemetry-collector` chart
+  (open-telemetry/helm-charts) as a Helm subchart so `helm dependency
+  build` pulls the upstream payload into this artifact. Catalyst-curated
+  values flow into the upstream subchart under the
+  `opentelemetry-collector:` key in values.yaml.
+
+  The OTel Collector is the vendor-neutral counterpart to bp-alloy;
+  Catalyst supports both in the observability stack and per-Sovereign
+  overlays choose one. Default deployment mode is `deployment` (a single
+  collector pod handling OTLP traffic from in-cluster apps) — DaemonSet /
+  StatefulSet are values toggles for node-level collection / WAL
+  persistence respectively.
+type: application
+version: 1.0.0
+appVersion: "0.150.1"
+keywords: [catalyst, blueprint, opentelemetry, otlp, observability, telemetry, collector]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to open-telemetry/opentelemetry-collector 0.152.0 (appVersion
+# 0.150.1) — current stable on 2026-04-29. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: opentelemetry-collector
+    version: "0.152.0"
+    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
