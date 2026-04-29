@@ -944,7 +944,7 @@ function FailureCard({ deploymentId, status, message, sovereignFQDN, onRetry, on
       </div>
       <div className="failure-card-hint">
         <strong>Open logs:</strong>{' '}
-        <code>kubectl -n catalyst-system logs deploy/catalyst-api</code>
+        <code>kubectl -n catalyst logs deploy/catalyst-api</code>
       </div>
       <div className="failure-card-actions">
         <button type="button" className="ibtn cta" onClick={onRetry} data-testid="failure-retry">
