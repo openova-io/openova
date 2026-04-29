@@ -128,6 +128,73 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 
 ---
 
+### Phase 1 watch shows 0 HelmReleases
+
+**Symptom.** The wizard's progress page reaches `flux-bootstrap` successfully, then the Sovereign Admin banner shows the warning:
+
+> `Phase 1 watch saw 0 HelmReleases in 15m0s; the bootstrap-kit Kustomization may not be reconciling. Operator: run flux get kustomization -n flux-system on the new cluster.`
+
+The deployment status flips to `failed` with `Phase1Outcome=flux-not-reconciling` and the error message names this runbook section.
+
+**What this means.** Phase 0 (`tofu apply` + cloud-init) succeeded — the new k3s cluster is up and Flux is installed. But the Phase-1 catalyst-api watcher, which observes `bp-*` HelmReleases in `flux-system` via a read-only client-go informer, never saw a single HelmRelease appear within the first-seen window (`CATALYST_PHASE1_FIRST_SEEN_TIMEOUT`, default **15 minutes**). That means **Flux on the new Sovereign isn't materialising the bootstrap-kit Kustomization** — typically because the Kustomization itself can't reach its Git source, can't decrypt a SOPS secret, or its dependencies haven't reconciled yet.
+
+This is **not** a "wait it out" condition: the watcher continues running so a late HelmRelease still flows, but the cluster needs operator inspection before the install can complete.
+
+**Operator playbook.** SSH into the control-plane node (the IP is in the Hetzner Cloud Console; the SSH key is the one you supplied at Step 4 of the wizard) and walk these in order:
+
+1. **Confirm the catalyst-api Pod actually has the kubeconfig.** This eliminates the "watcher misconfigured" branch before you go hunting on the new cluster.
+
+   ```bash
+   # On the catalyst-zero cluster (where catalyst-api runs):
+   kubectl -n openova-system get deployment catalyst-api -o jsonpath='{.spec.template.spec.containers[0].env}' \
+     | jq '.[] | select(.name=="CATALYST_PHASE1_FIRST_SEEN_TIMEOUT" or .name=="CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS" or .name=="CATALYST_PHASE1_WATCH_TIMEOUT")'
+   ```
+
+   The defaults (15m / 11 / 60m) are fine for a normal run — only override for diagnostic re-runs.
+
+2. **Check the GitRepository on the new Sovereign.** Flux's source-controller fetches the OpenOva monorepo; if it can't, every downstream Kustomization is starved.
+
+   ```bash
+   # On the new Sovereign (KUBECONFIG=<the kubeconfig captured at Phase 0>):
+   kubectl get gitrepository -n flux-system -o wide
+   kubectl describe gitrepository -n flux-system openova-public
+   ```
+
+   Look for `Conditions[type=Ready].status=True` and a recent `lastAppliedRevision`. Common failures: 401/403 (deploy-key missing or wrong scope), 404 (branch / path mismatch), connection refused (DNS / firewall egress).
+
+3. **Check the bootstrap-kit Kustomization.** This is what materialises the 11 `bp-*` HelmRelease objects.
+
+   ```bash
+   kubectl get kustomization -n flux-system
+   kubectl describe kustomization -n flux-system <sovereign-fqdn>-bootstrap-kit
+   ```
+
+   If `Ready=False`, the `Message` field names the cause: missing CRD (`HelmRelease`), unrecognised `apiVersion` (Flux upgrade lockstep), `path` not found in the Git source, or `dependsOn` unresolved.
+
+4. **Inspect source-controller and kustomize-controller logs.** When the GitRepository looks healthy but no Kustomization fires, these are the next layers down.
+
+   ```bash
+   kubectl -n flux-system logs deploy/source-controller --tail=200
+   kubectl -n flux-system logs deploy/kustomize-controller --tail=200
+   ```
+
+   A clean log shows a periodic reconcile loop with revision SHAs. A stuck log shows the same error repeating every reconcile interval — that error is the root cause.
+
+5. **Re-run reconciliation manually** once the cause is fixed:
+
+   ```bash
+   flux reconcile source git openova-public -n flux-system
+   flux reconcile kustomization <sovereign-fqdn>-bootstrap-kit -n flux-system
+   ```
+
+   The catalyst-api watcher is still running on the wizard side (the `flux-not-reconciling` warn event does NOT terminate the watch loop — it just surfaces the banner). Once HelmReleases start appearing, normal per-component pills resume in the Sovereign Admin UI.
+
+**If the watcher has already terminated** (overall `CATALYST_PHASE1_WATCH_TIMEOUT` of 60m elapsed): the watch goroutine has exited. Start a new wizard run — the Hetzner side is idempotent (`tofu apply` on existing state) so you keep the cluster, but the per-deployment HelmRelease watch is owned by the old deployment id. A fresh run is the cleanest path until the wizard surfaces a "rejoin watch" button.
+
+**Why this is a dedicated symptom.** Earlier builds misread an empty informer cache as "all components done" and reported `finalStatus: ready` one second after `flux-bootstrap`. The current build refuses to consider termination until at least one `bp-*` HelmRelease has been observed AND the count meets `CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS`, so the only way to land here is a real Flux-side problem on the new cluster — not a timing race in the watcher. Trust the diagnostic and walk the playbook above.
+
+---
+
 ## Re-runs and idempotency
 
 `tofu apply` on an existing state is idempotent: rerunning the wizard with the **same Sovereign FQDN** updates only what changed (worker count up/down, k3s version upgrade, new firewall rules from a new cloud-init template). The cluster's running pods are untouched.

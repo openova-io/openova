@@ -806,3 +806,368 @@ func containsSubsequence(full, sub []string) bool {
 	return i == len(sub)
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// First-seen-gate coverage — the bug surfaced on the omantel run where
+// the watch terminated 1 second after flux-bootstrap with finalStatus=
+// "ready" because the informer cache was empty (Flux hadn't materialised
+// the bootstrap-kit Kustomization yet). The gate fixes this by:
+//   - refusing to consider termination until at least one HelmRelease
+//     has been observed (firstSeenAt is non-zero)
+//   - refusing to consider termination until ≥ MinBootstrapKitHRs have
+//     been observed (a partial early reconcile cannot satisfy "done")
+//   - emitting a warn event after FirstSeenTimeout if zero HRs are
+//     observed, while CONTINUING the watch (late HRs still flow)
+// ─────────────────────────────────────────────────────────────────────
+
+// makeReadyHelmRelease — local helper that builds a Ready=True HR. We
+// keep it separate from makeHelmRelease so the gate-tests below read
+// declaratively (each test seeds N ready HRs; the test name names N).
+func makeReadyHelmRelease(name string) *unstructured.Unstructured {
+	return makeHelmRelease(name, []metav1.Condition{
+		{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "Helm install succeeded"},
+	})
+}
+
+// makeFailedHelmRelease — local helper that builds a Ready=False HR
+// with the InstallFailed reason DeriveState maps to StateFailed.
+func makeFailedHelmRelease(name string) *unstructured.Unstructured {
+	return makeHelmRelease(name, []metav1.Condition{
+		{Type: "Ready", Status: metav1.ConditionFalse, Reason: "InstallFailed", Message: "chart failed: timed out"},
+	})
+}
+
+// TestWatch_EmptyList_FirstSeenTimeoutDoesNotTerminate proves the
+// omantel bug fix: an empty informer cache (Flux hasn't reconciled
+// the bootstrap-kit Kustomization yet on the new Sovereign) MUST NOT
+// satisfy "all observed terminal." The watch keeps running until
+// WatchTimeout, after which Outcome() reports
+// OutcomeFluxNotReconciling so the handler can set
+// Result.Phase1Outcome and the wizard banner can render the
+// operator-actionable diagnostic.
+//
+// Test shape: empty list + tight FirstSeenTimeout + larger WatchTimeout
+// → watch must NOT exit via the all-done channel (would be visible as
+// elapsed < WatchTimeout); must emit the warn event; final state must
+// be empty; Outcome must be flux-not-reconciling.
+func TestWatch_EmptyList_FirstSeenTimeoutDoesNotTerminate(t *testing.T) {
+	scheme := newFakeScheme()
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       1500 * time.Millisecond,
+		FirstSeenTimeout:   200 * time.Millisecond,
+		MinBootstrapKitHRs: 11,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	start := time.Now()
+	final, err := w.Watch(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch returned err: %v", err)
+	}
+	if elapsed < 1*time.Second {
+		t.Errorf("watch returned in %v — expected to ride out the WatchTimeout (≥1s) since the all-done gate must NOT fire on an empty informer cache", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("watch took %v — expected to terminate near WatchTimeout (1.5s)", elapsed)
+	}
+	if got := len(final); got != 0 {
+		t.Errorf("expected empty final state map, got %d entries: %v", got, final)
+	}
+	if got, want := w.Outcome(), OutcomeFluxNotReconciling; got != want {
+		t.Errorf("Outcome() = %q, want %q", got, want)
+	}
+
+	// The watch must have emitted the "saw 0 HelmReleases" warn event.
+	sawFluxNotReconcilingWarn := false
+	for _, ev := range rec.snapshot() {
+		if ev.Phase == PhaseComponent &&
+			ev.Level == "warn" &&
+			ev.Component == "" &&
+			strings.Contains(ev.Message, "saw 0 HelmReleases") {
+			sawFluxNotReconcilingWarn = true
+			break
+		}
+	}
+	if !sawFluxNotReconcilingWarn {
+		t.Errorf("expected a 'saw 0 HelmReleases' warn event, got: %+v", rec.snapshot())
+	}
+}
+
+// TestWatch_ZeroHRs_OneSecond_DoesNotTerminateEarly proves the
+// terminate-on-all-done channel is NOT closed within the first second
+// when zero bp-* HelmReleases are observed. This is the exact
+// regression seen on omantel (`finalStatus: ready` 1 second after
+// flux-bootstrap) — pinning it as a test prevents it from coming back.
+//
+// Test shape: empty list, large WatchTimeout. Wait 1s, cancel ctx, the
+// watch should still be running until cancel. The outcome reflects
+// the cancel path (flux-not-reconciling because no HRs were observed).
+func TestWatch_ZeroHRs_OneSecond_DoesNotTerminateEarly(t *testing.T) {
+	scheme := newFakeScheme()
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second, // no warn within test window
+		MinBootstrapKitHRs: 11,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var final map[string]string
+	go func() {
+		defer close(done)
+		final, _ = w.Watch(ctx)
+	}()
+
+	// Wait 1 second — the watch MUST still be running (this is the
+	// regression assertion: 0 HRs after 1s does NOT close the
+	// `terminated` channel).
+	select {
+	case <-done:
+		t.Fatalf("watch terminated within 1 second despite zero observed HelmReleases — regression of the omantel bug")
+	case <-time.After(1 * time.Second):
+		// Good — watch is still running.
+	}
+
+	// Now cancel the context to let the watch exit cleanly.
+	cancel()
+	select {
+	case <-done:
+		// Expected.
+	case <-time.After(5 * time.Second):
+		t.Fatalf("watch did not exit after ctx cancel")
+	}
+
+	if got := len(final); got != 0 {
+		t.Errorf("expected empty state map, got: %v", final)
+	}
+	if got, want := w.Outcome(), OutcomeFluxNotReconciling; got != want {
+		t.Errorf("Outcome() = %q, want %q (no HR ever observed)", got, want)
+	}
+}
+
+// TestWatch_11HRs_AllInstalled_TerminatesReady proves the happy
+// terminate-on-all-done path: when ≥ MinBootstrapKitHRs are observed
+// AND every observed component reaches StateInstalled, the watch
+// terminates fast with Outcome=ready.
+func TestWatch_11HRs_AllInstalled_TerminatesReady(t *testing.T) {
+	scheme := newFakeScheme()
+	names := []string{
+		"bp-cilium",
+		"bp-cert-manager",
+		"bp-flux",
+		"bp-crossplane",
+		"bp-sealed-secrets",
+		"bp-spire",
+		"bp-nats-jetstream",
+		"bp-openbao",
+		"bp-keycloak",
+		"bp-gitea",
+		"bp-catalyst-platform",
+	}
+	releases := make([]runtime.Object, 0, len(names))
+	for _, n := range names {
+		releases = append(releases, makeReadyHelmRelease(n))
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second, // must NOT be hit
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 11,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	final, err := w.Watch(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("watch took %v — expected fast all-done termination, not a 30s timeout", elapsed)
+	}
+	if got, want := len(final), 11; got != want {
+		t.Errorf("final states = %d, want %d: %v", got, want, final)
+	}
+	for _, n := range names {
+		comp := ComponentIDFromHelmRelease(n)
+		if final[comp] != StateInstalled {
+			t.Errorf("final[%q] = %q, want %q", comp, final[comp], StateInstalled)
+		}
+	}
+	if got, want := w.Outcome(), OutcomeReady; got != want {
+		t.Errorf("Outcome() = %q, want %q", got, want)
+	}
+}
+
+// TestWatch_11HRs_OneFailed_TerminatesFailed proves "failed" still
+// counts as terminal under the gate: the watch terminates fast (does
+// not wait for WatchTimeout) and reports Outcome=failed when at least
+// one of the ≥ MinBootstrapKitHRs observed components ended in
+// StateFailed.
+func TestWatch_11HRs_OneFailed_TerminatesFailed(t *testing.T) {
+	scheme := newFakeScheme()
+	names := []string{
+		"bp-cilium",
+		"bp-cert-manager",
+		"bp-flux",
+		"bp-crossplane",
+		"bp-sealed-secrets",
+		"bp-spire",
+		"bp-nats-jetstream",
+		"bp-openbao",
+		"bp-keycloak",
+		"bp-gitea",
+	}
+	releases := make([]runtime.Object, 0, len(names)+1)
+	for _, n := range names {
+		releases = append(releases, makeReadyHelmRelease(n))
+	}
+	releases = append(releases, makeFailedHelmRelease("bp-catalyst-platform"))
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 11,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	final, err := w.Watch(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("watch took %v — expected fast all-done termination on terminal-with-failure", elapsed)
+	}
+	if got, want := len(final), 11; got != want {
+		t.Errorf("final states = %d, want %d: %v", got, want, final)
+	}
+	if final["catalyst-platform"] != StateFailed {
+		t.Errorf("final[catalyst-platform] = %q, want %q", final["catalyst-platform"], StateFailed)
+	}
+	if got, want := w.Outcome(), OutcomeFailed; got != want {
+		t.Errorf("Outcome() = %q, want %q", got, want)
+	}
+}
+
+// TestWatch_5HRs_BelowMinBootstrapKitHRs_DoesNotTerminate proves the
+// count-gate: when fewer than MinBootstrapKitHRs HelmReleases are
+// observed, even if every ONE of them is terminal, the watch does NOT
+// satisfy "all observed terminal." It rides out WatchTimeout and
+// reports Outcome=timeout (firstSeenAt is set, just count is below
+// threshold).
+//
+// This pins the partial-reconcile failure mode: Flux on the new
+// cluster started materialising the kit but only got to N=5 before
+// the bootstrap-kit Kustomization broke. Without the count gate, all
+// five could go ready and the watch would prematurely report ready —
+// hiding the missing 6 components.
+func TestWatch_5HRs_BelowMinBootstrapKitHRs_DoesNotTerminate(t *testing.T) {
+	scheme := newFakeScheme()
+	names := []string{
+		"bp-cilium",
+		"bp-cert-manager",
+		"bp-flux",
+		"bp-crossplane",
+		"bp-sealed-secrets",
+	}
+	releases := make([]runtime.Object, 0, len(names))
+	for _, n := range names {
+		releases = append(releases, makeReadyHelmRelease(n))
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       1500 * time.Millisecond, // WatchTimeout must be hit, not all-done
+		FirstSeenTimeout:   30 * time.Second,        // no first-seen warn within the window
+		MinBootstrapKitHRs: 11,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	start := time.Now()
+	final, err := w.Watch(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	// MUST ride out WatchTimeout — the all-done gate cannot fire below
+	// the bootstrap-kit threshold.
+	if elapsed < 1*time.Second {
+		t.Errorf("watch returned in %v — expected to ride out WatchTimeout (≥1s) because only 5 < 11 HRs were observed", elapsed)
+	}
+	if got, want := len(final), 5; got != want {
+		t.Errorf("final states = %d, want %d (each observed HR appears, the gate just blocks termination): %v", got, want, final)
+	}
+	// firstSeenAt was set (5 HRs were observed) → outcome is Timeout,
+	// NOT FluxNotReconciling.
+	if got, want := w.Outcome(), OutcomeTimeout; got != want {
+		t.Errorf("Outcome() = %q, want %q (firstSeenAt set, but below count gate)", got, want)
+	}
+}
+

@@ -45,6 +45,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,62 @@ const DefaultWatchTimeout = 60 * time.Minute
 // state, not when N have appeared, but tests assert this constant so
 // any future drift in the kit count surfaces here too.
 const MinComponentCount = 11
+
+// DefaultMinBootstrapKitHRs — the lower bound on number of bp-*
+// HelmReleases that must have appeared in the informer cache before
+// the terminate-on-all-done check is even considered. This is the
+// bug-fix gate for omantel-class deployments where the watcher used
+// to exit "ready" one second after flux-bootstrap because zero HRs
+// were yet reconciled (Flux hadn't materialised the bootstrap-kit
+// Kustomization on the new cluster).
+//
+// Operator override: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS. A future
+// bootstrap-kit that ships more or fewer components only needs this
+// env flipped on the catalyst-api Deployment — no code change
+// required.
+const DefaultMinBootstrapKitHRs = 11
+
+// DefaultFirstSeenTimeout — how long the Watcher waits for the FIRST
+// bp-* HelmRelease to appear in the informer cache after the watch
+// starts. If this elapses with zero HRs observed, the watch emits a
+// single warn event pointing the operator at `flux get kustomization
+// -n flux-system` (the bootstrap-kit Kustomization isn't reconciling)
+// and CONTINUES watching — late HRs are still honoured.
+//
+// 15 minutes is sized off omantel-class observed latency: a healthy
+// flux-bootstrap → first bp-* HelmRelease materialisation completes
+// in well under 5 minutes; 15 leaves headroom for slow image pulls
+// + a flux-system reconcile interval.
+//
+// Operator override: CATALYST_PHASE1_FIRST_SEEN_TIMEOUT.
+const DefaultFirstSeenTimeout = 15 * time.Minute
+
+// Phase-1 outcome strings — Watcher.Outcome() returns one of these so
+// the handler can set Result.Phase1Outcome (read by the Sovereign
+// Admin banner). Empty string means the watch has not yet terminated.
+const (
+	// OutcomeReady — every observed component reached "installed",
+	// ≥ MinBootstrapKitHRs were observed, no failures.
+	OutcomeReady = "ready"
+
+	// OutcomeFailed — every observed component reached terminal state
+	// AND ≥ MinBootstrapKitHRs were observed, but at least one was
+	// "failed".
+	OutcomeFailed = "failed"
+
+	// OutcomeTimeout — overall WatchTimeout elapsed before
+	// terminate-on-all-done fired. ≥ 1 HelmRelease was observed at
+	// some point — partial state is in ComponentStates.
+	OutcomeTimeout = "timeout"
+
+	// OutcomeFluxNotReconciling — overall WatchTimeout elapsed AND
+	// not a single bp-* HelmRelease was ever observed. The
+	// bootstrap-kit Kustomization on the new Sovereign isn't
+	// reconciling. Operator playbook in
+	// docs/RUNBOOK-PROVISIONING.md §"Phase 1 watch shows 0
+	// HelmReleases".
+	OutcomeFluxNotReconciling = "flux-not-reconciling"
+)
 
 // State enums — kept as constants so callers (handler, tests) compare
 // against them by identifier rather than literal strings.
@@ -169,6 +226,26 @@ type Config struct {
 	// Resync — informer resync period. Defaults to 30s. Tests override
 	// to 0 (event-driven only) to keep test runtime tight.
 	Resync time.Duration
+
+	// MinBootstrapKitHRs — the lower bound on the count of observed
+	// bp-* HelmReleases below which the terminate-on-all-done check
+	// is suppressed. Defaults to DefaultMinBootstrapKitHRs (11). The
+	// catalyst-api wires CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS into
+	// this; tests inject a smaller value (e.g. 3) so they can prove
+	// the gate without seeding the full kit.
+	//
+	// Rationale: an empty informer cache (zero observed HRs) MUST NOT
+	// satisfy "all observed are terminal" — see helmwatch.go for the
+	// bug-fix narrative.
+	MinBootstrapKitHRs int
+
+	// FirstSeenTimeout — duration after watch start during which the
+	// Watcher waits for the FIRST bp-* HelmRelease. If zero HRs are
+	// observed within this window, a single warn event fires and the
+	// watch CONTINUES (HRs may still appear). Defaults to
+	// DefaultFirstSeenTimeout (15m). The catalyst-api wires
+	// CATALYST_PHASE1_FIRST_SEEN_TIMEOUT into this.
+	FirstSeenTimeout time.Duration
 }
 
 func (c *Config) applyDefaults() {
@@ -180,6 +257,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Resync <= 0 {
 		c.Resync = 30 * time.Second
+	}
+	if c.MinBootstrapKitHRs <= 0 {
+		c.MinBootstrapKitHRs = DefaultMinBootstrapKitHRs
+	}
+	if c.FirstSeenTimeout <= 0 {
+		c.FirstSeenTimeout = DefaultFirstSeenTimeout
 	}
 }
 
@@ -202,6 +285,31 @@ type Watcher struct {
 	// terminates correctly on a future bootstrap-kit that ships more
 	// or fewer components without code change.
 	observed map[string]struct{}
+
+	// firstSeenAt — wall-clock instant at which the Watcher first
+	// observed a bp-* HelmRelease in the informer cache. Zero
+	// (`time.Time{}`) means "no HelmRelease has been observed yet,
+	// the bootstrap-kit Kustomization may not be reconciling on the
+	// new Sovereign". Mutated under w.mu; the terminate-on-all-done
+	// check refuses to even consider termination while firstSeenAt
+	// is zero so an empty informer cache cannot be misread as "all
+	// done".
+	firstSeenAt time.Time
+
+	// firstSeenWarnEmitted — set true once the
+	// "Phase 1 watch saw 0 HelmReleases" warn event has been emitted.
+	// Guards against re-emission if the Watcher is hypothetically
+	// driven across multiple FirstSeenTimeout boundaries.
+	firstSeenWarnEmitted bool
+
+	// outcome — terminal classification of the watch run, set
+	// exactly once by Watch on the path that returns. Read via
+	// Outcome() by the handler so it can set
+	// Deployment.Result.Phase1Outcome. Empty string while Watch is
+	// running; populated to one of OutcomeReady / OutcomeFailed /
+	// OutcomeTimeout / OutcomeFluxNotReconciling at the moment Watch
+	// returns.
+	outcome string
 }
 
 // NewWatcher returns a Watcher with cfg applied. emit must be non-nil
@@ -318,28 +426,154 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		// every observed component so the SSE consumer can render the
 		// stuck-where-we-got-to view.
 		final := w.terminalStatesSnapshot()
+		w.setOutcome(w.classifyOutcomeOnContextEnd())
 		return final, fmt.Errorf("helmwatch: informer cache failed to sync: %w", watchCtx.Err())
 	}
 
+	// First-seen ticker — periodically checks whether the watch has
+	// observed at least one bp-* HelmRelease within FirstSeenTimeout.
+	// If not, emits a single warn event so the Sovereign Admin can
+	// render "Phase 1: bootstrap-kit not reconciling" and the
+	// operator can run `flux get kustomization -n flux-system` on
+	// the new cluster. The watch CONTINUES — late HRs still flow.
+	//
+	// We use a ticker (not a one-shot timer) so the check is
+	// independent of the informer event clock — an idle informer
+	// cannot starve the timeout check.
+	firstSeenStart := w.cfg.Now()
+	firstSeenCheckInterval := w.cfg.FirstSeenTimeout / 4
+	if firstSeenCheckInterval < 100*time.Millisecond {
+		firstSeenCheckInterval = 100 * time.Millisecond
+	}
+	if firstSeenCheckInterval > 30*time.Second {
+		firstSeenCheckInterval = 30 * time.Second
+	}
+	firstSeenTicker := time.NewTicker(firstSeenCheckInterval)
+	defer firstSeenTicker.Stop()
+
 	// Wait for either all-terminal or context done.
-	select {
-	case <-terminated:
-		// Clean termination — every observed component is in a
-		// terminal state.
-	case <-watchCtx.Done():
-		// Timeout or caller cancel — emit a single warn event so the
-		// Sovereign Admin can render "watch ended (timeout): X of Y
-		// installed" rather than going silent.
-		w.emit(provisioner.Event{
-			Time:    w.cfg.Now().UTC().Format(time.RFC3339),
-			Phase:   PhaseComponent,
-			Level:   "warn",
-			Message: "Phase-1 watch terminated by context: " + watchCtx.Err().Error() + " — see ComponentStates for current outcome",
-		})
+	for {
+		select {
+		case <-terminated:
+			// Clean termination — every observed component reached a
+			// terminal state AND ≥ MinBootstrapKitHRs were observed.
+			final := w.terminalStatesSnapshot()
+			w.setOutcome(w.classifyOutcomeOnTerminate(final))
+			return final, nil
+
+		case <-watchCtx.Done():
+			// Timeout or caller cancel — emit a single warn event so
+			// the Sovereign Admin can render "watch ended (timeout):
+			// X of Y installed" rather than going silent.
+			w.emit(provisioner.Event{
+				Time:    w.cfg.Now().UTC().Format(time.RFC3339),
+				Phase:   PhaseComponent,
+				Level:   "warn",
+				Message: "Phase-1 watch terminated by context: " + watchCtx.Err().Error() + " — see ComponentStates for current outcome",
+			})
+			final := w.terminalStatesSnapshot()
+			w.setOutcome(w.classifyOutcomeOnContextEnd())
+			return final, nil
+
+		case <-firstSeenTicker.C:
+			w.maybeEmitFirstSeenWarn(firstSeenStart)
+			// Loop and keep waiting — first-seen timeout does NOT
+			// terminate the watch.
+		}
+	}
+}
+
+// maybeEmitFirstSeenWarn emits the "Phase 1 watch saw 0 HelmReleases
+// in <timeout>" warn event the first time FirstSeenTimeout elapses
+// with zero observed components. Re-emission is suppressed via
+// firstSeenWarnEmitted so a long-running stuck watch does not flood
+// the SSE buffer with the same diagnostic.
+//
+// The watch CONTINUES after this — late HelmReleases still flow into
+// processEvent. The point of the warn is to surface "the
+// bootstrap-kit Kustomization isn't reconciling on the new cluster"
+// to the operator while preserving recoverability.
+func (w *Watcher) maybeEmitFirstSeenWarn(firstSeenStart time.Time) {
+	w.mu.Lock()
+	alreadyEmitted := w.firstSeenWarnEmitted
+	hasFirstSeen := !w.firstSeenAt.IsZero()
+	w.mu.Unlock()
+
+	if alreadyEmitted || hasFirstSeen {
+		return
+	}
+	if w.cfg.Now().Sub(firstSeenStart) < w.cfg.FirstSeenTimeout {
+		return
 	}
 
-	final := w.terminalStatesSnapshot()
-	return final, nil
+	w.mu.Lock()
+	// Re-check under the lock to avoid a double-emit race with
+	// processEvent flipping firstSeenAt.
+	if w.firstSeenWarnEmitted || !w.firstSeenAt.IsZero() {
+		w.mu.Unlock()
+		return
+	}
+	w.firstSeenWarnEmitted = true
+	w.mu.Unlock()
+
+	w.emit(provisioner.Event{
+		Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+		Phase: PhaseComponent,
+		Level: "warn",
+		// No Component field — this is a watch-level diagnostic, not
+		// a per-component state change. The Sovereign Admin's banner
+		// reducer keys off Phase=="component" + Component=="" to
+		// surface this as a top-level alert.
+		Message: fmt.Sprintf(
+			"Phase 1 watch saw 0 HelmReleases in %s; the bootstrap-kit Kustomization may not be reconciling. Operator: run `flux get kustomization -n flux-system` on the new cluster.",
+			w.cfg.FirstSeenTimeout,
+		),
+	})
+}
+
+// classifyOutcomeOnTerminate maps a clean terminate-on-all-done into
+// OutcomeReady or OutcomeFailed. Called only on the `<-terminated`
+// branch, where the gate guarantees len(observed) ≥
+// MinBootstrapKitHRs and every observed state is in
+// terminalStates.
+func (w *Watcher) classifyOutcomeOnTerminate(final map[string]string) string {
+	for _, s := range final {
+		if s == StateFailed {
+			return OutcomeFailed
+		}
+	}
+	return OutcomeReady
+}
+
+// classifyOutcomeOnContextEnd maps a context-cancelled exit into
+// OutcomeTimeout or OutcomeFluxNotReconciling depending on whether
+// any HelmRelease was ever observed. The handler reads this through
+// Watcher.Outcome() and copies into Deployment.Result.Phase1Outcome
+// so the Sovereign Admin's UI banner can render the right diagnostic.
+func (w *Watcher) classifyOutcomeOnContextEnd() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.firstSeenAt.IsZero() {
+		return OutcomeFluxNotReconciling
+	}
+	return OutcomeTimeout
+}
+
+// setOutcome stores the terminal classification under the lock.
+// Called exactly once per watch run from Watch() before returning.
+func (w *Watcher) setOutcome(out string) {
+	w.mu.Lock()
+	w.outcome = out
+	w.mu.Unlock()
+}
+
+// Outcome returns the terminal classification of the watch run, or ""
+// if Watch has not yet returned. The handler reads this immediately
+// after Watch returns to copy onto Deployment.Result.Phase1Outcome.
+func (w *Watcher) Outcome() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.outcome
 }
 
 // processEvent maps an informer Add/Update event to a state-change Event.
@@ -350,6 +584,11 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 // patch (including helm-controller's own observedGeneration touches),
 // and the Sovereign Admin's status pill should not flicker at sub-
 // second cadence.
+//
+// The first observed bp-* HelmRelease stamps Watcher.firstSeenAt —
+// the terminate-on-all-done gate refuses to consider termination
+// until firstSeenAt is non-zero AND len(observed) ≥
+// MinBootstrapKitHRs.
 func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *sync.Once) {
 	u, ok := obj.(*unstructured.Unstructured)
 	if !ok {
@@ -370,8 +609,11 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	prev := w.states[componentID]
 	w.states[componentID] = state
 	w.observed[componentID] = struct{}{}
+	if w.firstSeenAt.IsZero() {
+		w.firstSeenAt = w.cfg.Now()
+	}
 
-	allTerminal := allObservedTerminal(w.states, w.observed)
+	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt)
 	w.mu.Unlock()
 
 	if prev != state {
@@ -390,11 +632,25 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	}
 }
 
-// allObservedTerminal returns true when every component the watch has
-// observed at least once is in a terminal state. With zero observed
-// components it returns false — an empty cluster cannot be "done."
-func allObservedTerminal(states map[string]string, observed map[string]struct{}) bool {
-	if len(observed) == 0 {
+// allObservedTerminal returns true when:
+//
+//   - Watcher.firstSeenAt is non-zero (at least one bp-* HelmRelease
+//     has been observed in the informer cache), AND
+//   - len(observed) ≥ minBootstrapKitHRs (the watch has seen at least
+//     the documented bootstrap-kit count, so it can't be fooled by a
+//     partial early reconcile), AND
+//   - every observed component is in terminalStates (installed |
+//     failed).
+//
+// All three are required. The first two together close the
+// "informer hadn't seen the bootstrap-kit yet" bug surfaced on
+// omantel where a watch returned ready 1s after flux-bootstrap
+// because zero HRs had reconciled.
+func allObservedTerminal(states map[string]string, observed map[string]struct{}, minBootstrapKitHRs int, firstSeenAt time.Time) bool {
+	if firstSeenAt.IsZero() {
+		return false
+	}
+	if len(observed) < minBootstrapKitHRs {
 		return false
 	}
 	for id := range observed {
@@ -565,5 +821,35 @@ func CompileWatchTimeout(raw string) time.Duration {
 		return DefaultWatchTimeout
 	}
 	return d
+}
+
+// CompileFirstSeenTimeout — env-var parse helper for
+// CATALYST_PHASE1_FIRST_SEEN_TIMEOUT. Empty / unparseable / non-positive
+// input yields DefaultFirstSeenTimeout.
+func CompileFirstSeenTimeout(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultFirstSeenTimeout
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return DefaultFirstSeenTimeout
+	}
+	return d
+}
+
+// CompileMinBootstrapKitHRs — env-var parse helper for
+// CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS. Empty / unparseable /
+// non-positive input yields DefaultMinBootstrapKitHRs.
+func CompileMinBootstrapKitHRs(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultMinBootstrapKitHRs
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return DefaultMinBootstrapKitHRs
+	}
+	return n
 }
 
