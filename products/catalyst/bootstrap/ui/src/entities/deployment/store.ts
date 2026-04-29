@@ -87,6 +87,12 @@ interface WizardActions {
   setRegionCloudRegion: (regionIndex: number, cloudRegion: string) => void
   applyProviderToAll: (provider: CloudProvider, regionCount: number) => void
 
+  // Step 3 — Per-region sizing (lives inside the provider step alongside
+  // the provider+region pickers, since SKU vocabulary is per-provider).
+  setRegionControlPlaneSize: (regionIndex: number, sizeId: string) => void
+  setRegionWorkerSize: (regionIndex: number, sizeId: string) => void
+  setRegionWorkerCount: (regionIndex: number, count: number) => void
+
   // Step 4 — Per-provider credentials
   setProviderToken: (provider: CloudProvider, token: string) => void
   setProviderValidated: (provider: CloudProvider, validated: boolean) => void
@@ -262,32 +268,56 @@ export const useWizardStore = create<WizardStore>()(
           set({ registrarType: null, registrarToken: '', registrarTokenValidated: false },
               false, 'wizard/clearRegistrarCredentials'),
 
-        // Reset regionProviders and regionCloudRegions when topology changes.
-        // Also seed a topology-appropriate default workerCount: solo
-        // (single-region) defaults to 0 (the control-plane carries everything
-        // in an evaluation deployment), multi-region topologies default to a
-        // minimum of 3 workers per region — meaningful workload headroom
-        // alongside the etcd-quorum control plane. The user can still adjust
-        // the count up or down in the topology step's sizing panel.
+        // Reset regionProviders, regionCloudRegions, AND the per-region
+        // sizing arrays when topology changes — the new topology may have
+        // a different region count, and a stale SKU at index 3 carried
+        // over from CITADEL into a SOLO would silently feed the cost
+        // rollup an unreachable region. The legacy single workerCount
+        // field is also reset (StepProvider seeds per-region counts now).
         setTopology: (topology) =>
           set(
-            (s) => ({
+            {
               topology,
               regionProviders: {},
               regionCloudRegions: {},
+              regionControlPlaneSizes: [],
+              regionWorkerSizes: [],
+              regionWorkerCounts: [],
               providerValidated: {},
               providerTokens: {},
-              workerCount: topology === 'solo' ? 0 : Math.max(s.workerCount, 3),
-            }),
+              workerCount: 0,
+            },
             false,
             'wizard/setTopology',
           ),
 
+        // Switching the provider for a region invalidates the SKUs that
+        // were valid for the old provider (Hetzner cx32 means nothing on
+        // Azure). The cloud-region is also wiped because the region
+        // vocabulary is per-provider too. StepProvider re-pre-selects
+        // sane defaults immediately after.
         setRegionProvider: (regionIndex, provider) =>
           set(
-            (s) => ({ regionProviders: { ...s.regionProviders, [regionIndex]: provider } }),
+            (s) => {
+              const cps = [...s.regionControlPlaneSizes]
+              const wks = [...s.regionWorkerSizes]
+              const wcs = [...s.regionWorkerCounts]
+              while (cps.length <= regionIndex) cps.push('')
+              while (wks.length <= regionIndex) wks.push('')
+              while (wcs.length <= regionIndex) wcs.push(0)
+              cps[regionIndex] = ''
+              wks[regionIndex] = ''
+              wcs[regionIndex] = 0
+              return {
+                regionProviders: { ...s.regionProviders, [regionIndex]: provider },
+                regionCloudRegions: { ...s.regionCloudRegions, [regionIndex]: '' },
+                regionControlPlaneSizes: cps,
+                regionWorkerSizes: wks,
+                regionWorkerCounts: wcs,
+              }
+            },
             false,
-            'wizard/setRegionProvider'
+            'wizard/setRegionProvider',
           ),
         setRegionCloudRegion: (regionIndex, cloudRegion) =>
           set(
@@ -300,6 +330,55 @@ export const useWizardStore = create<WizardStore>()(
           for (let i = 0; i < regionCount; i++) regionProviders[i] = provider
           set({ regionProviders }, false, 'wizard/applyProviderToAll')
         },
+
+        // Per-region SKU mutators. Each writes ONLY into the index it was
+        // given — adjacent indices are preserved untouched. The setters
+        // pad the array with empty strings (for sizes) or zeros (for
+        // counts) up to the requested index so a sparse selection from
+        // an earlier topology choice doesn't leak NaN/undefined holes
+        // into the cost rollup. The legacy single-valued field mirrors
+        // index 0 so the existing solo-Hetzner fallback path keeps
+        // working until the multi-region tofu wiring activates.
+        setRegionControlPlaneSize: (regionIndex, sizeId) =>
+          set(
+            (s) => {
+              const next = [...s.regionControlPlaneSizes]
+              while (next.length <= regionIndex) next.push('')
+              next[regionIndex] = sizeId
+              const patch: Partial<WizardState> = { regionControlPlaneSizes: next }
+              if (regionIndex === 0) patch.controlPlaneSize = sizeId
+              return patch
+            },
+            false,
+            'wizard/setRegionControlPlaneSize',
+          ),
+        setRegionWorkerSize: (regionIndex, sizeId) =>
+          set(
+            (s) => {
+              const next = [...s.regionWorkerSizes]
+              while (next.length <= regionIndex) next.push('')
+              next[regionIndex] = sizeId
+              const patch: Partial<WizardState> = { regionWorkerSizes: next }
+              if (regionIndex === 0) patch.workerSize = sizeId
+              return patch
+            },
+            false,
+            'wizard/setRegionWorkerSize',
+          ),
+        setRegionWorkerCount: (regionIndex, count) =>
+          set(
+            (s) => {
+              const safe = Math.max(0, Math.min(50, Math.floor(count)))
+              const next = [...s.regionWorkerCounts]
+              while (next.length <= regionIndex) next.push(0)
+              next[regionIndex] = safe
+              const patch: Partial<WizardState> = { regionWorkerCounts: next }
+              if (regionIndex === 0) patch.workerCount = safe
+              return patch
+            },
+            false,
+            'wizard/setRegionWorkerCount',
+          ),
 
         setProviderToken: (provider, token) =>
           set(
@@ -596,8 +675,36 @@ export const useWizardStore = create<WizardStore>()(
             p.topology = null
             p.regionProviders = {}
             p.regionCloudRegions = {}
+            p.regionControlPlaneSizes = []
+            p.regionWorkerSizes = []
+            p.regionWorkerCounts = []
             p.providerValidated = {}
             p.providerTokens = {}
+          }
+          // Per-region sizing migration. A persist payload from before the
+          // per-region rework only has the singular controlPlaneSize /
+          // workerSize / workerCount fields. Hydrate the arrays from those
+          // for index 0 so a returning user sees their previous selection
+          // applied to Region 1 — the rest of the regions stay empty until
+          // the user revisits the provider step. Any cx22 default (the old
+          // hetzner literal that was the legacy initial value) is treated
+          // as "no selection yet" so we don't carry a hetzner-only id into
+          // a chosen Azure region.
+          {
+            const legacyCp = (p as { controlPlaneSize?: string }).controlPlaneSize
+            const legacyWk = (p as { workerSize?: string }).workerSize
+            const legacyWc = (p as { workerCount?: number }).workerCount
+            const validLegacy = (id: string | undefined) =>
+              typeof id === 'string' && id !== '' && id !== 'cx22'
+            if (!Array.isArray(p.regionControlPlaneSizes)) {
+              p.regionControlPlaneSizes = validLegacy(legacyCp) ? [legacyCp as string] : []
+            }
+            if (!Array.isArray(p.regionWorkerSizes)) {
+              p.regionWorkerSizes = validLegacy(legacyWk) ? [legacyWk as string] : []
+            }
+            if (!Array.isArray(p.regionWorkerCounts)) {
+              p.regionWorkerCounts = typeof legacyWc === 'number' ? [legacyWc] : []
+            }
           }
           // Coerce legacy persist payloads that lack new fields. Without
           // these guards, the store returns `undefined` and toggleBlueprint

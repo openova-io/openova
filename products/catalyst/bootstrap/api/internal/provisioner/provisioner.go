@@ -39,6 +39,26 @@ import (
 	"time"
 )
 
+// RegionSpec is one entry in Request.Regions — the per-region sizing
+// payload the wizard's StepProvider produces. Each topology slot has its
+// own provider, its own cloud-region, and its own SKU vocabulary, so the
+// canonical request shape carries one of these per slot.
+//
+// SKU strings are the provider's NATIVE instance-type identifier (cx32,
+// VM.Standard.E5.Flex.4.32, m6i.xlarge, Standard_D4s_v5, ...). The
+// OpenTofu module receives them verbatim via tofu.auto.tfvars.json and
+// the provider's API validates them at apply time. The wizard reads
+// every legal id from products/catalyst/bootstrap/ui/src/shared/constants/
+// providerSizes.ts (PROVIDER_NODE_SIZES) — there is no SKU literal
+// anywhere else in the wizard.
+type RegionSpec struct {
+	Provider         string `json:"provider"`
+	CloudRegion      string `json:"cloudRegion"`
+	ControlPlaneSize string `json:"controlPlaneSize"`
+	WorkerSize       string `json:"workerSize"`
+	WorkerCount      int    `json:"workerCount"`
+}
+
 // Request carries the wizard inputs the OpenTofu module needs.
 type Request struct {
 	OrgName  string `json:"orgName"`
@@ -51,12 +71,30 @@ type Request struct {
 
 	HetznerToken     string `json:"hetznerToken"`
 	HetznerProjectID string `json:"hetznerProjectID"`
-	Region           string `json:"region"`
 
+	// Legacy singular fields. When Regions is non-empty Validate()
+	// derives these from Regions[0] so writeTfvars()'s single-region
+	// apply path keeps working unchanged. When Regions is empty the
+	// wizard is from before the per-provider rework migrated, or the
+	// payload is hand-crafted (e.g. handler/load_test.go), and these
+	// carry the request directly.
+	Region           string `json:"region"`
 	ControlPlaneSize string `json:"controlPlaneSize"`
 	WorkerSize       string `json:"workerSize"`
 	WorkerCount      int    `json:"workerCount"`
-	HAEnabled        bool   `json:"haEnabled"`
+
+	HAEnabled bool `json:"haEnabled"`
+
+	// Per-region sizing payload — canonical from the per-provider rework
+	// onwards. The wizard always emits this. Multi-region tofu wiring is
+	// structural-correct (variables.tf and the cloud-init templates
+	// accept the per-region SKU values), but only Regions[0] is end-to-end
+	// exercised today against a real Hetzner project: writeTfvars()
+	// renders the singular fields below, mirrored from Regions[0]. The
+	// for_each iteration that activates the rest lives in the OpenTofu
+	// module — this Go struct's role is to carry the data, intact, for
+	// that iteration to pick up.
+	Regions []RegionSpec `json:"regions,omitempty"`
 
 	SSHPublicKey string `json:"sshPublicKey"`
 
@@ -69,7 +107,42 @@ type Request struct {
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
-func (r Request) Validate() error {
+//
+// Pointer receiver: when Regions is non-empty, Validate mirrors Regions[0]
+// into the legacy singular fields so writeTfvars() can keep using them
+// without conditional logic. Callers (handler.CreateDeployment) operate
+// on the *Request anyway because the same instance is stored on
+// Deployment.Request, so the mutation is intentional and persistent.
+func (r *Request) Validate() error {
+	if len(r.Regions) > 0 {
+		// Each region must carry a provider + cloudRegion + control-plane
+		// SKU. Worker SKU is required only when WorkerCount > 0.
+		for i, rs := range r.Regions {
+			if strings.TrimSpace(rs.Provider) == "" {
+				return fmt.Errorf("region[%d] provider is required", i)
+			}
+			if strings.TrimSpace(rs.CloudRegion) == "" {
+				return fmt.Errorf("region[%d] cloudRegion is required", i)
+			}
+			if strings.TrimSpace(rs.ControlPlaneSize) == "" {
+				return fmt.Errorf("region[%d] controlPlaneSize is required", i)
+			}
+			if rs.WorkerCount < 0 {
+				return fmt.Errorf("region[%d] workerCount must be non-negative", i)
+			}
+			if rs.WorkerCount > 0 && strings.TrimSpace(rs.WorkerSize) == "" {
+				return fmt.Errorf("region[%d] workerSize is required when workerCount > 0", i)
+			}
+		}
+
+		// Mirror Regions[0] into the legacy singular fields for the
+		// single-region apply path inside writeTfvars().
+		r.Region = r.Regions[0].CloudRegion
+		r.ControlPlaneSize = r.Regions[0].ControlPlaneSize
+		r.WorkerSize = r.Regions[0].WorkerSize
+		r.WorkerCount = r.Regions[0].WorkerCount
+	}
+
 	if strings.TrimSpace(r.HetznerToken) == "" {
 		return errors.New("hetzner token is required")
 	}
@@ -77,7 +150,7 @@ func (r Request) Validate() error {
 		return errors.New("hetzner project ID is required")
 	}
 	if strings.TrimSpace(r.Region) == "" {
-		return errors.New("hetzner region is required (runtime parameter, never hardcoded)")
+		return errors.New("region is required (runtime parameter, never hardcoded)")
 	}
 	if strings.TrimSpace(r.SovereignFQDN) == "" {
 		return errors.New("sovereign FQDN is required")
@@ -298,11 +371,23 @@ func writeTfvars(deployDir string, req Request) error {
 		"hcloud_project_id": req.HetznerProjectID,
 		"region":            req.Region,
 
-		// Topology
+		// Topology — singular fields drive today's solo apply path. The
+		// per-region payload (regions, below) is structurally available
+		// to the OpenTofu module's for_each iteration when the multi-
+		// region wiring is activated; collapsing it back to single-SKU
+		// here would break the architectural shape the wizard intends.
 		"control_plane_size": req.ControlPlaneSize,
 		"worker_size":        req.WorkerSize,
 		"worker_count":       req.WorkerCount,
 		"ha_enabled":         req.HAEnabled,
+
+		// Per-region payload — emitted as a list of objects so the
+		// OpenTofu module can iterate (variable "regions" in
+		// infra/hetzner/variables.tf accepts this shape and is currently
+		// unused by main.tf; the for_each that consumes it lives behind
+		// the multi-region activation work). Structural-correct today;
+		// no-op at apply time for solo deployments where len(regions)<=1.
+		"regions": req.Regions,
 
 		// SSH key — module creates an hcloud_ssh_key from this and attaches
 		// to all servers. We never generate keys here; sovereign-admin

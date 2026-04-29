@@ -122,6 +122,51 @@ variable "ha_enabled" {
   default     = false
 }
 
+# ── Per-region SKU payload ────────────────────────────────────────────────
+#
+# The wizard captures sizing per-region (each region has its own provider,
+# its own cloud-region, and its own control-plane + worker SKUs). The
+# canonical request shape carries one entry per topology slot via this
+# variable; the legacy singular control_plane_size / worker_size /
+# worker_count above mirror regions[0] for the single-region apply path
+# main.tf currently drives.
+#
+# Multi-region tofu wiring is structural-correct (variables.tf accepts the
+# list, the catalyst-api provisioner emits it to tofu.auto.tfvars.json),
+# but only regions[0] is end-to-end exercised today against a real Hetzner
+# project. The for_each iteration that activates the rest will replace
+# main.tf's single-server hcloud_server resources with one per-region
+# block — at that point this variable becomes the source of truth and the
+# legacy singular fields drop out. The door is open structurally so that
+# activation is a follow-up commit, not a redesign.
+variable "regions" {
+  type = list(object({
+    provider         = string
+    cloudRegion      = string
+    controlPlaneSize = string
+    workerSize       = string
+    workerCount      = number
+  }))
+  description = <<-EOT
+    Per-region SKU payload from the wizard's StepProvider. One entry per
+    topology slot (plus 1 for AIR-GAP when enabled). SKU strings are the
+    provider's NATIVE instance-type identifier (cx32, m6i.xlarge,
+    Standard_D4s_v5, ...) — passed verbatim to that provider's API.
+
+    When empty, main.tf falls back to the singular control_plane_size /
+    worker_size / worker_count variables (the back-compat path used by
+    handler/load_test.go and any pre-rework wizard payload).
+  EOT
+  default = []
+  validation {
+    condition = alltrue([
+      for r in var.regions :
+      contains(["hetzner", "huawei", "oci", "aws", "azure"], r.provider)
+    ])
+    error_message = "Each regions[].provider must be one of: hetzner, huawei, oci, aws, azure."
+  }
+}
+
 # ── k3s ───────────────────────────────────────────────────────────────────
 
 variable "k3s_version" {

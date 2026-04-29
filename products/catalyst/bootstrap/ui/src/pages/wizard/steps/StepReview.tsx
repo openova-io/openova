@@ -9,9 +9,15 @@
  *
  * Section order (matches the wizard's step order):
  *   1. Organisation       — name / industry / size / HQ / compliance
- *   2. Provider           — Hetzner project ID + masked token + region
- *   3. SSH                — fingerprint + how the key was sourced
- *   4. Topology           — control-plane SKU, worker SKU + count, HA flag
+ *   2. Topology           — template + region count + HA + AIR-GAP flags
+ *   3. Provider           — per-region: logo+name, region label, control-
+ *                           plane SKU, worker SKU+count, hourly cost. Each
+ *                           region's SKU comes from its own provider's
+ *                           catalog (PROVIDER_NODE_SIZES[provider]); cx32
+ *                           does not exist on Azure, m6i.xlarge does not
+ *                           exist on Hetzner. The footer rolls each
+ *                           region's (cp + worker*count) into the total.
+ *   4. Credentials        — Hetzner project ID + masked token + SSH key
  *   5. Components         — product-family summary (M / R / O counts)
  *   6. Domain             — pool subdomain + FQDN OR BYO + admin email
  *
@@ -26,10 +32,12 @@ import { Zap } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import {
   PROVIDER_REGIONS,
+  TOPOLOGY_REGION_LABELS,
   resolveSovereignDomain,
   SOVEREIGN_POOL_DOMAINS,
 } from '@/entities/deployment/model'
 import type { CloudProvider } from '@/entities/deployment/model'
+import { findNodeSize } from '@/shared/constants/providerSizes'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { API_BASE, path } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
@@ -245,25 +253,70 @@ export function StepReview() {
   const poolDomainLabel =
     SOVEREIGN_POOL_DOMAINS.find(p => p.id === store.sovereignPoolDomain)?.domain ?? store.sovereignPoolDomain
 
-  // Provider region for the first slot — solo topology is a single region;
-  // multi-region topologies treat slot 0 as primary. Mirrors the
-  // POST-body's `region` field in `provision()`.
-  const firstRegion = store.regionCloudRegions[0] ?? ''
-  const firstProvider = (store.regionProviders[0] as CloudProvider | undefined) ?? null
-  const firstRegionDef =
-    firstProvider && firstRegion
-      ? PROVIDER_REGIONS[firstProvider].find(r => r.id === firstRegion)
-      : undefined
-
+  // Per-region payload — built once and used for both the on-screen
+  // table and the POST body. The Regions[] array is canonical; the
+  // singular hetznerToken/region/controlPlaneSize/workerSize/workerCount
+  // fields below are mirrored from index 0 so the existing solo-Hetzner
+  // back-compat path inside provisioner.Validate keeps working.
+  const topologyRegionLabels = store.topology
+    ? TOPOLOGY_REGION_LABELS[store.topology] ?? ['Region 1']
+    : ['Region 1']
+  const allRegionLabels = store.airgap
+    ? [...topologyRegionLabels, 'AIR-GAP Region']
+    : topologyRegionLabels
+  interface ReviewRegionRow {
+    label: string
+    provider: CloudProvider | null
+    cloudRegion: string
+    cloudRegionLabel: string | null
+    cloudRegionLocation: string | null
+    controlPlaneSize: string
+    workerSize: string
+    workerCount: number
+    hourlyCost: number
+    isAirgap: boolean
+  }
+  const regionRows: ReviewRegionRow[] = allRegionLabels.map((label, i) => {
+    const provider = (store.regionProviders[i] as CloudProvider | undefined) ?? null
+    const cloudRegion = store.regionCloudRegions[i] ?? ''
+    const regionDef = provider && cloudRegion ? PROVIDER_REGIONS[provider].find(r => r.id === cloudRegion) : undefined
+    const cpId = store.regionControlPlaneSizes[i] ?? ''
+    const wkId = store.regionWorkerSizes[i] ?? ''
+    const wkCount = store.regionWorkerCounts[i] ?? 0
+    const cp = provider && cpId ? findNodeSize(provider, cpId) : undefined
+    const wk = provider && wkId ? findNodeSize(provider, wkId) : undefined
+    const cpC = cp ? cp.priceHour : 0
+    const wkC = wk ? wk.priceHour * Math.max(0, wkCount) : 0
+    return {
+      label,
+      provider,
+      cloudRegion,
+      cloudRegionLabel: regionDef?.label ?? null,
+      cloudRegionLocation: regionDef?.location ?? null,
+      controlPlaneSize: cpId,
+      workerSize: wkId,
+      workerCount: wkCount,
+      hourlyCost: cpC + wkC,
+      isAirgap: store.airgap && i === topologyRegionLabels.length,
+    }
+  })
+  const regionsPayload = regionRows.map((r) => ({
+    provider:         r.provider ?? '',
+    cloudRegion:      r.cloudRegion,
+    controlPlaneSize: r.controlPlaneSize,
+    workerSize:       r.workerSize,
+    workerCount:      r.workerCount,
+  }))
+  const totalHourly = regionRows.reduce((acc, r) => acc + r.hourlyCost, 0)
+  const r0 = regionsPayload[0] ?? {
+    provider: '',
+    cloudRegion: '',
+    controlPlaneSize: '',
+    workerSize: '',
+    workerCount: 0,
+  }
   // Component totals for the section header.
   const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
-
-  // Worker SKU/count are nullable in some store states (pre-Item-2 selector
-  // wiring); render a placeholder rather than letting "undefined" reach
-  // the screen.
-  const workerSizeDisplay = store.workerSize ?? null
-  const workerCountDisplay =
-    typeof store.workerCount === 'number' && Number.isFinite(store.workerCount) ? store.workerCount : null
 
   /* ── Submission ─────────────────────────────────────────────── */
   async function provision() {
@@ -281,15 +334,24 @@ export function StepReview() {
           sovereignDomainMode: store.sovereignDomainMode,
           sovereignPoolDomain: poolDomainLabel,
           sovereignSubdomain: store.sovereignSubdomain,
-          // Hetzner credentials + region (runtime parameter)
+          // Hetzner credentials — passed when Region 1 is on Hetzner; the
+          // provisioner reads non-Hetzner provider tokens out of
+          // providerTokens for those code paths when activated.
           hetznerToken:     store.hetznerToken,
           hetznerProjectID: store.hetznerProjectId,
-          region:           firstRegion || 'fsn1',
-          // Topology + sizing
-          controlPlaneSize: store.controlPlaneSize,
-          workerSize:       store.workerSize,
-          workerCount:      store.workerCount,
+          // Legacy singular fields — derived from Region 1, kept for the
+          // back-compat path inside provisioner.Validate / writeTfvars.
+          region:           r0.cloudRegion || 'fsn1',
+          controlPlaneSize: r0.controlPlaneSize,
+          workerSize:       r0.workerSize,
+          workerCount:      r0.workerCount,
           haEnabled:        store.haEnabled,
+          // Canonical per-region payload — multi-region tofu wiring is
+          // structural-correct but only Region 1 (solo path) is end-to-end
+          // exercised today against a real Hetzner project. Emitting the
+          // full array now means nothing changes when the multi-region
+          // apply path activates.
+          regions: regionsPayload,
           // SSH key
           sshPublicKey: store.sshPublicKey,
         }),
@@ -358,91 +420,7 @@ export function StepReview() {
           />
         </Section>
 
-        {/* ── 2. Provider ──────────────────────────────────────── */}
-        <Section title="Cloud Provider">
-          <Row
-            label="Provider"
-            value={
-              firstProvider ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {PROVIDER_LOGOS[firstProvider]}
-                  {PROVIDER_NAMES[firstProvider]}
-                </span>
-              ) : (
-                <span style={{ color: 'var(--wiz-text-hint)' }}>— not selected —</span>
-              )
-            }
-          />
-          <Row
-            label="Region"
-            value={
-              firstRegionDef ? (
-                <span>
-                  <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>{firstRegionDef.id}</code>
-                  <span style={{ color: 'var(--wiz-text-sub)' }}> · {firstRegionDef.location}</span>
-                </span>
-              ) : (
-                dimIfMissing(firstRegion)
-              )
-            }
-          />
-          <Row label="Project ID" value={dimIfMissing(store.hetznerProjectId)} />
-          <Row
-            label="API token"
-            value={
-              <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--wiz-text-md)' }}>
-                {maskToken(store.hetznerToken)}
-              </code>
-            }
-          />
-          <Row
-            label="Token validated"
-            value={
-              store.credentialValidated ? (
-                <span style={{ color: '#4ADE80' }}>Yes</span>
-              ) : (
-                <span style={{ color: 'var(--wiz-text-hint)' }}>No — provisioner will re-check at apply time</span>
-              )
-            }
-          />
-        </Section>
-
-        {/* ── 3. SSH ───────────────────────────────────────────── */}
-        <Section title="SSH Access">
-          <Row
-            label="Source"
-            value={
-              store.sshKeyGeneratedThisSession
-                ? (
-                  <span>
-                    Auto-generated this session{' '}
-                    <span style={{ color: 'var(--wiz-text-hint)' }}>(private key downloaded once)</span>
-                  </span>
-                )
-                : store.sshPublicKey
-                  ? 'Pasted by operator'
-                  : <span style={{ color: 'var(--wiz-text-hint)' }}>— no key configured —</span>
-            }
-          />
-          <Row
-            label="Fingerprint"
-            value={
-              store.sshFingerprint ? (
-                <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
-                  {shortFingerprint(store.sshFingerprint)}
-                </code>
-              ) : store.sshPublicKey ? (
-                <span style={{ color: 'var(--wiz-text-hint)' }}>
-                  not pre-computed — server will derive at apply time
-                </span>
-              ) : (
-                <span style={{ color: 'var(--wiz-text-hint)' }}>—</span>
-              )
-            }
-          />
-        </Section>
-
-        {/* ── 4. Topology ──────────────────────────────────────── */}
+        {/* ── 2. Topology ──────────────────────────────────────── */}
         <Section
           title={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -482,21 +460,150 @@ export function StepReview() {
             </span>
           }
         >
-          <Row label="Template"           value={dimIfMissing(store.topology)} />
-          <Row label="Control plane SKU"  value={dimIfMissing(store.controlPlaneSize)} />
+          <Row label="Template" value={dimIfMissing(store.topology)} />
+          <Row label="Regions"  value={`${regionRows.length} (${topologyRegionLabels.length} topology + ${store.airgap ? 1 : 0} air-gap)`} />
+          <Row label="HA"       value={store.haEnabled ? 'Enabled — 3-node etcd quorum per region' : 'Disabled — single control-plane node'} />
+          <Row label="AIR-GAP"  value={store.airgap ? 'Enabled — isolated forensic / DR region' : 'Disabled'} />
+        </Section>
+
+        {/* ── 3. Provider — per-region table ──────────────────── */}
+        <Section
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, width: '100%' }}>
+              <span>Cloud provider per region</span>
+              <span style={{
+                marginLeft: 'auto', fontSize: 10, fontWeight: 700,
+                color: 'var(--wiz-accent)',
+              }}>
+                €{totalHourly.toFixed(3)}/hr · €{(totalHourly * 730).toFixed(0)}/mo
+              </span>
+            </span>
+          }
+        >
+          <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {regionRows.map((r, i) => {
+              const cp = r.provider && r.controlPlaneSize ? findNodeSize(r.provider, r.controlPlaneSize) : undefined
+              const wk = r.provider && r.workerSize ? findNodeSize(r.provider, r.workerSize) : undefined
+              return (
+                <div
+                  key={i}
+                  style={{
+                    borderRadius: 8, padding: '8px 10px',
+                    border: `1px solid ${r.isAirgap ? 'rgba(245,158,11,0.3)' : 'var(--wiz-border-sub)'}`,
+                    background: r.isAirgap ? 'rgba(245,158,11,0.03)' : 'var(--wiz-bg-xs)',
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '24px 1fr 1fr 1fr 90px',
+                    gap: 8, alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 9, fontWeight: 700, color: r.isAirgap ? '#F59E0B' : 'var(--wiz-accent)' }}>
+                    {i + 1}
+                    {r.isAirgap && (
+                      <div style={{ fontSize: 8, fontWeight: 700, color: '#F59E0B' }}>A-G</div>
+                    )}
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-md)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+                    {r.provider ? (
+                      <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {PROVIDER_LOGOS[r.provider]}{PROVIDER_NAMES[r.provider]}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)' }}>— provider not configured —</span>
+                    )}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    {r.cloudRegionLabel ? (
+                      <>
+                        <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{r.cloudRegionLabel}</code>
+                        <div style={{ fontSize: 9, color: 'var(--wiz-text-sub)' }}>{r.cloudRegionLocation}</div>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)' }}>— region —</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                    {cp ? (
+                      <>
+                        <span style={{ fontSize: 10 }}>CP: <strong style={{ color: 'var(--wiz-text-md)' }}>{cp.label}</strong></span>
+                        {wk && r.workerCount > 0 ? (
+                          <span style={{ fontSize: 10 }}>W×{r.workerCount}: <strong style={{ color: 'var(--wiz-text-md)' }}>{wk.label}</strong></span>
+                        ) : (
+                          <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)' }}>solo — no workers</span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 10, color: 'var(--wiz-text-hint)' }}>— sizing —</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wiz-accent)', textAlign: 'right' }}>
+                    €{r.hourlyCost.toFixed(3)}/hr
+                  </span>
+                </div>
+              )
+            })}
+            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 4 }}>
+              Each region's SKU is drawn from its own provider's catalog — no cross-cloud SKU literal exists.
+            </div>
+          </div>
+        </Section>
+
+        {/* ── 4. Credentials ────────────────────────────────────── */}
+        <Section title="Credentials">
+          <Row label="Project ID" value={dimIfMissing(store.hetznerProjectId)} />
           <Row
-            label="Worker SKU"
-            value={dimIfMissing(workerSizeDisplay, '— not yet selected —')}
-          />
-          <Row
-            label="Worker count"
+            label="Hetzner API token"
             value={
-              workerCountDisplay === null
-                ? <span style={{ color: 'var(--wiz-text-hint)' }}>— not yet selected —</span>
-                : workerCountDisplay
+              <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--wiz-text-md)' }}>
+                {maskToken(store.hetznerToken)}
+              </code>
             }
           />
-          <Row label="HA" value={store.haEnabled ? 'Enabled' : 'Disabled'} />
+          <Row
+            label="Token validated"
+            value={
+              store.credentialValidated ? (
+                <span style={{ color: '#4ADE80' }}>Yes</span>
+              ) : (
+                <span style={{ color: 'var(--wiz-text-hint)' }}>No — provisioner will re-check at apply time</span>
+              )
+            }
+          />
+        </Section>
+
+        {/* ── SSH ──────────────────────────────────────────────── */}
+        <Section title="SSH Access">
+          <Row
+            label="Source"
+            value={
+              store.sshKeyGeneratedThisSession
+                ? (
+                  <span>
+                    Auto-generated this session{' '}
+                    <span style={{ color: 'var(--wiz-text-hint)' }}>(private key downloaded once)</span>
+                  </span>
+                )
+                : store.sshPublicKey
+                  ? 'Pasted by operator'
+                  : <span style={{ color: 'var(--wiz-text-hint)' }}>— no key configured —</span>
+            }
+          />
+          <Row
+            label="Fingerprint"
+            value={
+              store.sshFingerprint ? (
+                <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                  {shortFingerprint(store.sshFingerprint)}
+                </code>
+              ) : store.sshPublicKey ? (
+                <span style={{ color: 'var(--wiz-text-hint)' }}>
+                  not pre-computed — server will derive at apply time
+                </span>
+              ) : (
+                <span style={{ color: 'var(--wiz-text-hint)' }}>—</span>
+              )
+            }
+          />
         </Section>
 
         {/* ── 5. Components ────────────────────────────────────── */}

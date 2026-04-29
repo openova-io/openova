@@ -8,28 +8,38 @@ import { useTheme } from '@/shared/lib/useTheme'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
 /**
- * Wizard step list — these are the seven progress stops the user can see and
- * navigate. StepSuccess is the terminal destination after StepReview launches
- * provisioning; it is not part of the visible progress, so it is not in this
- * list. Closes #174.
+ * Wizard step list — seven progress stops in dependency order. StepSuccess
+ * is the terminal destination after StepReview launches provisioning; it
+ * is not part of the visible progress, so it is not in this list.
  *
- * Order matches WizardPage.tsx:
- *   1. Organisation (profile only — no domain/email here anymore)
- *   2. Provider     (Hetzner credentials per region)
- *   3. Credentials  (SSH key)
- *   4. Topology     (sizing — control-plane SKU, worker SKU+count, HA)
- *   5. Components   (unified marketplace catalog)
- *   6. Domain       (pool/BYO + admin email)
- *   7. Review       (POST body preview + launch)
+ * Order rationale:
+ *   1. Organisation — who you are. Independent of every other choice.
+ *   2. Topology     — number of regions + HA shape + AIR-GAP add-on.
+ *                     Decides how many region rows the next step needs.
+ *   3. Provider     — per-region: cloud provider + provider's region +
+ *                     that provider's control-plane SKU + worker SKU +
+ *                     count. SKU vocabulary is per-provider (cx32 ≠
+ *                     Standard_D4s_v5 ≠ m6i.xlarge), so sizing must live
+ *                     INSIDE this step, not in topology.
+ *   4. Credentials  — once each region has a provider, collect the API
+ *                     token each chosen provider needs, plus the SSH key.
+ *   5. Components   — platform building-block selection.
+ *   6. Domain       — pool subdomain or BYO domain + admin email.
+ *   7. Review       — POST body preview + launch.
+ *
+ * Topology BEFORE Provider is the dependency-correct order: a provider is
+ * a per-region property, picked AFTER topology decides how many regions
+ * exist. SKU choices belong INSIDE the provider step because every cloud
+ * has its own instance-type vocabulary (see shared/constants/providerSizes.ts).
  */
 export const WIZARD_STEPS = [
-  { id: 1, label: 'Organisation', desc: 'Industry, size, HQ, compliance' },
-  { id: 2, label: 'Provider',     desc: 'Cloud provider per region'      },
-  { id: 3, label: 'Credentials',  desc: 'API token + SSH key'            },
-  { id: 4, label: 'Topology',     desc: 'Sizing and HA'                  },
-  { id: 5, label: 'Components',   desc: 'Platform building blocks'       },
-  { id: 6, label: 'Domain',       desc: 'Pool or BYO + admin email'      },
-  { id: 7, label: 'Review',       desc: 'Confirm and provision'          },
+  { id: 1, label: 'Organisation', desc: 'Industry, size, HQ, compliance'   },
+  { id: 2, label: 'Topology',     desc: 'Regions, HA, air-gap'             },
+  { id: 3, label: 'Provider',     desc: 'Cloud + region + sizing per slot' },
+  { id: 4, label: 'Credentials',  desc: 'API tokens + SSH key'             },
+  { id: 5, label: 'Components',   desc: 'Platform building blocks'         },
+  { id: 6, label: 'Domain',       desc: 'Pool or BYO + admin email'        },
+  { id: 7, label: 'Review',       desc: 'Confirm and provision'            },
 ]
 
 /**
