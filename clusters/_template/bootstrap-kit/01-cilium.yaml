@@ -5,13 +5,13 @@
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kube-system
-  labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
----
+# kube-system is built into every Kubernetes cluster — never re-declare it.
+# Earlier revisions of 01-cilium.yaml AND 05-sealed-secrets.yaml both
+# declared it, which collided when kustomize tried to merge the two:
+#   "may not add resource with an already registered id:
+#    Namespace.v1.[noGrp]/kube-system.[noNs]"
+# This Blueprint installs Cilium INTO kube-system; the HelmRelease's
+# targetNamespace field below is sufficient.
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
