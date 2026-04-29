@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: per-host-cluster-infrastructure
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 1.0.0
+  version: 1.1.1
   card:
     title: Cilium
     summary: Unified CNI + Service Mesh (eBPF). mTLS via WireGuard, Hubble observability, Gateway API.

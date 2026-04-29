@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 1.0.0
+  version: 1.1.1
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.

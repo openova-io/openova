@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Playwright (cosmetic-guards suite) — never commit local artifacts.
+# See docs/UI-REGRESSION-GUARDS.md and e2e/cosmetic-guards.spec.ts.
+test-results
+playwright-report
+playwright/.cache
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

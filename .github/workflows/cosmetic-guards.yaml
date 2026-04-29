@@ -1,0 +1,112 @@
+name: Cosmetic + step-flow regression guards
+
+# Narrow, fast Playwright suite that protects the Catalyst bootstrap UI
+# against the specific cosmetic + step-flow defects the user has called
+# out repeatedly. Lives ALONGSIDE (not inside) the broader Group L
+# Playwright smoke at .github/workflows/playwright-smoke.yaml — the two
+# suites are independently triggered, both run on PRs that touch UI
+# files. See docs/UI-REGRESSION-GUARDS.md for the test-to-complaint map.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path), this workflow does NOT build any container images — it
+# only runs UI regression guards against a freshly-installed dev tree.
+#
+# Triggers:
+#   - pull_request when files under products/catalyst/bootstrap/ui/**
+#     change, OR core/console/** (canonical sidebar / appdetail /
+#     jobspage references) change, OR this workflow itself changes.
+#   - push to main on the same paths so a rolled-back regression on
+#     main also triggers a fresh run.
+#   - workflow_dispatch for ad-hoc runs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'core/console/**'
+      - '.github/workflows/cosmetic-guards.yaml'
+      - 'docs/UI-REGRESSION-GUARDS.md'
+  pull_request:
+    paths:
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'core/console/**'
+      - '.github/workflows/cosmetic-guards.yaml'
+      - 'docs/UI-REGRESSION-GUARDS.md'
+  workflow_dispatch:
+
+jobs:
+  guards:
+    name: Playwright cosmetic + step-flow guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: products/catalyst/bootstrap/ui/package-lock.json
+
+      - name: Install Catalyst UI dependencies
+        working-directory: products/catalyst/bootstrap/ui
+        run: npm ci
+
+      - name: Install Playwright browser (chromium)
+        working-directory: products/catalyst/bootstrap/ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Boot Catalyst UI in background
+        working-directory: products/catalyst/bootstrap/ui
+        env:
+          HOST: 0.0.0.0
+        run: |
+          # Vite binds the port from vite.config.ts (server.port = 5173)
+          # under base /sovereign/. Tests reach the wizard at
+          # http://localhost:5173/sovereign/wizard.
+          nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
+          echo $! > /tmp/catalyst-ui.pid
+
+      - name: Wait for Catalyst UI to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:5173/sovereign/wizard; then
+              echo "UI ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "UI failed to start in 60s — log follows:"
+          cat /tmp/catalyst-ui-dev.log || true
+          exit 1
+
+      - name: Run cosmetic + step-flow regression guards
+        working-directory: products/catalyst/bootstrap/ui
+        env:
+          PLAYWRIGHT_HOST: http://localhost:5173
+          PLAYWRIGHT_BASEPATH: /sovereign
+        # --grep filters by the @cosmetic-guard annotation that every
+        # test in the suite carries. If a future test in the same file
+        # is added without the tag, this command will skip it — that's
+        # by design (the tag IS the contract).
+        run: npx playwright test e2e/cosmetic-guards.spec.ts --grep "@cosmetic-guard" --reporter=list
+
+      - name: Stop Catalyst UI
+        if: always()
+        run: |
+          if [ -f /tmp/catalyst-ui.pid ]; then
+            kill "$(cat /tmp/catalyst-ui.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmetic-guards-report
+          path: |
+            products/catalyst/bootstrap/ui/playwright-report/
+            products/catalyst/bootstrap/ui/test-results/
+          retention-days: 7

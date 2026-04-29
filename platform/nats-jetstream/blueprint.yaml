@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 1.0.0
+  version: 1.1.1
   card:
     title: nats-jetstream
     summary: Event spine for the Catalyst control plane. JetStream Streams + KV. Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.
