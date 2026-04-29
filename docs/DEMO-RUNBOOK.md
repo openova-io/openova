@@ -75,27 +75,28 @@ This is the **kickoff for the omantel.omani.works Sovereign**. Closes ticket [#1
 https://console.openova.io/sovereign
 ```
 
-Click **New Sovereign**. Walk the 7-step wizard (canonical order from `WIZARD_STEPS`, Org → Domain → Topology → Provider → Credentials → Components → Review):
+Click **New Sovereign**. Walk the 7-step wizard (canonical order from `STEPS` in [`src/pages/wizard/WizardPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/wizard/WizardPage.tsx): **Org → Topology → Provider → Credentials → Components → Domain → Review**):
 
 | Step | Field | Value for omantel demo |
 |---|---|---|
 | 1. Organisation | Organisation name | `Omantel Cloud` |
-| 1. Organisation | Contact / sovereign-admin email | The omantel-admin email — becomes initial sovereign-admin in Keycloak |
-| 2. Domain | Domain mode | **Pool** (per #169 the other modes are `byo-manual` and `byo-api`) |
-| 2. Domain | Pool domain | `omani.works` |
-| 2. Domain | Subdomain | `omantel` (validated via `POST /api/v1/subdomains/check` → PDM `/v1/reserve`) |
-| 3. Topology | Single-region vs multi-region | Single-region |
-| 4. Provider | Cloud | Hetzner Cloud |
-| 4. Provider | Region | `fsn1` (Falkenstein) — closest EU region with capacity for the demo |
-| 4. Provider | Control plane size | `cpx21` (default) |
-| 4. Provider | Worker size | `cpx31` (default) |
-| 4. Provider | Worker count | `1` |
-| 4. Provider | HA enabled | `false` (single-CP demo; HA is supported but adds €€ for the demo) |
-| 5. Credentials | Hetzner API token | Paste the Read+Write token from Pre-flight (validated read-only via `POST /api/v1/credentials/validate`) |
-| 5. Credentials | Hetzner project ID | The numeric project ID from Pre-flight |
-| 5. Credentials | SSH public key | Paste the `*.pub` content from Pre-flight |
-| 6. Components | Mandatory infra tab | Read-only — bp-cilium, bp-flux, bp-crossplane, bp-cert-manager, bp-spire, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea, bp-sealed-secrets, bp-powerdns. Always installed. |
-| 6. Components | Apps tab | Leave defaults (apps come post-provisioning anyway). Per #175 dependency-aware cascades pull transitive deps automatically. |
+| 1. Organisation | Industry / size / HQ / compliance frame | Telco / large / Muscat OM / TDRA + GDPR — capture the org-profile fields, no email here (admin email moves to Step 6) |
+| 2. Topology | Single-region vs multi-region | Single-region |
+| 2. Topology | Control-plane SKU | `cx32` (Hetzner default per `PROVIDER_NODE_SIZES.hetzner` — shared vCPU x86, 4 vCPU / 8 GB) |
+| 2. Topology | Worker SKU | `cx42` (Hetzner default per `PROVIDER_NODE_SIZES.hetzner` — solo Sovereign default, 8 vCPU / 16 GB) |
+| 2. Topology | Worker count | `1` |
+| 2. Topology | HA enabled | `false` (single-CP demo; HA is supported but adds €€ for the demo) |
+| 3. Provider | Cloud | Hetzner Cloud |
+| 3. Provider | Region | `fsn1` (Falkenstein) — closest EU region with capacity for the demo |
+| 4. Credentials | Hetzner API token | Paste the Read+Write token from Pre-flight (validated read-only via `POST /api/v1/credentials/validate`) |
+| 4. Credentials | Hetzner project ID | The numeric project ID from Pre-flight |
+| 4. Credentials | SSH public key | Paste the `*.pub` content from Pre-flight |
+| 5. Components | Choose Your Stack tab | Single flat marketplace card grid (#162, #b0ec0c43) with family chips + search + product-family chip filter. Recommended families ship default-on; toggle optional ones to taste. Per #175, dependency-aware cascades pull transitive deps automatically (Specter → BGE/Milvus/LangFuse/vLLM/KServe; Harbor → cnpg/seaweedfs/valkey via mandatory closure). |
+| 5. Components | Always Included tab | Read-only — bp-cilium, bp-flux, bp-crossplane, bp-cert-manager, bp-spire, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea, bp-sealed-secrets, bp-powerdns, plus the post-promotion mandatory closure (cnpg, valkey). Always installed. |
+| 6. Domain | Domain mode | **Pool** (per #169 the other modes are `byo-manual` and `byo-api`) |
+| 6. Domain | Pool domain | `omani.works` |
+| 6. Domain | Subdomain | `omantel` (validated via `POST /api/v1/subdomains/check` → PDM `/v1/reserve`) |
+| 6. Domain | Sovereign-admin email | The omantel-admin email — becomes initial sovereign-admin in Keycloak |
 | 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
 The wizard validates the token against `POST /api/v1/credentials/validate` and the subdomain against `POST /api/v1/subdomains/check` before letting you advance. If either rejects:
@@ -464,9 +465,10 @@ curl -s -X POST "https://console.openova.io/api/v1/deployments/${DEPLOYMENT_ID}/
 If the destroy endpoint is not yet implemented on catalyst-api (it will be — see PROVISIONING-PLAN.md "Decommission" section), the manual fallback is:
 
 ```bash
-# On the Contabo VPS:
-kubectl -n catalyst-system exec -it deploy/catalyst-api -- \
-  sh -c "cd /var/lib/catalyst/tofu/omantel.omani.works && \
+# On the Contabo VPS — workdir lives under the catalyst-api Pod's writable
+# /tmp emptyDir, pinned by the CATALYST_TOFU_WORKDIR env var (commit 27527e4c):
+kubectl -n catalyst exec -it deploy/catalyst-api -- \
+  sh -c "cd /tmp/catalyst/tofu/omantel.omani.works && \
          HCLOUD_TOKEN=<the same token from Step 2> \
          tofu destroy -auto-approve -no-color"
 ```

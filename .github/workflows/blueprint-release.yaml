@@ -9,9 +9,10 @@
 # Tag-based releases (refs/tags/<name>/v<X.Y.Z>) trigger the same build with
 # version pinned to the tag, plus cosign signing + Syft SBOM generation.
 #
-# This workflow is the canonical CI for all 11 bootstrap-kit charts plus
-# every other Catalyst-curated wrapper chart. Application-Blueprint charts
-# (cnpg, valkey, etc.) follow the same shape once authored.
+# This workflow is the canonical CI for all 12 bootstrap-kit charts (the
+# original 11 plus bp-powerdns added at #167) plus every other Catalyst-
+# curated wrapper chart. Application-Blueprint charts (cnpg, valkey, etc.)
+# follow the same shape once authored.
 
 name: Blueprint Release
 

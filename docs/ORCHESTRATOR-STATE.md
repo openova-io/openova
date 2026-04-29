@@ -1,7 +1,7 @@
 # Orchestrator State — Catalyst-Zero Waterfall
 
 **Updated:** 2026-04-29. **Live state, not aspirational.**
-**Latest commit on main:** `dd578d1c`. **catalyst-build CI:** ✅ green; PDM build (`pool-domain-manager-build`) and PowerDNS blueprint-release CI both ✅ green.
+**Latest commit on main:** `6afdb303` (post-#162/#173/#175/#176/#179 batch — pixel-match component cards, family chips, product-family dep audit, dynamic provision DAG, worker SKU + count selector, wizard step reorder, canonical upstream logos, smoke-test fix, TOFU_WORKDIR pin to /tmp, marketplace-pages design-token alignment). **catalyst-build CI:** ✅ green; PDM build (`pool-domain-manager-build`) and PowerDNS blueprint-release CI both ✅ green.
 
 This file is the durable hand-off record for the multi-agent orchestration of the Catalyst-Zero consolidation + first-Hetzner-Sovereign waterfall. Read first when resuming work.
 

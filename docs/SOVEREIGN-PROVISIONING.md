@@ -1,7 +1,7 @@
 # Sovereign Provisioning
 
 **Status:** Authoritative procedure. **Updated:** 2026-04-29.
-**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, 11 G2 wrapper Helm charts, the per-Sovereign PowerDNS zone model (#167/#168), and the pool-domain-manager (PDM) with registrar adapters (#163/#170) all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at #167), the per-Sovereign PowerDNS zone model (#167/#168), and the pool-domain-manager (PDM) with registrar adapters (#163/#170) all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 
@@ -64,7 +64,7 @@ harbor           A → load balancer IP
 
 The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly-created Sovereign zone via the PowerDNS REST API. The wildcard A record covers every additional subdomain a Sovereign might add at runtime (`axon`, `umami`, `langfuse`, etc.) without re-issuing certificates. Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.
 
-**OpenTofu state:** kept in the catalyst-api PVC under `/var/lib/catalyst/tofu/<sovereign-fqdn>/` — re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the operator MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on a single PVC.
+**OpenTofu state:** kept in the catalyst-api Pod under `/tmp/catalyst/tofu/<sovereign-fqdn>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment (commit `27527e4c`) and backed by the Pod's writable `/tmp` emptyDir (2 Gi sizeLimit; the in-code default `/var/lib/catalyst/...` is unwritable for UID 65534, hence the override). Re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the operator MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on Pod ephemeral storage.
 
 **Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at #167) all exist today (verified at [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
 
