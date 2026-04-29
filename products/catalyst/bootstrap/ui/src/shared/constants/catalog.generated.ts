@@ -233,3 +233,103 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/sealed-secrets/blueprint.yaml",
   "platform/spire/blueprint.yaml"
 ] as const
+
+/**
+ * Bootstrap-kit Blueprints reconciled by Flux on every freshly-provisioned
+ * Sovereign cluster, in numerical install order (the NN- prefix on each
+ * file under clusters/_template/bootstrap-kit/). The provision page reads
+ * this to render the always-installed bubbles in dependency / install
+ * order alongside the user's selected components.
+ */
+export interface BootstrapKitEntry {
+  /** Full Blueprint id, e.g. "bp-cilium". */
+  id: string
+  /** Slug = id without the "bp-" prefix. */
+  slug: string
+  /** Display label = slug. */
+  label: string
+  /** Source filename under clusters/_template/bootstrap-kit/. */
+  file: string
+  /** Numerical prefix on the filename — defines install order. */
+  order: number
+}
+
+export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
+  {
+    "id": "bp-cilium",
+    "slug": "cilium",
+    "label": "cilium",
+    "file": "01-cilium.yaml",
+    "order": 1
+  },
+  {
+    "id": "bp-cert-manager",
+    "slug": "cert-manager",
+    "label": "cert-manager",
+    "file": "02-cert-manager.yaml",
+    "order": 2
+  },
+  {
+    "id": "bp-flux",
+    "slug": "flux",
+    "label": "flux",
+    "file": "03-flux.yaml",
+    "order": 3
+  },
+  {
+    "id": "bp-crossplane",
+    "slug": "crossplane",
+    "label": "crossplane",
+    "file": "04-crossplane.yaml",
+    "order": 4
+  },
+  {
+    "id": "bp-sealed-secrets",
+    "slug": "sealed-secrets",
+    "label": "sealed-secrets",
+    "file": "05-sealed-secrets.yaml",
+    "order": 5
+  },
+  {
+    "id": "bp-spire",
+    "slug": "spire",
+    "label": "spire",
+    "file": "06-spire.yaml",
+    "order": 6
+  },
+  {
+    "id": "bp-nats-jetstream",
+    "slug": "nats-jetstream",
+    "label": "nats-jetstream",
+    "file": "07-nats-jetstream.yaml",
+    "order": 7
+  },
+  {
+    "id": "bp-openbao",
+    "slug": "openbao",
+    "label": "openbao",
+    "file": "08-openbao.yaml",
+    "order": 8
+  },
+  {
+    "id": "bp-keycloak",
+    "slug": "keycloak",
+    "label": "keycloak",
+    "file": "09-keycloak.yaml",
+    "order": 9
+  },
+  {
+    "id": "bp-gitea",
+    "slug": "gitea",
+    "label": "gitea",
+    "file": "10-gitea.yaml",
+    "order": 10
+  },
+  {
+    "id": "bp-bp-catalyst-platform",
+    "slug": "bp-catalyst-platform",
+    "label": "bp-catalyst-platform",
+    "file": "11-bp-catalyst-platform.yaml",
+    "order": 11
+  }
+] as const
