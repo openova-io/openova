@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 1.1.1
+  version: 1.1.2
   card:
     title: keycloak
     summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for SME, shared-sovereign for corporate).

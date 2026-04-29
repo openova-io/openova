@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.1.1
+version: 1.1.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -16,12 +16,21 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to bitnami/keycloak 24.7.1
+# bundles it into the OCI artifact. Pinned to bitnami/keycloak 25.2.0
 # (matches platform/keycloak/blueprint.yaml + values.yaml
 # `catalystBlueprint.upstream.version`). Per
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
+#
+# Bitnami consolidated their tag scheme around 2025-09 (see
+# https://github.com/bitnami/charts/issues/30852): the original
+# `bitnami/keycloak:<x>-debian-12-rN` tags now 404 in the registry. The
+# preserved historic tags live under `bitnamilegacy/keycloak` (read-only
+# archive). values.yaml overrides image.registry/image.repository to point
+# every Bitnami image used by this chart at `bitnamilegacy/*` so installs
+# succeed. Long-term we will migrate to a Catalyst-built or upstream
+# replacement Keycloak image (issue #191 follow-up).
 dependencies:
   - name: keycloak
-    version: "24.7.1"
+    version: "25.2.0"
     repository: "https://charts.bitnami.com/bitnami"
