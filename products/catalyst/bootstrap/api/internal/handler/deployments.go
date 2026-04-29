@@ -28,7 +28,30 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
+// EventBufferCap bounds the per-deployment in-memory event slice. A long-
+// running multi-region `tofu apply` can emit thousands of stdout lines; if
+// the buffer ever reaches this cap we drop the oldest entry (FIFO) so a
+// runaway producer cannot OOM the catalyst-api Pod. 10,000 events ≈ 1MB at
+// typical event size — well within the Pod's memory budget.
+const EventBufferCap = 10000
+
 // Deployment captures provisioning state for a single Sovereign run.
+//
+// Events flow lives in two parallel structures:
+//
+//   - eventsCh — the live SSE channel. runProvisioning closes this when the
+//     provisioning goroutine finishes, which is what the existing StreamLogs
+//     loop watches for `event: done`.
+//   - eventsBuf — a bounded, mutex-guarded slice of every event ever emitted
+//     for this deployment. StreamLogs reads this on first connection so a
+//     browser that lands on the page AFTER provisioning finished still
+//     renders the full history. GET /events surfaces the same slice as JSON
+//     for any client that wants a one-shot snapshot.
+//
+// done is closed once runProvisioning has finished and the terminal state
+// (Status, Result, Error, FinishedAt) is committed. StreamLogs uses it to
+// know when a deployment is already complete (replay-then-emit-done) versus
+// still running (replay-then-tail-channel).
 type Deployment struct {
 	ID         string
 	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | ready | failed
@@ -37,8 +60,21 @@ type Deployment struct {
 	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
-	Events     chan provisioner.Event
-	mu         sync.Mutex
+
+	// eventsCh carries live events to the active SSE consumer. runProvisioning
+	// emits to this channel; StreamLogs ranges over it. Closed by
+	// runProvisioning when the goroutine finishes.
+	eventsCh chan provisioner.Event
+
+	// eventsBuf is the durable history every emitted event lands in. Mutex
+	// guarded by mu. Bounded at EventBufferCap with FIFO eviction.
+	eventsBuf []provisioner.Event
+
+	// done is closed when runProvisioning has finished and the terminal
+	// fields (Status, Result, Error, FinishedAt) are committed under mu.
+	done chan struct{}
+
+	mu sync.Mutex
 
 	// PDM reservation captured before `tofu apply` for managed-pool
 	// deployments. The reservationToken is held until `tofu apply`
@@ -52,7 +88,52 @@ type Deployment struct {
 	pdmSubdomain        string
 }
 
+// recordEvent appends ev to the durable history under the mutex, evicting
+// the oldest entry when the buffer is at cap. Returns the event back so
+// callers can fluently send it down the live channel.
+func (d *Deployment) recordEvent(ev provisioner.Event) provisioner.Event {
+	d.mu.Lock()
+	if len(d.eventsBuf) >= EventBufferCap {
+		// FIFO eviction — drop oldest, keep newest. Allocate a fresh slice
+		// so the underlying array doesn't keep growing without bound when
+		// the cap is hit repeatedly (a copy is O(n) but the cap is bounded
+		// so the amortised cost is fine for the single emit-per-line rate).
+		copy(d.eventsBuf, d.eventsBuf[1:])
+		d.eventsBuf = d.eventsBuf[:len(d.eventsBuf)-1]
+	}
+	d.eventsBuf = append(d.eventsBuf, ev)
+	d.mu.Unlock()
+	return ev
+}
+
+// snapshotEvents returns a copy of the durable history for safe iteration
+// outside the mutex. Used by StreamLogs (replay-on-connect) and the
+// /events endpoint.
+func (d *Deployment) snapshotEvents() []provisioner.Event {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]provisioner.Event, len(d.eventsBuf))
+	copy(out, d.eventsBuf)
+	return out
+}
+
+// isDone reports whether the runProvisioning goroutine has finished. Used
+// by StreamLogs to distinguish "completed deployment, replay everything
+// then send done" from "in-flight, replay then tail channel".
+func (d *Deployment) isDone() bool {
+	select {
+	case <-d.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // State returns a JSON-safe snapshot for the GET endpoint.
+//
+// numEvents surfaces the buffer size so callers polling /deployments/{id}
+// can confirm the catalyst-api is recording progress even before they open
+// the SSE stream. ProvisionPage uses this in its diagnostic readout.
 func (d *Deployment) State() map[string]any {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -63,6 +144,7 @@ func (d *Deployment) State() map[string]any {
 		"finishedAt":    nil,
 		"sovereignFQDN": d.Request.SovereignFQDN,
 		"region":        d.Request.Region,
+		"numEvents":     len(d.eventsBuf),
 	}
 	if !d.FinishedAt.IsZero() {
 		out["finishedAt"] = d.FinishedAt.Format(time.RFC3339)
@@ -103,7 +185,8 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		Status:    "provisioning",
 		Request:   req,
 		StartedAt: time.Now(),
-		Events:    make(chan provisioner.Event, 256),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
 	}
 
 	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
@@ -193,11 +276,35 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Replay-on-connect: emit every event already in the durable buffer
+	// before tailing the live channel. This is what makes navigating to
+	// `/sovereign/provision/<completed-id>` render the full history instead
+	// of an empty shell — a browser that connects after `event: done`
+	// arrived at an already-closed channel previously got nothing.
+	for _, ev := range dep.snapshotEvents() {
+		fmt.Fprintf(w, "data: %s\n\n", mustJSON(ev))
+	}
+	flusher.Flush()
+
+	// If the deployment is already complete, the live channel is closed and
+	// the buffer above is the authoritative history. Emit `event: done`
+	// with the terminal state and return — the browser won't try to
+	// reconnect because the EventSource handler closes on `done`.
+	if dep.isDone() {
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(dep.State()))
+		flusher.Flush()
+		return
+	}
+
+	// In-flight: tail the live channel. Any event arriving here also got
+	// recorded into the buffer (recordEvent is the single emit path), so
+	// the next reconnect after a flake will replay the same history plus
+	// whatever arrived in between.
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case ev, open := <-dep.Events:
+		case ev, open := <-dep.eventsCh:
 			if !open {
 				fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(dep.State()))
 				flusher.Flush()
@@ -209,14 +316,60 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetDeploymentEvents returns the buffered event history + state JSON for
+// a one-shot snapshot. ProvisionPage calls this on mount to seed the
+// `applyEventToContext` reducer before opening the SSE stream — the SSE
+// stream's replay-on-connect serves the same purpose, but a stateless GET
+// is easier to test and gives the wizard a fast-path that doesn't need to
+// hold an SSE socket open. Both paths read the same `eventsBuf`, so they
+// agree by construction.
+func (h *Handler) GetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		http.Error(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	dep := val.(*Deployment)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"state":  dep.State(),
+		"events": dep.snapshotEvents(),
+		"done":   dep.isDone(),
+	})
+}
+
 func (h *Handler) runProvisioning(dep *Deployment) {
-	defer close(dep.Events)
+	// Tee — provisioner.Provision writes events into producer; this goroutine
+	// records every event in the durable buffer AND forwards it to the live
+	// SSE channel. recordEvent is the single emit path, so the buffer and
+	// the live stream cannot diverge.
+	producer := make(chan provisioner.Event, 256)
+	teeDone := make(chan struct{})
+	go func() {
+		defer close(teeDone)
+		for ev := range producer {
+			recorded := dep.recordEvent(ev)
+			// Non-blocking send to the live channel — if no SSE consumer is
+			// attached, the eventsCh buffer (256) absorbs the burst; once
+			// full we drop on the live side ONLY (the durable buffer still
+			// has the event, so the next reconnect replays it). This
+			// preserves the existing channel-buffer-overflow semantics
+			// while guaranteeing history retention.
+			select {
+			case dep.eventsCh <- recorded:
+			default:
+			}
+		}
+		close(dep.eventsCh)
+	}()
 
 	prov := provisioner.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	result, err := prov.Provision(ctx, dep.Request, dep.Events)
+	result, err := prov.Provision(ctx, dep.Request, producer)
+	close(producer)
+	<-teeDone
 
 	dep.mu.Lock()
 	dep.FinishedAt = time.Now()
@@ -235,6 +388,7 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		)
 	}
 	dep.mu.Unlock()
+	close(dep.done)
 
 	// PDM lifecycle: on success, /commit with the LB IP; on failure, /release
 	// so the reservation TTL doesn't have to expire to free the name. PDM is

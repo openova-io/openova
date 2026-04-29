@@ -505,6 +505,122 @@ export function ProvisionPage({ disableStream = false }: ProvisionPageProps = {}
   const esRef = useRef<EventSource | null>(null)
   const activePhaseRef = useRef<string | null>(null)
 
+  // applyEventsBatch — fold N events through the same reducer the live SSE
+  // path uses. This is what makes a completed-deployment URL render the
+  // FULL history of bubbles + log buckets — the GET /events fetch returns
+  // every event the deployment ever emitted, and we replay them all
+  // through applyEventToContext so the state machine ends up in the same
+  // shape it would have had we been connected the whole time.
+  const applyEventsBatch = (events: ProvisionEvent[]) => {
+    if (events.length === 0) return
+    setSelectedNodeId((prev) => prev ?? HETZNER_INFRA_ID)
+    setNodes((prevNodes) => {
+      const nextNodes = prevNodes.map((n) => ({
+        ...n,
+        hcloudSeen: n.hcloudSeen ? new Set(n.hcloudSeen) : undefined,
+        hcloudCounts: n.hcloudCounts ? { ...n.hcloudCounts } : undefined,
+      }))
+      const nodesById: Record<string, DagNode> = Object.create(null)
+      for (const n of nextNodes) nodesById[n.id] = n
+      const ctx: NodeMutationContext = {
+        nodesById,
+        detailLines: {},
+        activePhase: activePhaseRef.current,
+      }
+      for (const ev of events) {
+        applyEventToContext(ctx, ev)
+      }
+      activePhaseRef.current = ctx.activePhase
+      setDetailLines((prevLines) => {
+        const next = { ...prevLines }
+        for (const id of Object.keys(ctx.detailLines)) {
+          next[id] = [...(next[id] || []), ...(ctx.detailLines[id] || [])]
+        }
+        return next
+      })
+      return nextNodes
+    })
+  }
+
+  // History replay — fetch the buffered event slice from the catalyst-api
+  // BEFORE opening the SSE stream. For a deployment that already finished,
+  // this is the ONLY way to render the history (the SSE stream's own
+  // replay-on-connect serves the same slice but a plain GET is easier to
+  // test, easier for the wizard's retry/reconnect path, and gives us a
+  // stateless `done` flag we can render bubble states from before the
+  // EventSource even opens). The SSE stream below de-duplicates by index
+  // — it only applies events whose count exceeds the history length we
+  // just replayed.
+  const historyCountRef = useRef<number>(0)
+
+  useEffect(() => {
+    // History fetch runs even when `disableStream` is set — tests use
+    // `disableStream` to prevent the EventSource attach (jsdom has no
+    // EventSource) but still want to verify the GET /events fetch + the
+    // reducer applying replayed events. The user-reported regression
+    // ("0 events · done") was about the GET path, not SSE.
+    if (!deploymentId) return
+    let cancelled = false
+    const eventsURL = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/events`
+    fetch(eventsURL, { headers: { Accept: 'application/json' } })
+      .then(async (resp) => {
+        if (cancelled) return
+        if (!resp.ok) {
+          // 404 → unreachable; the SSE effect below will surface the right
+          // failure card. We don't throw here because a missing /events
+          // endpoint on an older catalyst-api shouldn't break the page.
+          return
+        }
+        const body = (await resp.json()) as {
+          events?: ProvisionEvent[]
+          state?: DeploymentSnapshot
+          done?: boolean
+        }
+        if (cancelled) return
+        const evs = Array.isArray(body.events) ? body.events : []
+        historyCountRef.current = evs.length
+        if (evs.length > 0) {
+          // First emit time anchors the elapsed clock for completed
+          // deployments — without this the `0m 00s` reading would be wrong
+          // for a deep-link to a finished deployment.
+          const firstEv = evs[0]
+          const firstTime = firstEv?.time ? Date.parse(firstEv.time) : NaN
+          if (!Number.isNaN(firstTime)) {
+            setStartedAt((prev) => prev ?? firstTime)
+          }
+          applyEventsBatch(evs)
+        }
+        // If the deployment was already done by the time we fetched
+        // history, mark it completed so the bubbles flip to done. The SSE
+        // stream that opens next will also send `event: done` and converge
+        // on the same state (idempotent under our reducer).
+        if (body.done && body.state) {
+          setSnapshot(body.state)
+          setFinishedAt((prev) => prev ?? Date.now())
+          if (body.state.status === 'ready') {
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.status === 'running' || n.status === 'pending'
+                  ? { ...n, status: 'done', prog: 1 }
+                  : n,
+              ),
+            )
+            setStreamStatus('completed')
+          } else if (body.state.status === 'failed') {
+            setStreamStatus('failed')
+            setStreamError(body.state.error ?? null)
+          }
+        }
+      })
+      .catch(() => {
+        // Network failure — fall through to the SSE stream which has its
+        // own onerror handling. Don't surface anything here.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deploymentId, retryNonce])
+
   useEffect(() => {
     if (disableStream) return
     if (!deploymentId) return
@@ -512,12 +628,17 @@ export function ProvisionPage({ disableStream = false }: ProvisionPageProps = {}
     setStreamStatus('connecting')
     setStreamError(null)
     setSnapshot(null)
-    setStartedAt(null)
     setFinishedAt(null)
     activePhaseRef.current = null
 
     const es = new EventSource(url)
     esRef.current = es
+
+    // Seen counter — the SSE replay-on-connect emits every buffered event,
+    // but the GET /events fetch above already applied the first N. Skip
+    // those N to avoid double-applying; once we pass historyCountRef the
+    // remaining events are live (or were buffered after our GET).
+    let seen = 0
 
     es.onopen = () => {
       setStreamStatus('streaming')
@@ -527,34 +648,12 @@ export function ProvisionPage({ disableStream = false }: ProvisionPageProps = {}
     es.onmessage = (msg) => {
       try {
         const ev = JSON.parse(msg.data) as ProvisionEvent
-        // Auto-select Hetzner-infra on the first event so the operator sees
-        // the live log slice immediately.
-        setSelectedNodeId((prev) => prev ?? HETZNER_INFRA_ID)
-        setNodes((prevNodes) => {
-          const nextNodes = prevNodes.map((n) => ({
-            ...n,
-            hcloudSeen: n.hcloudSeen ? new Set(n.hcloudSeen) : undefined,
-            hcloudCounts: n.hcloudCounts ? { ...n.hcloudCounts } : undefined,
-          }))
-          const nodesById: Record<string, DagNode> = Object.create(null)
-          for (const n of nextNodes) nodesById[n.id] = n
-          const ctx: NodeMutationContext = {
-            nodesById,
-            detailLines: {},
-            activePhase: activePhaseRef.current,
-          }
-          applyEventToContext(ctx, ev)
-          activePhaseRef.current = ctx.activePhase
-          // Merge per-node detail lines into the React state map.
-          setDetailLines((prevLines) => {
-            const next = { ...prevLines }
-            for (const id of Object.keys(ctx.detailLines)) {
-              next[id] = [...(next[id] || []), ...(ctx.detailLines[id] || [])]
-            }
-            return next
-          })
-          return nextNodes
-        })
+        seen += 1
+        if (seen <= historyCountRef.current) {
+          // Already applied via the GET /events fetch — skip the duplicate.
+          return
+        }
+        applyEventsBatch([ev])
       } catch (err) {
         const synthetic: ProvisionEvent = {
           time: new Date().toISOString(),

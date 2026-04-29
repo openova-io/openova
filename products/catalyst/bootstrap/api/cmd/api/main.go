@@ -41,6 +41,12 @@ func main() {
 	r.Post("/api/v1/deployments", h.CreateDeployment)
 	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
 	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
+	// Buffered event history endpoint (issue #180). Returns the full event
+	// slice + state JSON so the wizard's ProvisionPage can render history
+	// for a deployment that already finished — the SSE replay-on-connect
+	// covers the same path, but the GET is a stateless fast-path test
+	// + reconnect target.
+	r.Get("/api/v1/deployments/{id}/events", h.GetDeploymentEvents)
 	// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
 	// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
 	// called from CreateDeployment when domainMode == byo-api.
