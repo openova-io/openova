@@ -12,15 +12,24 @@ import { OOLogo } from '@/shared/ui/OOLogo'
  * navigate. StepSuccess is the terminal destination after StepReview launches
  * provisioning; it is not part of the visible progress, so it is not in this
  * list. Closes #174.
+ *
+ * Order matches WizardPage.tsx:
+ *   1. Organisation (profile only — no domain/email here anymore)
+ *   2. Provider     (Hetzner credentials per region)
+ *   3. Credentials  (SSH key)
+ *   4. Topology     (sizing — control-plane SKU, worker SKU+count, HA)
+ *   5. Components   (unified marketplace catalog)
+ *   6. Domain       (pool/BYO + admin email)
+ *   7. Review       (POST body preview + launch)
  */
 export const WIZARD_STEPS = [
-  { id: 1, label: 'Organisation', desc: 'Name, domain, contact'         },
-  { id: 2, label: 'Domain',       desc: 'Pool or BYO + delegation'      },
-  { id: 3, label: 'Topology',     desc: 'Regions and clusters'          },
-  { id: 4, label: 'Provider',     desc: 'Cloud provider per region'     },
-  { id: 5, label: 'Credentials',  desc: 'API access tokens'             },
-  { id: 6, label: 'Components',   desc: 'Platform building blocks'      },
-  { id: 7, label: 'Review',       desc: 'Confirm and provision'         },
+  { id: 1, label: 'Organisation', desc: 'Industry, size, HQ, compliance' },
+  { id: 2, label: 'Provider',     desc: 'Cloud provider per region'      },
+  { id: 3, label: 'Credentials',  desc: 'API token + SSH key'            },
+  { id: 4, label: 'Topology',     desc: 'Sizing and HA'                  },
+  { id: 5, label: 'Components',   desc: 'Platform building blocks'       },
+  { id: 6, label: 'Domain',       desc: 'Pool or BYO + admin email'      },
+  { id: 7, label: 'Review',       desc: 'Confirm and provision'          },
 ]
 
 /**

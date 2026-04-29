@@ -10,10 +10,22 @@ import { StepComponents }  from './steps/StepComponents'
 import { StepReview }      from './steps/StepReview'
 import { StepSuccess }     from './steps/StepSuccess'
 
-// StepDomain promoted into its own step for #169 — three-mode (pool /
-// byo-manual / byo-api) UX needs more vertical space than fits inside the
-// org-profile step.
-const STEPS = [StepOrg, StepDomain, StepTopology, StepProvider, StepCredentials, StepComponents, StepReview, StepSuccess]
+// StepDomain was promoted into its own step for #169. The order has since
+// been reworked so the operator picks the platform first (provider creds,
+// SSH key, sizing, marketplace) and only then names the Sovereign in DNS:
+//
+//   1. StepOrg          — org profile (name / industry / size / HQ /
+//                         compliance). NO email or domain capture here —
+//                         the admin email moved to StepDomain (it pairs
+//                         naturally with the Sovereign's external surface).
+//   2. StepProvider     — Hetzner credentials.
+//   3. StepCredentials  — SSH key (auto-generate or paste).
+//   4. StepTopology     — sizing (control-plane + worker SKUs, HA flag).
+//   5. StepComponents   — unified marketplace catalog.
+//   6. StepDomain       — pool subdomain or BYO domain + admin email.
+//   7. StepReview       — single source of truth for the POST body.
+//   8. StepSuccess      — provisioning result.
+const STEPS = [StepOrg, StepProvider, StepCredentials, StepTopology, StepComponents, StepDomain, StepReview, StepSuccess]
 
 const variants = {
   enter:  (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),

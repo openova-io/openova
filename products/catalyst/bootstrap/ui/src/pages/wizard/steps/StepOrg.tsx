@@ -7,9 +7,26 @@ import { StepShell, useStepNav } from './_shared'
 /**
  * StepOrg — captures the organisation profile.
  *
- * The Sovereign-domain capture used to live as a section inside this step;
- * #169 promoted it to a dedicated StepDomain (next step) so the three-mode
- * (pool / byo-manual / byo-api) UX can render at full width.
+ * Scope on this step is intentionally narrow: name, industry, size,
+ * headquarters, and compliance frameworks. These five inputs are the
+ * profile signal the rest of the wizard reads when proposing topology
+ * sizing and component defaults.
+ *
+ * What is NOT captured here:
+ *   - Sovereign DNS surface (pool / BYO) — lives in StepDomain.
+ *   - Admin contact email — also moved to StepDomain. The admin email
+ *     pairs naturally with the deployment's external surface (cert
+ *     issuance, registration notifications) and asking for it on the
+ *     opening screen made the org profile feel like a sign-up form.
+ *   - "Org domain" free-text field — removed entirely. The Sovereign FQDN
+ *     captured in StepDomain replaces it; the orgDomain store slot is
+ *     preserved for backwards-compat with persisted state but is no
+ *     longer rendered.
+ *
+ * #169 promoted the Sovereign-domain capture into a dedicated step so
+ * the three-mode (pool / byo-manual / byo-api) UX can render at full
+ * width; this revision goes the rest of the way and strips the residual
+ * domain + email inputs from the org page.
  */
 
 const INDUSTRIES = [
@@ -118,13 +135,8 @@ export function StepOrg() {
       onNext={next}
     >
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
-        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}   value={store.orgName}   onChange={store.setOrgName} />
-        <SmartField         label="Domain"             defaultValue={ORG_DEFAULTS.domain} value={store.orgDomain} onChange={store.setOrgDomain} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
-        <SmartField label="Platform team email" defaultValue={ORG_DEFAULTS.email}         value={store.orgEmail}         onChange={store.setOrgEmail} type="email" />
-        <SmartField label="Headquarters"         defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
+        <SmartField required label="Organisation name" defaultValue={ORG_DEFAULTS.name}         value={store.orgName}         onChange={store.setOrgName} />
+        <SmartField          label="Headquarters"      defaultValue={ORG_DEFAULTS.headquarters} value={store.orgHeadquarters} onChange={store.setOrgHeadquarters} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>

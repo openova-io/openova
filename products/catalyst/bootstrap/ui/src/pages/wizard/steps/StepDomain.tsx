@@ -1,11 +1,20 @@
 /**
  * StepDomain — sovereign-domain capture, three-mode (pool / byo-manual /
- * byo-api). Closes #169 ([I] wizard: StepDomain — Bring Your Own Domain).
+ * byo-api), plus the admin-contact email. Closes #169 ([I] wizard:
+ * StepDomain — Bring Your Own Domain).
  *
  * The wizard's previous "domain" UX lived as a section inside StepOrg. With
  * BYO bringing two delegation flows (manual NS edit, registrar-API NS flip)
  * the section grew past what fits beneath the org-profile fields, so #169
  * promotes it to its own step.
+ *
+ * The admin-contact email also lives on this step. It used to live on
+ * StepOrg next to the org name, which made the opening screen feel like a
+ * sign-up form and asked for personal contact data before the operator
+ * had any idea what they were configuring. Pairing the email with the
+ * Sovereign FQDN matches the way it's actually used downstream — Let's
+ * Encrypt registration, deployment-completion notifications, and the
+ * console's "platform owner" badge are all keyed off this address.
  *
  * All three modes end at the SAME outcome: a per-Sovereign zone exists in
  * OpenOva PowerDNS so cert-manager DNS-01 + the sovereign LB can resolve.
@@ -119,6 +128,8 @@ export function StepDomain() {
       {store.sovereignDomainMode === 'pool' && <PoolModeBody availability={availability} />}
       {store.sovereignDomainMode === 'byo-manual' && <ByoManualBody />}
       {store.sovereignDomainMode === 'byo-api' && <ByoApiBody />}
+
+      <AdminEmailField />
     </StepShell>
   )
 }
@@ -127,6 +138,10 @@ function computeNextDisabled(
   s: ReturnType<typeof useWizardStore.getState>,
   availabilityStatus: import('@/shared/lib/useSubdomainAvailability').AvailabilityStatus,
 ): boolean {
+  // Admin email is required regardless of which domain mode the operator
+  // picked. cert-manager registers it as the Let's Encrypt account email,
+  // and the catalyst-api uses it for the deployment-completion notification.
+  if (!isValidAdminEmail(s.orgEmail)) return true
   if (s.sovereignDomainMode === 'pool') {
     if (!s.sovereignSubdomain) return true
     return availabilityStatus !== 'available'
@@ -141,6 +156,57 @@ function computeNextDisabled(
     return !s.registrarTokenValidated
   }
   return true
+}
+
+/**
+ * Minimal RFC-5321-ish email validator. Accepts the common case
+ * (local@domain.tld) without trying to chase the full RFC. Empty / blank
+ * strings fail; the wizard's "default" placeholder ('platform@acme.io')
+ * passes on purpose so the operator can proceed without retyping when the
+ * pre-filled value matches their setup.
+ */
+function isValidAdminEmail(value: string): boolean {
+  const v = value.trim()
+  if (!v) return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+}
+
+function AdminEmailField() {
+  const store = useWizardStore()
+  const valid = !store.orgEmail || isValidAdminEmail(store.orgEmail)
+  return (
+    <fieldset
+      style={{
+        border: 'none',
+        padding: 0,
+        margin: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        paddingTop: 4,
+      }}
+    >
+      <legend style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)', marginBottom: 4 }}>
+        Admin contact email <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>required</span>
+      </legend>
+      <input
+        type="email"
+        data-testid="admin-email-input"
+        placeholder="platform@acme.io"
+        value={store.orgEmail}
+        onChange={e => store.setOrgEmail(e.target.value)}
+        aria-invalid={!valid}
+        autoComplete="email"
+        spellCheck={false}
+        style={inputStyle(valid ? 'idle' : 'error')}
+      />
+      <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', lineHeight: 1.5 }}>
+        Used as the Let's Encrypt account email for TLS issuance, and as the
+        deployment-completion notification address. We do not send marketing
+        from this address.
+      </span>
+    </fieldset>
+  )
 }
 
 function ModeCard({
