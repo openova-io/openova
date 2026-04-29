@@ -36,6 +36,12 @@ import (
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/allocator"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/dynadot"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/handler"
+	registrar "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar"
+	regCloudflare "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar/cloudflare"
+	regDynadot "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar/dynadot"
+	regGoDaddy "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar/godaddy"
+	regNamecheap "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar/namecheap"
+	regOVH "github.com/openova-io/openova/core/pool-domain-manager/internal/registrar/ovh"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/store"
 )
 
@@ -68,6 +74,20 @@ func main() {
 	go alloc.RunSweeper(ctx, cfg.SweeperInterval)
 
 	h := handler.New(alloc, s, log)
+
+	// Build the registrar registry: every adapter wires up unconditionally
+	// because the customer's API token is supplied per request, not at
+	// service-start. Disabling an adapter would only mean omitting it from
+	// the map; today we ship all 5.
+	reg := registrar.Registry{
+		regCloudflare.New().Name(): regCloudflare.New(),
+		regGoDaddy.New().Name():    regGoDaddy.New(),
+		regNamecheap.New().Name():  regNamecheap.New(),
+		regOVH.New().Name():        regOVH.New(),
+		regDynadot.New().Name():    regDynadot.New(),
+	}
+	h.SetRegistry(reg)
+	log.Info("registrar adapters wired", "registrars", reg.Names())
 
 	root := chi.NewRouter()
 	root.Use(middleware.RequestID)
