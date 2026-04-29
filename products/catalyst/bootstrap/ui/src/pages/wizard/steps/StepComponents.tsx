@@ -1,18 +1,33 @@
 // StepComponents — corporate platform component grid.
 //
-// Visual contract: pixel-matches the SME marketplace card pattern at
-// core/marketplace/src/components/AppsStep.svelte (height 108px, 0.6rem
-// padding, 0.75rem gap, 1.5px border, 32×32 round add button hidden until
-// hover). Two tabs:
+// Visual contract: 4-line text grid spanning the FULL card body width
+// (height 108px, 0.6rem padding, 0.75rem gap, 1.5px border). The card
+// body has NO right-side padding reserved for affordances — every line
+// uses the full available width so descriptions actually breathe.
+//
+// Line grid (top to bottom inside `.corp-comp-body`):
+//   Line 1 — name (left, flex) + family chip + toggle button (right)
+//   Line 2 — description line 1 (full width)
+//   Line 3 — description line 2 (full width, clamp to 2)
+//   Line 4 — tier chip + dependency chips + SELECTED pill (right)
+//
+// Chips ONLY appear on line 1 or line 4 — never lines 2/3. The toggle
+// affordance (Plus / Check icon button) lives inline at the right end of
+// line 1, sharing the chip row with the family chip — it does NOT
+// reserve a vertical column to the right of the body, so the descriptions
+// span the entire body width. This is the deliberate departure from the
+// SME marketplace's `app-body { padding-right: 72px }` which wasted the
+// right quarter for a hover-visible button.
+//
+// Two tabs:
 //
 //   1. "Choose Your Stack" (default)  — non-mandatory components.
 //      Search + category chip filter, sort-selected-first, cascade-add
 //      and cascade-remove dependency logic. Each card is itself an anchor
 //      to the marketplace product-detail page; nested inside are:
-//        • a clickable family chip (top-right of the body) → family
-//          portfolio page,
-//        • a 32×32 round Add/Selected icon button (top-right of the card,
-//          opacity-0 until hover, always-visible when in cart) →
+//        • a clickable family chip (line 1, right) → family portfolio
+//          page,
+//        • an inline round Add/Selected icon button (line 1, far right) →
 //          toggles selection.
 //      Both nested affordances stopPropagation so the outer anchor
 //      navigation never races the toggle.
@@ -21,9 +36,9 @@
 //      Grouped by product (PILOT, GUARDIAN, …), no search, no toggle UI.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md:
-//   #2 — never compromise quality: SME marketplace is the proven shape;
-//        this step copies its surface 1:1 (height, padding, hover, chips,
-//        toast slot) so the SME and corporate products feel like a family.
+//   #2 — never compromise quality: descriptions read as professional
+//        sentence-fragments (6-10 words each) and the card never wastes
+//        valuable horizontal space.
 //   #4 — never hardcode: tabs, tiers, logos, dependency edges, family
 //        chip palettes — every catalog and presentation fact comes from
 //        componentGroups.ts and marketplaceCopy.ts. Logo URLs default to
@@ -208,41 +223,69 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
       <ComponentLogo entry={entry} />
 
       <div className="corp-comp-body">
+        {/* Line 1 — name (left, flex) + family chip + inline toggle
+            button (right). Chips and the toggle share this row so no
+            vertical column on the right is reserved; lines 2-3 (desc)
+            consume the FULL body width. The toggle button is suppressed
+            in read-only mode and replaced by the static category pill. */}
         <div className="corp-comp-top">
           <span className="corp-comp-name">{entry.name}</span>
-          {/* Family chip — top-right corner of the body. Clickable: routes
-              to the family portfolio page. Stops propagation so the outer
-              anchor's product-detail navigation doesn't also fire.
-              Suppressed in read-only Tab 2 because that surface already
-              groups by family — there we render a static category pill so
-              the visual rhythm of the card stays identical. */}
           {readOnly ? (
             <span className="corp-comp-cat">{entry.groupName}</span>
           ) : (
-            <Link
-              to="/marketplace/family/$familyId"
-              params={{ familyId: entry.product }}
-              data-testid={`family-chip-${entry.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="corp-comp-family-chip"
-              style={{
-                background: palette.bg,
-                color: palette.fg,
-                border: `1px solid ${palette.border}`,
-              }}
-              aria-label={`Open ${entry.groupName} family portfolio`}
-              title={`Open ${entry.groupName} family portfolio`}
-            >
-              {entry.groupName}
-            </Link>
+            <>
+              <Link
+                to="/marketplace/family/$familyId"
+                params={{ familyId: entry.product }}
+                data-testid={`family-chip-${entry.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="corp-comp-family-chip"
+                style={{
+                  background: palette.bg,
+                  color: palette.fg,
+                  border: `1px solid ${palette.border}`,
+                }}
+                aria-label={`Open ${entry.groupName} family portfolio`}
+                title={`Open ${entry.groupName} family portfolio`}
+              >
+                {entry.groupName}
+              </Link>
+              {/* Inline Add / Remove circle button — sits at the end of
+                  line 1 next to the family chip. Opacity 0 by default,
+                  fades to opacity 1 on card hover; always visible (and
+                  tinted green) when the card is in-cart so removal is one
+                  click without hover-fishing. Stops propagation so the
+                  outer anchor's product-detail navigation never fires
+                  when the operator intends to toggle selection. */}
+              <button
+                type="button"
+                aria-pressed={selected}
+                aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onToggle?.()
+                }}
+                data-testid={`toggle-${entry.id}`}
+                className={`corp-comp-add-btn ${selected ? 'added' : ''}`}
+                title={selected ? `Remove ${entry.name} from stack` : `Add ${entry.name} to stack`}
+              >
+                {selected ? (
+                  <Check size={12} strokeWidth={3} aria-hidden />
+                ) : (
+                  <Plus size={12} strokeWidth={2.5} aria-hidden />
+                )}
+              </button>
+            </>
           )}
         </div>
+        {/* Lines 2-3 — description, two-line clamp, full body width. */}
         <p className="corp-comp-desc">{entry.desc}</p>
+        {/* Line 4 — tier chip + dependency chips + SELECTED pill. Chips
+            ONLY appear on line 1 or line 4; lines 2-3 are description
+            only. The `.corp-comp-chips` mask gradient on the right edge
+            fades any overflow gracefully when many deps are present. */}
         <div className="corp-comp-chips">
-          {/* Tier badge — primary trait. In the read-only Tab 2 the
-              MANDATORY pill is replaced by an INFRASTRUCTURE pill so users
-              read it as platform infra rather than a wizard-controlled
-              option. */}
           {readOnly ? (
             <CardChip
               label={STEP_COMPONENTS_COPY.pillInfra}
@@ -264,12 +307,6 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
           ) : (
             <CardChip label={STEP_COMPONENTS_COPY.pillOptional} tone="optional" testId={`tier-${entry.id}`} />
           )}
-          {/* Dependency chips — one per direct dependency, mirroring SME's
-              `<span class="chip chip-dep">+ {depName(dep)}</span>`. The
-              `.corp-comp-chips` mask gradient on the right edge fades any
-              overflow gracefully when many deps are present, exactly like
-              the marketplace. The test surface (`includes-<id>`, below)
-              lives off-screen as an a11y hint and carries the same text. */}
           {(entry.dependencies ?? []).map((depId) => {
             const depEntry = findComponent(depId)
             const label = depEntry?.name ?? depId
@@ -283,6 +320,23 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
               />
             )
           })}
+          {/* SELECTED indicator — compact green dot pinned to the right
+              end of line 4. The card already conveys selection through
+              its green border, green-tinted background, and the green ✓
+              toggle button on line 1, so a verbose SELECTED text pill on
+              line 4 would be redundant and would crowd the dependency
+              chips. The dot keeps the test-surface (`selected-<id>`) in
+              the DOM without competing with chips for horizontal space. */}
+          {selected && !readOnly && (
+            <span
+              className="corp-comp-status"
+              data-testid={`selected-${entry.id}`}
+              aria-label={STEP_COMPONENTS_COPY.selectedPill}
+              title={STEP_COMPONENTS_COPY.selectedPill}
+            >
+              <span className="corp-comp-status-dot" />
+            </span>
+          )}
         </div>
         {/* Off-screen accessibility / test hint — surfaces the full
             dependency list as a single sentence for screen readers and
@@ -298,48 +352,6 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
           </p>
         )}
       </div>
-
-      {/* SELECTED status pill — bottom-right (mirrors SME's
-          .status-corner / .s-selected). Suppressed in read-only mode. */}
-      {selected && !readOnly && (
-        <span
-          className="corp-comp-status"
-          data-testid={`selected-${entry.id}`}
-          aria-hidden
-        >
-          <span className="corp-comp-status-pill">
-            <span className="corp-comp-status-dot" /> {STEP_COMPONENTS_COPY.selectedPill}
-          </span>
-        </span>
-      )}
-
-      {/* Add / Remove circle button — top-right (mirrors SME's
-          .app-add-btn). Hidden until card-hover (opacity 0 → 1) and
-          always visible when in cart. Stops propagation so the outer
-          anchor's product-detail navigation never fires when the operator
-          intends to toggle selection. Suppressed entirely in read-only
-          mode. */}
-      {!readOnly && (
-        <button
-          type="button"
-          aria-pressed={selected}
-          aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onToggle?.()
-          }}
-          data-testid={`toggle-${entry.id}`}
-          className={`corp-comp-add-btn ${selected ? 'added' : ''}`}
-          title={selected ? `Remove ${entry.name} from stack` : `Add ${entry.name} to stack`}
-        >
-          {selected ? (
-            <Check size={16} strokeWidth={3} aria-hidden />
-          ) : (
-            <Plus size={16} strokeWidth={2.5} aria-hidden />
-          )}
-        </button>
-      )}
     </>
   )
 
@@ -1171,26 +1183,32 @@ export function StepComponents() {
           color: var(--wiz-text-md);
         }
 
-        /* Body column — padding-right = 4.5rem to keep text clear of
-           the SELECTED status pill (bottom-right) and the +/× round
-           button (top-right), matching SME's .app-body. */
+        /* Body column — NO right-side padding. The toggle button and
+           SELECTED pill are inline in the chip rows (line 1 / line 4),
+           NOT absolute overlays — so descriptions on lines 2-3 use the
+           FULL body width. (Departure from SME's .app-body which
+           reserves padding-right: 72px for an absolute overlay button.) */
         .corp-comp-body {
           flex: 1;
           min-width: 0;
           display: flex;
           flex-direction: column;
-          gap: 0.25rem;
-          padding-right: 4.5rem;
+          gap: 0.2rem;
           overflow: hidden;
         }
+        /* Line 1 — name + family chip + toggle. align-items: center so the
+           inline toggle button and family chip sit on the same baseline
+           with the name. min-height 22px keeps the row tall enough for
+           the 22×22 toggle without baseline drift. */
         .corp-comp-top {
           display: flex;
-          align-items: baseline;
-          gap: 0.5rem;
+          align-items: center;
+          gap: 0.4rem;
+          min-height: 22px;
         }
         .corp-comp-name {
           color: var(--wiz-text-hi);
-          font-size: 0.92rem;
+          font-size: 0.9rem;
           font-weight: 600;
           line-height: 1.2;
           overflow: hidden;
@@ -1231,25 +1249,33 @@ export function StepComponents() {
           transform: translateY(-1px);
         }
 
+        /* Lines 2-3 — description, two-line clamp. Spans the FULL body
+           width (no padding-right cap) so descriptions actually breathe.
+           font-size + line-height tuned so two filled lines plus line 1
+           and line 4 fit cleanly inside the 108px card height. */
         .corp-comp-desc {
           margin: 0;
           color: var(--wiz-text-md);
-          font-size: 0.78rem;
-          line-height: 1.45;
+          font-size: 0.76rem;
+          line-height: 1.4;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
         }
+        /* Line 4 — chip row. align-items: center keeps the SELECTED
+           pill (margin-left: auto) and the tier / dep chips on the same
+           visual baseline. The mask gradient gracefully fades any chip
+           overflow on the right when many deps are present, but the
+           SELECTED pill is rendered AFTER the gradient terminus so it
+           remains fully visible. */
         .corp-comp-chips {
-          margin-top: 0.25rem;
+          margin-top: 0.1rem;
           display: flex;
           flex-wrap: nowrap;
           gap: 0.25rem;
           overflow: hidden;
-          mask-image: linear-gradient(to right, #000 85%, transparent);
-          -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
-          min-height: 1.4rem;
+          min-height: 1.3rem;
           align-items: center;
         }
 
@@ -1271,49 +1297,44 @@ export function StepComponents() {
           border: 0;
         }
 
-        /* SELECTED status pill — pinned bottom-right (mirrors SME
-           .status-corner / .s-selected). Only rendered when in-cart, so
-           it never competes with the toggle button when both can be
-           visible at the same time. */
+        /* SELECTED indicator — compact green dot at the right end of
+           line 4. margin-left: auto pushes it to the trailing edge so
+           it always anchors to the right regardless of how many
+           dependency chips precede it. The dot is small enough not to
+           compete with chips for horizontal space; the card's border,
+           background, and toggle-button colour carry the loud-selection
+           signal. */
         .corp-comp-status {
-          position: absolute;
-          bottom: 0.5rem;
-          right: 0.55rem;
-          pointer-events: none;
-          z-index: 1;
-        }
-        .corp-comp-status-pill {
+          margin-left: auto;
+          flex-shrink: 0;
           display: inline-flex;
           align-items: center;
-          gap: 0.3rem;
-          padding: 0.15rem 0.55rem;
-          border-radius: 999px;
-          font-size: 0.65rem;
-          font-weight: 600;
-          line-height: 1.4;
-          letter-spacing: 0.03em;
-          background: rgba(74,222,128,0.16);
+          padding: 0 0.15rem;
           color: #4ADE80;
+          pointer-events: none;
         }
         .corp-comp-status-dot {
-          width: 6px;
-          height: 6px;
+          width: 7px;
+          height: 7px;
           border-radius: 50%;
           background: currentColor;
           display: inline-block;
+          box-shadow: 0 0 0 2px rgba(74,222,128,0.18);
         }
 
-        /* Add / Remove circle button — top-right (mirrors SME
-           .app-add-btn). 32×32 round, opacity 0 by default, fades to
+        /* Inline Add / Remove button — sits at the end of line 1 next
+           to the family chip, sharing horizontal space with chips. 22×22
+           round (smaller than SME's 32×32 to fit cleanly inline without
+           displacing the line-1 chips). Opacity 0 by default, fades to
            opacity 1 on card hover; always visible (and tinted green)
-           when the card is in-cart so removal is one click without
-           hover-fishing. */
+           when in-cart so removal is one click without hover-fishing.
+           margin-left: auto pins it to the trailing edge of line 1
+           regardless of family-chip width. */
         .corp-comp-add-btn {
-          position: absolute;
-          top: 0.6rem;
-          right: 0.6rem;
-          width: 32px;
-          height: 32px;
+          margin-left: 0;
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
           border-radius: 50%;
           border: none;
           cursor: pointer;
@@ -1321,13 +1342,12 @@ export function StepComponents() {
           align-items: center;
           justify-content: center;
           opacity: 0;
-          transform: scale(0.8);
+          transform: scale(0.85);
           transition: opacity 0.15s, transform 0.15s, background 0.15s, filter 0.15s;
           background: rgba(var(--wiz-accent-ch), 1);
           color: #fff;
-          z-index: 2;
           padding: 0;
-          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
         }
         .corp-comp-card:hover .corp-comp-add-btn {
           opacity: 1;

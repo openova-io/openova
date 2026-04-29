@@ -171,11 +171,11 @@ export const GROUPS: GroupDef[] = [
     description: 'Continuous delivery engine with GitOps workflows, infrastructure as code, and virtual cluster isolation',
     required: true,
     components: [
-      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps delivery engine',          tier: 'mandatory', dependencies: [] },
-      { id: 'crossplane', name: 'Crossplane', desc: 'Cloud CRDs / IaC',               tier: 'mandatory', dependencies: [] },
-      { id: 'gitea',      name: 'Gitea',      desc: 'Internal Git server',            tier: 'mandatory', dependencies: ['cnpg'] },
-      { id: 'opentofu',   name: 'OpenTofu',   desc: 'IaC (Terraform fork)',           tier: 'mandatory', dependencies: [] },
-      { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual cluster isolation layer', tier: 'mandatory', dependencies: [] },
+      { id: 'flux',       name: 'Flux CD',    desc: 'GitOps reconciler driving every Sovereign cluster from Git', tier: 'mandatory', dependencies: [] },
+      { id: 'crossplane', name: 'Crossplane', desc: 'Cloud and Kubernetes APIs as native CRDs',                   tier: 'mandatory', dependencies: [] },
+      { id: 'gitea',      name: 'Gitea',      desc: 'Sovereign-local Git server with five tenant organisations',  tier: 'mandatory', dependencies: ['cnpg'] },
+      { id: 'opentofu',   name: 'OpenTofu',   desc: 'Phase-zero IaC for cloud machines, networks, DNS',           tier: 'mandatory', dependencies: [] },
+      { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual control planes for tenant isolation on shared nodes', tier: 'mandatory', dependencies: [] },
     ],
   },
   {
@@ -183,19 +183,19 @@ export const GROUPS: GroupDef[] = [
     description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
     required: true,
     components: [
-      { id: 'cilium',       name: 'Cilium',       desc: 'CNI & eBPF service mesh',                                  tier: 'mandatory',   dependencies: [] },
-      { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',                              tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/coraza.png') },
+      { id: 'cilium',       name: 'Cilium',       desc: 'eBPF CNI and service mesh with kernel-level policy',       tier: 'mandatory',   dependencies: [] },
+      { id: 'coraza',       name: 'Coraza WAF',   desc: 'OWASP Core Rule Set L7 firewall on Envoy',                 tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/coraza.png') },
       // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
       // Lua-records (ifurlup, pickclosest, ifportup) cover geo + health-checked failover
       // natively — see docs/MULTI-REGION-DNS.md for the failover patterns.
       // PowerDNS has no single-glyph upstream brand mark suitable for a
       // square card tile — render the letter-mark fallback instead (#173).
-      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records', tier: 'mandatory',   dependencies: ['cnpg'], logoUrl: null },
-      { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'], logoUrl: basePath('component-logos/external-dns.png') },
-      { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                                                 tier: 'mandatory',   dependencies: [] },
-      { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                                           tier: 'recommended', dependencies: [] },
-      { id: 'netbird',      name: 'NetBird',      desc: 'Mesh VPN',                                                 tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/netbird.png') },
-      { id: 'strongswan',   name: 'strongSwan',   desc: 'IPsec gateway',                                            tier: 'optional',    dependencies: [], logoUrl: basePath('component-logos/strongswan.png') },
+      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS with DNSSEC signing and geographic failover', tier: 'mandatory',   dependencies: ['cnpg'], logoUrl: null },
+      { id: 'external-dns', name: 'External DNS', desc: 'Reconciles Service, Ingress, Gateway into authoritative DNS',   tier: 'mandatory',   dependencies: ['powerdns'], logoUrl: basePath('component-logos/external-dns.png') },
+      { id: 'envoy',        name: 'Envoy',        desc: 'Programmable L7 proxy for routing, TLS, and gRPC',              tier: 'mandatory',   dependencies: [] },
+      { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel client for Sovereigns behind NAT or firewalls',   tier: 'recommended', dependencies: [] },
+      { id: 'netbird',      name: 'NetBird',      desc: 'Identity-bound mesh VPN over WireGuard for operators and sites', tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/netbird.png') },
+      { id: 'strongswan',   name: 'strongSwan',   desc: 'Standards-compliant IPsec gateway for partner site-to-site links', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/strongswan.png') },
     ],
   },
   {
@@ -203,12 +203,12 @@ export const GROUPS: GroupDef[] = [
     description: 'Autoscaling, config-change reloading, and high-availability orchestration',
     required: true,
     components: [
-      { id: 'vpa',       name: 'VPA',       desc: 'Vertical pod autoscaling',  tier: 'mandatory',   dependencies: [] },
-      { id: 'keda',      name: 'KEDA',      desc: 'Event-driven autoscaling',  tier: 'mandatory',   dependencies: [] },
-      { id: 'reloader',  name: 'Reloader',  desc: 'Config-change pod reload',  tier: 'mandatory',   dependencies: [] },
+      { id: 'vpa',       name: 'VPA',       desc: 'Right-sizes pod requests from real-usage telemetry',     tier: 'mandatory',   dependencies: [] },
+      { id: 'keda',      name: 'KEDA',      desc: 'Event-driven autoscaling across queues, streams, and metrics', tier: 'mandatory',   dependencies: [] },
+      { id: 'reloader',  name: 'Reloader',  desc: 'Rolls workloads automatically when ConfigMaps or Secrets change', tier: 'mandatory',   dependencies: [] },
       // Continuum is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'continuum', name: 'Continuum', desc: 'HA orchestration',          tier: 'recommended', dependencies: [], logoUrl: null },
+      { id: 'continuum', name: 'Continuum', desc: 'Cross-zone failover orchestration for stateful workloads', tier: 'recommended', dependencies: [], logoUrl: null },
     ],
   },
   {
@@ -216,9 +216,9 @@ export const GROUPS: GroupDef[] = [
     description: 'Multi-protocol distributed storage (S3 / NFS / FUSE / HDFS), backup & DR, and container registry',
     required: true,
     components: [
-      { id: 'seaweedfs', name: 'SeaweedFS', desc: 'Multi-protocol distributed storage', tier: 'mandatory', dependencies: [] },
-      { id: 'velero',    name: 'Velero',    desc: 'Backup & disaster recovery',         tier: 'mandatory', dependencies: ['seaweedfs'] },
-      { id: 'harbor',    name: 'Harbor',    desc: 'Container registry',                 tier: 'mandatory', dependencies: ['cnpg', 'seaweedfs', 'valkey'] },
+      { id: 'seaweedfs', name: 'SeaweedFS', desc: 'One pool exposed over S3, NFS, FUSE, HDFS',           tier: 'mandatory', dependencies: [] },
+      { id: 'velero',    name: 'Velero',    desc: 'Cluster backup and cross-region disaster-recovery primitive', tier: 'mandatory', dependencies: ['seaweedfs'] },
+      { id: 'harbor',    name: 'Harbor',    desc: 'Private OCI registry with cosign trust and CVE scanning',  tier: 'mandatory', dependencies: ['cnpg', 'seaweedfs', 'valkey'] },
     ],
   },
   /* ── SIDE (cross-cutting, always present) ─────────────────────── */
@@ -227,15 +227,15 @@ export const GROUPS: GroupDef[] = [
     description: 'Policy enforcement, secrets vault, certificates, scanning, and identity management',
     required: true,
     components: [
-      { id: 'falco',            name: 'Falco',           desc: 'Runtime threat detection',     tier: 'recommended', dependencies: [] },
-      { id: 'kyverno',          name: 'Kyverno',         desc: 'Policy as code',               tier: 'mandatory',   dependencies: [] },
-      { id: 'trivy',            name: 'Trivy',           desc: 'Vulnerability scanning',       tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/trivy.png') },
-      { id: 'syft-grype',       name: 'Syft + Grype',    desc: 'SBOM & CVE analysis',          tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/syft-grype.png') },
-      { id: 'sigstore',         name: 'Sigstore',        desc: 'Supply chain trust',           tier: 'recommended', dependencies: [] },
-      { id: 'keycloak',         name: 'Keycloak',        desc: 'Identity & access management', tier: 'recommended', dependencies: ['cnpg'] },
-      { id: 'openbao',          name: 'OpenBao',         desc: 'Secrets vault',                tier: 'mandatory',   dependencies: [] },
-      { id: 'external-secrets', name: 'External Secrets',desc: 'K8s secret sync (ESO)',        tier: 'mandatory',   dependencies: ['openbao'] },
-      { id: 'cert-manager',     name: 'Cert-Manager',    desc: 'TLS certificate automation',   tier: 'mandatory',   dependencies: ['external-dns'] },
+      { id: 'falco',            name: 'Falco',           desc: 'eBPF runtime threat detection with real-time syscall alerting', tier: 'recommended', dependencies: [] },
+      { id: 'kyverno',          name: 'Kyverno',         desc: 'Native-YAML policy engine gating every admission request',     tier: 'mandatory',   dependencies: [] },
+      { id: 'trivy',            name: 'Trivy',           desc: 'Image, IaC, and dependency vulnerability scanning at admission', tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/trivy.png') },
+      { id: 'syft-grype',       name: 'Syft + Grype',    desc: 'SBOM generation and continuous CVE matching across artifacts',  tier: 'recommended', dependencies: [], logoUrl: basePath('component-logos/syft-grype.png') },
+      { id: 'sigstore',         name: 'Sigstore',        desc: 'Keyless image signing with transparent audit log',             tier: 'recommended', dependencies: [] },
+      { id: 'keycloak',         name: 'Keycloak',        desc: 'OIDC and SAML identity provider with realm isolation',         tier: 'recommended', dependencies: ['cnpg'] },
+      { id: 'openbao',          name: 'OpenBao',         desc: 'Independent-Raft secrets vault with dynamic credentials',       tier: 'mandatory',   dependencies: [] },
+      { id: 'external-secrets', name: 'External Secrets',desc: 'Bridges OpenBao to native Kubernetes Secret objects',          tier: 'mandatory',   dependencies: ['openbao'] },
+      { id: 'cert-manager',     name: 'Cert-Manager',    desc: 'Automated TLS issuance and rotation for every ingress',        tier: 'mandatory',   dependencies: ['external-dns'] },
     ],
   },
   {
@@ -249,15 +249,15 @@ export const GROUPS: GroupDef[] = [
       // Grafana the dashboard server does not. (audit 2026-04 — was
       // listing seaweedfs as a hard dep, which over-cascaded SILO-internal
       // coupling onto every Grafana selection.)
-      { id: 'grafana',       name: 'Grafana',       desc: 'Dashboards & alerting',      tier: 'recommended', dependencies: [] },
-      { id: 'opentelemetry', name: 'OpenTelemetry', desc: 'Unified telemetry pipeline', tier: 'recommended', dependencies: [] },
-      { id: 'alloy',         name: 'Alloy',         desc: 'Telemetry agent',            tier: 'recommended', dependencies: [] },
-      { id: 'loki',          name: 'Loki',          desc: 'Log aggregation',            tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/loki.png') },
-      { id: 'mimir',         name: 'Mimir',         desc: 'Metrics store',              tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
-      { id: 'tempo',         name: 'Tempo',         desc: 'Distributed tracing',        tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/tempo.png') },
-      { id: 'opensearch',    name: 'OpenSearch',    desc: 'Search & analytics',         tier: 'recommended', dependencies: [] },
-      { id: 'litmus',        name: 'Litmus',        desc: 'Chaos engineering',          tier: 'optional',    dependencies: [] },
-      { id: 'openmeter',     name: 'OpenMeter',     desc: 'Usage metering',             tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
+      { id: 'grafana',       name: 'Grafana',       desc: 'Curated dashboards across metrics, logs, and traces',         tier: 'recommended', dependencies: [] },
+      { id: 'opentelemetry', name: 'OpenTelemetry', desc: 'Vendor-neutral SDKs and Collector for traces, metrics, logs', tier: 'recommended', dependencies: [] },
+      { id: 'alloy',         name: 'Alloy',         desc: 'Unified node agent for logs, metrics, and traces',            tier: 'recommended', dependencies: [] },
+      { id: 'loki',          name: 'Loki',          desc: 'Label-indexed log store backed by object storage',            tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/loki.png') },
+      { id: 'mimir',         name: 'Mimir',         desc: 'Horizontally-scaled metrics store with PromQL compatibility',  tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
+      { id: 'tempo',         name: 'Tempo',         desc: 'Object-storage tracing backend with TraceQL analytics',        tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/tempo.png') },
+      { id: 'opensearch',    name: 'OpenSearch',    desc: 'Full-text search and analytics with vector hybrid retrieval',  tier: 'recommended', dependencies: [] },
+      { id: 'litmus',        name: 'Litmus',        desc: 'Cron-driven chaos experiments across pod, node, network failure', tier: 'optional', dependencies: [] },
+      { id: 'openmeter',     name: 'OpenMeter',     desc: 'High-throughput event metering for billing and analytics',     tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
       // Specter — AIOps brain (anomaly + correlation). Per operator's
       // dependency-model feedback (issue #175): Specter requires the
       // entire CORTEX family at runtime — vector store (Milvus),
@@ -272,7 +272,7 @@ export const GROUPS: GroupDef[] = [
       // chip.
       // Specter is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'specter',       name: 'Specter',       desc: 'AIOps brain',                tier: 'optional',    dependencies: ['bge', 'milvus', 'langfuse', 'vllm', 'kserve'], logoUrl: null },
+      { id: 'specter',       name: 'Specter',       desc: 'Anomaly detection and root-cause correlation over telemetry', tier: 'optional', dependencies: ['bge', 'milvus', 'langfuse', 'vllm', 'kserve'], logoUrl: null },
     ],
   },
   /* ── À LA CARTE ───────────────────────────────────────────────── */
@@ -281,16 +281,16 @@ export const GROUPS: GroupDef[] = [
     description: 'Event streaming, CDC, workflow orchestration, and analytics databases',
     required: false,
     components: [
-      { id: 'cnpg',       name: 'CloudNative PG', desc: 'PostgreSQL operator',       tier: 'recommended', dependencies: [] },
-      { id: 'valkey',     name: 'Valkey',         desc: 'Redis-compatible cache',     tier: 'recommended', dependencies: [] },
-      { id: 'strimzi',    name: 'Strimzi',        desc: 'Apache Kafka operator',      tier: 'recommended', dependencies: [] },
-      { id: 'debezium',   name: 'Debezium',       desc: 'Change data capture',        tier: 'recommended', dependencies: ['strimzi'] },
-      { id: 'flink',      name: 'Apache Flink',   desc: 'Stream processing',          tier: 'optional',    dependencies: [] },
-      { id: 'temporal',   name: 'Temporal',       desc: 'Workflow orchestration',     tier: 'optional',    dependencies: ['cnpg'] },
-      { id: 'clickhouse', name: 'ClickHouse',     desc: 'Analytics database',         tier: 'optional',    dependencies: [] },
-      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB-compatible DB',      tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/ferretdb.png') },
-      { id: 'iceberg',    name: 'Iceberg',        desc: 'Data lakehouse format',      tier: 'optional',    dependencies: ['seaweedfs'] },
-      { id: 'superset',   name: 'Superset',       desc: 'BI & dashboards',            tier: 'optional',    dependencies: ['cnpg'] },
+      { id: 'cnpg',       name: 'CloudNative PG', desc: 'Operated PostgreSQL with replicas, PITR, and pooling',         tier: 'recommended', dependencies: [] },
+      { id: 'valkey',     name: 'Valkey',         desc: 'Drop-in Redis-compatible operated cache and queue store',      tier: 'recommended', dependencies: [] },
+      { id: 'strimzi',    name: 'Strimzi',        desc: 'Operated Kafka with TLS, SCRAM, and Cruise Control',           tier: 'recommended', dependencies: [] },
+      { id: 'debezium',   name: 'Debezium',       desc: 'Row-level change-data-capture from PostgreSQL into Kafka topics', tier: 'recommended', dependencies: ['strimzi'] },
+      { id: 'flink',      name: 'Apache Flink',   desc: 'Exactly-once stream processing with continuous SQL and Java',  tier: 'optional',    dependencies: [] },
+      { id: 'temporal',   name: 'Temporal',       desc: 'Durable code-defined workflow orchestration with deterministic replay', tier: 'optional', dependencies: ['cnpg'] },
+      { id: 'clickhouse', name: 'ClickHouse',     desc: 'Columnar analytics database for sub-second OLAP queries',      tier: 'optional',    dependencies: [] },
+      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB wire protocol on PostgreSQL-backed storage',           tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/ferretdb.png') },
+      { id: 'iceberg',    name: 'Iceberg',        desc: 'ACID lakehouse format with time travel over object storage',   tier: 'optional',    dependencies: ['seaweedfs'] },
+      { id: 'superset',   name: 'Superset',       desc: 'BI dashboards and SQL Lab for analytical exploration',         tier: 'optional',    dependencies: ['cnpg'] },
     ],
   },
   {
@@ -309,25 +309,25 @@ export const GROUPS: GroupDef[] = [
       // any CORTEX member triggers the family cascade, adding every
       // remaining CORTEX component and every component of FABRIC (CORTEX's
       // family dependency).
-      { id: 'kserve',    name: 'KServe',    desc: 'Model serving platform',      tier: 'mandatory', dependencies: [] },
-      { id: 'knative',   name: 'Knative',   desc: 'Serverless runtime',          tier: 'optional',  dependencies: [] },
+      { id: 'kserve',    name: 'KServe',    desc: 'Kubernetes-native model serving with autoscaling and canaries', tier: 'mandatory', dependencies: [] },
+      { id: 'knative',   name: 'Knative',   desc: 'Scale-to-zero runtime for HTTP and event-driven workloads',     tier: 'optional',  dependencies: [] },
       // Axon is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'axon',      name: 'Axon',      desc: 'LLM gateway (SaaS)',          tier: 'recommended', dependencies: [], logoUrl: null },
-      { id: 'neo4j',     name: 'Neo4j',     desc: 'Graph database',              tier: 'optional',  dependencies: [] },
-      { id: 'vllm',      name: 'vLLM',      desc: 'LLM inference engine',        tier: 'optional',  dependencies: [], logoUrl: basePath('component-logos/vllm.png') },
-      { id: 'milvus',    name: 'Milvus',    desc: 'Vector database',             tier: 'optional',  dependencies: ['seaweedfs'] },
+      { id: 'axon',      name: 'Axon',      desc: 'Provider-agnostic LLM gateway with per-tenant quota and cost', tier: 'recommended', dependencies: [], logoUrl: null },
+      { id: 'neo4j',     name: 'Neo4j',     desc: 'Graph database for fraud, identity, and knowledge graphs',     tier: 'optional',  dependencies: [] },
+      { id: 'vllm',      name: 'vLLM',      desc: 'High-throughput LLM inference with PagedAttention and batching', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/vllm.png') },
+      { id: 'milvus',    name: 'Milvus',    desc: 'Vector database for billion-scale similarity search',          tier: 'optional',  dependencies: ['seaweedfs'] },
       // BGE is a model-family identifier (BAAI General Embedding) rather
       // than a branded product — render the letter-mark fallback (#173).
-      { id: 'bge',       name: 'BGE',       desc: 'Embedding model server',      tier: 'optional',  dependencies: [], logoUrl: null },
-      { id: 'langfuse',  name: 'LangFuse',  desc: 'LLM observability & tracing', tier: 'optional',  dependencies: ['cnpg'], logoUrl: basePath('component-logos/langfuse.png') },
+      { id: 'bge',       name: 'BGE',       desc: 'Multilingual embedding model server for retrieval pipelines',   tier: 'optional',  dependencies: [], logoUrl: null },
+      { id: 'langfuse',  name: 'LangFuse',  desc: 'Prompt, completion, and cost tracing for the AI plane',        tier: 'optional',  dependencies: ['cnpg'], logoUrl: basePath('component-logos/langfuse.png') },
       // LibreChat persists conversations / users / presets in MongoDB.
       // OpenOva's MongoDB drop-in is FerretDB (FABRIC), which itself runs
       // on cnpg — so cnpg comes along transitively via FerretDB. The
       // earlier dep `['cnpg']` was wrong: LibreChat does not speak
       // PostgreSQL and would not start with cnpg alone. (audit 2026-04 —
       // confirmed against https://www.librechat.ai/docs/user_guides/mongodb)
-      { id: 'librechat', name: 'LibreChat', desc: 'AI chat interface',           tier: 'optional',  dependencies: ['ferretdb'] },
+      { id: 'librechat', name: 'LibreChat', desc: 'Multi-model self-hosted chat with tenant onboarding and RBAC', tier: 'optional', dependencies: ['ferretdb'] },
     ],
   },
   {
@@ -335,11 +335,11 @@ export const GROUPS: GroupDef[] = [
     description: 'Self-hosted email, WebRTC video conferencing, federated messaging, and push notifications',
     required: false,
     components: [
-      { id: 'stalwart', name: 'Stalwart', desc: 'SMTP/IMAP/JMAP mail server',   tier: 'recommended', dependencies: [] },
-      { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC video & audio',         tier: 'recommended', dependencies: [] },
-      { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes TURN/STUN gateway', tier: 'recommended', dependencies: [] },
-      { id: 'matrix',   name: 'Matrix',   desc: 'Federated messaging',          tier: 'optional',    dependencies: ['cnpg'] },
-      { id: 'ntfy',     name: 'Ntfy',     desc: 'Push notifications',           tier: 'optional',    dependencies: [], logoUrl: basePath('component-logos/ntfy.png') },
+      { id: 'stalwart', name: 'Stalwart', desc: 'All-in-one SMTP, IMAP, and JMAP mail server',                tier: 'recommended', dependencies: [] },
+      { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC SFU for tenant video and audio with encryption',     tier: 'recommended', dependencies: [] },
+      { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes-native TURN and STUN gateway for WebRTC media',  tier: 'recommended', dependencies: [] },
+      { id: 'matrix',   name: 'Matrix',   desc: 'Federated end-to-end encrypted messaging with protocol bridges', tier: 'optional', dependencies: ['cnpg'] },
+      { id: 'ntfy',     name: 'Ntfy',     desc: 'Topic-based push notifications over HTTP with mobile subscribers', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/ntfy.png') },
     ],
   },
 ]
