@@ -99,6 +99,13 @@ export function AdminPage({ disableStream = false }: AdminPageProps = {}) {
         />
       )}
 
+      {state.phase1WatchSkipped && (
+        <Phase1UnavailableBanner
+          fqdn={snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null}
+          reason={state.phase1WatchSkippedReason}
+        />
+      )}
+
       <PhaseBanners state={state} />
 
       <div className="sov-sec-head">
@@ -194,6 +201,82 @@ function FailureCard({ deploymentId, status, message, onRetry, onBack }: Failure
           Back to wizard
         </button>
       </div>
+    </div>
+  )
+}
+
+interface Phase1UnavailableBannerProps {
+  /** Sovereign FQDN to surface in the kubectl hint, when the snapshot has it. */
+  fqdn: string | null
+  /** Verbatim reason captured from the catalyst-api warn/error event. */
+  reason: string | null
+}
+
+/**
+ * Phase1UnavailableBanner — yellow info banner shown above the phase
+ * banners when the catalyst-api could not observe per-component
+ * install state for this deployment.
+ *
+ * The banner is REQUIRED grounding for the operator: with helmwatch
+ * skipped, every per-Application card is `pending` and the family
+ * rollup reads "0 / N installed". Without this banner, an operator
+ * could mistake the absence of green pills for a still-installing
+ * deployment instead of "the catalyst-api literally has no idea".
+ *
+ * Style is intentionally similar to canonical core/console info
+ * banners (yellow tint + subtle border + icon-less prose). The exact
+ * pixel-port pass tightens this once the canonical info-banner CSS
+ * lands; for now the inline styles use the same wiz-* CSS variables
+ * the FailureCard above uses so dark/light mode flips correctly.
+ */
+function Phase1UnavailableBanner({ fqdn, reason }: Phase1UnavailableBannerProps) {
+  const target = fqdn ? `${fqdn}` : 'the new Sovereign cluster'
+  return (
+    <div
+      role="status"
+      data-testid="sov-phase1-unavailable-banner"
+      style={{
+        margin: '0.75rem 0',
+        padding: '0.75rem 1rem',
+        borderRadius: 8,
+        border: '1px solid rgba(234,179,8,0.35)',
+        background: 'rgba(234,179,8,0.10)',
+        color: 'var(--wiz-text-md)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <strong style={{ color: '#EAB308', fontWeight: 700 }}>
+          Per-component install monitoring is unavailable for this deployment
+        </strong>
+        <span style={{ fontSize: '0.78rem' }}>
+          {`— the Catalyst API couldn’t fetch the new cluster’s kubeconfig. Use kubectl directly to check Helm releases on ${target}.`}
+        </span>
+      </div>
+      {reason && (
+        <pre
+          data-testid="sov-phase1-unavailable-reason"
+          style={{
+            margin: '0.5rem 0 0 0',
+            padding: '0.4rem 0.6rem',
+            background: 'rgba(15,23,42,0.35)',
+            border: '1px solid rgba(148,163,184,0.20)',
+            borderRadius: 4,
+            font: '0.72rem/1.4 var(--wiz-mono, ui-monospace, monospace)',
+            color: 'var(--wiz-text-md)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {reason}
+        </pre>
+      )}
     </div>
   )
 }

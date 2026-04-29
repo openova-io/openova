@@ -185,7 +185,13 @@ describe('AdminPage — Sovereign admin landing card grid', () => {
     expect(screen.getByTestId('sov-bootstrap-grid')).toBeTruthy()
   })
 
-  it('marks all Applications installed once the deployment is reported ready', async () => {
+  // GROUNDING — `deployment.status === "ready"` is a Phase-0 / cloud-
+  // init signal only. Without the durable componentStates map (the
+  // helmwatch couldn't run because no kubeconfig), per-Application
+  // cards MUST stay `pending` and the AdminPage MUST surface the
+  // "per-component install monitoring is unavailable" banner.
+  // This is the omantel.omani.works user-reported defect.
+  it('keeps cards pending and shows banner when status=ready but no componentStates', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
         events: [],
@@ -193,6 +199,61 @@ describe('AdminPage — Sovereign admin landing card grid', () => {
           id: DEPLOYMENT_ID,
           status: 'ready',
           numEvents: 0,
+          sovereignFQDN: 'omantel.omani.works',
+          result: {
+            sovereignFQDN: 'omantel.omani.works',
+            controlPlaneIP: '203.0.113.10',
+            loadBalancerIP: '203.0.113.20',
+            consoleURL: 'https://console.omantel.omani.works',
+            gitopsRepoURL: 'https://gitea.omantel.omani.works',
+            // NO componentStates — helmwatch was skipped.
+          },
+        },
+        done: true,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+
+    renderAdmin()
+
+    // Banner appears.
+    await waitFor(() => {
+      const banner = screen.getByTestId('sov-phase1-unavailable-banner')
+      expect(banner).toBeTruthy()
+      expect(banner.textContent).toContain('Per-component install monitoring is unavailable')
+      expect(banner.textContent).toContain('omantel.omani.works')
+    })
+
+    // Cards stay pending.
+    const ciliumPill = screen.getByTestId('app-status-bp-cilium')
+    expect(ciliumPill.textContent).toContain('Pending')
+    const fluxPill = screen.getByTestId('app-status-bp-flux')
+    expect(fluxPill.textContent).toContain('Pending')
+  })
+
+  // Happy path: helmwatch ran and emitted a populated componentStates
+  // map. Cards seed from it; banner does NOT show.
+  it('seeds cards from componentStates when present; banner stays hidden', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        events: [],
+        state: {
+          id: DEPLOYMENT_ID,
+          status: 'ready',
+          numEvents: 0,
+          sovereignFQDN: 'omantel.omani.works',
+          componentStates: {
+            cilium: 'installed',
+            'cert-manager': 'installed',
+            flux: 'installed',
+            crossplane: 'installed',
+            'sealed-secrets': 'installed',
+            spire: 'installed',
+            'nats-jetstream': 'installed',
+            openbao: 'installed',
+            keycloak: 'installed',
+            gitea: 'installed',
+            'catalyst-platform': 'installing',
+          },
           result: {
             sovereignFQDN: 'omantel.omani.works',
             controlPlaneIP: '203.0.113.10',
@@ -211,7 +272,7 @@ describe('AdminPage — Sovereign admin landing card grid', () => {
       const ciliumPill = screen.getByTestId('app-status-bp-cilium')
       expect(ciliumPill.textContent).toContain('Installed')
     })
-    const overall = screen.getByTestId('sov-overall-status')
-    expect(overall.textContent).toContain('Ready')
+    // No banner — we have ground truth.
+    expect(screen.queryByTestId('sov-phase1-unavailable-banner')).toBeNull()
   })
 })
