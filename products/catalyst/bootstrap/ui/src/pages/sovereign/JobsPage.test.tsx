@@ -1,14 +1,16 @@
 /**
- * JobsPage.test.tsx — pixel-port lock-in for the global jobs surface.
+ * JobsPage.test.tsx — lock-in for the table-view jobs surface (issue
+ * #204 founder spec). Asserts:
  *
  *   • Page heading + tagline render
- *   • Vertical stack of JobCard rows (one per Job)
- *   • Phase 0 (4 tofu) + cluster-bootstrap + per-component jobs all
- *     render — the operator never has to scroll past anything to find
- *     a row.
- *   • NO `/job/$jobId` route — clicking the app-name on a per-component
- *     row navigates to AppDetail; the page itself never registers an
- *     extra route.
+ *   • <table data-testid="jobs-table"> renders (NOT a vertical accordion)
+ *   • All seven columns present: Name / App / Deps / Batch / Status /
+ *     Started / Duration
+ *   • The legacy accordion testids ([data-testid^="job-row-"] and
+ *     [data-testid^="job-expansion-"]) are GONE — anti-regression for
+ *     the founder's "NEVER use accordions" rule.
+ *   • Phase 0 + cluster-bootstrap + per-component rows all render.
+ *   • Back-to-apps link points at /provision/$deploymentId.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -42,12 +44,17 @@ function renderJobs(deploymentId: string) {
     path: '/provision/$deploymentId/app/$componentId',
     component: () => <div data-testid="app-detail-target" />,
   })
+  const jobDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/jobs/$jobId',
+    component: () => <div data-testid="job-detail-target" />,
+  })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/wizard',
     component: () => <div data-testid="wizard-target" />,
   })
-  const tree = rootRoute.addChildren([jobsRoute, homeRoute, detailRoute, wizardRoute])
+  const tree = rootRoute.addChildren([jobsRoute, homeRoute, detailRoute, jobDetailRoute, wizardRoute])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}/jobs`] }),
@@ -69,8 +76,6 @@ afterEach(() => cleanup())
 describe('JobsPage — chrome', () => {
   it('renders the Jobs heading', async () => {
     renderJobs('d-1')
-    // There are multiple "Jobs" texts — sidebar nav link + page heading.
-    // The H1 is the heading we care about.
     const heading = await screen.findByRole('heading', { level: 1, name: 'Jobs' })
     expect(heading).toBeTruthy()
   })
@@ -87,18 +92,59 @@ describe('JobsPage — chrome', () => {
   })
 })
 
-describe('JobsPage — list', () => {
-  it('renders Phase 0 tofu rows + cluster-bootstrap + per-component rows', async () => {
+describe('JobsPage — table view (NOT accordion)', () => {
+  it('renders <table data-testid="jobs-table">', async () => {
     renderJobs('d-1')
-    const list = await screen.findByTestId('sov-jobs-list')
-    // 4 Phase 0 tofu rows (init/plan/apply/output)
-    expect(within(list).queryByTestId('sov-job-card-infrastructure:tofu-init')).toBeTruthy()
-    expect(within(list).queryByTestId('sov-job-card-infrastructure:tofu-plan')).toBeTruthy()
-    expect(within(list).queryByTestId('sov-job-card-infrastructure:tofu-apply')).toBeTruthy()
-    expect(within(list).queryByTestId('sov-job-card-infrastructure:tofu-output')).toBeTruthy()
-    // cluster-bootstrap row
-    expect(within(list).queryByTestId('sov-job-card-cluster-bootstrap')).toBeTruthy()
-    // At least one per-component row from BOOTSTRAP_KIT
-    expect(within(list).queryByTestId('sov-job-card-bp-cilium')).toBeTruthy()
+    const table = await screen.findByTestId('jobs-table')
+    expect(table.tagName.toLowerCase()).toBe('table')
+  })
+
+  it('has the seven canonical columns', async () => {
+    renderJobs('d-1')
+    const table = await screen.findByTestId('jobs-table')
+    const headers = within(table).getAllByRole('columnheader').map((h) => (h.textContent ?? '').toLowerCase().trim())
+    expect(headers).toEqual(['name', 'app', 'deps', 'batch', 'status', 'started', 'duration'])
+  })
+
+  it('does NOT render any legacy accordion testids', async () => {
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    // The old accordion shape exposed [data-testid^=job-row-] buttons
+    // that toggled [data-testid^=job-expansion-] panels. The founder
+    // rejected that pattern verbatim ("NEVER use accordions").
+    const rows = document.querySelectorAll('[data-testid^="job-row-"]')
+    expect(rows.length).toBe(0)
+    const expansions = document.querySelectorAll('[data-testid^="job-expansion-"]')
+    expect(expansions.length).toBe(0)
+  })
+
+  it('renders Phase 0 + cluster-bootstrap + per-component rows', async () => {
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    // Each row carries a per-id testid via the JobsTable row
+    // component (jobs-table-row-<jobId>). Spot-check the four tofu
+    // phases + cluster-bootstrap + at least one bootstrap-kit row.
+    expect(screen.queryByTestId('jobs-table-row-infrastructure:tofu-init')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-table-row-infrastructure:tofu-plan')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-table-row-infrastructure:tofu-apply')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-table-row-infrastructure:tofu-output')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-table-row-cluster-bootstrap')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-table-row-bp-cilium')).toBeTruthy()
+  })
+
+  it('row link target points at /provision/$deploymentId/jobs/$jobId', async () => {
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    const link = screen.getByTestId('jobs-row-link-bp-cilium') as HTMLAnchorElement
+    expect(link.tagName.toLowerCase()).toBe('a')
+    expect(link.getAttribute('href')).toBe('/provision/d-1/jobs/bp-cilium')
+  })
+})
+
+describe('JobsPage — search', () => {
+  it('exposes a jobs-search input', async () => {
+    renderJobs('d-1')
+    const search = await screen.findByTestId('jobs-search')
+    expect(search.tagName.toLowerCase()).toBe('input')
   })
 })

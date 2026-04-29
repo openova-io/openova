@@ -31,14 +31,15 @@
  * Application id.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
-import { JobCard } from './JobCard'
+import { JobsTable } from './JobsTable'
 import { resolveApplications, reverseDependencies, findApplication, type ApplicationDescriptor } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
-import { deriveJobs, jobsForApplication } from './jobs'
+import { deriveJobs } from './jobs'
+import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import type { ApplicationStatus } from './eventReducer'
 
@@ -93,12 +94,21 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   )
 
   // Jobs scoped to this component. Phase 0 / cluster-bootstrap rows
-  // are excluded — they have their own listing in JobsPage.
-  const jobs = useMemo(() => deriveJobs(state, applications), [state, applications])
-  const componentJobs = useMemo(
-    () => jobsForApplication(jobs, componentId),
-    [jobs, componentId],
+  // are excluded — they have their own listing in JobsPage. The flat
+  // adapter shape is what the JobsTable consumes; the appIdFilter on
+  // JobsTable is what implements item #8b ("AppDetail → Jobs tab
+  // filtered to that app's jobs only").
+  const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  const flatJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
+  const componentJobsCount = useMemo(
+    () => flatJobs.filter((j) => j.appId === componentId).length,
+    [flatJobs, componentId],
   )
+
+  // Tab state for the Jobs/Dependencies tabset (founder spec item #9 +
+  // item #8b). Default landing is the Jobs tab so the operator sees
+  // their app's jobs immediately on opening AppDetail.
+  const [appTab, setAppTab] = useState<'jobs' | 'dependencies'>('jobs')
 
   // The Connection section renders only for backing-service Applications.
   // Future-proofed: descriptors will gain a `kind` field in a later
@@ -265,26 +275,85 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           the section back in without further plumbing.
         */}
 
-        {/* 7. Jobs — appended for the wizard provision context */}
+        {/* 7. Jobs — appended for the wizard provision context.
+             Founder spec issue #204 item #9: AppDetail surfaces a Jobs
+             tab. Item #8b: the tab is filtered to this app's jobs only.
+             The h2 heading "Jobs" is preserved for the cosmetic-guard
+             section-list; the founder-requested tab affordance lives
+             inside the section. */}
         <section className="section" data-testid="sov-section-jobs">
           <h2>Jobs</h2>
-          <p className="section-hint">
-            {componentJobs.length === 0
-              ? 'No jobs recorded yet for this component.'
-              : `${componentJobs.length} job${componentJobs.length === 1 ? '' : 's'} for ${app.title}.`}
-          </p>
-          {componentJobs.length > 0 ? (
-            <div className="jobs-list" data-testid="sov-app-jobs">
-              {componentJobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  deploymentId={deploymentId}
-                  defaultExpanded={job.status === 'running' || job.status === 'failed'}
-                />
-              ))}
+          <div role="tablist" aria-label="App detail tabs" className="app-tablist" data-testid="sov-app-tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'jobs'}
+              data-testid="sov-app-tab-jobs"
+              className={`app-tab ${appTab === 'jobs' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('jobs')}
+            >
+              Jobs
+              <span className="app-tab-count" data-testid="sov-app-tab-jobs-count">
+                {componentJobsCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'dependencies'}
+              data-testid="sov-app-tab-dependencies"
+              className={`app-tab ${appTab === 'dependencies' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('dependencies')}
+            >
+              Dependencies
+              <span className="app-tab-count" data-testid="sov-app-tab-dependencies-count">
+                {deps.length + reverseDeps.length}
+              </span>
+            </button>
+          </div>
+
+          {appTab === 'jobs' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-jobs" className="app-tabpanel">
+              <JobsTable jobs={flatJobs} deploymentId={deploymentId} appIdFilter={componentId} />
             </div>
-          ) : null}
+          ) : (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-dependencies" className="app-tabpanel">
+              {deps.length === 0 && reverseDeps.length === 0 ? (
+                <p className="section-hint" data-testid="sov-app-dependencies-empty">
+                  This component has no recorded dependencies on other Applications.
+                </p>
+              ) : (
+                <>
+                  {deps.length > 0 ? (
+                    <>
+                      <p className="section-hint">Pulls in:</p>
+                      <ul className="dep-list">
+                        {deps.map((d) => (
+                          <li key={d.id} data-testid={`sov-app-tab-dep-${d.id}`}>
+                            {d.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                  {reverseDeps.length > 0 ? (
+                    <>
+                      <p className="section-hint" style={{ marginTop: deps.length ? '0.75rem' : 0 }}>
+                        Pulled in by:
+                      </p>
+                      <ul className="dep-list">
+                        {reverseDeps.map((id) => (
+                          <li key={id} data-testid={`sov-app-tab-revdep-${id}`}>
+                            {findComponent(id)?.name ?? id}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </PortalShell>
@@ -368,4 +437,51 @@ const APP_DETAIL_CSS = `
   color: var(--color-text);
 }
 .jobs-list { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.5rem; }
+
+.app-tablist {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  margin: 0.4rem 0 0.9rem;
+}
+.app-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+  margin-bottom: -1px;
+}
+.app-tab:hover { color: var(--color-text-strong); }
+.app-tab-active {
+  color: var(--color-text-strong);
+  border-bottom-color: var(--color-accent);
+}
+.app-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.2rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  color: var(--color-text-dim);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.app-tab-active .app-tab-count {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-accent);
+}
+.app-tabpanel {
+  padding-top: 0.4rem;
+}
 `

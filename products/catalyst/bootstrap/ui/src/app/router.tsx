@@ -73,9 +73,9 @@ const provisionAppRoute = createRoute({
   component: AppDetail,
 })
 
-// Global jobs list — pixel-ported from core/console JobsPage.svelte.
-// Vertical stack of expand-in-place rows (Phase 0 + cluster-bootstrap +
-// per-component install jobs).
+// Global jobs list — table view (issue #204 founder spec). Each row is
+// a clickable link that navigates to the per-job detail page (owned by
+// the JobDetail sibling agent and merged via #208).
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
@@ -95,11 +95,11 @@ const provisionJobsTimelineRoute = createRoute({
 
 // Per-Job detail page (epic #204) — surfaces the GitLab-CI-runner-style
 // execution log viewer + Dependencies + Apps tabs. Reachable from the
-// JobsTable row "open detail" link (parallel agent's scope) and from
-// deep links shared in Slack / runbook / failure email. The path lives
-// under /provision/$deploymentId/jobs/$jobId so it is namespaced by
-// deployment, not the legacy /job/$jobId pattern that the cosmetic
-// guards still reject for the main JobsPage row click.
+// JobsTable row link and from deep links shared in Slack / runbook /
+// failure email. The path lives under /provision/$deploymentId/jobs/
+// $jobId so it is namespaced by deployment, not the legacy /job/$jobId
+// pattern that the cosmetic guards still reject for the main JobsPage
+// row click.
 const provisionJobDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs/$jobId',
