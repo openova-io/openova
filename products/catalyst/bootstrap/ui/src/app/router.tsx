@@ -15,6 +15,7 @@ import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
 import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
+import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -43,9 +44,19 @@ const wizardLayoutRoute = createRoute({ getParentRoute: () => rootRoute, path: '
 const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path: '/', component: WizardPage })
 
 // Success (full-screen)
-// Note: the provisioning view itself is a static page served from /provision.html
-// (see public/provision.html). The wizard redirects there via window.location on Launch.
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
+
+// Provision — real-time DAG showing tofu phases + Flux bootstrap as the
+// catalyst-api emits SSE events at /api/v1/deployments/<id>/logs. The
+// page is a SPA route (not a static .html) so it shares the wizard's
+// zustand store, the design tokens, the router base, and the build
+// pipeline. The deploymentId is the URL parameter — deep-linking to a
+// past provision is supported.
+const provisionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId',
+  component: ProvisionPage,
+})
 
 // Design showcase
 const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
@@ -73,6 +84,7 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([dashboardRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
+  provisionRoute,
   designsRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,

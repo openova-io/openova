@@ -47,7 +47,8 @@ import {
 } from '@/entities/deployment/model'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { findNodeSize } from '@/shared/constants/providerSizes'
-import { API_BASE, path } from '@/shared/config/urls'
+import { API_BASE } from '@/shared/config/urls'
+import { useRouter } from '@tanstack/react-router'
 import { StepShell, useStepNav } from './_shared'
 import {
   GROUPS,
@@ -534,6 +535,7 @@ function dimIfMissing(value: string | null | undefined, fallback = '— not conf
 /* ── StepReview ──────────────────────────────────────────────────── */
 export function StepReview() {
   const store = useWizardStore()
+  const router = useRouter()
   const { back } = useStepNav()
   const [loading, setLoading] = useState(false)
 
@@ -663,12 +665,15 @@ export function StepReview() {
         return
       }
       store.setDeploymentId(data.id)
+      router.navigate({
+        to: '/provision/$deploymentId',
+        params: { deploymentId: data.id },
+      })
     } catch (err) {
       alert(`Failed to start provisioning: ${err}`)
       setLoading(false)
       return
     }
-    window.location.href = path('provision.html')
   }
 
   return (
