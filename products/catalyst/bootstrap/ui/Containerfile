@@ -1,15 +1,51 @@
+# Catalyst-Zero wizard UI — built with Vite, served by nginx as static SPA.
+#
+# Build context MUST be the OpenOva repo root (not products/catalyst/bootstrap/ui/)
+# because the Vite prebuild script (scripts/build-catalog.mjs) walks
+# platform/<name>/blueprint.yaml + products/<name>/blueprint.yaml + the
+# clusters/_template/bootstrap-kit/ folder to populate the wizard's
+# StepComponents catalog AND the provision page's bootstrap-kit DAG.
+#
+# An earlier revision shipped with context = ui/ which silently produced an
+# empty BOOTSTRAP_KIT[] inside the bundle — the Provision page rendered only
+# the two supernodes (Hetzner-infra + Flux-bootstrap) instead of the 11
+# bootstrap Blueprints. The build-catalog.mjs script now fails loudly if
+# any of those dirs is missing, so a misconfigured context cannot silently
+# regress the bundle again.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the source-of-truth
+# directories are read at build time, never embedded as constants in app
+# source.
+
 FROM docker.io/library/node:22-alpine AS build
-WORKDIR /app
-COPY package.json package-lock.json ./
+WORKDIR /repo
+
+# Bring the directories the Vite prebuild script reads from + the UI source
+# itself. Order is structured so docker layer-caching sees package.json
+# before the rest, preserving npm-cache hits when only sources change.
+COPY products/catalyst/bootstrap/ui/package.json products/catalyst/bootstrap/ui/package-lock.json /repo/products/catalyst/bootstrap/ui/
+WORKDIR /repo/products/catalyst/bootstrap/ui
 RUN npm ci
-COPY . .
+
+# Source-of-truth directories the prebuild script reads.
+COPY platform/                          /repo/platform/
+COPY products/                          /repo/products/
+COPY clusters/_template/bootstrap-kit/  /repo/clusters/_template/bootstrap-kit/
+
+# UI source proper. WORKDIR is already /repo/products/catalyst/bootstrap/ui;
+# the COPY lines above already populated /repo/products/catalyst/bootstrap/ui
+# from the products/ tree, but we re-COPY the ui subtree explicitly so
+# changes to it don't get masked by docker layer caching of products/.
+COPY products/catalyst/bootstrap/ui/    /repo/products/catalyst/bootstrap/ui/
+
 ARG VITE_APP_MODE=selfhosted
+ENV OPENOVA_REPO_ROOT=/repo
 RUN npm run build
 
 FROM docker.io/library/nginx:1-alpine
 RUN addgroup -g 1001 -S app && adduser -u 1001 -S app -G app
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /repo/products/catalyst/bootstrap/ui/dist /usr/share/nginx/html
+COPY --from=build /repo/products/catalyst/bootstrap/ui/nginx.conf /etc/nginx/conf.d/default.conf
 RUN chown -R app:app /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /run && \
     sed -i 's/user  nginx;/user  app;/' /etc/nginx/nginx.conf && \
     sed -i 's|/run/nginx.pid|/tmp/nginx.pid|' /etc/nginx/nginx.conf
