@@ -454,6 +454,60 @@ func (s *Store) ExpireReservations(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
+// ListExpiredReservations returns every state='reserved' row whose
+// expires_at is in the past. Used by the sweeper to drive per-row
+// PowerDNS cleanup BEFORE the rows are actually deleted by
+// ExpireReservations. Read-only — no mutation.
+func (s *Store) ListExpiredReservations(ctx context.Context) ([]Allocation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT pool_domain, subdomain, state, reserved_at, expires_at,
+		       sovereign_fqdn, load_balancer_ip, reservation_token, created_by
+		FROM pool_allocations
+		WHERE state      = 'reserved'
+		  AND expires_at < NOW()
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list expired reservations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Allocation
+	for rows.Next() {
+		var a Allocation
+		var (
+			expiresAt        *time.Time
+			sovereignFQDN    *string
+			loadBalancerIP   *string
+			reservationToken *uuid.UUID
+		)
+		if err := rows.Scan(
+			&a.PoolDomain,
+			&a.Subdomain,
+			&a.State,
+			&a.ReservedAt,
+			&expiresAt,
+			&sovereignFQDN,
+			&loadBalancerIP,
+			&reservationToken,
+			&a.CreatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("scan expired row: %w", err)
+		}
+		a.ExpiresAt = expiresAt
+		if sovereignFQDN != nil {
+			a.SovereignFQDN = *sovereignFQDN
+		}
+		if loadBalancerIP != nil {
+			a.LoadBalancerIP = *loadBalancerIP
+		}
+		if reservationToken != nil {
+			a.ReservationToken = reservationToken.String()
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // ErrTokenMismatch — the reservation_token in the request did not match
 // the row's stored token. The caller likely is a stale tab.
 var ErrTokenMismatch = errors.New("reservation token does not match")

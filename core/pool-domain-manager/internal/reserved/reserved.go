@@ -9,9 +9,9 @@
 // else in the fleet.
 //
 // The list is the union of:
-//   - control-plane prefixes the OpenTofu module will materialise as DNS
-//     records on every Sovereign (api, admin, console, gitea, harbor — see
-//     dynadot.AddSovereignRecords)
+//   - control-plane prefixes the allocator publishes as A records into
+//     every Sovereign's child PowerDNS zone on /commit (api, admin,
+//     console, gitea, harbor — see allocator.canonicalRecordSet)
 //   - infrastructure prefixes that map to specific OpenOva services
 //     (openova, catalyst, openbao, vault, flux, k8s, system)
 //   - operational prefixes that look enough like a Sovereign to be

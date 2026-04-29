@@ -1,5 +1,5 @@
 // Package allocator wires the persistence layer (store) to the DNS writer
-// (dynadot) and exposes the four lifecycle operations PDM's HTTP handlers
+// (PowerDNS) and exposes the four lifecycle operations PDM's HTTP handlers
 // need: Check, Reserve, Commit, Release.
 //
 // The state machine the allocator implements is:
@@ -12,11 +12,29 @@
 //	                NULL          NULL
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #2 every transition is committed to the
-// CNPG row before the corresponding side-effect (Dynadot write/delete) is
+// CNPG row before the corresponding side-effect (PowerDNS write/delete) is
 // invoked, so a crash between the two leaves the system in a recoverable
 // state: at worst we have a row claiming state='active' with stale or
 // missing DNS records, which an operator can reconcile by calling Release
 // then re-running the wizard.
+//
+// Per docs/PLATFORM-POWERDNS.md the DNS contract is:
+//
+//   - Every Sovereign — pool or BYO — gets its own PowerDNS zone (the
+//     "child zone"). For pool tenancy the pool zone (e.g. `omani.works`)
+//     is the parent and PDM writes an NS-delegation RRset into it pointing
+//     at the OpenOva NS endpoints. For BYO the operator's registrar handles
+//     delegation and PDM only owns the child zone — no parent touch.
+//
+//   - Each child zone publishes the canonical 6-record set: apex A,
+//     wildcard A, plus console/api/gitea/harbor A — all pointing at the
+//     regional Load Balancer IP. Wildcard TLS is therefore scoped per
+//     Sovereign (`*.<sub>.<pool>`), satisfying the per-Sovereign isolation
+//     requirement in the issue body for #168.
+//
+//   - DNSSEC is mandatory. Every child zone is signed with a fresh KSK+ZSK
+//     pair (algorithm 13, ECDSAP256SHA256). Per-Sovereign keys allow
+//     independent rotation and clean termination on Release.
 package allocator
 
 import (
@@ -24,34 +42,80 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/dynadot"
+	"github.com/openova-io/openova/core/pool-domain-manager/internal/pdns"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/reserved"
 	"github.com/openova-io/openova/core/pool-domain-manager/internal/store"
 )
+
+// DNSWriter is the abstraction the allocator depends on for authoritative
+// DNS writes. The production implementation is *pdns.Client; tests inject
+// an in-memory fake. This boundary keeps the allocator free of HTTP plumbing
+// and lets the unit tests run without an httptest server.
+type DNSWriter interface {
+	// CreateZone provisions an authoritative zone (idempotent on conflict).
+	CreateZone(ctx context.Context, name string, kind pdns.ZoneKind, nameservers []string) error
+	// DeleteZone drops a zone, its records, and DNSSEC keys (idempotent on 404).
+	DeleteZone(ctx context.Context, name string) error
+	// EnsureZone creates the zone if missing — used by parent-zone bootstrap.
+	EnsureZone(ctx context.Context, name string, kind pdns.ZoneKind, nameservers []string) error
+	// AddARecord upserts a single A record inside a zone.
+	AddARecord(ctx context.Context, zone, name, ipv4 string, ttl int) error
+	// PatchRRSets is the lower-level batch primitive the allocator uses for
+	// the canonical 6-record set in a single round-trip.
+	PatchRRSets(ctx context.Context, zone string, rrsets []pdns.RRSet) error
+	// AddNSDelegation upserts the NS delegation RRset inside the parent zone.
+	AddNSDelegation(ctx context.Context, parentZone, childName string, nameservers []string, ttl int) error
+	// RemoveNSDelegation drops the delegation RRset (idempotent).
+	RemoveNSDelegation(ctx context.Context, parentZone, childName string) error
+	// EnableDNSSEC turns on DNSSEC for the child zone and generates KSK+ZSK.
+	EnableDNSSEC(ctx context.Context, zone string) error
+}
+
+// Compile-time assertion that *pdns.Client satisfies the DNSWriter contract.
+var _ DNSWriter = (*pdns.Client)(nil)
 
 // Allocator owns the state-machine logic. It is concurrency-safe — every
 // operation maps to a single Postgres transaction in store; there is no
 // in-memory mutable state on the Allocator itself.
 type Allocator struct {
-	store   *store.Store
-	dynadot *dynadot.Client
-	log     *slog.Logger
+	store *store.Store
+	dns   DNSWriter
+	log   *slog.Logger
+
+	// nameservers — the canonical OpenOva NS endpoints PDM uses both for
+	// the apex NS RRset of every child zone AND for the parent's NS
+	// delegation RRset. Per docs/PLATFORM-POWERDNS.md these are
+	// ns1/ns2/ns3.openova.io anycast Floating IPs (Phase-0 stand-in is a
+	// Service of type=LoadBalancer). The list is configuration-driven so
+	// adding a fourth NS endpoint is a Secret edit, not a rebuild.
+	nameservers []string
 
 	// reservationTTL — how long a /reserve holds the name before the
 	// sweeper reclaims it. Per the issue body this is 10 minutes.
 	reservationTTL time.Duration
 }
 
-// New constructs an Allocator. ttl is the reservation TTL; pass
-// 10*time.Minute for production.
-func New(s *store.Store, d *dynadot.Client, log *slog.Logger, ttl time.Duration) *Allocator {
+// Config bundles the runtime allocator configuration.
+type Config struct {
+	// Nameservers — FQDN form (e.g. "ns1.openova.io"). Required.
+	Nameservers []string
+	// ReservationTTL — see Allocator.reservationTTL.
+	ReservationTTL time.Duration
+}
+
+// New constructs an Allocator. cfg.Nameservers must contain at least one
+// NS host; production passes the three openova.io NS FQDNs.
+func New(s *store.Store, d DNSWriter, log *slog.Logger, cfg Config) *Allocator {
 	return &Allocator{
 		store:          s,
-		dynadot:        d,
+		dns:            d,
 		log:            log,
-		reservationTTL: ttl,
+		nameservers:    cfg.Nameservers,
+		reservationTTL: cfg.ReservationTTL,
 	}
 }
 
@@ -64,16 +128,7 @@ type CheckResult struct {
 }
 
 // Check returns whether the (poolDomain, subdomain) pair is free, with a
-// machine-readable reason when it is not. Failure modes are:
-//
-//	"unsupported-pool" — poolDomain is not in DYNADOT_MANAGED_DOMAINS
-//	"reserved"         — subdomain is in the reserved-name list
-//	"reserved-state"   — somebody has reserved (TTL not expired) this name
-//	"active-state"     — somebody has committed this name as a live Sovereign
-//
-// Note: NO net.LookupHost is invoked anywhere in this code path. PDM is the
-// authoritative allocation source — DNS-wildcard parking records can never
-// cause a false positive here. (This is the entire point of the service.)
+// machine-readable reason when it is not.
 func (a *Allocator) Check(ctx context.Context, poolDomain, subdomain string) (*CheckResult, error) {
 	if !dynadot.IsManagedDomain(poolDomain) {
 		return &CheckResult{
@@ -99,7 +154,6 @@ func (a *Allocator) Check(ctx context.Context, poolDomain, subdomain string) (*C
 		return &CheckResult{Available: true, FQDN: fqdn}, nil
 	}
 
-	// Disambiguate the unavailable reason for the wizard's UX.
 	row, err := a.store.Get(ctx, poolDomain, subdomain)
 	if err != nil {
 		return nil, fmt.Errorf("read existing allocation: %w", err)
@@ -136,12 +190,25 @@ type ReserveInput struct {
 }
 
 // Reserve transitions NULL → RESERVED for the (poolDomain, subdomain) pair,
-// holding the name for the configured TTL. Returns the Allocation, including
-// the reservation token the caller MUST pass back to Commit.
+// then materialises the per-Sovereign DNS shape:
+//
+//  1. Insert the pdm-pg row in state='reserved' (10-min TTL by default).
+//  2. Create the empty child zone in PowerDNS with apex NS RRset pointing
+//     at the OpenOva NS endpoints (ns1/2/3.openova.io).
+//  3. Add the NS-delegation RRset for the child into the parent pool zone
+//     (e.g. omani.works), so external resolvers know to follow the
+//     delegation when they query "*.omantel.omani.works".
+//  4. Enable DNSSEC on the child zone — the KSK + ZSK are minted now so
+//     RRSIGs are emitted from the very first A record /commit writes.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #2 the DB row is written first; if any
+// PowerDNS step fails we surface the error to the caller AFTER attempting a
+// best-effort rollback of the row. The state machine guarantees that a
+// successful Reserve return implies all four steps landed.
 //
 // Errors:
 //
-//	store.ErrConflict — the row exists in any non-expired state
+//	store.ErrConflict          — the row exists in any non-expired state
 //	dynadot.ErrUnmanagedDomain — pool domain is not managed
 func (a *Allocator) Reserve(ctx context.Context, poolDomain, subdomain string, in ReserveInput) (*store.Allocation, error) {
 	if !dynadot.IsManagedDomain(poolDomain) {
@@ -150,17 +217,66 @@ func (a *Allocator) Reserve(ctx context.Context, poolDomain, subdomain string, i
 	if reserved.IsReserved(subdomain) {
 		return nil, fmt.Errorf("subdomain %q is reserved", subdomain)
 	}
+	if len(a.nameservers) == 0 {
+		return nil, errors.New("allocator misconfigured: no nameservers set")
+	}
+
 	createdBy := in.CreatedBy
 	if createdBy == "" {
 		createdBy = "catalyst-api"
 	}
+
 	alloc, err := a.store.Reserve(ctx, poolDomain, subdomain, a.reservationTTL, createdBy)
 	if err != nil {
 		return nil, err
 	}
+
+	childZone := childZoneName(poolDomain, subdomain)
+
+	// Step 2: child zone with apex NS RRset.
+	if err := a.dns.CreateZone(ctx, childZone, pdns.ZoneKindNative, a.nameservers); err != nil {
+		a.log.Error("PowerDNS create child zone failed",
+			"poolDomain", poolDomain, "subdomain", subdomain, "childZone", childZone, "err", err)
+		// Best-effort rollback: free the reservation so the caller can retry
+		// from a clean slate without waiting for the TTL sweeper.
+		if rerr := a.rollbackReserve(ctx, poolDomain, subdomain); rerr != nil {
+			a.log.Warn("rollback after CreateZone failure also failed",
+				"poolDomain", poolDomain, "subdomain", subdomain, "rollbackErr", rerr)
+		}
+		return nil, fmt.Errorf("create child zone: %w", err)
+	}
+
+	// Step 3: parent NS delegation. (Pool tenancy. BYO has no parent.)
+	if err := a.dns.AddNSDelegation(ctx, poolDomain, childZone, a.nameservers, pdns.DefaultParentNSDelegationTTL); err != nil {
+		a.log.Error("PowerDNS parent NS delegation failed",
+			"poolDomain", poolDomain, "subdomain", subdomain, "childZone", childZone, "err", err)
+		// Best-effort cleanup: drop the child zone we just created and
+		// roll back the reservation so the wizard's retry works.
+		if derr := a.dns.DeleteZone(ctx, childZone); derr != nil {
+			a.log.Warn("cleanup child zone after delegation failure also failed",
+				"childZone", childZone, "err", derr)
+		}
+		if rerr := a.rollbackReserve(ctx, poolDomain, subdomain); rerr != nil {
+			a.log.Warn("rollback after delegation failure also failed",
+				"poolDomain", poolDomain, "subdomain", subdomain, "rollbackErr", rerr)
+		}
+		return nil, fmt.Errorf("add NS delegation: %w", err)
+	}
+
+	// Step 4: DNSSEC on the child zone (per docs/PLATFORM-POWERDNS.md
+	// DNSSEC is mandatory).
+	if err := a.dns.EnableDNSSEC(ctx, childZone); err != nil {
+		a.log.Error("PowerDNS enable DNSSEC failed",
+			"childZone", childZone, "err", err)
+		// Don't roll back — the zone + delegation are valid, only signing
+		// is missing. Operator can rectify by calling Release + re-Reserve.
+		return alloc, fmt.Errorf("enable DNSSEC on %s: %w", childZone, err)
+	}
+
 	a.log.Info("pool-domain reserved",
 		"poolDomain", poolDomain,
 		"subdomain", subdomain,
+		"childZone", childZone,
 		"ttl", a.reservationTTL.String(),
 		"createdBy", createdBy,
 		"expiresAt", alloc.ExpiresAt.Format(time.RFC3339),
@@ -175,22 +291,20 @@ type CommitInput struct {
 	LoadBalancerIP   string
 }
 
-// Commit flips a reservation to ACTIVE and writes the Dynadot DNS records
-// (wildcard + canonical control-plane prefixes) for the new Sovereign.
+// Commit flips a reservation to ACTIVE and writes the canonical 6-record set
+// (apex, wildcard, console, api, gitea, harbor) into the CHILD zone. All
+// records point at the supplied LB IP and use TTL 300 for fast failover.
 //
-// Order of operations is deliberate:
-//  1. Verify the row exists and the reservation token matches (in a single
-//     row-locked Postgres transaction so a concurrent Release can't race).
-//  2. Update the row to state='active' (still in the same transaction).
-//  3. Commit the transaction.
-//  4. Write the Dynadot records. If this fails we LEAVE the row in
-//     state='active' and surface the error to the caller — the operator
-//     decides whether to Release (which will fix DNS) or retry.
+// Order of operations:
+//  1. Verify the row + reservation token (single row-locked Postgres tx).
+//  2. Update row to state='active' (same tx).
+//  3. Commit the tx.
+//  4. PATCH the 6 RRsets into the child zone in a single PowerDNS PATCH
+//     (atomic at the PowerDNS API layer).
 //
-// Per the auto-memory `feedback_dynadot_dns.md`: Dynadot writes are
-// idempotent with add_dns_to_current_setting=yes, so step 4 is safe to
-// retry from outside (the wizard's retry button calls Commit again with
-// the same token and the same LB IP).
+// If step 4 fails we LEAVE the row in state='active' and surface the error
+// — the wizard's retry button calls Commit again with the same token + IP
+// (idempotent: PowerDNS PATCH replaces existing RRsets in place).
 func (a *Allocator) Commit(ctx context.Context, poolDomain, subdomain string, in CommitInput) (*store.Allocation, error) {
 	if !dynadot.IsManagedDomain(poolDomain) {
 		return nil, dynadot.ErrUnmanagedDomain
@@ -204,30 +318,40 @@ func (a *Allocator) Commit(ctx context.Context, poolDomain, subdomain string, in
 		return nil, err
 	}
 
-	if err := a.dynadot.AddSovereignRecords(ctx, poolDomain, subdomain, in.LoadBalancerIP); err != nil {
-		// Row is already state='active'; do not roll it back. The caller can
-		// Release if they want a clean slate. Surface the DNS error so the
-		// wizard's UX shows the partial-failure path.
-		a.log.Error("dynadot write after commit failed",
+	childZone := childZoneName(poolDomain, subdomain)
+	rrsets := canonicalRecordSet(childZone, in.LoadBalancerIP)
+
+	if err := a.dns.PatchRRSets(ctx, childZone, rrsets); err != nil {
+		a.log.Error("PowerDNS write canonical record set failed",
 			"poolDomain", poolDomain,
 			"subdomain", subdomain,
+			"childZone", childZone,
 			"loadBalancerIP", in.LoadBalancerIP,
 			"err", err,
 		)
-		return alloc, fmt.Errorf("dynadot write: %w", err)
+		return alloc, fmt.Errorf("powerdns write: %w", err)
 	}
+
 	a.log.Info("pool-domain committed",
 		"poolDomain", poolDomain,
 		"subdomain", subdomain,
+		"childZone", childZone,
 		"sovereignFQDN", in.SovereignFQDN,
 		"loadBalancerIP", in.LoadBalancerIP,
+		"rrsetCount", len(rrsets),
 	)
 	return alloc, nil
 }
 
-// Release deletes the row regardless of state, then (if the row was active)
-// removes the Dynadot DNS records. Reserved rows have no DNS side-effect to
-// clean up.
+// Release deletes the row regardless of state and tears down the per-
+// Sovereign DNS shape:
+//
+//  1. Drop the child zone in PowerDNS (records + DNSSEC keys gone).
+//  2. Remove the NS delegation RRset from the parent pool zone.
+//
+// Reserved-but-not-yet-active rows still own a child zone (we create it in
+// Reserve) so we always run both steps — they're idempotent at the
+// PowerDNS layer (404 → no-op).
 //
 // Returns the freed Allocation (so the caller can log what was removed) or
 // store.ErrNotFound when there was nothing to release.
@@ -239,19 +363,35 @@ func (a *Allocator) Release(ctx context.Context, poolDomain, subdomain string) (
 	if err != nil {
 		return nil, err
 	}
-	if alloc.State == store.StateActive {
-		if dnsErr := a.dynadot.DeleteSubdomainRecords(ctx, poolDomain, subdomain); dnsErr != nil {
-			a.log.Error("dynadot delete after release failed",
-				"poolDomain", poolDomain,
-				"subdomain", subdomain,
-				"err", dnsErr,
-			)
-			return alloc, fmt.Errorf("dynadot delete: %w", dnsErr)
-		}
+
+	childZone := childZoneName(poolDomain, subdomain)
+
+	// Step 1: drop the child zone (records + DNSSEC keys retire together).
+	if dnsErr := a.dns.DeleteZone(ctx, childZone); dnsErr != nil {
+		a.log.Error("PowerDNS delete child zone failed",
+			"poolDomain", poolDomain,
+			"subdomain", subdomain,
+			"childZone", childZone,
+			"err", dnsErr,
+		)
+		return alloc, fmt.Errorf("powerdns delete zone: %w", dnsErr)
 	}
+
+	// Step 2: remove parent NS delegation.
+	if dnsErr := a.dns.RemoveNSDelegation(ctx, poolDomain, childZone); dnsErr != nil {
+		a.log.Error("PowerDNS remove NS delegation failed",
+			"poolDomain", poolDomain,
+			"subdomain", subdomain,
+			"childZone", childZone,
+			"err", dnsErr,
+		)
+		return alloc, fmt.Errorf("powerdns remove delegation: %w", dnsErr)
+	}
+
 	a.log.Info("pool-domain released",
 		"poolDomain", poolDomain,
 		"subdomain", subdomain,
+		"childZone", childZone,
 		"previousState", string(alloc.State),
 	)
 	return alloc, nil
@@ -266,8 +406,12 @@ func (a *Allocator) List(ctx context.Context, poolDomain string) ([]store.Alloca
 }
 
 // RunSweeper starts a background loop that periodically deletes expired
-// reservations. Cancel the parent context to stop the sweeper. Should run as
-// a goroutine off cmd/pdm/main.
+// reservations. Each expired row also gets its DNS shape torn down — the
+// child zone is dropped and the parent NS delegation is removed. This
+// keeps PowerDNS in sync with pdm-pg even when a wizard click never
+// reaches /commit.
+//
+// Cancel the parent context to stop the sweeper.
 func (a *Allocator) RunSweeper(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -281,17 +425,125 @@ func (a *Allocator) RunSweeper(ctx context.Context, interval time.Duration) {
 			a.log.Info("sweeper shutdown")
 			return
 		case <-ticker.C:
-			deleted, err := a.store.ExpireReservations(ctx)
+			expired, err := a.store.ListExpiredReservations(ctx)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
 				}
-				a.log.Error("sweeper expire failed", "err", err)
+				a.log.Error("sweeper list-expired failed", "err", err)
 				continue
 			}
-			if deleted > 0 {
-				a.log.Info("sweeper expired reservations", "count", deleted)
+			for _, row := range expired {
+				childZone := childZoneName(row.PoolDomain, row.Subdomain)
+				if dnsErr := a.dns.DeleteZone(ctx, childZone); dnsErr != nil {
+					a.log.Warn("sweeper child-zone delete failed",
+						"childZone", childZone, "err", dnsErr)
+				}
+				if dnsErr := a.dns.RemoveNSDelegation(ctx, row.PoolDomain, childZone); dnsErr != nil {
+					a.log.Warn("sweeper parent NS delegation remove failed",
+						"poolDomain", row.PoolDomain, "childZone", childZone, "err", dnsErr)
+				}
+			}
+			if len(expired) > 0 {
+				deleted, err := a.store.ExpireReservations(ctx)
+				if err != nil {
+					a.log.Error("sweeper expire failed", "err", err)
+					continue
+				}
+				if deleted > 0 {
+					a.log.Info("sweeper expired reservations", "count", deleted)
+				}
 			}
 		}
 	}
+}
+
+// BootstrapParentZones ensures every managed pool domain exists as a
+// PowerDNS zone before any /reserve is allowed. Idempotent — run once at
+// PDM startup. The parent zone holds the NS-delegation RRsets that point
+// child Sovereign zones at the OpenOva NS endpoints, so it MUST exist
+// before Reserve can succeed.
+//
+// Each parent zone is created with apex NS records pointing at the same
+// ns1/2/3.openova.io endpoints used for delegations. Pool zones are
+// signed (DNSSEC mandatory per docs/PLATFORM-POWERDNS.md) so the chain of
+// trust extends from the registrar's DS through the pool zone's KSK to
+// each Sovereign child zone's KSK.
+func (a *Allocator) BootstrapParentZones(ctx context.Context, poolDomains []string) error {
+	if len(poolDomains) == 0 {
+		return nil
+	}
+	if len(a.nameservers) == 0 {
+		return errors.New("BootstrapParentZones: no nameservers configured")
+	}
+	for _, parent := range poolDomains {
+		parent = strings.ToLower(strings.TrimSpace(parent))
+		if parent == "" {
+			continue
+		}
+		if err := a.dns.EnsureZone(ctx, parent, pdns.ZoneKindNative, a.nameservers); err != nil {
+			return fmt.Errorf("ensure parent zone %s: %w", parent, err)
+		}
+		if err := a.dns.EnableDNSSEC(ctx, parent); err != nil {
+			// Don't hard-fail bootstrap if the zone already exists with
+			// DNSSEC enabled — EnableDNSSEC is idempotent. Log and continue.
+			a.log.Warn("DNSSEC enable for parent zone returned error (may be harmless if already on)",
+				"parent", parent, "err", err)
+		}
+		a.log.Info("parent pool zone ensured", "parent", parent, "nameservers", a.nameservers)
+	}
+	return nil
+}
+
+// rollbackReserve best-effort deletes the pdm-pg row inserted by Reserve
+// so a failed CreateZone doesn't leave a zombie reservation. Errors here
+// are logged by the caller, never propagated — the original PowerDNS
+// failure is the relevant signal.
+func (a *Allocator) rollbackReserve(ctx context.Context, poolDomain, subdomain string) error {
+	_, err := a.store.Release(ctx, poolDomain, subdomain)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// childZoneName derives the child zone FQDN from (poolDomain, subdomain).
+// The convention is `<subdomain>.<poolDomain>` — verbatim as the issue
+// body specifies. Lowercase, trimmed, no trailing dot (the PowerDNS client
+// canonicalises on write).
+func childZoneName(poolDomain, subdomain string) string {
+	return strings.ToLower(strings.TrimSpace(subdomain)) + "." + strings.ToLower(strings.TrimSpace(poolDomain))
+}
+
+// canonicalRecordSet returns the 6-RRset payload PowerDNS PATCH expects to
+// publish a fresh Sovereign:
+//
+//	@        A   <lb>   (apex of the child zone)
+//	*        A   <lb>   (wildcard for ad-hoc subdomains)
+//	console  A   <lb>
+//	api      A   <lb>
+//	gitea    A   <lb>
+//	harbor   A   <lb>
+//
+// Per docs/PLATFORM-POWERDNS.md these names mirror the canonical-record
+// contract and use TTL 300 for fast failover.
+func canonicalRecordSet(childZone, lbIP string) []pdns.RRSet {
+	prefixes := []string{"", "*", "console", "api", "gitea", "harbor"}
+	rrsets := make([]pdns.RRSet, 0, len(prefixes))
+	for _, p := range prefixes {
+		var name string
+		if p == "" {
+			name = childZone
+		} else {
+			name = p + "." + childZone
+		}
+		rrsets = append(rrsets, pdns.RRSet{
+			Name:       name,
+			Type:       "A",
+			TTL:        pdns.DefaultChildRecordTTL,
+			ChangeType: "REPLACE",
+			Records:    []pdns.Record{{Content: lbIP}},
+		})
+	}
+	return rrsets
 }
