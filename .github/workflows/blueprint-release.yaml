@@ -350,10 +350,14 @@ jobs:
           set -euo pipefail
           name="${{ steps.chart.outputs.name }}"
           version="${{ steps.chart.outputs.version }}"
-          chart_yaml="${{ matrix.path }}/chart/Chart.yaml"
+          # `chart_yaml` is referenced relative to $GITHUB_WORKSPACE — DO NOT
+          # cd elsewhere before reading it. We pin `helm pull` output via
+          # --destination so the read of the source-tree Chart.yaml stays
+          # rooted at the checked-out repo root.
+          chart_yaml="${GITHUB_WORKSPACE}/${{ matrix.path }}/chart/Chart.yaml"
           mkdir -p /tmp/pulled
-          cd /tmp/pulled
-          helm pull "oci://ghcr.io/openova-io/${name}" --version "${version}"
+          helm pull "oci://ghcr.io/openova-io/${name}" --version "${version}" \
+            --destination /tmp/pulled
           pulled_tgz="/tmp/pulled/${name}-${version}.tgz"
           if [ ! -f "$pulled_tgz" ]; then
             echo "::error title=Pull failed::helm pull did not produce $pulled_tgz; cannot verify GHCR contents."
