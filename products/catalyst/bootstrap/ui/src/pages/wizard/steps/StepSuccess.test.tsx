@@ -216,7 +216,7 @@ describe('No hardcoded sovereign URL', () => {
   it('every external CTA points at the configured FQDN, not a hardcoded one', () => {
     const newFQDN = 'sovereign.acme-bank.com'
     useWizardStore.setState({
-      sovereignDomainMode: 'byo',
+      sovereignDomainMode: 'byo-manual',
       sovereignByoDomain: newFQDN,
       lastProvisionResult: {
         ...FIXTURE_RESULT,

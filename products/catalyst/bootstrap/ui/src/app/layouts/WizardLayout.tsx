@@ -8,12 +8,13 @@ import { useTheme } from '@/shared/lib/useTheme'
 import { OOLogo } from '@/shared/ui/OOLogo'
 
 export const WIZARD_STEPS = [
-  { id: 1, label: 'Organisation', desc: 'Name, domain, contact'    },
-  { id: 2, label: 'Topology',     desc: 'Regions and clusters'      },
-  { id: 3, label: 'Provider',     desc: 'Cloud provider per region' },
-  { id: 4, label: 'Credentials',  desc: 'API access tokens'         },
-  { id: 5, label: 'Components',   desc: 'Platform building blocks'  },
-  { id: 6, label: 'Review',       desc: 'Confirm and provision'     },
+  { id: 1, label: 'Organisation', desc: 'Name, domain, contact'         },
+  { id: 2, label: 'Domain',       desc: 'Pool or BYO + delegation'      },
+  { id: 3, label: 'Topology',     desc: 'Regions and clusters'          },
+  { id: 4, label: 'Provider',     desc: 'Cloud provider per region'     },
+  { id: 5, label: 'Credentials',  desc: 'API access tokens'             },
+  { id: 6, label: 'Components',   desc: 'Platform building blocks'      },
+  { id: 7, label: 'Review',       desc: 'Confirm and provision'         },
 ]
 
 /**
