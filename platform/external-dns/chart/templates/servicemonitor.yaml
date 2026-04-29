@@ -1,0 +1,40 @@
+{{- /*
+ServiceMonitor — Catalyst-overlay variant.
+
+The upstream `external-dns` subchart already renders its own ServiceMonitor
+when `external-dns.serviceMonitor.enabled = true` (see values.yaml). This
+Catalyst-side template is reserved for any auxiliary metrics endpoints that
+per-Sovereign overlays MAY add (e.g. the Dynadot webhook sidecar from
+platform/external-dns/policies/dynadot-multi-domain.yaml when running in
+Dynadot mode).
+
+DEFAULT FALSE per the observability-toggle rule for the bp-* family —
+Prometheus Operator is not part of the bootstrap-kit, so a ServiceMonitor
+shipped enabled-by-default would generate Helm install errors on a
+Sovereign that hasn't reached Phase 2 yet. Per-Sovereign overlays flip
+this on once kube-prometheus-stack is installed.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
+labels) is operator-tunable.
+*/}}
+{{- if .Values.externalDns.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-external-dns-catalyst
+  namespace: {{ default .Release.Namespace .Values.externalDns.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-external-dns.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      interval: {{ .Values.externalDns.serviceMonitor.interval | default "30s" }}
+      path: /metrics
+{{- end }}

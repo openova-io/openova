@@ -10,12 +10,20 @@ description: |
 
   Umbrella that depends on the 10 leaf bootstrap-kit Blueprints
   (cilium, cert-manager, flux, crossplane, sealed-secrets, spire,
-  nats-jetstream, openbao, keycloak, gitea) plus bp-external-dns —
-  each resolved as an OCI artifact at ghcr.io/openova-io/bp-<name>.
-  As of 1.1.0 each leaf is itself a proper Helm umbrella that depends on
-  its upstream chart (cert-manager, cilium, flux2, crossplane, ...) so
-  installing bp-catalyst-platform brings up the full upstream payload —
-  no Catalyst-side bootstrap installer is required.
+  nats-jetstream, openbao, keycloak, gitea) — each resolved as an OCI
+  artifact at ghcr.io/openova-io/bp-<name>. As of 1.1.0 each leaf is
+  itself a proper Helm umbrella that depends on its upstream chart
+  (cert-manager, cilium, flux2, crossplane, ...) so installing
+  bp-catalyst-platform brings up the full upstream payload — no
+  Catalyst-side bootstrap installer is required.
+
+  bp-external-dns is NOT a dep of this umbrella; it is installed
+  separately by the bootstrap-kit Kustomization (12-external-dns.yaml)
+  alongside bp-cert-manager / bp-powerdns / bp-flux / etc. so its
+  install ordering is owned by Flux dependsOn (bp-cert-manager,
+  bp-powerdns) rather than this umbrella's Helm dependency graph.
+  Bumped to 1.1.1 in lockstep with bp-external-dns 1.1.0 to reflect the
+  dependency removal.
 type: application
 
 dependencies:
@@ -48,7 +56,4 @@ dependencies:
     repository: oci://ghcr.io/openova-io
   - name: bp-gitea
     version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-external-dns
-    version: 1.0.0
     repository: oci://ghcr.io/openova-io

@@ -1,0 +1,79 @@
+{{- /*
+NetworkPolicy — locks the ExternalDNS pod down to the minimum egress set
+required for the native PowerDNS provider:
+
+  - DNS resolution (UDP/TCP 53) to the cluster DNS Service
+  - HTTPS to the Kubernetes API server (apiserver discovery)
+  - HTTP to the in-cluster bp-powerdns webserver (port 8081 by default)
+
+Ingress is locked to Prometheus scraping when serviceMonitor is enabled
+(upstream chart exposes /metrics on its primary port). Per
+docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-tunable.
+
+Disabled when externalDns.networkPolicy.enabled = false (cluster overlays
+MAY disable for debugging — re-enable in target state).
+*/}}
+{{- if .Values.externalDns.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-external-dns
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-external-dns.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Prometheus scraping on the primary port. The upstream chart's
+    # /metrics endpoint is on http port 7979.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 7979
+  egress:
+    # Cluster DNS — ExternalDNS resolves the PowerDNS Service name as well
+    # as any external DNS provider hostnames listed in extraArgs.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Kubernetes API — ExternalDNS watches Service/Ingress/Gateway-API
+    # resources via the apiserver.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # PowerDNS REST API — egress to the in-cluster bp-powerdns Service.
+    # Per-Sovereign overlays may set externalDns.networkPolicy.powerdns*
+    # if PowerDNS lives in a non-default namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.externalDns.networkPolicy.powerdnsNamespace | quote }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Values.externalDns.networkPolicy.powerdnsServiceName | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.externalDns.networkPolicy.powerdnsApiPort }}
+{{- end }}
