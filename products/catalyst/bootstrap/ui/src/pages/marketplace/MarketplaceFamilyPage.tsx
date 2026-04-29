@@ -426,14 +426,26 @@ export function MarketplaceShellStyles() {
         border-color: rgba(var(--wiz-accent-ch), 0.6);
         transform: translateY(-1px);
       }
+      /* Logo tile — neutral, high-contrast pill. The vendored component
+         logos under public/component-logos/ ship in mixed treatments
+         (dark-on-transparent, white-on-transparent, full-colour). To
+         guarantee readability across both wizard themes we pin every
+         tile to a near-white background with a 1px subtle border so the
+         brand mark reads cleanly in dark and light mode alike. The
+         letter-mark fallback (.mp-related-icon) shares the same surface
+         so member-row tiles stay visually consistent whether or not the
+         component has a vendored logo. Keep in sync with the matching
+         tile in StepComponents.tsx and MarketplaceProductPage.tsx. */
       .mp-related-logo {
         width: 36px;
         height: 36px;
         border-radius: 8px;
-        object-fit: cover;
+        object-fit: contain;
         flex-shrink: 0;
-        background: var(--wiz-bg-card);
-        padding: 4px;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--wiz-border-sub);
+        padding: 6px;
+        box-sizing: border-box;
       }
       .mp-related-icon {
         width: 36px;
@@ -443,8 +455,9 @@ export function MarketplaceShellStyles() {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--wiz-text-hi);
-        background: rgba(var(--wiz-accent-ch), 0.12);
+        color: #0f172a;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--wiz-border-sub);
         font-size: 0.95rem;
         font-weight: 700;
       }

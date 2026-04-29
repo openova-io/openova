@@ -77,12 +77,39 @@ function sortComponents(
   })
 }
 
-/** Letter-pill icon when a component has no logo URL. Hue derived from name. */
+/**
+ * Logo tile — neutral high-contrast surface.
+ *
+ * The component-logos vendored under `public/component-logos/` are upstream
+ * brand marks rendered as-shipped. Some are dark glyphs designed against a
+ * white backdrop, some are white glyphs on transparent (designed for dark
+ * surfaces), some are full-colour. To guarantee every brand mark reads
+ * cleanly in BOTH dark- and light-mode wizard themes we render every tile
+ * on a near-white pill regardless of the active app theme. The pill is
+ * also the surface used for the IconFallback letter-mark, so the wizard
+ * keeps a single visual rhythm across `<img>` and letter-mark cards.
+ *
+ * Keep these constants in sync with the equivalent rules in
+ * `MarketplaceFamilyPage.tsx` (.mp-related-logo / .mp-related-icon) and
+ * `MarketplaceProductPage.tsx` (.mp-product-logo / .mp-product-icon) — the
+ * component-logo tile is a single visual contract across the wizard and
+ * the marketplace surfaces.
+ */
+const LOGO_TILE_BG = 'rgba(255,255,255,0.96)'
+const LOGO_TILE_RADIUS = 10
+const LOGO_TILE_PADDING = 6
+/**
+ * Letter colour for the IconFallback mark. The tile is always near-white,
+ * so we need a stable DARK foreground regardless of which app theme the
+ * card is rendered under. `--wiz-text-hi` flips between dark (light mode)
+ * and light (dark mode), so we pin a fixed slate hex here to keep the
+ * letter readable against the white tile in both themes.
+ */
+const LOGO_TILE_TEXT = '#0f172a'
+
+/** Letter-pill icon when a component has no logo URL. */
 function IconFallback({ name }: { name: string }) {
   const letter = (name[0] ?? '?').toUpperCase()
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
-  const hue = Math.abs(hash) % 360
   return (
     <span
       aria-hidden
@@ -90,15 +117,16 @@ function IconFallback({ name }: { name: string }) {
         alignSelf: 'stretch',
         aspectRatio: '1 / 1',
         height: 'auto',
-        borderRadius: 10,
+        borderRadius: LOGO_TILE_RADIUS,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: '#fff',
+        color: LOGO_TILE_TEXT,
         fontSize: '1.2rem',
         fontWeight: 700,
-        background: `oklch(58% 0.12 ${hue})`,
+        background: LOGO_TILE_BG,
+        border: '1px solid var(--wiz-border-sub)',
       }}
     >
       {letter}
@@ -116,13 +144,16 @@ function ComponentLogo({ entry }: { entry: ComponentEntry }) {
         alignSelf: 'stretch',
         aspectRatio: '1 / 1',
         height: 'auto',
-        borderRadius: 10,
+        borderRadius: LOGO_TILE_RADIUS,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        background: 'rgba(255,255,255,0.04)',
+        background: LOGO_TILE_BG,
+        border: '1px solid var(--wiz-border-sub)',
         overflow: 'hidden',
+        padding: LOGO_TILE_PADDING,
+        boxSizing: 'border-box',
       }}
     >
       <img
