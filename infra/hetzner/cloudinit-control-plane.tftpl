@@ -295,15 +295,19 @@ runcmd:
   # waiting on a class that nobody nominates, and the bootstrap-kit
   # Kustomization deadlocks.
   #
-  # Sequence:
-  #   1. Wait for the local-path-provisioner pod to be Ready (it is the
-  #      controller that watches PVCs and creates hostPath PVs).
+  # Sequence (#207 — fix the circular wait that blocked every fresh provision):
+  #   1. Poll until the `local-path` StorageClass object is registered by
+  #      k3s. We CANNOT wait for the local-path-provisioner POD to be
+  #      Ready here — k3s runs with --flannel-backend=none so the node
+  #      stays Ready=False until Cilium installs (further down). Waiting
+  #      on the Pod creates a circular deadlock and 60s timeout. The SC
+  #      object itself is registered by k3s manifests independently of CNI
+  #      (verified live: SC creationTimestamp 3s after k3s start).
   #   2. Patch the `local-path` StorageClass with the
   #      `storageclass.kubernetes.io/is-default-class: "true"` annotation.
-  #   3. Verify the StorageClass exists — fail loudly if not, so the
-  #      Sovereign provisioner surfaces a clear error rather than letting
-  #      Flux reconcile into a broken state.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system wait --for=condition=Ready pod -l app=local-path-provisioner --timeout=60s'
+  #   3. Verify (the poll already implies presence; the explicit grep stays
+  #      as defensive belt-and-braces, identical exit semantics).
+  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc local-path >/dev/null 2>&1; do sleep 2; done'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch storageclass local-path -p ''{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'''
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc -o name | grep -q "^storageclass.storage.k8s.io/local-path$" || { echo "FATAL: local-path StorageClass missing after k3s install — see docs/RUNBOOK-PROVISIONING.md StorageClass missing section" >&2; exit 1; }'
 
