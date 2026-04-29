@@ -257,7 +257,7 @@ func TestLoad_TenConcurrentDeploymentsAreIsolated(t *testing.T) {
 
 	// Invariant 5: each Deployment has its own Events channel. Closing one
 	// must not affect another's. The runProvisioning goroutine closes
-	// dep.Events when it finishes — we wait briefly for the tofu fail-fast
+	// dep.eventsCh when it finishes — we wait briefly for the tofu fail-fast
 	// path then check that each channel closed independently.
 	//
 	// We give 60s — `tofu init` against a non-existent module path errors
@@ -275,7 +275,7 @@ func TestLoad_TenConcurrentDeploymentsAreIsolated(t *testing.T) {
 			val, _ := h.deployments.Load(id)
 			dep := val.(*Deployment)
 			select {
-			case _, open := <-dep.Events:
+			case _, open := <-dep.eventsCh:
 				if !open {
 					closed[id] = true
 				}

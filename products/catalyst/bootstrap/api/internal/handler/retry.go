@@ -128,11 +128,15 @@ func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 // only this step." Idempotency means failed-on-apply with a transient
 // error (e.g. Hetzner rate-limit) becomes a successful apply on retry.
 func (h *Handler) retryPhase0(w http.ResponseWriter, dep *Deployment, phase string) {
-	// Re-open the events channel — the original was closed when
-	// runProvisioning returned. The wizard's SSE client reconnects
-	// to /logs which reads from this fresh channel.
+	// Re-open the events channel + done signal — the originals were closed
+	// when runProvisioning returned. The wizard's SSE client reconnects
+	// to /logs which reads from this fresh channel and replays the buffer
+	// (which still carries the previous attempt's events plus the retry
+	// banner). Buffer eviction at EventBufferCap prevents unbounded growth
+	// across many retries.
 	dep.mu.Lock()
-	dep.Events = make(chan provisioner.Event, 256)
+	dep.eventsCh = make(chan provisioner.Event, 256)
+	dep.done = make(chan struct{})
 	dep.Status = "provisioning"
 	dep.Error = ""
 	dep.FinishedAt = time.Time{}
@@ -160,27 +164,32 @@ func (h *Handler) retryPhase0(w http.ResponseWriter, dep *Deployment, phase stri
 // new Sovereign (wired through a separate ticket).
 func (h *Handler) retryPhase1(w http.ResponseWriter, dep *Deployment, phase string) {
 	dep.mu.Lock()
-	dep.Events = make(chan provisioner.Event, 16)
+	dep.eventsCh = make(chan provisioner.Event, 16)
+	dep.done = make(chan struct{})
 	dep.mu.Unlock()
 
 	// Emit the structured event into a goroutine so the SSE client
-	// reconnecting to /logs sees it immediately and can render it.
+	// reconnecting to /logs sees it immediately and can render it. We
+	// record the event into the durable buffer too so a late connection
+	// after `done` fires still sees the operator instructions.
 	go func() {
-		defer close(dep.Events)
-		emit := func(level, msg string) {
-			dep.Events <- provisioner.Event{
-				Time:    time.Now().UTC().Format(time.RFC3339),
-				Phase:   phase,
-				Level:   level,
-				Message: msg,
-			}
+		defer close(dep.eventsCh)
+		defer close(dep.done)
+		ev := provisioner.Event{
+			Time:  time.Now().UTC().Format(time.RFC3339),
+			Phase: phase,
+			Level: "info",
+			Message: "Phase 1 retry: this HelmRelease is reconciled by Flux on the new Sovereign (not by catalyst-api). " +
+				"Flux applies install.remediation.retries=3 automatically; if those exhausted, the operator runs " +
+				"`kubectl annotate --overwrite helmrelease/bp-" + phase + " -n flux-system reconcile.fluxcd.io/requestedAt=$(date +%s)` " +
+				"on the new Sovereign's kube-context. See docs/RUNBOOK-PROVISIONING.md " +
+				"§Rollback-procedures-per-phase for the full procedure.",
 		}
-		emit("info",
-			"Phase 1 retry: this HelmRelease is reconciled by Flux on the new Sovereign (not by catalyst-api). "+
-				"Flux applies install.remediation.retries=3 automatically; if those exhausted, the operator runs "+
-				"`kubectl annotate --overwrite helmrelease/bp-"+phase+" -n flux-system reconcile.fluxcd.io/requestedAt=$(date +%s)` "+
-				"on the new Sovereign's kube-context. See docs/RUNBOOK-PROVISIONING.md "+
-				"§Rollback-procedures-per-phase for the full procedure.")
+		recorded := dep.recordEvent(ev)
+		select {
+		case dep.eventsCh <- recorded:
+		default:
+		}
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -198,20 +207,37 @@ func (h *Handler) retryPhase1(w http.ResponseWriter, dep *Deployment, phase stri
 // already exists). The provisioner.Provision call itself is idempotent
 // against an existing workdir.
 func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
-	defer close(dep.Events)
+	// Tee — same pattern as runProvisioning so the durable event buffer
+	// captures the retry's events too. This is what makes a reconnect to
+	// /logs after a retry has finished still render the full retry history.
+	producer := make(chan provisioner.Event, 256)
+	teeDone := make(chan struct{})
+	go func() {
+		defer close(teeDone)
+		for ev := range producer {
+			recorded := dep.recordEvent(ev)
+			select {
+			case dep.eventsCh <- recorded:
+			default:
+			}
+		}
+		close(dep.eventsCh)
+	}()
 
 	prov := provisioner.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	dep.Events <- provisioner.Event{
+	producer <- provisioner.Event{
 		Time:    time.Now().UTC().Format(time.RFC3339),
 		Phase:   retriedPhase,
 		Level:   "info",
 		Message: fmt.Sprintf("Retry initiated for phase %q — running `tofu apply` against existing workdir (idempotent).", retriedPhase),
 	}
 
-	result, err := prov.Provision(ctx, dep.Request, dep.Events)
+	result, err := prov.Provision(ctx, dep.Request, producer)
+	close(producer)
+	<-teeDone
 
 	dep.mu.Lock()
 	dep.FinishedAt = time.Now()
@@ -225,6 +251,7 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 		h.log.Info("retry provision complete", "id", dep.ID, "phase", retriedPhase)
 	}
 	dep.mu.Unlock()
+	close(dep.done)
 }
 
 // validatePhaseID — exported helper for tests.
