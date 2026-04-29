@@ -20,20 +20,24 @@
 //        rebrands the card without touching application source.
 
 import { useMemo, useState, useCallback } from 'react'
-import { Search, Plus, Check, Lock, Info } from 'lucide-react'
+import { Search, Plus, Check, Lock, Info, Layers } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
-import { path as basePath } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 import {
   ALL_COMPONENTS,
   GROUPS,
+  PRODUCTS,
   findComponent,
-  resolveTransitiveDependencies,
+  componentsByProduct,
+  resolveProductComponentClosure,
+  isProductFullySelected,
   resolveTransitiveDependents,
   type ComponentEntry,
   type GroupDef,
+  type Product,
 } from './componentGroups'
+import { STEP_COMPONENTS_COPY } from './stepComponentsCopy'
 
 /** Sort: selected first (cart-like UX from marketplace), then alphabetical. */
 function sortComponents(
@@ -173,7 +177,7 @@ interface ComponentCardProps {
 function ComponentCard({ entry, selected, onToggle, readOnly = false }: ComponentCardProps) {
   const isMandatoryCard = entry.tier === 'mandatory'
   const includesNote = (entry.dependencies ?? []).length > 0
-    ? `Includes: ${(entry.dependencies ?? []).map(d => findComponent(d)?.name ?? d).join(', ')}`
+    ? `${STEP_COMPONENTS_COPY.includesPrefix} ${(entry.dependencies ?? []).map(d => findComponent(d)?.name ?? d).join(', ')}`
     : null
 
   const cardClass = [
@@ -211,7 +215,7 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
               option. */}
           {readOnly ? (
             <CardChip
-              label="INFRASTRUCTURE"
+              label={STEP_COMPONENTS_COPY.pillInfra}
               tone="infra"
               testId={`tier-${entry.id}`}
             />
@@ -219,22 +223,20 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
             <CardChip
               label={
                 <>
-                  <Lock size={9} strokeWidth={3} aria-hidden /> MANDATORY
+                  <Lock size={9} strokeWidth={3} aria-hidden /> {STEP_COMPONENTS_COPY.pillMandatory}
                 </>
               }
               tone="mandatory"
               testId={`tier-${entry.id}`}
             />
           ) : entry.tier === 'recommended' ? (
-            <CardChip label="RECOMMENDED" tone="recommended" testId={`tier-${entry.id}`} />
+            <CardChip label={STEP_COMPONENTS_COPY.pillRecommended} tone="recommended" testId={`tier-${entry.id}`} />
           ) : (
-            <CardChip label="OPTIONAL" tone="optional" testId={`tier-${entry.id}`} />
+            <CardChip label={STEP_COMPONENTS_COPY.pillOptional} tone="optional" testId={`tier-${entry.id}`} />
           )}
           {includesNote && (
             <CardChip
-              label={`+ ${(entry.dependencies ?? []).length} dep${
-                (entry.dependencies ?? []).length > 1 ? 's' : ''
-              }`}
+              label={STEP_COMPONENTS_COPY.depsChip((entry.dependencies ?? []).length)}
               tone="accent"
               title={includesNote}
               testId={`deps-${entry.id}`}
@@ -260,7 +262,7 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
           data-testid={`selected-${entry.id}`}
         >
           <span className="corp-comp-status-pill">
-            <span className="corp-comp-status-dot" /> SELECTED
+            <span className="corp-comp-status-dot" /> {STEP_COMPONENTS_COPY.selectedPill}
           </span>
         </div>
       )}
@@ -341,6 +343,7 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
 interface ConfirmCascade {
   componentId: string
   componentName: string
+  entry: ComponentEntry
   dependents: ComponentEntry[]
 }
 
@@ -393,7 +396,7 @@ function ConfirmCascadeDialog({
             fontWeight: 600,
           }}
         >
-          Remove {cascade.componentName}?
+          {STEP_COMPONENTS_COPY.confirmTitle(cascade.entry)}
         </h3>
         <p
           style={{
@@ -403,10 +406,7 @@ function ConfirmCascadeDialog({
             lineHeight: 1.5,
           }}
         >
-          {cascade.componentName} is used by{' '}
-          <strong>{cascade.dependents.length}</strong> other component
-          {cascade.dependents.length > 1 ? 's' : ''}. Removing it will also
-          remove:
+          {STEP_COMPONENTS_COPY.confirmIntro(cascade.entry, cascade.dependents.length)}
         </p>
         <ul
           data-testid="cascade-dependents"
@@ -448,7 +448,7 @@ function ConfirmCascadeDialog({
               fontSize: '0.85rem',
             }}
           >
-            Keep
+            {STEP_COMPONENTS_COPY.confirmKeep}
           </button>
           <button
             type="button"
@@ -466,7 +466,7 @@ function ConfirmCascadeDialog({
               fontWeight: 600,
             }}
           >
-            Remove all
+            {STEP_COMPONENTS_COPY.confirmRemove}
           </button>
         </div>
       </div>
@@ -476,17 +476,20 @@ function ConfirmCascadeDialog({
 
 /* ── Tab 2: "Always Included" — read-only mandatory grid ──────────── */
 
-function AlwaysIncludedTab({ groups, cols }: { groups: readonly GroupDef[]; cols: string }) {
-  // Group by product, but only the mandatory components per group, hiding
-  // any group that has zero mandatories.
+function AlwaysIncludedTab({ groups: _groups, cols }: { groups: readonly GroupDef[]; cols: string }) {
+  // Group by product using the post-promotion catalog (`ALL_COMPONENTS`)
+  // so transitive-mandatory promotions (cnpg, valkey) surface in their
+  // owning product section rather than vanishing into Tab 1's pool. Hide
+  // any product that has zero mandatories.
+  void _groups // keep prop for callsite back-compat (#175 cleanup deferred)
   const productSections = useMemo(() => {
-    return groups
-      .map((g) => ({
-        group: g,
-        mandatories: g.components.filter((c) => c.tier === 'mandatory'),
+    return PRODUCTS
+      .map((product) => ({
+        product,
+        mandatories: componentsByProduct(product.id).filter(c => c.tier === 'mandatory'),
       }))
       .filter((s) => s.mandatories.length > 0)
-  }, [groups])
+  }, [])
 
   return (
     <div data-testid="always-included-tab">
@@ -503,18 +506,17 @@ function AlwaysIncludedTab({ groups, cols }: { groups: readonly GroupDef[]; cols
           lineHeight: 1.55,
         }}
       >
-        These platform components run on every Sovereign. They’re foundational
-        — you don’t pay extra for them.
+        {STEP_COMPONENTS_COPY.alwaysIncludedBlurb}
       </p>
 
       <div
         data-testid="always-included-grid"
         style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}
       >
-        {productSections.map(({ group, mandatories }) => (
+        {productSections.map(({ product, mandatories }) => (
           <section
-            key={group.id}
-            data-testid={`always-included-section-${group.id}`}
+            key={product.id}
+            data-testid={`always-included-section-${product.id}`}
           >
             <h4
               style={{
@@ -526,7 +528,7 @@ function AlwaysIncludedTab({ groups, cols }: { groups: readonly GroupDef[]; cols
                 textTransform: 'uppercase',
               }}
             >
-              {group.productName}{' '}
+              {product.name}{' '}
               <span
                 style={{
                   color: 'var(--wiz-text-sub)',
@@ -536,33 +538,174 @@ function AlwaysIncludedTab({ groups, cols }: { groups: readonly GroupDef[]; cols
                   marginLeft: 6,
                 }}
               >
-                {group.subtitle}
+                {product.subtitle}
               </span>
             </h4>
             <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}>
-              {mandatories.map((c) => {
-                const entry: ComponentEntry = {
-                  ...c,
-                  dependencies: c.dependencies ?? [],
-                  logoUrl: c.logoUrl === undefined ? basePath(`component-logos/${c.id}.svg`) : c.logoUrl,
-                  groupId: group.id,
-                  groupName: group.productName,
-                  groupSubtitle: group.subtitle,
-                }
-                return (
-                  <ComponentCard
-                    key={entry.id}
-                    entry={entry}
-                    selected={false}
-                    readOnly
-                  />
-                )
-              })}
+              {mandatories.map((entry) => (
+                <ComponentCard
+                  key={entry.id}
+                  entry={entry}
+                  selected={false}
+                  readOnly
+                />
+              ))}
             </div>
           </section>
         ))}
       </div>
     </div>
+  )
+}
+
+/* ── Empty state card (no matches) ────────────────────────────────── */
+
+function EmptyStateCard() {
+  return (
+    <div
+      data-testid="empty-state"
+      style={{
+        gridColumn: '1 / -1',
+        padding: '2rem',
+        borderRadius: 12,
+        border: '1.5px dashed var(--wiz-border-sub)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '0.5rem',
+      }}
+    >
+      <Info size={20} style={{ color: 'var(--wiz-text-sub)' }} aria-hidden />
+      <p
+        style={{
+          margin: 0,
+          color: 'var(--wiz-text-sub)',
+          fontSize: '0.85rem',
+          textAlign: 'center',
+        }}
+      >
+        {STEP_COMPONENTS_COPY.emptyState}
+      </p>
+    </div>
+  )
+}
+
+/* ── Product section (Tab 1 grouped view) ─────────────────────────── */
+
+interface ProductSectionProps {
+  product: Product
+  items: ComponentEntry[]
+  cols: string
+  selectedSet: ReadonlySet<string>
+  onToggleComponent: (entry: ComponentEntry) => void
+  onAddProduct: (product: Product) => void
+  onRemoveProduct: (product: Product) => void
+}
+
+function ProductSection({
+  product,
+  items,
+  cols,
+  selectedSet,
+  onToggleComponent,
+  onAddProduct,
+  onRemoveProduct,
+}: ProductSectionProps) {
+  const allMembers = componentsByProduct(product.id)
+  // "Family fully selected" = every member that the operator can control
+  // (i.e. every non-mandatory member, because mandatory members are
+  // already selected and not user-toggleable in Tab 1) is in selectedSet.
+  // For mandatory products we use the full-membership check so the CTA
+  // can still render meaningfully (though such products typically don't
+  // appear in Tab 1 since their members are filtered out).
+  const userToggleableMembers = allMembers.filter(c => c.tier !== 'mandatory')
+  const allSelected = isProductFullySelected(product.id, selectedSet)
+  const selectedMembers = allMembers.filter(c => selectedSet.has(c.id)).length
+
+  return (
+    <section data-testid={`product-section-${product.id}`}>
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+          padding: '0.55rem 0.75rem',
+          marginBottom: '0.5rem',
+          borderRadius: 10,
+          background: 'var(--wiz-bg-xs)',
+          border: '1px solid var(--wiz-border-sub)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+          <Layers size={14} aria-hidden style={{ color: 'var(--wiz-accent)' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span
+              data-testid={`product-name-${product.id}`}
+              style={{
+                color: 'var(--wiz-text-hi)',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+              }}
+            >
+              {product.name}
+              <span
+                style={{
+                  marginLeft: 8,
+                  color: 'var(--wiz-text-sub)',
+                  fontWeight: 500,
+                  letterSpacing: 0,
+                  fontSize: '0.78rem',
+                }}
+              >
+                {product.subtitle}
+              </span>
+            </span>
+            <span
+              data-testid={`product-summary-${product.id}`}
+              style={{ color: 'var(--wiz-text-sub)', fontSize: '0.7rem' }}
+            >
+              {STEP_COMPONENTS_COPY.productCardSubtitle(product, selectedMembers, allMembers.length)}
+            </span>
+          </div>
+        </div>
+        {userToggleableMembers.length > 0 && (
+          <button
+            type="button"
+            data-testid={`product-cta-${product.id}`}
+            onClick={() => (allSelected ? onRemoveProduct(product) : onAddProduct(product))}
+            style={{
+              padding: '0.35rem 0.75rem',
+              borderRadius: 999,
+              border: '1px solid ' + (allSelected ? '#F87171' : 'rgba(var(--wiz-accent-ch), 1)'),
+              background: allSelected ? 'rgba(248,113,113,0.1)' : 'rgba(var(--wiz-accent-ch), 0.12)',
+              color: allSelected ? '#F87171' : 'var(--wiz-accent)',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {allSelected
+              ? STEP_COMPONENTS_COPY.productDeselectAll(product)
+              : STEP_COMPONENTS_COPY.productSelectAll(product)}
+          </button>
+        )}
+      </header>
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}>
+        {items.map(entry => (
+          <ComponentCard
+            key={entry.id}
+            entry={entry}
+            selected={selectedSet.has(entry.id)}
+            onToggle={() => onToggleComponent(entry)}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -636,6 +779,25 @@ export function StepComponents() {
     return sortComponents(result, selectedSet)
   }, [query, activeCategory, selectedSet, choosePool])
 
+  /**
+   * Visible items grouped by product family, in PRODUCTS declaration
+   * order. Used to render product headers + the "select entire product"
+   * CTA in Tab 1's grouped view. When there's a search query we bypass
+   * grouping (see Tab 1 render below) — partial-text matches shouldn't
+   * fragment into mostly-empty product sections.
+   */
+  const productSectionsForVisible = useMemo(() => {
+    const byProduct = new Map<string, ComponentEntry[]>()
+    for (const entry of visible) {
+      const arr = byProduct.get(entry.product) ?? []
+      arr.push(entry)
+      byProduct.set(entry.product, arr)
+    }
+    return PRODUCTS
+      .filter(p => byProduct.has(p.id))
+      .map((product) => ({ product, items: byProduct.get(product.id) ?? [] }))
+  }, [visible])
+
   const cols = bp === 'mobile' ? '1fr' : bp === 'tablet' ? '1fr 1fr' : 'repeat(3, minmax(0, 1fr))'
 
   /** Ephemeral toast — auto-dismisses after 2.5s. */
@@ -653,11 +815,8 @@ export function StepComponents() {
   const handleToggle = useCallback(
     (entry: ComponentEntry) => {
       if (entry.tier === 'mandatory') {
-        pushToast(
-          'mandatory',
-          `${entry.name} is mandatory`,
-          'Core platform components are always installed.',
-        )
+        const t = STEP_COMPONENTS_COPY.toastMandatory(entry)
+        pushToast('mandatory', t.primary, t.extra)
         return
       }
 
@@ -672,28 +831,55 @@ export function StepComponents() {
           setPendingRemoval({
             componentId: entry.id,
             componentName: entry.name,
+            entry,
             dependents,
           })
           return
         }
         store.removeComponent(entry.id)
-        pushToast('removed', `${entry.name} removed`)
+        const t = STEP_COMPONENTS_COPY.toastRemoved(entry, [])
+        pushToast('removed', t.primary, t.extra)
         return
       }
 
-      const newDeps = resolveTransitiveDependencies(entry.id).filter((id) => !selectedSet.has(id))
+      // Snapshot the selection BEFORE dispatching addComponent so we can
+      // diff the post-cascade state and surface every newly-added id
+      // (component deps + product family cascade) in a single toast.
+      const beforeSel = new Set(selectedSet)
+
       store.addComponent(entry.id)
-      if (newDeps.length > 0) {
-        const depNames = newDeps
-          .map((id) => findComponent(id)?.name ?? id)
-          .join(', ')
-        pushToast(
-          'added',
-          `${entry.name} added`,
-          `Also added: ${depNames}`,
-        )
+
+      const afterSel = useWizardStore.getState().selectedComponents
+      const newlyAdded = afterSel
+        .filter((id) => id !== entry.id && !beforeSel.has(id))
+        .map((id) => findComponent(id))
+        .filter((c): c is ComponentEntry => !!c)
+
+      // Identify the *cascading* product family (if any) — pick the
+      // product whose entire member set was just added (i.e. the product
+      // whose cascadeOnMemberSelection flag fired through the store's
+      // walk). This is robust whether the seed was a CORTEX member (BGE)
+      // or an INSIGHTS member (Specter) whose deps reach into CORTEX.
+      const afterSet = new Set(afterSel)
+      const triggeredFamily = PRODUCTS.find((p) =>
+        p.cascadeOnMemberSelection &&
+        p.tier !== 'mandatory' &&
+        componentsByProduct(p.id).every((c) => afterSet.has(c.id)) &&
+        // ... and at least one of its members was newly added (not just
+        // already-selected before the click).
+        componentsByProduct(p.id).some((c) => !beforeSel.has(c.id)),
+      )
+
+      if (triggeredFamily) {
+        const familyMembers = newlyAdded.filter((c) => c.product === triggeredFamily.id)
+        const t = STEP_COMPONENTS_COPY.toastAddedWithFamily(entry, triggeredFamily, familyMembers)
+        pushToast('added', t.primary, t.extra)
+      } else if (newlyAdded.length > 0) {
+        const t = STEP_COMPONENTS_COPY.toastAddedWithDeps(entry, newlyAdded)
+        pushToast('added', t.primary, t.extra)
       } else {
-        pushToast('added', `${entry.name} added`)
+        const t = STEP_COMPONENTS_COPY.toastAddedSimple(entry)
+        pushToast('added', t.primary)
       }
     },
     [selectedSet, pushToast, store],
@@ -703,18 +889,57 @@ export function StepComponents() {
     if (!pendingRemoval) return
     const target = pendingRemoval
     store.removeComponent(target.componentId)
-    pushToast(
-      'removed',
-      `${target.componentName} removed`,
-      `Also removed: ${target.dependents.map((d) => d.name).join(', ')}`,
-    )
+    const t = STEP_COMPONENTS_COPY.toastRemoved(target.entry, target.dependents)
+    pushToast('removed', t.primary, t.extra)
     setPendingRemoval(null)
   }, [pendingRemoval, store, pushToast])
 
+  /* ── Product card handlers (Tab 1 product header CTA) ──────── */
+  const handleAddProduct = useCallback(
+    (product: Product) => {
+      const before = new Set(selectedSet)
+      const closure = resolveProductComponentClosure(product.id)
+      store.addProduct(product.id)
+      const newlyAdded = closure
+        .filter((id) => !before.has(id))
+        .map((id) => findComponent(id))
+        .filter((c): c is ComponentEntry => !!c)
+      const t = STEP_COMPONENTS_COPY.toastProductAdded(product, newlyAdded)
+      pushToast('added', t.primary, t.extra)
+    },
+    [selectedSet, pushToast, store],
+  )
+
+  const handleRemoveProduct = useCallback(
+    (product: Product) => {
+      const beforeSel = new Set(selectedSet)
+      const productMembers = componentsByProduct(product.id).filter(
+        (c) => c.tier !== 'mandatory',
+      )
+      // Build the impact set the same way the store will (every product
+      // member + every cascading dependent).
+      const impacted = new Set<string>()
+      for (const c of productMembers) {
+        impacted.add(c.id)
+        for (const dep of resolveTransitiveDependents(c.id)) {
+          if (findComponent(dep)?.tier !== 'mandatory') impacted.add(dep)
+        }
+      }
+      const removedEntries = [...impacted]
+        .filter((id) => beforeSel.has(id))
+        .map((id) => findComponent(id))
+        .filter((c): c is ComponentEntry => !!c)
+      store.removeProduct(product.id)
+      const t = STEP_COMPONENTS_COPY.toastProductRemoved(product, removedEntries)
+      pushToast('removed', t.primary, t.extra)
+    },
+    [selectedSet, pushToast, store],
+  )
+
   return (
     <StepShell
-      title="Platform Components"
-      description="Choose Your Stack lists the components you can opt into for this Sovereign — search, filter by product, and click to add or remove. Cascading dependencies are handled automatically (Harbor pulls in cnpg, seaweedfs, valkey). Always Included shows the foundational platform components every Sovereign runs."
+      title={STEP_COMPONENTS_COPY.stepTitle}
+      description={STEP_COMPONENTS_COPY.stepDescription}
       onNext={next}
       onBack={back}
     >
@@ -728,7 +953,7 @@ export function StepComponents() {
           onClick={() => setTab('choose')}
           className={`corp-tab ${tab === 'choose' ? 'active' : ''}`}
         >
-          Choose Your Stack ({chooseSelectedCount})
+          {STEP_COMPONENTS_COPY.tabChooseLabel(chooseSelectedCount)}
         </button>
         <button
           type="button"
@@ -738,7 +963,7 @@ export function StepComponents() {
           onClick={() => setTab('always')}
           className={`corp-tab ${tab === 'always' ? 'active' : ''}`}
         >
-          Always Included ({mandatoryTotal})
+          {STEP_COMPONENTS_COPY.tabAlwaysLabel(mandatoryTotal)}
         </button>
       </div>
 
@@ -760,7 +985,7 @@ export function StepComponents() {
               data-testid="selected-counter"
               style={{ fontSize: 12, color: 'var(--wiz-accent)', fontWeight: 600 }}
             >
-              Selected ({store.selectedComponents.length}) of {ALL_COMPONENTS.length}
+              {STEP_COMPONENTS_COPY.selectedCounter(store.selectedComponents.length, ALL_COMPONENTS.length)}
             </span>
             <div
               style={{
@@ -794,9 +1019,9 @@ export function StepComponents() {
                 font: 'inherit',
                 fontSize: '0.75rem',
               }}
-              title="Restore the default selection (all mandatory + recommended + their dependencies)"
+              title={STEP_COMPONENTS_COPY.resetTooltip}
             >
-              Reset to defaults
+              {STEP_COMPONENTS_COPY.resetButton}
             </button>
           </div>
 
@@ -828,7 +1053,7 @@ export function StepComponents() {
               <input
                 type="search"
                 data-testid="component-search"
-                placeholder={`Search ${choosePool.length} components…`}
+                placeholder={STEP_COMPONENTS_COPY.searchPlaceholder(choosePool.length)}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 style={{
@@ -913,54 +1138,54 @@ export function StepComponents() {
                 fontWeight: 600,
               }}
             >
-              All components
+              {STEP_COMPONENTS_COPY.sectionTitle}
             </h3>
             <span style={{ color: 'var(--wiz-text-sub)', fontSize: '0.78rem' }}>
-              {visible.length} shown · {chooseSelectedCount} selected
+              {STEP_COMPONENTS_COPY.sectionSummary(visible.length, chooseSelectedCount)}
             </span>
           </div>
 
-          {/* Card grid */}
-          <div
-            data-testid="component-grid"
-            style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}
-          >
-            {visible.map((entry) => (
-              <ComponentCard
-                key={entry.id}
-                entry={entry}
-                selected={selectedSet.has(entry.id)}
-                onToggle={() => handleToggle(entry)}
-              />
-            ))}
-            {visible.length === 0 && (
-              <div
-                data-testid="empty-state"
-                style={{
-                  gridColumn: '1 / -1',
-                  padding: '2rem',
-                  borderRadius: 12,
-                  border: '1.5px dashed var(--wiz-border-sub)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                }}
-              >
-                <Info size={20} style={{ color: 'var(--wiz-text-sub)' }} aria-hidden />
-                <p
-                  style={{
-                    margin: 0,
-                    color: 'var(--wiz-text-sub)',
-                    fontSize: '0.85rem',
-                    textAlign: 'center',
-                  }}
-                >
-                  No components match your filters.
-                </p>
-              </div>
-            )}
-          </div>
+          {/* Card grid — grouped by product family when there is no
+              search query active. Search results render flat (no product
+              headers) so partial-string matches across families don't
+              fragment into mostly-empty sections. */}
+          {query ? (
+            <div
+              data-testid="component-grid"
+              style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.65rem' }}
+            >
+              {visible.map((entry) => (
+                <ComponentCard
+                  key={entry.id}
+                  entry={entry}
+                  selected={selectedSet.has(entry.id)}
+                  onToggle={() => handleToggle(entry)}
+                />
+              ))}
+              {visible.length === 0 && (
+                <EmptyStateCard />
+              )}
+            </div>
+          ) : (
+            <div
+              data-testid="component-grid"
+              style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}
+            >
+              {productSectionsForVisible.map(({ product, items }) => (
+                <ProductSection
+                  key={product.id}
+                  product={product}
+                  items={items}
+                  cols={cols}
+                  selectedSet={selectedSet}
+                  onToggleComponent={handleToggle}
+                  onAddProduct={handleAddProduct}
+                  onRemoveProduct={handleRemoveProduct}
+                />
+              ))}
+              {productSectionsForVisible.length === 0 && <EmptyStateCard />}
+            </div>
+          )}
         </>
       )}
 

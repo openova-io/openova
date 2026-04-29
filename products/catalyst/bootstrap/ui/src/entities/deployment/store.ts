@@ -12,9 +12,13 @@ import {
 } from './model'
 import {
   findComponent,
+  findProduct,
   isMandatory as isMandatoryComponent,
   resolveTransitiveDependencies,
   resolveTransitiveDependents,
+  resolveProductComponentClosure,
+  componentsByProduct,
+  productByComponent,
   MANDATORY_COMPONENT_IDS,
   computeDefaultSelection,
 } from '@/pages/wizard/steps/componentGroups'
@@ -133,6 +137,28 @@ interface WizardActions {
   setSelectedComponents: (ids: string[]) => void
   /** Reset the component selection back to "all mandatory + all recommended + their deps". */
   resetSelectedComponentsToDefault: () => void
+
+  /**
+   * Add an entire product family — every component in the product, every
+   * component in transitively-reached `familyDependencies` products, plus
+   * every component-level transitive dep of those. Idempotent: no-op for
+   * products already fully selected.
+   *
+   * Used by the "Select entire product" header CTA in StepComponents and
+   * indirectly when cascading from a single component pulls its full
+   * product family in (see addComponent → product cascade).
+   */
+  addProduct: (productId: string) => void
+
+  /**
+   * Remove an entire product family — every NON-mandatory component in the
+   * product. Mandatory components are protected even when the operator
+   * chooses "Remove product" (they're foundational infra). Components
+   * outside the product that aren't mandatory but transitively depend on
+   * one of the product's components are also dropped (cascade-remove
+   * semantics, mirrored after `removeComponent`).
+   */
+  removeProduct: (productId: string) => void
 
   // Step 7 — Provisioning result (captured by SSE done event)
   setLastProvisionResult: (result: ProvisionResult | null) => void
@@ -383,10 +409,89 @@ export const useWizardStore = create<WizardStore>()(
               for (const dep of resolveTransitiveDependencies(id)) {
                 next.add(dep)
               }
+              // Product-family cascade — issue #175 fix B. Walk only the
+              // ids newly-added by this addComponent call (the seed plus
+              // its component-level deps). For each, if its owning
+              // product has `cascadeOnMemberSelection: true`, pull in
+              // the rest of that product (and every product reached via
+              // familyDependencies). Iterates so a chain like Specter →
+              // BGE → CORTEX (BGE belongs to CORTEX, which cascades the
+              // rest of CORTEX) resolves in one pass.
+              //
+              // Restricting to NEWLY-added ids avoids spurious cascades
+              // from mandatory cross-product members that were already
+              // selected — e.g. KServe is mandatory in CORTEX, so a
+              // pre-existing selection containing KServe must NOT cause
+              // every subsequent addComponent call to drag CORTEX in.
+              //
+              // Per operator intent (issue #175) CORTEX is the only
+              // product flagged for member-selection cascade today: "BGE
+              // alone doesn't have much meaning unless we have Cortex.
+              // [...] Or when Specter is selected all the Cortex family
+              // is required."
+              const before = new Set(s.selectedComponents)
+              const queue: string[] = [...next].filter((cid) => !before.has(cid))
+              while (queue.length > 0) {
+                const cid = queue.shift()!
+                const owner = productByComponent(cid)
+                if (
+                  owner &&
+                  owner.tier !== 'mandatory' &&
+                  owner.cascadeOnMemberSelection
+                ) {
+                  for (const member of resolveProductComponentClosure(owner.id)) {
+                    if (!next.has(member)) {
+                      next.add(member)
+                      // Newly-added — recurse so its product (if any
+                      // with cascadeOnMemberSelection) triggers too.
+                      queue.push(member)
+                    }
+                  }
+                }
+              }
               return { selectedComponents: [...next].sort() }
             },
             false,
             'wizard/addComponent',
+          ),
+
+        addProduct: (productId) =>
+          set(
+            (s) => {
+              const p = findProduct(productId)
+              if (!p) return s
+              const next = new Set(s.selectedComponents)
+              for (const cid of resolveProductComponentClosure(productId)) {
+                next.add(cid)
+              }
+              return { selectedComponents: [...next].sort() }
+            },
+            false,
+            'wizard/addProduct',
+          ),
+
+        removeProduct: (productId) =>
+          set(
+            (s) => {
+              const p = findProduct(productId)
+              if (!p) return s
+              const drop = new Set<string>()
+              for (const c of componentsByProduct(productId)) {
+                if (c.tier === 'mandatory') continue
+                drop.add(c.id)
+                // Cascade — anything that depends on this component must
+                // also leave (mirrors removeComponent behavior).
+                for (const dep of resolveTransitiveDependents(c.id)) {
+                  if (!isMandatoryComponent(dep)) drop.add(dep)
+                }
+              }
+              if (drop.size === 0) return s
+              return {
+                selectedComponents: s.selectedComponents.filter((cid) => !drop.has(cid)).sort(),
+              }
+            },
+            false,
+            'wizard/removeProduct',
           ),
 
         removeComponent: (id) =>
