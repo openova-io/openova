@@ -20,27 +20,46 @@
  * (BOOTSTRAP_KIT + the wizard's selectedComponents). Adding or removing
  * a Blueprint never requires touching this file.
  *
- * Per #1 (waterfall is the contract), this reducer is the target shape:
- * it understands per-component `install` events the catalyst-api will
- * emit on the same SSE channel as today's `tofu-*` / `flux-bootstrap`
- * phases, and gracefully degrades to "unknown" when the backend hasn't
- * caught up. Both directions of the contract — events the API emits
- * today, events the API will emit — are encoded explicitly here so the
- * UI never has to special-case missing data.
+ * GROUNDING RULE — the bug this file used to perpetrate, now fixed:
+ *
+ *   `deployment.status === "ready"` reflects ONLY Phase 0 (OpenTofu
+ *   provision + cloud-init handoff) plus the catalyst-api's helmwatch
+ *   loop terminating. It says NOTHING about whether each individual
+ *   bp-* HelmRelease in the new cluster is actually `installed`. Only
+ *   the per-component `phase: "component"` SSE events (or the durable
+ *   `Result.componentStates` map the helmwatch persists when it ran
+ *   successfully) carry that ground truth.
+ *
+ *   Therefore: a card NEVER flips to `installed` because of a coarse
+ *   deployment-level signal. It only flips when:
+ *     1. a `phase: "component"` event with `state: "installed"` arrives
+ *        for that specific componentId, OR
+ *     2. the durable `Result.componentStates` map (seeded via
+ *        `seedComponentStates`) names that componentId as installed.
+ *
+ *   When neither signal is available — typically because the
+ *   catalyst-api couldn't fetch the new cluster's kubeconfig and
+ *   skipped helmwatch entirely — every card stays at `pending` and
+ *   the AdminPage banner reads "Per-component install monitoring is
+ *   unavailable for this deployment". That is the truthful status; an
+ *   "all installed" green-pill rollup over silent helmwatch is a
+ *   misleading fiction.
  *
  * Event vocabulary (from catalyst-api SSE):
  *   • `tofu-init` / `tofu-plan` / `tofu-apply` / `tofu-output` / `tofu`
  *     → drive the "Hetzner infra" phase banner.
  *   • `flux-bootstrap`
  *     → drives the "Cluster bootstrap" phase banner.
- *   • `install` (target shape)
+ *   • `component` (helmwatch.PhaseComponent)
  *     → drives a single Application's state. The event must carry
  *       `component: "<bp-id>"` and `state: "installing"|"installed"|
- *       "failed"|"degraded"|"pending"`.
+ *       "failed"|"degraded"|"pending"`. A `phase: "component"` event
+ *       with `level: "warn"`/`"error"` and NO `component:` field is
+ *       the helmwatch-skipped/failed-to-start/timeout signal — it
+ *       sets the `phase1WatchSkipped` flag the AdminPage banner reads.
  *   • Anything else with a `component:` field whose value matches a
  *     known Application id falls back to the same component-state
- *     state-machine (running on first sight, failed when level=error,
- *     done when phase=done).
+ *     state-machine (installing on first sight, failed when level=error).
  */
 
 export type ApplicationStatus =
@@ -61,7 +80,7 @@ export type PhaseStatus = 'pending' | 'running' | 'done' | 'failed'
 export interface DeploymentEvent {
   /** RFC3339 timestamp from the API. */
   time?: string
-  /** Phase id — `tofu-*`, `flux-bootstrap`, `install`, etc. */
+  /** Phase id — `tofu-*`, `flux-bootstrap`, `component`, etc. */
   phase: string
   /** Optional log level. */
   level?: 'info' | 'warn' | 'error'
@@ -74,8 +93,8 @@ export interface DeploymentEvent {
    */
   component?: string
   /**
-   * Per-component target state — set on `phase: install` events the API
-   * will emit when each Application's Flux Kustomization changes state.
+   * Per-component target state — set on `phase: component` events the API
+   * emits when each Application's HelmRelease changes state.
    */
   state?: 'pending' | 'installing' | 'installed' | 'failed' | 'degraded'
   /** Optional helm-release name (api may emit; fallback derived from id). */
@@ -123,6 +142,26 @@ export interface ReducerState {
     message: string | null
     lastEventTime: string | null
   }
+  /**
+   * Phase-1 HelmRelease watch availability. True when the catalyst-api
+   * announced (via a `phase: "component"` warn/error event without a
+   * `component:` field, OR via finalize-time when no componentStates
+   * are available) that it could not observe per-component install
+   * state on the new Sovereign cluster — typically because the
+   * kubeconfig was not available on the catalyst-api side.
+   *
+   * The AdminPage reads this to render the "per-component install
+   * monitoring is unavailable" banner instead of pretending the
+   * bp-* HelmReleases are installed.
+   */
+  phase1WatchSkipped: boolean
+  /**
+   * The most-recent helmwatch warn/error message captured. Surfaced
+   * verbatim in the banner detail line so the operator can see the
+   * precise reason (skipped on missing kubeconfig vs. failed to start
+   * vs. context cancelled) without having to crack the raw event log.
+   */
+  phase1WatchSkippedReason: string | null
   /** Event count routed to each per-Application bucket and the two banners. */
   eventsByTarget: Record<string, DeploymentEvent[]>
 }
@@ -179,6 +218,8 @@ export function buildInitialState(applicationIds: readonly string[]): ReducerSta
       message: null,
       lastEventTime: null,
     },
+    phase1WatchSkipped: false,
+    phase1WatchSkippedReason: null,
     eventsByTarget: {},
   }
 }
@@ -238,9 +279,34 @@ export function applyEvent(state: ReducerState, ev: DeploymentEvent): void {
     return
   }
 
+  // ── Phase-1 helmwatch unavailability signal ───────────────────────
+  // The catalyst-api emits a `phase: "component"` event with `level:
+  // "warn"` (or "error") and NO `component:` field when it could not
+  // observe per-component install state on the new Sovereign cluster.
+  // Cases: (a) kubeconfig not available on the catalyst-api side, so
+  // the watch was skipped entirely; (b) NewWatcher() failed to start;
+  // (c) the watch loop terminated by context (timeout). All three
+  // produce the same UI surface — the AdminPage banner — because all
+  // three result in zero ground-truth per-component data for this
+  // deployment. The message is captured verbatim so the operator sees
+  // the actual reason, and `phase1WatchSkipped` flips to true. Once
+  // set, it stays set for the remainder of this deployment's lifetime.
+  if (
+    ev.phase === 'component' &&
+    (ev.level === 'warn' || ev.level === 'error') &&
+    !ev.component
+  ) {
+    state.phase1WatchSkipped = true
+    if (ev.message) state.phase1WatchSkippedReason = ev.message
+    if (time) state.clusterBootstrap.lastEventTime = time
+    pushEventToBucket(state, CLUSTER_BOOTSTRAP_KEY, ev)
+    return
+  }
+
   // ── Per-Application install events (target shape) ─────────────────
-  // Either `phase: install` with `component`, or any phase that carries
-  // `component` matching a known Application id.
+  // Either `phase: component` (helmwatch's PhaseComponent) or any other
+  // phase that carries `component:` matching a known Application id.
+  // This is the ONLY path that can flip a card to `installed`.
   const appId = normaliseComponentId(ev.component) ?? normaliseComponentId(ev.phase)
   if (appId && state.apps[appId]) {
     const app = state.apps[appId]
@@ -289,6 +355,8 @@ export function reduceEvents(base: ReducerState, events: readonly DeploymentEven
       seenResources: new Set(base.hetznerInfra.seenResources),
     },
     clusterBootstrap: { ...base.clusterBootstrap },
+    phase1WatchSkipped: base.phase1WatchSkipped,
+    phase1WatchSkippedReason: base.phase1WatchSkippedReason,
     eventsByTarget: { ...base.eventsByTarget },
   }
   // Clone every nested record we might mutate.
@@ -305,23 +373,85 @@ export function reduceEvents(base: ReducerState, events: readonly DeploymentEven
 }
 
 /**
- * Force every still-`pending`/`installing` Application + every phase
- * banner into the terminal `done`/`installed` state. Called when the
- * SSE stream emits its terminal `done` event with `status: ready` —
- * any Application the API didn't emit a per-component install event
- * for (because the events backlog hasn't caught up) flips to installed
- * so the page reads as "everything is up" without having to wait for
- * a phantom event that may never arrive.
+ * Seed the per-Application card states from the durable
+ * `Result.componentStates` map the catalyst-api persists when its
+ * Phase-1 helmwatch terminated successfully. Keys in the map are the
+ * bare slug ("cilium", "catalyst-platform"); normaliseComponentId()
+ * upgrades them to the canonical "bp-<slug>" form.
+ *
+ * This is the happy path: the operator opens the Admin page after the
+ * deployment has finished, the GET /events replay has the full state
+ * map on the snapshot, and every card reads its own ground-truth
+ * status without waiting on any SSE. Cards whose id is NOT present in
+ * the map keep their existing reducer state — that's the truthful
+ * "the helmwatch never observed this component" outcome and the
+ * AdminPage banner already covers the operator-facing explanation.
+ *
+ * Returns a NEW state object (immutable update).
  */
-export function markAllReady(base: ReducerState): ReducerState {
+export function seedComponentStates(
+  base: ReducerState,
+  componentStates: Record<string, string> | null | undefined,
+): ReducerState {
   const next = reduceEvents(base, [])
+  if (!componentStates) return next
+  for (const [rawId, rawState] of Object.entries(componentStates)) {
+    const id = normaliseComponentId(rawId)
+    if (!id || !next.apps[id]) continue
+    const mapped = mapApiState(rawState as DeploymentEvent['state'])
+    if (!mapped) continue
+    next.apps[id] = { ...next.apps[id]!, status: mapped }
+  }
+  return next
+}
+
+/**
+ * Finalize the deployment view when the catalyst-api reports
+ * `deployment.status === "ready"` (Phase 0 + helmwatch loop terminated).
+ *
+ * GROUNDING RULE — this function is NOT a "pretend everything is
+ * installed" hatch. `deployment.status === "ready"` is exclusively
+ * a Phase-0/control-flow signal; it says nothing per-component.
+ *
+ * Behaviour:
+ *   • Phase banners (Hetzner-infra, Cluster-bootstrap) flip to `done`
+ *     unless they already terminated `failed`. These two banners ARE
+ *     bound to deployment-level status; they're allowed to converge
+ *     here.
+ *   • Per-Application cards do NOT auto-flip to `installed`. They
+ *     either:
+ *       - retain whatever per-component event already drove them, OR
+ *       - get seeded from the supplied `componentStates` map (the
+ *         catalyst-api's durable Result.componentStates), OR
+ *       - remain `pending` if neither signal is present, in which
+ *         case `phase1WatchSkipped` flips to true so the AdminPage
+ *         banner explains why.
+ *
+ * Returns a NEW state object (immutable update).
+ */
+export function markAllReady(
+  base: ReducerState,
+  componentStates?: Record<string, string> | null,
+): ReducerState {
+  // Seed component states first (no-op if undefined/null/empty).
+  const seeded = seedComponentStates(base, componentStates ?? null)
+  const next = reduceEvents(seeded, [])
   next.hetznerInfra.status = next.hetznerInfra.status === 'failed' ? 'failed' : 'done'
   next.clusterBootstrap.status = next.clusterBootstrap.status === 'failed' ? 'failed' : 'done'
-  for (const id of Object.keys(next.apps)) {
-    const a = next.apps[id]
-    if (!a) continue
-    if (a.status !== 'failed' && a.status !== 'degraded') {
-      next.apps[id] = { ...a, status: 'installed' }
+  // If we never received any per-component ground truth — neither
+  // streamed events nor a durable componentStates map — surface the
+  // helmwatch-unavailable banner so the operator sees the truthful
+  // "we don't know, go check the cluster directly" message rather
+  // than a misleading green rollup. We do NOT promote any pending
+  // card to `installed` here.
+  const haveAnyGroundTruth =
+    (componentStates && Object.keys(componentStates).length > 0) ||
+    Object.values(next.apps).some((a) => a.status !== 'pending')
+  if (!haveAnyGroundTruth) {
+    next.phase1WatchSkipped = true
+    if (!next.phase1WatchSkippedReason) {
+      next.phase1WatchSkippedReason =
+        'Phase-1 install state not available — the catalyst-api could not observe per-component install state on the new Sovereign cluster (typically because the kubeconfig was not available on the catalyst-api side). Check the new cluster directly with kubectl get helmrelease -n flux-system.'
     }
   }
   return next

@@ -58,12 +58,29 @@ export interface DeploymentSnapshot {
   region?: string
   error?: string
   numEvents?: number
+  /**
+   * Phase-1 helmwatch ground-truth — populated by the catalyst-api when
+   * its HelmRelease informer terminated. Lifted to the top level by
+   * deployments.go so the UI can read it without unwrapping `result`.
+   * Keys are bare slugs ("cilium", "catalyst-platform"), values are
+   * helmwatch states ("pending"/"installing"/"installed"/"degraded"/
+   * "failed"). Empty/missing means the watch was skipped or could not
+   * start; the eventReducer's `markAllReady` flips `phase1WatchSkipped`
+   * in that case.
+   */
+  componentStates?: Record<string, string>
+  /** UTC timestamp the helmwatch loop terminated (RFC3339). */
+  phase1FinishedAt?: string
   result?: {
     sovereignFQDN: string
     controlPlaneIP: string
     loadBalancerIP: string
     consoleURL: string
     gitopsRepoURL: string
+    /** Same map as the top-level `componentStates`; either may be present. */
+    componentStates?: Record<string, string>
+    /** Same as top-level `phase1FinishedAt`. */
+    phase1FinishedAt?: string
   }
 }
 
@@ -152,7 +169,15 @@ export function useDeploymentEvents(
           setSnapshot(body.state)
           setFinishedAt((prev) => prev ?? Date.now())
           if (body.state.status === 'ready') {
-            setState((prev) => markAllReady(prev))
+            // GROUNDING — pass the helmwatch componentStates map (if
+            // any) into markAllReady so each card seeds from the
+            // durable map; cards NOT named in the map remain pending
+            // and the AdminPage banner explains why. We never let
+            // deployment.status==="ready" alone flip cards to
+            // installed.
+            const componentStates =
+              body.state.componentStates ?? body.state.result?.componentStates ?? null
+            setState((prev) => markAllReady(prev, componentStates))
             setStreamStatus('completed')
           } else if (body.state.status === 'failed') {
             setStreamStatus('failed')
@@ -201,7 +226,10 @@ export function useDeploymentEvents(
         setSnapshot(snap)
         setFinishedAt(Date.now())
         if (snap?.status === 'ready') {
-          setState((prev) => markAllReady(prev))
+          // Same grounding rule as the GET-replay path above.
+          const componentStates =
+            snap.componentStates ?? snap.result?.componentStates ?? null
+          setState((prev) => markAllReady(prev, componentStates))
           setStreamStatus('completed')
         } else {
           setStreamStatus('failed')
