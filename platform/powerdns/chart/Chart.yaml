@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-powerdns
-version: 1.0.3
+version: 1.0.4
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
