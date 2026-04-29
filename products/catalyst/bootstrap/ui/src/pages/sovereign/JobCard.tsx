@@ -54,7 +54,7 @@ export function JobCard({ job, deploymentId, defaultExpanded }: JobCardProps) {
         data-job-kind={job.app === 'infrastructure' ? 'provision' : job.app === 'cluster-bootstrap' ? 'bootstrap' : 'install'}
         data-job-status={job.status}
         aria-expanded={expanded}
-        data-testid={`sov-job-row-${job.id}`}
+        data-testid={`job-row-${job.id}`}
       >
         {/* Status icon (running spinner / success check / failed X / pending clock) */}
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent)]/10">
@@ -132,7 +132,7 @@ export function JobCard({ job, deploymentId, defaultExpanded }: JobCardProps) {
       {expanded ? (
         <div
           className="border-t border-[var(--color-border)] p-4"
-          data-testid={`sov-job-panel-${job.id}`}
+          data-testid={`job-expansion-${job.id}`}
         >
           {job.steps.length === 0 ? (
             <p className="text-xs text-[var(--color-text-dimmer)]">

@@ -58,7 +58,7 @@ beforeEach(() => {})
 describe('Sidebar — chrome', () => {
   it('renders the OpenOva mark + wordmark in the header', async () => {
     renderSidebarAt('/provision/d-test-1234')
-    const sidebar = await screen.findByTestId('sov-sidebar')
+    const sidebar = await screen.findByTestId('admin-sidebar')
     // SVG logo present
     expect(sidebar.querySelector('svg')).toBeTruthy()
     expect(within(sidebar).getByText('OpenOva')).toBeTruthy()
@@ -113,7 +113,7 @@ describe('Sidebar — navigation', () => {
 describe('Sidebar — operator card', () => {
   it('renders Operator + "Provisioning session" footer text', async () => {
     renderSidebarAt('/provision/d-test-1234')
-    const sidebar = await screen.findByTestId('sov-sidebar')
+    const sidebar = await screen.findByTestId('admin-sidebar')
     expect(within(sidebar).getByText('Operator')).toBeTruthy()
     expect(within(sidebar).getByText('Provisioning session')).toBeTruthy()
   })

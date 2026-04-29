@@ -113,7 +113,7 @@ describe('JobCard — chrome', () => {
 describe('JobCard — expand / collapse', () => {
   it('default-expands a running job', async () => {
     renderWithRouter(<JobCard job={RUNNING_JOB} deploymentId="d-1" />)
-    const panel = await screen.findByTestId(`sov-job-panel-${RUNNING_JOB.id}`)
+    const panel = await screen.findByTestId(`job-expansion-${RUNNING_JOB.id}`)
     expect(panel).toBeTruthy()
     // All three steps render
     expect(within(panel).getByTestId('sov-step-0')).toBeTruthy()
@@ -124,21 +124,21 @@ describe('JobCard — expand / collapse', () => {
   it('default-collapses a pending job', async () => {
     renderWithRouter(<JobCard job={PENDING_INFRA_JOB} deploymentId="d-1" />)
     expect(await screen.findByTestId(`sov-job-card-${PENDING_INFRA_JOB.id}`)).toBeTruthy()
-    expect(screen.queryByTestId(`sov-job-panel-${PENDING_INFRA_JOB.id}`)).toBeNull()
+    expect(screen.queryByTestId(`job-expansion-${PENDING_INFRA_JOB.id}`)).toBeNull()
   })
 
   it('clicking the row toggles expansion', async () => {
     renderWithRouter(<JobCard job={PENDING_INFRA_JOB} deploymentId="d-1" />)
-    const row = await screen.findByTestId(`sov-job-row-${PENDING_INFRA_JOB.id}`)
+    const row = await screen.findByTestId(`job-row-${PENDING_INFRA_JOB.id}`)
     fireEvent.click(row)
-    expect(screen.queryByTestId(`sov-job-panel-${PENDING_INFRA_JOB.id}`)).toBeTruthy()
+    expect(screen.queryByTestId(`job-expansion-${PENDING_INFRA_JOB.id}`)).toBeTruthy()
     fireEvent.click(row)
-    expect(screen.queryByTestId(`sov-job-panel-${PENDING_INFRA_JOB.id}`)).toBeNull()
+    expect(screen.queryByTestId(`job-expansion-${PENDING_INFRA_JOB.id}`)).toBeNull()
   })
 
   it('respects defaultExpanded={true}', async () => {
     renderWithRouter(<JobCard job={PENDING_INFRA_JOB} deploymentId="d-1" defaultExpanded />)
-    expect(await screen.findByTestId(`sov-job-panel-${PENDING_INFRA_JOB.id}`)).toBeTruthy()
+    expect(await screen.findByTestId(`job-expansion-${PENDING_INFRA_JOB.id}`)).toBeTruthy()
   })
 })
 
@@ -162,7 +162,7 @@ describe('JobCard — app-name link', () => {
 describe('JobCard — empty steps', () => {
   it('shows a placeholder when an expanded job has no steps yet', async () => {
     renderWithRouter(<JobCard job={PENDING_INFRA_JOB} deploymentId="d-1" defaultExpanded />)
-    const panel = await screen.findByTestId(`sov-job-panel-${PENDING_INFRA_JOB.id}`)
+    const panel = await screen.findByTestId(`job-expansion-${PENDING_INFRA_JOB.id}`)
     expect(panel.textContent).toContain('No steps yet')
   })
 })

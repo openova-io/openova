@@ -87,7 +87,7 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
   return (
     <aside
       className="fixed left-0 top-0 flex h-screen w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-2)]"
-      data-testid="sov-sidebar"
+      data-testid="admin-sidebar"
     >
       {/* Logo + Sovereign label (replaces canonical Tenant switcher) */}
       <div className="border-b border-[var(--color-border)]">
