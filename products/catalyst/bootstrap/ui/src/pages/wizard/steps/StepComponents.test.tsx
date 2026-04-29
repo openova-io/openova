@@ -94,10 +94,22 @@ describe('component catalog', () => {
     }
   })
 
-  it('every component carries a logoUrl (default `/component-logos/<id>.svg`)', () => {
+  it('every component without an explicit override carries the default logoUrl `/component-logos/<id>.svg`', () => {
+    // In Vitest BASE_URL is `/`, so basePath() emits `/component-logos/<id>.svg`.
+    // In production Vite injects BASE_URL=/sovereign/ at build time and the
+    // same expression emits `/sovereign/component-logos/<id>.svg`.
     for (const c of ALL_COMPONENTS) {
+      if (c.logoUrl === null) continue // explicit fallback (e.g. powerdns)
       expect(c.logoUrl).toBe(`/component-logos/${c.id}.svg`)
     }
+  })
+
+  it('components flagged with logoUrl: null fall back to the letter-mark', () => {
+    // PowerDNS has no upstream brand mark — it should render via IconFallback,
+    // not an <img> element. Verified at the data layer + render layer.
+    const powerdns = findComponent('powerdns')
+    expect(powerdns).toBeTruthy()
+    expect(powerdns!.logoUrl).toBeNull()
   })
 })
 
@@ -191,6 +203,18 @@ describe('Tab 1 (Choose Your Stack) — card grid', () => {
     render(<StepComponents />)
     expect(screen.getByTestId('logo-grafana')).toBeTruthy()
     expect(screen.getByTestId('logo-grafana').getAttribute('src')).toBe('/component-logos/grafana.svg')
+  })
+
+  it('renders the letter-mark fallback (no <img>) for components with logoUrl: null', () => {
+    // Mandatory cards live in Tab 2 — switch tabs so PowerDNS is in the DOM.
+    // This is the SAME graceful fallback path the wizard uses when an SVG
+    // fetch 404s — ComponentLogo branches on `!entry.logoUrl` and emits the
+    // IconFallback span instead of <img>. (#173)
+    render(<StepComponents />)
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const card = screen.getByTestId('component-card-powerdns')
+    expect(within(card).queryByTestId('logo-powerdns')).toBeNull()
+    expect(card.textContent).toMatch(/PowerDNS/)
   })
 })
 

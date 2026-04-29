@@ -1,3 +1,33 @@
+/**
+ * componentGroups.ts — single source of truth for the platform-component
+ * catalog rendered by the Sovereign wizard's StepComponents page.
+ *
+ * ── Logo path convention (#173) ──────────────────────────────────────
+ * Brand SVGs are vendored under
+ *   `products/catalyst/bootstrap/ui/public/component-logos/<id>.svg`
+ * and Vite copies `public/` to the root of the dist output at build time.
+ *
+ * The UI is mounted at the Vite `base` path (see vite.config.ts). In
+ * production that is `/sovereign/`, so the browser is on
+ * `https://console.openova.io/sovereign/` and absolute URLs in the SPA
+ * MUST be prefixed with the same base — `/component-logos/foo.svg`
+ * returns 404 while `/sovereign/component-logos/foo.svg` returns 200.
+ *
+ * To stay base-aware without hardcoding `/sovereign/` (INVIOLABLE
+ * PRINCIPLE #4) every default logo URL is derived from `path()` in
+ * `shared/config/urls.ts`, which itself reads `import.meta.env.BASE_URL`.
+ * That variable is populated by Vite at build time from the `base`
+ * config — change `base` and every logo URL follows automatically. In
+ * Vitest (where `BASE_URL` defaults to `/`) URLs resolve to
+ * `/component-logos/<id>.svg` which matches the in-memory test fixture.
+ *
+ * `logoUrl: null` disables the SVG and renders the letter-mark fallback
+ * (`IconFallback` in StepComponents.tsx). Use this for components with
+ * no upstream brand SVG suitable for a square card tile.
+ */
+
+import { path as basePath } from '@/shared/config/urls'
+
 export type Tier = 'mandatory' | 'recommended' | 'optional'
 
 export interface ComponentDef {
@@ -66,7 +96,9 @@ export const GROUPS: GroupDef[] = [
       // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
       // Lua-records (ifurlup, pickclosest, ifportup) cover geo + health-checked failover
       // natively — see docs/MULTI-REGION-DNS.md for the failover patterns.
-      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records', tier: 'mandatory',   dependencies: ['cnpg'] },
+      // PowerDNS has no single-glyph upstream brand mark suitable for a
+      // square card tile — render the letter-mark fallback instead (#173).
+      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records', tier: 'mandatory',   dependencies: ['cnpg'], logoUrl: null },
       { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'] },
       { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                                                 tier: 'mandatory',   dependencies: [] },
       { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                                           tier: 'recommended', dependencies: [] },
@@ -193,10 +225,13 @@ export const ALL_COMPONENTS: ComponentEntry[] = GROUPS.flatMap(g =>
   g.components.map(c => ({
     ...c,
     dependencies: c.dependencies ?? [],
-    // Default logo path: vendored SVG keyed by component id.
-    // null in the source overrides the default and tells the UI to draw
-    // the letter-mark fallback (used for components with no upstream logo).
-    logoUrl: c.logoUrl === undefined ? `/component-logos/${c.id}.svg` : c.logoUrl,
+    // Default logo path: vendored SVG keyed by component id, prefixed
+    // with the Vite `base` so the URL works behind /sovereign/ (prod)
+    // or / (dev / test). `null` in the source overrides the default
+    // and tells the UI to draw the letter-mark fallback (components
+    // without a vendored SVG). See the `Logo path convention` block at
+    // the top of this file for the full rationale.
+    logoUrl: c.logoUrl === undefined ? basePath(`component-logos/${c.id}.svg`) : c.logoUrl,
     groupId: g.id,
     groupName: g.productName,
     groupSubtitle: g.subtitle,
