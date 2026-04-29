@@ -1,4 +1,4 @@
-# bp-catalyst-platform — Catalyst Blueprint #11 of 11. The umbrella
+# bp-catalyst-platform — Catalyst Blueprint #13 of 13. The umbrella
 # Blueprint that brings up the Catalyst control plane: console, marketplace,
 # admin, catalog-svc, projector, provisioning, environment-controller,
 # blueprint-controller, billing.
