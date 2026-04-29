@@ -1,12 +1,14 @@
 apiVersion: v2
 name: bp-external-dns
-version: 1.0.0
+version: 1.1.0
 description: |
-  Catalyst-curated Blueprint wrapper for ExternalDNS. Carries Catalyst-specific
-  values.yaml on top of the upstream external-dns Helm chart; the bootstrap-kit
-  installer (products/catalyst/bootstrap/api/internal/bootstrap/) reads the
-  upstream chart reference from values.yaml's metadata block and applies the
-  values overlay at helm install time.
+  Catalyst-curated Blueprint umbrella chart for ExternalDNS. Depends on the
+  upstream `external-dns` chart (kubernetes-sigs) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact;
+  the Catalyst overlay templates in templates/ (NetworkPolicy,
+  ServiceMonitor, ExternalSecret) sit alongside the upstream subchart and
+  Helm renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `external-dns:` key in values.yaml.
 
   ExternalDNS synchronizes Kubernetes Gateway/Service/Ingress resources with
   the per-Sovereign PowerDNS authoritative server (and any external cloud DNS
@@ -19,3 +21,14 @@ keywords: [catalyst, blueprint, external-dns, dns]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to kubernetes-sigs/external-dns
+# 1.15.2 (appVersion 0.15.1) — last 1.15.x release, validated against
+# Kubernetes 1.31. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release; mirrors
+# bp-cilium / bp-cert-manager / bp-powerdns wrapper shape.
+dependencies:
+  - name: external-dns
+    version: "1.15.2"
+    repository: "https://kubernetes-sigs.github.io/external-dns/"

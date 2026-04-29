@@ -47,3 +47,18 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  values:
+    cilium:
+      prometheus:
+        enabled: false
+        serviceMonitor:
+          enabled: false
+      hubble:
+        metrics:
+          enabled: null
+          serviceMonitor:
+            enabled: false
+        relay:
+          enabled: false
+        ui:
+          enabled: false
