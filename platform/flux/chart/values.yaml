@@ -27,3 +27,14 @@ flux2:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 256Mi }
+  # Prometheus PodMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false). The upstream flux2
+  # chart's `prometheus.podMonitor.create` renders a
+  # monitoring.coreos.com/v1 PodMonitor which the apiserver rejects on a
+  # fresh Sovereign before bp-kube-prometheus-stack ships the CRD.
+  # Operator opts in via per-cluster overlay (issue #182).
+  prometheus:
+    podMonitor:
+      create: false

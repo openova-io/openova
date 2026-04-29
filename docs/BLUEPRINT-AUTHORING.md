@@ -466,6 +466,112 @@ A non-empty result proves the upstream subchart is inside the OCI artifact.
 
 ---
 
+## 11.2 Observability toggles must default false (hard contract — CI-enforced)
+
+**Every observability toggle in a Blueprint's `chart/values.yaml` — `serviceMonitor.enabled`, `metrics.enabled`, `prometheusRule.enabled`, `monitoring.enabled`, `tracing.enabled`, `prometheus.enabled` and analogues — MUST default to `false`.** The operator opts in via per-cluster values overlay AFTER the observability tier (kube-prometheus-stack / Grafana / Tempo) is reconciled.
+
+This rule is a direct consequence of [`INVIOLABLE-PRINCIPLES.md` #4](INVIOLABLE-PRINCIPLES.md) (never hardcode): a chart-level `true` is a hardcoded operational decision that assumes a runtime that does not yet exist.
+
+### Why
+
+The CRDs that back ServiceMonitor / PrometheusRule (`monitoring.coreos.com/v1`) ship with `kube-prometheus-stack` — an Application-tier Blueprint that depends on the bootstrap-kit (Cilium first, then cert-manager, then Flux, etc.). If `bp-cilium` defaults `cilium.prometheus.serviceMonitor.enabled: true`, Helm renders a ServiceMonitor that the apiserver immediately rejects:
+
+```
+no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"
+— ensure CRDs are installed first
+```
+
+The apparent mitigation `serviceMonitor.trustCRDsExist: true` only suppresses Helm's render-time gate; the apiserver still rejects the resource at install-time. Result: bp-cilium's HelmRelease enters InstallFailed, every downstream bp-* HelmRelease (`dependsOn: bp-cilium`) reports `dep is not ready`, and the whole Sovereign bootstrap stalls. Verified failure mode on `omantel.omani.works` 2026-04-29 ([issue #182](https://github.com/openova-io/openova/issues/182)).
+
+The fix is structural: every observability knob is operator-tunable, lives in `values.yaml`, and ships `false`. The operator turns it on via the per-cluster overlay at `clusters/<sovereign>/bootstrap-kit/<NN>-bp-<name>.yaml` once the observability tier is reconciled — no rebuild of the Blueprint OCI artifact is required.
+
+### Canonical pattern
+
+```yaml
+# platform/cilium/chart/values.yaml — DEFAULT OFF
+cilium:
+  prometheus:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+```
+
+```yaml
+# clusters/<sovereign>/bootstrap-kit/01-cilium.yaml — OPERATOR OPT-IN
+spec:
+  values:
+    cilium:
+      prometheus:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+```
+
+### What CI enforces
+
+`.github/workflows/blueprint-release.yaml` runs `tests/observability-toggle.sh` (when present under `platform/<name>/chart/tests/`) on every publish. The canonical script asserts:
+
+| Case | Assertion |
+|---|---|
+| Default render (`helm template` no `--set`) | Zero `monitoring.coreos.com/v1` references AND zero `kind: ServiceMonitor`. |
+| Opt-in render (`--set <toggle>=true`) | Render succeeds AND produces a ServiceMonitor (proves the toggle is wired). |
+| Explicit-off render (`--set <toggle>=false`) | Render succeeds AND zero `monitoring.coreos.com/v1` references. |
+
+Any case failing fails the publish job. A regression that re-introduces a hardcoded `enabled: true` cannot reach a Sovereign through the sanctioned CI path.
+
+### Authoring rule
+
+When you wrap an upstream chart whose own values default an observability toggle `true` (e.g. cert-manager v1.16 `prometheus.enabled: true` historically), the Catalyst overlay MUST set it back to `false` in `chart/values.yaml`:
+
+```yaml
+# platform/cert-manager/chart/values.yaml
+cert-manager:
+  prometheus:
+    enabled: false        # Catalyst overrides upstream `true`
+    servicemonitor:
+      enabled: false
+```
+
+If a Blueprint exposes a more elaborate observability surface (e.g. a chart that ships its own `PrometheusRule` template gated by `monitoring.alerts.enabled`), default ALL such gates `false`. Add a row to `tests/observability-toggle.sh` for each non-trivial toggle.
+
+### Existing exemplars
+
+Every bootstrap-kit Blueprint at v1.1.1+ ships every observability surface defaulted off. The table below is the complete audit (issue #182):
+
+| Blueprint | Toggle | Default | Why |
+|---|---|---|---|
+| bp-cilium | `cilium.prometheus.enabled` | `false` | Renders ServiceMonitor when true |
+| bp-cilium | `cilium.prometheus.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor — CRD ships with kube-prometheus-stack |
+| bp-cilium | `cilium.hubble.relay.enabled` | `false` | Relay Deployment depends on hubble metrics scraping |
+| bp-cilium | `cilium.hubble.ui.enabled` | `false` | UI Deployment depends on relay |
+| bp-cilium | `cilium.hubble.metrics.enabled` | `null` | A populated list triggers an unconditional metrics ServiceMonitor render in the upstream chart |
+| bp-cilium | `cilium.hubble.metrics.serviceMonitor.enabled` | `false` | Belt-and-braces |
+| bp-cert-manager | `cert-manager.prometheus.enabled` | `false` | Upstream defaults true historically; we override |
+| bp-cert-manager | `cert-manager.prometheus.servicemonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-flux | `flux2.prometheus.podMonitor.create` | `false` | monitoring.coreos.com/v1 PodMonitor |
+| bp-crossplane | `crossplane.metrics.enabled` | `false` | Upstream emits prometheus.io/scrape annotation only — kept off for uniformity |
+| bp-sealed-secrets | `sealed-secrets.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-spire | `spire.global.spire.recommendations.enabled` | `false` | Cascades prometheus exporters into spire-server / spire-agent |
+| bp-spire | `spire.global.spire.recommendations.prometheus` | `false` | Belt-and-braces inside the recommendations bundle |
+| bp-nats-jetstream | `nats.promExporter.enabled` | `false` | Sidecar exporter container |
+| bp-nats-jetstream | `nats.promExporter.podMonitor.enabled` | `false` | monitoring.coreos.com/v1 PodMonitor |
+| bp-openbao | `openbao.injector.metrics.enabled` | `false` | injector metrics endpoint |
+| bp-openbao | `openbao.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-keycloak | `keycloak.metrics.enabled` | `false` | Statistics endpoint |
+| bp-keycloak | `keycloak.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-keycloak | `keycloak.metrics.prometheusRule.enabled` | `false` | monitoring.coreos.com/v1 PrometheusRule |
+| bp-gitea | `gitea.gitea.metrics.enabled` | `false` | Built-in /metrics endpoint |
+| bp-gitea | `gitea.gitea.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-gitea | `gitea.postgresql.metrics.enabled` | `false` | bitnami postgresql exporter sidecar |
+| bp-gitea | `gitea.postgresql.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
+| bp-gitea | `gitea.postgresql.metrics.prometheusRule.enabled` | `false` | monitoring.coreos.com/v1 PrometheusRule |
+| bp-powerdns | `powerdns.serviceMonitor.enabled` | `false` | Forward-compatibility guard — current upstream pschichtel/powerdns 0.10.0 has no ServiceMonitor template, but a future upstream bump must not silently regress |
+| bp-powerdns | `powerdns.metrics.enabled` | `false` | Forward-compatibility guard |
+
+Operators flip these on at `clusters/<sovereign>/bootstrap-kit/*` once `bp-kube-prometheus-stack` (Application Blueprint) reconciles.
+
+---
+
 ## 12. Authoring private Blueprints (in a customer Sovereign)
 
 For corporate customers: the Org's platform team can author private Blueprints without involving OpenOva.

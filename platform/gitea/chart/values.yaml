@@ -24,6 +24,21 @@ gitea:
       server:
         DOMAIN: gitea.catalyst.local
         ROOT_URL: https://gitea.catalyst.local
+    # Gitea built-in metrics + ServiceMonitor — DEFAULT OFF.
+    #
+    # Per docs/INVIOLABLE-PRINCIPLES.md #4 and
+    # docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles must
+    # default false). The upstream gitea chart's
+    # `gitea.gitea.metrics.serviceMonitor.enabled` renders a
+    # monitoring.coreos.com/v1 ServiceMonitor which the apiserver rejects
+    # on a fresh Sovereign before bp-kube-prometheus-stack ships the CRD.
+    # Upstream already defaults to false — set explicitly so a future
+    # upstream bump cannot regress this. Operator opts in via per-cluster
+    # overlay (issue #182).
+    metrics:
+      enabled: false
+      serviceMonitor:
+        enabled: false
   postgresql-ha:
     enabled: false
   postgresql:
@@ -33,6 +48,17 @@ gitea:
         auth:
           username: gitea
           database: gitea
+    # PostgreSQL exporter + ServiceMonitor + PrometheusRule — DEFAULT OFF.
+    # The bitnami postgresql subchart bundled inside gitea ships a
+    # dedicated metrics exporter container that itself renders a
+    # ServiceMonitor and PrometheusRule. Same circular-CRD reasoning
+    # as above. Operator opts in via per-cluster overlay (issue #182).
+    metrics:
+      enabled: false
+      serviceMonitor:
+        enabled: false
+      prometheusRule:
+        enabled: false
   redis-cluster:
     enabled: false
   valkey-cluster:

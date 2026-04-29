@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.0
-appVersion: 1.1.0
+version: 1.1.1
+appVersion: 1.1.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -20,34 +20,34 @@ type: application
 
 dependencies:
   - name: bp-cilium
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-cert-manager
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-flux
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-crossplane
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-sealed-secrets
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-spire
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-nats-jetstream
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-openbao
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-keycloak
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-gitea
-    version: 1.1.0
+    version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-external-dns
     version: 1.0.0

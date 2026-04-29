@@ -38,21 +38,40 @@ cilium:
     enabled: true
     type: wireguard
 
-  # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics)
+  # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics).
+  #
+  # DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles
+  # must default false) + INVIOLABLE-PRINCIPLES.md #4 (never hardcode).
+  #
+  # Hubble relay/ui depend on the kube-prometheus-stack
+  # `monitoring.coreos.com/v1` ServiceMonitor CRD AND on Hubble metrics
+  # being scraped — neither exists on a fresh Sovereign before the
+  # observability tier (Application Blueprint bp-kube-prometheus-stack)
+  # is reconciled. Worse: enabling `hubble.metrics.enabled` with values
+  # like `dns:query;ignoreAAAA` causes the upstream Cilium chart to render
+  # a ServiceMonitor unconditionally (verified on omantel.omani.works
+  # 2026-04-29 — install fails with "no matches for kind ServiceMonitor in
+  # version monitoring.coreos.com/v1").
+  #
+  # `metrics.enabled: null` (NOT [] and NOT a populated list) is the
+  # exact value that makes the upstream Cilium chart skip the metrics
+  # ServiceMonitor template branch — verified by reading the upstream
+  # cilium 1.16.5 chart's _hubble.tpl.
+  #
+  # Operator opts in via clusters/<sovereign>/bootstrap-kit/01-cilium.yaml
+  # values overlay once bp-kube-prometheus-stack reconciles (issue #182).
   hubble:
     enabled: true
     relay:
-      enabled: true
+      enabled: false
     ui:
-      enabled: true
+      enabled: false
     metrics:
-      enabled:
-        - dns:query;ignoreAAAA
-        - drop
-        - tcp
-        - flow
-        - icmp
-        - http
+      # `null` — not a list. Disables the upstream chart's metrics
+      # ServiceMonitor template entirely.
+      enabled: null
+      serviceMonitor:
+        enabled: false
 
   # Gateway API — replaces traditional ingress controllers
   gatewayAPI:
@@ -78,14 +97,28 @@ cilium:
     limits:
       memory: 1Gi
 
-  # ServiceMonitor for Prometheus scraping (Catalyst observability stack consumes)
+  # Prometheus scraping + ServiceMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) and
+  # docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles must default
+  # false): observability toggles MUST default `false` because the
+  # `monitoring.coreos.com/v1` CRDs that back ServiceMonitor / PrometheusRule
+  # ship with kube-prometheus-stack — a second-tier Application Blueprint
+  # that itself depends on the bootstrap-kit (cilium first). Defaulting
+  # `serviceMonitor.enabled: true` here creates a circular CRD dependency:
+  # bp-cilium wants the CRD that bp-kube-prometheus-stack provides, but
+  # bp-kube-prometheus-stack cannot install before bp-cilium. The
+  # `trustCRDsExist=true` mitigation only suppresses Helm's render-time
+  # gate; at install time the apiserver still rejects ServiceMonitor with
+  # "no matches for kind ServiceMonitor in version monitoring.coreos.com/v1
+  # — ensure CRDs are installed first" (verified on omantel.omani.works
+  # 2026-04-29, issue #182).
+  #
+  # Operator opts in once the observability tier is reconciled. The opt-in
+  # is a per-cluster values overlay at clusters/<sovereign>/bootstrap-kit/
+  # 01-cilium.yaml `spec.values.cilium.prometheus.serviceMonitor.enabled:
+  # true` — no rebuild of the Blueprint OCI artifact is required.
   prometheus:
-    enabled: true
+    enabled: false
     serviceMonitor:
-      enabled: true
-      # Cilium chart's ServiceMonitor template insists the
-      # monitoring.coreos.com/v1 CRD must be installed at render time
-      # unless we explicitly trust it. The Catalyst observability stack
-      # ships the kube-prometheus-stack CRDs alongside this Blueprint, so
-      # the trust assertion is correct.
-      trustCRDsExist: true
+      enabled: false

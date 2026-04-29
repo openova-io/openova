@@ -17,5 +17,16 @@ crossplane:
   resourcesCrossplane:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }
+  # Prometheus metrics annotations — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false). The upstream
+  # crossplane chart's `metrics.enabled` only adds prometheus.io/scrape
+  # annotations and a 8080/metrics port — it does NOT render
+  # ServiceMonitor or any monitoring.coreos.com/v1 resource — so defaulting
+  # `true` here would not break install. We default it `false` anyway to
+  # keep the rule uniform across every Blueprint: every observability
+  # toggle is operator-tunable and ships off. Operator opts in via
+  # per-cluster overlay (issue #182).
   metrics:
-    enabled: true
+    enabled: false

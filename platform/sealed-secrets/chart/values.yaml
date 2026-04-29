@@ -18,3 +18,15 @@ sealed-secrets:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 128Mi }
+  # Prometheus ServiceMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false). Upstream
+  # sealed-secrets 2.16.1 already defaults `metrics.serviceMonitor.enabled`
+  # to false, but we set it explicitly here so a future upstream bump
+  # that flips the default cannot regress a fresh-Sovereign install.
+  # Operator opts in via per-cluster overlay once bp-kube-prometheus-stack
+  # reconciles (issue #182).
+  metrics:
+    serviceMonitor:
+      enabled: false

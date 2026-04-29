@@ -27,3 +27,19 @@ openbao:
       size: 10Gi
   ui:
     enabled: true
+  # Injector metrics endpoint — DEFAULT OFF.
+  injector:
+    metrics:
+      enabled: false
+  # ServiceMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false). The upstream
+  # openbao chart's `serviceMonitor.enabled` renders a
+  # monitoring.coreos.com/v1 ServiceMonitor which the apiserver rejects
+  # on a fresh Sovereign before bp-kube-prometheus-stack ships the CRD.
+  # Upstream already defaults to false — set explicitly so a future
+  # upstream bump cannot regress this. Operator opts in via per-cluster
+  # overlay (issue #182).
+  serviceMonitor:
+    enabled: false

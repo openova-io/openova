@@ -321,6 +321,48 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      # ──────────────────────────────────────────────────────────────
+      # GATE — Per-chart integration tests under chart/tests/*.sh
+      # ──────────────────────────────────────────────────────────────
+      # Every chart under platform/<name>/chart/tests/ that ships a *.sh
+      # script gets executed here against the working-tree chart. Tests
+      # SHOULD be self-contained `helm template` assertions (no kind
+      # cluster); kind-based tests live in a separate workflow that we
+      # don't gate publish on.
+      #
+      # Canonical example: tests/observability-toggle.sh — verifies the
+      # docs/BLUEPRINT-AUTHORING.md §11.2 rule (observability toggles
+      # default false). A chart authoring regression that re-introduces
+      # a hardcoded `serviceMonitor.enabled: true` fails this gate and
+      # the publish job dies BEFORE the OCI artifact is pushed (issue
+      # #182).
+      - name: "Run chart integration tests (chart/tests/*.sh)"
+        if: steps.chart.outputs.skip != 'true'
+        id: chart_tests
+        run: |
+          set -euo pipefail
+          chart_dir="${{ matrix.path }}/chart"
+          tests_dir="$chart_dir/tests"
+          if [ ! -d "$tests_dir" ]; then
+            echo "No tests/ directory at $tests_dir — skipping chart tests."
+            exit 0
+          fi
+          shopt -s nullglob
+          scripts=( "$tests_dir"/*.sh )
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "tests/ directory present at $tests_dir but no *.sh scripts — skipping."
+            exit 0
+          fi
+          echo "Running ${#scripts[@]} chart-test script(s) under $tests_dir:"
+          for s in "${scripts[@]}"; do
+            echo "  → $s"
+          done
+          for s in "${scripts[@]}"; do
+            echo "── $(basename "$s") ──"
+            bash "$s" "$chart_dir"
+          done
+          echo "All chart-test scripts passed."
+
       - name: Helm push to GHCR
         if: steps.chart.outputs.skip != 'true'
         id: push
