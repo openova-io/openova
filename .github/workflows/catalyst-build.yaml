@@ -62,22 +62,47 @@ jobs:
           echo "Smoke test (root) passed: HTTP $STATUS"
 
           # Logo path regression guard (#173): the wizard's StepComponents
-          # references `${BASE}component-logos/<id>.svg` where BASE is the
-          # Vite base. Inside the catalyst-ui pod, nginx serves the file
-          # at /component-logos/<id>.svg (Traefik strips /sovereign before
-          # proxying — see nginx.conf comment), so we test the same path
-          # here. Spot-check a representative subset across product groups
-          # so a missing or mis-cased SVG fails the build, not the user.
-          for id in cilium flux harbor grafana keycloak openbao langfuse \
-                    vllm temporal stalwart cnpg; do
+          # references `${BASE}component-logos/<id>.<ext>` where BASE is the
+          # Vite base and the extension is whatever the upstream brand mark
+          # is published as (some are SVG, some are PNG — we use the canonical
+          # upstream asset rather than auto-converting). Inside the catalyst-
+          # ui pod nginx serves the file at /component-logos/<id>.<ext>
+          # (Traefik strips /sovereign before proxying — see nginx.conf
+          # comment). We list every logo path that componentGroups.ts
+          # references, so a missing or mis-cased asset fails the build,
+          # not the user.
+          for path in \
+              component-logos/cilium.svg \
+              component-logos/flux.svg \
+              component-logos/harbor.svg \
+              component-logos/grafana.svg \
+              component-logos/keycloak.svg \
+              component-logos/openbao.svg \
+              component-logos/langfuse.png \
+              component-logos/vllm.png \
+              component-logos/temporal.svg \
+              component-logos/stalwart.svg \
+              component-logos/cnpg.svg \
+              component-logos/loki.png \
+              component-logos/mimir.png \
+              component-logos/tempo.png \
+              component-logos/ntfy.png \
+              component-logos/ferretdb.png \
+              component-logos/openmeter.png \
+              component-logos/coraza.png \
+              component-logos/external-dns.png \
+              component-logos/netbird.png \
+              component-logos/strongswan.png \
+              component-logos/trivy.png \
+              component-logos/syft-grype.png ; do
             CODE=$(curl -s -o /dev/null -w '%{http_code}' \
-              "http://localhost:8080/component-logos/${id}.svg")
+              "http://localhost:8080/${path}")
             if [ "$CODE" != "200" ]; then
-              echo "Logo smoke FAILED: /component-logos/${id}.svg returned $CODE"
+              echo "Logo smoke FAILED: /${path} returned $CODE"
               docker stop smoke-ui
               exit 1
             fi
-            echo "Logo smoke OK: /component-logos/${id}.svg HTTP $CODE"
+            echo "Logo smoke OK: /${path} HTTP $CODE"
           done
 
           docker stop smoke-ui
