@@ -137,18 +137,53 @@ write_files:
           !/platform
           !/products
       ---
+      # Two Flux Kustomizations with dependsOn so Crossplane CRDs land
+      # before any resource that uses them is dry-run-applied.
+      #
+      # bootstrap-kit installs the 11 HelmReleases (Cilium, cert-manager,
+      # Flux, Crossplane core, sealed-secrets, SPIRE, NATS-JetStream,
+      # OpenBao, Keycloak, Gitea, bp-catalyst-platform). bp-crossplane
+      # registers the Crossplane core CRDs (Provider, ProviderConfig…)
+      # AND the bp-catalyst-platform umbrella reconciles the rest.
+      #
+      # infrastructure-config applies the cluster's Provider package +
+      # ProviderConfig + Compositions. Because it dependsOn bootstrap-kit
+      # AND uses wait: true, Flux waits until bootstrap-kit's HelmReleases
+      # are Ready (Crossplane core + provider-hcloud installed,
+      # hcloud.crossplane.io/v1beta1 CRDs registered) before dry-running
+      # ProviderConfig — which is the exact ordering the prior single-
+      # Kustomization model tripped over with:
+      #   no matches for kind "ProviderConfig" in version
+      #   "hcloud.crossplane.io/v1beta1"
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
-        name: catalyst-bootstrap
+        name: bootstrap-kit
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/${sovereign_fqdn}
+        path: ./clusters/${sovereign_fqdn}/bootstrap-kit
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
+        wait: true
+        timeout: 30m
+      ---
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infrastructure-config
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/${sovereign_fqdn}/infrastructure
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
         wait: true
         timeout: 30m
 
