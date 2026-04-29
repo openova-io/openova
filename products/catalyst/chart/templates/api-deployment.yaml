@@ -64,13 +64,23 @@ spec:
                   name: dynadot-api-credentials
                   key: domain
                   optional: true
+            # CATALYST_TOFU_WORKDIR — provisioner runs `tofu init/plan/apply`
+            # inside this directory. Default in code (/var/lib/catalyst/tofu)
+            # is unwritable for UID 65534 because the only emptyDir mounts on
+            # this Pod are /tmp and /home/nonroot. We pin to /tmp/catalyst so
+            # the writable emptyDir backs the per-Sovereign workdir tree.
+            - name: CATALYST_TOFU_WORKDIR
+              value: /tmp/catalyst/tofu
           resources:
             requests:
-              cpu: 10m
-              memory: 16Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              # tofu provider plugins (hcloud ~80MB, dynadot ~30MB) + state +
+              # plan files easily exceed the prior 64Mi cap. 1Gi gives headroom
+              # for parallel provider init and sustained `apply` work.
+              cpu: 1000m
+              memory: 1Gi
           livenessProbe:
             httpGet:
               path: /healthz
@@ -101,7 +111,10 @@ spec:
       volumes:
         - name: tmp
           emptyDir:
-            sizeLimit: 256Mi
+            # 2Gi to hold the per-deployment OpenTofu workdir tree under
+            # /tmp/catalyst/tofu/<sovereign-fqdn>/ (provider plugins + state
+            # + plan binary). Each Sovereign run gets its own subdirectory.
+            sizeLimit: 2Gi
         - name: home
           emptyDir:
             sizeLimit: 256Mi
