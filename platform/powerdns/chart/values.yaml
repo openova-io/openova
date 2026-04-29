@@ -160,13 +160,17 @@ powerdns:
     # Reference: https://doc.powerdns.com/authoritative/settings.html
     additionalConfig: |
       # ── DNSSEC ────────────────────────────────────────────────────────
-      # `default-soa-edit-signed=INCEPTION-EPOCH` keeps SOA serials in sync
-      # across replicas after every signed-zone change. `direct-dnskey=yes`
-      # serves DNSKEY/CDS/CDNSKEY records that operators publish manually
-      # (e.g. for chained-trust handoff). DNSSEC keys are generated per-zone
-      # via `pdnsutil add-zone-key <zone> ksk active ecdsa256` — automated
-      # by the catalyst-dns sidecar after zone creation. Per #167 every
-      # Sovereign zone is DNSSEC-signed (ECDSAP256SHA256, algo 13).
+      # `gpgsql-dnssec=yes` is REQUIRED for the gpgsql backend to expose
+      # the DNSSEC API — without it `PUT /zones/<zone>` with dnssec:true
+      # returns 422 "no DNSSEC-capable backends are loaded". Pair with
+      # `direct-dnskey=yes` so DNSKEY/CDS/CDNSKEY are served, and
+      # `default-soa-edit-signed=INCEPTION-EPOCH` to keep SOA serials in
+      # sync across replicas after every signed-zone change. DNSSEC keys
+      # are generated per-zone by pool-domain-manager (#168) using
+      # POST /zones/<zone>/cryptokeys with algorithm=ecdsa256 — every
+      # Sovereign zone is DNSSEC-signed (ECDSAP256SHA256, algo 13) per
+      # docs/PLATFORM-POWERDNS.md.
+      gpgsql-dnssec=yes
       default-soa-edit-signed=INCEPTION-EPOCH
       direct-dnskey=yes
 
