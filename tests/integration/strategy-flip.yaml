@@ -1,0 +1,128 @@
+# Integration test fixture — RollingUpdate -> Recreate strategy flip.
+#
+# Why this test exists
+# --------------------
+# On 2026-04-29 the contabo-mkt cluster's `catalyst` Flux Kustomization
+# stuck at Ready=False with:
+#
+#   Deployment/catalyst/catalyst-api dry-run failed (Invalid):
+#     Deployment.apps "catalyst-api" is invalid:
+#       spec.strategy.rollingUpdate: Forbidden:
+#         may not be specified when strategy `type` is 'Recreate'
+#
+# Root cause: the live Deployment had been created earlier by a
+# `kubectl apply` that landed the default RollingUpdate strategy
+# (maxSurge=25%, maxUnavailable=25%) on the object. When the chart's
+# new manifest declared `strategy.type: Recreate`, Flux's strategic-
+# merge dry-run merged the new `type` into the existing strategy block
+# WITHOUT removing the residual rolling-update fields. Kubernetes
+# validating admission rejected the merged result because Recreate
+# forbids any rollingUpdate keys.
+#
+# The fix in `products/catalyst/chart/templates/api-deployment.yaml`
+# adds `$patch: replace` to the strategy block, instructing strategic-
+# merge to REPLACE rather than merge — dropping the leftover keys.
+#
+# This test reproduces the failing pre-state and asserts the new chart
+# manifest applies cleanly over it. It is wired into CI by the
+# `.github/workflows/test-strategy-flip.yaml` workflow which spins up
+# kind, applies the fixture below, then applies the chart manifest.
+#
+# Three documents in this multi-doc YAML:
+#   1. Namespace                  — isolation for the test run.
+#   2. bad-state Deployment       — the pre-existing live object that
+#                                   carries RollingUpdate + maxSurge
+#                                   25% / maxUnavailable 25%, exactly
+#                                   the shape that triggered the
+#                                   regression on contabo-mkt.
+#   3. assertion ConfigMap        — captures the expected SUCCESS
+#                                   contract so the CI script can
+#                                   diff against `kubectl apply`
+#                                   output and fail loudly if the
+#                                   error string regresses.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strategy-flip-test
+  labels:
+    test/owner: catalyst-chart
+    test/purpose: strategy-flip-regression
+---
+# Pre-existing live Deployment, shaped to reproduce the original bug.
+# This MUST be applied via `kubectl apply` (client-side apply) so the
+# `kubectl-client-side-apply` field manager owns the rollingUpdate
+# fields — that is the exact scenario kustomize-controller hits in
+# production on objects created before the chart pinned Recreate.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalyst-api
+  namespace: strategy-flip-test
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: api
+    test/role: pre-existing-bad-state
+spec:
+  replicas: 1
+  # The default RollingUpdate strategy with the default 25%/25% knobs.
+  # Identical to what `kubectl apply` of a Deployment that did NOT
+  # declare `strategy:` synthesizes on the API server side.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: catalyst-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: catalyst-api
+    spec:
+      # registry.k8s.io/pause is the canonical no-op container — never
+      # pulls a heavy image, has no side effects, exits as designed.
+      # Keeping the test side-effect-free means CI can run it in
+      # under 30 seconds against a kind cluster.
+      containers:
+        - name: catalyst-api
+          image: registry.k8s.io/pause:3.9
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+---
+# Assertion contract — the test runner reads this ConfigMap to know
+# (a) which command to run as the apply step,
+# (b) which manifest to apply,
+# (c) which exit code AND which kubectl output to require.
+#
+# Encoding the contract as data on the cluster (instead of in the test
+# script) makes the contract reviewable in the same git diff as the
+# chart change — every chart edit that touches strategy must update
+# this contract or fail the integration test.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: strategy-flip-assertions
+  namespace: strategy-flip-test
+data:
+  # Which manifest is the system-under-test. Path is relative to the
+  # repository root so the same value works in CI and on a developer
+  # workstation invoking the test runner from anywhere.
+  target-manifest: products/catalyst/chart/templates/api-deployment.yaml
+  # The kubectl invocation the runner must execute. `--dry-run=server`
+  # uses client-side apply with server-side validation — this is the
+  # same path the user prescribed as the verification gate.
+  apply-command: kubectl apply --dry-run=server -n strategy-flip-test -f products/catalyst/chart/templates/api-deployment.yaml
+  # Required exit code. A non-zero exit reproduces the bug.
+  expected-exit-code: "0"
+  # Required substring in stdout — proves the apply was processed and
+  # would have updated the existing Deployment (rather than failing or
+  # creating a brand-new one because the namespace was empty).
+  expected-stdout-substring: "deployment.apps/catalyst-api configured"
+  # Forbidden substring in combined output — if this string appears
+  # the regression is back. Quote it exactly as Kubernetes emits it
+  # so a flaky-error rewording on a future K8s version surfaces as a
+  # real test failure rather than a silent regression.
+  forbidden-error-substring: "spec.strategy.rollingUpdate: Forbidden"
