@@ -1,14 +1,27 @@
 apiVersion: v2
 name: bp-openbao
-version: 1.0.0
+version: 1.1.0
 description: |
-  Catalyst-curated Blueprint wrapper for openbao. Carries Catalyst-specific values.yaml
-  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
-  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
-  reads the upstream chart reference from values.yaml's metadata block and
-  applies the values overlay at helm install time.
+  Catalyst-curated Blueprint umbrella chart for OpenBao. Depends on the
+  upstream `openbao` chart as a Helm subchart so `helm dependency build`
+  pulls the upstream payload into this artifact; the Catalyst overlay
+  templates in templates/ (NetworkPolicy, ExternalSecret, ServiceMonitor)
+  sit alongside the upstream subchart and Helm renders both at install
+  time. Catalyst-curated values flow into the upstream subchart under the
+  `openbao:` key in values.yaml.
 type: application
 keywords: [catalyst, blueprint, openbao]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to openbao/openbao 0.16.0
+# (matches platform/openbao/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: openbao
+    version: "0.16.0"
+    repository: "https://openbao.github.io/openbao-helm"

@@ -1,6 +1,12 @@
-# Catalyst Blueprint wrapper metadata — read by the bootstrap-kit installer.
-# The installer combines the upstream chart reference below with the values
-# overlay also in this file when running 'helm install'.
+# Catalyst Blueprint umbrella metadata — the upstream chart is now resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries
+# both:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `cilium:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
 
 catalystBlueprint:
   upstream: { chart: cilium, version: "1.16.5", repo: "https://helm.cilium.io" }
@@ -77,3 +83,9 @@ cilium:
     enabled: true
     serviceMonitor:
       enabled: true
+      # Cilium chart's ServiceMonitor template insists the
+      # monitoring.coreos.com/v1 CRD must be installed at render time
+      # unless we explicitly trust it. The Catalyst observability stack
+      # ships the kube-prometheus-stack CRDs alongside this Blueprint, so
+      # the trust assertion is correct.
+      trustCRDsExist: true
