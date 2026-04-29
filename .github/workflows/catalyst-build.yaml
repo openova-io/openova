@@ -89,8 +89,8 @@ jobs:
               component-logos/cnpg.svg \
               component-logos/loki.png \
               component-logos/mimir.png \
-              component-logos/tempo.png \
-              component-logos/ntfy.png \
+              component-logos/tempo.svg \
+              component-logos/ntfy.svg \
               component-logos/ferretdb.png \
               component-logos/openmeter.png \
               component-logos/coraza.png \
