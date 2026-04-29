@@ -64,9 +64,9 @@ export const GROUPS: GroupDef[] = [
       { id: 'cilium',       name: 'Cilium',       desc: 'CNI & eBPF service mesh',                                  tier: 'mandatory',   dependencies: [] },
       { id: 'coraza',       name: 'Coraza WAF',   desc: 'L7 web application firewall',                              tier: 'mandatory',   dependencies: [] },
       // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
-      // Replaces the historical k8gb component: lua-records cover geo + health-checked
-      // failover, so the dedicated GSLB controller is no longer needed.
-      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records (replaces k8gb)', tier: 'mandatory',   dependencies: ['cnpg'] },
+      // Lua-records (ifurlup, pickclosest, ifportup) cover geo + health-checked failover
+      // natively — see docs/MULTI-REGION-DNS.md for the failover patterns.
+      { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS + DNSSEC + lua-records', tier: 'mandatory',   dependencies: ['cnpg'] },
       { id: 'external-dns', name: 'External DNS', desc: 'DNS record automation',                                    tier: 'mandatory',   dependencies: ['powerdns'] },
       { id: 'envoy',        name: 'Envoy',        desc: 'L7 proxy',                                                 tier: 'mandatory',   dependencies: [] },
       { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel',                                           tier: 'recommended', dependencies: [] },

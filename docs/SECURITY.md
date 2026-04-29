@@ -340,7 +340,7 @@ Every Sovereign exports its audit log to a customer-specified SIEM. Default: Ope
 | Cross-Org leakage | vcluster isolation. JetStream Account isolation. Keycloak realm isolation (per-Org or shared). |
 | Compromised sovereign-admin account | MFA required at Keycloak. JIT elevation for production-impacting actions. Full audit trail to SIEM. |
 | Compromised OpenBao node | 2-of-3 Raft quorum required for writes. Audit log captures every read. Rotate root token + re-shard quarterly. |
-| Region-wide failure | Independent OpenBao Raft per region. k8gb removes affected endpoints. Apps with `active-active` keep serving from healthy region. |
+| Region-wide failure | Independent OpenBao Raft per region. PowerDNS lua-records (`ifurlup`) drop the affected regional endpoint from authoritative responses within the health-check window. Apps with `active-active` keep serving from healthy region. |
 | Supply-chain attack on a build | SLSA-3 build provenance, cosign signing, Syft+Grype SBOM scanned in CI and at runtime by Trivy. |
 
 ---

@@ -90,7 +90,7 @@ flux/
 ├── clusters/
 │   └── <region>/
 │       ├── flux-system/       # Flux controllers
-│       ├── network/           # cilium, stunner, k8gb
+│       ├── network/           # cilium, stunner, powerdns
 │       ├── security/          # kyverno, external-secrets, cert-manager
 │       ├── database/          # cnpg, ferretdb, valkey
 │       ├── middleware/        # strimzi
@@ -107,7 +107,7 @@ flux/
 
 | Category | Components | Purpose |
 |----------|------------|---------|
-| network | cilium, stunner, k8gb | CNI + Service Mesh, TURN, GSLB |
+| network | cilium, stunner, powerdns | CNI + Service Mesh, TURN, authoritative DNS + lua-records GSLB |
 | security | kyverno, external-secrets, cert-manager | Policy, secrets, TLS |
 | database | cnpg, ferretdb, valkey | Database operators |
 | middleware | strimzi | Apache Kafka streaming |

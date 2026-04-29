@@ -1,6 +1,6 @@
 # ExternalDNS
 
-DNS synchronization (registers/deletes records via cloud DNS APIs). Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs on every host cluster, primarily on the DMZ block. Pairs with k8gb (which serves the GSLB zone authoritatively) — ExternalDNS handles non-GSLB records and the parent zone delegation.
+DNS synchronization (registers/deletes records via the PowerDNS REST API and external cloud DNS APIs where applicable). Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs on every host cluster, primarily on the DMZ block. PowerDNS (see [`docs/PLATFORM-POWERDNS.md`](../../docs/PLATFORM-POWERDNS.md)) is the authoritative server for every Sovereign zone; ExternalDNS uses the `webhook` provider (`external-dns-pdns`) to write A/AAAA/CNAME records into PowerDNS. Health-checked geo-failover lives in PowerDNS lua-records — see [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -23,21 +23,18 @@ flowchart TB
     end
 
     subgraph DNS["DNS Providers"]
+        PDNS[PowerDNS<br>(authoritative — every Sovereign zone)]
         CF[Cloudflare]
         R53[Route53]
         HDNS[Hetzner DNS]
     end
 
-    subgraph GSLB["Global LB"]
-        k8gb[k8gb]
-    end
-
     GW --> ExtDNS
     Svc --> ExtDNS
+    ExtDNS --> PDNS
     ExtDNS --> CF
     ExtDNS --> R53
     ExtDNS --> HDNS
-    k8gb --> ExtDNS
 ```
 
 ---
@@ -88,33 +85,33 @@ spec:
 
 ---
 
-## k8gb Integration
+## PowerDNS Integration (geo + health-checked failover)
 
-ExternalDNS works with k8gb for GSLB:
+ExternalDNS writes plain A/AAAA/CNAME records into PowerDNS via the REST API. Geo-aware and health-checked failover responses are owned by PowerDNS lua-records, written by the `catalyst-dns` controller — ExternalDNS does NOT manage lua-record content.
 
 ```mermaid
 flowchart LR
     subgraph Region1["Region 1"]
         App1[Application]
-        k8gb1[k8gb]
+        ExtDNS1[ExternalDNS]
     end
 
     subgraph Region2["Region 2"]
         App2[Application]
-        k8gb2[k8gb]
+        ExtDNS2[ExternalDNS]
     end
 
-    subgraph DNS
-        ExtDNS[ExternalDNS]
-        NS[NS Records]
+    subgraph PDNS["PowerDNS Authoritative"]
+        ZoneAPI[REST API]
+        Lua[lua-records (ifurlup, pickclosest)]
     end
 
-    k8gb1 -->|"Delegate"| ExtDNS
-    k8gb2 -->|"Delegate"| ExtDNS
-    ExtDNS --> NS
+    ExtDNS1 -->|"plain A/AAAA"| ZoneAPI
+    ExtDNS2 -->|"plain A/AAAA"| ZoneAPI
+    ZoneAPI --- Lua
 ```
 
-k8gb delegates a subdomain (e.g., `gslb.<domain>`) and handles health-based DNS responses within that zone.
+See [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md) for the lua-record patterns.
 
 ---
 
@@ -124,7 +121,7 @@ k8gb delegates a subdomain (e.g., `gslb.<domain>`) and handles health-based DNS 
 |--------|-------------|---------|
 | Gateway | A/CNAME | `api.<domain>` |
 | Service (LoadBalancer) | A | `svc.<domain>` |
-| k8gb GslbHttpRoute | NS delegation | `gslb.<domain>` |
+| catalyst-dns (lua-record author) | LUA A | `app.<domain>` (geo + health-checked) |
 
 ---
 

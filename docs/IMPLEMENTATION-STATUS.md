@@ -75,7 +75,7 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 |---|---|---|
 | Cilium | 🚧 | README only. |
 | External-DNS | 🚧 | README only. |
-| k8gb | 🚧 | README only. |
+| PowerDNS | ✅ | bp-powerdns:1.0.5 deployed on contabo-mkt — replaces the historical k8gb GSLB role via lua-records. See [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) and [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
 | Coraza | 🚧 | README only. |
 | Flux | 🚧 | README only. Per-vcluster Flux is a Catalyst-managed convention not yet implemented. |
 | Crossplane | 🚧 | README only. |

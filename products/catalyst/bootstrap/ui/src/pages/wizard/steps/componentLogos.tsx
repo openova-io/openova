@@ -63,12 +63,6 @@ export const logo_envoy = Badge('#AC6199', '#fff',
   <><path d="M5 5h6M5 9h5M5 13h6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></>
 )
 
-export const logo_k8gb = Badge('#0078D4', '#fff',
-  // k8gb: globe with load balance arrows
-  <><circle cx="9" cy="9" r="5" stroke="#fff" strokeWidth="1.3" fill="none"/>
-    <path d="M7 9h4M9 7v4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></>
-)
-
 export const logo_frpc = Badge('#374151', '#fff',
   <><path d="M4 6h4v2H4zM10 6h4v2h-4zM6 10l6-1" stroke="#fff" strokeWidth="1.3" fill="none" strokeLinecap="round"/></>
 )
@@ -405,7 +399,6 @@ export const COMPONENT_LOGOS: Record<string, React.ReactNode> = {
   coraza:           logo_coraza,
   'external-dns':   logo_externalDns,
   envoy:            logo_envoy,
-  k8gb:             logo_k8gb,
   frpc:             logo_frpc,
   netbird:          logo_netbird,
   strongswan:       logo_strongswan,

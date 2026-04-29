@@ -101,7 +101,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Runtime security** | Falco (eBPF) |
 | **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
 | **WAF** | Coraza (OWASP CRS) |
-| **GSLB** | k8gb (authoritative DNS) |
+| **GSLB** | PowerDNS authoritative + lua-records (`ifurlup`, `pickclosest`) — see [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md) |
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 

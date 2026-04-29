@@ -615,7 +615,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 | eBPF service mesh | Yes (Cilium) | No (Istio sidecar) | No | No | No | Varies | DIY |
 | Zero-trust (mTLS, L7 policies) | Built-in | Yes (Istio) | Manual | No | No | Custom | DIY |
 | WAF (OWASP CRS) | Built-in (Coraza) | No | No | No | No | Custom | DIY |
-| GSLB / DNS failover | Built-in (k8gb) | No | No | No | No | Custom | DIY |
+| GSLB / DNS failover | Built-in (PowerDNS lua-records) | No | No | No | No | Custom | DIY |
 | Split-brain protection | Built-in | No | No | No | No | Custom | DIY |
 | Policy-as-code | Built-in (Kyverno) | Partial (SCC) | No | No | No | Custom | DIY |
 | Security scanning (CI + runtime) | Built-in (Trivy) | ACS (paid) | No | No | No | Custom | DIY |
@@ -955,7 +955,7 @@ The expert network covers the full breadth of the OpenOva ecosystem:
 **Data:** PostgreSQL (CNPG), FerretDB, Strimzi (Kafka), Valkey (Redis), ClickHouse, Debezium
 **Security:** OpenBao, cert-manager, Kyverno, OPA, Trivy, Falco, OpenSearch SIEM, zero-trust architecture
 **Observability:** Grafana, Loki, Mimir, Tempo, OpenTelemetry, Prometheus, Hubble
-**Networking:** Cilium, eBPF, DNS, k8gb, load balancing, service mesh
+**Networking:** Cilium, eBPF, PowerDNS authoritative + lua-records, load balancing, service mesh
 **Identity:** Keycloak, OIDC, OAuth 2.0, FAPI, SAML
 **AI/ML:** vLLM, KServe, Milvus, LangChain, RAG architectures, model optimization
 **Compliance:** PSD2, DORA, NIS2, SOX, GDPR, banking regulation

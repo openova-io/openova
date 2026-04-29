@@ -13,7 +13,8 @@ spec:
       Authoritative DNS for every Sovereign zone (pool + BYO). Per-zone
       DNSSEC (ECDSAP256SHA256), lua-records for geo + health-checked
       failover, dnsdist front-end for query rate-limiting + DDoS posture,
-      REST API at pdns.openova.io/api (operator-only). Replaces k8gb.
+      REST API at pdns.openova.io/api (operator-only). See
+      docs/MULTI-REGION-DNS.md for the lua-record patterns.
     icon: powerdns.svg
     category: infrastructure
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
@@ -33,7 +34,7 @@ spec:
       luaRecords:
         type: boolean
         default: true
-        description: PowerDNS Lua records — geo + health-checked failover. Replaces k8gb.
+        description: PowerDNS Lua records — geo + health-checked failover. See docs/MULTI-REGION-DNS.md.
       dnsdistEnabled:
         type: boolean
         default: true

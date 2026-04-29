@@ -93,7 +93,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--cluster-init` | Initialise embedded etcd. Required for Phase-1 hand-off to add additional control-plane nodes (`ha_enabled=true`) without re-bootstrapping. |
 | `--flannel-backend=none` | k3s ships with flannel; we replace the CNI with Cilium (gateway API, eBPF, mTLS via wireguard). Setting `none` keeps k3s from racing flannel against Cilium during boot. |
 | `--disable=traefik` | k3s ships with Traefik; we use **Cilium Gateway API** (already part of the Cilium install). Catalyst's Gateway/HTTPRoute manifests assume Gateway API, not Traefik IngressRoute. |
-| `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and k8gb for cross-region failover. klipper-lb would steal the NodePort 80/443 binding. |
+| `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would steal the NodePort 80/443 binding. |
 | `--disable=local-storage` | k3s ships local-path-provisioner; we use **hcloud-csi** (provisioned by Crossplane after Phase 1) so PVCs survive node deletion and can be migrated across regions via Velero. |
 | `--disable-network-policy` | k3s ships kube-router NetworkPolicy; **Cilium** handles NetworkPolicy. Two NetworkPolicy controllers fight each other. |
 | `--tls-san=<sovereign_fqdn>` | API server TLS cert must be valid for the public sovereign FQDN, otherwise the wizard's kubeconfig fetch and any operator running `kubectl --server=https://<fqdn>:6443` get a SAN mismatch. |

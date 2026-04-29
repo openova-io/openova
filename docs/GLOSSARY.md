@@ -125,7 +125,7 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 | **CQRS** | Command-Query Responsibility Segregation — write side (Git → Flux → K8s) vs read side (projector → JetStream KV → console). |
 | **ESO** | External Secrets Operator. |
 | **SPIFFE / SPIRE** | Workload identity standards. SVIDs are short-lived mTLS certs bound to K8s ServiceAccounts. |
-| **GSLB** | Global Server Load Balancing — handled by k8gb across regions. |
+| **GSLB** | Global Server Load Balancing — handled at the authoritative DNS layer by PowerDNS lua-records (`ifurlup`, `pickclosest`, `ifportup`). See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
 | **PromotionPolicy** | Removed concept. Replaced by **EnvironmentPolicy** attached to a destination Environment, enforcing PR/approval/soak/change-window rules. |
 
 ---

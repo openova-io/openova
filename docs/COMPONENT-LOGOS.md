@@ -50,7 +50,6 @@ licence permits.
 | coraza              | Coraza WAF            | https://coraza.io/                                                            | OWASP, Apache-2.0 |
 | external-dns        | ExternalDNS           | https://github.com/kubernetes-sigs/external-dns                              | Kubernetes-sigs |
 | envoy               | Envoy Proxy           | https://github.com/cncf/artwork/tree/main/projects/envoy                     | CNCF graduated |
-| k8gb                | k8gb                  | https://github.com/cncf/artwork/tree/main/projects/k8gb                      | CNCF sandbox |
 | frpc                | frp / frpc            | https://github.com/fatedier/frp                                              | Apache-2.0 |
 | netbird             | NetBird               | https://netbird.io/brand                                                     | BSD-3-Clause |
 | strongswan          | strongSwan            | https://www.strongswan.org/                                                  | GPL-2.0 |

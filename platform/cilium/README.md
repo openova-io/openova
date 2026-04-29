@@ -415,8 +415,8 @@ flowchart TB
             OCILB[OCI LB]
         end
 
-        subgraph K8gbLB["k8gb DNS-based (Free)"]
-            K8gb[k8gb GSLB]
+        subgraph PdnsLB["PowerDNS lua-records (Free)"]
+            PDNS[PowerDNS authoritative + ifurlup/pickclosest]
             ExternalDNS[ExternalDNS]
         end
 
@@ -426,14 +426,14 @@ flowchart TB
     end
 
     CloudLB -->|"Best for cloud"| Service[K8s Service]
-    K8gbLB -->|"Best for multi-region"| Service
+    PdnsLB -->|"Best for multi-region"| Service
     CiliumLB -->|"Best for single node"| Service
 ```
 
 | Option | Cost | Multi-Region | Use Case |
 |--------|------|--------------|----------|
-| Cloud LB | Paid | Via k8gb | Production |
-| k8gb DNS-based | Free | Native | Cost-sensitive |
+| Cloud LB | Paid | Via PowerDNS lua-records | Production |
+| PowerDNS lua-records | Free | Native | Cost-sensitive |
 | Cilium L2 | Free | No | Single subnet/dev |
 
 ---

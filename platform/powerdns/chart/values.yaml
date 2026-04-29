@@ -176,8 +176,8 @@ powerdns:
 
       # ── Records that mutate behaviour ────────────────────────────────
       # `enable-lua-records=yes` enables PowerDNS Lua records used by
-      # Catalyst for geo-aware + health-checked failover (replaces the
-      # k8gb component listed in componentGroups.ts). Reference:
+      # Catalyst for geo-aware + health-checked failover. See
+      # docs/MULTI-REGION-DNS.md for the lua-record patterns. Reference:
       # https://doc.powerdns.com/authoritative/lua-records/index.html
       enable-lua-records=yes
 

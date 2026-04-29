@@ -14,7 +14,7 @@ Catalyst's components fall into three categories:
 | Category | Where it runs | Examples |
 |---|---|---|
 | **Catalyst control plane** | The Sovereign's `mgt` cluster | console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream (control-plane account), openbao, keycloak, spire-server, observability (Grafana stack) |
-| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu (bootstrap-only), sealed-secrets (bootstrap-only — transient until ESO+OpenBao take over), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor, failover-controller |
+| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, powerdns, coraza, flux, crossplane, opentofu (bootstrap-only), sealed-secrets (bootstrap-only — transient until ESO+OpenBao take over), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor, failover-controller |
 | **Application Blueprints** | Inside per-Org vclusters | cnpg, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, guacamole, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
 
 The **same upstream technology** can serve in multiple categories. For example: Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint when a User wants Redis-compatible caching for their app. Similarly, Strimzi/Kafka is an Application Blueprint; the Catalyst control plane uses NATS JetStream for events, not Kafka.
@@ -70,8 +70,8 @@ These are deployed on **every** host cluster a Sovereign owns — not just the m
 | Component | Purpose |
 |---|---|
 | **[cilium](../platform/cilium/)** | CNI + Service Mesh (eBPF). mTLS, L7 policies, Gateway API. |
-| **[external-dns](../platform/external-dns/)** | DNS sync (registers/deletes records via cloud DNS APIs). |
-| **[k8gb](../platform/k8gb/)** | GSLB — authoritative DNS for cross-region failover. |
+| **[external-dns](../platform/external-dns/)** | DNS sync (registers/deletes records via PowerDNS API). |
+| **[powerdns](../platform/powerdns/)** | Authoritative DNS + DNSSEC + lua-records (geo + health-checked failover). See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) for the failover patterns. |
 | **[coraza](../platform/coraza/)** | WAF (OWASP CRS) at the DMZ edge. |
 
 ### 3.2 GitOps and IaC
@@ -247,7 +247,7 @@ flowchart TB
     Bao0 -.->|"async perf replication"| BaoB
     Nats <-->|"leaf node sync"| NatsA
     Nats <-->|"leaf node sync"| NatsB
-    IngressA <-.->|"k8gb GSLB"| IngressB
+    IngressA <-.->|"PowerDNS lua-records (geo + health-checked failover)"| IngressB
 ```
 
 Each region is its own failure domain. OpenBao Raft is **intra-region only**; cross-region is async perf replication. See [`SECURITY.md`](SECURITY.md) §5.
@@ -304,7 +304,8 @@ Adds to **every** host cluster a Sovereign owns (mgt, rtz, dmz):
 | Harbor | ~3 GB | per host cluster |
 | SeaweedFS | ~1.2 GB | per host cluster (3 master + 6 volume + 2 filer + 2 s3 replicas) |
 | Velero | ~0.2 GB | |
-| Reloader, VPA, KEDA, k8gb, External-DNS, Sigstore, Syft+Grype, failover-controller | ~1.5 GB combined | small operators |
+| Reloader, VPA, KEDA, External-DNS, Sigstore, Syft+Grype, failover-controller | ~1.3 GB combined | small operators |
+| PowerDNS + dnsdist | ~0.4 GB | authoritative DNS + rate-limit shield (mgt only) |
 | **Per-host-cluster subtotal** | **~8.8 GB** | per host cluster |
 
 **Total mgt cluster RAM** ≈ Catalyst (§7.1) + per-host-cluster (§7.4) ≈ ~20 GB + 100 × 150 MB Keycloak (SME tier with 100 orgs) ≈ ~35 GB.
@@ -335,7 +336,7 @@ curl -sfL https://get.k3s.io | sh -s - server \
 | Component | Replacement |
 |---|---|
 | traefik | Cilium Gateway API |
-| servicelb | Cloud LB or k8gb DNS-based failover |
+| servicelb | Cloud LB + PowerDNS lua-records for cross-region failover (see [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md)) |
 | local-storage | Application-level replication |
 | flannel | Cilium CNI |
 
@@ -377,7 +378,7 @@ Hetzner is the most-tested path; the OpenOva Sovereign runs on Hetzner.
 | Option | Description |
 |---|---|
 | 1 region | SME default — single rtz cluster, no geographic redundancy |
-| 2 regions | Recommended for production — symmetric rtz clusters + DMZ, k8gb routes |
+| 2 regions | Recommended for production — symmetric rtz clusters + DMZ, PowerDNS lua-records route across regions |
 | 3+ regions | Regulated tier — adds DR replica region |
 
 ### 9.3 LoadBalancer
@@ -385,7 +386,7 @@ Hetzner is the most-tested path; the OpenOva Sovereign runs on Hetzner.
 | Option | How | Cost |
 |---|---|---|
 | Cloud Provider LB | Native LB | ~EUR 5–10/mo |
-| k8gb DNS-based LB | Cilium Gateway + k8gb | Free |
+| PowerDNS lua-records | Cilium Gateway + PowerDNS authoritative + dnsdist | Free |
 | Cilium L2 Mode | ARP-based (same subnet) | Free |
 
 ### 9.4 DNS Provider

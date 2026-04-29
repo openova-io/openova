@@ -1,6 +1,6 @@
 # Failover Controller
 
-Multi-region failover orchestration. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.6). Pairs with k8gb (which routes via authoritative DNS) — the failover-controller adds **lease-based split-brain protection** via cloud witness so k8gb can't silently mis-failover during a network partition. See [`docs/SRE.md`](../../docs/SRE.md) §2.4 for the witness pattern and [`docs/SECURITY.md`](../../docs/SECURITY.md) §5.2 for OpenBao DR promotion semantics.
+Multi-region failover orchestration. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.6). Pairs with PowerDNS lua-records (which route via authoritative DNS — see [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md)) — the failover-controller adds **lease-based split-brain protection** via a cloud witness so the lua-record probe layer can't silently mis-failover during a network partition. See [`docs/SRE.md`](../../docs/SRE.md) §2.4 for the witness pattern and [`docs/SECURITY.md`](../../docs/SECURITY.md) §5.2 for OpenBao DR promotion semantics.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
