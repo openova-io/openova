@@ -718,15 +718,29 @@ test.describe('@cosmetic-guard admin sidebar parity', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard app-detail layout', () => {
-  test('AppDetail renders sections (NOT role=tablist)', async ({ page }) => {
+  test('AppDetail renders the canonical sections (Jobs is now also a tab — issue #204)', async ({ page }) => {
     await page.goto('provision/test-deployment-id/app/temporal')
     await page.waitForLoadState('domcontentloaded')
 
-    const tablistCount = await page.locator('[role="tablist"]').count()
-    expect(
-      tablistCount,
-      `AppDetail still renders a [role=tablist] (count=${tablistCount}). The canonical layout is sectioned (hero / About / Connection / Bundled deps / Tenant / Configuration / Jobs), NOT tabbed — see core/console/src/components/AppDetail.svelte. Legacy ApplicationPage.tsx had Logs/Dependencies/Status/Overview tabs; those have been retired.`,
-    ).toBe(0)
+    // Issue #204 founder spec item #9: "AppDetail → Jobs tab filtered
+    // to that app's jobs only". A Jobs tab is now mandatory inside the
+    // Jobs section. The legacy guard ("no role=tablist anywhere on the
+    // page") was a regression guard for a DIFFERENT bad shape (the
+    // invented Logs/Dependencies/Status/Overview tabset on the legacy
+    // ApplicationPage). That bad shape is still forbidden — but the
+    // guard now allows the founder-requested Jobs tabset on AppDetail.
+    //
+    // We assert the legacy-tab vocabulary is GONE (no Logs / Status /
+    // Overview tab labels anywhere on the page) instead of banning
+    // tablist entirely.
+    const forbiddenTabLabels = ['Logs', 'Status', 'Overview']
+    for (const label of forbiddenTabLabels) {
+      const tabs = page.getByRole('tab', { name: new RegExp(`^${label}$`, 'i') })
+      expect(
+        await tabs.count(),
+        `AppDetail is rendering a tab labelled "${label}" — this is the legacy ApplicationPage tabset (Logs / Status / Overview / Dependencies) the user told us to retire. Only the founder-spec Jobs tab (issue #204 item #9) is permitted here.`,
+      ).toBe(0)
+    }
 
     const missing: string[] = []
     for (const section of CANONICAL_APPDETAIL_SECTIONS) {
@@ -742,53 +756,113 @@ test.describe('@cosmetic-guard app-detail layout', () => {
 })
 
 /* ──────────────────────────────────────────────────────────────────
- * Test 14 — Jobs are expand-in-place cards (no /job/<id> route)
+ * Test 14 — Jobs surface is a TABLE view, NOT an accordion (issue #204)
+ *
+ * Founder spec items 1, 2, 6, 7, 8a, 8b. The legacy expand-in-place
+ * accordion has been retired ("NEVER use accordions") — the Jobs page
+ * now renders a <table data-testid="jobs-table"> with one row per job,
+ * a search box, and per-column filter dropdowns. The row is a link,
+ * not a button — clicking navigates to /provision/<id>/jobs/<jobId>.
  * ────────────────────────────────────────────────────────────────── */
 
-test.describe('@cosmetic-guard jobs surface', () => {
-  test('clicking a job row toggles inline expansion (no /job/<id> navigation)', async ({
-    page,
-  }) => {
-    await page.goto('jobs')
+test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => {
+  test('1. jobs-table testid exists and no legacy accordion testids remain', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/jobs')
     await page.waitForLoadState('domcontentloaded')
 
-    const jobRows = page.locator('[data-testid^="job-row-"]')
-    const rowCount = await jobRows.count()
+    const table = page.locator('[data-testid="jobs-table"]')
+    await expect(
+      table,
+      'JobsPage is missing [data-testid=jobs-table] — issue #204 retired the accordion in favour of a <table>. See products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx.',
+    ).toBeVisible({ timeout: 10_000 })
     expect(
-      rowCount,
-      'Jobs page does not expose any [data-testid^=job-row-] elements. The canonical contract is a list of button rows that toggle inline expansion. See core/console/src/components/JobsPage.svelte for the expected shape.',
+      await table.evaluate((el) => el.tagName.toLowerCase()),
+      'jobs-table testid is attached to a non-<table> element — must be a real HTML <table> for accessibility + semantic correctness.',
+    ).toBe('table')
+
+    const accordionRows = page.locator('[data-testid^="job-row-"]')
+    expect(
+      await accordionRows.count(),
+      `Legacy [data-testid^=job-row-] accordion rows are STILL on the page. Issue #204 founder spec item #1: "NEVER use accordions anywhere — the wizard filled them everywhere for jobs. Unacceptable." Remove JobCard.tsx and any callers.`,
+    ).toBe(0)
+    const accordionPanels = page.locator('[data-testid^="job-expansion-"]')
+    expect(
+      await accordionPanels.count(),
+      `Legacy [data-testid^=job-expansion-] accordion panels are STILL on the page. Same retirement as above — the table view is the only canonical jobs surface now.`,
+    ).toBe(0)
+  })
+
+  test('2. table headers are name / app / deps / batch / status / started / duration', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/jobs')
+    await page.waitForLoadState('domcontentloaded')
+
+    const table = page.locator('[data-testid="jobs-table"]')
+    await expect(table).toBeVisible({ timeout: 10_000 })
+    const headerLocators = table.locator('thead th')
+    const headers = (await headerLocators.allTextContents()).map((s) => s.trim().toLowerCase())
+    expect(
+      headers,
+      `JobsTable column header set = [${headers.join(', ')}]; founder spec issue #204 items #6/#7 require [name, app, deps, batch, status, started, duration] in this order.`,
+    ).toEqual(['name', 'app', 'deps', 'batch', 'status', 'started', 'duration'])
+  })
+
+  test('3. typing in jobs-search filters the row count', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/jobs')
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.locator('[data-testid="jobs-table"]')).toBeVisible({ timeout: 10_000 })
+    const search = page.locator('[data-testid="jobs-search"]')
+    await expect(
+      search,
+      'JobsTable is missing [data-testid=jobs-search] — issue #204 item #8a requires a search box on the table.',
+    ).toBeVisible()
+
+    const tableRows = page.locator('[data-testid^="jobs-table-row-"]')
+    const beforeCount = await tableRows.count()
+    expect(
+      beforeCount,
+      'JobsTable rendered with zero rows — the table needs at least the bootstrap-kit + Phase 0 jobs to exist before a search can be tested.',
     ).toBeGreaterThan(0)
 
-    const firstRow = jobRows.first()
-    const rowTestId = await firstRow.getAttribute('data-testid')
-    expect(rowTestId, 'first job row has a data-testid').not.toBeNull()
-    const jobId = rowTestId!.replace(/^job-row-/, '')
-
-    const tag = await firstRow.evaluate((el) => el.tagName.toLowerCase())
-    const role = await firstRow.getAttribute('role')
+    // Type a query that matches a known bootstrap-kit row label
+    // ("Cilium") — the Phase 0 / cluster-bootstrap jobs do NOT contain
+    // that string, so the visible row count must drop.
+    await search.fill('cilium')
+    // Allow React state to flush; useMemo recomputes synchronously but
+    // the next tick is needed for the table to re-render.
+    await page.waitForTimeout(120)
+    const afterCount = await page.locator('[data-testid^="jobs-table-row-"]').count()
     expect(
-      tag === 'button' || role === 'button',
-      `Job row tag="${tag}" role="${role}" — must be a button or have role=button so the inline-toggle contract is keyboard-accessible. A plain anchor implies navigation, which is the regression we are guarding.`,
-    ).toBe(true)
-
-    const startUrl = page.url()
-    await firstRow.click()
-    await page.waitForTimeout(150)
-    const afterUrl = page.url()
+      afterCount,
+      `Typing "cilium" into [data-testid=jobs-search] did not narrow the visible row count (before=${beforeCount}, after=${afterCount}). Search filter is not wired through to the row list — see matchJob() in JobsTable.tsx.`,
+    ).toBeLessThan(beforeCount)
     expect(
-      afterUrl,
-      `Clicking the job row navigated to "${afterUrl}". Canonical contract is INLINE expansion — the URL must not change to /job/<id>. See core/console/src/components/JobsPage.svelte (expand-in-place pattern).`,
-    ).toBe(startUrl)
-    expect(
-      /\/job\/[^/]+/.test(afterUrl),
-      `URL "${afterUrl}" matches /job/<id> — the row navigated. The job rows must use a button element with onclick=toggleExpand, not an anchor pointing at /job/{id}.`,
-    ).toBe(false)
+      afterCount,
+      `Typing "cilium" into the search box returned zero rows — the bp-cilium row must always match a "cilium" query.`,
+    ).toBeGreaterThan(0)
+  })
 
-    const expansion = page.locator(`[data-testid="job-expansion-${jobId}"]`)
+  test('4. AppDetail page has a tab labelled "Jobs"', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/app/temporal')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Founder spec issue #204 item #9: "AppDetail → Jobs tab filtered
+    // to that app's jobs only." The tab MUST exist and MUST carry the
+    // canonical role=tab semantic for keyboard nav + screen-reader UX.
+    const jobsTab = page.locator('[data-testid="sov-app-tab-jobs"]')
     await expect(
-      expansion,
-      `After clicking job-row-${jobId}, the inline expansion [data-testid=job-expansion-${jobId}] must be visible. See core/console/src/components/JobsPage.svelte.`,
-    ).toBeVisible({ timeout: 5_000 })
+      jobsTab,
+      'AppDetail is missing [data-testid=sov-app-tab-jobs] — issue #204 item #9 requires a Jobs tab on AppDetail. See AppDetail.tsx.',
+    ).toBeVisible({ timeout: 10_000 })
+    expect(
+      await jobsTab.getAttribute('role'),
+      'sov-app-tab-jobs must carry role="tab" so it is exposed correctly to AT and the cosmetic-guard regression suite. See AppDetail.tsx tablist markup.',
+    ).toBe('tab')
+    const text = (await jobsTab.textContent())?.toLowerCase() ?? ''
+    expect(
+      text.includes('jobs'),
+      `sov-app-tab-jobs label is "${text}"; issue #204 item #9 requires the tab to be labelled "Jobs".`,
+    ).toBe(true)
   })
 })
 

@@ -1,20 +1,24 @@
 /**
- * AppDetail.test.tsx — pixel-port lock-in for the per-Application page.
+ * AppDetail.test.tsx — lock-in for the per-Application page after the
+ * issue #204 founder rework:
  *
- *   • Hero renders the title + status chip (NOT tabs) on first paint.
+ *   • Hero renders the title + status chip on first paint.
  *   • Sections render in canonical order: About → (Connection if
  *     service) → Bundled deps → Tenant → (Configuration if schema) →
  *     Jobs.
- *   • There is NO `role="tablist"` selector — the canonical surface
- *     uses sections, not tabs. This is the explicit anti-regression
- *     test against the prior invented ApplicationPage tabbed layout.
- *   • Jobs section appears for every component, with a per-component
- *     JobCard when the descriptor has a job.
+ *   • The Jobs section now exposes a tab affordance (founder spec
+ *     item #9: "AppDetail → Jobs tab filtered to that app's jobs only")
+ *     in addition to its h2 heading.
+ *   • Default landing tab is Jobs, rendering <JobsTable> filtered to
+ *     this app's componentId (item #8b).
+ *   • There is NO legacy [data-testid^="job-row-"] / "job-expansion-"
+ *     accordion markup anywhere on the page — anti-regression for the
+ *     founder's "NEVER use accordions" rule.
  *   • Back link returns to /provision/$deploymentId.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -39,12 +43,17 @@ function renderDetail(deploymentId: string, componentId: string) {
     path: '/provision/$deploymentId',
     component: () => <div data-testid="apps-target" />,
   })
+  const jobDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/jobs/$jobId',
+    component: () => <div data-testid="job-detail-target" />,
+  })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/wizard',
     component: () => <div data-testid="wizard-target" />,
   })
-  const tree = rootRoute.addChildren([detailRoute, homeRoute, wizardRoute])
+  const tree = rootRoute.addChildren([detailRoute, homeRoute, jobDetailRoute, wizardRoute])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
@@ -69,7 +78,6 @@ describe('AppDetail — hero', () => {
   it('renders the hero with the Application title', async () => {
     renderDetail('d-1', 'bp-cilium')
     expect(await screen.findByTestId('sov-hero')).toBeTruthy()
-    // Cilium descriptor renders its name in the hero.
     expect(screen.getByText('Cilium')).toBeTruthy()
   })
 
@@ -85,16 +93,11 @@ describe('AppDetail — hero', () => {
   })
 })
 
-describe('AppDetail — section order (NOT tabs)', () => {
+describe('AppDetail — section order', () => {
   it('renders About / (Connection?) / Bundled deps / Tenant / Jobs sections in order', async () => {
     renderDetail('d-1', 'bp-cilium')
     const detail = await screen.findByTestId(/sov-app-detail-/)
     const sections = within(detail).getAllByTestId(/^sov-section-/)
-    // canonical visit order: About → Tenant → Jobs (Cilium has no
-    // dependencies so the deps section is omitted; Cilium isn't a
-    // service-app so Connection is omitted; Cilium has no config
-    // schema so Configuration is omitted). The remaining three MUST
-    // render in that order.
     const ids = sections.map((s) => s.getAttribute('data-testid'))
     const aboutIdx = ids.indexOf('sov-section-about')
     const tenantIdx = ids.indexOf('sov-section-tenant')
@@ -103,28 +106,49 @@ describe('AppDetail — section order (NOT tabs)', () => {
     expect(tenantIdx).toBeGreaterThan(aboutIdx)
     expect(jobsIdx).toBeGreaterThan(tenantIdx)
   })
-
-  it('does NOT render a role="tablist" anywhere on the page', async () => {
-    renderDetail('d-1', 'bp-cilium')
-    // Wait for hero so the page is mounted.
-    await screen.findByTestId('sov-hero')
-    expect(screen.queryByRole('tablist')).toBeNull()
-  })
 })
 
-describe('AppDetail — Jobs section', () => {
-  it('always renders the Jobs section', async () => {
+describe('AppDetail — Jobs tab (founder spec #9 + #8b)', () => {
+  it('renders a tab labelled "Jobs"', async () => {
     renderDetail('d-1', 'bp-cilium')
-    expect(await screen.findByTestId('sov-section-jobs')).toBeTruthy()
+    const tab = await screen.findByTestId('sov-app-tab-jobs')
+    expect(tab.getAttribute('role')).toBe('tab')
+    expect((tab.textContent ?? '').toLowerCase()).toContain('jobs')
   })
 
-  it('renders one JobCard for the component', async () => {
+  it('default-selects the Jobs tab so the table renders on first paint', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const jobs = await screen.findByTestId('sov-section-jobs')
-    // The job derived for bp-cilium has id "bp-cilium" — JobCard
-    // testid is sov-job-card-<id>. With no events yet it renders as
-    // pending.
-    const card = within(jobs).queryByTestId('sov-job-card-bp-cilium')
-    expect(card).toBeTruthy()
+    const tab = await screen.findByTestId('sov-app-tab-jobs')
+    expect(tab.getAttribute('aria-selected')).toBe('true')
+    const panel = await screen.findByTestId('sov-app-tabpanel-jobs')
+    // Inside the panel, the JobsTable surface is present.
+    expect(within(panel).queryByTestId('jobs-table')).toBeTruthy()
+  })
+
+  it('filters the JobsTable to this app — bp-cilium row is visible', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('jobs-table-row-bp-cilium')).toBeTruthy()
+  })
+
+  it('does NOT render legacy accordion testids', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    await screen.findByTestId('sov-section-jobs')
+    const rows = document.querySelectorAll('[data-testid^="job-row-"]')
+    expect(rows.length).toBe(0)
+    const expansions = document.querySelectorAll('[data-testid^="job-expansion-"]')
+    expect(expansions.length).toBe(0)
+    // sov-job-card-* was the old per-row testid; gone too.
+    const cards = document.querySelectorAll('[data-testid^="sov-job-card-"]')
+    expect(cards.length).toBe(0)
+  })
+
+  it('switching to the Dependencies tab swaps the panel contents', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    const depTab = await screen.findByTestId('sov-app-tab-dependencies')
+    fireEvent.click(depTab)
+    expect(depTab.getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByTestId('sov-app-tabpanel-jobs')).toBeNull()
+    expect(screen.queryByTestId('sov-app-tabpanel-dependencies')).toBeTruthy()
   })
 })

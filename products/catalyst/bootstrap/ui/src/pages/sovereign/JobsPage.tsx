@@ -1,35 +1,42 @@
 /**
- * JobsPage — pixel-port of core/console/src/components/JobsPage.svelte.
+ * JobsPage — table-view replacement for the legacy expand-in-place
+ * accordion (issue #204). The founder rejected the accordion pattern
+ * verbatim ("NEVER use accordions anywhere"); every job is now a row in
+ * <JobsTable />, and the row is a navigation link to JobDetail (owned
+ * by a sibling agent on the JobDetail+ExecutionLogs scope).
  *
- * Layout (top-down, byte-identical to canonical):
- *   • Header: <h1>Jobs</h1> + tagline.
- *   • Vertical stack of `<JobCard />` rows. Each row is a `<button>`
- *     toggling inline expansion to show ordered steps. NO `/job/$jobId`
- *     route — clicking the app-name on a per-component row navigates
- *     to that component's AppDetail page; clicking anywhere else on
- *     the row toggles expansion.
+ * Layout, top-down:
+ *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link.
+ *   • <BatchProgress /> — one progress bar per batch (item #4).
+ *   • <JobsTable /> — table view with search/sort/filter (items #2,
+ *     #6, #7, #8a).
  *
- * Job order is stable (Phase 0 → cluster-bootstrap → per-component, in
- * catalog order) so the operator always sees Hetzner / Flux / install
- * jobs in the same place across reloads.
+ * Data flow:
+ *   1. Live SSE events (via useDeploymentEvents) populate the legacy
+ *      reducer state (eventReducer.ts) which deriveJobs() folds into
+ *      the per-row JobsTable inputs through `jobsAdapter.ts`.
+ *   2. Until the catalyst-api jobs endpoint (#205) ships, the live
+ *      stream IS the source of truth — every Job listed in
+ *      `deriveJobs()` is mapped 1:1 into the new flat shape.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall — first paint is the
- * full list), every Job renders from the moment the page mounts; rows
- * with no events yet show as `pending` with an empty step list.
- *
- * Per #4 (never hardcode), the job set is computed by `deriveJobs()`
- * from the catalog + reducer state. Adding a Blueprint to the catalog
- * automatically adds a row.
+ * full list), every Job is rendered from mount, even pending ones with
+ * no events yet. Per #4 (never hardcode), the job set is computed by
+ * deriveJobs() — adding a Blueprint to the catalog automatically adds
+ * a row.
  */
 
 import { useMemo } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
-import { JobCard } from './JobCard'
+import { JobsTable } from './JobsTable'
+import { BatchProgress } from './BatchProgress'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
+import { adaptDerivedJobsToFlat } from './jobsAdapter'
+import { deriveBatches } from '@/test/fixtures/jobs.fixture'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -56,7 +63,9 @@ export function JobsPage({ disableStream = false }: JobsPageProps = {}) {
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
-  const jobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  const flatJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
+  const batches = useMemo(() => deriveBatches(flatJobs), [flatJobs])
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
@@ -78,22 +87,10 @@ export function JobsPage({ disableStream = false }: JobsPageProps = {}) {
         </Link>
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="mt-12 text-center" data-testid="sov-jobs-empty">
-          <p className="text-[var(--color-text-dim)]">No jobs yet for this deployment.</p>
-        </div>
-      ) : (
-        <div className="mt-6 flex flex-col gap-3" data-testid="sov-jobs-list">
-          {jobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              deploymentId={deploymentId}
-              defaultExpanded={job.status === 'running'}
-            />
-          ))}
-        </div>
-      )}
+      <div className="mt-6" data-testid="sov-jobs-list">
+        <BatchProgress batches={batches} />
+        <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
+      </div>
     </PortalShell>
   )
 }
