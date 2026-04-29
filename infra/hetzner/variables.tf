@@ -79,12 +79,16 @@ variable "control_plane_size" {
   EOT
   default     = "cx42"
   validation {
-    # Accepted: shared-vCPU x86 (cx*), dedicated-vCPU x86 (ccx*), Arm (cax*).
-    # Block tiny / dev-only sizes that cannot host the Catalyst control
-    # plane; the operator can override by editing this regex AND
-    # accepting that the bootstrap will OOM.
-    condition     = can(regex("^(cx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.control_plane_size))
-    error_message = "control_plane_size must match Hetzner server-type naming (cxNN | ccxNN | caxNN). Minimum recommended: cx42 (16 GB) for solo Sovereign."
+    # Accepted families per Hetzner Cloud (https://www.hetzner.com/cloud/):
+    #   cx*   — shared-vCPU Intel
+    #   cpx*  — shared-vCPU AMD (the wizard's recommended CPX32 is here)
+    #   ccx*  — dedicated-vCPU Intel
+    #   cax*  — Ampere Arm
+    # Earlier rule omitted the CPX family entirely, which rejected the
+    # wizard's default selection at plan-time before the operator could
+    # ever provision.
+    condition     = can(regex("^(cx[0-9]+|cpx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.control_plane_size))
+    error_message = "control_plane_size must match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN). Minimum recommended: cpx32 (8 GB AMD) or cx42 (16 GB Intel) for solo Sovereign."
   }
 }
 
@@ -101,8 +105,12 @@ variable "worker_size" {
   EOT
   default     = "cx32"
   validation {
-    condition     = can(regex("^(cx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.worker_size))
-    error_message = "worker_size must match Hetzner server-type naming (cxNN | ccxNN | caxNN)."
+    # Empty string is valid — solo Sovereigns set worker_count = 0 and
+    # never read worker_size; the wizard surfaces the empty-SKU state as
+    # "no workers" in the review screen. Non-empty values must match the
+    # same Hetzner server-type families control_plane_size accepts.
+    condition     = var.worker_size == "" || can(regex("^(cx[0-9]+|cpx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.worker_size))
+    error_message = "worker_size must be empty (solo Sovereign, worker_count=0) or match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN)."
   }
 }
 
