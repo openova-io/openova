@@ -21,6 +21,16 @@ export interface ComponentDef {
    * read this list, no app-side knowledge of which components imply which.
    */
   dependencies?: string[]
+  /**
+   * URL to the brand logo SVG vendored under
+   * `products/catalyst/bootstrap/ui/public/component-logos/<id>.svg`.
+   * Defaults to `/component-logos/<id>.svg` per id when omitted.
+   * `null` means no upstream logo and the wizard will render the
+   * letter-mark fallback. Per INVIOLABLE-PRINCIPLES #4 the value is
+   * configuration, not code — swap the file under public/ to change
+   * the rendered logo without touching application source.
+   */
+  logoUrl?: string | null
 }
 
 export interface GroupDef {
@@ -180,6 +190,10 @@ export const ALL_COMPONENTS: ComponentEntry[] = GROUPS.flatMap(g =>
   g.components.map(c => ({
     ...c,
     dependencies: c.dependencies ?? [],
+    // Default logo path: vendored SVG keyed by component id.
+    // null in the source overrides the default and tells the UI to draw
+    // the letter-mark fallback (used for components with no upstream logo).
+    logoUrl: c.logoUrl === undefined ? `/component-logos/${c.id}.svg` : c.logoUrl,
     groupId: g.id,
     groupName: g.productName,
     groupSubtitle: g.subtitle,
