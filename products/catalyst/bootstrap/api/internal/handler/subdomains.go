@@ -1,39 +1,34 @@
 // Package handler — subdomains.go: pre-submit availability check.
 //
-// Closes #124 ([I] ux: error handling — what happens if subdomain already
-// taken). The wizard's StepOrg debounces keystrokes and POSTs the
-// candidate subdomain + pool-domain pair here BEFORE the user clicks
-// Next, so the validator catches collisions early instead of failing
-// at provisioning time when Dynadot rejects the duplicate record.
+// Closes the DNS-wildcard regression in #163 by routing every check for an
+// OpenOva-managed pool domain through pool-domain-manager (PDM). PDM is the
+// authoritative allocation source — it does not consult DNS at all, so the
+// Dynadot wildcard parking record at the apex of omani.works (which made
+// EVERY subdomain resolve to 185.53.179.128 and broke the previous
+// LookupHost-based check) is now architecturally irrelevant for managed
+// pools.
 //
-// How "taken" is determined:
+// Decision tree per request:
 //
-// 1. Pool-domain check — only OpenOva-managed pool domains are
-//    candidates for this endpoint; BYO domains are the customer's
-//    responsibility. We reject any pool the wizard doesn't recognise
-//    (defence-in-depth — the wizard already filters its own dropdown,
-//    but the handler must validate independently).
+//   1. Validate the subdomain as an RFC 1035 label (cheap, local).
+//   2. If poolDomain is in the runtime DYNADOT_MANAGED_DOMAINS list →
+//      delegate to PDM via Client.Check. PDM owns the reserved-name list
+//      and the allocation table; we just surface its response verbatim.
+//   3. Otherwise the caller is asking about a BYO domain (a customer's own
+//      DNS zone) — fall back to a DNS-based check via net.LookupHost. PDM
+//      doesn't manage BYO zones; the customer's nameserver IS the source
+//      of truth there.
 //
-// 2. Reserved-name check — short list of RFC 1035 / OpenOva
-//    Sovereign-control-plane subdomains we never let a tenant claim
-//    (api, admin, console, gitea, harbor, www, mail). Tenants get
-//    *those* names automatically as part of the Sovereign FQDN
-//    structure once they pick their root subdomain.
+// Per docs/INVIOLABLE-PRINCIPLES.md #4: PDM's URL is read from the
+// POOL_DOMAIN_MANAGER_URL env var (default = in-cluster service FQDN). The
+// reserved-name list lives ONLY in PDM after this commit — catalyst-api no
+// longer maintains a copy.
 //
-// 3. DNS resolution — net.DefaultResolver.LookupHost on
-//    "<subdomain>.<pool>" with a 2-second timeout. If anything
-//    resolves, the name is considered taken (whether it's an A,
-//    AAAA, or CNAME, the global DNS already knows about it).
-//
-// Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") the pool
-// list is shared with the package-level IsManagedDomain check in
-// internal/dynadot/. The reserved-name list is centralised here.
-//
-// Per the auto-memory `feedback_dynadot_dns.md`: NEVER run exploratory
-// set_dns2 calls. We deliberately do NOT call Dynadot's API for the
-// availability check — Dynadot's API is write-only-safe. The global
-// DNS resolver is the eventually-consistent source of truth for what
-// names already point somewhere.
+// Per Lesson #24 in docs/INVIOLABLE-PRINCIPLES.md: this is a STRUCTURAL fix,
+// not a bandaid. The previous DNS-based path is REMOVED for managed pools,
+// not augmented. The only remaining net.LookupHost call lives in the BYO
+// branch — and it is the right tool there because BYO zones are owned by
+// the customer, not by OpenOva.
 package handler
 
 import (
@@ -45,36 +40,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 )
-
-// reservedSubdomains — names we never let a tenant claim as their
-// Sovereign root subdomain. Tenants get *.omantel.omani.works style
-// records automatically; the wizard prevents claiming any name that
-// would collide with the canonical control-plane sub-records.
-var reservedSubdomains = map[string]struct{}{
-	"api":      {},
-	"admin":    {},
-	"console":  {},
-	"gitea":    {},
-	"harbor":   {},
-	"keycloak": {},
-	"www":      {},
-	"mail":     {},
-	"smtp":     {},
-	"imap":     {},
-	"vpn":      {},
-	"openova":  {},
-	"catalyst": {},
-	"docs":     {},
-	"status":   {},
-	"app":      {},
-	"system":   {},
-	"openbao":  {},
-	"vault":    {},
-	"flux":     {},
-	"k8s":      {},
-}
 
 type subdomainCheckRequest struct {
 	Subdomain string `json:"subdomain"`
@@ -88,14 +55,19 @@ type subdomainCheckRequest struct {
 //
 // available=true        → subdomain is free, user can submit.
 // available=false       → subdomain is taken; reason explains why.
-// (no error field)      → backend reached resolver / pool list cleanly.
 //
-// reason values:
+// reason values (managed pools mirror PDM verbatim, BYO uses local strings):
 //   "invalid-format"     subdomain is not a valid RFC 1035 label
-//   "unsupported-pool"   poolDomain is not an OpenOva-managed pool
-//   "reserved"           subdomain is in reservedSubdomains
-//   "exists"             DNS resolver returned at least one record
-//   "lookup-error"       DNS lookup itself failed (transient — user retries)
+//   "unsupported-pool"   poolDomain is not an OpenOva-managed pool (PDM)
+//                        — only surfaced for the BYO path's sanity check;
+//                        managed-pool requests delegate to PDM which owns
+//                        this verdict.
+//   "reserved"           subdomain is in PDM's reserved list (managed)
+//   "reserved-state"     PDM holds a non-expired reservation (managed)
+//   "active-state"       PDM has an active allocation (managed)
+//   "exists"             BYO DNS resolver returned at least one record
+//   "lookup-error"       BYO DNS lookup itself failed (transient)
+//   "pdm-unavailable"    PDM call failed — wizard treats as transient
 type SubdomainCheckResponse struct {
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
@@ -137,36 +109,71 @@ func (h *Handler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !dynadot.IsManagedDomain(pool) {
+	// Managed pools — PDM is the authoritative source of truth.
+	if pdm.IsManagedDomain(pool) {
+		h.checkManagedPool(w, r.Context(), pool, sub)
+		return
+	}
+
+	// BYO domain — fall back to the legacy DNS-based check. The customer
+	// owns the zone; resolving the name is the only signal we have.
+	h.checkBYO(w, r.Context(), pool, sub)
+}
+
+// checkManagedPool delegates to PDM. We surface PDM's response verbatim
+// (available, reason, detail, fqdn) so the wizard can render PDM's
+// authoritative messages without an extra mapping layer.
+func (h *Handler) checkManagedPool(w http.ResponseWriter, ctx context.Context, pool, sub string) {
+	if h.pdm == nil {
+		// Defence-in-depth: if the deployment forgot POOL_DOMAIN_MANAGER_URL,
+		// surface a transient error rather than silently falling back to DNS
+		// (which would resurrect the wildcard-parking bug this file exists
+		// to fix).
 		writeJSON(w, http.StatusOK, SubdomainCheckResponse{
 			Available: false,
-			Reason:    "unsupported-pool",
-			Detail:    "pool domain " + pool + " is not managed by OpenOva — pick a different pool or use BYO",
+			Reason:    "pdm-unavailable",
+			Detail:    "pool-domain-manager client is not configured — operator must set POOL_DOMAIN_MANAGER_URL",
+			FQDN:      sub + "." + pool,
 		})
 		return
 	}
 
-	if _, taken := reservedSubdomains[sub]; taken {
+	pdmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	res, err := h.pdm.Check(pdmCtx, pool, sub)
+	if err != nil {
+		h.log.Error("pdm check failed", "pool", pool, "sub", sub, "err", err)
 		writeJSON(w, http.StatusOK, SubdomainCheckResponse{
 			Available: false,
-			Reason:    "reserved",
-			Detail:    "this subdomain is reserved for the Sovereign control plane — pick a different name",
+			Reason:    "pdm-unavailable",
+			Detail:    "pool-domain-manager is temporarily unreachable — try again",
+			FQDN:      sub + "." + pool,
 		})
 		return
 	}
+	writeJSON(w, http.StatusOK, SubdomainCheckResponse{
+		Available: res.Available,
+		Reason:    res.Reason,
+		Detail:    res.Detail,
+		FQDN:      res.FQDN,
+	})
+}
 
+// checkBYO performs the DNS-based availability check for customer-owned
+// (Bring-Your-Own) domains. PDM doesn't manage BYO zones — the customer's
+// nameserver is the source of truth — so net.LookupHost is the right
+// primitive here.
+func (h *Handler) checkBYO(w http.ResponseWriter, ctx context.Context, pool, sub string) {
 	fqdn := sub + "." + pool
 
 	// Two-second timeout — long enough for global DNS but short enough
 	// that the wizard's debounced keystroke loop stays responsive.
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	addrs, err := net.DefaultResolver.LookupHost(ctx, fqdn)
+	addrs, err := net.DefaultResolver.LookupHost(dnsCtx, fqdn)
 	if err != nil {
-		// NXDOMAIN is "not taken" — the most common, success case. Any
-		// other error class (timeout, server-fail) is a transient lookup
-		// problem the wizard surfaces but doesn't treat as taken.
 		if isNXDomain(err) {
 			writeJSON(w, http.StatusOK, SubdomainCheckResponse{
 				Available: true,
@@ -182,7 +189,6 @@ func (h *Handler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
 	if len(addrs) == 0 {
 		writeJSON(w, http.StatusOK, SubdomainCheckResponse{
 			Available: true,
@@ -190,7 +196,6 @@ func (h *Handler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
 	writeJSON(w, http.StatusOK, SubdomainCheckResponse{
 		Available: false,
 		Reason:    "exists",
@@ -234,4 +239,13 @@ func isNXDomain(err error) bool {
 		return dnsErr.IsNotFound
 	}
 	return false
+}
+
+// pdmClient is implemented by *pdm.Client. The interface lets us pass a
+// fake in tests without wiring a real HTTP server.
+type pdmClient interface {
+	Check(ctx context.Context, poolDomain, subdomain string) (*pdm.CheckResult, error)
+	Reserve(ctx context.Context, poolDomain, subdomain, createdBy string) (*pdm.Reservation, error)
+	Commit(ctx context.Context, poolDomain string, in pdm.CommitInput) error
+	Release(ctx context.Context, poolDomain, subdomain string) error
 }

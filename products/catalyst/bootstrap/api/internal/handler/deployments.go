@@ -16,6 +16,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -37,6 +39,17 @@ type Deployment struct {
 	FinishedAt time.Time
 	Events     chan provisioner.Event
 	mu         sync.Mutex
+
+	// PDM reservation captured before `tofu apply` for managed-pool
+	// deployments. The reservationToken is held until `tofu apply`
+	// returns the LB IP, at which point we POST it to PDM /commit. On
+	// `tofu destroy` (or a phase-0 retry that decides to abandon) we
+	// DELETE /release.
+	//
+	// Empty for BYO deployments — those keep their own DNS off-platform.
+	pdmReservationToken string
+	pdmPoolDomain       string
+	pdmSubdomain        string
 }
 
 // State returns a JSON-safe snapshot for the GET endpoint.
@@ -92,6 +105,47 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		StartedAt: time.Now(),
 		Events:    make(chan provisioner.Event, 256),
 	}
+
+	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
+	// PDM holds the name with a TTL — if `tofu apply` fails or this catalyst-
+	// api Pod crashes, the TTL expires and the name is freed automatically.
+	// On the success path the runProvisioning goroutine calls /commit with
+	// the LB IP, which flips the reservation to ACTIVE and writes the
+	// Dynadot DNS records.
+	//
+	// For BYO deployments (the customer owns the DNS zone) we skip PDM
+	// entirely — the customer points their own CNAME at the LB IP shown
+	// on the success screen.
+	if req.SovereignDomainMode == "pool" && pdm.IsManagedDomain(req.SovereignPoolDomain) {
+		if h.pdm == nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "pool-domain-manager client is not configured (POOL_DOMAIN_MANAGER_URL)",
+			})
+			return
+		}
+		reserveCtx, reserveCancel := context.WithTimeout(r.Context(), 10*time.Second)
+		reservation, reserveErr := h.pdm.Reserve(reserveCtx, req.SovereignPoolDomain, req.SovereignSubdomain, "catalyst-api/deployment-"+id)
+		reserveCancel()
+		if reserveErr != nil {
+			if errors.Is(reserveErr, pdm.ErrConflict) {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error":  "subdomain-conflict",
+					"detail": "this subdomain has been reserved or activated for the chosen pool — pick a different name",
+				})
+				return
+			}
+			h.log.Error("pdm reserve failed", "id", id, "err", reserveErr)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "pdm-unavailable",
+				"detail": "pool-domain-manager is temporarily unreachable: " + reserveErr.Error(),
+			})
+			return
+		}
+		dep.pdmReservationToken = reservation.ReservationToken
+		dep.pdmPoolDomain = reservation.PoolDomain
+		dep.pdmSubdomain = reservation.Subdomain
+	}
+
 	h.deployments.Store(id, dep)
 
 	// Capture status before launching the goroutine — runProvisioning races
@@ -181,6 +235,48 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		)
 	}
 	dep.mu.Unlock()
+
+	// PDM lifecycle: on success, /commit with the LB IP; on failure, /release
+	// so the reservation TTL doesn't have to expire to free the name. PDM is
+	// the single owner of the Dynadot side-effect (it is also responsible for
+	// AddSovereignRecords on commit; catalyst-api never writes DNS itself).
+	if dep.pdmReservationToken != "" && h.pdm != nil {
+		pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer pdmCancel()
+		if err == nil && result != nil {
+			commitErr := h.pdm.Commit(pdmCtx, dep.pdmPoolDomain, pdm.CommitInput{
+				Subdomain:        dep.pdmSubdomain,
+				ReservationToken: dep.pdmReservationToken,
+				SovereignFQDN:    result.SovereignFQDN,
+				LoadBalancerIP:   result.LoadBalancerIP,
+			})
+			if commitErr != nil {
+				h.log.Error("pdm commit failed; sovereign is live but DNS records may be stale",
+					"id", dep.ID,
+					"poolDomain", dep.pdmPoolDomain,
+					"subdomain", dep.pdmSubdomain,
+					"err", commitErr,
+				)
+			} else {
+				h.log.Info("pdm commit complete",
+					"id", dep.ID,
+					"poolDomain", dep.pdmPoolDomain,
+					"subdomain", dep.pdmSubdomain,
+					"loadBalancerIP", result.LoadBalancerIP,
+				)
+			}
+		} else {
+			releaseErr := h.pdm.Release(pdmCtx, dep.pdmPoolDomain, dep.pdmSubdomain)
+			if releaseErr != nil && !errors.Is(releaseErr, pdm.ErrNotFound) {
+				h.log.Error("pdm release failed; reservation will expire on TTL",
+					"id", dep.ID,
+					"poolDomain", dep.pdmPoolDomain,
+					"subdomain", dep.pdmSubdomain,
+					"err", releaseErr,
+				)
+			}
+		}
+	}
 }
 
 func newID() string {

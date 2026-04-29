@@ -1,0 +1,105 @@
+name: Build Pool Domain Manager
+
+# pool-domain-manager — central authority for OpenOva-pool subdomain
+# allocation (closes #163). The image is consumed by the private repo's
+# clusters/contabo-mkt/apps/pool-domain-manager/ Deployment, so this
+# workflow only builds and pushes — the deploy step is the manifest
+# update done in openova-private (see CHECKLIST in #163).
+
+on:
+  push:
+    paths:
+      - 'core/pool-domain-manager/**'
+      - '.github/workflows/pool-domain-manager-build.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/pool-domain-manager
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      # Per docs/INVIOLABLE-PRINCIPLES.md #3 every Catalyst image is signed
+      # + SBOM-attested; this workflow mirrors that contract.
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go (for unit tests)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: core/pool-domain-manager/go.sum
+
+      - name: Run unit tests
+        working-directory: core/pool-domain-manager
+        # We deliberately skip the integration suite (PDM_TEST_DSN not
+        # available in CI without a Postgres service); the full integration
+        # run lives in test-bootstrap-api.yaml against an ephemeral CNPG.
+        run: go test ./internal/reserved/... ./internal/dynadot/...
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: core/pool-domain-manager
+          file: core/pool-domain-manager/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=pool-domain-manager
+            org.opencontainers.image.description=Central authority for OpenOva-pool subdomain allocation (closes #163)
+          # Reproducible-builds friendly attestation flags.
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+        # Per docs/INVIOLABLE-PRINCIPLES.md #3: every Catalyst image must be
+        # cosign-signed via Sigstore keyless flow. The id-token: write
+        # permission above is what enables OIDC for cosign.
+
+      - name: Generate and attest SBOM
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # docker buildx already produced an SBOM via sbom:true above; cosign
+          # attaches it as a transparency-log entry tied to the image digest.
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"

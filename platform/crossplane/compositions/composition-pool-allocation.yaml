@@ -1,0 +1,158 @@
+# Composition: dynadot-pool-allocation.compose.openova.io — default
+# realization for XDynadotPoolAllocation. Renders to a sequence of
+# provider-http MR calls that mirror the wizard's imperative lifecycle:
+#
+#   1. POST  http://pool-domain-manager.../api/v1/pool/{poolDomain}/reserve
+#      body: { subdomain, createdBy }
+#      → returns reservationToken
+#
+#   2. POST  http://pool-domain-manager.../api/v1/pool/{poolDomain}/commit
+#      body: { subdomain, reservationToken, sovereignFQDN, loadBalancerIP }
+#
+#   3. (on delete) DELETE http://pool-domain-manager.../api/v1/pool/{poolDomain}/release
+#      body: { subdomain }
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #3 we use Crossplane's
+# provider-http so the entire lifecycle is declarative — no bespoke Go,
+# no exec.Command, no out-of-band shell scripts. The operator commits a
+# DynadotPoolAllocation claim to Git and Flux + Crossplane converge.
+#
+# Provider-http reference:
+#   https://github.com/crossplane-contrib/provider-http
+# We expect the cluster to have a ProviderConfig named 'pool-domain-manager'
+# pointing at the in-cluster service URL — set up by Phase-0 cluster
+# bootstrap (the Catalyst-Zero install ships this ProviderConfig as part
+# of the platform's openova-system manifests).
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: dynadot-pool-allocation.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: pool-domain-manager
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XDynadotPoolAllocation
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Reserve ────────────────────────────────────────────────────────
+    # Calls PDM /reserve. Provider-http stores the response body in the MR's
+    # status; the next step's request templating reads reservationToken
+    # from there.
+    - name: reserve
+      base:
+        apiVersion: http.crossplane.io/v1alpha2
+        kind: Request
+        spec:
+          forProvider:
+            url: ""        # filled by patch
+            method: POST
+            headers:
+              Content-Type:
+                - application/json
+            payload:
+              baseUrl: ""  # patched
+              body: ""     # patched (subdomain + createdBy)
+            mappings:
+              - method: POST
+                action: CREATE
+                url: ""    # patched
+                body: ""   # patched
+              - method: DELETE
+                action: REMOVE
+                url: ""    # patched (release endpoint)
+                body: ""   # patched
+          providerConfigRef:
+            name: pool-domain-manager
+      patches:
+        # PDM URL: '<base>/api/v1/pool/<poolDomain>/reserve' on CREATE,
+        # '<base>/api/v1/pool/<poolDomain>/release' on DELETE. We default
+        # base to the in-cluster ClusterIP service so a stock Catalyst
+        # Sovereign bootstrap doesn't need any per-cluster overrides.
+        - fromFieldPath: spec.parameters.poolDomain
+          toFieldPath: spec.forProvider.mappings[0].url
+          transforms:
+            - type: string
+              string:
+                fmt: "http://pool-domain-manager.openova-system.svc.cluster.local:8080/api/v1/pool/%s/reserve"
+        - fromFieldPath: spec.parameters.poolDomain
+          toFieldPath: spec.forProvider.mappings[1].url
+          transforms:
+            - type: string
+              string:
+                fmt: "http://pool-domain-manager.openova-system.svc.cluster.local:8080/api/v1/pool/%s/release"
+        # Body for CREATE: { "subdomain": "<sub>", "createdBy": "crossplane" }
+        - fromFieldPath: spec.parameters.subdomain
+          toFieldPath: spec.forProvider.mappings[0].body
+          transforms:
+            - type: string
+              string:
+                fmt: '{"subdomain":"%s","createdBy":"crossplane"}'
+        - fromFieldPath: spec.parameters.subdomain
+          toFieldPath: spec.forProvider.mappings[1].body
+          transforms:
+            - type: string
+              string:
+                fmt: '{"subdomain":"%s"}'
+        # Surface the reservation token back onto the XR status so step 2
+        # can read it via fromConnectionSecret OR via direct status patch.
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.response.body.reservationToken
+          toFieldPath: status.reservationToken
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.response.body.state
+          toFieldPath: status.state
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.response.body.expiresAt
+          toFieldPath: status.expiresAt
+
+    # ── 2. Commit ─────────────────────────────────────────────────────────
+    # Calls PDM /commit. Depends on the reservation token surfaced by
+    # step 1. provider-http evaluates resources in order, so by the time
+    # this MR runs the XR's status.reservationToken is populated.
+    - name: commit
+      base:
+        apiVersion: http.crossplane.io/v1alpha2
+        kind: Request
+        spec:
+          forProvider:
+            mappings:
+              - method: POST
+                action: CREATE
+                url: ""   # patched
+                body: ""  # patched
+            headers:
+              Content-Type:
+                - application/json
+          providerConfigRef:
+            name: pool-domain-manager
+      patches:
+        - fromFieldPath: spec.parameters.poolDomain
+          toFieldPath: spec.forProvider.mappings[0].url
+          transforms:
+            - type: string
+              string:
+                fmt: "http://pool-domain-manager.openova-system.svc.cluster.local:8080/api/v1/pool/%s/commit"
+        # Body composition: we need subdomain, reservationToken,
+        # sovereignFQDN, loadBalancerIP. Crossplane's standard patches
+        # don't support multi-source string interpolation in a single
+        # transform, so we use a CombineFromComposite block.
+        - type: CombineFromComposite
+          combine:
+            variables:
+              - fromFieldPath: spec.parameters.subdomain
+              - fromFieldPath: status.reservationToken
+              - fromFieldPath: spec.parameters.sovereignFQDN
+              - fromFieldPath: spec.parameters.loadBalancerIP
+            strategy: string
+            string:
+              fmt: '{"subdomain":"%s","reservationToken":"%s","sovereignFQDN":"%s","loadBalancerIP":"%s"}'
+          toFieldPath: spec.forProvider.mappings[0].body
+        # On commit success the row flips to active.
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.response.body.state
+          toFieldPath: status.state
