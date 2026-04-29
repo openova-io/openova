@@ -20,7 +20,7 @@
 # into a per-deployment workdir on every Launch.
 
 # ---------- Stage 1: build the Go binaries ----------
-FROM docker.io/library/golang:1.23-alpine AS build
+FROM docker.io/library/golang:1.26-alpine AS build
 WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
