@@ -35,14 +35,21 @@ this graph.
 
 `Product.familyDependencies[]` — **"product P implies product Q."** Used
 when the components of P only make sense in the presence of Q's full
-runtime, not just one of Q's primitives. Today this is set on **CORTEX
-→ FABRIC** (CORTEX members run on cnpg / valkey / etc).
+runtime, not just one of Q's primitives. Today **no product declares a
+family-level dependency** (every entry in PRODUCTS carries
+`familyDependencies: []`). The early shape (CORTEX → FABRIC) was
+audited at #0b6bb3ea after operator feedback that "selecting Specter
+brings the entire FABRIC family — there is no such dependency in
+reality": CORTEX's only true cross-family needs are cnpg (LangFuse
+backend) and ferretdb (LibreChat backend), both encoded at the
+**component** level and resolved by the transitive-mandatory promotion
+walk + the librechat → ferretdb → cnpg dep chain.
 
 A second product-level flag, `Product.cascadeOnMemberSelection: boolean`,
 controls whether selecting a single member of the product implies
 selecting the entire family. This is the operator's #175
 "Cortex-as-product" requirement: selecting BGE selects the rest of
-CORTEX.
+CORTEX. CORTEX is the only product with the flag set today.
 
 ---
 
@@ -87,7 +94,7 @@ always-included ones depending on it."*
 | **GUARDIAN** | mandatory | no | — | falco, kyverno, trivy, syft-grype, sigstore, keycloak, openbao, external-secrets, cert-manager |
 | **INSIGHTS** | recommended | no | — | grafana, opentelemetry, alloy, loki, mimir, tempo, opensearch, litmus, openmeter, specter |
 | **FABRIC** | recommended | no | — | cnpg, valkey, strimzi, debezium, flink, temporal, clickhouse, ferretdb, iceberg, superset |
-| **CORTEX** | optional | **yes** | **fabric** | kserve, knative, axon, neo4j, vllm, milvus, bge, langfuse, librechat |
+| **CORTEX** | optional | **yes** | — | kserve, knative, axon, neo4j, vllm, milvus, bge, langfuse, librechat |
 | **RELAY** | optional | no | — | stalwart, livekit, stunner, matrix, ntfy |
 
 `Cascade on member?` controls whether selecting any single component
@@ -110,15 +117,17 @@ Specter's component-level deps: `[bge, milvus, langfuse, vllm, kserve]`
 3. The store's product-cascade walk sees that bge belongs to CORTEX,
    and CORTEX has `cascadeOnMemberSelection: true`.
 4. Every other CORTEX member added: knative, axon, neo4j, librechat.
-5. CORTEX's `familyDependencies: ['fabric']` triggers. Every FABRIC
-   component is added (cnpg/valkey were already mandatory; strimzi,
-   debezium, flink, temporal, clickhouse, ferretdb, iceberg, superset
-   are added).
-6. Component-deps of every newly-added FABRIC member cascade (mostly
-   already-selected mandatory deps).
+5. Component-level deps of the new CORTEX members cascade — only
+   `langfuse → cnpg` and `librechat → ferretdb → cnpg` fire; cnpg is
+   already mandatory after promotion. **No FABRIC family pull.** The
+   audit at #0b6bb3ea explicitly removed CORTEX's prior
+   `familyDependencies: ['fabric']` because the runtime needs are
+   localised at component-level, not family-level.
 
 Net: selecting one component, Specter, brings in **the entire CORTEX
-family + entire FABRIC family** — as the operator required.
+family** plus only the FABRIC primitives the dependency graph
+literally requires (cnpg, ferretdb) — not Strimzi / Debezium / Flink /
+Temporal / ClickHouse / Iceberg / Superset.
 
 ### Selecting **BGE** (in CORTEX)
 
@@ -126,10 +135,13 @@ family + entire FABRIC family** — as the operator required.
 2. BGE has no component-level deps.
 3. Product-cascade walk: BGE's product is CORTEX (cascade=true).
 4. Every CORTEX member added.
-5. CORTEX's familyDependencies pulls FABRIC family.
+5. Component-level deps of the new CORTEX members cascade as above
+   (cnpg + ferretdb only).
 
-Net: selecting BGE = selecting CORTEX + FABRIC. *"BGE alone doesn't have
-much meaning unless we have Cortex"* — verified.
+Net: selecting BGE = selecting CORTEX + cnpg/ferretdb (the runtime
+backends LangFuse / LibreChat actually need). *"BGE alone doesn't have
+much meaning unless we have Cortex"* — verified, without the over-broad
+FABRIC pull.
 
 ### Selecting **Harbor** (in SILO)
 
@@ -190,13 +202,17 @@ members are preserved — KServe (mandatory in CORTEX) survives a
 
 ### Tab 1: "Choose Your Stack"
 
-- Lists every non-mandatory component.
-- Grouped by product family with a header per product.
-- Each product header carries a CTA:
-  - "Select entire X family" when not all members are selected.
-  - "Remove X family" when all members are selected.
-- Search field bypasses grouping (text-match results render flat).
-- Category chips filter to one product at a time.
+- Lists every non-mandatory component in a single flat marketplace
+  card grid (no per-family section headers — those were removed at
+  #b0ec0c43 because they fragmented the page; the family relationship
+  is now surfaced via a clickable family chip on each card that links
+  to the dedicated family portfolio page).
+- Search field at the top filters by name / description / family.
+- Category chips at the top filter to one product family at a time.
+- Each card has three click affordances kept distinct so they never
+  collide: the family chip routes to the family portfolio page; the
+  card body routes to the product detail page; only the explicit
+  Select / Selected button toggles the wizard store.
 
 ### Tab 2: "Always Included"
 

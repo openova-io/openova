@@ -76,7 +76,7 @@ openova/
 
 Each folder under `platform/` and `products/` is the source of one **Blueprint**, published from CI as a signed OCI artifact at `ghcr.io/openova-io/bp-<name>:<semver>` (the `bp-` prefix is added to the OCI artifact name; folder names stay short). Per-folder isolation is provided at the OCI artifact layer, not the Git repo layer — this is a **monorepo with per-Blueprint fan-out**, not a meta-repo of separate Git repositories. See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) §2 for the folder layout contract.
 
-> **Today**, every folder under `platform/` and `products/` (except `products/axon/`) contains only a `README.md`. The Blueprint manifests, charts, Compositions, and CI fan-out are all **design-stage** — see [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md).
+> **Today**, the 12-component bootstrap kit (cilium, cert-manager, flux, crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak, gitea, powerdns + the bp-catalyst-platform umbrella under `products/catalyst/`) ships with full `chart/` + `blueprint.yaml` per [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) §7, plus `products/axon/` and the `external-dns` leaf chart. The remaining 45 platform components and the `cortex / fabric / fingate / relay` product folders are **design-stage** — README only — until each lands its Blueprint manifest, chart, Compositions, and CI fan-out.
 
 ---
 

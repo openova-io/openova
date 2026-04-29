@@ -1,47 +1,69 @@
 # Component Logos
 
 The OpenOva Catalyst wizard's component picker (Step 5: Components,
-`StepComponents.tsx`) renders a 3-column card grid that pixel-mirrors the
-SME marketplace (`core/marketplace/src/components/AppsStep.svelte`). Each
-card displays the component's brand mark from a vendored SVG file under
-`products/catalyst/bootstrap/ui/public/component-logos/<id>.svg`.
+[`StepComponents.tsx`](../products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepComponents.tsx))
+renders a single flat marketplace card grid (no per-family section
+headers) with a clickable family chip on each card and a search +
+product-family chip filter at the top — the layout that won out after
+the operator's "fragmented page" feedback at #b0ec0c43. Each card
+displays the component's brand mark from a vendored asset file under
+`products/catalyst/bootstrap/ui/public/component-logos/<id>.{svg,png}`.
 
-This doc tracks the source and licence of each logo SVG so the
-asset library can be audited, re-vendored, or swapped for canonical
-upstream art when permission/license is verified.
+This doc tracks the source and licence of each logo so the asset
+library can be audited, re-vendored, or swapped for canonical upstream
+art when permission/license is verified.
 
 ## How it works
 
 `componentGroups.ts` declares each component with an optional `logoUrl`
 field. The default value (when omitted) is `/component-logos/<id>.svg`,
-which Vite serves from the wizard's `public/` directory. To override:
+which Vite serves from the wizard's `public/` directory. Components
+whose canonical upstream asset is published as PNG (e.g. coraza,
+external-dns, ferretdb, langfuse, loki, mimir, netbird, ntfy, openmeter,
+strongswan, syft-grype, tempo, trivy, vllm) carry an explicit
+`logoUrl: basePath('component-logos/<id>.png')` override in the catalog
+entry. To change a logo:
 
-- **Use a vendored upstream SVG**: replace the file at
-  `public/component-logos/<id>.svg`. No code change required —
+- **Use a vendored upstream SVG/PNG**: replace the file at
+  `public/component-logos/<id>.<ext>`. No code change required —
   the URL is data, not source (per
   [INVIOLABLE-PRINCIPLES.md](INVIOLABLE-PRINCIPLES.md) #4 "never
   hardcode").
 - **Suppress the logo entirely**: set `logoUrl: null` in the component
-  definition. The card will render the letter-mark fallback
-  (hue-derived from the component name).
+  definition (PowerDNS uses this — no single-glyph upstream brand mark
+  is suitable for a square card tile). The card renders the letter-mark
+  fallback (hue-derived from the component name).
 
 ## Current asset status
 
-The 62 SVG files currently in `public/component-logos/` are **stylised
-brand-color marks** authored in-house, not copies of the upstream
-projects' official logo files. They preserve each project's brand colour
-(taken from the project's documented brand pages or in-product palette)
-and use a recognisable shape mark — not the trademarked logotype. The
-componentGroups.ts catalog references one additional component
-(`powerdns`) whose SVG has not yet been vendored — the wizard renders
-the letter-mark fallback for it until a logo is added (see issue #173
-for the open card-logo follow-up).
+The 58 logo files currently in `public/component-logos/` (44 SVG + 14
+PNG, replacing the prior 62 stylised in-house marks at #169b1d1c
++ #30ff318d) are sourced from the canonical upstream:
 
-This avoids the licence ambiguity of vendoring third-party art into a
-public repository while still producing a visually distinctive grid. The
-table below records the canonical upstream logo source for each
-component so a future pass can swap in the official asset where the
-licence permits.
+- **CNCF artwork repo** — cert-manager, cilium, cnpg (cloudnativepg),
+  crossplane, envoy, external-secrets, falco, flux, harbor, keda,
+  keycloak, knative, kserve, kyverno, litmus, opentelemetry, opentofu,
+  sigstore, strimzi, vpa.
+- **Project repos** (each upstream's own brand page or repository) —
+  alloy, clickhouse, debezium, ferretdb, frpc, gitea, grafana, iceberg,
+  langfuse, librechat, livekit, loki, matrix, milvus, mimir, neo4j,
+  netbird, ntfy, openbao, openmeter, opensearch, reloader, seaweedfs,
+  stalwart, strongswan, stunner, superset, syft-grype, temporal, tempo,
+  trivy, valkey, vcluster, velero, vllm, flink, coraza.
+- **OpenOva-curated** (no upstream brand) — axon, bge, continuum,
+  specter. These ship as in-house marks under the OpenOva license.
+
+The catalog references one additional component (`powerdns`) whose
+catalog entry sets `logoUrl: null` — PowerDNS has no single-glyph
+upstream brand mark suitable for a square card tile, so the wizard
+renders the letter-mark fallback by design.
+
+CI's logo smoke-test (`.github/workflows/catalyst-build.yaml`,
+commit `6a7d2dd8`) curls every PNG/SVG path the catalog references so
+a missing or mis-cased asset fails the build, not the user.
+
+The table below records the canonical upstream logo source for each
+component for re-vendoring + license traceability.
 
 | Component slug      | Upstream project      | Canonical logo source                                                       | Notes |
 |---------------------|-----------------------|-----------------------------------------------------------------------------|-------|

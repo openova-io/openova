@@ -14,7 +14,7 @@
 | C — Cutover Catalyst-Zero | 8 | ✅ Flux is now reconciling Catalyst-Zero from `github.com/openova-io/openova` (public repo) — confirmed via `kubectl get gitrepository -A` returning `openova-public` source serving the catalyst-platform Kustomization | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07, 8c40984 (Group C cutover merge) |
 | D — Wizard | 10 | 🚧 Domain capture + Hetzner project ID added; AppsStep replacement pending | 854a063 |
 | E — Provisioner backend | 13 | 🚧 Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
-| F — Bootstrap-kit Helm charts | 14 | ✅ All 11 G2 wrapper charts + blueprint-release CI live | 8c0f766 |
+| F — Bootstrap-kit Helm charts | 14 | ✅ All 12 G2 wrapper charts (original 11 + bp-powerdns #167) + blueprint-release CI live | 8c0f766, 0190c605 |
 | G — DNS multi-domain | 6 | ✅ Superseded by PowerDNS authoritative (#167) + pool-domain-manager (#163) + registrar adapters (#170) — Dynadot is now one of five registrar adapters inside PDM, not the authoritative DNS surface | db4f21a, 0190c605 (#167), 2854d652 (#163), 567d7e1f (#170) |
 | H — Franchise model | 7 | 🚧 docs/FRANCHISE-MODEL.md authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
 | I — Wizard UX | 6 | 📐 SSE event log pane + step indicator pending |  |

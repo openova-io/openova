@@ -30,9 +30,9 @@ Gather all of the following BEFORE opening the wizard. The wizard does not save 
 | **Hetzner Cloud API token** | Inside the project: Security → API Tokens → New Token, scope **Read & Write** | Save it once — it is shown only at creation |
 | **Hetzner region** | One of: `fsn1` (Falkenstein), `nbg1` (Nuremberg), `hel1` (Helsinki), `ash` (Ashburn US East), `hil` (Hillsboro US West) | Wizard validates against this list |
 | **SSH public key** | Your sovereign-admin break-glass keypair — generate with `ssh-keygen -t ed25519 -C "sovereign-admin@<your-org>" -f ~/.ssh/sovereign_admin` | The PUBLIC half (`*.pub`) is what the wizard takes |
-| **Sovereign domain** | Three modes (post-#169): (a) **Pool** — pick a subdomain under `omani.works` / `openova.io` (the wizard reserves it via PDM `/v1/reserve` and creates the per-Sovereign PowerDNS zone on commit); (b) **BYO with manual NS-flip** (`byo-manual`) — bring your own registered domain; the wizard shows the OpenOva NS records you paste into your registrar UI; (c) **BYO with API NS-flip** (`byo-api`) — bring your own domain plus a registrar API token (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) and OpenOva flips NS for you | Wizard validates registrar tokens read-only (`POST /api/v1/registrars/validate`) before accepting |
-| **Organisation name + email** | Your organisation's display name + the email that becomes the initial sovereign-admin in Keycloak | Email must be deliverable — Keycloak sends the password reset there |
-| **Topology choice** | Single-region (SME default) or 1-CP-1-worker minimal vs `ha_enabled=true` (3-CP HA) + `worker_count` ≥ 1 | Wizard surfaces these as form fields |
+| **Sovereign domain** | Three modes (post-#169): (a) **Pool** — pick a subdomain under `omani.works` / `openova.io` (the wizard reserves it via PDM `/v1/reserve` and creates the per-Sovereign PowerDNS zone on commit); (b) **BYO with manual NS-flip** (`byo-manual`) — bring your own registered domain; the wizard shows the OpenOva NS records you paste into your registrar UI; (c) **BYO with API NS-flip** (`byo-api`) — bring your own domain plus a registrar API token (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) and OpenOva flips NS for you. Captured at Step 6 (after sizing + creds + components) so the wizard can pair the domain with the deployed footprint | Wizard validates registrar tokens read-only (`POST /api/v1/registrars/validate`) before accepting |
+| **Organisation profile** | Org name, industry, size, HQ, compliance frame; the sovereign-admin email is captured at Step 6 (Domain) so it pairs with the Sovereign's external surface | Email must be deliverable — Keycloak sends the password reset there |
+| **Topology choice** | Single-region (SME default) or 1-CP-1-worker minimal vs `ha_enabled=true` (3-CP HA) + `worker_count` ≥ 1; control-plane + worker SKU pickers driven by `PROVIDER_NODE_SIZES[provider]` (#176) | Wizard surfaces these as form fields |
 
 **Cost estimate for a default single-region run:** 1× control-plane CPX21 (~€8/mo) + 1× worker CPX31 (~€16/mo) + 1× lb11 (~€6/mo) + ~€1 storage = **~€31/mo** before workload growth. HA topology (3 CPs + 2 workers) is closer to ~€80/mo.
 
@@ -50,16 +50,16 @@ Log in as a Catalyst-Zero user (your existing OpenOva-issued credentials) and cl
 
 ### 2. Walk the 7-step wizard
 
-The wizard's Vite scaffold lives at [`products/catalyst/bootstrap/ui/`](../products/catalyst/bootstrap/ui/). Each step writes its inputs into the wizard's local store; nothing is sent to the catalyst-api until **Review** + **Provision**. The 7-step indicator lives in the page header (per #174); per-step ordering is canonical from `WIZARD_STEPS` in `src/app/layouts/WizardLayout.tsx`.
+The wizard's Vite scaffold lives at [`products/catalyst/bootstrap/ui/`](../products/catalyst/bootstrap/ui/). Each step writes its inputs into the wizard's local store; nothing is sent to the catalyst-api until **Review** + **Provision**. The 7-step indicator lives in the page header (per #174); per-step ordering is canonical from `STEPS` in [`src/pages/wizard/WizardPage.tsx`](../products/catalyst/bootstrap/ui/src/pages/wizard/WizardPage.tsx). The canonical order — operator picks workload sizing, then provider, then credentials, then components, then names the Sovereign in DNS — is:
 
 | Step | What it captures | Notes |
 |---|---|---|
-| 1. Organisation | Org name, contact email, sovereign-admin email | Becomes the initial sovereign-admin |
-| 2. Domain | Pool subdomain OR BYO (manual NS / registrar API), per #169's three-mode flow | Pool = PDM `/v1/reserve`. BYO byo-api = registrar token (Cloudflare/Namecheap/GoDaddy/OVH/Dynadot, #170). BYO byo-manual = wizard surfaces NS list to paste at customer registrar |
-| 3. Topology | Regions, building blocks (mgt + rtz/dmz), HA toggles | Single-region is the supported path at first launch — multi-region remains design-only |
-| 4. Provider | Cloud per region (Hetzner today; AWS / GCP / Azure / OCI / Huawei per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §9.1 are design-only) | |
-| 5. Credentials | Hetzner Cloud API token + project ID, SSH public key | Validated read-only via `POST /api/v1/credentials/validate` before advancing; the token is sent once over TLS, never logged, redacted from SSE event stream |
-| 6. Components | Two-tab StepComponents (#161, #162): a "Mandatory infra" tab listing the always-installed blueprint set and an "Apps" tab with the optional-Application card grid | Apps are added post-provisioning too — only pre-select the must-haves. Per #175 dependency-aware cascades pull transitive deps automatically (e.g. picking Harbor pulls in cnpg + seaweedfs + valkey) |
+| 1. Organisation | Org profile: name, industry, size, HQ, compliance frame | No email or domain capture here — the sovereign-admin email pairs with the Sovereign's external surface and is captured at Step 6 (Domain) |
+| 2. Topology | Regions, building blocks (mgt + rtz/dmz), HA toggle, control-plane + worker SKU + worker count | Single-region is the supported path at first launch — multi-region remains design-only. Per #176 the SKU pickers are driven by `PROVIDER_NODE_SIZES[provider]` so the catalog stays per-provider correct (no Hetzner-only literals leaking into the AWS/Azure/OCI paths) |
+| 3. Provider | Cloud per region (Hetzner today; AWS / GCP / Azure / OCI / Huawei per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §9.1 are design-only) | |
+| 4. Credentials | Provider API token + project ID (when applicable), SSH public key | Validated read-only via `POST /api/v1/credentials/validate` before advancing; the token is sent once over TLS, never logged, redacted from SSE event stream |
+| 5. Components | Single flat marketplace card grid (#162, #b0ec0c43) with family chips on each card and search + product-family chip filter at the top. Two tabs: **Choose Your Stack** (recommended + optional, default-on for recommended) and **Always Included** (the post-promotion mandatory closure, read-only) | Apps can be added post-provisioning too — only pre-select the must-haves. Per #175 dependency-aware cascades pull transitive deps automatically (e.g. picking Harbor pulls in cnpg + seaweedfs + valkey); per #d3346441 each card's family chip is clickable and routes to the family portfolio page, the card body routes to the product detail page, and only the explicit Select / Selected button toggles the wizard store |
+| 6. Domain | Pool subdomain OR BYO (manual NS / registrar API), per #169's three-mode flow, plus the sovereign-admin email | Pool = PDM `/v1/reserve`. BYO byo-api = registrar token (Cloudflare/Namecheap/GoDaddy/OVH/Dynadot, #170). BYO byo-manual = wizard surfaces NS list to paste at customer registrar |
 | 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
 ### 3. Watch the SSE event stream
@@ -92,7 +92,7 @@ https://console.<sovereign-fqdn>
 
 (For pool domains, this is e.g. `console.omantel.omani.works`. For BYO, you must first add a CNAME from `*.<your-fqdn>` to the load-balancer DNS name shown on the success screen.)
 
-Sign in with the email you provided in Step 2. Keycloak's `catalyst-admin` realm sends a password-reset email; click the link, set a strong password (24+ chars per [`feedback_passwords.md`](https://github.com/openova-io/openova-private/blob/main/CLAUDE.md)), then complete the realm flow.
+Sign in with the sovereign-admin email you provided at Step 6 (Domain). Keycloak's `catalyst-admin` realm sends a password-reset email; click the link, set a strong password (24+ chars per [`feedback_passwords.md`](https://github.com/openova-io/openova-private/blob/main/CLAUDE.md)), then complete the realm flow.
 
 ### 5. Day-1 setup checklist
 
@@ -111,7 +111,7 @@ Per [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §5:
 
 ## What can go wrong, and what to do
 
-The catalyst-api retains the OpenTofu state per-Sovereign in `/var/lib/catalyst/tofu/<sovereign-fqdn>/`. Re-running with the same Sovereign FQDN is idempotent (`tofu apply` on existing state). This means most failures are recoverable without manual cleanup of Hetzner resources.
+The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu/<sovereign-fqdn>/` — the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment (commit `27527e4c`, see [`products/catalyst/chart/templates/api-deployment.yaml`](../products/catalyst/chart/templates/api-deployment.yaml) and the comment block explaining why `/var/lib/catalyst/...` is unwritable for UID 65534) points the provisioner at the Pod's writable `/tmp` emptyDir (2 Gi sizeLimit) so each Sovereign run gets its own subdirectory. Re-running with the same Sovereign FQDN is idempotent (`tofu apply` on existing state). This means most failures are recoverable without manual cleanup of Hetzner resources.
 
 | Symptom | Most likely cause | What to do |
 |---|---|---|
