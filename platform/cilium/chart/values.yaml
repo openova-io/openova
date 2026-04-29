@@ -78,14 +78,28 @@ cilium:
     limits:
       memory: 1Gi
 
-  # ServiceMonitor for Prometheus scraping (Catalyst observability stack consumes)
+  # Prometheus scraping + ServiceMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) and
+  # docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles must default
+  # false): observability toggles MUST default `false` because the
+  # `monitoring.coreos.com/v1` CRDs that back ServiceMonitor / PrometheusRule
+  # ship with kube-prometheus-stack — a second-tier Application Blueprint
+  # that itself depends on the bootstrap-kit (cilium first). Defaulting
+  # `serviceMonitor.enabled: true` here creates a circular CRD dependency:
+  # bp-cilium wants the CRD that bp-kube-prometheus-stack provides, but
+  # bp-kube-prometheus-stack cannot install before bp-cilium. The
+  # `trustCRDsExist=true` mitigation only suppresses Helm's render-time
+  # gate; at install time the apiserver still rejects ServiceMonitor with
+  # "no matches for kind ServiceMonitor in version monitoring.coreos.com/v1
+  # — ensure CRDs are installed first" (verified on omantel.omani.works
+  # 2026-04-29, issue #182).
+  #
+  # Operator opts in once the observability tier is reconciled. The opt-in
+  # is a per-cluster values overlay at clusters/<sovereign>/bootstrap-kit/
+  # 01-cilium.yaml `spec.values.cilium.prometheus.serviceMonitor.enabled:
+  # true` — no rebuild of the Blueprint OCI artifact is required.
   prometheus:
-    enabled: true
+    enabled: false
     serviceMonitor:
-      enabled: true
-      # Cilium chart's ServiceMonitor template insists the
-      # monitoring.coreos.com/v1 CRD must be installed at render time
-      # unless we explicitly trust it. The Catalyst observability stack
-      # ships the kube-prometheus-stack CRDs alongside this Blueprint, so
-      # the trust assertion is correct.
-      trustCRDsExist: true
+      enabled: false
