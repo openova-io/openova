@@ -54,12 +54,34 @@ jobs:
           docker run -d --name smoke-ui -p 8080:8080 ${{ env.UI_IMAGE }}:test
           sleep 3
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/)
-          docker stop smoke-ui
           if [ "$STATUS" != "200" ]; then
-            echo "Smoke test failed: expected 200, got $STATUS"
+            echo "Smoke test failed: expected 200 from /, got $STATUS"
+            docker stop smoke-ui
             exit 1
           fi
-          echo "Smoke test passed: HTTP $STATUS"
+          echo "Smoke test (root) passed: HTTP $STATUS"
+
+          # Logo path regression guard (#173): the wizard's StepComponents
+          # references `${BASE}component-logos/<id>.svg` where BASE is the
+          # Vite base. Inside the catalyst-ui pod, nginx serves the file
+          # at /component-logos/<id>.svg (Traefik strips /sovereign before
+          # proxying — see nginx.conf comment), so we test the same path
+          # here. Spot-check a representative subset across product groups
+          # so a missing or mis-cased SVG fails the build, not the user.
+          for id in cilium flux harbor grafana keycloak openbao langfuse \
+                    vllm temporal stalwart cnpg; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              "http://localhost:8080/component-logos/${id}.svg")
+            if [ "$CODE" != "200" ]; then
+              echo "Logo smoke FAILED: /component-logos/${id}.svg returned $CODE"
+              docker stop smoke-ui
+              exit 1
+            fi
+            echo "Logo smoke OK: /component-logos/${id}.svg HTTP $CODE"
+          done
+
+          docker stop smoke-ui
+          echo "All smoke tests passed."
 
       - name: Push UI image
         uses: docker/build-push-action@v6

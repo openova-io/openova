@@ -23,6 +23,7 @@ import { useMemo, useState, useCallback } from 'react'
 import { Search, Plus, Check, Lock, Info } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
+import { path as basePath } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 import {
   ALL_COMPONENTS,
@@ -543,7 +544,7 @@ function AlwaysIncludedTab({ groups, cols }: { groups: readonly GroupDef[]; cols
                 const entry: ComponentEntry = {
                   ...c,
                   dependencies: c.dependencies ?? [],
-                  logoUrl: c.logoUrl === undefined ? `/component-logos/${c.id}.svg` : c.logoUrl,
+                  logoUrl: c.logoUrl === undefined ? basePath(`component-logos/${c.id}.svg`) : c.logoUrl,
                   groupId: group.id,
                   groupName: group.productName,
                   groupSubtitle: group.subtitle,
