@@ -261,6 +261,43 @@ runcmd:
   # nodes Ready, so we wait specifically for the API endpoint.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
 
+%{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
+  # ── Cloud-init kubeconfig postback (issue #183, Option D) ───────────────
+  #
+  # The k3s install above wrote /etc/rancher/k3s/k3s.yaml with the API
+  # server URL pinned to https://127.0.0.1:6443 — kubectl's default for a
+  # local single-node install. catalyst-api lives off-cluster (Catalyst-Zero
+  # franchise console on contabo-mkt) and cannot reach 127.0.0.1 on this
+  # node, so we MUST rewrite that field before sending the kubeconfig
+  # back. The Hetzner load balancer at $${load_balancer_ipv4} forwards
+  # 6443 to the control plane's 6443 (firewall rule above), so a kubeconfig
+  # pointing at the LB's public IPv4 is reachable from anywhere.
+  #
+  # Plaintext: we read from /etc/rancher/k3s/k3s.yaml (mode 0644 written
+  # by k3s), apply the rewrite via sed, write the result to
+  # /etc/rancher/k3s/k3s.yaml.public (mode 0600 explicitly), then
+  # curl --data-binary the file content to catalyst-api with the bearer
+  # token. The .public file is removed at the end of the runcmd block
+  # so the bearer-protected kubeconfig only lives on this node for the
+  # few seconds it takes to PUT.
+  #
+  # --retry 60 --retry-delay 10 --retry-all-errors handles the case
+  # where catalyst-api is briefly unreachable (image roll, ingress
+  # reconciliation) — the cloud-init runcmd budget is bounded by the
+  # systemd cloud-final timeout (~30 minutes).
+  - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
+  - sed 's|https://127.0.0.1:6443|https://${load_balancer_ipv4}:6443|g' /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public
+  - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
+  - |
+    curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
+      -X PUT \
+      -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
+      -H "Content-Type: application/x-yaml" \
+      --data-binary @/etc/rancher/k3s/k3s.yaml.public \
+      ${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig
+  - rm -f /etc/rancher/k3s/k3s.yaml.public
+%{ endif ~}
+
   # ── Cilium FIRST (before Flux) ───────────────────────────────────────────
   #
   # k3s started with --flannel-backend=none, so the cluster has NO CNI yet.

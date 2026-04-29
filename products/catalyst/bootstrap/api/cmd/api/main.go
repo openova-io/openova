@@ -25,7 +25,14 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{corsOrigin},
-		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+		// PUT enabled for the cloud-init kubeconfig postback (issue
+		// #183) — the new Sovereign's cloud-init writes its own
+		// kubeconfig to /api/v1/deployments/{id}/kubeconfig with a
+		// bearer token. CORS is irrelevant for that caller (curl
+		// from the new VM, not a browser), but enabling PUT here
+		// keeps the policy consistent for any future browser-side
+		// resume flow that re-uses the same endpoint.
+		AllowedMethods: []string{"GET", "POST", "PUT", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
 		MaxAge:         300,
 	}))
@@ -53,6 +60,13 @@ func main() {
 	// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
 	// to a deployment whose kubeconfig is on the PVC.
 	r.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
+	// PUT — cloud-init postback (issue #183, Option D). The new
+	// Sovereign's control plane PUTs its rewritten kubeconfig here
+	// with an Authorization: Bearer header. The handler verifies
+	// SHA-256 of the bearer against the persisted hash, writes the
+	// kubeconfig file to the PVC at mode 0600, and triggers the
+	// Phase-1 helmwatch goroutine.
+	r.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
 	// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
 	// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
 	// called from CreateDeployment when domainMode == byo-api.

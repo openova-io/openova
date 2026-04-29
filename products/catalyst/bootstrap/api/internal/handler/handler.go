@@ -56,6 +56,14 @@ type Handler struct {
 	// always wires this via New() reading CATALYST_DEPLOYMENTS_DIR.
 	store *store.Store
 
+	// kubeconfigsDir — directory the cloud-init postback handler
+	// (PutKubeconfig, issue #183) writes the new Sovereign's
+	// kubeconfig file into, mode 0600 per file. Same PVC as the
+	// deployments store but a separate subdirectory so the JSON
+	// records and the kubeconfig YAMLs don't co-mingle in one ls.
+	// Empty disables the PUT endpoint (returns 503).
+	kubeconfigsDir string
+
 	// Phase-1 watch knobs — every field below is a test-only override
 	// for internal/helmwatch.Config. Production reads
 	// CATALYST_PHASE1_WATCH_TIMEOUT from env and uses
@@ -74,6 +82,12 @@ type Handler struct {
 // env var (`CATALYST_DEPLOYMENTS_DIR`) overrides it per
 // docs/INVIOLABLE-PRINCIPLES.md #4 — the path is configuration, not code.
 const defaultDeploymentsDir = "/var/lib/catalyst/deployments"
+
+// defaultKubeconfigsDir — sister directory to defaultDeploymentsDir
+// on the same PVC. Holds <id>.yaml plaintext kubeconfigs the new
+// Sovereign POSTs back via the bearer-token endpoint (issue #183).
+// Overridable via CATALYST_KUBECONFIGS_DIR.
+const defaultKubeconfigsDir = "/var/lib/catalyst/kubeconfigs"
 
 // New creates a Handler with the runtime configuration loaded from env.
 //
@@ -102,11 +116,30 @@ func New(log *slog.Logger) *Handler {
 		dir = defaultDeploymentsDir
 	}
 
+	kubeconfigsDir := os.Getenv("CATALYST_KUBECONFIGS_DIR")
+	if kubeconfigsDir == "" {
+		kubeconfigsDir = defaultKubeconfigsDir
+	}
+	// Pre-create the kubeconfigs dir at 0o700 so the PUT handler
+	// doesn't have to MkdirAll on every request. A failure here is
+	// non-fatal — production will surface it via the PUT handler's
+	// 503 path; a CI runner without write access falls back to the
+	// in-memory-only Handler the same way the deployment store
+	// does.
+	if err := os.MkdirAll(kubeconfigsDir, 0o700); err != nil {
+		log.Warn("kubeconfigs directory create failed; PUT /kubeconfig will return 503 until resolved",
+			"dir", kubeconfigsDir,
+			"err", err,
+		)
+		kubeconfigsDir = ""
+	}
+
 	h := &Handler{
 		log:              log,
 		dynadotAPIKey:    os.Getenv("DYNADOT_API_KEY"),
 		dynadotAPISecret: os.Getenv("DYNADOT_API_SECRET"),
 		pdm:              pdm.New(pdmURL),
+		kubeconfigsDir:   kubeconfigsDir,
 	}
 
 	st, err := store.New(dir)
@@ -156,6 +189,30 @@ func NewWithStore(log *slog.Logger, client pdmClient, st *store.Store) *Handler 
 		dynadotAPISecret: os.Getenv("DYNADOT_API_SECRET"),
 		pdm:              client,
 		store:            st,
+	}
+	if st != nil {
+		h.restoreFromStore()
+	}
+	return h
+}
+
+// NewWithStoreAndKubeconfigsDir is the persistence-aware constructor
+// the issue-#183 test suite uses to point both the deployment store
+// AND the kubeconfigs directory at t.TempDir() subdirectories. The
+// production New() reads both paths from env vars and is equivalent;
+// this constructor exists so tests can prove the PUT handler writes
+// to the right place without touching the global env.
+func NewWithStoreAndKubeconfigsDir(log *slog.Logger, client pdmClient, st *store.Store, kubeconfigsDir string) *Handler {
+	h := &Handler{
+		log:              log,
+		dynadotAPIKey:    os.Getenv("DYNADOT_API_KEY"),
+		dynadotAPISecret: os.Getenv("DYNADOT_API_SECRET"),
+		pdm:              client,
+		store:            st,
+		kubeconfigsDir:   kubeconfigsDir,
+	}
+	if kubeconfigsDir != "" {
+		_ = os.MkdirAll(kubeconfigsDir, 0o700)
 	}
 	if st != nil {
 		h.restoreFromStore()

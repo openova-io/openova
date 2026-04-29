@@ -288,6 +288,61 @@ variable "ghcr_pull_token" {
   default     = ""
 }
 
+# ── Cloud-init kubeconfig postback (issue #183, Option D) ────────────────
+
+variable "deployment_id" {
+  type        = string
+  description = <<-EOT
+    catalyst-api's per-deployment 16-char hex identifier. Templated
+    into the new Sovereign's cloud-init runcmd so the new control
+    plane PUTs its rewritten kubeconfig to the correct deployment
+    record:
+
+      PUT $${var.catalyst_api_url}/api/v1/deployments/$${var.deployment_id}/kubeconfig
+
+    Empty when the catalyst-api caller is using the legacy
+    out-of-band kubeconfig fetch path; cloud-init then skips the PUT
+    runcmd entirely.
+  EOT
+  default     = ""
+}
+
+variable "kubeconfig_bearer_token" {
+  type        = string
+  description = <<-EOT
+    32-byte cryptographic-random bearer token the new Sovereign's
+    cloud-init attaches as `Authorization: Bearer <token>` when
+    PUTting back its kubeconfig (issue #183, Option D). Consumed
+    once. The catalyst-api persists ONLY the SHA-256 hash on the
+    deployment record; the plaintext lives in this tfvars file
+    (file mode 0600 on the catalyst-api PVC) until `tofu destroy`
+    removes the workdir.
+
+    Empty when deployment_id is empty (legacy out-of-band fetch
+    path); cloud-init then skips the PUT runcmd. Sensitive — never
+    logged by OpenTofu, never committed to git.
+  EOT
+  sensitive   = true
+  default     = ""
+}
+
+variable "catalyst_api_url" {
+  type        = string
+  description = <<-EOT
+    Public origin the new Sovereign's cloud-init PUTs its kubeconfig
+    back to. The full URL is
+
+      $${var.catalyst_api_url}/api/v1/deployments/$${var.deployment_id}/kubeconfig
+
+    Defaults to the OpenOva-hosted franchise console; air-gapped
+    franchises override this with their own catalyst-api ingress
+    via the CATALYST_API_PUBLIC_URL env var on the catalyst-api
+    Pod. Per docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime
+    configuration, not code.
+  EOT
+  default     = "https://console.openova.io/sovereign"
+}
+
 # ── GitOps source for Flux bootstrap ──────────────────────────────────────
 
 variable "gitops_repo_url" {

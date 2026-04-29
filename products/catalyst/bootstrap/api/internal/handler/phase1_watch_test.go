@@ -131,10 +131,22 @@ func fakeDynamicFactoryFromObjects(objs ...runtime.Object) func(string) (dynamic
 }
 
 // makeDeploymentWithKubeconfig — analogous to makeDeployment in
-// deployments_events_test.go but with Result.Kubeconfig pre-populated
-// so runPhase1Watch picks it up.
+// deployments_events_test.go but with Result.KubeconfigPath
+// pre-populated so runPhase1Watch picks it up. The kubeconfig
+// argument is the file CONTENTS (post-#183 the watch reads from
+// disk; an empty string maps to KubeconfigPath="" so the watch
+// short-circuits).
 func makeDeploymentWithKubeconfig(t *testing.T, h *Handler, id, kubeconfig string) *Deployment {
 	t.Helper()
+
+	var path string
+	if kubeconfig != "" {
+		path = filepath.Join(t.TempDir(), id+".yaml")
+		if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
+			t.Fatalf("write kubeconfig: %v", err)
+		}
+	}
+
 	dep := &Deployment{
 		ID:        id,
 		Status:    "phase1-watching",
@@ -146,8 +158,8 @@ func makeDeploymentWithKubeconfig(t *testing.T, h *Handler, id, kubeconfig strin
 			Region:        "fsn1",
 		},
 		Result: &provisioner.Result{
-			SovereignFQDN: "test." + id + ".example",
-			Kubeconfig:    kubeconfig,
+			SovereignFQDN:  "test." + id + ".example",
+			KubeconfigPath: path,
 		},
 	}
 	h.deployments.Store(id, dep)
@@ -434,7 +446,7 @@ func TestPhase1WatchConfig_EnvVarOverridesTimeout(t *testing.T) {
 	t.Setenv("CATALYST_PHASE1_WATCH_TIMEOUT", "5m")
 
 	dep := makeDeploymentWithKubeconfig(t, h, "phase1-env-timeout", "fake-kubeconfig: yaml")
-	cfg := h.phase1WatchConfigForDeployment(dep, dep.Result.Kubeconfig)
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
 	if cfg.WatchTimeout != 5*time.Minute {
 		t.Errorf("WatchTimeout = %v, want 5m (from env)", cfg.WatchTimeout)
 	}
@@ -446,7 +458,7 @@ func TestPhase1WatchConfig_FieldOverrideBeatsEnv(t *testing.T) {
 	t.Setenv("CATALYST_PHASE1_WATCH_TIMEOUT", "5m") // ignored when h.phase1WatchTimeout is set
 
 	dep := makeDeploymentWithKubeconfig(t, h, "phase1-field-timeout", "fake-kubeconfig: yaml")
-	cfg := h.phase1WatchConfigForDeployment(dep, dep.Result.Kubeconfig)
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
 	if cfg.WatchTimeout != 7*time.Second {
 		t.Errorf("WatchTimeout = %v, want 7s (handler field override)", cfg.WatchTimeout)
 	}
@@ -464,6 +476,17 @@ func TestPodRestart_ResumeRehydratesComponentStates(t *testing.T) {
 		t.Fatalf("store.New: %v", err)
 	}
 
+	// Pre-create the kubeconfig file the record will point at — the
+	// rehydrate path now reads from disk via Result.KubeconfigPath
+	// rather than a string field on Result.
+	kcPath := filepath.Join(tmp, "kubeconfigs", "rehydrate-component-states.yaml")
+	if err := os.MkdirAll(filepath.Dir(kcPath), 0o700); err != nil {
+		t.Fatalf("mkdir kubeconfigs: %v", err)
+	}
+	if err := os.WriteFile(kcPath, []byte("fake-kubeconfig: yaml"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+
 	finishedAt := time.Now().UTC().Truncate(time.Second)
 	rec := store.Record{
 		ID:        "rehydrate-component-states",
@@ -475,7 +498,7 @@ func TestPodRestart_ResumeRehydratesComponentStates(t *testing.T) {
 		},
 		Result: &provisioner.Result{
 			SovereignFQDN:    "test.example",
-			Kubeconfig:       "fake-kubeconfig: yaml",
+			KubeconfigPath:   kcPath,
 			Phase1FinishedAt: &finishedAt,
 			ComponentStates: map[string]string{
 				"cilium":            helmwatch.StateInstalled,
@@ -517,9 +540,15 @@ func TestPodRestart_ResumeRehydratesComponentStates(t *testing.T) {
 		!dep.Result.Phase1FinishedAt.Equal(finishedAt) {
 		t.Errorf("Phase1FinishedAt = %v, want %v", dep.Result.Phase1FinishedAt, finishedAt)
 	}
-	// Kubeconfig field round-trips on disk.
-	if dep.Result.Kubeconfig != "fake-kubeconfig: yaml" {
-		t.Errorf("Kubeconfig did not round-trip: got %q", dep.Result.Kubeconfig)
+	// KubeconfigPath round-trips on disk and the file is still
+	// readable post-restart.
+	if dep.Result.KubeconfigPath != kcPath {
+		t.Errorf("KubeconfigPath did not round-trip: got %q want %q", dep.Result.KubeconfigPath, kcPath)
+	}
+	if got, err := os.ReadFile(dep.Result.KubeconfigPath); err != nil {
+		t.Errorf("kubeconfig file gone after rehydrate: %v", err)
+	} else if string(got) != "fake-kubeconfig: yaml" {
+		t.Errorf("kubeconfig file content drift: got %q", got)
 	}
 
 	// And the on-disk JSON includes the new fields verbatim, so a
@@ -563,7 +592,6 @@ func TestPodRestart_StuckPhase1WatchingRewrittenToFailed(t *testing.T) {
 		},
 		Result: &provisioner.Result{
 			SovereignFQDN: "test.example",
-			Kubeconfig:    "fake-kubeconfig: yaml",
 		},
 	}
 	if err := st1.Save(rec); err != nil {
