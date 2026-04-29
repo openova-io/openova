@@ -20,7 +20,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io/bp-cilium
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
