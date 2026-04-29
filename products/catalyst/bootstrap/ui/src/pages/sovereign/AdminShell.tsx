@@ -1,645 +1,425 @@
 /**
- * AdminShell — top-bar + sidebar chrome shared by AdminPage and
- * ApplicationPage. Adopts the existing wizard `--wiz-*` token set
- * (see `app/globals.css`) so the Sovereign admin surface inherits
- * the same dark / light theme and brand colour palette as the
- * wizard and marketplace pages.
+ * AdminShell — pixel-port of `core/admin/src/components/AdminShell.svelte`
+ * for the Sovereign Admin provision surface.
  *
- * Layout contract:
- *   • Top bar (56px) — OOLogo + Sovereign FQDN + overall status
- *     pill + open-console CTA + theme toggle.
- *   • Sidebar (260px) — deployment metadata block + per-family
- *     install rollup (counts of pending / installing / installed /
- *     failed for each Catalyst product family).
- *   • Main — children render here. AdminPage owns the card grid;
- *     ApplicationPage owns the tabbed per-Application view. Both
- *     consume the same `useDeploymentEvents` hook and the AdminShell
- *     surfaces nothing dynamic by itself.
+ * The chrome is a 1:1 copy of https://admin.openova.io/nova/catalog:
+ *   • 224px fixed sidebar with the OpenOva mark, "OpenOva Admin"
+ *     wordmark, vertical nav, and a footer block with the operator's
+ *     identifier + a Sign-out / Sign-out-all pair.
+ *   • Main column offset by ml-56 (224px), padded p-8 (32px).
+ *   • Dark-only — admin/nova has no theme toggle, so neither does the
+ *     Sovereign provision surface. The existing `useTheme()` hook is
+ *     intentionally NOT consumed here.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every label
- * surfaced in this shell — region, control-plane SKU, worker count,
- * topology row labels — comes from the wizard store + model module,
- * never inlined here.
+ * Tokens come from the `.sov-admin-shell`-scoped block in
+ * `app/globals.css` which mirrors `core/admin/src/styles/global.css`
+ * exactly. That keeps the wizard's `@theme` tokens (used by the wizard
+ * pages) intact while the admin-shell scope reads admin's hexes.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #3 (follow documented architecture
+ * EXACTLY), the chrome is the canonical admin shell — no new card-
+ * stack, no new top bar, no new "phase banner" row. Per #4 (never
+ * hardcode), the operator identifier rendered in the footer comes from
+ * the wizard store (orgEmail) when present, falling back to the
+ * deployment id slice.
  */
 
 import { type ReactNode } from 'react'
-import { Link } from '@tanstack/react-router'
-import { Sun, Moon, ExternalLink } from 'lucide-react'
-import { OOLogo } from '@/shared/ui/OOLogo'
-import { useTheme } from '@/shared/lib/useTheme'
-import { TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
+import { Link, useRouter } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { resolveSovereignDomain } from '@/entities/deployment/model'
-import { GROUPS } from '@/pages/wizard/steps/componentGroups'
-import { familyChipPalette } from '@/pages/marketplace/marketplaceCopy'
-import {
-  STATUS_PULSE_KEYFRAMES,
-  STATUS_TONE,
-  StatusPill,
-  type PillStatus,
-} from './StatusPill'
-import {
-  type ApplicationStatus,
-  type ReducerState,
-  computeOverallStatus,
-} from './eventReducer'
+import { STATUS_PULSE_KEYFRAMES } from './StatusPill'
 import type { DeploymentSnapshot } from './useDeploymentEvents'
 import type { ApplicationDescriptor } from './applicationCatalog'
+import type { ReducerState } from './eventReducer'
+
+export type AdminNavId = 'catalog' | 'overview' | 'topology' | 'logs' | 'settings'
+
+interface NavItem {
+  id: AdminNavId
+  label: string
+  /** SVG path string — heroicons outline 24, stroke=currentColor. */
+  icon: string
+}
+
+/**
+ * Five-item admin sidebar — same shape as core/admin/AdminShell.svelte
+ * (Revenue / Catalog / Tenants / Orders / Billing) ported to the
+ * Sovereign provision context. Order, icon stroke, label sentence
+ * case all mirror the canonical admin nav.
+ */
+const NAV: readonly NavItem[] = [
+  // Heroicons outline `chart-bar` — admin "Revenue" → here "Overview".
+  { id: 'overview', label: 'Overview', icon: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z' },
+  // Heroicons outline `inbox-stack` — admin "Catalog" identical here.
+  { id: 'catalog', label: 'Catalog', icon: 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z' },
+  // Heroicons outline `building-office` — admin "Tenants" → here "Topology".
+  { id: 'topology', label: 'Topology', icon: 'M2.25 21h19.5M3.75 3v18m0-18h16.5m-16.5 0L12 3m8.25 0v18m0-18L12 3m0 0v18' },
+  // Heroicons outline `clipboard-document-list` — admin "Orders" → here "Logs".
+  { id: 'logs', label: 'Logs', icon: 'M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z' },
+  // Heroicons outline `cog-6-tooth` — admin "Billing" → here "Settings".
+  { id: 'settings', label: 'Settings', icon: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.213-1.28z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+]
 
 interface AdminShellProps {
+  /** Active nav item — defaults to `catalog`, matching the canonical admin landing. */
+  activePage?: AdminNavId
   deploymentId: string
-  state: ReducerState
-  snapshot: DeploymentSnapshot | null
-  applications: readonly ApplicationDescriptor[]
-  /** Optional crumb link rendered in the top bar (e.g. "← Sovereign"). */
-  breadcrumb?: ReactNode
-  startedAt: number | null
-  finishedAt: number | null
+  /** Reducer state (kept on the prop surface for future header chips). */
+  state?: ReducerState
+  snapshot?: DeploymentSnapshot | null
+  applications?: readonly ApplicationDescriptor[]
+  startedAt?: number | null
+  finishedAt?: number | null
   children: ReactNode
 }
 
 export function AdminShell({
+  activePage = 'catalog',
   deploymentId,
-  state,
-  snapshot,
-  applications,
-  breadcrumb,
-  startedAt,
-  finishedAt,
   children,
 }: AdminShellProps) {
-  const { theme, toggle } = useTheme()
+  const router = useRouter()
   const store = useWizardStore()
-  const sovereignFQDN = snapshot?.result?.sovereignFQDN ?? snapshot?.sovereignFQDN ?? resolveSovereignDomain(store)
-  const overall = computeOverallStatus(state)
-  const overallPill: PillStatus =
-    overall === 'installed' ? 'completed' : overall === 'installing' ? 'streaming' : overall
+  const sovereignFQDN = resolveSovereignDomain(store)
+  const operatorEmail = store.orgEmail || `deployment-${deploymentId.slice(0, 8)}`
 
-  const consoleURL = snapshot?.result?.consoleURL ?? null
-  const consoleHostLabel = snapshot?.result?.sovereignFQDN ?? sovereignFQDN
+  function signOut() {
+    router.navigate({ to: '/wizard' })
+  }
+
+  function signOutAll() {
+    if (!window.confirm('Sign out of every session on every device?')) return
+    router.navigate({ to: '/wizard' })
+  }
 
   return (
-    <div className="sov-shell" data-theme={theme}>
+    <div className="sov-admin-shell" data-testid="sov-admin-shell">
       <style>{adminCss}</style>
-      {/* ── Top bar ─────────────────────────────────────────────── */}
-      <header className="sov-topbar" data-testid="sov-topbar">
-        <div className="sov-tb-left">
-          <Link to="/" className="sov-tb-brand">
-            <OOLogo h={20} id="sov-tb-logo" />
-            <span className="sov-tb-wordmark">
-              OpenOva <span className="sov-tb-wordmark-sub">Sovereign</span>
-            </span>
-          </Link>
-          {breadcrumb && (
-            <>
-              <span className="sov-tb-sep" />
-              {breadcrumb}
-            </>
-          )}
-          <span className="sov-tb-sep" />
-          <div className="sov-tb-fqdn">
-            <span className="sov-tb-fqdn-label">Sovereign</span>
-            <span className="sov-tb-fqdn-value" data-testid="sov-fqdn">
-              {sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}
+      <div className="flex min-h-screen">
+        {/* ── Sidebar ─────────────────────────────────────────────────── */}
+        <aside
+          className="fixed left-0 top-0 flex h-screen w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-2)]"
+          data-testid="sov-sidebar"
+        >
+          <div className="flex h-14 items-center gap-2 border-b border-[var(--color-border)] px-4">
+            {/* Canonical OpenOva mark — exact copy of admin/nova/catalog
+                shell logo (700×400 viewBox, sky→indigo gradient). */}
+            <svg viewBox="0 0 700 400" width={36} height={20} className="flex-shrink-0" fill="none" aria-hidden>
+              <defs>
+                <linearGradient id="sov-admin-logo-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3B82F6" />
+                  <stop offset="100%" stopColor="#818CF8" />
+                </linearGradient>
+              </defs>
+              <path
+                d="M 300 88.1966 A 150 150 0 1 0 350 200 A 150 150 0 1 1 400 311.8034"
+                fill="none"
+                stroke="url(#sov-admin-logo-grad)"
+                strokeWidth={100}
+                strokeLinecap="butt"
+              />
+            </svg>
+            <span className="text-sm font-semibold text-[var(--color-text-strong)]">
+              OpenOva <span className="font-normal text-[var(--color-text-dim)]">Admin</span>
             </span>
           </div>
-        </div>
-        <div className="sov-tb-right">
-          <StatusPill status={overallPill} size="md" testId="sov-overall-status" />
-          {consoleURL && overall === 'installed' && (
-            <a
-              className="sov-tb-cta"
-              href={consoleURL}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="sov-open-console"
-            >
-              Open {consoleHostLabel}
-              <ExternalLink size={12} aria-hidden />
-            </a>
-          )}
-          <button
-            type="button"
-            className="sov-tb-ibtn"
-            onClick={toggle}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? <Sun size={14} aria-hidden /> : <Moon size={14} aria-hidden />}
-          </button>
-        </div>
-      </header>
 
-      {/* ── Body ────────────────────────────────────────────────── */}
-      <div className="sov-body">
-        <SidebarMeta
-          deploymentId={deploymentId}
-          state={state}
-          snapshot={snapshot}
-          applications={applications}
-          startedAt={startedAt}
-          finishedAt={finishedAt}
-        />
-        <main className="sov-main">{children}</main>
+          <nav className="flex-1 overflow-y-auto py-3" data-testid="sov-nav">
+            {NAV.map((item) => {
+              const isActive = activePage === item.id
+              const isCatalog = item.id === 'catalog'
+              const linkClass = `flex items-center gap-3 mx-2 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${
+                isActive
+                  ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                  : 'text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
+              }`
+              return isCatalog ? (
+                <Link
+                  key={item.id}
+                  to="/provision/$deploymentId"
+                  params={{ deploymentId }}
+                  className={linkClass}
+                  data-testid={`sov-nav-${item.id}`}
+                  data-active={isActive}
+                >
+                  <NavIcon path={item.icon} />
+                  {item.label}
+                </Link>
+              ) : (
+                <span
+                  key={item.id}
+                  className={linkClass}
+                  data-testid={`sov-nav-${item.id}`}
+                  data-active={isActive}
+                  aria-disabled
+                  style={{ cursor: 'default' }}
+                  title={`${item.label} — opens once Sovereign is reachable`}
+                >
+                  <NavIcon path={item.icon} />
+                  {item.label}
+                </span>
+              )
+            })}
+          </nav>
+
+          <div className="border-t border-[var(--color-border)] p-3 flex flex-col gap-2">
+            <p className="truncate text-xs text-[var(--color-text-dim)]" data-testid="sov-operator-email">
+              {operatorEmail}
+            </p>
+            {sovereignFQDN && (
+              <p
+                className="truncate text-[10px] text-[var(--color-text-dimmer)]"
+                data-testid="sov-fqdn"
+                title={sovereignFQDN}
+              >
+                {sovereignFQDN}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={signOut}
+                className="flex-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
+                title="Sign out"
+                aria-label="Sign out"
+                data-testid="sov-signout"
+              >
+                Sign out
+              </button>
+              <button
+                type="button"
+                onClick={signOutAll}
+                className="flex-1 rounded-md border border-[var(--color-danger)]/40 px-2 py-1 text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10"
+                title="Sign out of every session on every device"
+                aria-label="Sign out everywhere"
+                data-testid="sov-signout-all"
+              >
+                Sign out all
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* ── Main column ──────────────────────────────────────────── */}
+        <main className="ml-56 flex-1 p-8" data-testid="sov-main">
+          {children}
+        </main>
       </div>
     </div>
   )
 }
 
-interface SidebarMetaProps {
-  deploymentId: string
-  state: ReducerState
-  snapshot: DeploymentSnapshot | null
-  applications: readonly ApplicationDescriptor[]
-  startedAt: number | null
-  finishedAt: number | null
-}
-
-function SidebarMeta({
-  deploymentId,
-  state,
-  snapshot,
-  applications,
-  startedAt,
-  finishedAt,
-}: SidebarMetaProps) {
-  const store = useWizardStore()
-  const region = snapshot?.region ?? store.regionCloudRegions[0] ?? 'pending'
-  const provider =
-    store.provider ?? store.regionProviders[0] ?? 'pending'
-  const cpSize = store.regionControlPlaneSizes[0] ?? store.controlPlaneSize ?? 'pending'
-  const workerSize = store.regionWorkerSizes[0] ?? store.workerSize ?? 'pending'
-  const workerCount = store.regionWorkerCounts[0] ?? store.workerCount ?? 0
-  const topology = store.topology ?? '—'
-  const regionLabels = store.topology ? TOPOLOGY_REGION_LABELS[store.topology] : []
-
-  // Family rollup — counts of pending / installing / installed / failed
-  // per Catalyst product family. Computed from `applications` (the set
-  // the AdminPage actually renders) crossed with the reducer's app
-  // state map. Bootstrap-kit Applications get bucketed under the
-  // synthetic "platform" family when their componentGroups owner isn't
-  // present in the catalog.
-  const rollup = new Map<string, { name: string; pending: number; installing: number; installed: number; failed: number; total: number }>()
-  for (const app of applications) {
-    let bucket = rollup.get(app.familyId)
-    if (!bucket) {
-      bucket = { name: app.familyName, pending: 0, installing: 0, installed: 0, failed: 0, total: 0 }
-      rollup.set(app.familyId, bucket)
-    }
-    bucket.total += 1
-    const s = state.apps[app.id]?.status ?? 'pending'
-    if (s === 'installed') bucket.installed += 1
-    else if (s === 'failed' || s === 'degraded') bucket.failed += 1
-    else if (s === 'installing') bucket.installing += 1
-    else bucket.pending += 1
-  }
-  // Sort families by GROUPS order so PILOT / SPINE / SURGE / SILO …
-  // appear in their canonical order rather than alphabetically.
-  const orderedFamilyIds = [
-    ...GROUPS.map((g) => g.id),
-    ...[...rollup.keys()].filter((k) => !GROUPS.some((g) => g.id === k)),
-  ]
-
-  const elapsed = elapsedLabel(startedAt, finishedAt)
-
+function NavIcon({ path }: { path: string }) {
   return (
-    <aside className="sov-sb" data-testid="sov-sidebar">
-      <section className="sov-sb-section">
-        <h2 className="sov-sb-h">Deployment</h2>
-        <dl className="sov-sb-dl">
-          <div className="sov-sb-row">
-            <dt>Id</dt>
-            <dd className="sov-mono" data-testid="sov-meta-id">{deploymentId.slice(0, 12)}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Provider</dt>
-            <dd>{provider}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Region</dt>
-            <dd>{region}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Topology</dt>
-            <dd>{String(topology).toUpperCase()}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>CP SKU</dt>
-            <dd className="sov-mono">{cpSize}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Workers</dt>
-            <dd className="sov-mono">{workerCount} × {workerSize}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Started</dt>
-            <dd className="sov-mono">{startedAt ? new Date(startedAt).toLocaleTimeString() : '—'}</dd>
-          </div>
-          <div className="sov-sb-row">
-            <dt>Elapsed</dt>
-            <dd className="sov-mono">{elapsed}</dd>
-          </div>
-        </dl>
-        {regionLabels.length > 0 && (
-          <ul className="sov-sb-regions">
-            {regionLabels.map((label, i) => (
-              <li key={i}>{label}</li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="sov-sb-section" data-testid="sov-family-rollup">
-        <h2 className="sov-sb-h">Family rollup</h2>
-        <ul className="sov-sb-fams">
-          {orderedFamilyIds
-            .filter((id) => rollup.has(id))
-            .map((familyId) => {
-              const r = rollup.get(familyId)
-              if (!r) return null
-              const palette = familyChipPalette(familyId)
-              const tone =
-                r.failed > 0 ? STATUS_TONE.failed.fg
-                : r.installing > 0 ? STATUS_TONE.installing.fg
-                : r.installed === r.total ? STATUS_TONE.installed.fg
-                : STATUS_TONE.pending.fg
-              return (
-                <li
-                  key={familyId}
-                  className="sov-sb-fam"
-                  data-testid={`sov-fam-${familyId}`}
-                >
-                  <span
-                    className="sov-sb-fam-chip"
-                    style={{
-                      background: palette.bg,
-                      color: palette.fg,
-                      border: `1px solid ${palette.border}`,
-                    }}
-                  >
-                    {r.name}
-                  </span>
-                  <span className="sov-sb-fam-counts" style={{ color: tone }}>
-                    {r.installed}/{r.total}
-                  </span>
-                  {r.failed > 0 && (
-                    <span className="sov-sb-fam-fail" data-testid={`sov-fam-${familyId}-fail`}>
-                      {r.failed} failed
-                    </span>
-                  )}
-                  {r.installing > 0 && (
-                    <span className="sov-sb-fam-busy">
-                      {r.installing} installing
-                    </span>
-                  )}
-                </li>
-              )
-            })}
-        </ul>
-      </section>
-    </aside>
+    <svg
+      width={18}
+      height={18}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d={path} />
+    </svg>
   )
 }
 
-/** Human-readable elapsed clock label. */
-function elapsedLabel(startedAt: number | null, finishedAt: number | null): string {
-  if (!startedAt) return '—'
-  const end = finishedAt ?? Date.now()
-  const sec = Math.max(0, Math.floor((end - startedAt) / 1000))
-  return `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`
-}
-
-/** Adopt status colours for unknown application status pills. */
-export function applicationStatusToPill(s: ApplicationStatus): PillStatus {
-  return s
-}
-
 /* ── CSS ──────────────────────────────────────────────────────────── */
-
 const adminCss = `
 ${STATUS_PULSE_KEYFRAMES}
-.sov-shell {
-  background: var(--wiz-bg-page, var(--color-surface-0, #0b1220));
-  color: var(--wiz-text-md);
-  font-family: 'Inter', system-ui, sans-serif;
-  display: flex;
-  flex-direction: column;
-  min-height: 100dvh;
-  height: 100dvh;
-  overflow: hidden;
-}
-.sov-shell *, .sov-shell *::before, .sov-shell *::after { box-sizing: border-box; }
-.sov-topbar {
-  flex-shrink: 0;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1rem;
-  background: var(--wiz-bg-card);
-  border-bottom: 1px solid var(--wiz-border-sub);
-  z-index: 30;
-}
-.sov-tb-left, .sov-tb-right { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
-.sov-tb-brand {
-  display: flex; align-items: center; gap: 0.5rem;
-  text-decoration: none; color: var(--wiz-text-hi);
-}
-.sov-tb-wordmark { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.01em; }
-.sov-tb-wordmark-sub { color: var(--wiz-text-sub); font-weight: 500; }
-.sov-tb-sep { width: 1px; height: 22px; background: var(--wiz-border-sub); }
-.sov-tb-fqdn { display: flex; flex-direction: column; min-width: 0; }
-.sov-tb-fqdn-label {
-  font-size: 0.55rem; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--wiz-text-hint);
-}
-.sov-tb-fqdn-value {
-  font-size: 0.85rem; font-weight: 700; color: var(--wiz-text-hi);
-  font-variant-numeric: tabular-nums;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36ch;
-}
-.sov-tb-cta {
-  display: inline-flex; align-items: center; gap: 0.3rem;
-  padding: 0.35rem 0.7rem; border-radius: 8px;
-  background: rgba(var(--wiz-accent-ch), 1); color: #fff;
-  font-size: 0.75rem; font-weight: 700; text-decoration: none;
-  transition: filter 0.15s;
-}
-.sov-tb-cta:hover { filter: brightness(0.92); }
-.sov-tb-ibtn {
-  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 6px; border: 1px solid var(--wiz-border-sub);
-  background: var(--wiz-bg-input); color: var(--wiz-text-md);
-  cursor: pointer; transition: background 0.15s, color 0.15s;
-}
-.sov-tb-ibtn:hover { background: var(--wiz-bg-sub); color: var(--wiz-text-hi); }
-.sov-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
-.sov-sb {
-  width: 260px; flex-shrink: 0; overflow-y: auto;
-  border-right: 1px solid var(--wiz-border-sub);
-  background: var(--wiz-bg-card);
-}
-.sov-sb-section { padding: 0.95rem 1rem; border-bottom: 1px solid var(--wiz-border-sub); }
-.sov-sb-h {
-  font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--wiz-text-hint); margin: 0 0 0.55rem; font-weight: 700;
-}
-.sov-sb-dl { display: grid; gap: 0.3rem; margin: 0; }
-.sov-sb-row {
-  display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.5rem; align-items: baseline;
-}
-.sov-sb-row dt {
-  font-size: 0.62rem; color: var(--wiz-text-sub);
-  letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
-  margin: 0;
-}
-.sov-sb-row dd {
-  margin: 0; font-size: 0.78rem; color: var(--wiz-text-hi); font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sov-mono { font-family: 'JetBrains Mono', monospace; font-size: 0.73rem !important; }
-.sov-sb-regions {
-  list-style: none; padding: 0.5rem 0 0; margin: 0; display: grid; gap: 0.2rem;
-  font-size: 0.7rem; color: var(--wiz-text-md);
-}
-.sov-sb-fams { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
-.sov-sb-fam { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.sov-sb-fam-chip {
-  display: inline-flex; align-items: center; padding: 0.1rem 0.45rem;
-  border-radius: 999px; font-size: 0.6rem; font-weight: 700;
-  letter-spacing: 0.05em; text-transform: uppercase;
-}
-.sov-sb-fam-counts {
-  font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums;
-  margin-left: auto;
-}
-.sov-sb-fam-fail, .sov-sb-fam-busy {
-  font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 4px;
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.sov-sb-fam-fail { background: rgba(248,113,113,0.14); color: #F87171; }
-.sov-sb-fam-busy { background: rgba(56,189,248,0.14); color: #38BDF8; }
-.sov-main {
-  flex: 1; min-width: 0; overflow: auto; padding: 1.25rem 1.5rem;
-  display: flex; flex-direction: column; gap: 1rem;
-}
 
-/* ── Card geometry — mirrors corp-comp-card from StepComponents ── */
-.sov-app-card.corp-comp-card {
+.sov-admin-shell {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+.sov-admin-shell *, .sov-admin-shell *::before, .sov-admin-shell *::after { box-sizing: border-box; }
+
+/* ── apps-grid + app-card (verbatim port from CatalogPage.svelte) ─ */
+.sov-admin-shell .apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 0.65rem;
+}
+.sov-admin-shell .app-card {
   position: relative;
-  background: var(--wiz-bg-sub);
-  border: 1.5px solid var(--wiz-border-sub);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
   border-radius: 12px;
   padding: 0.6rem;
   display: flex;
   align-items: stretch;
   gap: 0.75rem;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s;
-  color: inherit; text-align: left; text-decoration: none; font: inherit;
-  height: 108px; overflow: hidden;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  height: 108px;
+  overflow: hidden;
   cursor: pointer;
+  color: inherit;
+  text-decoration: none;
 }
-.sov-app-card.corp-comp-card:hover {
+.sov-admin-shell .app-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(var(--wiz-accent-ch), 0.7);
+  border-color: var(--color-accent);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
-.sov-app-card.corp-comp-card[data-status="installed"] {
-  border-color: rgba(74,222,128,0.35);
-  background: color-mix(in srgb, #4ADE80 5%, var(--wiz-bg-sub));
+.sov-admin-shell .app-logo {
+  align-self: stretch;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
-.sov-app-card.corp-comp-card[data-status="failed"],
-.sov-app-card.corp-comp-card[data-status="degraded"] {
-  border-color: rgba(248,113,113,0.45);
-  background: color-mix(in srgb, #F87171 5%, var(--wiz-bg-sub));
+.sov-admin-shell .app-icon {
+  align-self: stretch;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 1.3rem;
+  font-weight: 700;
 }
-.sov-app-card.corp-comp-card[data-status="installing"] {
-  border-color: rgba(56,189,248,0.4);
-  background: color-mix(in srgb, #38BDF8 4%, var(--wiz-bg-sub));
-}
-.sov-app-card .corp-comp-body {
-  flex: 1; min-width: 0; display: flex; flex-direction: column;
-  gap: 0.2rem; overflow: hidden;
-}
-.sov-app-card .corp-comp-top {
-  display: flex; align-items: center; gap: 0.4rem; min-height: 22px;
-}
-.sov-app-card .corp-comp-name {
-  color: var(--wiz-text-hi); font-size: 0.9rem; font-weight: 600;
-  line-height: 1.2; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; flex: 1 1 auto; min-width: 0;
-}
-.sov-app-card .corp-comp-family-chip {
-  display: inline-flex; align-items: center;
-  padding: 0.1rem 0.45rem; border-radius: 999px;
-  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
-  text-transform: uppercase; flex-shrink: 0; line-height: 1.4;
-}
-.sov-app-card .corp-comp-desc {
-  margin: 0; color: var(--wiz-text-md); font-size: 0.76rem;
-  line-height: 1.4;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.sov-app-card .corp-comp-chips {
-  margin-top: 0.1rem; display: flex; flex-wrap: nowrap; gap: 0.25rem;
-  overflow: hidden; min-height: 1.3rem; align-items: center;
-}
-
-/* ── Card grid + section heads ──────────────────────────────────── */
-.sov-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 0.65rem;
-}
-.sov-sec-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding-bottom: 0.4rem; border-bottom: 1px solid var(--wiz-border-sub);
-  margin-top: 0.25rem;
-}
-.sov-sec-h {
-  margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--wiz-text-hi);
-}
-.sov-sec-meta { color: var(--wiz-text-sub); font-size: 0.78rem; }
-
-/* ── Phase banners ──────────────────────────────────────────────── */
-.sov-phase-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
-.sov-phase {
-  border: 1px solid var(--wiz-border-sub);
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  background: var(--wiz-bg-card);
+.sov-admin-shell .app-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
-.sov-phase[data-status="failed"] {
-  border-color: rgba(248,113,113,0.45);
-  background: color-mix(in srgb, #F87171 4%, var(--wiz-bg-card));
+.sov-admin-shell .app-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
 }
-.sov-phase[data-status="running"] {
-  border-color: rgba(56,189,248,0.4);
-  background: color-mix(in srgb, #38BDF8 3%, var(--wiz-bg-card));
+.sov-admin-shell .app-name {
+  color: var(--color-text-strong);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.sov-phase[data-status="done"] {
-  border-color: rgba(74,222,128,0.35);
-  background: color-mix(in srgb, #4ADE80 3%, var(--wiz-bg-card));
+.sov-admin-shell .app-cat {
+  color: var(--color-text-dim);
+  font-size: 0.68rem;
+  text-transform: capitalize;
+  background: color-mix(in srgb, var(--color-border) 50%, transparent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
 }
-.sov-phase-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.sov-phase-name { font-size: 0.95rem; font-weight: 700; color: var(--wiz-text-hi); }
-.sov-phase-sub { font-size: 0.7rem; color: var(--wiz-text-sub); }
-.sov-phase-msg {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
-  color: var(--wiz-text-md); white-space: pre-wrap; word-break: break-word;
-  margin: 0; padding: 0.4rem 0.55rem; border-radius: 6px;
-  background: rgba(0,0,0,0.18); border: 1px solid var(--wiz-border-sub);
+.sov-admin-shell .app-desc {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.sov-phase-toggle {
-  align-self: flex-start;
-  font-size: 0.7rem; color: var(--wiz-text-md);
-  background: transparent; border: 1px solid var(--wiz-border-sub);
-  border-radius: 6px; padding: 0.2rem 0.55rem; cursor: pointer;
-  font-family: inherit; transition: color 0.15s, background 0.15s;
+.sov-admin-shell .app-chips {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+  min-height: 1.4rem;
 }
-.sov-phase-toggle:hover { color: var(--wiz-text-hi); background: var(--wiz-bg-sub); }
-.sov-phase-log {
-  max-height: 240px; overflow-y: auto;
-  font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
-  background: rgba(0,0,0,0.25);
-  border: 1px solid var(--wiz-border-sub); border-radius: 6px; padding: 0.45rem 0.6rem;
-  display: flex; flex-direction: column; gap: 0.1rem;
+.sov-admin-shell .chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.sov-admin-shell .chip-free {
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+.sov-admin-shell .chip-system {
+  background: color-mix(in srgb, var(--color-text-dim) 18%, transparent);
+  color: var(--color-text-dim);
+}
+.sov-admin-shell .chip-dep {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-weight: 500;
 }
 
-/* ── Application page tabs + content ────────────────────────────── */
-.sov-app-header {
+/* ── Per-application detail surface (Logs/Deps/Status/Overview) ─ */
+.sov-admin-shell .app-detail-header {
   display: flex; align-items: center; gap: 1rem;
-  padding: 0.75rem 0.25rem 1rem;
+  padding: 0 0 1rem;
 }
-.sov-app-meta {
-  display: flex; flex-direction: column; gap: 0.25rem; min-width: 0;
+.sov-admin-shell .app-detail-title {
+  margin: 0; font-size: 1.5rem; font-weight: 700;
+  color: var(--color-text-strong);
 }
-.sov-app-title { margin: 0; font-size: 1.4rem; color: var(--wiz-text-hi); font-weight: 700; }
-.sov-app-sub { color: var(--wiz-text-sub); font-size: 0.85rem; }
-.sov-tablist {
-  display: flex; border-bottom: 1px solid var(--wiz-border-sub);
+.sov-admin-shell .app-detail-sub {
+  font-size: 0.85rem; color: var(--color-text-dim); margin: 4px 0 0;
 }
-.sov-tab {
-  background: transparent; border: 0; border-bottom: 2px solid transparent;
-  padding: 0.65rem 1rem; font: inherit; font-size: 0.85rem; font-weight: 600;
-  color: var(--wiz-text-sub); cursor: pointer;
-  transition: color 0.15s, border-color 0.15s; margin-bottom: -1px;
-}
-.sov-tab:hover { color: var(--wiz-text-md); }
-.sov-tab[aria-selected="true"] {
-  color: var(--wiz-text-hi);
-  border-bottom-color: rgba(var(--wiz-accent-ch), 1);
-}
-.sov-tabpanel { padding: 1rem 0.1rem; }
-.sov-back-link {
-  font-size: 0.75rem; color: var(--wiz-text-sub); text-decoration: none;
-  display: inline-flex; align-items: center; gap: 0.3rem;
-}
-.sov-back-link:hover { color: var(--wiz-text-hi); }
-
-/* ── Logs panel ─────────────────────────────────────────────────── */
-.sov-log {
-  height: 60vh; min-height: 320px;
-  overflow-y: auto; font-family: 'JetBrains Mono', monospace;
-  font-size: 0.72rem; line-height: 1.55;
-  background: rgba(0,0,0,0.30);
-  border: 1px solid var(--wiz-border-sub); border-radius: 8px;
-  padding: 0.6rem 0.85rem; display: flex; flex-direction: column; gap: 0.05rem;
-}
-.sov-log-empty { color: var(--wiz-text-hint); font-size: 0.78rem; padding: 0.5rem 0; }
-.sov-log-line { display: flex; gap: 0.6rem; align-items: flex-start; }
-.sov-log-ts { color: var(--wiz-text-hint); flex-shrink: 0; min-width: 5.5rem; }
-.sov-log-phase { color: var(--wiz-text-sub); font-size: 0.65rem; padding: 0 0.3rem; border-radius: 3px; background: var(--wiz-bg-sub); margin-right: 0.4rem; }
-.sov-log-msg { flex: 1; word-break: break-word; white-space: pre-wrap; color: var(--wiz-text-md); }
-.sov-log-line[data-level="error"] .sov-log-msg { color: #F87171; }
-.sov-log-line[data-level="warn"] .sov-log-msg { color: #FBBF24; }
-
-/* ── Status / overview panels ───────────────────────────────────── */
-.sov-grid-sm { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.65rem; }
-.sov-card {
-  border: 1px solid var(--wiz-border-sub);
-  background: var(--wiz-bg-card);
-  border-radius: 10px; padding: 0.85rem 1rem;
-  display: flex; flex-direction: column; gap: 0.4rem;
-}
-.sov-card h3 {
-  margin: 0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em;
-  text-transform: uppercase; color: var(--wiz-text-hint);
-}
-.sov-card p { margin: 0; color: var(--wiz-text-md); font-size: 0.85rem; line-height: 1.55; }
-.sov-card a { color: rgba(var(--wiz-accent-ch), 1); text-decoration: none; }
-.sov-card a:hover { text-decoration: underline; }
-
-/* ── Failure card ───────────────────────────────────────────────── */
-.sov-failure {
-  border: 1px solid rgba(248,113,113,0.4);
-  background: rgba(248,113,113,0.06);
-  color: var(--wiz-text-md);
-  border-radius: 12px; padding: 1rem 1.2rem;
+.sov-admin-shell .app-detail-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
   display: flex; flex-direction: column; gap: 0.5rem;
 }
-.sov-failure h3 {
-  color: var(--wiz-text-hi); margin: 0; font-size: 1rem; font-weight: 700;
+.sov-admin-shell .app-detail-card h3 {
+  margin: 0; font-size: 0.7rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--color-text-dim); font-weight: 700;
 }
-.sov-failure pre {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
-  background: rgba(0,0,0,0.30); border: 1px solid rgba(248,113,113,0.30);
-  border-radius: 6px; padding: 0.6rem 0.8rem; margin: 0;
-  white-space: pre-wrap; word-break: break-word; color: #F87171;
-  max-height: 200px; overflow: auto;
+.sov-admin-shell .app-detail-card p {
+  margin: 0; color: var(--color-text); font-size: 0.85rem; line-height: 1.5;
 }
+.sov-admin-shell .app-detail-card a {
+  color: var(--color-accent); text-decoration: none;
+}
+.sov-admin-shell .app-detail-card a:hover { text-decoration: underline; }
+.sov-admin-shell .app-detail-grid-sm {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.65rem;
+}
+.sov-admin-shell .app-log {
+  height: 60vh; min-height: 320px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem; line-height: 1.55;
+  background: rgba(0,0,0,0.30);
+  border: 1px solid var(--color-border); border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  display: flex; flex-direction: column; gap: 0.05rem;
+}
+.sov-admin-shell .app-log-empty { color: var(--color-text-dimmer); font-size: 0.8rem; padding: 0.5rem 0; }
+.sov-admin-shell .app-log-line { display: flex; gap: 0.6rem; align-items: flex-start; }
+.sov-admin-shell .app-log-ts { color: var(--color-text-dimmer); flex-shrink: 0; min-width: 5.5rem; }
+.sov-admin-shell .app-log-phase { color: var(--color-text-dim); font-size: 0.65rem; padding: 0 0.3rem; border-radius: 3px; background: var(--color-surface-hover); margin-right: 0.4rem; }
+.sov-admin-shell .app-log-msg { flex: 1; word-break: break-word; white-space: pre-wrap; color: var(--color-text); }
+.sov-admin-shell .app-log-line[data-level="error"] .app-log-msg { color: var(--color-danger); }
+.sov-admin-shell .app-log-line[data-level="warn"] .app-log-msg { color: var(--color-warn); }
 
-@media (max-width: 900px) {
-  .sov-sb { width: 220px; }
-  .sov-phase-row { grid-template-columns: 1fr; }
+.sov-admin-shell .app-back-link {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.8rem; color: var(--color-text-dim);
+  text-decoration: none; margin-bottom: 0.5rem;
+  background: transparent; border: 0; padding: 0; font-family: inherit; cursor: pointer;
 }
-@media (max-width: 720px) {
-  .sov-body { flex-direction: column; }
-  .sov-sb { width: 100%; max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--wiz-border-sub); }
-  .sov-main { padding: 1rem; }
-}
+.sov-admin-shell .app-back-link:hover { color: var(--color-text); }
 `

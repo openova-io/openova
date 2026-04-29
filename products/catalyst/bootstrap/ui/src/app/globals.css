@@ -43,6 +43,31 @@
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ─── Admin/Nova theme tokens ──────────────────────────────────────────── */
+/* Mirrors core/admin/src/styles/global.css 1:1 so the Sovereign Admin
+   provision surface (`/sovereign/provision/$deploymentId`) is pixel-
+   identical to https://admin.openova.io/nova/catalog. Catalog is a
+   dark-only surface — there is no theme toggle on admin/nova.
+   Tokens are scoped to `.sov-admin-shell` to keep them off the wizard's
+   already-established `--color-*` palette declared under @theme above.  */
+.sov-admin-shell {
+  --color-bg: #0b1220;
+  --color-bg-2: #111827;
+  --color-surface: #111827;
+  --color-surface-hover: #1a2332;
+  --color-border: #1f2937;
+  --color-border-strong: #374151;
+  --color-text: #e5e7eb;
+  --color-text-strong: #ffffff;
+  --color-text-dim: #9ca3af;
+  --color-text-dimmer: #6b7280;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-success: #10b981;
+  --color-warn:    #f59e0b;
+  --color-danger:  #ef4444;
+}
+
 /* ─── Wizard theme channels ────────────────────────────────────────────── */
 /* rgba(var(--wiz-ch), opacity) flips white↔black automatically            */
 :root {
