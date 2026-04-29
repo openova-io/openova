@@ -15,5 +15,6 @@ resources:
   - 08-openbao.yaml
   - 09-keycloak.yaml
   - 10-gitea.yaml
+  - 11-powerdns.yaml
   - 12-external-dns.yaml
   - 13-bp-catalyst-platform.yaml
