@@ -47,6 +47,12 @@ func main() {
 	// covers the same path, but the GET is a stateless fast-path test
 	// + reconnect target.
 	r.Get("/api/v1/deployments/{id}/events", h.GetDeploymentEvents)
+	// Kubeconfig endpoint — wizard StepSuccess "Download kubeconfig"
+	// button + Sovereign Admin break-glass download + the source the
+	// internal/helmwatch HelmRelease watcher reads from when the
+	// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
+	// to a deployment whose kubeconfig is on the PVC.
+	r.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
 	// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
 	// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
 	// called from CreateDeployment when domainMode == byo-api.

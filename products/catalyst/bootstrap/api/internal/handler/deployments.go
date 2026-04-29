@@ -5,10 +5,16 @@
 // handler invokes `tofu apply` against the canonical infra/hetzner/ module
 // and streams the output to the wizard via SSE.
 //
-// Phase 1 hand-off (Crossplane adopting day-2 management) and bootstrap-kit
-// installation (Cilium → cert-manager → Flux → Crossplane → ... → bp-catalyst-platform)
-// happen INSIDE the cluster via Flux reconciling clusters/<sovereign-fqdn>/
-// in the public OpenOva monorepo. The handler does not orchestrate that.
+// Phase 1 — bootstrap-kit installation (Cilium → cert-manager → Flux →
+// Crossplane → ... → bp-catalyst-platform) — runs INSIDE the new
+// Sovereign cluster via Flux reconciling clusters/<sovereign-fqdn>/ in
+// the public OpenOva monorepo. catalyst-api does NOT orchestrate that
+// (per Lesson #24, never call helm/kubectl), but it DOES OBSERVE Phase
+// 1's HelmRelease state via a read-only client-go dynamic informer
+// against the new Sovereign's kubeconfig (internal/helmwatch). The
+// observed state flows back through the same SSE buffer Phase 0 used,
+// surfacing per-component pills ("cilium installing → installed") for
+// the Sovereign Admin's app cards.
 package handler
 
 import (
@@ -40,39 +46,44 @@ const EventBufferCap = 10000
 //
 // Events flow lives in two parallel structures:
 //
-//   - eventsCh — the live SSE channel. runProvisioning closes this when the
-//     provisioning goroutine finishes, which is what the existing StreamLogs
-//     loop watches for `event: done`.
-//   - eventsBuf — a bounded, mutex-guarded slice of every event ever emitted
-//     for this deployment. StreamLogs reads this on first connection so a
-//     browser that lands on the page AFTER provisioning finished still
-//     renders the full history. GET /events surfaces the same slice as JSON
-//     for any client that wants a one-shot snapshot.
+//   - eventsCh — the live SSE channel. runProvisioning closes this when
+//     BOTH the Phase-0 OpenTofu provisioning AND (when launched) the
+//     Phase-1 HelmRelease watch have finished. StreamLogs ranges over
+//     it; when it closes, the SSE stream emits `event: done`.
+//   - eventsBuf — a bounded, mutex-guarded slice of every event ever
+//     emitted for this deployment. StreamLogs reads this on first
+//     connection so a browser that lands on the page AFTER
+//     provisioning finished still renders the full history. GET
+//     /events surfaces the same slice as JSON for any client that
+//     wants a one-shot snapshot.
 //
-// done is closed once runProvisioning has finished and the terminal state
-// (Status, Result, Error, FinishedAt) is committed. StreamLogs uses it to
-// know when a deployment is already complete (replay-then-emit-done) versus
-// still running (replay-then-tail-channel).
+// done is closed once runProvisioning has finished AND the Phase-1
+// watch has either terminated or was never launched (Phase-0 failure).
+// StreamLogs uses it to know when a deployment is fully complete
+// (replay-then-emit-done) versus still running (replay-then-tail-
+// channel).
 type Deployment struct {
-	ID         string
-	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | ready | failed
+	ID     string
+	Status string // pending | provisioning | tofu-applying | flux-bootstrapping | phase1-watching | ready | failed
 	Request    provisioner.Request
 	Result     *provisioner.Result
 	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
 
-	// eventsCh carries live events to the active SSE consumer. runProvisioning
-	// emits to this channel; StreamLogs ranges over it. Closed by
-	// runProvisioning when the goroutine finishes.
+	// eventsCh carries live events to the active SSE consumer.
+	// runProvisioning + the Phase-1 watch goroutine both emit through
+	// it; closed once both have finished.
 	eventsCh chan provisioner.Event
 
 	// eventsBuf is the durable history every emitted event lands in. Mutex
 	// guarded by mu. Bounded at EventBufferCap with FIFO eviction.
 	eventsBuf []provisioner.Event
 
-	// done is closed when runProvisioning has finished and the terminal
-	// fields (Status, Result, Error, FinishedAt) are committed under mu.
+	// done is closed when runProvisioning's full lifecycle (Phase 0 +
+	// optional Phase 1 watch) has finished and the terminal fields
+	// (Status, Result, Error, FinishedAt, ComponentStates,
+	// Phase1FinishedAt) are committed under mu.
 	done chan struct{}
 
 	mu sync.Mutex
@@ -212,7 +223,7 @@ func fromRecord(rec store.Record) *Deployment {
 
 func isInFlightStatus(s string) bool {
 	switch s {
-	case "pending", "provisioning", "tofu-applying", "flux-bootstrapping":
+	case "pending", "provisioning", "tofu-applying", "flux-bootstrapping", "phase1-watching":
 		return true
 	}
 	return false
@@ -321,6 +332,11 @@ func (h *Handler) restoreFromStore() {
 // numEvents surfaces the buffer size so callers polling /deployments/{id}
 // can confirm the catalyst-api is recording progress even before they open
 // the SSE stream. ProvisionPage uses this in its diagnostic readout.
+//
+// componentStates + phase1FinishedAt surface the Phase-1 HelmRelease
+// watch outcome to the Sovereign Admin shell so its top-level pill
+// can render "X of Y components installed" without having to walk
+// the full event buffer.
 func (d *Deployment) State() map[string]any {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -341,6 +357,15 @@ func (d *Deployment) State() map[string]any {
 	}
 	if d.Result != nil {
 		out["result"] = d.Result
+		// Lift the Phase-1 fields to the top level too — the
+		// Sovereign Admin polls /deployments/<id> and reads them
+		// without unwrapping result.
+		if len(d.Result.ComponentStates) > 0 {
+			out["componentStates"] = d.Result.ComponentStates
+		}
+		if d.Result.Phase1FinishedAt != nil {
+			out["phase1FinishedAt"] = d.Result.Phase1FinishedAt.UTC().Format(time.RFC3339)
+		}
 	}
 	return out
 }
@@ -535,36 +560,20 @@ func (h *Handler) GetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) runProvisioning(dep *Deployment) {
-	// Tee — provisioner.Provision writes events into producer; this goroutine
-	// records every event in the durable buffer AND forwards it to the live
-	// SSE channel. recordEvent is the single emit path, so the buffer and
-	// the live stream cannot diverge.
+	// Tee — provisioner.Provision writes events into producer; this
+	// goroutine records every event in the durable buffer AND forwards
+	// it to the live SSE channel. recordEvent is the single emit path,
+	// so the buffer and the live stream cannot diverge. The Phase-1
+	// watch (when launched) shares the same emit path via
+	// h.emitWatchEvent so per-component events flow through identical
+	// plumbing.
 	producer := make(chan provisioner.Event, 256)
 	teeDone := make(chan struct{})
 	go func() {
 		defer close(teeDone)
 		for ev := range producer {
-			// recordEventAndPersist appends to the durable buffer AND
-			// rewrites the on-disk record. The user-reported regression
-			// (deployment id 5cd1bceaaacb71f6 disappeared after a Pod
-			// restart at 12:57) is closed by this single line: every
-			// event the wizard sees has also hit ext4 by the time the
-			// goroutine moves to the next iteration, so a Pod kill
-			// loses at most the in-flight event the producer hadn't
-			// emitted yet.
-			recorded := h.recordEventAndPersist(dep, ev)
-			// Non-blocking send to the live channel — if no SSE consumer is
-			// attached, the eventsCh buffer (256) absorbs the burst; once
-			// full we drop on the live side ONLY (the durable buffer still
-			// has the event, so the next reconnect replays it). This
-			// preserves the existing channel-buffer-overflow semantics
-			// while guaranteeing history retention.
-			select {
-			case dep.eventsCh <- recorded:
-			default:
-			}
+			h.emitWatchEvent(dep, ev)
 		}
-		close(dep.eventsCh)
 	}()
 
 	prov := provisioner.New()
@@ -575,16 +584,17 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	close(producer)
 	<-teeDone
 
+	// Capture Phase-0 outcome under the lock.
 	dep.mu.Lock()
-	dep.FinishedAt = time.Now()
 	if err != nil {
+		dep.FinishedAt = time.Now()
 		dep.Status = "failed"
 		dep.Error = err.Error()
 		h.log.Error("provision failed", "id", dep.ID, "err", err)
 	} else {
-		dep.Status = "ready"
+		dep.Status = "phase1-watching"
 		dep.Result = result
-		h.log.Info("provision complete",
+		h.log.Info("phase 0 complete; phase 1 watch starting",
 			"id", dep.ID,
 			"sovereignFQDN", result.SovereignFQDN,
 			"controlPlaneIP", result.ControlPlaneIP,
@@ -592,21 +602,42 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		)
 	}
 	dep.mu.Unlock()
-	close(dep.done)
-
-	// Terminal-state persist. The recordEventAndPersist loop above
-	// already wrote the last per-event snapshot, but the terminal
-	// status / Result / FinishedAt mutations happen after the producer
-	// channel closed — so we need one more Save to capture them. This
-	// is the line that guarantees a `status: ready` deployment on
-	// disk after a clean run, instead of "still provisioning" frozen
-	// at the last emitted event.
+	// Persist the Phase-0 terminal state (ready or failed). This is
+	// the line that guarantees a `status: phase1-watching` (or
+	// `failed`) deployment on disk before the Phase-1 watch starts,
+	// so a Pod kill in the gap between Phase 0 and Phase 1 can be
+	// resumed/diagnosed correctly.
 	h.persistDeployment(dep)
 
-	// PDM lifecycle: on success, /commit with the LB IP; on failure, /release
-	// so the reservation TTL doesn't have to expire to free the name. PDM is
-	// the single owner of the Dynadot side-effect (it is also responsible for
-	// AddSovereignRecords on commit; catalyst-api never writes DNS itself).
+	// Phase 1 — HelmRelease watch. Only runs on Phase-0 success and
+	// only when a kubeconfig is available. The watch emits per-
+	// component events into the same SSE buffer + live channel; when
+	// it terminates, it writes ComponentStates + Phase1FinishedAt
+	// onto dep.Result and flips Status to ready (or leaves failed
+	// alone if Phase 0 already failed).
+	if err == nil && result != nil {
+		h.runPhase1Watch(dep)
+	}
+
+	// Close the SSE live channel + done signal AFTER both phases
+	// have settled. Existing tests that drive runProvisioning's
+	// failure-fast path (no real tofu) still hit close because the
+	// Phase-0 error skips the watch.
+	close(dep.eventsCh)
+	close(dep.done)
+
+	// Final persist — captures Phase 1 terminal state when the watch
+	// ran, or is a no-op for the Phase 0 failure path (already
+	// persisted above).
+	h.persistDeployment(dep)
+
+	// PDM lifecycle: on success, /commit with the LB IP; on failure,
+	// /release so the reservation TTL doesn't have to expire to free
+	// the name. PDM is the single owner of the Dynadot side-effect
+	// (it is also responsible for AddSovereignRecords on commit;
+	// catalyst-api never writes DNS itself). The commit happens
+	// post-Phase-0 because the LB IP is the only data PDM needs;
+	// the Phase-1 watch outcome does NOT change DNS routing.
 	if dep.pdmReservationToken != "" && h.pdm != nil {
 		pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer pdmCancel()
@@ -643,6 +674,21 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 				)
 			}
 		}
+	}
+}
+
+// emitWatchEvent — single emit path for Phase 0 + Phase 1 events.
+// Records into the durable buffer (which persists every event to
+// disk) and forwards onto the live SSE channel. Non-blocking send to
+// eventsCh: if no consumer is attached, the buffer (256) absorbs the
+// burst; once full we drop on the LIVE side only — the durable
+// buffer still has the event so the next /events poll or SSE
+// reconnect replays it.
+func (h *Handler) emitWatchEvent(dep *Deployment, ev provisioner.Event) {
+	recorded := h.recordEventAndPersist(dep, ev)
+	select {
+	case dep.eventsCh <- recorded:
+	default:
 	}
 }
 
