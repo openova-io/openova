@@ -16,7 +16,9 @@ import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
 import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
-import { ApplicationPage } from '@/pages/sovereign/ApplicationPage'
+import { AppsPage } from '@/pages/sovereign/AppsPage'
+import { AppDetail } from '@/pages/sovereign/AppDetail'
+import { JobsPage } from '@/pages/sovereign/JobsPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -47,23 +49,45 @@ const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path:
 // Success (full-screen)
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
 
-// Provision — Sovereign Admin landing surface (formerly the real-time
-// DAG view). Renders the application card grid + phase banners. The
-// deploymentId is the URL parameter; deep-linking to a past provision
-// is supported. The same zustand store, design tokens, router base,
-// and build pipeline are shared with the wizard.
+// Provision — Sovereign Admin landing surface, pixel-ported from
+// core/console/src/components/AppsPage.svelte (Deployments + Catalog
+// tabs + auto-fit card grid). Replaces the legacy DAG view + the
+// invented "AdminPage" surface with the canonical console shell.
+// StepReview redirects here on submit, so the URL shape stays stable.
 const provisionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId',
-  component: ProvisionPage,
+  component: AppsPage,
 })
 
-// Per-Application detail page — reached by clicking any card on the
-// AdminPage grid. Tabs: Logs / Dependencies / Status / Overview.
+// Per-Application detail page — pixel-ported from core/console
+// AppDetail.svelte. SECTIONS, NOT TABS: hero / About / Connection /
+// Bundled deps / Tenant / Configuration / Jobs (Jobs section appended
+// for the wizard provision context).
 const provisionAppRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/app/$componentId',
-  component: ApplicationPage,
+  component: AppDetail,
+})
+
+// Global jobs list — pixel-ported from core/console JobsPage.svelte.
+// Vertical stack of expand-in-place rows (Phase 0 + cluster-bootstrap +
+// per-component install jobs). NO `/job/$jobId` route — clicking an
+// app-name navigates to that component's AppDetail page.
+const provisionJobsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/jobs',
+  component: JobsPage,
+})
+
+// Legacy DAG provision view — preserved at a sub-path so existing
+// links and CI smoke tests (which still curl `/provision/legacy/...`)
+// don't 404 mid-rollout. Once the public smoke tests move to the new
+// /provision/$deploymentId surface, this route can be removed.
+const legacyProvisionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/legacy/$deploymentId',
+  component: ProvisionPage,
 })
 
 // Design showcase
@@ -94,6 +118,8 @@ const routeTree = rootRoute.addChildren([
   successRoute,
   provisionRoute,
   provisionAppRoute,
+  provisionJobsRoute,
+  legacyProvisionRoute,
   designsRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,

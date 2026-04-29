@@ -41,6 +41,37 @@
   /* Motion */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ─── Console tokens (pixel-port from core/console/src/styles/global.css) ───
+     The Sovereign-provision portal mirrors core/console 1:1, so we expose
+     the same `--color-*` token surface the canonical Svelte components
+     reference. Values are copied verbatim from
+     /home/openova/repos/openova/core/console/src/styles/global.css —
+     adding new tokens or changing values requires updating both ends.
+     Where a name collides with the existing wizard surface palette
+     (e.g. `--color-success`), the console value wins for Apps/Jobs
+     pages. The wizard's older surfaces never read these tokens. */
+  --color-bg: #0b1220;
+  --color-bg-2: #111827;
+  --color-surface: #111827;
+  --color-surface-hover: #1a2332;
+  --color-border: #1f2937;
+  --color-border-strong: #374151;
+  --color-text: #e5e7eb;
+  --color-text-strong: #ffffff;
+  --color-text-dim: #9ca3af;
+  --color-text-dimmer: #6b7280;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-warn: #f59e0b;
+  --color-danger: #ef4444;
+}
+
+/* Console-token override for `--color-success` — the wizard surface
+   used #22C55E (matches openova.io); core/console uses #10b981 emerald.
+   For Apps/Jobs/AppDetail pixel parity we adopt the console value. */
+@theme {
+  --color-success: #10b981;
 }
 
 /* ─── Wizard theme channels ────────────────────────────────────────────── */
