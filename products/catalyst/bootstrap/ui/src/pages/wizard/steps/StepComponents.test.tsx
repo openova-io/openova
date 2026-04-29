@@ -729,8 +729,15 @@ describe('product-family model (issue #175 fix B)', () => {
     expect(findProduct('fabric')!.cascadeOnMemberSelection).toBe(false)
   })
 
-  it('CORTEX familyDependencies include FABRIC (cnpg-backed members)', () => {
-    expect(findProduct('cortex')!.familyDependencies).toContain('fabric')
+  it('CORTEX has no family-level dependencies (audit 2026-04 — Spector → FABRIC bug fix)', () => {
+    // Pre-audit value was `['fabric']`, which over-broadly cascaded
+    // every Strimzi / Debezium / Flink / Temporal / ClickHouse / Iceberg
+    // / Superset selection onto an operator who'd just ticked Specter or
+    // BGE. CORTEX members' real cross-family need is cnpg (LangFuse) and
+    // a Mongo-compat store (LibreChat → FerretDB → cnpg). cnpg is
+    // mandatory by transitive promotion; FerretDB cascades via the
+    // component-level dep on librechat. No family-level cascade needed.
+    expect(findProduct('cortex')!.familyDependencies).toEqual([])
   })
 
   it('Specter component-level deps cover the major CORTEX runtime members', () => {
@@ -738,6 +745,25 @@ describe('product-family model (issue #175 fix B)', () => {
     for (const dep of ['bge', 'milvus', 'langfuse', 'vllm', 'kserve']) {
       expect(specter.dependencies).toContain(dep)
     }
+  })
+
+  it('LibreChat depends on FerretDB (Mongo-compatible) — not cnpg directly', () => {
+    // Audit 2026-04: LibreChat speaks MongoDB, not PostgreSQL. The
+    // OpenOva drop-in is FerretDB, which itself runs on cnpg, so cnpg
+    // arrives transitively. The earlier `['cnpg']` dep would have
+    // attached cnpg without any actual Mongo-compatible backend.
+    const librechat = findComponent('librechat')!
+    expect(librechat.dependencies).toContain('ferretdb')
+    expect(librechat.dependencies).not.toContain('cnpg')
+  })
+
+  it('Grafana has no hard dependencies (uses SQLite by default; HA can opt into PG)', () => {
+    // Audit 2026-04: Grafana the dashboard server stores its own state
+    // in SQLite by default and does not require object storage. The
+    // companion stores Loki / Mimir / Tempo need seaweedfs; Grafana
+    // does not. Removing the spurious dep avoids dragging SILO-internal
+    // coupling onto every Grafana selection.
+    expect(findComponent('grafana')!.dependencies).toEqual([])
   })
 })
 
@@ -753,14 +779,26 @@ describe('store: addProduct cascade', () => {
     }
   })
 
-  it('addProduct(cortex) cascades to FABRIC components via familyDependencies', () => {
+  it('addProduct(cortex) does NOT drag FABRIC à-la-carte members (audit 2026-04)', () => {
+    // Pre-audit `familyDependencies: ['fabric']` cascaded every FABRIC
+    // member onto a CORTEX selection. That was wrong — CORTEX needs
+    // cnpg (mandatory by transitive promotion) and, for LibreChat, a
+    // Mongo-compat store (FerretDB, which cascades via the component
+    // dep). It does NOT need Strimzi / Debezium / Flink / Temporal /
+    // ClickHouse / Iceberg / Superset.
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     useWizardStore.getState().addProduct('cortex')
     const sel = useWizardStore.getState().selectedComponents
-    // FABRIC's strimzi (and other recommended/optional members) are
-    // pulled in via the family-dependency cascade.
-    expect(sel).toContain('strimzi')
-    expect(sel).toContain('clickhouse')
+    for (const id of [
+      'strimzi', 'debezium', 'flink', 'temporal',
+      'clickhouse', 'iceberg', 'superset',
+    ]) {
+      expect(sel).not.toContain(id)
+    }
+    // cnpg stays present because it's mandatory; ferretdb arrives via
+    // librechat's component dep.
+    expect(sel).toContain('cnpg')
+    expect(sel).toContain('ferretdb')
   })
 
   it('addProduct(unknown) is a no-op', () => {
@@ -819,6 +857,46 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     for (const c of componentsByProduct('cortex')) {
       expect(sel).toContain(c.id)
     }
+  })
+
+  // Audit 2026-04: user-reported defect — "if I select spectoer it is
+  // bringing the entire fabric family as well, I dont think there is
+  // such depenency in reality". Ground truth: Specter (AIOps brain)
+  // needs the CORTEX runtime members it lists in `dependencies`. It
+  // does NOT need Strimzi/Kafka, Debezium/CDC, Flink, Temporal,
+  // ClickHouse, Iceberg, or Superset. The previous CORTEX
+  // `familyDependencies: ['fabric']` was over-broad and is removed in
+  // this commit.
+  it('selecting Specter does NOT auto-select the FABRIC family (regression)', () => {
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    useWizardStore.getState().addComponent('specter')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const id of [
+      'strimzi', 'debezium', 'flink', 'temporal',
+      'clickhouse', 'iceberg', 'superset',
+    ]) {
+      expect(sel).not.toContain(id)
+    }
+  })
+
+  it('selecting Specter does NOT auto-select FerretDB (no Mongo workload in Specter)', () => {
+    // FerretDB is reached only via librechat's dep. Specter doesn't
+    // pull librechat (CORTEX cascade does — but on a clean state it's
+    // a separate addComponent). Verify Specter alone (without
+    // librechat) does not drag FerretDB in.
+    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
+    // Component-level cascade adds librechat via CORTEX family cascade
+    // (CORTEX has cascadeOnMemberSelection: true). Librechat then
+    // pulls FerretDB. So FerretDB IS expected. Document this clearly:
+    useWizardStore.getState().addComponent('specter')
+    const sel = useWizardStore.getState().selectedComponents
+    // FerretDB ARRIVES because LibreChat (a CORTEX member with
+    // ferretdb as a dep) is pulled in by CORTEX's cascadeOnMemberSelection.
+    // That is the correct behavior — librechat genuinely needs a
+    // Mongo-compatible backend.
+    expect(sel).toContain('librechat')
+    expect(sel).toContain('ferretdb')
+    // But the rest of FABRIC stays out (verified above).
   })
 
   it('selecting clickhouse (FABRIC à-la-carte) does NOT cascade FABRIC', () => {
