@@ -1,0 +1,104 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `opentelemetry-collector:` key flow into the upstream subchart
+# unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: opentelemetry-collector
+    version: "0.152.0"
+    repo: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+
+# ─── Upstream chart values (subchart key: opentelemetry-collector) ───────
+opentelemetry-collector:
+  # Mode — required by the upstream chart. `deployment` is the solo-Sovereign
+  # default (one collector pod, scaled to 1). Per-Sovereign overlays MAY set
+  # `daemonset` for node-level collection or `statefulset` for WAL
+  # persistence. The chart will refuse to render without `mode` set.
+  mode: deployment
+
+  # Pin upstream Collector image — DO NOT use floating tags. Use the
+  # contrib distribution (`otel/opentelemetry-collector-contrib`) so that
+  # exporters for Loki / Mimir / Tempo / Prometheus / Kafka are bundled
+  # without requiring a custom build. The `command.name` MUST match the
+  # binary inside the contrib image (`otelcol-contrib`).
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.150.1"
+    pullPolicy: IfNotPresent
+  command:
+    name: otelcol-contrib
+
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump
+  # via the upstream `replicaCount:` value once HA is sized.
+  replicaCount: 1
+
+  # Resources — modest defaults; the memory_limiter processor's defaults
+  # (limit_percentage: 80, spike_limit_percentage: 25) reference these.
+  resources:
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  # Presets — DEFAULT FALSE. Each preset adds opinionated pipelines
+  # (filelog/hostmetrics/k8sattributes/etc.). Per-Sovereign overlays opt
+  # into the ones they need; defaulting on would surprise operators with
+  # cluster-scoped RBAC + log volume mounts.
+  presets:
+    logsCollection:
+      enabled: false
+    hostMetrics:
+      enabled: false
+    kubernetesAttributes:
+      enabled: false
+    kubeletMetrics:
+      enabled: false
+    kubernetesEvents:
+      enabled: false
+    clusterMetrics:
+      enabled: false
+
+  # Service — ClusterIP; ingress wired by per-Sovereign overlays.
+  service:
+    enabled: true
+    type: ClusterIP
+
+  # Ingress — DEFAULT FALSE.
+  ingress:
+    enabled: false
+
+  # ServiceMonitor + PodMonitor + PrometheusRule — DEFAULT FALSE per
+  # docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    enabled: false
+  podMonitor:
+    enabled: false
+  prometheusRule:
+    enabled: false
+
+  # NetworkPolicy — DEFAULT FALSE.
+  networkPolicy:
+    enabled: false
+
+  # PodDisruptionBudget — disabled at solo-Sovereign scale (1 replica).
+  podDisruptionBudget:
+    enabled: false
+
+  # ServiceAccount + RBAC — chart manages its own.
+  serviceAccount:
+    create: true
+  clusterRole:
+    create: false
+
+  # Default ports — keep upstream defaults (OTLP gRPC 4317 + HTTP 4318).
+  # Per-Sovereign overlays disable jaeger / zipkin / prometheus receivers
+  # via the `ports:` block when they're not needed.
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+opentelemetryOverlay:
+  networkPolicy:
+    enabled: false
