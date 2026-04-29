@@ -1,0 +1,97 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `grafana:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: grafana
+    version: "10.5.15"
+    repo: "https://grafana.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: grafana) ────────────────────────
+grafana:
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays scale up
+  # via the upstream `replicas:` value once a regional Sovereign is sized
+  # for HA.
+  replicas: 1
+
+  # Pin upstream image tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md.
+  image:
+    repository: grafana/grafana
+    tag: "12.3.1"
+    pullPolicy: IfNotPresent
+
+  # Persistence — required so dashboard state survives pod restarts. Default
+  # 10Gi on the cluster's default StorageClass; per-Sovereign overlays SET
+  # storageClassName when SeaweedFS-backed PVCs are wired (issue #189).
+  persistence:
+    enabled: true
+    type: pvc
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+  # (Observability toggles default false — the kube-prometheus-stack CRDs
+  # may not exist yet on a fresh Sovereign).
+  serviceMonitor:
+    enabled: false
+
+  # Anonymous + admin defaults — operator overlays SET admin password via a
+  # Secret reference. NEVER hardcode the admin password here.
+  adminUser: admin
+  # `adminPassword` deliberately unset; upstream chart auto-generates a
+  # random password into a Secret if not provided. Per-Sovereign overlays
+  # MAY pin it via `admin.existingSecret`.
+
+  # SecurityContext — non-root, matches Catalyst defaults across other bp-*.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    fsGroup: 472
+
+  # Service — ClusterIP; ingress is wired by per-Sovereign overlays via the
+  # cilium-gateway HTTPRoute.
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+
+  # Datasources — empty by default. Per-Sovereign overlays populate this
+  # with bp-loki / bp-mimir / bp-tempo endpoints once those Blueprints
+  # reconcile on the cluster.
+  datasources: {}
+
+  # Pre-installed dashboards — empty by default. Per-Sovereign overlays
+  # populate via `dashboards:` or via dashboard ConfigMaps with the
+  # `grafana_dashboard: "1"` label.
+  dashboards: {}
+
+  # Resources — modest defaults sized for a solo Sovereign.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # RBAC — chart manages its own ServiceAccount + RBAC.
+  rbac:
+    create: true
+    pspEnabled: false
+  serviceAccount:
+    create: true
+    name: ""
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, ExternalSecret) added
+# in a follow-up PR once bp-grafana is consumed in clusters/_template/.
+grafanaOverlay:
+  networkPolicy:
+    enabled: false

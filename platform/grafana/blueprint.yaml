@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: grafana
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 1.0.0
+  card:
+    title: Grafana
+    family: insights
+    description: Visualization and dashboarding for the LGTM observability stack (Loki/Grafana/Tempo/Mimir).
+    docs: https://grafana.com/docs/grafana/latest/
