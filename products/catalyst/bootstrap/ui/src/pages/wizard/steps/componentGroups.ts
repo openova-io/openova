@@ -254,7 +254,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'alloy',         name: 'Alloy',         desc: 'Unified node agent for logs, metrics, and traces',            tier: 'recommended', dependencies: [] },
       { id: 'loki',          name: 'Loki',          desc: 'Label-indexed log store backed by object storage',            tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/loki.png') },
       { id: 'mimir',         name: 'Mimir',         desc: 'Horizontally-scaled metrics store with PromQL compatibility',  tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
-      { id: 'tempo',         name: 'Tempo',         desc: 'Object-storage tracing backend with TraceQL analytics',        tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/tempo.png') },
+      { id: 'tempo',         name: 'Tempo',         desc: 'Object-storage tracing backend with TraceQL analytics',        tier: 'recommended', dependencies: ['seaweedfs'] },
       { id: 'opensearch',    name: 'OpenSearch',    desc: 'Full-text search and analytics with vector hybrid retrieval',  tier: 'recommended', dependencies: [] },
       { id: 'litmus',        name: 'Litmus',        desc: 'Cron-driven chaos experiments across pod, node, network failure', tier: 'optional', dependencies: [] },
       { id: 'openmeter',     name: 'OpenMeter',     desc: 'High-throughput event metering for billing and analytics',     tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
@@ -339,7 +339,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC SFU for tenant video and audio with encryption',     tier: 'recommended', dependencies: [] },
       { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes-native TURN and STUN gateway for WebRTC media',  tier: 'recommended', dependencies: [] },
       { id: 'matrix',   name: 'Matrix',   desc: 'Federated end-to-end encrypted messaging with protocol bridges', tier: 'optional', dependencies: ['cnpg'] },
-      { id: 'ntfy',     name: 'Ntfy',     desc: 'Topic-based push notifications over HTTP with mobile subscribers', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/ntfy.png') },
+      { id: 'ntfy',     name: 'Ntfy',     desc: 'Topic-based push notifications over HTTP with mobile subscribers', tier: 'optional', dependencies: [] },
     ],
   },
 ]

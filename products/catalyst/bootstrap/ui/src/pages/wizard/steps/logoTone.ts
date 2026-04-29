@@ -106,8 +106,8 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   trivy:        { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#1904DA' },
   // Syft + Grype — Anchore navy ; anchore.com hero uses navy `#0F1837` with cyan accent. Vendored PNG is white-on-dark.
   'syft-grype': { background: '#0F1837', border: 'rgba(255,255,255,0.10)', text: '#3FA9F5' },
-  // Sigstore — sigstore deep purple ; sigstore.dev hero uses `#2E2B70` with white wordmark.
-  sigstore:     { background: '#2E2B70', border: 'rgba(255,255,255,0.12)', text: '#ffffff' },
+  // Sigstore — canonical cream surface with deep-blue mark ; sigstore.dev exposes `--c-egg-white #f6f0eb` as its surface and the CNCF artwork repo (sigstore/community/artwork/sigstore/icons/cream) ships `#faf7ef` cream as the brand backplate for the dark-blue mark `#2e2f71`. The vendored sigstore.svg is monochrome navy on transparent; the previous navy backplate rendered the mark invisible. Pairing the navy mark with the canonical cream surface restores brand fidelity (sigstore brand = navy + red signature on cream).
+  sigstore:     { background: '#FAF7EF', border: 'rgba(15,23,42,0.10)', text: '#2E2F71' },
   // Keycloak — Keycloak grey-key wordmark on white ; keycloak.org uses grey/red key on white. Vendored SVG fills include `#4D4D4D` and `#E0E0E0`.
   keycloak:     { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#4D4D4D' },
   // OpenBao — bao palace teal on near-black ; openbao.org hero uses `#1A1A1A` with teal accent. Vendored SVG is white wordmark on transparent.
@@ -122,18 +122,18 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   grafana:      { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#F46800' },
   // OpenTelemetry — OTel deep purple on white ; opentelemetry.io hero uses `#425CC7` purple with `#F5A800` accent on white.
   opentelemetry:{ background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#425CC7' },
-  // Alloy — Grafana Alloy orange ; the alloy SVG wordmark fills `#FF671D` for the swirl and `#fff` for the wordmark. Place the white wordmark on the orange brand surface — the way grafana.com markets the product.
-  alloy:        { background: '#FF671D', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
+  // Alloy — Grafana Alloy on white ; grafana.com/oss/alloy uses the icon-only orange swirl mark on a white surface. The vendored SVG is the canonical 44x44 swirl-only mark (`#FD6F00` on transparent), matching how Grafana presents Alloy in their hero strip.
+  alloy:        { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#FD6F00' },
   // Loki — Grafana Loki amber on dark ; grafana.com/oss/loki uses `#0B0F19` with `#FFC832` accent. Vendored PNG is amber wordmark on transparent.
   loki:         { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#FFC832' },
   // Mimir — Grafana Mimir cyan on dark ; grafana.com/oss/mimir uses `#0B0F19` with `#34CDF9` accent. Vendored PNG is white wordmark on transparent.
   mimir:        { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#34CDF9' },
-  // Tempo — Grafana Tempo violet on dark ; grafana.com/oss/tempo uses `#0B0F19` with `#A98DFA` accent. Vendored PNG is white wordmark.
-  tempo:        { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#A98DFA' },
+  // Tempo — Grafana Tempo gradient mark on dark ; grafana.com/oss/tempo serves `grafana-tempo.svg` as the canonical icon (yellow→orange linear gradient `#fff100` → `#f05a28`). Original viewBox is non-square (121.85x99.17) so the vendored SVG re-frames it into a square viewBox `0 -11.34 121.85 121.85` with the icon centered. Dark surface `#0B0F19` matches grafana.com hero treatment and lets the warm-gradient mark pop.
+  tempo:        { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#F46800' },
   // OpenSearch — OpenSearch deep blue on white ; opensearch.org hero uses `#005EB8` on white. Vendored SVG fills `#005EB8` and `#003B5C`.
   opensearch:   { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#005EB8' },
-  // Litmus — LitmusChaos purple on white ; litmuschaos.io uses `#5A44BA` purple with white surface. Vendored SVG fills `#878EDE` and `#5A44BA`.
-  litmus:       { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#5A44BA' },
+  // Litmus — LitmusChaos periwinkle backplate ; the canonical CNCF artwork (cncf/artwork/projects/litmus/icon/color) bakes a `#878EDE` periwinkle backplate into the icon itself. We extend that backplate to the tile surface so the logo sits flush with no visible seam between the SVG's internal rectangle and the surrounding tile. Inner mark uses `#5A44BA` deep purple over the periwinkle.
+  litmus:       { background: '#878EDE', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
   // OpenMeter — magenta on dark ; openmeter.io uses `#1F1F1F` with `#F23173` accent.
   openmeter:    { background: '#1F1F1F', border: 'rgba(255,255,255,0.10)', text: '#F23173' },
   // Specter — internal letter-mark ; muted indigo from OpenOva INSIGHTS palette.
@@ -148,8 +148,8 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   strimzi:      { background: '#192C47', border: 'rgba(255,255,255,0.12)', text: '#54BAD8' },
   // Debezium — green-cyan accent on dark ; debezium.io uses dark surface with `#91D443` and `#48BFE0` accents. Vendored SVG fills match.
   debezium:     { background: '#1F2937', border: 'rgba(255,255,255,0.10)', text: '#91D443' },
-  // Apache Flink — coral squirrel on plum ; flink.apache.org uses `#430A1D` with `#E65270` coral accent. Vendored SVG fills match.
-  flink:        { background: '#430A1D', border: 'rgba(255,255,255,0.12)', text: '#E65270' },
+  // Apache Flink — squirrel on white ; flink.apache.org renders the multi-colour `flink_squirrel_500.png` mark on a `#FFFFFF` body bg in the hero strip. The vendored SVG is the same multi-colour squirrel (plum `#430A1D` outline + coral `#E65270` accents + cream highlights) on transparent — placing it on white matches the apache.org canonical surface treatment.
+  flink:        { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#E65270' },
   // Temporal — Temporal signature blue ; temporal.io hero uses `#127ED1` with white wordmark. Vendored SVG is white-on-transparent.
   temporal:     { background: '#127ED1', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
   // ClickHouse — ClickHouse yellow on yellow ; clickhouse.com brand uses `#FFCC00` yellow with black wordmark.
@@ -188,10 +188,10 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   livekit:      { background: '#070D1B', border: 'rgba(255,255,255,0.10)', text: '#7AFAE1' },
   // STUNner — l7mp orange on dark ; l7mp.io / stunner uses dark surface with `#FF7849` orange accent.
   stunner:      { background: '#0F172A', border: 'rgba(255,255,255,0.10)', text: '#FF7849' },
-  // Matrix — Matrix.org black ; matrix.org uses `#000000` with white wordmark. Vendored SVG fill is `#000`.
-  matrix:       { background: '#000000', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
-  // Ntfy — ntfy teal-green on white ; ntfy.sh uses `#338574` teal-green wordmark on white. Vendored PNG is teal-on-transparent.
-  ntfy:         { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#338574' },
+  // Matrix — Matrix.org black-on-white ; the matrix.org/branding page declares the official colours as `#000000` Black and `#FFFFFF` White. The vendored SVG fills `#000` on transparent — placing the black wordmark on a white backplate is the canonical pairing (the previous black backplate rendered the mark invisible).
+  matrix:       { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#000000' },
+  // Ntfy — canonical ntfy.sh teal gradient with the tile surface flush against the gradient's deep-teal anchor. The canonical logo (`https://ntfy.sh/_next/static/media/logo.077f6a13.svg`, vendored as ntfy.svg) is a 50x50 square SVG with a `#348878` → `#56bda8` linear gradient. We extend the gradient's start colour `#348878` to the tile so the logo's deep-teal corner sits flush with the surrounding surface — the bg colour blooms out of the logo with no visible seam.
+  ntfy:         { background: '#348878', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
 }
 
 /**
