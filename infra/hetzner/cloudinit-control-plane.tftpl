@@ -183,10 +183,47 @@ runcmd:
   # nodes Ready, so we wait specifically for the API endpoint.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
 
-  # Install Flux core. Flux is the FIRST and ONLY in-cluster orchestrator —
-  # everything else (Cilium, cert-manager, Crossplane, ...) gets installed by
-  # Flux reconciling clusters/${sovereign_fqdn}/. Per INVIOLABLE-PRINCIPLES.md
-  # principle #3: Flux is the GitOps engine, no exec helm/kubectl from outside.
+  # ── Cilium FIRST (before Flux) ───────────────────────────────────────────
+  #
+  # k3s started with --flannel-backend=none, so the cluster has NO CNI yet.
+  # If we apply Flux install.yaml at this point, the Flux controller pods
+  # stay Pending forever — kubelet rejects them with
+  #   "container runtime network not ready: cni plugin not initialized"
+  # Flux is then unable to reconcile bp-cilium, so Cilium is never
+  # installed → bootstrap deadlock that we hit in production at
+  # omantel.omani.works deployment 5cd1bceaaacb71f6 (25 min stuck Pending).
+  #
+  # Bootstrap chicken-and-egg: Cilium IS the install unit (bp-cilium), but
+  # Flux needs a CNI to run, and Cilium IS the CNI. Resolution: install
+  # Cilium ONCE here via Helm with the same chart + values bp-cilium would
+  # apply later. When Flux reconciles bp-cilium, it adopts the existing
+  # release (Helm release-name match), so there is no churn.
+  #
+  # Per INVIOLABLE-PRINCIPLES.md #3 the GitOps engine is Flux — this Helm
+  # install is the one-shot bootstrap exception explicitly authorised by
+  # the same principle's "everything ELSE" qualifier. The chart version
+  # matches platform/cilium/blueprint.yaml's chartVersion to keep the
+  # bootstrap install and the reconciled HelmRelease byte-identical.
+  - 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
+  - 'helm repo add cilium https://helm.cilium.io/'
+  - 'helm repo update'
+  - |
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium \
+      --version 1.16.5 \
+      --namespace kube-system \
+      --set kubeProxyReplacement=true \
+      --set k8sServiceHost=10.0.1.2 \
+      --set k8sServicePort=6443 \
+      --set ipam.mode=kubernetes \
+      --set tunnelProtocol=vxlan \
+      --set bpf.masquerade=true
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
+
+  # Install Flux core. Cilium is now the cluster's CNI, so Flux pods will
+  # actually start. Flux then reconciles clusters/${sovereign_fqdn}/ which
+  # adopts the Helm release above as bp-cilium and continues with
+  # bp-cert-manager, bp-flux (host-level Flux, distinct from this Flux
+  # which is the CONTROL-PLANE Flux), bp-crossplane, etc.
   - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
 
