@@ -262,9 +262,26 @@ export const useWizardStore = create<WizardStore>()(
           set({ registrarType: null, registrarToken: '', registrarTokenValidated: false },
               false, 'wizard/clearRegistrarCredentials'),
 
-        // Reset regionProviders and regionCloudRegions when topology changes
+        // Reset regionProviders and regionCloudRegions when topology changes.
+        // Also seed a topology-appropriate default workerCount: solo
+        // (single-region) defaults to 0 (the control-plane carries everything
+        // in an evaluation deployment), multi-region topologies default to a
+        // minimum of 3 workers per region — meaningful workload headroom
+        // alongside the etcd-quorum control plane. The user can still adjust
+        // the count up or down in the topology step's sizing panel.
         setTopology: (topology) =>
-          set({ topology, regionProviders: {}, regionCloudRegions: {}, providerValidated: {}, providerTokens: {} }, false, 'wizard/setTopology'),
+          set(
+            (s) => ({
+              topology,
+              regionProviders: {},
+              regionCloudRegions: {},
+              providerValidated: {},
+              providerTokens: {},
+              workerCount: topology === 'solo' ? 0 : Math.max(s.workerCount, 3),
+            }),
+            false,
+            'wizard/setTopology',
+          ),
 
         setRegionProvider: (regionIndex, provider) =>
           set(

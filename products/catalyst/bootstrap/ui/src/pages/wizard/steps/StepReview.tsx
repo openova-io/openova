@@ -3,6 +3,7 @@ import { Zap } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS, resolveSovereignDomain, SOVEREIGN_POOL_DOMAINS } from '@/entities/deployment/model'
+import { HETZNER_NODE_SIZES } from '@/shared/constants/hetzner'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { API_BASE, path } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
@@ -243,6 +244,77 @@ export function StepReview() {
             )}
           </span>
         }>
+          {/* Node sizing — control plane + worker SKU + worker count */}
+          {(() => {
+            const cp = HETZNER_NODE_SIZES.find(s => s.id === store.controlPlaneSize)
+            const wk = HETZNER_NODE_SIZES.find(s => s.id === store.workerSize)
+            const regionCount = allRegionLabels.length || 1
+            const cpHourly = cp?.priceHour ?? 0
+            const wkHourly = (wk?.priceHour ?? 0) * store.workerCount
+            const totalHour = (cpHourly + wkHourly) * regionCount
+            return (
+              <div style={{
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--wiz-border-sub)',
+                display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
+              }}>
+                {/* Control plane chip */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  padding: '6px 10px', borderRadius: 7,
+                  border: '1px solid rgba(56,189,248,0.25)',
+                  background: 'rgba(56,189,248,0.05)',
+                }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-accent)' }}>Control plane</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wiz-text-hi)' }}>
+                    {cp ? `${cp.label} · ${cp.vcpu} vCPU · ${cp.ram} GB` : store.controlPlaneSize}
+                  </span>
+                  <span style={{ fontSize: 9, color: 'var(--wiz-text-sub)', fontFamily: 'JetBrains Mono, monospace' }}>
+                    {store.haEnabled ? '3 nodes (HA)' : '1 node'} per region
+                  </span>
+                </div>
+
+                {/* Worker chip */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  padding: '6px 10px', borderRadius: 7,
+                  border: store.workerCount > 0 ? '1px solid rgba(167,139,250,0.3)' : '1px dashed var(--wiz-border-sub)',
+                  background: store.workerCount > 0 ? 'rgba(167,139,250,0.05)' : 'transparent',
+                }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: store.workerCount > 0 ? '#A78BFA' : 'var(--wiz-text-hint)' }}>Workers</span>
+                  {store.workerCount > 0 ? (
+                    <>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wiz-text-hi)' }}>
+                        {wk ? `${wk.label} · ${wk.vcpu} vCPU · ${wk.ram} GB` : store.workerSize}
+                      </span>
+                      <span style={{ fontSize: 9, color: 'var(--wiz-text-sub)', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {store.workerCount} per region
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-sub)' }}>
+                      None — control plane carries workloads
+                    </span>
+                  )}
+                </div>
+
+                {/* Cost rollup */}
+                <div style={{
+                  marginLeft: 'auto',
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
+                }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-hint)' }}>Compute total</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--wiz-text-hi)', fontFamily: 'JetBrains Mono, monospace' }}>
+                    €{totalHour.toFixed(3)}/hr
+                  </span>
+                  <span style={{ fontSize: 9, color: 'var(--wiz-text-sub)' }}>
+                    across {regionCount} region{regionCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Region cards — flex row, all equal height, 1–5 cards */}
           <div style={{ padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
             {allRegionLabels.map((rl, i) => {
