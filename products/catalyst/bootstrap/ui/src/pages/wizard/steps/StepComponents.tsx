@@ -1,25 +1,29 @@
 // StepComponents — corporate platform component grid.
 //
-// Visual contract: a single flat marketplace card grid (no family-group
-// headers). Two tabs:
+// Visual contract: pixel-matches the SME marketplace card pattern at
+// core/marketplace/src/components/AppsStep.svelte (height 108px, 0.6rem
+// padding, 0.75rem gap, 1.5px border, 32×32 round add button hidden until
+// hover). Two tabs:
 //
 //   1. "Choose Your Stack" (default)  — non-mandatory components.
 //      Search + category chip filter, sort-selected-first, cascade-add
-//      and cascade-remove dependency logic. Cards carry a clickable family
-//      chip (top-right of the body) and a clickable card body — both
-//      navigate to their respective marketplace pages. An explicit
-//      "Select / Selected" button is the only path that toggles the
-//      wizard store, so click handlers never collide with navigation.
+//      and cascade-remove dependency logic. Each card is itself an anchor
+//      to the marketplace product-detail page; nested inside are:
+//        • a clickable family chip (top-right of the body) → family
+//          portfolio page,
+//        • a 32×32 round Add/Selected icon button (top-right of the card,
+//          opacity-0 until hover, always-visible when in cart) →
+//          toggles selection.
+//      Both nested affordances stopPropagation so the outer anchor
+//      navigation never races the toggle.
 //
 //   2. "Always Included"               — mandatory infra. Read-only.
 //      Grouped by product (PILOT, GUARDIAN, …), no search, no toggle UI.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md:
-//   #2 — never compromise quality: the operator-facing UX is the SME
-//        marketplace shape with explicit click affordances. Family-group
-//        section headers were removed because they fragmented the page
-//        layout; the family relationship is now surfaced via a chip on
-//        each card that links to the dedicated family portfolio page.
+//   #2 — never compromise quality: SME marketplace is the proven shape;
+//        this step copies its surface 1:1 (height, padding, hover, chips,
+//        toast slot) so the SME and corporate products feel like a family.
 //   #4 — never hardcode: tabs, tiers, logos, dependency edges, family
 //        chip palettes — every catalog and presentation fact comes from
 //        componentGroups.ts and marketplaceCopy.ts. Logo URLs default to
@@ -28,7 +32,7 @@
 
 import { useMemo, useState, useCallback } from 'react'
 import { Search, Plus, Check, Lock, Info } from 'lucide-react'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
@@ -181,7 +185,6 @@ interface ComponentCardProps {
 }
 
 function ComponentCard({ entry, selected, onToggle, readOnly = false }: ComponentCardProps) {
-  const navigate = useNavigate()
   const isMandatoryCard = entry.tier === 'mandatory'
   const includesNote = (entry.dependencies ?? []).length > 0
     ? `${STEP_COMPONENTS_COPY.includesPrefix} ${(entry.dependencies ?? []).map(d => findComponent(d)?.name ?? d).join(', ')}`
@@ -196,37 +199,23 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
     isMandatoryCard ? 'mandatory' : '',
   ].filter(Boolean).join(' ')
 
-  // Card body click — navigate to the marketplace product detail page.
-  // Read-only cards (Tab 2) are inert. Chip and toggle button clicks
-  // below stop propagation so they never reach this handler.
-  const handleBodyClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
-    if (readOnly) return
-    if ((e.target as HTMLElement).closest('a, button')) return
-    navigate({
-      to: '/marketplace/product/$componentId',
-      params: { componentId: entry.id },
-    })
-  }
-
-  return (
-    <div
-      data-testid={`component-card-${entry.id}`}
-      data-selected={selected ? 'true' : 'false'}
-      data-tier={entry.tier}
-      className={cardClass}
-      role={readOnly ? undefined : 'group'}
-      aria-label={`${entry.name} component card`}
-      onClick={handleBodyClick}
-    >
+  // Card body and chips — shared between the interactive (Tab 1) and
+  // read-only (Tab 2) layouts. Lifted into a constant so the outer
+  // wrapper can be either an anchor (Tab 1, navigates to product detail)
+  // or a plain div (Tab 2, inert) without duplicating the body markup.
+  const inner = (
+    <>
       <ComponentLogo entry={entry} />
 
       <div className="corp-comp-body">
         <div className="corp-comp-top">
           <span className="corp-comp-name">{entry.name}</span>
           {/* Family chip — top-right corner of the body. Clickable: routes
-              to the family portfolio page. Stops propagation so the card
-              body click handler doesn't also fire. Suppressed in read-only
-              Tab 2 because that surface already groups by family. */}
+              to the family portfolio page. Stops propagation so the outer
+              anchor's product-detail navigation doesn't also fire.
+              Suppressed in read-only Tab 2 because that surface already
+              groups by family — there we render a static category pill so
+              the visual rhythm of the card stays identical. */}
           {readOnly ? (
             <span className="corp-comp-cat">{entry.groupName}</span>
           ) : (
@@ -275,15 +264,31 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
           ) : (
             <CardChip label={STEP_COMPONENTS_COPY.pillOptional} tone="optional" testId={`tier-${entry.id}`} />
           )}
-          {includesNote && (
-            <CardChip
-              label={STEP_COMPONENTS_COPY.depsChip((entry.dependencies ?? []).length)}
-              tone="accent"
-              title={includesNote}
-              testId={`deps-${entry.id}`}
-            />
-          )}
+          {/* Dependency chips — one per direct dependency, mirroring SME's
+              `<span class="chip chip-dep">+ {depName(dep)}</span>`. The
+              `.corp-comp-chips` mask gradient on the right edge fades any
+              overflow gracefully when many deps are present, exactly like
+              the marketplace. The test surface (`includes-<id>`, below)
+              lives off-screen as an a11y hint and carries the same text. */}
+          {(entry.dependencies ?? []).map((depId) => {
+            const depEntry = findComponent(depId)
+            const label = depEntry?.name ?? depId
+            return (
+              <CardChip
+                key={depId}
+                label={`+ ${label}`}
+                tone="accent"
+                title={`Bundled dependency: ${label}`}
+                testId={`deps-${entry.id}-${depId}`}
+              />
+            )
+          })}
         </div>
+        {/* Off-screen accessibility / test hint — surfaces the full
+            dependency list as a single sentence for screen readers and
+            the includes-<id> assertion in StepComponents.test.tsx. Does
+            not occupy card layout space (the .corp-comp-includes class
+            is absolute-positioned off-screen). */}
         {includesNote && (
           <p
             className="corp-comp-includes"
@@ -294,33 +299,81 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
         )}
       </div>
 
-      {/* Explicit Select / Selected button — bottom-right. Stops
-          propagation so card-body clicks don't navigate when the operator
-          intends to toggle. Suppressed in read-only Tab 2. */}
+      {/* SELECTED status pill — bottom-right (mirrors SME's
+          .status-corner / .s-selected). Suppressed in read-only mode. */}
+      {selected && !readOnly && (
+        <span
+          className="corp-comp-status"
+          data-testid={`selected-${entry.id}`}
+          aria-hidden
+        >
+          <span className="corp-comp-status-pill">
+            <span className="corp-comp-status-dot" /> {STEP_COMPONENTS_COPY.selectedPill}
+          </span>
+        </span>
+      )}
+
+      {/* Add / Remove circle button — top-right (mirrors SME's
+          .app-add-btn). Hidden until card-hover (opacity 0 → 1) and
+          always visible when in cart. Stops propagation so the outer
+          anchor's product-detail navigation never fires when the operator
+          intends to toggle selection. Suppressed entirely in read-only
+          mode. */}
       {!readOnly && (
         <button
           type="button"
           aria-pressed={selected}
           aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
           onClick={(e) => {
+            e.preventDefault()
             e.stopPropagation()
             onToggle?.()
           }}
           data-testid={`toggle-${entry.id}`}
-          className={`corp-comp-toggle ${selected ? 'selected' : ''}`}
+          className={`corp-comp-add-btn ${selected ? 'added' : ''}`}
+          title={selected ? `Remove ${entry.name} from stack` : `Add ${entry.name} to stack`}
         >
           {selected ? (
-            <>
-              <Check size={13} strokeWidth={3} aria-hidden /> {STEP_COMPONENTS_COPY.selectedPill}
-            </>
+            <Check size={16} strokeWidth={3} aria-hidden />
           ) : (
-            <>
-              <Plus size={13} strokeWidth={2.75} aria-hidden /> Add
-            </>
+            <Plus size={16} strokeWidth={2.5} aria-hidden />
           )}
         </button>
       )}
-    </div>
+    </>
+  )
+
+  // Read-only Tab 2 — plain div, no navigation, no toggle.
+  if (readOnly) {
+    return (
+      <div
+        data-testid={`component-card-${entry.id}`}
+        data-selected="false"
+        data-tier={entry.tier}
+        className={cardClass}
+        aria-label={`${entry.name} component card`}
+      >
+        {inner}
+      </div>
+    )
+  }
+
+  // Tab 1 — the whole card is an anchor to the product detail page,
+  // exactly mirroring SME's `<a href="/app?slug=X" class="app-card">`
+  // wrapper. The toggle button and family chip live inside as nested
+  // interactive elements that stopPropagation on click.
+  return (
+    <Link
+      to="/marketplace/product/$componentId"
+      params={{ componentId: entry.id }}
+      data-testid={`component-card-${entry.id}`}
+      data-selected={selected ? 'true' : 'false'}
+      data-tier={entry.tier}
+      className={cardClass}
+      aria-label={`${entry.name} component card`}
+    >
+      {inner}
+    </Link>
   )
 }
 
@@ -1075,7 +1128,7 @@ export function StepComponents() {
           border-bottom-color: rgba(var(--wiz-accent-ch), 1);
         }
 
-        /* ── Card ────────────────────────────────────────────────── */
+        /* ── Card (mirrors AppsStep .app-card 1:1) ───────────────── */
         .corp-comp-card {
           position: relative;
           background: var(--wiz-bg-sub);
@@ -1089,8 +1142,9 @@ export function StepComponents() {
           transition: transform 0.15s, border-color 0.15s, background 0.15s;
           color: inherit;
           text-align: left;
+          text-decoration: none;
           font: inherit;
-          height: 130px;
+          height: 108px;
           overflow: hidden;
         }
         .corp-comp-card:hover {
@@ -1105,7 +1159,6 @@ export function StepComponents() {
         .corp-comp-card.read-only {
           cursor: default;
           opacity: 0.92;
-          height: 108px;
         }
         .corp-comp-card.read-only:hover {
           transform: none;
@@ -1118,23 +1171,21 @@ export function StepComponents() {
           color: var(--wiz-text-md);
         }
 
-        /* Body column */
+        /* Body column — padding-right = 4.5rem to keep text clear of
+           the SELECTED status pill (bottom-right) and the +/× round
+           button (top-right), matching SME's .app-body. */
         .corp-comp-body {
           flex: 1;
           min-width: 0;
           display: flex;
           flex-direction: column;
           gap: 0.25rem;
-          padding-right: 0.4rem;
-          padding-bottom: 1.85rem;
+          padding-right: 4.5rem;
           overflow: hidden;
-        }
-        .corp-comp-card.read-only .corp-comp-body {
-          padding-bottom: 0;
         }
         .corp-comp-top {
           display: flex;
-          align-items: center;
+          align-items: baseline;
           gap: 0.5rem;
         }
         .corp-comp-name {
@@ -1158,15 +1209,17 @@ export function StepComponents() {
           flex-shrink: 0;
         }
 
-        /* Family chip — clickable, top-right of card body. */
+        /* Family chip — clickable, top-right of card body. Rendered at
+           the same physical size as .corp-comp-cat so the card geometry
+           is identical between read-only and interactive layouts. */
         .corp-comp-family-chip {
           display: inline-flex;
           align-items: center;
-          padding: 0.15rem 0.55rem;
+          padding: 0.1rem 0.45rem;
           border-radius: 999px;
           font-size: 0.62rem;
           font-weight: 700;
-          letter-spacing: 0.06em;
+          letter-spacing: 0.05em;
           text-transform: uppercase;
           text-decoration: none;
           flex-shrink: 0;
@@ -1199,56 +1252,107 @@ export function StepComponents() {
           min-height: 1.4rem;
           align-items: center;
         }
+
+        /* Visually-hidden dependency hint — surfaces the full
+           "Includes: A, B, C" sentence for screen readers and the
+           includes-<id> assertion in StepComponents.test.tsx. Removed
+           from layout so the card stays at the canonical 108px even when
+           a component has many dependencies (the visual chips take care
+           of conveying the dep list to sighted users). */
         .corp-comp-includes {
-          margin: 0;
-          color: var(--wiz-text-hint);
-          font-size: 0.7rem;
-          line-height: 1.4;
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
           overflow: hidden;
-          text-overflow: ellipsis;
+          clip: rect(0, 0, 0, 0);
           white-space: nowrap;
+          border: 0;
         }
 
-        /* Explicit Select / Selected toggle — bottom-right of the card.
-           Always visible, so the click affordance is never hidden behind
-           hover state. The card body's onClick is the navigation path,
-           and this button stops propagation to keep the two distinct. */
-        .corp-comp-toggle {
+        /* SELECTED status pill — pinned bottom-right (mirrors SME
+           .status-corner / .s-selected). Only rendered when in-cart, so
+           it never competes with the toggle button when both can be
+           visible at the same time. */
+        .corp-comp-status {
           position: absolute;
           bottom: 0.5rem;
           right: 0.55rem;
+          pointer-events: none;
+          z-index: 1;
+        }
+        .corp-comp-status-pill {
           display: inline-flex;
           align-items: center;
           gap: 0.3rem;
-          padding: 0.3rem 0.7rem;
+          padding: 0.15rem 0.55rem;
           border-radius: 999px;
-          background: rgba(var(--wiz-accent-ch), 1);
-          color: #fff;
-          border: 1px solid rgba(var(--wiz-accent-ch), 1);
-          font: inherit;
-          font-size: 0.7rem;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          cursor: pointer;
-          transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
-          z-index: 2;
-        }
-        .corp-comp-toggle:hover {
-          transform: translateY(-1px);
-          filter: brightness(1.05);
-        }
-        .corp-comp-toggle.selected {
-          background: rgba(74,222,128,0.18);
+          font-size: 0.65rem;
+          font-weight: 600;
+          line-height: 1.4;
+          letter-spacing: 0.03em;
+          background: rgba(74,222,128,0.16);
           color: #4ADE80;
-          border-color: rgba(74,222,128,0.5);
         }
-        .corp-comp-toggle.selected:hover {
-          background: rgba(74,222,128,0.28);
+        .corp-comp-status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: currentColor;
+          display: inline-block;
         }
 
-        /* Tablet/mobile */
+        /* Add / Remove circle button — top-right (mirrors SME
+           .app-add-btn). 32×32 round, opacity 0 by default, fades to
+           opacity 1 on card hover; always visible (and tinted green)
+           when the card is in-cart so removal is one click without
+           hover-fishing. */
+        .corp-comp-add-btn {
+          position: absolute;
+          top: 0.6rem;
+          right: 0.6rem;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transform: scale(0.8);
+          transition: opacity 0.15s, transform 0.15s, background 0.15s, filter 0.15s;
+          background: rgba(var(--wiz-accent-ch), 1);
+          color: #fff;
+          z-index: 2;
+          padding: 0;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+        .corp-comp-card:hover .corp-comp-add-btn {
+          opacity: 1;
+          transform: scale(1);
+        }
+        .corp-comp-add-btn.added {
+          background: #4ADE80;
+          opacity: 1;
+          transform: scale(1);
+        }
+        .corp-comp-add-btn:hover {
+          filter: brightness(0.85);
+        }
+        .corp-comp-add-btn:focus-visible {
+          opacity: 1;
+          transform: scale(1);
+          outline: 2px solid rgba(var(--wiz-accent-ch), 1);
+          outline-offset: 2px;
+        }
+
+        /* Tablet/mobile — keep the canonical 108px floor; let the card
+           grow only when the description / chips would otherwise clip,
+           matching the SME marketplace responsive behaviour. */
         @media (max-width: 768px) {
-          .corp-comp-card { height: auto; min-height: 130px; }
+          .corp-comp-card { height: auto; min-height: 108px; }
         }
       `}</style>
     </StepShell>
