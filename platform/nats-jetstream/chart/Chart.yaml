@@ -1,14 +1,27 @@
 apiVersion: v2
 name: bp-nats-jetstream
-version: 1.0.0
+version: 1.1.0
 description: |
-  Catalyst-curated Blueprint wrapper for nats-jetstream. Carries Catalyst-specific values.yaml
-  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
-  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
-  reads the upstream chart reference from values.yaml's metadata block and
-  applies the values overlay at helm install time.
+  Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends on
+  the upstream `nats` chart (nats-io) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact;
+  the Catalyst overlay templates in templates/ (NetworkPolicy,
+  ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
+  Helm renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `nats:` key in values.yaml.
 type: application
 keywords: [catalyst, blueprint, nats-jetstream]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to nats/nats 1.2.0 (matches
+# platform/nats-jetstream/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: nats
+    version: "1.2.0"
+    repository: "https://nats-io.github.io/k8s/helm/charts"

@@ -1,14 +1,27 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.0.0
+version: 1.1.0
 description: |
-  Catalyst-curated Blueprint wrapper for keycloak. Carries Catalyst-specific values.yaml
-  + templates (NetworkPolicy, ExternalSecret, ServiceMonitor) on top of the
-  upstream Helm chart; the bootstrap-kit installer (products/catalyst/bootstrap/api/internal/bootstrap/)
-  reads the upstream chart reference from values.yaml's metadata block and
-  applies the values overlay at helm install time.
+  Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
+  upstream `keycloak` chart (bitnami) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact;
+  the Catalyst overlay templates in templates/ (NetworkPolicy,
+  ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
+  Helm renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `keycloak:` key in values.yaml.
 type: application
 keywords: [catalyst, blueprint, keycloak]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to bitnami/keycloak 24.7.1
+# (matches platform/keycloak/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: keycloak
+    version: "24.7.1"
+    repository: "https://charts.bitnami.com/bitnami"

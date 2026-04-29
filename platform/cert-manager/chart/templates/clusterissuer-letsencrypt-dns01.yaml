@@ -58,10 +58,21 @@
 # Activated when the cert-manager-dynadot-webhook is deployed alongside
 # this chart. Issues wildcard certificates for the canonical Sovereign
 # record set (*.<sub>.<domain>).
+#
+# Helm post-install/post-upgrade hook: ClusterIssuer is a cert-manager.io/v1
+# CRD that only exists AFTER the cert-manager controllers + CRDs (installed
+# by the upstream subchart) are running. Without the hook, Helm renders
+# both the upstream chart AND this template in the same install pass and
+# the apply fails with `no matches for kind "ClusterIssuer"`. The hook
+# weight orders the two issuers below the upstream chart's CRD job.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-dns01-prod
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     catalyst.openova.io/component: cert-manager
     catalyst.openova.io/issuer-class: dns01
@@ -110,6 +121,13 @@ apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-http01-prod
+  annotations:
+    # Same post-install hook as the DNS-01 issuer above — see the comment
+    # block on letsencrypt-dns01-prod for the rationale (CRD must be
+    # installed by the upstream subchart before this resource applies).
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     catalyst.openova.io/component: cert-manager
     catalyst.openova.io/issuer-class: http01
