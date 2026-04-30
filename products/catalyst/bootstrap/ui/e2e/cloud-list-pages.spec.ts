@@ -154,7 +154,15 @@ test.describe('Cloud list pages (#309 P3)', () => {
     for (const c of CASES) {
       await gotoProvision(page, `cloud/${c.category}/${c.child}`)
       await page.waitForSelector(`[data-testid=${c.pageTestId}]`)
-      // Allow drawer animation to settle if any prior test left it open.
+      // Wait for the data-loaded surface so the screenshot captures
+      // populated rows / drawer-ready state rather than the brief
+      // "Loading…" placeholder. Falls back to either the seeded first
+      // row (data-backed pages) or the empty-state container
+      // (placeholder pages).
+      const settledSelector = c.placeholder
+        ? `[data-testid="${c.pageTestId.replace('-page', '-empty')}"]`
+        : `[data-testid="${c.firstRowId}"]`
+      await page.waitForSelector(settledSelector, { timeout: 10_000 }).catch(() => {})
       await page.waitForTimeout(150)
       await page.screenshot({
         path: `e2e/screenshots/p3-cloud-${c.category}-${c.child}.png`,
