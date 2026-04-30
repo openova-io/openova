@@ -39,6 +39,27 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `powerdns:` key flow into that subchart unchanged.
 powerdns:
+  # ─── Catalyst-only credential injection knobs ───────────────────────
+  # Read by templates/api-credentials-secret.yaml (wrapper-level). The
+  # upstream subchart ignores these keys.
+  #
+  # Default behaviour: chart self-generates a 32-char api-key and 32-char
+  # webserver-password on first install (Helm `lookup` re-uses on every
+  # subsequent reconcile so the values are stable across upgrades).
+  #
+  # Operator overrides:
+  #   apiKey + webserverPassword   — pin specific values (e.g. when a
+  #                                   sealed-secret already encodes them
+  #                                   for cross-cluster GitOps).
+  #   useExistingApiSecret: true   — skip Secret creation entirely; the
+  #                                   chart assumes a Secret named
+  #                                   `powerdns-api-credentials` is
+  #                                   provided out-of-band (ExternalSecret
+  #                                   / SealedSecret / kubectl create).
+  apiKey: ""
+  webserverPassword: ""
+  useExistingApiSecret: false
+
   # 3 replicas across regions — anycast-fronted public NS endpoints
   # (per #167 acceptance criteria). Each replica connects to the same CNPG
   # database; PowerDNS Authoritative is stateless beyond the database.
@@ -118,10 +139,13 @@ powerdns:
   powerdns:
     # ─── REST API + webserver ───────────────────────────────────────────
     # API key + webserver password flow from a Catalyst-managed K8s Secret
-    # (`powerdns-api-credentials` — see templates/secret.yaml). Per
-    # INVIOLABLE-PRINCIPLES #4 + #10 the values are NEVER inlined here.
-    # The upstream chart's secretRef helper takes flat name+key fields
-    # (see powerdns.secretRef in upstream _helpers.tpl).
+    # (`powerdns-api-credentials` — see templates/api-credentials-secret.yaml).
+    # Per INVIOLABLE-PRINCIPLES #4 + #10 the values are NEVER inlined here;
+    # the wrapper's api-credentials-secret.yaml self-generates 32-char
+    # randoms on first install and reuses them on every subsequent
+    # reconcile via Helm `lookup`. The upstream chart's secretRef helper
+    # takes flat name+key fields (see powerdns.secretRef in upstream
+    # _helpers.tpl).
     api:
       key:
         name: powerdns-api-credentials
@@ -135,6 +159,19 @@ powerdns:
       password:
         name: powerdns-api-credentials
         key: webserver-password
+
+    # ─── Bootstrap zone (DISABLED — Catalyst loads zones via PDM) ──────
+    # The upstream chart renders a `create-zone-if-not-exists-sh` Job
+    # that POSTs `zoneName` to /api/v1/servers/localhost/zones at install
+    # time. Catalyst does NOT use this — the Sovereign's zones are
+    # provisioned later by pool-domain-manager (PDM) via the same REST
+    # API after the cluster comes up. Setting `zoneName: ""` short-
+    # circuits the upstream Job's `{{- if and .Values.powerdns.zoneName
+    # .Values.powerdns.api.key }}` gate so the Job is never rendered,
+    # which means the install completes the moment the powerdns
+    # Deployment is Ready instead of waiting for a Job whose only effect
+    # is creating an `example.de.` placeholder zone we don't want.
+    zoneName: ""
 
     # ─── DNS UPDATE (RFC 2136) ──────────────────────────────────────────
     # Off — Catalyst writes records via the REST API only (cert-manager
