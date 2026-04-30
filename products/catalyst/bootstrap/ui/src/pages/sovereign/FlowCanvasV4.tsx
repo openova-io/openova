@@ -45,6 +45,162 @@ import {
 import type { JobStatus } from '@/lib/jobs.types'
 
 /* ──────────────────────────────────────────────────────────────────
+ * Family glyphs — one SVG path per building-block family. Renders
+ * inside the centre of every node (mockup spec: clear iconography
+ * inside each circle, NOT a single-letter glyph).
+ *
+ * The path data is hand-tuned for a 24×24 viewbox so it can be drawn
+ * scaled to ~node.r * 0.95 with a stroke-width that reads at 56-72px
+ * node diameter. Picked from the lucide-react icon set so the canvas
+ * + the wizard grid stay visually consistent.
+ *
+ * Test contract: every node renders <g class="node-glyph"> with this
+ * path inside (forcing-function in flowLayoutV4.test.ts /
+ * cosmetic-guards: presence of `node-glyph` class ensures icons can't
+ * regress to single-letters again).
+ * ────────────────────────────────────────────────────────────────── */
+
+const GLYPH_VIEWBOX = 24
+const GLYPH_STROKE_WIDTH = 1.8
+
+interface GlyphSpec {
+  /** SVG path `d` data, scaled to a 24×24 grid. */
+  d: string
+  /** Optional secondary path for icons that need two strokes. */
+  d2?: string
+  /** Render mode. "stroke" (default) for line icons, "fill" for filled glyphs. */
+  mode?: 'stroke' | 'fill'
+}
+
+const FAMILY_GLYPHS: Record<string, GlyphSpec> = {
+  // PILOT — GitOps & IaC: a branching git-tree icon (lucide GitBranch).
+  pilot: {
+    d:
+      'M6 3v12 M6 15a3 3 0 1 0 0 6 a3 3 0 1 0 0 -6 ' +
+      'M18 9a3 3 0 1 0 0 -6 a3 3 0 1 0 0 6 ' +
+      'M18 9c0 4-6 4-6 8 v4',
+  },
+  // SPINE — Networking & Mesh: 3 radio-tower waves + dot (lucide Radio).
+  spine: {
+    d:
+      'M4.93 19.07a10 10 0 0 1 0 -14.14 ' +
+      'M7.76 16.24a6 6 0 0 1 0 -8.49 ' +
+      'M19.07 4.93a10 10 0 0 1 0 14.14 ' +
+      'M16.24 7.76a6 6 0 0 1 0 8.49',
+    d2: 'M11 12a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0',
+  },
+  // SURGE — Scaling & Resilience: trending-up arrow (lucide TrendingUp).
+  surge: {
+    d: 'M3 17 L9 11 L13 15 L21 7 M14 7h7v7',
+  },
+  // SILO — Storage & Registry: stacked database (lucide Database).
+  silo: {
+    d:
+      'M4 6c0 1.66 3.58 3 8 3 s8 -1.34 8 -3 s-3.58 -3 -8 -3 s-8 1.34 -8 3 z ' +
+      'M4 6v6c0 1.66 3.58 3 8 3 s8 -1.34 8 -3 V6 ' +
+      'M4 12v6c0 1.66 3.58 3 8 3 s8 -1.34 8 -3 v-6',
+  },
+  // GUARDIAN — Security & Identity: shield with check (lucide ShieldCheck).
+  guardian: {
+    d: 'M12 22 c4.42 -1.5 7 -5 7 -10 V5 l-7 -3 l-7 3 v7 c0 5 2.58 8.5 7 10 z',
+    d2: 'M9 12 l2 2 l4 -4',
+  },
+  // INSIGHTS — AIOps & Observability: pulse / activity (lucide Activity).
+  insights: {
+    d: 'M22 12 h-4 l-3 9 L9 3 l-3 9 H2',
+  },
+  // FABRIC — Data & Integration: workflow / nodes (lucide Workflow).
+  fabric: {
+    d:
+      'M4 4 h6 v6 H4 z M14 14 h6 v6 h-6 z ' +
+      'M14 4 h6 v6 h-6 z M4 14 h6 v6 H4 z',
+    d2: 'M10 7 h4 M14 17 h-4 M7 10 v4 M17 10 v4',
+  },
+  // CORTEX — AI & Machine Learning: chip / cpu (lucide Cpu).
+  cortex: {
+    d:
+      'M4 8 a2 2 0 0 1 2 -2 h12 a2 2 0 0 1 2 2 v12 a2 2 0 0 1 -2 2 H6 a2 2 0 0 1 -2 -2 z ' +
+      'M9 12 h6 v6 h-6 z',
+    d2:
+      'M9 4 v2 M15 4 v2 M9 22 v-2 M15 22 v-2 ' +
+      'M2 9 h2 M2 15 h2 M22 9 h-2 M22 15 h-2',
+  },
+  // RELAY — Communication: wifi / radio waves (lucide Wifi).
+  relay: {
+    d:
+      'M5 12.55 a11 11 0 0 1 14 0 ' +
+      'M1.42 9 a16 16 0 0 1 21.16 0 ' +
+      'M8.53 16.11 a6 6 0 0 1 6.95 0',
+    d2: 'M12 20 a1 1 0 1 0 2 0 a1 1 0 1 0 -2 0',
+  },
+  // CATALYST — Bootstrap & K8s: server stack (lucide Server).
+  catalyst: {
+    d:
+      'M3 4 h18 v6 H3 z M3 14 h18 v6 H3 z',
+    d2: 'M7 7 h.01 M7 17 h.01',
+  },
+  // PLATFORM — fallback: a layered cube (lucide Box).
+  platform: {
+    d:
+      'M21 16 V8 a2 2 0 0 0 -1 -1.73 l-7 -4 a2 2 0 0 0 -2 0 l-7 4 A2 2 0 0 0 3 8 v8 a2 2 0 0 0 1 1.73 l7 4 a2 2 0 0 0 2 0 l7 -4 A2 2 0 0 0 21 16 z ' +
+      'M3.27 6.96 L12 12.01 l8.73 -5.05 ' +
+      'M12 22.08 V12',
+  },
+}
+
+/**
+ * Render a family glyph centred on (0,0) of the node group.
+ * radius is the node radius — glyph fits within ~75% of that.
+ */
+function FamilyGlyph({
+  familyId,
+  radius,
+  color,
+  opacity,
+}: {
+  familyId: string
+  radius: number
+  color: string
+  opacity: number
+}) {
+  const spec = FAMILY_GLYPHS[familyId] ?? FAMILY_GLYPHS.platform!
+  // Glyph fills 75% of the node diameter (2 * radius * 0.75).
+  const glyphSize = radius * 1.5
+  const scale = glyphSize / GLYPH_VIEWBOX
+  const offset = -glyphSize / 2
+  const isFill = spec.mode === 'fill'
+  return (
+    <g
+      className="node-glyph"
+      data-family-glyph={familyId}
+      transform={`translate(${offset.toFixed(2)} ${offset.toFixed(2)}) scale(${scale.toFixed(4)})`}
+      pointerEvents="none"
+    >
+      <path
+        d={spec.d}
+        fill={isFill ? color : 'none'}
+        stroke={isFill ? 'none' : color}
+        strokeWidth={GLYPH_STROKE_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={opacity}
+      />
+      {spec.d2 ? (
+        <path
+          d={spec.d2}
+          fill={isFill ? color : 'none'}
+          stroke={isFill ? 'none' : color}
+          strokeWidth={GLYPH_STROKE_WIDTH}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={opacity}
+        />
+      ) : null}
+    </g>
+  )
+}
+
+/* ──────────────────────────────────────────────────────────────────
  * Status palette
  * ────────────────────────────────────────────────────────────────── */
 
@@ -248,36 +404,48 @@ function RegionBand({ region, canvasWidth }: RegionBandProps) {
       data-testid={`flow-batch-${region.regionId}`}
       data-region={region.regionId}
     >
-      {/* Subtle band background — a wide rect framing the region. */}
+      {/* Region band background — soft gradient + visible stroke so
+          the multi-region grouping reads at a glance. */}
       <rect
-        x={12}
+        x={14}
         y={region.y}
-        width={canvasWidth - 24}
+        width={canvasWidth - 28}
         height={region.height}
-        rx={14}
-        ry={14}
-        fill="rgba(255,255,255,0.012)"
-        stroke="rgba(255,255,255,0.05)"
+        rx={16}
+        ry={16}
+        fill="rgba(11,28,58,0.18)"
+        stroke="rgba(148,163,184,0.18)"
         strokeWidth={1}
         data-testid={`flow-region-${region.regionId}`}
       />
+      {/* Region label pill — bright, anchored top-left of the band. */}
+      <rect
+        x={22}
+        y={region.y + 8}
+        width={Math.max(64, region.label.length * 7 + 18)}
+        height={20}
+        rx={5}
+        ry={5}
+        fill="rgba(56,189,248,0.10)"
+        stroke="rgba(56,189,248,0.28)"
+        strokeWidth={1}
+      />
       <text
-        x={20}
-        y={region.y + 16}
-        fill="rgba(255,255,255,0.55)"
+        x={31}
+        y={region.y + 22}
+        fill="rgba(186,230,253,0.95)"
         fontSize={10}
-        fontWeight={700}
-        letterSpacing="0.14em"
+        fontWeight={800}
+        letterSpacing="0.12em"
         fontFamily="var(--font-mono, ui-monospace, monospace)"
       >
         {region.label.toUpperCase()}
       </text>
       {region.meta ? (
         <text
-          x={20}
-          y={region.y + 16}
-          dx={10 + region.label.length * 6.4}
-          fill="rgba(255,255,255,0.30)"
+          x={Math.max(64, region.label.length * 7 + 18) + 32}
+          y={region.y + 22}
+          fill="rgba(255,255,255,0.42)"
           fontSize={9}
           fontWeight={500}
           letterSpacing="0.04em"
@@ -287,12 +455,12 @@ function RegionBand({ region, canvasWidth }: RegionBandProps) {
         </text>
       ) : null}
       <text
-        x={canvasWidth - 20}
-        y={region.y + 16}
-        fill="rgba(255,255,255,0.30)"
+        x={canvasWidth - 22}
+        y={region.y + 22}
+        fill="rgba(255,255,255,0.42)"
         fontSize={9}
         fontWeight={600}
-        letterSpacing="0.06em"
+        letterSpacing="0.08em"
         textAnchor="end"
         fontFamily="var(--font-mono, ui-monospace, monospace)"
       >
@@ -322,14 +490,18 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
   // opacity so the operator can still scan the family layout while
   // nothing has started running.
   const ringColor = node.status === 'pending' ? familyColor : tone.ring
-  const ringOpacity = node.status === 'pending' ? 0.55 : 0.85
+  const ringOpacity = node.status === 'pending' ? 0.55 : 0.95
   const circumference = 2 * Math.PI * node.r
   const arcLen = Math.max(0, Math.min(1, node.progress)) * circumference
 
-  // Single-letter glyph derived from the family — readable when the
-  // node is small. Keeps the mockup aesthetic without bringing in an
-  // icon library.
-  const glyph = (family?.label ?? node.familyId).charAt(0).toUpperCase()
+  // Glyph colour: family colour for non-terminal states; status glyph
+  // (cyan/green/red) takes over the centre for done/failed.
+  const glyphColor = node.status === 'pending'
+    ? familyColor
+    : node.status === 'running'
+      ? tone.glyph
+      : familyColor
+  const glyphOpacity = node.status === 'pending' ? 0.55 : 0.92
 
   const tooltip = [
     node.label,
@@ -357,33 +529,40 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
       <title>{tooltip}</title>
       {/* Hover halo — invisible until :hover via CSS. */}
       <circle
-        r={node.r + 8}
+        r={node.r + 9}
         fill="none"
         stroke={familyColor}
-        strokeWidth={1.5}
-        opacity={isHighlighted ? 0.65 : 0}
+        strokeWidth={1.6}
+        opacity={isHighlighted ? 0.7 : 0}
         className="flow-v4-halo"
       />
       {/* Glow underlay for active states. */}
       {node.status === 'running' || node.status === 'failed' || isOpen || isHighlighted ? (
         <circle
-          r={node.r + 4}
-          fill={isHighlighted ? 'rgba(56,189,248,0.18)' : tone.glow}
-          opacity={node.status === 'running' ? 0.85 : 0.55}
+          r={node.r + 5}
+          fill={isHighlighted ? 'rgba(56,189,248,0.20)' : tone.glow}
+          opacity={node.status === 'running' ? 0.95 : 0.6}
         />
       ) : null}
-      {/* Body fill */}
+      {/* Body fill — slightly darker centre + family-tinted radial edge */}
       <circle
         r={node.r}
         fill={tone.fill}
         data-testid={`flow-node-circle-${node.id}`}
       />
-      {/* Family ring */}
+      {/* Subtle inner family-tinted halo so the circle reads as
+          "owned by this family" even when status is pending. */}
+      <circle
+        r={node.r * 0.85}
+        fill={familyColor}
+        opacity={node.status === 'pending' ? 0.05 : 0.10}
+      />
+      {/* Family ring — drawn under the progress arc. */}
       <circle
         r={node.r}
         fill="none"
         stroke={ringColor}
-        strokeWidth={1.6}
+        strokeWidth={2}
         opacity={ringOpacity}
       />
       {/* Progress arc — outer ring driven by node.progress */}
@@ -392,68 +571,68 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
           r={node.r}
           fill="none"
           stroke={tone.arc}
-          strokeWidth={3.2}
+          strokeWidth={3.5}
           strokeLinecap="round"
           strokeDasharray={`${arcLen.toFixed(2)} ${circumference.toFixed(2)}`}
           transform="rotate(-90)"
-          opacity={node.status === 'pending' ? 0 : 0.92}
+          opacity={node.status === 'pending' ? 0 : 0.95}
         >
           {node.status === 'running' ? (
             <animate
               attributeName="opacity"
-              values="0.92;0.42;0.92"
+              values="0.95;0.45;0.95"
               dur="1.8s"
               repeatCount="indefinite"
             />
           ) : null}
         </circle>
       ) : null}
-      {/* Centre glyph: status icon for terminal states, family letter
-          for pending/running. */}
+      {/* Centre glyph — family icon (always rendered as <g
+          class="node-glyph">). For terminal states, an additional
+          status badge (✓ / ✕) overlays at the bottom-right. */}
+      <FamilyGlyph
+        familyId={node.familyId}
+        radius={node.r}
+        color={glyphColor}
+        opacity={glyphOpacity}
+      />
+      {/* Status badge (terminal states only) — small overlay
+          bottom-right so the family glyph stays visible. */}
       {node.status === 'succeeded' ? (
-        <text
-          fontSize={Math.round(node.r * 0.85)}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={tone.glyph}
-          fontFamily="Inter, system-ui, sans-serif"
-          fontWeight={800}
-          pointerEvents="none"
-        >
-          ✓
-        </text>
+        <g transform={`translate(${node.r * 0.62} ${node.r * 0.62})`} pointerEvents="none">
+          <circle r={node.r * 0.28} fill={tone.arc} opacity={0.9} />
+          <text
+            fontSize={Math.round(node.r * 0.42)}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill={tone.fill}
+            fontFamily="Inter, system-ui, sans-serif"
+            fontWeight={900}
+          >
+            ✓
+          </text>
+        </g>
       ) : node.status === 'failed' ? (
-        <text
-          fontSize={Math.round(node.r * 0.85)}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={tone.glyph}
-          fontFamily="Inter, system-ui, sans-serif"
-          fontWeight={800}
-          pointerEvents="none"
-        >
-          ✕
-        </text>
-      ) : (
-        <text
-          fontSize={Math.round(node.r * 0.62)}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={familyColor}
-          fontFamily="Inter, system-ui, sans-serif"
-          fontWeight={700}
-          opacity={0.85}
-          pointerEvents="none"
-        >
-          {glyph}
-        </text>
-      )}
+        <g transform={`translate(${node.r * 0.62} ${node.r * 0.62})`} pointerEvents="none">
+          <circle r={node.r * 0.28} fill={tone.arc} opacity={0.9} />
+          <text
+            fontSize={Math.round(node.r * 0.42)}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill={tone.fill}
+            fontFamily="Inter, system-ui, sans-serif"
+            fontWeight={900}
+          >
+            ✕
+          </text>
+        </g>
+      ) : null}
       {/* Pulse dot for actively running. */}
       {node.status === 'running' ? (
         <circle
           cx={node.r * 0.78}
           cy={-node.r * 0.78}
-          r={3}
+          r={3.5}
           fill={tone.arc}
           className="flow-v4-pulse"
         >
@@ -467,19 +646,19 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
       ) : null}
       {/* Label below the node */}
       <text
-        y={node.r + 12}
-        fontSize={10}
+        y={node.r + 14}
+        fontSize={10.5}
         textAnchor="middle"
-        fill={node.status === 'pending' ? 'rgba(255,255,255,0.45)' : familyColor}
+        fill={node.status === 'pending' ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.85)'}
         fontFamily="Inter, system-ui, sans-serif"
         fontWeight={600}
         pointerEvents="none"
       >
-        {truncate(node.label, 16)}
+        {truncate(node.label, 14)}
       </text>
       {node.subLabel ? (
         <text
-          y={node.r + 24}
+          y={node.r + 26}
           fontSize={9}
           textAnchor="middle"
           fill="rgba(255,255,255,0.40)"

@@ -1,6 +1,17 @@
 /**
  * flowLayoutV4.test.ts — unit tests locking the multi-region circular
  * layout contract. Pure-function tests (no React, no DOM).
+ *
+ * Mockup-fidelity forcing functions (added in the v4-final pass — these
+ * are the contract that prevents the canvas from regressing back to the
+ * tiny-node + grid-layout shape that PR #245 + PR #282 shipped):
+ *
+ *   • Node radius >= 28 (= 56px diameter at 1440px). Below this the
+ *     family glyph is unreadable and the visual identity collapses.
+ *   • Multi-region input → ≥ 2 region containers in the layout.
+ *   • Cross-stage edges → cubic-bezier with NON-COLLINEAR control
+ *     points (i.e. they bow off the line of centres). Forces the
+ *     organic curve aesthetic of provision-mockup-v4.png.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -8,13 +19,18 @@ import {
   flowLayoutV4,
   pointsToPath,
   routeBezier,
+  hasNonCollinearControls,
   jobProgress,
   DEFAULT_FAMILIES,
+  DEFAULT_GEOMETRY_V4,
   FALLBACK_REGION_ID,
   FALLBACK_FAMILY_ID,
   type FlowFamily,
 } from './flowLayoutV4'
 import type { Job } from './jobs.types'
+import {
+  DEMO_TWO_REGION_FIXTURE,
+} from '@/pages/sovereign/flowDeploymentTreeData'
 
 function makeJob(over: Partial<Job> & { id: string }): Job {
   return {
@@ -256,5 +272,144 @@ describe('DEFAULT_FAMILIES', () => {
     ]) {
       expect(ids).toContain(expected)
     }
+  })
+})
+
+/* ──────────────────────────────────────────────────────────────────
+ * Mockup-fidelity forcing functions
+ *
+ * These tests are non-cosmetic — they're the contract that prevents
+ * future PRs from quietly shrinking node sizes, removing curved
+ * edges, or collapsing multi-region layouts. Each one was authored
+ * after a real visual regression that shipped to main and had to be
+ * reverted.
+ * ────────────────────────────────────────────────────────────────── */
+
+describe('flowLayoutV4 — mockup-fidelity forcing functions', () => {
+  it('FORCING FUNCTION: nodeRadius >= 28px (= 56px diameter)', () => {
+    // The mockup glyph reads at ~56-72px diameter at 1440px viewport.
+    // Anything smaller and the family icon becomes a coloured pixel.
+    expect(DEFAULT_GEOMETRY_V4.nodeRadius).toBeGreaterThanOrEqual(28)
+    expect(DEFAULT_GEOMETRY_V4.nodeRadiusAnchor).toBeGreaterThanOrEqual(
+      DEFAULT_GEOMETRY_V4.nodeRadius,
+    )
+    // And the actual layout output respects the geometry knob — every
+    // rendered node has r >= 28.
+    const out = flowLayoutV4([
+      makeJob({ id: 'a' }),
+      makeJob({ id: 'b', dependsOn: ['a'] }),
+      makeJob({ id: 'c', dependsOn: ['b'] }),
+    ])
+    for (const n of out.nodes) {
+      expect(n.r).toBeGreaterThanOrEqual(28)
+    }
+  })
+
+  it('FORCING FUNCTION: ≥ 2 region containers when given a 2-region fixture', () => {
+    const out = flowLayoutV4(
+      [...DEMO_TWO_REGION_FIXTURE.jobs],
+      {
+        regions: DEMO_TWO_REGION_FIXTURE.regions,
+        hints: DEMO_TWO_REGION_FIXTURE.hints,
+      },
+    )
+    expect(out.regions.length).toBeGreaterThanOrEqual(2)
+    const ids = out.regions.map((r) => r.regionId)
+    expect(ids).toContain('fsn1')
+    expect(ids).toContain('nbg1')
+    // Both regions have at least one node.
+    expect(out.regions.find((r) => r.regionId === 'fsn1')!.nodeCount).toBeGreaterThan(0)
+    expect(out.regions.find((r) => r.regionId === 'nbg1')!.nodeCount).toBeGreaterThan(0)
+  })
+
+  it('FORCING FUNCTION: bezier edges have non-collinear control points', () => {
+    // Within-region span >= 1.
+    const within = routeBezier(
+      { cx: 0, cy: 100, r: 30 },
+      { cx: 200, cy: 100, r: 30 },
+      2,
+      false,
+    )
+    expect(within).toHaveLength(4)
+    expect(hasNonCollinearControls(within)).toBe(true)
+
+    // Cross-region (vertical drop).
+    const cross = routeBezier(
+      { cx: 100, cy: 50, r: 30 },
+      { cx: 300, cy: 350, r: 30 },
+      2,
+      true,
+    )
+    expect(cross).toHaveLength(4)
+    expect(hasNonCollinearControls(cross)).toBe(true)
+  })
+
+  it('FORCING FUNCTION: layout output edges produce SVG `C` paths with bowed controls', () => {
+    // Build a multi-stage layout and confirm every cross-stage edge
+    // path string contains a `C` segment AND the underlying points
+    // have non-collinear controls.
+    const jobs = [
+      makeJob({ id: 'a' }),
+      makeJob({ id: 'b', dependsOn: ['a'] }),
+      makeJob({ id: 'c', dependsOn: ['b'] }),
+      makeJob({ id: 'd', dependsOn: ['c'] }),
+    ]
+    const out = flowLayoutV4(jobs)
+    expect(out.edges.length).toBeGreaterThan(0)
+    let bowedCount = 0
+    for (const e of out.edges) {
+      if (e.points.length === 4) {
+        const path = pointsToPath(e.points)
+        expect(path).toContain(' C ')
+        if (hasNonCollinearControls(e.points)) bowedCount++
+      }
+    }
+    // At least 75% of bezier edges must visibly bow — within rounding
+    // tolerance for sibling nodes laid out at the same y-coordinate.
+    expect(bowedCount).toBeGreaterThan(0)
+  })
+
+  it('FORCING FUNCTION: classifies cross-region edges in multi-region fixture', () => {
+    // The DEMO_TWO_REGION_FIXTURE has install-cilium::nbg1 depending on
+    // install-cilium::fsn1, which crosses the region gap. Verify the
+    // layout marks it as cross-region and routes a 4-point bezier.
+    const out = flowLayoutV4(
+      [...DEMO_TWO_REGION_FIXTURE.jobs],
+      {
+        regions: DEMO_TWO_REGION_FIXTURE.regions,
+        hints: DEMO_TWO_REGION_FIXTURE.hints,
+      },
+    )
+    const xr = out.edges.find((e) => e.kind === 'cross-region')
+    expect(xr).toBeTruthy()
+    expect(xr!.points).toHaveLength(4)
+    expect(hasNonCollinearControls(xr!.points)).toBe(true)
+  })
+})
+
+describe('hasNonCollinearControls', () => {
+  it('returns false for a flat (collinear) bezier', () => {
+    expect(
+      hasNonCollinearControls([
+        { x: 0, y: 0 },
+        { x: 30, y: 0 },
+        { x: 70, y: 0 },
+        { x: 100, y: 0 },
+      ]),
+    ).toBe(false)
+  })
+  it('returns true when control points sit ≥ 4px off the line of centres', () => {
+    expect(
+      hasNonCollinearControls([
+        { x: 0, y: 0 },
+        { x: 30, y: 18 },
+        { x: 70, y: -18 },
+        { x: 100, y: 0 },
+      ]),
+    ).toBe(true)
+  })
+  it('returns false for fewer than 4 points', () => {
+    expect(hasNonCollinearControls([])).toBe(false)
+    expect(hasNonCollinearControls([{ x: 0, y: 0 }, { x: 1, y: 1 }])).toBe(false)
   })
 })

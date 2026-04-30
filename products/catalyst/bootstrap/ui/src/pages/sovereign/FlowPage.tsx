@@ -237,14 +237,47 @@ function useJobHints(args: {
     const phase0FinalJobId =
       jobs.find((j) => j.id === 'infrastructure:tofu-output')?.id ?? null
 
-    for (const j of jobs) {
-      // Region hint: respect a "::<regionId>" suffix on the job id.
-      let regionId = fallbackRegion
+    /**
+     * Stable, deterministic hash so jobs without an explicit
+     * "::<regionId>" suffix still get partitioned across regions
+     * when more than one region is in play. Without this, every job
+     * lands in regions[0] and the multi-region canvas is empty for
+     * the bottom band — defeating the purpose of the v4 mockup.
+     *
+     * The hash is FNV-1a 32-bit on the appId (so `bp-cilium`,
+     * `bp-cnpg`, ... split predictably across regions). Phase-0
+     * (`infrastructure:*`) and `cluster-bootstrap` jobs always pin to
+     * regions[0] (primary) since they're per-cluster, not per-app.
+     */
+    function fnv1a(input: string): number {
+      let h = 0x811c9dc5
+      for (let i = 0; i < input.length; i++) {
+        h ^= input.charCodeAt(i)
+        h = Math.imul(h, 0x01000193) >>> 0
+      }
+      return h >>> 0
+    }
+    const primaryRegion = regions[0]?.id ?? fallbackRegion
+    function regionForJob(j: Job): string {
+      // Suffix takes precedence ("install-cilium::nbg1").
       const sep = j.id.indexOf('::')
       if (sep > 0) {
         const candidate = j.id.slice(sep + 2)
-        if (regions.some((r) => r.id === candidate)) regionId = candidate
+        if (regions.some((r) => r.id === candidate)) return candidate
       }
+      // Phase-0 + bootstrap pin to region 0.
+      if (j.appId === 'infrastructure' || j.appId === 'cluster-bootstrap') {
+        return primaryRegion
+      }
+      // Single-region: nothing to balance.
+      if (regions.length <= 1) return primaryRegion
+      // Deterministic split across regions[1..N-1] based on appId hash.
+      const idx = fnv1a(j.appId) % regions.length
+      return regions[idx]?.id ?? primaryRegion
+    }
+
+    for (const j of jobs) {
+      const regionId = regionForJob(j)
 
       let familyId: string
       let stage: number
@@ -271,9 +304,15 @@ function useJobHints(args: {
             if (depJobId) extraDepIds.push(depJobId)
           }
         }
-        // Every leaf component-job depends on cluster-bootstrap so the
-        // canvas reads "infra → bootstrap → components" left to right.
-        if (bootstrapJobId) extraDepIds.push(bootstrapJobId)
+        // NOTE: we DO NOT add an implicit bootstrap → component edge
+        // here. It would emit 30+ identical edges from one bootstrap
+        // node to every leaf component, which renders as the yellow
+        // fan-out visible in the v3 + v4-pre1 screenshots. The "infra
+        // → bootstrap → components" reading is preserved by stage
+        // assignment alone (stage hint sees bootstrap at 2, leaves at
+        // 3+), so the layout still flows left → right without the
+        // visual noise.
+        void bootstrapJobId
       }
 
       const label = j.jobName.replace(/^install-/, '')
@@ -358,6 +397,20 @@ export function FlowPage({
 
   /* ── Region descriptors (multi-region support) ───────────────── */
 
+  /**
+   * Multi-region default. When the wizard store has zero regions, the
+   * canvas still needs SOMETHING to render against, and the founder's
+   * mockup (provision-mockup-v4.png) shows two regions stacked. So:
+   *
+   *   • If the store has 1+ regions, render those (real wizard mode).
+   *   • If the store has 0 regions, render two demo regions —
+   *     TON1 + NBG1 — so the multi-region UX is visible whenever
+   *     someone navigates to /flow without configuring the wizard
+   *     first (dev mode, e2e mode, demo mode).
+   *
+   * The DEMO_REGIONS labels match the canonical mockup verbatim so the
+   * docs ↔ live UI invariant holds.
+   */
   const regions = useMemo<FlowRegion[]>(() => {
     if (store.regions && store.regions.length > 0) {
       return store.regions.map((r) => ({
@@ -368,9 +421,14 @@ export function FlowPage({
     }
     return [
       {
-        id: FALLBACK_REGION_ID,
-        label: sovereignFQDN ? `${sovereignFQDN}` : 'Primary Region',
-        meta: 'Single-region cluster',
+        id: 'fsn1',
+        label: sovereignFQDN ? sovereignFQDN : 'FSN1 · Falkenstein',
+        meta: 'Hetzner · Primary',
+      },
+      {
+        id: 'nbg1',
+        label: 'NBG1 · Nuremberg',
+        meta: 'Hetzner · Secondary',
       },
     ]
   }, [store.regions, sovereignFQDN])
@@ -381,11 +439,58 @@ export function FlowPage({
   const familyDescriptions = useFamilyDescriptions()
   const hints = useJobHints({ jobs: scopedJobs, applications, regions })
 
-  /* ── Layout ───────────────────────────────────────────────────── */
+  /* ── Layout — ResizeObserver-driven so the canvas always FILLS
+   *    the host (matches the mockup's "edge-to-edge" feel and
+   *    avoids the letterbox effect that PR #245 + PR #282 shipped). */
+
+  const canvasHostRef = useRef<HTMLDivElement | null>(null)
+  const [hostSize, setHostSize] = useState<{ w: number; h: number }>({ w: 1280, h: 700 })
+  useEffect(() => {
+    const el = canvasHostRef.current
+    if (!el) return
+    const update = () => {
+      const r = el.getBoundingClientRect()
+      if (r.width > 32 && r.height > 32) {
+        setHostSize({ w: Math.round(r.width), h: Math.round(r.height) })
+      }
+    }
+    update()
+    // Guard for jsdom — ResizeObserver isn't implemented in the
+    // unit-test environment. The fallback (initial measure only) is
+    // fine for tests since the test surface is fixed-size; resizing
+    // only matters in real browsers.
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Suppress visual edges originating from cluster-bootstrap. Every
+  // per-component job carries `dependsOn: [bootstrap.id]` (see
+  // jobsAdapter.ts:130), which would render as a 50-line yellow
+  // fan-out from one node — the visual chaos that PR #245 + #282
+  // were rejected for. Dependencies still drive stage assignment, so
+  // the canvas still reads "infra → bootstrap → components" left to
+  // right.
+  const hideEdgesFromIds = useMemo(() => {
+    const out = new Set<string>()
+    for (const j of scopedJobs) {
+      if (j.appId === 'cluster-bootstrap') out.add(j.id)
+    }
+    return out
+  }, [scopedJobs])
 
   const layout = useMemo(
-    () => flowLayoutV4(scopedJobs, { hints, regions, families, highlightJobId }),
-    [scopedJobs, hints, regions, families, highlightJobId],
+    () => flowLayoutV4(scopedJobs, {
+      hints,
+      regions,
+      families,
+      highlightJobId,
+      targetWidth: hostSize.w,
+      targetHeight: hostSize.h,
+      hideEdgesFromIds,
+    }),
+    [scopedJobs, hints, regions, families, highlightJobId, hostSize.w, hostSize.h, hideEdgesFromIds],
   )
 
   /* ── Click semantics (single vs double, debounced 220ms) ────── */
@@ -565,7 +670,7 @@ export function FlowPage({
           totals={{ finished: finishedCount, total: totalCount }}
         />
       ) : null}
-      <div className="flow-canvas-host" data-testid="flow-canvas-host">
+      <div className="flow-canvas-host" data-testid="flow-canvas-host" ref={canvasHostRef}>
         {canvas}
       </div>
       {!embedded ? (
@@ -654,17 +759,22 @@ const FLOW_PAGE_CSS_V4 = `
 
 .flow-surface {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 280px;
-  gap: 12px;
+  grid-template-columns: 220px minmax(0, 1fr) 244px;
+  gap: 10px;
   width: 100%;
   align-items: stretch;
   border: 1px solid var(--color-border);
   border-radius: 14px;
   background: var(--color-surface, rgba(7,10,18,0.55));
-  padding: 12px;
-  min-height: 540px;
-  height: calc(100vh - 220px);
-  max-height: 820px;
+  padding: 10px;
+  /* Take the FULL remaining vertical space below the StatusStrip so
+     the canvas can render at mockup-comparable proportions. The
+     calc() is the page header (≈56) + StatusStrip + page padding +
+     borders — cap at 920 so the canvas doesn't grow boundlessly on
+     ultrawide displays. */
+  min-height: 600px;
+  height: calc(100vh - 200px);
+  max-height: 920px;
 }
 
 .flow-page-embedded .flow-surface {

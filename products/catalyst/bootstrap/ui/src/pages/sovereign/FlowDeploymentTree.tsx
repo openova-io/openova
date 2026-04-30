@@ -84,66 +84,106 @@ export function FlowDeploymentTree({ groups, selectedJobId, onSelectJob, totals 
             No jobs in this deployment.
           </div>
         ) : (
-          groups.map((g) => (
-            <div
-              key={g.id}
-              className="flow-tree-group"
-              data-testid={`flow-tree-group-${g.regionId}-${g.familyId}`}
-            >
-              {g.isRegionHeader ? (
-                <div className="flow-tree-region-header">
-                  <span className="flow-tree-region-dot" />
-                  <div className="flow-tree-region-meta">
-                    <span
-                      className="flow-tree-region-name"
-                      data-testid={`flow-tree-region-name-${g.regionId}`}
-                    >
-                      {g.regionLabel}
-                    </span>
-                    <span className="flow-tree-region-sub">{g.regionMeta}</span>
-                  </div>
-                </div>
-              ) : null}
-              <div className="flow-tree-family-row">
-                <span
-                  className="flow-tree-family-dot"
-                  style={{ background: g.familyColor }}
-                />
-                <span
-                  className="flow-tree-family-name"
-                  data-testid={`flow-tree-family-name-${g.familyId}`}
-                  style={{ color: g.familyColor }}
-                >
-                  {g.familyLabel}
-                </span>
-                <span className="flow-tree-family-desc">{g.familyDesc}</span>
-                <span className="flow-tree-family-count">{g.rows.length}</span>
-              </div>
-              {g.rows.map((row) => (
-                <button
-                  key={row.jobId}
-                  type="button"
-                  onClick={() => onSelectJob(row.jobId)}
-                  className={`flow-tree-job-row${selectedJobId === row.jobId ? ' is-selected' : ''}`}
-                  data-testid={`flow-tree-job-${row.jobId}`}
-                  data-selected={selectedJobId === row.jobId ? 'true' : 'false'}
-                >
-                  <span
-                    className="flow-tree-job-dot"
-                    style={{ background: STATUS_DOT_BG[row.status] }}
-                  />
-                  <span className="flow-tree-job-name">{row.label}</span>
-                  {row.durationLabel ? (
-                    <span className="flow-tree-job-duration">{row.durationLabel}</span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ))
+          renderRegionWrappedGroups(groups, selectedJobId, onSelectJob)
         )}
       </div>
     </aside>
   )
+}
+
+/**
+ * renderRegionWrappedGroups — wraps each region's rows in a single
+ * <div data-testid="flow-tree-region-<id>"> so multi-region layouts
+ * are visually + semantically grouped (forcing-function: tested by
+ * FlowDeploymentTree.test.tsx — at least 2 wrappers when given 2
+ * regions in the fixture).
+ *
+ * Inline component because exporting more than React components from
+ * this file would trip the react-refresh fast-refresh warning, and
+ * the data-shape is FlowGroupRow which lives here.
+ */
+function renderRegionWrappedGroups(
+  groups: readonly FlowGroupRow[],
+  selectedJobId: string | null,
+  onSelectJob: (jobId: string) => void,
+) {
+  // Bucket consecutive groups by regionId. Order is preserved (it's
+  // the order buildFlowGroupRows emits — top→bottom in caller's region
+  // order).
+  const buckets: Array<{ regionId: string; rows: FlowGroupRow[] }> = []
+  for (const g of groups) {
+    const last = buckets[buckets.length - 1]
+    if (last && last.regionId === g.regionId) {
+      last.rows.push(g)
+    } else {
+      buckets.push({ regionId: g.regionId, rows: [g] })
+    }
+  }
+  return buckets.map(({ regionId, rows }) => (
+    <div
+      key={regionId}
+      className="flow-tree-region"
+      data-testid={`flow-tree-region-${regionId}`}
+      data-region-id={regionId}
+    >
+      {rows.map((g) => (
+        <div
+          key={g.id}
+          className="flow-tree-group"
+          data-testid={`flow-tree-group-${g.regionId}-${g.familyId}`}
+        >
+          {g.isRegionHeader ? (
+            <div className="flow-tree-region-header">
+              <span className="flow-tree-region-dot" />
+              <div className="flow-tree-region-meta">
+                <span
+                  className="flow-tree-region-name"
+                  data-testid={`flow-tree-region-name-${g.regionId}`}
+                >
+                  {g.regionLabel}
+                </span>
+                <span className="flow-tree-region-sub">{g.regionMeta}</span>
+              </div>
+            </div>
+          ) : null}
+          <div className="flow-tree-family-row">
+            <span
+              className="flow-tree-family-dot"
+              style={{ background: g.familyColor }}
+            />
+            <span
+              className="flow-tree-family-name"
+              data-testid={`flow-tree-family-name-${g.familyId}`}
+              style={{ color: g.familyColor }}
+            >
+              {g.familyLabel}
+            </span>
+            <span className="flow-tree-family-desc">{g.familyDesc}</span>
+            <span className="flow-tree-family-count">{g.rows.length}</span>
+          </div>
+          {g.rows.map((row) => (
+            <button
+              key={row.jobId}
+              type="button"
+              onClick={() => onSelectJob(row.jobId)}
+              className={`flow-tree-job-row${selectedJobId === row.jobId ? ' is-selected' : ''}`}
+              data-testid={`flow-tree-job-${row.jobId}`}
+              data-selected={selectedJobId === row.jobId ? 'true' : 'false'}
+            >
+              <span
+                className="flow-tree-job-dot"
+                style={{ background: STATUS_DOT_BG[row.status] }}
+              />
+              <span className="flow-tree-job-name">{row.label}</span>
+              {row.durationLabel ? (
+                <span className="flow-tree-job-duration">{row.durationLabel}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  ))
 }
 
 /* See `flowDeploymentTreeData.ts` for the FlowGroupRow builder helper.

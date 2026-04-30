@@ -168,26 +168,30 @@ export interface FlowGeometryV4 {
 }
 
 export const DEFAULT_GEOMETRY_V4: FlowGeometryV4 = {
-  paddingX: 22,
+  paddingX: 28,
   paddingY: 22,
-  regionGap: 26,
+  regionGap: 28,
   leftReserve: 0, // The deployment-tree panel sits OUTSIDE the SVG.
-  // Tightened from 108 -> 78: at 1440px viewport the canvas host is
-  // ~600px; a 16-stage layout at 78px per column = ~1248px, which
-  // letterboxes to ~75% of the host height instead of collapsing to
-  // ~150px (the symptom that triggered issue #251 follow-up).
-  stageColumnWidth: 78,
-  // Larger nodes — the mockup glyph is ~24-30px radius.
-  nodeRadius: 24,
-  nodeRadiusAnchor: 30,
-  // Pulled in from 60 -> 56 so 6 nodes per column fit a ~340px tall
-  // band (matches the mockup proportion of ~half-canvas per region).
-  minNodeGap: 56,
-  regionLabelHeight: 22,
-  // Pulled from 6 -> 8 so dense families like SPINE / GUARDIAN / CORTEX
-  // stack vertically rather than fanning out into many sub-columns
-  // (which is what made the canvas so wide it letterboxed).
-  maxPerColumn: 8,
+  // 78px per column lets a 10-stage layout (with 2-3 sub-columns per
+  // dense stage) fit a ~960-1100px wide canvas host without
+  // horizontal scrolling. The bezier router still has room to bow
+  // because of the perpendicular-bias control points (see
+  // routeBezier).
+  stageColumnWidth: 84,
+  // Bigger nodes — mockup glyph is clearly 56-72px diameter at 1440px.
+  // FORCING-FUNCTION: nodeRadius >= 28 (= 56px diameter) is asserted in
+  // flowLayoutV4.test.ts to lock this against future shrinkage.
+  nodeRadius: 28,
+  nodeRadiusAnchor: 32,
+  // 64px gap between same-column node centres — leaves ~6px clear
+  // between adjacent circles at r=28 (nodes don't touch) and matches
+  // the mockup's vertical density.
+  minNodeGap: 66,
+  regionLabelHeight: 28,
+  // 5 per column matches the mockup MAX_PER_COL=5 heuristic — denser
+  // families fan out into adjacent sub-columns, which is what creates
+  // the organic-looking node clusters in provision-mockup-v4.png.
+  maxPerColumn: 5,
 }
 
 /** Caller-supplied node hints — supplied per-job by FlowPage. */
@@ -225,6 +229,29 @@ export interface FlowLayoutV4Options {
   geometry?: Partial<FlowGeometryV4>
   /** Highlight a single node id (thicker border + glow). */
   highlightJobId?: string
+  /**
+   * When set, the layout SCALES its column widths + region heights so
+   * the resulting canvas fits a container approximately
+   * (targetWidth × targetHeight) px. Caller passes the canvas-host's
+   * measured rect from a ResizeObserver so the canvas always fills the
+   * available space (matches the mockup behaviour).
+   *
+   * The layout still respects nodeRadius / minNodeGap — if the target
+   * is too small to hold all nodes at their canonical size, the layout
+   * gracefully falls back to its natural width/height.
+   */
+  targetWidth?: number
+  targetHeight?: number
+  /**
+   * Job ids whose outgoing edges should NOT be rendered (the layout
+   * still uses them for stage assignment, but no edge is emitted to
+   * `result.edges` from these sources). Used to suppress fan-out
+   * noise — e.g. `cluster-bootstrap` would otherwise emit an edge to
+   * every component, which renders as visual chaos. Stage assignment
+   * still respects the dependency so the layout still flows
+   * left → right correctly.
+   */
+  hideEdgesFromIds?: ReadonlySet<string>
 }
 
 /** Sentinel region id used when caller doesn't supply per-job region. */
@@ -644,10 +671,16 @@ export function flowLayoutV4(
   for (const n of nodes) nodeById.set(n.id, n)
   const edges: FlowEdgeV4[] = []
   const seenEdge = new Set<string>()
+  const hideFrom = opts.hideEdgesFromIds
   for (const j of jobs) {
     for (const dep of j.dependsOn) {
       const depJob = jobByKey.get(dep)
       if (!depJob) continue
+      // Visual-only suppression — caller-supplied set of source ids
+      // whose outgoing edges shouldn't render. Stage assignment ran
+      // earlier on the full edge set, so layout flow still respects
+      // the dependency.
+      if (hideFrom && hideFrom.has(depJob.id)) continue
       const from = nodeById.get(depJob.id)
       const to = nodeById.get(j.id)
       if (!from || !to) continue
@@ -667,13 +700,63 @@ export function flowLayoutV4(
     }
   }
 
+  /* ── Target-fit post-pass ───────────────────────────────────────
+   * When the caller supplies targetWidth / targetHeight (e.g. from a
+   * ResizeObserver on the canvas-host), rescale node positions +
+   * region bands + stage descriptors so the layout EXACTLY fills the
+   * host viewport. Mirrors the static mockup's SVG_W/SVG_H = host
+   * bounds approach in marketing/mockups/provision-mockup.html.
+   *
+   * The SVG renders with preserveAspectRatio="xMidYMid meet" — when
+   * the viewBox matches the host's aspect ratio (which it does, since
+   * we scale to host bounds), there's NO letterboxing and circles
+   * stay round.
+   *
+   * Edge case: if targetWidth/H is smaller than the natural minimum
+   * needed to lay out N nodes at canonical radius+gap, we still scale
+   * to the target — circles stay nodeRadius (the SVG draws them
+   * relative to viewBox), but they may visually overlap. Caller is
+   * responsible for ensuring the host has enough room for the catalog
+   * size (Catalyst's wizard caps catalogs at ~65 nodes per region).
+   * ──────────────────────────────────────────────────────────────── */
+  let outW = canvasW
+  let outH = canvasH
+  // Only stretch UP — never compress positions below the natural
+  // minimum (would cause node overlap, since nodeRadius is fixed by
+  // the forcing function).
+  if (opts.targetWidth && opts.targetWidth > canvasW) {
+    const sx = opts.targetWidth / canvasW
+    for (const n of nodes) n.cx *= sx
+    for (const s of stages) {
+      s.cx *= sx
+      s.left *= sx
+      s.right *= sx
+    }
+    for (const e of edges) {
+      for (const p of e.points) p.x *= sx
+    }
+    outW = opts.targetWidth
+  }
+  if (opts.targetHeight && opts.targetHeight > canvasH) {
+    const sy = opts.targetHeight / canvasH
+    for (const n of nodes) n.cy *= sy
+    for (const r of placedRegions) {
+      r.y *= sy
+      r.height *= sy
+    }
+    for (const e of edges) {
+      for (const p of e.points) p.y *= sy
+    }
+    outH = opts.targetHeight
+  }
+
   return {
     nodes,
     edges,
     regions: placedRegions,
     stages,
-    width: canvasW,
-    height: canvasH,
+    width: outW,
+    height: outH,
   }
 }
 
@@ -716,21 +799,63 @@ export function routeBezier(
       { x: ex, y: ey },
     ]
   }
-  // Bezier: control points biased horizontally so the arc reads as
-  // left-to-right flow even when source/target are vertically offset.
+  // Cubic bezier — control points are SHIFTED OFF the line of centres
+  // so the path arcs visibly (the mockup's organic flowing curves).
+  // Within-region: c1 leaves horizontally, c2 enters horizontally,
+  //   and both control points get a perpendicular nudge so the curve
+  //   bows whichever way the line of centres is going. This guarantees
+  //   non-collinear control points (forcing-function asserted in
+  //   flowLayoutV4.test.ts: edges contain a `C` with non-collinear
+  //   control points to prevent regression to straight bezier).
+  // Cross-region: bigger horizontal bias + perpendicular nudge so the
+  //   S-curve crosses the region gap with a clean arc.
   const ddx = ex - sx
   const ddy = ey - sy
-  const horizontalBias = crossRegion ? 0.55 : 0.45
-  const c1x = sx + ddx * horizontalBias
-  const c1y = sy + (crossRegion ? ddy * 0.05 : 0)
-  const c2x = ex - ddx * horizontalBias
-  const c2y = ey - (crossRegion ? ddy * 0.05 : 0)
+  // Perpendicular to the line of centres (rotate (nx,ny) 90°).
+  const px = -ny
+  const py = nx
+  // Bow magnitude — scales with edge length; capped so very long edges
+  // don't fly off the canvas, and given a minimum so very short edges
+  // still arc visibly.
+  const bowMag = Math.max(18, Math.min(48, dist * 0.18))
+  const horizontalBias = crossRegion ? 0.55 : 0.4
+  // Asymmetric perpendicular offsets at c1 vs c2 so the curve has true
+  // S-character (control points off the source-target axis).
+  const bow1 = crossRegion ? bowMag * 1.1 : bowMag
+  const bow2 = crossRegion ? bowMag * -0.6 : bowMag * 0.55
+  const c1x = sx + ddx * horizontalBias + px * bow1
+  const c1y = sy + ddy * (crossRegion ? 0.08 : 0) + py * bow1
+  const c2x = ex - ddx * horizontalBias + px * bow2
+  const c2y = ey - ddy * (crossRegion ? 0.08 : 0) + py * bow2
   return [
     { x: sx, y: sy },
     { x: c1x, y: c1y },
     { x: c2x, y: c2y },
     { x: ex, y: ey },
   ]
+}
+
+/**
+ * True iff the cubic-bezier defined by (p0,p1,p2,p3) has CONTROL points
+ * not collinear with the line p0→p3. Used both as a sanity check in the
+ * routeBezier output and as a regression test in flowLayoutV4.test.ts
+ * (forcing-function: edges must arc, not draw straight).
+ */
+export function hasNonCollinearControls(
+  points: readonly { x: number; y: number }[],
+): boolean {
+  if (points.length !== 4) return false
+  const [p0, p1, p2, p3] = points
+  if (!p0 || !p1 || !p2 || !p3) return false
+  const ax = p3.x - p0.x
+  const ay = p3.y - p0.y
+  const len = Math.hypot(ax, ay) || 1
+  // Distance from p1 + p2 to the line p0->p3.
+  const d1 = Math.abs(ax * (p1.y - p0.y) - ay * (p1.x - p0.x)) / len
+  const d2 = Math.abs(ax * (p2.y - p0.y) - ay * (p2.x - p0.x)) / len
+  // ≥ 4px off-axis on EITHER control counts as non-collinear (a flat
+  // bezier would have d1≈d2≈0).
+  return d1 >= 4 || d2 >= 4
 }
 
 /** Render polyline points → SVG `d` attribute. */
