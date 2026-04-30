@@ -1,0 +1,68 @@
+# bp-syft-grype — Catalyst bootstrap-kit Blueprint #33 (W2.K3, Tier 7 — Security/Policy).
+# Anchore Syft + Grype as a scheduled CronJob. SBOM generation (Syft)
+# paired with vulnerability matching (Grype) — the offline / scheduled
+# half of the supply-chain stack. Anchore does not publish a Helm chart
+# for the open-source CLIs, so this Blueprint is a scratch chart that
+# wires the official ghcr.io/anchore/syft and ghcr.io/anchore/grype
+# containers into a CronJob that scans the Sovereign's image inventory.
+#
+# Wrapper chart: platform/syft-grype/chart/ (Catalyst-authored scratch
+# chart — no upstream subchart).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — the result-export sidecar publishes SBOMs over
+#     mTLS to the central scan-result store; cert-manager issues the
+#     workload's TLS material via the cluster's ClusterIssuer.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: syft-grype
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-syft-grype
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-syft-grype
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: syft-grype
+  targetNamespace: syft-grype
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-syft-grype
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-syft-grype
+        namespace: flux-system
+  # Event-driven install: the Blueprint is mostly a CronJob + RBAC
+  # surface. There is no long-running Deployment whose Ready=True is
+  # meaningful — disableWait is the correct shape so Flux marks Ready
+  # as soon as manifests apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

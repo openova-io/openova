@@ -1,0 +1,72 @@
+# bp-velero — Catalyst bootstrap-kit Blueprint #34 (W2.K3, Tier 7 — Security/Policy).
+# Per-host-cluster backup engine. Catalyst-Zero pins backups to SeaweedFS
+# (the unified S3 layer, slot 18) so backup data never leaves the
+# Sovereign at install time; per-Sovereign archival to a cloud backend
+# is wired in post-bootstrap via Crossplane.
+#
+# Wrapper chart: platform/velero/chart/ (umbrella over upstream
+# vmware-tanzu/velero chart, Catalyst-curated values under the `velero:`
+# key — `seaweedfs` BackupStorageLocation provider, no cloud plugin
+# pinned at install time).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-seaweedfs — Velero's BackupStorageLocation points at the
+#     in-cluster SeaweedFS S3 endpoint (`seaweedfs.seaweedfs.svc:8333`)
+#     and reads the `seaweedfs-s3-credentials` Secret SeaweedFS renders
+#     during install. Without bp-seaweedfs Ready, the BSL Phase sits
+#     `Unavailable` and Velero's first reconcile fails — every backup
+#     CR queues with the same error until the dep lands.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-velero
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-velero
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: velero
+  targetNamespace: velero
+  dependsOn:
+    - name: bp-seaweedfs
+  chart:
+    spec:
+      chart: bp-velero
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-velero
+        namespace: flux-system
+  # Event-driven install: Velero's Deployment Ready depends on the
+  # node-agent DaemonSet rolling out and the BackupStorageLocation
+  # reaching `Available` — both runtime-convergence events that Flux
+  # observes via the BSL CR phase, not via Helm `--wait`. disableWait
+  # keeps the HR's Ready signal aligned with manifest apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

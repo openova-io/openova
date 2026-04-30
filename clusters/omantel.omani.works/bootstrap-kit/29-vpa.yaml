@@ -1,0 +1,66 @@
+# bp-vpa — Catalyst bootstrap-kit Blueprint #29 (W2.K3, Tier 7 — Security/Policy).
+# Vertical Pod Autoscaler. Per-host-cluster automated resource right-sizing
+# (Recommender + Updater + Admission Controller). Pairs with HPA/KEDA on
+# the horizontal axis. Provides recommendations even if not auto-applying;
+# Catalyst-default mode is `Off` (recommend only) until SRE opts a
+# workload into `Auto` via VerticalPodAutoscaler resources.
+#
+# Wrapper chart: platform/vpa/chart/ (umbrella over upstream
+# autoscaler/vertical-pod-autoscaler chart, Catalyst-curated values under
+# the `vertical-pod-autoscaler:` key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn: (none) — VPA is independent infrastructure. The Recommender
+# reads from metrics-server (a k3s fixture) and Prometheus/Mimir when
+# present, but neither is a hard sibling-Blueprint dep at install time;
+# the controllers tolerate metrics endpoints appearing late. Listed at
+# slot 29 for numeric grouping with the security/policy cohort.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vpa
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-vpa
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-vpa
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: vpa
+  targetNamespace: vpa
+  chart:
+    spec:
+      chart: bp-vpa
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-vpa
+        namespace: flux-system
+  # Event-driven install: VPA brings up three Deployments (recommender,
+  # updater, admission-controller) plus admission webhook TLS bootstrap.
+  # disableWait keeps Flux's Ready signal aligned with manifest apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

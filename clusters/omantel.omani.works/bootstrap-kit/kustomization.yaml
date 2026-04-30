@@ -31,3 +31,11 @@ resources:
   - 24-tempo.yaml
   - 25-grafana.yaml
   - 26-langfuse.yaml
+  - 27-kyverno.yaml
+  - 28-reloader.yaml
+  - 29-vpa.yaml
+  - 30-trivy.yaml
+  - 31-falco.yaml
+  - 32-sigstore.yaml
+  - 33-syft-grype.yaml
+  - 34-velero.yaml
