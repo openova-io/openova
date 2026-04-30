@@ -203,13 +203,17 @@ const provisionCloudNetworkRoute = createRoute({
   component: InfrastructureNetwork,
 })
 
-// Legacy /infrastructure/* — preserved at this commit so deep links
-// and bookmarks don't 404 mid-rollout. A subsequent commit converts
-// these to redirects targeting the /cloud/* equivalents.
+// Legacy /infrastructure/* — every legacy path now redirects to its
+// /cloud/* equivalent so deep links and bookmarks keep working
+// without rendering the renamed surface twice. The components are
+// no-op stubs because tanstack-router still needs a `component` for
+// the route node to resolve before `beforeLoad` fires.
+const NoopRedirectComponent = () => null
+
 const provisionInfrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/infrastructure',
-  component: CloudPage,
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureIndexRoute = createRoute({
@@ -217,34 +221,59 @@ const provisionInfrastructureIndexRoute = createRoute({
   path: '/',
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: '/provision/$deploymentId/infrastructure/topology',
+      to: '/provision/$deploymentId/cloud/architecture',
       params,
     })
   },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureTopologyRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/topology',
-  component: InfrastructureTopology,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/architecture',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureComputeRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/compute',
-  component: InfrastructureCompute,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/compute',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureStorageRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/storage',
-  component: InfrastructureStorage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/storage',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureNetworkRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/network',
-  component: InfrastructureNetwork,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/network',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 // Per-Batch detail page (epic #204 item #4) — surfaces a single batch
