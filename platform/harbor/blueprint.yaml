@@ -1,0 +1,66 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: harbor
+  labels:
+    catalyst.openova.io/section: pts-3-5-storage-and-data
+spec:
+  version: 1.0.0
+  card:
+    title: Harbor
+    family: foundation
+    description: Per-Sovereign OCI registry. Mirrors Catalyst Blueprint OCI artefacts and container images so the Sovereign isn't dependent on ghcr.io for day-2 image pulls. Stores blobs in SeaweedFS (S3 driver), metadata in CNPG. SSO via Keycloak OIDC. Vulnerability scanning via Trivy (off by default; opt-in once bp-trivy reconciles).
+    docs: https://goharbor.io/docs/
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    required: [hostname]
+    properties:
+      hostname:
+        type: string
+        format: hostname
+        description: Public hostname for Harbor Core (e.g. harbor.<location-code>.<sovereign-domain>).
+      coreReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+      registryReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+      jobserviceReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      portalReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      trivyEnabled:
+        type: boolean
+        default: false
+        description: Enable Trivy vulnerability scanning. Default off — opt in via per-Sovereign overlay once bp-trivy (slot 30) has reconciled.
+      ssoEnabled:
+        type: boolean
+        default: false
+        description: Enable OIDC SSO via Catalyst Keycloak. Default off — opt in via per-Sovereign overlay once bp-keycloak has reconciled.
+  placementSchema:
+    modes: [single-region]           # one Harbor per host cluster, no cross-region replication
+    default: single-region
+    minRegions: 1
+    maxRegions: 1
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg             # registry metadata DB (postgresql.cnpg.io/v1.Cluster)
+      version: ^1
+    - blueprint: bp-seaweedfs        # registry blob backend (S3-compatible)
+      version: ^1
+    - blueprint: bp-cert-manager     # registry endpoint TLS via ClusterIssuer
+      version: ^1
+  upgrades:
+    from: ["0.x"]

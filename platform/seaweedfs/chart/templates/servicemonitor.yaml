@@ -1,0 +1,39 @@
+{{- /*
+ServiceMonitor — Catalyst-overlay variant for the SeaweedFS S3 endpoint.
+
+The upstream `seaweedfs/seaweedfs` chart exposes a `metricsServiceMonitor`
+toggle on each component (master / volume / filer / s3) but Catalyst
+keeps every upstream toggle defaulted false (see chart/values.yaml) and
+ships THIS Catalyst-side template as the single observability surface
+operators flip on once kube-prometheus-stack is reconciled.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — Prometheus
+Operator (monitoring.coreos.com/v1) is NOT in the bootstrap-kit, so a
+ServiceMonitor shipped enabled-by-default would generate Helm install
+errors on a Sovereign that hasn't reached Phase 2 yet. Per-Sovereign
+overlays flip `seaweedfsOverlay.serviceMonitor.enabled = true` once
+kube-prometheus-stack (slot 25) is Ready.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
+labels) is operator-tunable.
+*/}}
+{{- if and .Values.seaweedfsOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-seaweedfs-catalyst
+  namespace: {{ default .Release.Namespace .Values.seaweedfsOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-seaweedfs.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.seaweedfsOverlay.serviceMonitor.interval | default "30s" }}
+      path: /metrics
+{{- end }}

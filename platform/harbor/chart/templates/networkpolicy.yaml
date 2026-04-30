@@ -1,0 +1,132 @@
+{{- /*
+NetworkPolicy — locks the Harbor pods (core / portal / registry /
+jobservice / trivy) down to the minimum egress / ingress required.
+
+Egress targets:
+  - Cluster DNS (kube-system) — service discovery for CNPG + SeaweedFS.
+  - bp-cnpg cluster (registry metadata DB) on port 5432.
+  - bp-seaweedfs S3 endpoint on port 8333 (blob backend).
+  - Keycloak (when ssoEnabled) on port 8080 — OIDC discovery.
+  - HTTPS to upstream registries (when pullMirror.enabled) — replication
+    pulls from ghcr.io / docker.io / quay.io etc.
+
+Ingress is locked to:
+  - Cilium ingress controller for the Harbor portal/core endpoint.
+  - Prometheus scraping when serviceMonitor toggles are on.
+
+DEFAULT FALSE per Catalyst overlay convention — operator turns this on
+via per-Sovereign overlay once consumer namespaces / cold-tier endpoints
+are known. Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is
+operator-tunable through `harborOverlay.networkPolicy.*`.
+*/}}
+{{- if .Values.harborOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-harbor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: harbor
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-namespace traffic between Harbor components.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # Ingress controller (Cilium gateway) — terminates the public Harbor
+    # endpoint and proxies to harbor-core / harbor-portal.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cilium
+    # Cross-namespace pulls — every namespace running a Catalyst pod
+    # may pull images from Harbor.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5000
+    # Prometheus scraping when metrics + serviceMonitor are enabled.
+    {{- if .Values.harbor.metrics.enabled }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.harbor.metrics.core.port | default 8001 }}
+    {{- end }}
+  egress:
+    # Cluster DNS — Harbor resolves CNPG, SeaweedFS, Keycloak, etc.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Intra-namespace traffic between Harbor components.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # CNPG metadata DB — reachable in the cnpg namespace via service ref.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.harborOverlay.networkPolicy.cnpgNamespace | default "cnpg" }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    # SeaweedFS S3 endpoint — registry blob backend.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.harborOverlay.networkPolicy.seaweedfsNamespace | default "seaweedfs" }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seaweedfs
+      ports:
+        - protocol: TCP
+          port: {{ .Values.harborOverlay.networkPolicy.seaweedfsS3Port | default 8333 }}
+    # Keycloak OIDC discovery (when SSO enabled).
+    {{- if .Values.harborOverlay.sso.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.harborOverlay.networkPolicy.keycloakNamespace | default "keycloak" }}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+    {{- end }}
+    # Pull-mirror egress to public registries (when enabled).
+    {{- if .Values.harborOverlay.pullMirror.enabled }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

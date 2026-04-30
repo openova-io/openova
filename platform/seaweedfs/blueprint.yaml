@@ -1,0 +1,59 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: seaweedfs
+  labels:
+    catalyst.openova.io/section: pts-3-5-storage-and-data
+spec:
+  version: 1.0.0
+  card:
+    title: SeaweedFS
+    family: foundation
+    description: Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign.
+    docs: https://github.com/seaweedfs/seaweedfs/wiki
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      masterReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+        description: Master replicas. 1 for solo Sovereign, 3 for HA, 5 for multi-AZ.
+      volumeReplicas:
+        type: integer
+        default: 3
+        minimum: 1
+        maximum: 12
+        description: Volume server replicas. Default 3 gives basic redundancy.
+      volumeSize:
+        type: string
+        default: "100Gi"
+        description: Per-volume-server PVC size.
+      filerReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+      s3Replicas:
+        type: integer
+        default: 2
+        minimum: 1
+        maximum: 5
+      enableNamePrefix:
+        type: boolean
+        default: true
+        description: Prefix every resource with `seaweedfs-` so multi-tenant namespacing works (one SeaweedFS per Sovereign vs. shared deployments).
+  placementSchema:
+    modes: [single-region, active-active, active-hotstandby]
+    default: single-region
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cert-manager     # S3 endpoint terminates TLS via cert-manager-issued cert
+      version: ^1
+  upgrades:
+    from: ["0.x"]

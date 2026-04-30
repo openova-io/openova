@@ -1,0 +1,34 @@
+apiVersion: v2
+name: bp-vpa
+description: |
+  Catalyst Blueprint umbrella chart for the Kubernetes Vertical Pod
+  Autoscaler. Depends on the upstream `vertical-pod-autoscaler` chart
+  (cowboysysop/charts) as a Helm subchart so `helm dependency build` pulls
+  the upstream payload into this artifact. Catalyst-curated values flow
+  into the upstream subchart under the `vertical-pod-autoscaler:` key in
+  values.yaml.
+
+  VPA bundles three controllers — Recommender, Updater, and Admission
+  Controller — that together right-size pod CPU/memory requests. The
+  Admission Controller's mutating webhook rewrites pod resource requests
+  at admission time according to VPA recommendations; the Updater evicts
+  out-of-band pods; the Recommender computes recommendations from
+  metrics-server and Prometheus. Catalyst default mode is `Off`
+  (recommend only) — SREs opt individual workloads into `Auto` via
+  VerticalPodAutoscaler CRs.
+type: application
+version: 1.0.0
+appVersion: "1.5.0"
+keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to cowboysysop/vertical-pod-autoscaler 11.1.1 (appVersion 1.5.0)
+# — current stable on 2026-04-30. Per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode) the version is operator-bumpable via PR + Blueprint
+# release.
+dependencies:
+  - name: vertical-pod-autoscaler
+    version: "11.1.1"
+    repository: "https://cowboysysop.github.io/charts/"
