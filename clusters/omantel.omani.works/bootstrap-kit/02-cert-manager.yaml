@@ -43,10 +43,17 @@ spec:
         kind: HelmRepository
         name: bp-cert-manager
         namespace: flux-system
+  # Event-driven install: cert-manager installs CRDs + 3 deployments
+  # (controller, webhook, cainjector). Webhook readiness depends on the
+  # cainjector mutating the Secret — multi-minute path on cold start.
+  # Helm install completes when manifests apply; subsequent dependsOn
+  # checks Ready=True independently. Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
   values:

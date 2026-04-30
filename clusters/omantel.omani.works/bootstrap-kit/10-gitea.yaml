@@ -39,15 +39,21 @@ spec:
   chart:
     spec:
       chart: bp-gitea
-      version: 1.1.1
+      version: 1.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
         namespace: flux-system
+  # Event-driven install: Gitea PostgreSQL DB init + admin user creation +
+  # public Blueprint catalog mirror seeding is legitimately multi-minute.
+  # Helm install completes when manifests apply; downstream dependsOn
+  # checks Ready=True independently. Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
   values:

@@ -41,14 +41,25 @@ spec:
         kind: HelmRepository
         name: bp-cilium
         namespace: flux-system
+  # Event-driven install: Helm completes when manifests apply, not when
+  # cilium-agent reaches Ready (agent waits for envoyconfig CRDs that the
+  # SAME chart installs — legitimate slow-Ready). Replaces blanket
+  # spec.timeout: 15m band-aid from PR #221.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
   values:
     cilium:
+      # Enable L7 proxy so Cilium's chart installs the
+      # ciliumenvoyconfigs / ciliumclusterwideenvoyconfigs CRDs that the
+      # cilium-agent waits for at startup. Without this, agent crash-loops
+      # forever and the node.cilium.io/agent-not-ready taint never lifts.
+      l7Proxy: true
       prometheus:
         enabled: false
         serviceMonitor:

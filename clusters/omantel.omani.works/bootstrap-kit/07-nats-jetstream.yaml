@@ -43,9 +43,15 @@ spec:
         kind: HelmRepository
         name: bp-nats-jetstream
         namespace: flux-system
+  # Event-driven install: NATS StatefulSet with JetStream raft initialisation
+  # — quorum formation across N replicas is legitimately multi-minute on
+  # cold start. Helm install completes when manifests apply; downstream
+  # dependsOn checks Ready=True independently. Replaces PR #221 timeout.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3

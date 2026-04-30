@@ -43,15 +43,22 @@ spec:
   chart:
     spec:
       chart: bp-catalyst-platform
-      version: 1.1.2
+      version: 1.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
         namespace: flux-system
+  # Event-driven install: umbrella chart deploys ~10 Catalyst services
+  # (console, marketplace, admin, catalog-svc, projector, provisioning,
+  # environment-controller, blueprint-controller, billing). Inter-service
+  # readiness via OTel/NATS subjects is multi-minute and not Helm's
+  # concern. Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
   # Per-Sovereign overrides for the umbrella — sovereign-FQDN-derived hostnames

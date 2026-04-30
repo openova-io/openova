@@ -50,20 +50,28 @@ spec:
   chart:
     spec:
       chart: bp-external-dns
-      version: 1.1.0
+      version: 1.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-external-dns
         namespace: flux-system
+  # Event-driven install: ExternalDNS pod readiness depends on a
+  # successful initial reconcile against the per-Sovereign PowerDNS API
+  # (which itself stabilises after pdns-pg CNPG bootstraps) — legitimate
+  # slow-Ready cascade. Helm install completes when manifests apply.
+  # Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
   # Per-Sovereign overrides — txtOwnerId MUST be the Sovereign FQDN so two
   # Sovereigns sharing a parent zone don't fight over the same record set.
-  # domainFilters narrow the zones ExternalDNS will manage.
+  # domainFilters narrow the zones ExternalDNS will manage; per-Sovereign
+  # cluster overlays patch this with the actual zone list.
   values:
     external-dns:
       txtOwnerId: omantel.omani.works
