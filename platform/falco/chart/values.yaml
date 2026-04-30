@@ -1,0 +1,103 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `falco:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: falco
+    version: "8.0.2"
+    repo: "https://falcosecurity.github.io/charts"
+
+# ─── Upstream chart values (subchart key: falco) ─────────────────────────
+falco:
+  # Pin upstream image tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md.
+  image:
+    registry: docker.io
+    repository: falcosecurity/falco
+    tag: "0.43.1"
+    pullPolicy: IfNotPresent
+
+  # eBPF driver — modern-bpf is the default since Falco 0.35; runs in
+  # kernel-space without compiling kernel modules. Per-Sovereign overlays
+  # MAY flip to `kmod` for older kernels, or `legacy_ebpf` for the
+  # pre-2022 driver.
+  driver:
+    enabled: true
+    kind: modern-bpf
+
+  # Falco rules — solo-Sovereign default uses the upstream stable rules.
+  # Per-Sovereign overlays MAY append custom rules via `falco.rulesfile.customRules`.
+  falco:
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/k8s_audit_rules.yaml
+      - /etc/falco/rules.d
+    json_output: true
+    json_include_output_property: true
+    log_level: info
+    priority: notice
+
+  # Resources — DaemonSet pod per host, modest defaults.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+  # (Observability toggles default false — kube-prometheus-stack CRDs may
+  # not exist yet on a fresh Sovereign).
+  serviceMonitor:
+    create: false
+  metrics:
+    enabled: false
+
+  # Falcosidekick — event router for the SIEM pipeline. Default disabled;
+  # per-Sovereign overlays enable it once bp-opensearch reconciles.
+  falcosidekick:
+    enabled: false
+    replicaCount: 1
+    webui:
+      enabled: false
+
+  # Service — ClusterIP, port 8765 for gRPC events / health.
+  services:
+    - name: k8saudit-webhook
+      ports:
+        - port: 9765
+          protocol: TCP
+
+  # RBAC — chart manages its own ServiceAccount + RBAC.
+  rbac:
+    create: true
+  serviceAccount:
+    create: true
+    name: ""
+
+  # Tolerations — run on every node including control plane.
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+
+  # SecurityContext — Falco needs privileged + host PID/network for syscall
+  # monitoring; this is the upstream chart default.
+  podSecurityContext: {}
+  containerSecurityContext: {}
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, ExternalSecret,
+# alert-routing) added in a follow-up PR once bp-falco is consumed in
+# clusters/_template/.
+falcoOverlay:
+  networkPolicy:
+    enabled: false

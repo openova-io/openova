@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-falco
+description: |
+  Catalyst Blueprint umbrella chart for Falco. Depends on the upstream
+  `falco` chart (falcosecurity/charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `falco:` key in values.yaml.
+
+  Falco runs as a DaemonSet on every host cluster of a Sovereign — eBPF
+  syscall monitoring for runtime threat detection. Pairs with bp-trivy
+  (static scanning) and feeds the SIEM pipeline via Falcosidekick into
+  bp-opensearch.
+type: application
+version: 1.0.0
+appVersion: "0.43.1"
+keywords: [catalyst, blueprint, falco, security, runtime, ebpf, threat-detection]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to falcosecurity/falco 8.0.2 (appVersion 0.43.1) — current stable
+# on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: falco
+    version: "8.0.2"
+    repository: "https://falcosecurity.github.io/charts"

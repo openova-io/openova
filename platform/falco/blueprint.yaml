@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: falco
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Falco
+    family: guardian
+    description: Runtime threat detection (CNCF Graduated). eBPF kernel-level syscall monitoring for container escapes, privilege escalation, anomalous behavior. Feeds the SIEM pipeline via Falcosidekick.
+    docs: https://falco.org/docs/
