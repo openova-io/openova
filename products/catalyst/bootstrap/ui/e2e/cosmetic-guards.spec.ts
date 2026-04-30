@@ -902,3 +902,68 @@ test.describe('@cosmetic-guard admin page banners', () => {
     ).toBe(0)
   })
 })
+
+/* ──────────────────────────────────────────────────────────────────
+ * Test 16 — PortalShell header exposes a theme toggle
+ * Test 17 — Theme toggle flips data-theme on the html element
+ *
+ * Light/dark theme parity for the Sovereign portal — the PortalShell
+ * (Apps / Jobs / AppDetail) inherited the wizard's `data-theme` swap
+ * but had no UI affordance to flip the theme post-handover. Issue
+ * caught by the founder during console review of omantel.omani.works.
+ * ────────────────────────────────────────────────────────────────── */
+
+test.describe('@cosmetic-guard PortalShell theme toggle', () => {
+  test('theme-toggle is present in PortalShell header', async ({ page }) => {
+    await page.goto('provision/test-deployment-id')
+    await page.waitForLoadState('domcontentloaded')
+
+    const header = page.locator('[data-testid="portal-header"]').first()
+    await expect(
+      header,
+      'PortalShell does not expose a [data-testid=portal-header] element — add the testid to the header band hosting the theme toggle in src/pages/sovereign/PortalShell.tsx.',
+    ).toBeVisible({ timeout: 10_000 })
+
+    const toggle = header.locator('[data-testid="theme-toggle"]').first()
+    await expect(
+      toggle,
+      'PortalShell header is missing [data-testid=theme-toggle] — mount <ThemeToggle /> from src/components/ThemeToggle.tsx in the PortalShell header band (top-right).',
+    ).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('clicking theme-toggle flips data-theme attribute on html element', async ({ page }) => {
+    await page.goto('provision/test-deployment-id')
+    await page.waitForLoadState('domcontentloaded')
+
+    const toggle = page.locator('[data-testid="theme-toggle"]').first()
+    await expect(toggle).toBeVisible({ timeout: 10_000 })
+
+    const before = await page.evaluate(() =>
+      document.documentElement.getAttribute('data-theme'),
+    )
+    expect(
+      before,
+      'html element is missing data-theme attribute on first paint — the bootstrap script in index.html should set it to dark/light from localStorage[oo-theme] before the React tree mounts.',
+    ).toMatch(/^(dark|light)$/)
+
+    await toggle.click()
+    // Allow React state -> useEffect -> documentElement.setAttribute to flush.
+    await page.waitForTimeout(120)
+
+    const after = await page.evaluate(() =>
+      document.documentElement.getAttribute('data-theme'),
+    )
+    expect(
+      after,
+      `Clicking the theme toggle did not flip data-theme on <html>: before=${before}, after=${after}. Check that ThemeToggle.tsx wires onClick → useTheme().toggle and that useTheme writes to documentElement.setAttribute('data-theme', t).`,
+    ).not.toBe(before)
+    expect(after).toMatch(/^(dark|light)$/)
+
+    // localStorage persistence — the next page load should respect the flip.
+    const persisted = await page.evaluate(() => window.localStorage.getItem('oo-theme'))
+    expect(
+      persisted,
+      `Theme flip did not persist to localStorage[oo-theme] (got "${persisted}"). The persistence path is the only thing the index.html bootstrap script reads on subsequent loads — without it, the user's theme choice resets on every page navigation.`,
+    ).toBe(after)
+  })
+})

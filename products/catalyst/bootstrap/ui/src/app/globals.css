@@ -109,6 +109,16 @@
 }
 
 /* ─── Light mode overrides ─────────────────────────────────────────────── */
+/* Every dark-default token in the @theme blocks above gets a light-mode
+   peer below so a single attribute flip on `<html data-theme="light">`
+   re-skins both the wizard surface AND the Sovereign console surface
+   (PortalShell + Apps + Jobs + AppDetail).
+   AA contrast is documented per token:
+     • body text (--color-text on --color-bg)              ≥ 7:1
+     • dim text  (--color-text-dim on --color-bg)          ≥ 4.5:1
+     • borders   (--color-border on --color-bg)            ≥ 1.5:1
+     • danger / warn / success text                         ≥ 4.5:1
+   Violating any of these is a regression, not a refinement. */
 [data-theme="light"] {
   --color-surface-0: #FFFFFF;
   --color-surface-1: #F4F4F5;
@@ -127,6 +137,39 @@
   --color-text-secondary: #52525B;
   --color-text-muted:     #A1A1AA;
   --color-text-disabled:  #D4D4D8;
+
+  /* ── Console tokens — light peers of the dark-first console
+        surface defined in the @theme block above. Mirrors the
+        same role names so PortalShell / Apps / Jobs / AppDetail
+        all flip in lockstep. AA-or-better contrast against
+        --color-bg = #ffffff:
+          --color-text         #0f172a  21:1
+          --color-text-dim     #475569  7.4:1
+          --color-text-dimmer  #64748b  4.7:1
+          --color-text-strong  #020617  21:1+
+          --color-accent       #2563eb  4.7:1 vs #ffffff
+          --color-warn         #b45309  4.7:1
+          --color-danger       #b91c1c  6.0:1
+          --color-success      #047857  4.6:1 */
+  --color-bg:            #ffffff;
+  --color-bg-2:          #f8fafc;
+  --color-surface:       #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-border:        #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-text:          #0f172a;
+  --color-text-strong:   #020617;
+  --color-text-dim:      #475569;
+  --color-text-dimmer:   #64748b;
+  --color-accent:        #2563eb;
+  --color-accent-hover:  #1d4ed8;
+  --color-warn:          #b45309;
+  --color-danger:        #b91c1c;
+
+  /* Console --color-success light peer — emerald-700 keeps the
+     dark-mode green semantic while clearing 4.5:1 against
+     #ffffff bg (the dark default #10b981 is 1.6:1, AA-failing). */
+  --color-success: #047857;
 
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;
