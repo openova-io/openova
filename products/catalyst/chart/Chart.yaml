@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.2
-appVersion: 1.1.2
+version: 1.1.3
+appVersion: 1.1.3
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -26,6 +26,11 @@ description: |
   dependency removal. Bumped to 1.1.2 to pull in bp-flux:1.1.2 — the
   catastrophic-double-install fix (omantel.omani.works incident,
   2026-04-29). See docs/RUNBOOK-PROVISIONING.md §"bp-flux double-install".
+  Bumped to 1.1.3 to drop three stray kustomize index files
+  (templates/kustomization.yaml, templates/marketplace-api/kustomization.yaml,
+  templates/sme-services/kustomization.yaml) that Helm was rendering as
+  resources with empty metadata.name — Helm post-render rejected the
+  install on otech.omani.works, 2026-04-30.
 type: application
 
 dependencies:
