@@ -8,6 +8,7 @@
 
 # Contabo-mkt only — applied by contabo's Flux Kustomization as raw YAML.
 # Excluded from Sovereign chart packaging (Sovereigns use Cilium gateway, no Traefik).
+templates/kustomization.yaml
 templates/ingress.yaml
 templates/ingress-console-tls.yaml
 templates/sme-services/
