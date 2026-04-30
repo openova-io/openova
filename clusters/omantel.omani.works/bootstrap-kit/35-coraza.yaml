@@ -1,0 +1,70 @@
+# bp-coraza — Catalyst bootstrap-kit Blueprint #35 (W2.K4 — Tier 8: edge).
+# OWASP-licensed Web Application Firewall, ModSecurity-rule-compatible.
+# Speaks the HAProxy SPOE protocol; sits in front of Cilium Gateway / HAProxy
+# fronts to enforce WAF policies on inbound traffic to Sovereign-facing
+# services (keycloak, grafana, stalwart, marketplace).
+#
+# Wrapper chart: platform/coraza/chart/
+# Catalyst-curated values: platform/coraza/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium — Coraza enforces L7 policy via Cilium L7 proxy / Gateway
+#     API; Cilium must be Ready (CNI + Gateway controller) before WAF
+#     evaluation hooks become reachable.
+#   - bp-cert-manager — Issuers must be reconciled so any TLS-fronted SPOA
+#     listeners (per-Sovereign overlays) come up with valid certs.
+#
+# install/upgrade.disableWait: true — Coraza-spoa Deployment Ready signal
+# is event-driven via the Flux dependsOn graph (downstream HRs check
+# Ready=True on this HR). Per session-2026-04-30 architectural decision,
+# we never use blanket `spec.timeout: Nm` watchdogs.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: coraza
+  labels:
+    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-coraza
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-coraza
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: coraza
+  targetNamespace: coraza
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-coraza
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-coraza
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

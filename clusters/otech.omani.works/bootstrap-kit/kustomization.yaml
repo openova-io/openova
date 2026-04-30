@@ -39,3 +39,4 @@ resources:
   - 32-sigstore.yaml
   - 33-syft-grype.yaml
   - 34-velero.yaml
+  - 35-coraza.yaml
