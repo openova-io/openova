@@ -1,0 +1,29 @@
+apiVersion: v2
+name: bp-sigstore
+description: |
+  Catalyst Blueprint umbrella chart for Sigstore Policy Controller.
+  Depends on the upstream `policy-controller` chart (sigstore/helm-charts)
+  as a Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact. Catalyst-curated values flow into the upstream
+  subchart under the `policy-controller:` key in values.yaml.
+
+  Policy Controller is the supply-chain admission gate — verifies Cosign
+  signatures, in-toto attestations, and SBOMs on container images at
+  admission time. Pairs with bp-harbor (registry) and the Catalyst
+  build-pipeline that publishes signed bp-* OCI artifacts to GHCR.
+type: application
+version: 1.0.0
+appVersion: "0.13.1"
+keywords: [catalyst, blueprint, sigstore, cosign, supply-chain, admission, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to sigstore/policy-controller 0.10.6 (appVersion 0.13.1) —
+# current stable on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode) the version is operator-bumpable via PR + Blueprint
+# release.
+dependencies:
+  - name: policy-controller
+    version: "0.10.6"
+    repository: "https://sigstore.github.io/helm-charts"

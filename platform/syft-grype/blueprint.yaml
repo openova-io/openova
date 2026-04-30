@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: syft-grype
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Syft + Grype
+    family: guardian
+    description: SBOM generation (Syft) + vulnerability scanning (Grype) as a scheduled CronJob. Anchore tools — no upstream Helm chart, scratch chart wires the official containers.
+    docs: https://github.com/anchore/grype

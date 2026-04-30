@@ -1,0 +1,29 @@
+apiVersion: v2
+name: bp-trivy
+description: |
+  Catalyst Blueprint umbrella chart for Trivy Operator. Depends on the
+  upstream `trivy-operator` chart (aquasecurity/helm-charts) as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into this
+  artifact. Catalyst-curated values flow into the upstream subchart under
+  the `trivy-operator:` key in values.yaml.
+
+  Trivy Operator is the static-scanning half of the Catalyst security
+  posture — vulnerability scans, config audits, RBAC assessments, exposed
+  secrets, infra assessments. Target namespaces follow the `bp-*` prefix
+  convention so scan results align with Blueprint installation units.
+type: application
+version: 1.0.0
+appVersion: "0.30.1"
+keywords: [catalyst, blueprint, trivy, security, scanner, vulnerability]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to aquasecurity/trivy-operator 0.32.1 (appVersion 0.30.1) —
+# current stable on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode) the version is operator-bumpable via PR + Blueprint
+# release.
+dependencies:
+  - name: trivy-operator
+    version: "0.32.1"
+    repository: "https://aquasecurity.github.io/helm-charts/"

@@ -1,0 +1,65 @@
+{{- if .Values.cronjob.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "bp-syft-grype.fullname" . }}
+  labels:
+    {{- include "bp-syft-grype.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
+  concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "bp-syft-grype.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "bp-syft-grype.serviceAccountName" . }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+          {{- if .Values.persistence.enabled }}
+          volumes:
+            - name: reports
+              persistentVolumeClaim:
+                claimName: {{ include "bp-syft-grype.fullname" . }}-reports
+          {{- end }}
+          containers:
+            - name: syft-grype
+              image: "{{ .Values.grype.image.repository }}:{{ .Values.grype.image.tag }}"
+              imagePullPolicy: {{ .Values.grype.image.pullPolicy }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TARGET="{{ .Values.cronjob.target }}"
+                  if [ -z "$TARGET" ]; then
+                    echo "[bp-syft-grype] cronjob.target is empty — no-op scan. Set Values.cronjob.target in the per-Sovereign overlay."
+                    exit 0
+                  fi
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  OUT_DIR=/reports
+                  mkdir -p "$OUT_DIR"
+                  echo "[bp-syft-grype] scanning $TARGET at $TS"
+                  grype "$TARGET" -o json --file "$OUT_DIR/grype-$TS.json"
+                  echo "[bp-syft-grype] report written to $OUT_DIR/grype-$TS.json"
+              resources:
+                {{- toYaml .Values.grype.resources | nindent 16 }}
+              {{- if .Values.persistence.enabled }}
+              volumeMounts:
+                - name: reports
+                  mountPath: /reports
+              {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+{{- end }}

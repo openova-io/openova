@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: litmus
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: LitmusChaos
+    family: guardian
+    description: CNCF chaos engineering platform. Cloud-native fault injection (pod-kill, network-loss, disk-fill, etc.) with experiment workflows. Validates Sovereign resilience as part of the SRE posture.
+    docs: https://docs.litmuschaos.io/

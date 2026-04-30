@@ -1,0 +1,127 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `kyverno:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: kyverno
+    version: "3.8.0"
+    repo: "https://kyverno.github.io/kyverno/"
+
+# ─── Upstream chart values (subchart key: kyverno) ───────────────────────
+kyverno:
+  # CRDs — installed by the umbrella so HelmRelease ordering works (CRDs
+  # land before the controller deployments). Default upstream behavior.
+  crds:
+    install: true
+
+  # HA mode — Kyverno 1.18 splits into 4 controllers. Solo-Sovereign default
+  # is replicas=1 per controller; per-Sovereign overlays bump to 3 for true
+  # HA when a regional Sovereign needs admission redundancy.
+  admissionController:
+    replicas: 1
+    image:
+      registry: ghcr.io
+      repository: kyverno/kyverno
+      tag: "v1.18.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 512Mi
+    serviceMonitor:
+      enabled: false
+
+  backgroundController:
+    replicas: 1
+    image:
+      registry: ghcr.io
+      repository: kyverno/background-controller
+      tag: "v1.18.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: false
+
+  cleanupController:
+    enabled: true
+    replicas: 1
+    image:
+      registry: ghcr.io
+      repository: kyverno/cleanup-controller
+      tag: "v1.18.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: false
+
+  reportsController:
+    replicas: 1
+    image:
+      registry: ghcr.io
+      repository: kyverno/reports-controller
+      tag: "v1.18.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: false
+
+  # Reports server — bundled subchart, default disabled. Per-Sovereign
+  # overlays enable when scaling out PolicyReport storage.
+  reportsServer:
+    enabled: false
+
+  # Grafana subchart bundled by upstream — DEFAULT FALSE per
+  # docs/BLUEPRINT-AUTHORING.md §11.2 (Catalyst provides bp-grafana
+  # separately).
+  grafana:
+    enabled: false
+
+  # Webhook configuration — upstream defaults apply (namespaceSelector
+  # excludes `kube-system`). Per-Sovereign overlays MAY override
+  # `config.webhooks.namespaceSelector` and per-controller `failurePolicy`
+  # via the upstream chart's controller-scoped settings once 3-replica HA
+  # is in place. See upstream `values.yaml` `config:` block for shape.
+
+  # OpenReports CRDs — both flags must agree per upstream schema. Default
+  # disabled (matches upstream); per-Sovereign overlays enable BOTH together
+  # once the OpenReports CRDs are required.
+  openreports:
+    enabled: false
+    installCrds: false
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, baseline policy
+# bundle) added in a follow-up PR once bp-kyverno is consumed in
+# clusters/_template/.
+kyvernoOverlay:
+  networkPolicy:
+    enabled: false
+  # Default policy bundle — empty; per-Sovereign overlays SET to
+  # `pod-security`, `best-practices`, etc. once the policy library lands.
+  policyBundle: ""

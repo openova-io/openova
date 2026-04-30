@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: reloader
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Reloader
+    family: guardian
+    description: Watches ConfigMap/Secret changes and triggers rolling restarts of dependent Deployments/StatefulSets/DaemonSets. Lets bp-* workloads pick up rotated secrets and rotated TLS material without manual rollouts.
+    docs: https://github.com/stakater/Reloader

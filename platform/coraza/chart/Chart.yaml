@@ -1,0 +1,24 @@
+apiVersion: v2
+name: bp-coraza
+description: |
+  Catalyst Blueprint scratch chart for Coraza WAF (SPOA mode).
+
+  No upstream Helm chart is published for coraza-spoa
+  (https://corazawaf.github.io/coraza-spoa returns 404 as of 2026-04-29).
+  This chart hand-wires the official `ghcr.io/corazawaf/coraza-spoa`
+  container as a Deployment + Service. Coraza speaks the HAProxy SPOE
+  protocol; an HAProxy front (or a per-Sovereign Cilium L7 policy) calls
+  this Service to evaluate ModSecurity-style rules on inbound traffic.
+
+  Pairs with bp-cilium (L7 policy enforcement), bp-keycloak (auth-front),
+  and bp-stalwart (mail-front).
+type: application
+version: 1.0.0
+appVersion: "0.7.0"
+keywords: [catalyst, blueprint, coraza, waf, modsecurity, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — no Helm dependency. Image version pinned in values.yaml
+# (`coraza.image.tag`).

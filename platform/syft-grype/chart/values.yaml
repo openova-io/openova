@@ -1,0 +1,85 @@
+# Catalyst Blueprint scratch chart — no upstream Helm chart exists for the
+# Syft/Grype CLIs (Anchore publishes Helm charts only for Anchore
+# Enterprise/Engine). All values consumed by templates/ in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      syft: "ghcr.io/anchore/syft"
+      grype: "ghcr.io/anchore/grype"
+
+# ─── Syft (SBOM generation) ──────────────────────────────────────────────
+syft:
+  enabled: true
+  image:
+    repository: ghcr.io/anchore/syft
+    tag: "v1.43.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# ─── Grype (vulnerability scan) ──────────────────────────────────────────
+grype:
+  enabled: true
+  image:
+    repository: ghcr.io/anchore/grype
+    tag: "v0.111.1"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+# ─── CronJob configuration ───────────────────────────────────────────────
+cronjob:
+  enabled: true
+  # Default schedule: daily at 02:30 UTC. Per-Sovereign overlays SET
+  # `cronjob.schedule` for tighter cadence.
+  schedule: "30 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  # Default target — empty (scans nothing). Per-Sovereign overlays SET this
+  # to the Catalyst-built image, e.g. `ghcr.io/openova-io/openova/catalyst-api:<sha>`.
+  # The CronJob runs `syft <target> -o json | grype --add-cpes-if-none` —
+  # if `target` is empty the job exits cleanly with a no-op log line.
+  target: ""
+
+# ─── Output PVC ──────────────────────────────────────────────────────────
+persistence:
+  enabled: true
+  size: 5Gi
+  # storageClassName empty → cluster default. Per-Sovereign overlays SET
+  # to a SeaweedFS-backed StorageClass once it lands.
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+
+# ─── ServiceAccount + RBAC ───────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+serviceMonitor:
+  enabled: false
+
+# ─── Catalyst overlay values ─────────────────────────────────────────────
+syftGrypeOverlay:
+  networkPolicy:
+    enabled: false

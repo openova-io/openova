@@ -1,0 +1,115 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `litmus:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: litmus
+    version: "3.28.0"
+    repo: "https://litmuschaos.github.io/litmus-helm/"
+
+# ─── Upstream chart values (subchart key: litmus) ────────────────────────
+litmus:
+  # Frontend (ChaosCenter UI) — single replica for solo Sovereign.
+  frontend:
+    replicas: 1
+    image:
+      repository: litmuschaos/litmusportal-frontend
+      tag: "3.28.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # Server (auth + GraphQL backend).
+  server:
+    replicas: 1
+    authServer:
+      image:
+        repository: litmuschaos/litmusportal-auth-server
+        tag: "3.28.0"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+    graphqlServer:
+      image:
+        repository: litmuschaos/litmusportal-server
+        tag: "3.28.0"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+  # MongoDB — bundled subchart, default 1 replica + 10Gi PVC for solo
+  # Sovereign. Per-Sovereign overlays MAY replace with an external
+  # MongoDB-compatible store once Catalyst-managed MongoDB lands.
+  mongodb:
+    enabled: true
+    architecture: standalone
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/mongodb
+      tag: "7.0.9-debian-12-r4"
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      size: 10Gi
+    auth:
+      enabled: true
+      rootUser: root
+      # rootPassword deliberately unset; chart auto-generates and stores in
+      # a Secret. Per-Sovereign overlays MAY pin via `existingSecret`.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 1Gi
+
+  # Portal config — admin password is auto-generated; per-Sovereign overlays
+  # SHOULD set `adminConfig.adminPassword` via `valuesFrom: secretKeyRef`.
+  adminConfig:
+    DBUSER: root
+    # `DBPASSWORD` empty here — read from the auto-generated MongoDB Secret
+    # at install time via the upstream chart's wiring.
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    enabled: false
+
+  # Ingress disabled — per-Sovereign overlays wire via the cilium-gateway
+  # HTTPRoute or via bp-keycloak SSO front.
+  ingress:
+    enabled: false
+
+  # RBAC + ServiceAccount.
+  rbac:
+    create: true
+  serviceAccount:
+    create: true
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, default chaos
+# experiment bundle) added in a follow-up PR once bp-litmus is consumed in
+# clusters/_template/.
+litmusOverlay:
+  networkPolicy:
+    enabled: false

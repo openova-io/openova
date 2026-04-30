@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-litmus
+description: |
+  Catalyst Blueprint umbrella chart for LitmusChaos. Depends on the
+  upstream `litmus` chart (litmuschaos/litmus-helm) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `litmus:` key in values.yaml.
+
+  LitmusChaos is the CNCF chaos engineering platform — runs chaos
+  experiments (pod-kill, network-loss, disk-fill, CPU/mem pressure, etc.)
+  against Catalyst Sovereigns to validate SRE invariants. Pairs with
+  bp-grafana for chaos-experiment dashboards.
+type: application
+version: 1.0.0
+appVersion: "3.28.0"
+keywords: [catalyst, blueprint, litmus, chaos, resilience, sre]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to litmuschaos/litmus 3.28.0 (appVersion 3.28.0) — current stable
+# on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: litmus
+    version: "3.28.0"
+    repository: "https://litmuschaos.github.io/litmus-helm/"

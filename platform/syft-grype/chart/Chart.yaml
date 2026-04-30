@@ -1,0 +1,26 @@
+apiVersion: v2
+name: bp-syft-grype
+description: |
+  Catalyst Blueprint scratch chart for Syft + Grype.
+
+  Anchore does not publish a Helm chart for the syft/grype CLIs (the
+  charts at https://charts.anchore.io are for Anchore Enterprise / Anchore
+  Engine, not the open-source CLIs). This chart hand-wires the upstream
+  `ghcr.io/anchore/syft` and `ghcr.io/anchore/grype` containers into a
+  scheduled CronJob that:
+    1. Generates an SBOM with Syft from a configurable image target.
+    2. Scans the SBOM with Grype for CVEs.
+    3. Writes the JSON report to a PVC (or stdout for log collection).
+
+  Pairs with bp-trivy (operator-driven scans) — Syft+Grype is the
+  CI-friendly, image-focused complement.
+type: application
+version: 1.0.0
+appVersion: "v1.43.0"
+keywords: [catalyst, blueprint, syft, grype, sbom, vulnerability, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — no Helm dependency. Image versions are pinned in
+# values.yaml (`syft.image.tag` + `grype.image.tag`).

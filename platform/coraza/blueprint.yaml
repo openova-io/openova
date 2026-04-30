@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: coraza
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Coraza WAF (SPOA)
+    family: guardian
+    description: OWASP-licensed Web Application Firewall, ModSecurity-rule-compatible, fronting bp-stalwart, bp-keycloak, bp-grafana via HAProxy SPOE. Scratch chart wires the official corazawaf/coraza-spoa container.
+    docs: https://coraza.io/docs/
