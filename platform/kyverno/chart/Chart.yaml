@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-kyverno
+description: |
+  Catalyst Blueprint umbrella chart for Kyverno. Depends on the upstream
+  `kyverno` chart (kyverno/kyverno) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `kyverno:` key in values.yaml.
+
+  Kyverno is the admission policy engine for Catalyst Sovereigns —
+  validating, mutating, and generating Kubernetes resources via webhook.
+  HA mode runs four controllers (admission, background, cleanup, reports);
+  solo-Sovereign default is replicas=1 each.
+type: application
+version: 1.0.0
+appVersion: "v1.18.0"
+keywords: [catalyst, blueprint, kyverno, policy, admission, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to kyverno/kyverno 3.8.0 (appVersion v1.18.0) — current stable on
+# 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: kyverno
+    version: "3.8.0"
+    repository: "https://kyverno.github.io/kyverno/"

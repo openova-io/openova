@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: kyverno
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Kyverno
+    family: guardian
+    description: Kubernetes-native policy management. Validating/mutating/generating admission control. HA mode with separate admission/background/cleanup/reports controllers.
+    docs: https://kyverno.io/docs/
