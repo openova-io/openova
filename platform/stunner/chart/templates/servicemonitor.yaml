@@ -1,0 +1,40 @@
+{{- /*
+ServiceMonitor — Catalyst overlay for the STUNner gateway-operator
++ dataplane metrics endpoints.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The
+`monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack — an
+Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+`enabled: true` would render a ServiceMonitor that the apiserver rejects
+on a fresh Sovereign install.
+
+Defense in depth: the values toggle (.Values.stunnerOverlay.serviceMonitor
+.enabled) is the operator switch; the Capabilities gate skips the
+resource entirely on a Sovereign that has not yet reconciled the CRD, so
+flipping the toggle on a too-early Sovereign cannot break the bp-stunner
+reconcile.
+*/}}
+{{- if and .Values.stunnerOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-stunner
+  namespace: {{ default .Release.Namespace .Values.stunnerOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-stunner.labels" . | nindent 4 }}
+    {{- with .Values.stunnerOverlay.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      catalyst.openova.io/blueprint: bp-stunner
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.stunnerOverlay.serviceMonitor.path | quote }}
+      interval: {{ .Values.stunnerOverlay.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.stunnerOverlay.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

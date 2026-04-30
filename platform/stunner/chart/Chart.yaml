@@ -1,0 +1,36 @@
+apiVersion: v2
+name: bp-stunner
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for STUNner — the K8s-native
+  TURN/STUN media gateway used by bp-relay (LiveKit) for WebRTC NAT
+  traversal. Depends on the upstream `stunner-gateway-operator` chart as
+  a Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact; the Catalyst overlay templates in templates/
+  (NetworkPolicy guard, ServiceMonitor toggle, HPA toggle) sit alongside
+  the upstream subchart and Helm renders both at install time. Catalyst-
+  curated values flow into the upstream subchart under the
+  `stunner-gateway-operator:` key in values.yaml.
+
+  Cilium-native Gateway integration: STUNner registers a GatewayClass
+  (`stunner.l7mp.io/v1`) and the operator dynamically materializes
+  dataplane Deployments backing each Gateway CR. UDP port range default
+  30000-32767 matches the range opened at the Sovereign edge firewall
+  (bp-firewall Crossplane composition).
+type: application
+appVersion: "1.1.0"
+keywords: [catalyst, blueprint, stunner, turn, stun, webrtc, gateway-api]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to stunner/stunner-gateway-
+# operator 1.1.0 (matches platform/stunner/blueprint.yaml +
+# values.yaml `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: stunner-gateway-operator
+    version: "1.1.0"
+    repository: "https://l7mp.io/stunner"

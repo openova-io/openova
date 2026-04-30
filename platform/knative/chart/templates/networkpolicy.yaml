@@ -1,0 +1,96 @@
+{{- /*
+NetworkPolicy — locks the Knative operator + webhook pods down to the
+minimum egress / ingress required.
+
+Ingress:
+  - apiserver → operator-webhook (TCP 9443) for admission validation.
+  - intra-namespace traffic between operator + webhook.
+  - Prometheus scraping when ServiceMonitor is opted in.
+
+Egress:
+  - cluster DNS (always required).
+  - apiserver (operator watches CRDs, manages KnativeServing CR
+    children).
+  - intra-namespace traffic.
+
+DEFAULT FALSE per Catalyst overlay convention. The Knative *data* plane
+(activator, autoscaler, controller, webhook, queue-proxy sidecars) lives
+in `knative-serving` namespace and is governed by upstream Knative's own
+NetworkPolicies (rendered by the operator from the KnativeServing CR);
+this NetworkPolicy applies only to the operator namespace.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable.
+*/}}
+{{- if .Values.knativeOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-knative
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-knative.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: knative-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-namespace traffic between operator and webhook.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # apiserver → webhook (admission validation for KnativeServing CRs).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 9443
+    # Prometheus scraping — only when ServiceMonitor is opted in.
+    {{- if .Values.knativeOverlay.serviceMonitor.enabled }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    {{- end }}
+  egress:
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Intra-namespace traffic.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # apiserver — the operator watches every Knative-managed resource.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # knative-serving namespace — operator reconciles workloads here.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.knativeOverlay.knativeServing.namespace | default "knative-serving" }}
+{{- end }}

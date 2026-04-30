@@ -1,0 +1,45 @@
+{{- /*
+HorizontalPodAutoscaler — Catalyst overlay for the Knative operator
+Deployment.
+
+DEFAULT FALSE. The Knative operator is leader-elected so multiple
+replicas are passive standbys; HPA rarely makes sense for it. Per-
+Sovereign overlays MAY enable for multi-tenant Sovereigns where the
+operator + webhook see heavy concurrent reconcile pressure.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every threshold + bound is
+operator-tunable.
+*/}}
+{{- if .Values.knativeOverlay.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bp-knative-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-knative.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.knativeOverlay.hpa.targetDeployment | default "knative-operator" }}
+  minReplicas: {{ .Values.knativeOverlay.hpa.minReplicas }}
+  maxReplicas: {{ .Values.knativeOverlay.hpa.maxReplicas }}
+  metrics:
+    {{- if .Values.knativeOverlay.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.knativeOverlay.hpa.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.knativeOverlay.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.knativeOverlay.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

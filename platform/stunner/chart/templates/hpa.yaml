@@ -1,0 +1,51 @@
+{{- /*
+HorizontalPodAutoscaler — Catalyst overlay for the STUNner dataplane
+Deployment.
+
+DEFAULT FALSE. The dataplane scales with active TURN allocations; per-
+Sovereign overlays enable HPA on Sovereigns serving multi-tenant WebRTC
+traffic at scale. Default solo-Sovereign keeps a single dataplane
+replica per the upstream chart's `dataplane.spec.replicas` knob.
+
+Targets the dataplane Deployment named `stunner-dataplane` (rendered by
+the upstream gateway-operator when `dataplane.mode: managed`). Per-
+Sovereign overlays MAY override the target via
+`.Values.stunnerOverlay.hpa.targetDeployment` (e.g. when running a
+custom dataplane name).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every threshold + bound is
+operator-tunable.
+*/}}
+{{- if .Values.stunnerOverlay.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bp-stunner-dataplane
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-stunner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.stunnerOverlay.hpa.targetDeployment | default "stunner-dataplane" }}
+  minReplicas: {{ .Values.stunnerOverlay.hpa.minReplicas }}
+  maxReplicas: {{ .Values.stunnerOverlay.hpa.maxReplicas }}
+  metrics:
+    {{- if .Values.stunnerOverlay.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.stunnerOverlay.hpa.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.stunnerOverlay.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.stunnerOverlay.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

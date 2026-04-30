@@ -1,0 +1,77 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-kserve
+  labels:
+    catalyst.openova.io/section: pts-4-6-ai-ml
+spec:
+  version: 1.0.0
+  card:
+    title: KServe
+    summary: |
+      Kubernetes-native model serving — InferenceService CRD, multi-
+      framework predictors (vLLM, TorchServe, Triton, SKLearn), inference
+      graphs. Wraps the upstream `kserve/kserve` chart and ships a
+      Catalyst-curated `RawDeployment` mode (no per-InferenceService
+      Knative Service hop by default — KServe writes Deployments
+      directly), with **Knative still installed** (via bp-knative) for
+      Application-tier Blueprints that opt in to scale-to-zero on a per-
+      InferenceService basis. Used by bp-cortex (composite AI Hub
+      Blueprint).
+    icon: kserve.svg
+    category: ai-ml
+  visibility: unlisted              # bootstrap-kit infrastructure component
+  configSchema:
+    type: object
+    properties:
+      deploymentMode:
+        type: string
+        enum: [RawDeployment, Serverless]
+        default: RawDeployment
+        description: |
+          KServe deployment mode. RawDeployment writes plain
+          Deployment+Service+HPA per InferenceService (no Knative hop).
+          Serverless writes a Knative Service per InferenceService
+          (scale-to-zero). Catalyst defaults to RawDeployment but bp-
+          knative is still installed so per-InferenceService overrides
+          via annotation can opt in to Serverless without infra changes.
+      ingressClass:
+        type: string
+        default: cilium
+        description: |
+          KServe ingress class — Catalyst defaults to Cilium native
+          Gateway-API (istio-less).
+      controllerReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+        description: |
+          KServe controller-manager replicas. Solo Sovereign = 1;
+          multi-AZ overlays bump for HA.
+      crds:
+        type: object
+        properties:
+          create:
+            type: boolean
+            default: true
+            description: |
+              Install serving.kserve.io CRDs as part of this chart.
+              CRDs ship with the upstream chart; consumers gated via
+              Flux dependsOn.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium            # Cilium native Gateway-API ingress
+      version: ^1
+    - blueprint: bp-cert-manager      # KServe webhook TLS
+      version: ^1
+    - blueprint: bp-knative           # Knative still installed for per-IS Serverless opt-in
+      version: ^1
+  upgrades:
+    from: ["0.x"]

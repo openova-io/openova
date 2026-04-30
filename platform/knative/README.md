@@ -2,7 +2,20 @@
 
 Serverless platform for Kubernetes with scale-to-zero and event-driven capabilities. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6 — AI/ML). Used by `bp-cortex` (composite AI Hub Blueprint) as the serverless layer for KServe-managed model inference.
 
-**Status:** Accepted | **Updated:** 2026-04-27
+**Status:** Accepted | **Updated:** 2026-04-30
+
+---
+
+## Blueprint chart
+
+This folder ships an umbrella Helm chart at `chart/` that wraps the upstream `knative-operator` chart (v1.21.1) under `dependencies:`. Catalyst-curated overlay templates render alongside:
+
+- `chart/templates/knativeserving.yaml` — `operator.knative.dev/v1beta1.KnativeServing` CR pre-configured for **istio-less mode** (Cilium native Gateway-API ingress, no Knative-Istio sidecar). Domain template is sourced from `knativeOverlay.knativeServing.sovereignFqdn` — REQUIRED, no hardcoded fallback per [`docs/INVIOLABLE-PRINCIPLES.md`](../../docs/INVIOLABLE-PRINCIPLES.md) #4.
+- `chart/templates/networkpolicy.yaml` — locks the operator namespace down (DEFAULT FALSE).
+- `chart/templates/servicemonitor.yaml` — operator metrics scrape (DEFAULT FALSE per [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §11.2; Capabilities-gated).
+- `chart/templates/hpa.yaml` — operator Deployment HPA (DEFAULT FALSE; operator is leader-elected so HPA rarely makes sense).
+
+**Istio-less mode**: the KnativeServing CR ships with `ingress.istio.enabled: false`, `ingress.contour.enabled: false`, `ingress.kourier.enabled: false`, and `config.network.ingress-class: cilium.ingress.networking.knative.dev` so Knative Routes resolve to Cilium HTTPRoute / Gateway-API objects.
 
 ---
 

@@ -1,0 +1,46 @@
+{{- /*
+ServiceMonitor — Catalyst overlay for the Knative operator metrics
+endpoint.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The
+`monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack — an
+Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+`enabled: true` would render a ServiceMonitor that the apiserver rejects
+on a fresh Sovereign install.
+
+Defense in depth: the values toggle (.Values.knativeOverlay.serviceMonitor
+.enabled) is the operator switch; the Capabilities gate skips the
+resource entirely on a Sovereign that has not yet reconciled the CRD, so
+flipping the toggle on a too-early Sovereign cannot break the bp-knative
+reconcile.
+
+Note: this ServiceMonitor scrapes the operator only. The Knative
+data-plane components (activator, autoscaler, controller, webhook) live
+in `knative-serving` namespace and have their own ServiceMonitors
+rendered by the operator from the KnativeServing CR — opt in there via
+the per-cluster KnativeServing overlay.
+*/}}
+{{- if and .Values.knativeOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-knative
+  namespace: {{ default .Release.Namespace .Values.knativeOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-knative.labels" . | nindent 4 }}
+    {{- with .Values.knativeOverlay.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: knative-operator
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.knativeOverlay.serviceMonitor.path | quote }}
+      interval: {{ .Values.knativeOverlay.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.knativeOverlay.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

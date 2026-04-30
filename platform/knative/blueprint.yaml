@@ -1,0 +1,70 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-knative
+  labels:
+    catalyst.openova.io/section: pts-4-6-ai-ml
+spec:
+  version: 1.0.0
+  card:
+    title: Knative
+    summary: |
+      Serverless platform for Kubernetes — scale-to-zero, request-driven
+      compute, traffic splitting. Wraps the upstream `knative-operator`
+      chart and ships a Catalyst-curated `KnativeServing` Custom Resource
+      configured for **istio-less** mode (Cilium native Gateway-API
+      ingress, no Istio sidecar). Foundation for bp-kserve model serving
+      and any application Blueprint that wants to run as a Knative
+      Service. Domain template per Sovereign FQDN.
+    icon: knative.svg
+    category: ai-ml
+  visibility: unlisted              # bootstrap-kit infrastructure component
+  configSchema:
+    type: object
+    properties:
+      sovereignFqdn:
+        type: string
+        description: |
+          Domain root used by Knative Serving to template service URLs
+          (e.g. `<svc>.<ns>.<sovereign-fqdn>`). Required — Catalyst rule
+          per docs/INVIOLABLE-PRINCIPLES.md #4 forbids hardcoding a
+          fallback. Cluster overlays MUST set this to the Sovereign's
+          FQDN (matches `var.sovereign_fqdn` in the OpenTofu module).
+      ingressClass:
+        type: string
+        default: cilium
+        description: |
+          Knative ingress class. Catalyst defaults to Cilium native
+          Gateway-API (istio-less). Cluster overlays MAY switch to
+          another ingress class.
+      knativeServing:
+        type: object
+        properties:
+          create:
+            type: boolean
+            default: true
+            description: |
+              Render the `operator.knative.dev/v1beta1.KnativeServing`
+              CR alongside the operator. Cluster overlays MAY set false
+              and author their own KnativeServing CR with bespoke
+              high-availability / autoscaler tuning.
+          scaleToZero:
+            type: boolean
+            default: true
+            description: |
+              Enable scale-to-zero. Default true mirrors the value
+              proposition (cost savings on idle workloads).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium            # provides Gateway-API CRDs + native ingress class
+      version: ^1
+    - blueprint: bp-cert-manager      # auto-TLS for Knative Serving routes
+      version: ^1
+  upgrades:
+    from: ["0.x"]

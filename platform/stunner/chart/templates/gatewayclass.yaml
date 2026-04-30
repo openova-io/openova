@@ -1,0 +1,31 @@
+{{- /*
+GatewayClass — Cilium-native Gateway-API integration for STUNner.
+
+The upstream `stunner-gateway-operator` claims any GatewayClass whose
+`controllerName` matches `stunner.l7mp.io/gateway-operator` (default).
+We render the GatewayClass alongside the operator so consuming Blueprints
+(bp-relay / LiveKit) can immediately reference it without an operator
+ordering dance.
+
+DEFAULT TRUE — the gateway-operator is useless without a GatewayClass to
+claim. Per-Sovereign overlays MAY set `gatewayClass.create: false` and
+author their own (e.g. multi-tenant Sovereigns where each Org owns a
+distinct GatewayClass).
+
+Capabilities-gated on `gateway.networking.k8s.io/v1` so a Sovereign that
+hasn't yet reconciled the Gateway-API CRDs (delivered by bp-cilium) does
+not fail Helm render — the resource is silently skipped and the next
+reconcile picks it up.
+*/}}
+{{- if .Values.stunnerOverlay.gatewayClass.create }}
+{{- if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.stunnerOverlay.gatewayClass.name | quote }}
+  labels:
+    {{- include "bp-stunner.labels" . | nindent 4 }}
+spec:
+  controllerName: {{ .Values.stunnerOverlay.gatewayClass.controllerName | quote }}
+{{- end }}
+{{- end }}
