@@ -102,7 +102,10 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
       'arch-graph-node-Cluster-Cluster:cluster-eu-central-primary',
     )
     await expect(cluster).toBeVisible()
-    await cluster.click()
+    // force: true bypasses Playwright's stability check — the force-graph
+    // simulation is intentionally continuous (cooldownTicks: Infinity-equiv),
+    // so nodes never strictly "settle". The click event still fires correctly.
+    await cluster.click({ force: true })
 
     const panel = page.getByTestId('infrastructure-detail-panel')
     await expect(panel).toBeVisible()
@@ -122,7 +125,8 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     const cluster = page.getByTestId(
       'arch-graph-node-Cluster-Cluster:cluster-eu-central-primary',
     )
-    await cluster.click({ button: 'right' })
+    // force: true — see comment in the click-detail-panel test above.
+    await cluster.click({ button: 'right', force: true })
 
     const menu = page.getByTestId('cloud-architecture-context-menu')
     await expect(menu).toBeVisible()
@@ -166,7 +170,8 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     const cluster = page.getByTestId(
       'arch-graph-node-Cluster-Cluster:cluster-eu-central-primary',
     )
-    await cluster.dblclick()
+    // force: true — continuous simulation never reaches "stable".
+    await cluster.dblclick({ force: true })
     await page.waitForTimeout(500)
     await page.screenshot({
       path: 'e2e/screenshots/p2-architecture-focus.png',
