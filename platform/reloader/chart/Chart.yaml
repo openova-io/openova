@@ -1,0 +1,29 @@
+apiVersion: v2
+name: bp-reloader
+description: |
+  Catalyst Blueprint umbrella chart for Stakater Reloader. Depends on the
+  upstream `reloader` chart (stakater/stakater-charts) as a Helm subchart
+  so `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `reloader:` key in values.yaml.
+
+  Reloader is the secret/configmap-rotation glue across Catalyst — when
+  bp-cert-manager rotates TLS, when ESO syncs a rotated secret from
+  bp-openbao, or when an operator edits a ConfigMap, Reloader triggers a
+  rolling restart of the dependent workloads marked with
+  `reloader.stakater.com/auto: "true"` (or per-resource annotations).
+type: application
+version: 1.0.0
+appVersion: "v1.4.16"
+keywords: [catalyst, blueprint, reloader, configmap, secret, rotation, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to stakater/reloader 2.2.11 (appVersion v1.4.16) — current stable
+# on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: reloader
+    version: "2.2.11"
+    repository: "https://stakater.github.io/stakater-charts"
