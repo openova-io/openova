@@ -1,0 +1,228 @@
+# Expected dependency DAG for clusters/_template/bootstrap-kit/*.yaml
+#
+# Authoritative spec: docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2.
+# Consumed by:        scripts/check-bootstrap-deps.sh
+# Updated by:         W2.K0 (slots 01-14 baseline + slots 15-48 forward declarations)
+#                     W2.K1, K2, K3, K4 PRs add the corresponding HR files; this
+#                     file already declares the expected deps for those slots so
+#                     each W2 PR can be mechanically verified at merge time.
+#
+# Schema:
+#   slots:
+#     - slot: <int>             # numeric prefix on the HR file (01..48)
+#       name: <string>          # value of metadata.name on the HelmRelease
+#       depends_on: [<string>]  # ordered or unordered; comparison is set-based
+#       wave: <"present"|"W2.K1"|"W2.K2"|"W2.K3"|"W2.K4">
+#
+# Comparison semantics enforced by check-bootstrap-deps.sh:
+#   - Each HR file present on disk MUST declare exactly the depends_on set listed
+#     here (missing edges -> error, extra edges -> error).
+#   - HRs declared here but not yet present on disk are reported as "deferred"
+#     (info, not an error) so that this file can be the static authoritative list
+#     while W2.K1..K4 land their HR files in series.
+#   - The graph is checked for cycles after merging declared+actual edges.
+#
+# The slot-numbering convention is documented in BOOTSTRAP-KIT-EXPANSION-PLAN.md §3.
+
+slots:
+  # ---- Tier 0-4: present today (post-PR-247 baseline) -----------------------
+  - slot: 1
+    name: bp-cilium
+    depends_on: []
+    wave: present
+  - slot: 2
+    name: bp-cert-manager
+    depends_on: [bp-cilium]
+    wave: present
+  - slot: 3
+    name: bp-flux
+    depends_on: [bp-cert-manager]
+    wave: present
+  - slot: 4
+    name: bp-crossplane
+    depends_on: [bp-flux]
+    wave: present
+  - slot: 5
+    name: bp-sealed-secrets
+    depends_on: [bp-cert-manager]
+    wave: present
+  - slot: 6
+    name: bp-spire
+    depends_on: [bp-cert-manager]
+    wave: present
+  - slot: 7
+    name: bp-nats-jetstream
+    depends_on: [bp-spire]
+    wave: present
+  - slot: 8
+    name: bp-openbao
+    depends_on: [bp-spire]
+    wave: present
+  - slot: 9
+    name: bp-keycloak
+    depends_on: [bp-cert-manager]
+    wave: present
+  - slot: 10
+    name: bp-gitea
+    depends_on: [bp-keycloak]
+    wave: present
+  - slot: 11
+    name: bp-powerdns
+    depends_on: [bp-cert-manager]
+    wave: present
+  - slot: 12
+    name: bp-external-dns
+    depends_on: [bp-cert-manager, bp-powerdns]
+    wave: present
+  - slot: 13
+    name: bp-catalyst-platform
+    depends_on: [bp-gitea]
+    wave: present
+  - slot: 14
+    name: bp-crossplane-claims
+    depends_on: [bp-crossplane]
+    wave: present
+
+  # ---- Tier 5: storage + DB (W2.K1, slots 15-19) ----------------------------
+  - slot: 15
+    name: bp-external-secrets
+    depends_on: [bp-openbao, bp-cert-manager]
+    wave: W2.K1
+  - slot: 16
+    name: bp-cnpg
+    depends_on: [bp-flux]
+    wave: W2.K1
+  - slot: 17
+    name: bp-valkey
+    depends_on: [bp-flux]
+    wave: W2.K1
+  - slot: 18
+    name: bp-seaweedfs
+    depends_on: [bp-flux, bp-cert-manager]
+    wave: W2.K1
+  - slot: 19
+    name: bp-harbor
+    depends_on: [bp-cnpg, bp-seaweedfs, bp-cert-manager]
+    wave: W2.K1
+
+  # ---- Tier 6: observability (W2.K2, slots 20-26) ---------------------------
+  - slot: 20
+    name: bp-opentelemetry
+    depends_on: [bp-cert-manager]
+    wave: W2.K2
+  - slot: 21
+    name: bp-alloy
+    depends_on: [bp-opentelemetry]
+    wave: W2.K2
+  - slot: 22
+    name: bp-loki
+    depends_on: [bp-seaweedfs]
+    wave: W2.K2
+  - slot: 23
+    name: bp-mimir
+    depends_on: [bp-seaweedfs]
+    wave: W2.K2
+  - slot: 24
+    name: bp-tempo
+    depends_on: [bp-seaweedfs]
+    wave: W2.K2
+  - slot: 25
+    name: bp-grafana
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak]
+    wave: W2.K2
+  - slot: 26
+    name: bp-langfuse
+    depends_on: [bp-cnpg, bp-keycloak, bp-cert-manager]
+    wave: W2.K2
+
+  # ---- Tier 7: security + policy (W2.K3, slots 27-34) -----------------------
+  - slot: 27
+    name: bp-kyverno
+    depends_on: [bp-cilium]
+    wave: W2.K3
+  - slot: 28
+    name: bp-reloader
+    depends_on: []
+    wave: W2.K3
+  - slot: 29
+    name: bp-vpa
+    depends_on: []
+    wave: W2.K3
+  - slot: 30
+    name: bp-trivy
+    depends_on: [bp-cert-manager]
+    wave: W2.K3
+  - slot: 31
+    name: bp-falco
+    depends_on: [bp-cilium]
+    wave: W2.K3
+  - slot: 32
+    name: bp-sigstore
+    depends_on: [bp-cert-manager]
+    wave: W2.K3
+  - slot: 33
+    name: bp-syft-grype
+    depends_on: [bp-cert-manager]
+    wave: W2.K3
+  - slot: 34
+    name: bp-velero
+    depends_on: [bp-seaweedfs]
+    wave: W2.K3
+
+  # ---- Tier 8 + 9: edge + apps + AI runtime (W2.K4, slots 35-48) ------------
+  - slot: 35
+    name: bp-coraza
+    depends_on: [bp-cilium, bp-cert-manager]
+    wave: W2.K4
+  - slot: 36
+    name: bp-stunner
+    depends_on: [bp-cilium, bp-cert-manager]
+    wave: W2.K4
+  - slot: 37
+    name: bp-knative
+    depends_on: [bp-cert-manager]
+    wave: W2.K4
+  - slot: 38
+    name: bp-kserve
+    depends_on: [bp-knative]
+    wave: W2.K4
+  - slot: 39
+    name: bp-vllm
+    depends_on: [bp-kserve]
+    wave: W2.K4
+  - slot: 40
+    name: bp-llm-gateway
+    depends_on: [bp-cnpg, bp-keycloak]
+    wave: W2.K4
+  - slot: 41
+    name: bp-anthropic-adapter
+    depends_on: [bp-llm-gateway]
+    wave: W2.K4
+  - slot: 42
+    name: bp-bge
+    depends_on: [bp-cnpg]
+    wave: W2.K4
+  - slot: 43
+    name: bp-nemo-guardrails
+    depends_on: [bp-llm-gateway, bp-bge, bp-cnpg]
+    wave: W2.K4
+  - slot: 44
+    name: bp-temporal
+    depends_on: [bp-cnpg, bp-cert-manager]
+    wave: W2.K4
+  - slot: 45
+    name: bp-openmeter
+    depends_on: [bp-cnpg, bp-nats-jetstream]
+    wave: W2.K4
+  - slot: 46
+    name: bp-livekit
+    depends_on: [bp-stunner, bp-cert-manager]
+    wave: W2.K4
+  - slot: 47
+    name: bp-matrix
+    depends_on: [bp-cnpg, bp-keycloak, bp-cert-manager]
+    wave: W2.K4
+  - slot: 48
+    name: bp-librechat
+    depends_on: [bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak]
+    wave: W2.K4
