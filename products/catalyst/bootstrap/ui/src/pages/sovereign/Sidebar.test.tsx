@@ -79,6 +79,38 @@ function renderSidebarAt(initialPath: string, sovereignFQDN?: string | null) {
       <Sidebar deploymentId="d-test-1234" sovereignFQDN={sovereignFQDN ?? null} />
     ),
   })
+  // P3 — sub-sub routes for the second-level accordion. We register a
+  // representative subset (compute/clusters, network/load-balancers,
+  // storage/pvcs) covering each category so the active-state matcher
+  // can be exercised; the remaining sub-suffixes share the matcher.
+  const cloudComputeClustersRoute = createRoute({
+    getParentRoute: () => cloudComputeRoute,
+    path: '/clusters',
+    component: () => (
+      <Sidebar deploymentId="d-test-1234" sovereignFQDN={sovereignFQDN ?? null} />
+    ),
+  })
+  const cloudComputeVClustersRoute = createRoute({
+    getParentRoute: () => cloudComputeRoute,
+    path: '/vclusters',
+    component: () => (
+      <Sidebar deploymentId="d-test-1234" sovereignFQDN={sovereignFQDN ?? null} />
+    ),
+  })
+  const cloudNetworkLBRoute = createRoute({
+    getParentRoute: () => cloudNetworkRoute,
+    path: '/load-balancers',
+    component: () => (
+      <Sidebar deploymentId="d-test-1234" sovereignFQDN={sovereignFQDN ?? null} />
+    ),
+  })
+  const cloudStoragePvcsRoute = createRoute({
+    getParentRoute: () => cloudStorageRoute,
+    path: '/pvcs',
+    component: () => (
+      <Sidebar deploymentId="d-test-1234" sovereignFQDN={sovereignFQDN ?? null} />
+    ),
+  })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/wizard',
@@ -89,9 +121,12 @@ function renderSidebarAt(initialPath: string, sovereignFQDN?: string | null) {
     jobsRoute,
     cloudRoute.addChildren([
       cloudArchitectureRoute,
-      cloudComputeRoute,
-      cloudNetworkRoute,
-      cloudStorageRoute,
+      cloudComputeRoute.addChildren([
+        cloudComputeClustersRoute,
+        cloudComputeVClustersRoute,
+      ]),
+      cloudNetworkRoute.addChildren([cloudNetworkLBRoute]),
+      cloudStorageRoute.addChildren([cloudStoragePvcsRoute]),
     ]),
     wizardRoute,
   ])
@@ -256,6 +291,116 @@ describe('Sidebar — Cloud accordion', () => {
     renderSidebarAt('/provision/d-test-1234')
     const toggle = await screen.findByTestId('sov-nav-cloud-toggle')
     expect(toggle).toBeTruthy()
+  })
+})
+
+describe('Sidebar — Cloud second-level accordion (P3 of #309)', () => {
+  it('renders Compute / Network / Storage as category rows with a toggle button each', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    await screen.findByTestId('sov-nav-cloud-compute-row')
+    // Each category exposes a row container + a Link (sov-nav-cloud-<id>)
+    // navigating to the landing page + a separate toggle button
+    // (sov-nav-cloud-<id>-toggle).
+    for (const id of ['compute', 'network', 'storage'] as const) {
+      expect(screen.getByTestId(`sov-nav-cloud-${id}-row`)).toBeTruthy()
+      const link = screen.getByTestId(`sov-nav-cloud-${id}`)
+      expect(link.tagName).toBe('A')
+      expect(link.getAttribute('href') ?? '').toMatch(new RegExp(`/cloud/${id}$`))
+      const toggle = screen.getByTestId(`sov-nav-cloud-${id}-toggle`)
+      expect(toggle.tagName).toBe('BUTTON')
+    }
+  })
+
+  it('Compute toggle expands to reveal 4 sub-sub items', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    const toggle = await screen.findByTestId('sov-nav-cloud-compute-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    expect(screen.getByTestId('sov-nav-cloud-compute-clusters')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-compute-vclusters')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-compute-node-pools')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-compute-worker-nodes')).toBeTruthy()
+  })
+
+  it('Network toggle reveals 4 sub-sub items (Services/Ingresses/Load Balancers/DNS Zones)', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    const toggle = await screen.findByTestId('sov-nav-cloud-network-toggle')
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('sov-nav-cloud-network-services')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-network-ingresses')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-network-load-balancers')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-network-dns-zones')).toBeTruthy()
+  })
+
+  it('Storage toggle reveals 4 sub-sub items (PVCs/Storage Classes/Buckets/Volumes)', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    const toggle = await screen.findByTestId('sov-nav-cloud-storage-toggle')
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('sov-nav-cloud-storage-pvcs')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-storage-storage-classes')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-storage-buckets')).toBeTruthy()
+    expect(screen.getByTestId('sov-nav-cloud-storage-volumes')).toBeTruthy()
+  })
+
+  it('persists each second-level expand state independently', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    await screen.findByTestId('sov-nav-cloud-compute-toggle')
+    fireEvent.click(screen.getByTestId('sov-nav-cloud-compute-toggle'))
+    fireEvent.click(screen.getByTestId('sov-nav-cloud-storage-toggle'))
+    expect(window.localStorage.getItem('sov-nav-cloud-compute-expanded')).toBe('true')
+    expect(window.localStorage.getItem('sov-nav-cloud-storage-expanded')).toBe('true')
+    expect(window.localStorage.getItem('sov-nav-cloud-network-expanded')).toBe(null)
+    fireEvent.click(screen.getByTestId('sov-nav-cloud-compute-toggle'))
+    expect(window.localStorage.getItem('sov-nav-cloud-compute-expanded')).toBe('false')
+  })
+
+  it('auto-expands the matching category when on /cloud/<category>/<child>', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/compute/clusters')
+    const toggle = await screen.findByTestId('sov-nav-cloud-compute-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    // The matching child carries aria-current=page.
+    const clusters = screen.getByTestId('sov-nav-cloud-compute-clusters')
+    expect(clusters.getAttribute('aria-current')).toBe('page')
+    // The Compute parent row is also marked active because the operator
+    // is inside the Compute sub-tree.
+    const compute = screen.getByTestId('sov-nav-cloud-compute')
+    expect(compute.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('Compute landing link href ends in /cloud/compute (not a child)', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/architecture')
+    const compute = (await screen.findByTestId('sov-nav-cloud-compute')) as HTMLAnchorElement
+    expect(compute.tagName).toBe('A')
+    const href = compute.getAttribute('href') ?? ''
+    expect(href).toMatch(/\/cloud\/compute$/)
+  })
+
+  it('child link href targets /cloud/<category>/<child>', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/compute')
+    await screen.findByTestId('sov-nav-cloud-compute-toggle')
+    // Compute auto-expanded because we're on the Compute landing page;
+    // the children should already be visible.
+    const link = screen.getByTestId('sov-nav-cloud-compute-vclusters') as HTMLAnchorElement
+    const href = link.getAttribute('href') ?? ''
+    expect(href).toMatch(/\/cloud\/compute\/vclusters$/)
+  })
+
+  it('Network → Load Balancers child highlights when on that route', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/network/load-balancers')
+    const toggle = await screen.findByTestId('sov-nav-cloud-network-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const lb = screen.getByTestId('sov-nav-cloud-network-load-balancers')
+    expect(lb.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('Storage → PVCs child highlights when on that route', async () => {
+    renderSidebarAt('/provision/d-test-1234/cloud/storage/pvcs')
+    const toggle = await screen.findByTestId('sov-nav-cloud-storage-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const pvcs = screen.getByTestId('sov-nav-cloud-storage-pvcs')
+    expect(pvcs.getAttribute('aria-current')).toBe('page')
   })
 })
 
