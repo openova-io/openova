@@ -104,17 +104,34 @@ If you find yourself creating an executive summary instead of working through th
 
 ---
 
-## 7. Verify before claiming done
+## 7. Verify before claiming done — the deploy chain is the contract
 
 The user has said: "DoD E2E 2-pass GREEN on the current deployed SHA is the ONLY valid proof of done. CI-green + pods-running is not enough." (per auto-memory `feedback_dod_is_the_proof.md`).
 
-Specifically for code claims:
+**A merged PR is not a delivered feature.** Before claiming any work as "done", run the canonical chain personally — never delegate, never assume. If any step breaks, the feature is NOT delivered.
 
-- "I built X" requires X to actually run end-to-end. Not "X compiles." Not "X is committed." Not "the structure is there."
-- "Real provisioning" requires a real Hetzner project + a real provisioning run + a working Sovereign at the end of it.
-- "11 G2 charts" requires those charts to actually install their upstream + apply Catalyst values + produce a working component.
+```
+PR merged → CI workflow triggered → workflow succeeded →
+artifact published (GHCR/registry) → Flux/CI deploy commit landed →
+target cluster reconciled → pod rolled → live endpoint serves new version
+```
 
-**Before claiming done in a user-visible message, verify the claim is true.** If you can't verify (no real Hetzner project to test against), say "structurally complete, runtime-untested" — never imply working when it isn't.
+**Trigger phrases** that fire this protocol — when I see any of these in my own thinking, agent reports, or a question from the user, I MUST run the chain before answering "yes":
+
+- "PR merged" / "auto-deploys" / "CI will pick it up"
+- "tests passed" / "lint clean" / "unit tests green" — these are NOT delivery
+- "should be live shortly" / "propagating now"
+- User asks "is X done?" / "does this work?" / "show me the URL"
+
+**Workflow trigger gotchas to remember** (fail mode discovered 2026-04-30):
+- Many `Build & Deploy *` workflows in `openova-io/openova` fire on `workflow_dispatch + cron only`, NOT on push. Path-filtered push triggers must be explicitly added or the workflow won't fire.
+- Verify the workflow's `on:` block before assuming a merge will deploy. If it's cron+manual, fire `gh workflow run` after every relevant merge.
+
+**For UI work**: the only acceptable proof of "done" is a Playwright MCP screenshot of the live production endpoint, compared to the spec by me with my own eyes. Not the agent's screenshot. Not the agent's % grade. Mine.
+
+**For chart/code work**: the proof is `kubectl get hr -A` Ready=True OR `curl` returning the expected payload, run after Flux confirms reconcile. Not "the chart packaged successfully."
+
+If I cannot verify (cluster not reachable, no test env), the user-facing message MUST say "structurally complete, runtime-unverified — verification blocked on <X>" — never imply delivery.
 
 ---
 
@@ -174,6 +191,14 @@ Each violation that gets caught lands a numbered Lesson in `VALIDATION-LOG.md`. 
 **Lesson #25 (2026-04-28):** Hardcoded chart versions (cilium 1.16.5, openbao 2.1.0 then 0.16.0, keycloak 25.0.6 then 24.7.1) directly in the bootstrap installer Go code instead of reading them from a Crossplane Composition / OpenTofu variable / values.yaml metadata block at runtime. Each "fix" was another hardcoded value that happened to be more correct — never a structural fix to make the version configurable.
 
 **Lesson #26 (2026-04-28):** Wrote scaffolding (compiles, builds, signs, publishes OCI) and presented it as "real working code" in user-visible summaries. The wizard's first POST would fail at SSH-key validation; `fetchKubeconfig()` returns a literal placeholder string. Presenting structurally-complete-but-runtime-broken code as "real" is exactly the deception the docs warn against.
+
+**Lesson #27 (2026-04-30):** Confused "PR merged" with "feature delivered." Merged 22 catalyst PRs over 6 hours; user reported the UI looked unchanged. Audit found `catalyst-build.yaml` only fires on cron+manual, not push — every merged PR sat unbuilt; production served the original failing image (`:52085db`) the entire session. The fix is the deploy-chain protocol now in §7. The trigger phrase "PR merged" must always be followed by my running the chain.
+
+**Lesson #28 (2026-04-30):** Accepted agent self-grades and "intentional divergence" rationalizations as final state. PR #245 shipped pill-cards labeled "intentional divergence" — user: "is this a joke?" PR #282 was self-graded "88% match" — user: "there are zero circles, all the page is full of old rectangle." The fix: agent self-grades are inadmissible. Parent loads the artifact (mockup + screenshot) and judges with own eyes before merging. See `~/.claude/projects/.../memory/feedback_no_agent_self_grades.md`.
+
+**Lesson #29 (2026-04-30):** Edited `products/catalyst/chart/templates/` paths without auditing both consumers. The same path is read by Sovereign Helm installs (needs valid Helm template) AND by contabo-mkt's plain Flux Kustomization (needs valid raw YAML — chokes on `{{ }}`). Multiple PRs (#246 deleted "stray" kustomization.yaml indexes; #260 added Helm `{{ if }}` to a CRD; #280 deleted "legacy" Traefik ingress files; #281 deleted entire sme-services dir) broke 3 contabo Flux Kustomizations for 5+ hours; console.openova.io served the Traefik default self-signed cert. The fix: before editing any shared chart/manifest path, list every Flux Kustomization + HelmRelease that consumes it. See `feedback_shared_resource_consumer_audit.md`.
+
+**Lesson #30 (2026-04-30):** Resource discipline crashed the Contabo VPS. Dispatched 12 simultaneous Opus subagents on a 4-vCPU/11GB machine; load spiked past 24, OS hard-rebooted, `/tmp` was wiped (lost kubeconfigs + SSH keys). Even after reboot, kept dispatching 4 agents during heavy phases. The fix: maximum 2-4 simultaneous agents on this VPS (depending on workload weight); `uptime && free -h` BEFORE every dispatch; durable artifacts go in `~/.cache/openova/` not `/tmp/`. See `feedback_resource_budget_4_agents.md`.
 
 ---
 
