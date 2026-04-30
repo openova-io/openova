@@ -92,7 +92,7 @@ The user said: "you are not allowed to stop for any reason for the next 24 hours
 
 ---
 
-## 6. Ticket discipline is non-negotiable
+## 6. Ticket discipline is non-negotiable — and ticket-watch is mandatory
 
 The user has the `/issue` discipline encoded in `~/.claude/CLAUDE.md`. Every piece of work flows through a GitHub issue. Specifically:
 
@@ -101,6 +101,34 @@ The user has the `/issue` discipline encoded in `~/.claude/CLAUDE.md`. Every pie
 - Updating ticket bodies with "committed at SHA <abc>" matters. The Kanban board is the source of truth.
 
 If you find yourself creating an executive summary instead of working through the ticket list, that's a violation. The list is the work. Work the list.
+
+### 6a. Ticket-watch protocol — multiple Claude sessions run in parallel
+
+The user runs MULTIPLE Claude sessions concurrently. Each session can independently open, comment on, label, or close GitHub issues. Without a watch protocol, sessions step on each other and the user loses track.
+
+**Before any ticket-touching action, run a 2-second watch:**
+
+```bash
+# Has anything changed in the last 30 minutes that overlaps my scope?
+gh issue list --repo openova-io/openova --state open --search "updated:>$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S)" --json number,title,updatedAt,labels --jq '.[] | "#\(.number) \(.updatedAt[11:19]) \(.title)"'
+
+# For a specific ticket I'm about to touch:
+gh issue view <num> --json updatedAt,comments --jq '{updated: .updatedAt, lastComment: .comments[-1].createdAt, lastAuthor: .comments[-1].author.login}'
+```
+
+**Apply these rules:**
+
+- Before opening a NEW ticket: search existing open issues for keyword overlap (`gh issue list --search "<keywords>"`). If a similar ticket exists, comment on the existing one instead.
+- Before commenting/labeling/closing an EXISTING ticket: check `updatedAt` < 5 minutes ago means another session is likely active on it. Stop and ASK THE USER: "Issue #X was updated 2 minutes ago by <author>. Do you want me to proceed or wait?"
+- When opening a PR: search open PRs first (`gh pr list --search "<branch keyword>"`) — another session may have already opened one for the same fix.
+- When taking action on a ticket: post a comment IMMEDIATELY noting "Session X (this Claude session, identifier=<some token>) is starting work on this. Will report back at <ETA>." This way the user sees your intent before you start, and other sessions see it before they start.
+
+**Inform the user proactively** when watch detects overlap:
+> "I noticed issue #267 was updated 4 minutes ago — another session may be working on it. Want me to proceed, wait, or pick a different ticket?"
+
+The user, as master, then decides whether to coordinate sessions, kill one, or let me proceed.
+
+**Do NOT silently push through overlapping work.** That creates merge conflicts, duplicate comments, and contradictory ticket state — all of which the user has explicitly called out as nightmares.
 
 ---
 
