@@ -39,6 +39,19 @@ spire:
       country: DE
       organization: OpenOva Catalyst
       common_name: SPIRE CA
+    # Disable the default ClusterSPIFFEID resource shipped by the upstream
+    # controller-manager. On a fresh Sovereign the CRD is registered by
+    # the same chart's pre-install hook, but Helm still tries to apply
+    # the controller-manager-cluster-ids.yaml template before the CRD is
+    # observable on the API server, producing:
+    #   no matches for kind "ClusterSPIFFEID" in version "spire.spiffe.io/v1alpha1"
+    # Operators add specific identities post-bootstrap; bootstrap doesn't
+    # need a default. Re-enable per-Sovereign when needed.
+    controllerManager:
+      identities:
+        clusterSPIFFEIDs:
+          default:
+            enabled: false
   spire-agent:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
