@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-external-secrets
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
   (ESO). Depends on the upstream `external-secrets` chart as a Helm
