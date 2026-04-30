@@ -151,11 +151,19 @@ interface JobsTableProps {
    * (item #8b: AppDetail → Jobs tab filtered to that app's jobs only).
    */
   appIdFilter?: string
+  /**
+   * Optional pre-filter pinned to a single batchId. Used by the
+   * BatchDetail page (epic #204 item #4) to surface only the rows
+   * that belong to the batch the operator drilled into. The Batch
+   * filter dropdown is hidden when this is set, mirroring how
+   * `appIdFilter` hides the App dropdown.
+   */
+  initialBatchFilter?: string
 }
 
 const STATUS_VALUES: readonly JobStatus[] = ['running', 'pending', 'succeeded', 'failed']
 
-export function JobsTable({ jobs, deploymentId, appIdFilter }: JobsTableProps) {
+export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter }: JobsTableProps) {
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
   const [appFilter, setAppFilter] = useState<string>('')
@@ -177,6 +185,7 @@ export function JobsTable({ jobs, deploymentId, appIdFilter }: JobsTableProps) {
   const visibleJobs = useMemo<Job[]>(() => {
     const filtered = jobs.filter((j) => {
       if (appIdFilter && j.appId !== appIdFilter) return false
+      if (initialBatchFilter && j.batchId !== initialBatchFilter) return false
       if (statusFilter && j.status !== statusFilter) return false
       if (appFilter && j.appId !== appFilter) return false
       if (batchFilter && j.batchId !== batchFilter) return false
@@ -185,7 +194,7 @@ export function JobsTable({ jobs, deploymentId, appIdFilter }: JobsTableProps) {
     })
     // Spread to a mutable copy before sort — `jobs` is readonly.
     return [...filtered].sort(compareJobs)
-  }, [jobs, search, statusFilter, appFilter, batchFilter, appIdFilter])
+  }, [jobs, search, statusFilter, appFilter, batchFilter, appIdFilter, initialBatchFilter])
 
   return (
     <div className="jobs-table-wrap" data-testid="jobs-table-wrap">
@@ -247,23 +256,25 @@ export function JobsTable({ jobs, deploymentId, appIdFilter }: JobsTableProps) {
             </label>
           )}
 
-          <label className="jobs-filter-label">
-            <span className="jobs-filter-caption">Batch</span>
-            <select
-              value={batchFilter}
-              onChange={(e) => setBatchFilter(e.target.value)}
-              className="jobs-filter-select"
-              data-testid="jobs-filter-batch"
-              aria-label="Filter by batch"
-            >
-              <option value="">All</option>
-              {batchOptions.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </label>
+          {initialBatchFilter ? null : (
+            <label className="jobs-filter-label">
+              <span className="jobs-filter-caption">Batch</span>
+              <select
+                value={batchFilter}
+                onChange={(e) => setBatchFilter(e.target.value)}
+                className="jobs-filter-select"
+                data-testid="jobs-filter-batch"
+                aria-label="Filter by batch"
+              >
+                <option value="">All</option>
+                {batchOptions.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <span
             className="jobs-result-count"
@@ -296,7 +307,9 @@ export function JobsTable({ jobs, deploymentId, appIdFilter }: JobsTableProps) {
                 </td>
               </tr>
             ) : (
-              visibleJobs.map((j) => <JobRow key={j.id} job={j} deploymentId={deploymentId} />)
+              visibleJobs.map((j) => (
+                <JobRow key={j.id} job={j} deploymentId={deploymentId} />
+              ))
             )}
           </tbody>
         </table>
@@ -343,7 +356,15 @@ function JobRow({ job, deploymentId }: JobRowProps) {
         )}
       </td>
       <td className="jobs-cell jobs-cell-batch">
-        <Chip text={job.batchId} testid={`jobs-cell-batch-${job.id}`} kind="batch" />
+        <Link
+          to="/provision/$deploymentId/batches/$batchId"
+          params={{ deploymentId, batchId: job.batchId }}
+          className="jobs-chip jobs-chip-batch jobs-chip-link"
+          data-testid={`jobs-cell-batch-${job.id}`}
+          title={job.batchId}
+        >
+          {job.batchId}
+        </Link>
       </td>
       <td className="jobs-cell jobs-cell-status">
         <StatusBadge status={job.status} jobId={job.id} />
@@ -561,6 +582,16 @@ const JOBS_TABLE_CSS = `
 .jobs-chip-app   { color: #38BDF8; border-color: rgba(56,189,248,0.25); }
 .jobs-chip-batch { color: #C084FC; border-color: rgba(192,132,252,0.25); }
 .jobs-chip-dep   { color: var(--color-text-dim); }
+.jobs-chip-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.jobs-chip-link:hover {
+  text-decoration: underline;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: currentColor;
+}
 .jobs-chip-row {
   display: flex;
   flex-wrap: wrap;
