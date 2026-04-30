@@ -1,0 +1,47 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-external-secrets-stores
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: External Secrets — Stores
+    summary: |
+      Default ClusterSecretStore CR(s) wiring the bp-external-secrets
+      controller to bp-openbao. Split from bp-external-secrets@1.0.0 (#331)
+      to resolve CRD-ordering deadlock — the CR cannot live in the same
+      Helm release as the operator that registers its CRD; Flux dependsOn
+      orders the two charts so this one applies after the controller is
+      Ready and CRDs are guaranteed registered.
+
+      Mirrors the bp-crossplane-claims pattern (PR #247).
+    icon: external-secrets.svg
+    category: security
+  visibility: unlisted
+  configSchema:
+    type: object
+    properties:
+      clusterSecretStore:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          name:
+            type: string
+            default: vault-region1
+          server:
+            type: string
+            default: "http://openbao.openbao.svc.cluster.local:8200"
+          path:
+            type: string
+            default: secret
+          version:
+            type: string
+            enum: [v1, v2]
+            default: v2
+  dependsOn:
+    - bp-external-secrets
+    - bp-openbao

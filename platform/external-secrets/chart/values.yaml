@@ -90,38 +90,9 @@ external-secrets:
     service:
       enabled: false
 
-# ─── Catalyst-managed default ClusterSecretStore (templates/clustersecretstore-vault-region1.yaml) ──
-# The Catalyst-curated wrapper renders ONE default ClusterSecretStore
-# (`vault-region1`) wired to the in-cluster bp-openbao service. Cluster
-# overlays MAY:
-#   - Set `clusterSecretStore.enabled: false` to disable the default and
-#     author their own ClusterSecretStore CRs (e.g. multi-region with
-#     explicit primary/replica).
-#   - Override `clusterSecretStore.server` to point at an external OpenBao
-#     FQDN when ESO is reading from a different region's primary.
-#
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") all knobs are
-# runtime-configurable; cluster overlays in clusters/<sovereign>/ may
-# override without rebuilding the Blueprint OCI artifact.
-clusterSecretStore:
-  # Render the default `vault-region1` ClusterSecretStore.
-  enabled: true
-  # ClusterSecretStore name — matches platform/external-secrets/blueprint.yaml.
-  name: vault-region1
-  # In-cluster OpenBao endpoint. Cluster overlays override to the external
-  # FQDN (https://openbao.<location-code>.<sovereign-domain>) when ESO is
-  # reading from a different region's primary.
-  server: "http://openbao.openbao.svc.cluster.local:8200"
-  # KV mount path inside OpenBao (default per platform/openbao/README.md).
-  path: secret
-  # KV engine version (v2 = versioned KV, the OpenBao default).
-  version: v2
-  kubernetesAuth:
-    # Auth mount inside OpenBao for the Kubernetes auth method.
-    mountPath: kubernetes
-    # OpenBao role granted to the ESO ServiceAccount.
-    role: external-secrets
-    # ServiceAccount that ESO uses to authenticate against OpenBao.
-    # Must match external-secrets.serviceAccount.name + targetNamespace.
-    serviceAccountName: external-secrets
-    serviceAccountNamespace: external-secrets-system
+# ─── ClusterSecretStore values ──────────────────────────────────────────
+# As of bp-external-secrets@1.1.0 (issue #331) the default
+# ClusterSecretStore CR moved into bp-external-secrets-stores@1.0.0 to
+# resolve a CRD-ordering deadlock. Set
+# `platform/external-secrets-stores/chart/values.yaml::clusterSecretStore.*`
+# instead — the same key path; only the chart owning the CR changed.
