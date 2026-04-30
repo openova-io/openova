@@ -72,6 +72,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: powerdns
   targetNamespace: powerdns
   dependsOn:

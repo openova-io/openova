@@ -42,6 +42,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: external-dns
   targetNamespace: external-dns
   dependsOn:

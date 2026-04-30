@@ -31,6 +31,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: cilium
   targetNamespace: kube-system
   chart:
@@ -49,6 +50,11 @@ spec:
       retries: 3
   values:
     cilium:
+      # Enable L7 proxy so Cilium's chart installs the
+      # ciliumenvoyconfigs / ciliumclusterwideenvoyconfigs CRDs that the
+      # cilium-agent waits for at startup. Without this, agent crash-loops
+      # forever and the node.cilium.io/agent-not-ready taint never lifts.
+      l7Proxy: true
       prometheus:
         enabled: false
         serviceMonitor:

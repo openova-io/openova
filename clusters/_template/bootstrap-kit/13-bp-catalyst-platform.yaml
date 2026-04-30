@@ -36,6 +36,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: catalyst-platform
   targetNamespace: catalyst-system
   dependsOn:

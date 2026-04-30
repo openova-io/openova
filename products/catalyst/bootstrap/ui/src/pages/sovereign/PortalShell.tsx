@@ -4,7 +4,8 @@
  * Layout contract (matches canonical 1:1):
  *   • flex min-h-screen wrapper
  *   • left rail: <Sidebar /> w-56 fixed
- *   • main: ml-56 flex-1 p-8
+ *   • main: ml-56 flex-1 with a 56px sticky header band hosting the
+ *     ThemeToggle (top-right) and a 32px main content area.
  *
  * The canonical shell handles auth + tenant resolution; in the
  * Sovereign-provision wizard context that's not relevant — the wizard
@@ -19,6 +20,7 @@
 
 import type { ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface PortalShellProps {
   /** Stable deploymentId from the URL parameter. */
@@ -35,7 +37,18 @@ export function PortalShell({ deploymentId, sovereignFQDN, children }: PortalShe
       data-testid="sov-portal-shell"
     >
       <Sidebar deploymentId={deploymentId} sovereignFQDN={sovereignFQDN} />
-      <main className="ml-56 flex-1 p-8">{children}</main>
+      <div className="ml-56 flex flex-1 flex-col">
+        {/* Sovereign portal top header band — mirrors the wizard header
+            (h-14, 16px X-padding, theme-token border-bottom) so the
+            theme toggle anchors in the same place across both chromes. */}
+        <header
+          data-testid="portal-header"
+          className="sticky top-0 z-40 flex h-14 items-center justify-end gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg-2)]/90 px-4 backdrop-blur"
+        >
+          <ThemeToggle />
+        </header>
+        <main className="flex-1 p-8">{children}</main>
+      </div>
     </div>
   )
 }

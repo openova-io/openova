@@ -7,9 +7,17 @@
  *
  * Layout, top-down:
  *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link.
- *   • <BatchProgress /> — one progress bar per batch (item #4).
  *   • <JobsTable /> — table view with search/sort/filter (items #2,
- *     #6, #7, #8a).
+ *     #6, #7, #8a). Each batch chip is a link to the BatchDetail page
+ *     (item #4: progress bar moves to per-batch detail view).
+ *
+ * Per founder feedback for epic #204 item #4 (verbatim):
+ *   "On the jobs page the top 3 cards are not required, the progress
+ *    bar needs to be shown only when I click a specific batch and it
+ *    shows the batch page along with its batch progress at the top"
+ *
+ * Consequently the top BatchProgress strip is intentionally OMITTED on
+ * this surface. Per-batch progress lives at /batches/$batchId only.
  *
  * Data flow:
  *   1. Live SSE events (via useDeploymentEvents) populate the legacy
@@ -31,12 +39,10 @@ import { useParams, Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
-import { BatchProgress } from './BatchProgress'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
-import { deriveBatches } from '@/test/fixtures/jobs.fixture'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -65,7 +71,6 @@ export function JobsPage({ disableStream = false }: JobsPageProps = {}) {
 
   const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
   const flatJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
-  const batches = useMemo(() => deriveBatches(flatJobs), [flatJobs])
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
@@ -88,7 +93,6 @@ export function JobsPage({ disableStream = false }: JobsPageProps = {}) {
       </div>
 
       <div className="mt-6" data-testid="sov-jobs-list">
-        <BatchProgress batches={batches} />
         <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
       </div>
     </PortalShell>
