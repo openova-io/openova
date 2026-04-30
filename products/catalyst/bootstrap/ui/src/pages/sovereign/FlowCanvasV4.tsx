@@ -204,36 +204,52 @@ export function FlowCanvasV4(props: FlowCanvasV4Props) {
     }
   }, [simNodes, layout.edges])
 
-  // Wire d3-drag onto each node group. Re-run when nodes change.
+  // Wire d3-drag onto each node group. Re-run only when the SET of node
+  // ids changes (NOT every tick — that would re-attach 60+ times/sec).
+  // Per-node correlation: we read data-job-id off the dragged element
+  // and look the SimNode up via nodesRef, since d3 .data() join + .call
+  // ordering was failing to bind listeners.
+  const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {
     if (!svgRef.current) return
-    const svg = select(svgRef.current)
     const sim = simRef.current
     if (!sim) return
 
-    const dragBehavior = d3drag<SVGGElement, SimNode>()
-      .on('start', (event, d) => {
+    const dragBehavior = d3drag<SVGGElement, unknown>()
+      .on('start', function (event) {
         if (!event.active) sim.alphaTarget(0.3).restart()
-        d.fx = d.x ?? 0
-        d.fy = d.y ?? 0
+        const id = (this as SVGGElement).getAttribute('data-job-id')
+        const d = id ? nodesRef.current.get(id) : null
+        if (d) {
+          d.fx = d.x ?? 0
+          d.fy = d.y ?? 0
+        }
       })
-      .on('drag', (event, d) => {
-        d.fx = event.x
-        d.fy = event.y
+      .on('drag', function (event) {
+        const id = (this as SVGGElement).getAttribute('data-job-id')
+        const d = id ? nodesRef.current.get(id) : null
+        if (d) {
+          d.fx = event.x
+          d.fy = event.y
+        }
       })
-      .on('end', (event, d) => {
+      .on('end', function (event) {
         if (!event.active) sim.alphaTarget(0)
-        // Release pin so it settles back into anchor pull when not dragged.
-        d.fx = null
-        d.fy = null
+        const id = (this as SVGGElement).getAttribute('data-job-id')
+        const d = id ? nodesRef.current.get(id) : null
+        if (d) {
+          // Release pin so the anchor pull settles the node naturally.
+          d.fx = null
+          d.fy = null
+        }
       })
 
-    const sel = svg.selectAll<SVGGElement, SimNode>('[data-flow-draggable]')
-      .data(simNodes, (d) => d?.id ?? '')
-    // d3-drag attaches via .call — TS gets confused; runtime is fine.
+    const sel = select(svgRef.current).selectAll<SVGGElement, unknown>(
+      'g[data-flow-draggable]'
+    )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(sel as any).call(dragBehavior)
-  }, [simNodes, tick])
+  }, [nodeIdsKey])
 
   if (layout.nodes.length === 0 && layout.regions.length === 0) {
     return (
@@ -504,7 +520,8 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
   return (
     <g
       data-testid={`flow-job-${node.id}`}
-      data-flow-draggable
+      data-flow-draggable=""
+      data-job-id={node.id}
       data-status={node.status}
       data-region={node.regionId}
       data-family={node.familyId}
