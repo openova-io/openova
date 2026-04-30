@@ -19,3 +19,8 @@ resources:
   - 12-external-dns.yaml
   - 13-bp-catalyst-platform.yaml
   - 14-crossplane-claims.yaml
+  - 15-external-secrets.yaml
+  - 16-cnpg.yaml
+  - 17-valkey.yaml
+  - 18-seaweedfs.yaml
+  - 19-harbor.yaml

@@ -1,0 +1,71 @@
+# bp-seaweedfs — Catalyst bootstrap-kit Blueprint, W2.K1 slot 18.
+# S3-compatible object storage encapsulation. Pre-requisite for every
+# blob-storage consumer in the bootstrap-kit:
+#   - bp-velero (slot 34) — backups
+#   - bp-loki (slot 22) — log chunks
+#   - bp-mimir (slot 23) — metric blocks
+#   - bp-tempo (slot 24) — trace blocks
+#   - bp-harbor (slot 19) — registry blob storage
+# and downstream Apps that need cheap S3-compatible blob storage.
+#
+# Per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2.3 (Tier 5 storage+DB
+# foundation) and PROVISIONING-PLAN.md §3 — every Sovereign owns its own
+# SeaweedFS so blob data never leaves the Sovereign's cluster.
+#
+# Wrapper chart: platform/seaweedfs/chart/
+# Catalyst-curated values: platform/seaweedfs/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seaweedfs
+  labels:
+    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-seaweedfs
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-seaweedfs
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: seaweedfs
+  targetNamespace: seaweedfs
+  # SeaweedFS depends on:
+  #   - bp-flux(03): standard GitOps prerequisite.
+  #   - bp-cert-manager(02): the S3 Filer endpoint terminates TLS via a
+  #     Certificate the chart requests from the cluster ClusterIssuer.
+  dependsOn:
+    - name: bp-flux
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-seaweedfs
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-seaweedfs
+        namespace: flux-system
+  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
