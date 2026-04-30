@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-cert-manager-dynadot-webhook.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-cert-manager-dynadot-webhook.selectorLabels" . | nindent 8 }}
+        {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.webhook.podSecurityContext | nindent 8 }}
+      containers:
+        - name: webhook
+          image: "{{ .Values.webhook.image.repository }}:{{ .Values.webhook.image.tag }}"
+          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
+          # The cert-manager webhook framework's RunWebhookServer uses the
+          # standard apiserver flag set — --secure-port, --tls-cert-file,
+          # --tls-private-key-file. Anything not specified takes default
+          # (loopback bind, /tmp temp files). We pin the secure port and
+          # the cert paths to predictable locations under /tls so the
+          # Service + APIService can address them.
+          args:
+            - --secure-port={{ .Values.webhook.securePort }}
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+            - --v=2
+          env:
+            - name: GROUP_NAME
+              value: {{ .Values.webhook.groupName | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.webhook.logLevel | quote }}
+            # Dynadot credentials projected from the K8s Secret in
+            # openova-system. The Role+RoleBinding in rbac.yaml grants
+            # the SA read access; the projected-volume below mounts
+            # them as env values via subPath.
+            - name: DYNADOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dynadot.credentialsSecret.name }}
+                  key: {{ .Values.dynadot.credentialsSecret.keys.apiKey }}
+            - name: DYNADOT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dynadot.credentialsSecret.name }}
+                  key: {{ .Values.dynadot.credentialsSecret.keys.apiSecret }}
+            - name: DYNADOT_MANAGED_DOMAINS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dynadot.credentialsSecret.name }}
+                  key: {{ .Values.dynadot.credentialsSecret.keys.managedDomains }}
+                  optional: true
+            - name: DYNADOT_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dynadot.credentialsSecret.name }}
+                  key: {{ .Values.dynadot.credentialsSecret.keys.legacyDomain }}
+                  optional: true
+            {{- with .Values.dynadot.baseURL }}
+            - name: DYNADOT_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.webhook.securePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.webhook.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            # Serving cert injected by cert-manager via the `Certificate`
+            # resource templated in certificate.yaml. The resulting
+            # Secret materializes tls.crt + tls.key + ca.crt at this
+            # mount point.
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ include "bp-cert-manager-dynadot-webhook.servingCertificate" . }}

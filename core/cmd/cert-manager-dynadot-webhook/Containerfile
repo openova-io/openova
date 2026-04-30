@@ -1,0 +1,58 @@
+# cert-manager-dynadot-webhook — Catalyst-built Go binary implementing
+# cert-manager's external DNS-01 webhook protocol against Dynadot's
+# api3.json. Per docs/INVIOLABLE-PRINCIPLES.md the image is statically
+# compiled, runs as a non-root numeric UID, and ships nothing beyond the
+# binary + CA bundle.
+#
+# Build context: this Containerfile is invoked by the
+# .github/workflows/build-cert-manager-dynadot-webhook.yaml workflow with
+# the repository ROOT as the build context (NOT this directory). The
+# COPY paths below assume that — `core/pkg/dynadot-client/` and
+# `core/cmd/cert-manager-dynadot-webhook/` are both copied so the
+# go.mod's `replace` directive resolves at build time.
+#
+# Two stages:
+#   build  — golang:1.23-alpine, vendored stdlib + module cache
+#   final  — alpine:3.20 minimal runtime (CA certs + the binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /workspace
+
+# ── Stage 1: cache module downloads ──────────────────────────────────────
+# Copy go.mod / go.sum first so day-to-day source rebuilds skip the
+# module download step. Both modules (the webhook + the shared
+# dynadot-client) are needed because go.mod's local replace pulls the
+# client by path.
+COPY core/cmd/cert-manager-dynadot-webhook/go.mod core/cmd/cert-manager-dynadot-webhook/go.sum core/cmd/cert-manager-dynadot-webhook/
+COPY core/pkg/dynadot-client/go.mod core/pkg/dynadot-client/
+
+WORKDIR /workspace/core/cmd/cert-manager-dynadot-webhook
+RUN go mod download
+
+# ── Stage 2: copy source + build ──────────────────────────────────────────
+COPY core/pkg/dynadot-client /workspace/core/pkg/dynadot-client
+COPY core/cmd/cert-manager-dynadot-webhook /workspace/core/cmd/cert-manager-dynadot-webhook
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /webhook .
+
+# ── Stage 3: minimal runtime ──────────────────────────────────────────────
+FROM docker.io/library/alpine:3.20
+
+# ca-certificates so the Dynadot HTTPS calls verify the API cert.
+# tzdata so timestamps render correctly in operator logs.
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=build /webhook /webhook
+
+# Alpine 3.20 already ships UID 65534 as `nobody`. Reuse rather than
+# create a duplicate `nonroot` account. The numeric form satisfies
+# runAsNonRoot=true + runAsUser=65534 in the chart's Deployment.
+USER 65534:65534
+
+# 4443 is the chart's default --secure-port. Operators may rebind via
+# the chart values.
+EXPOSE 4443
+
+ENTRYPOINT ["/webhook"]

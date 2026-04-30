@@ -1,0 +1,45 @@
+apiVersion: v2
+name: bp-cert-manager-dynadot-webhook
+version: 1.0.0
+appVersion: "1.0.0"
+description: |
+  Catalyst-authored Blueprint chart for the cert-manager-dynadot-webhook
+  binary. Deploys a TLS-fronted aggregated apiserver that cert-manager's
+  DNS-01 ClusterIssuer (letsencrypt-dns01-prod, shipped by
+  bp-cert-manager) calls into to provision ACME challenge TXT records
+  on Dynadot-managed pool domains. Closes openova#159.
+
+  No upstream Helm chart exists — this is a fully Catalyst-owned binary
+  consumed only inside an OpenOva Sovereign. Follows the same scratch-
+  chart pattern as bp-coraza (Deployment + Service + ServiceAccount +
+  APIService + Certificate, no upstream subchart). The cert-manager
+  webhook contract requires:
+
+    1. An APIService registration so the kube-apiserver routes
+       /apis/<groupName>/v1alpha1 calls to this Deployment's Service.
+    2. A Service on the cert-manager namespace exposing port 443.
+    3. A serving Certificate signed by cert-manager itself (selfsigned
+       Issuer → CA Certificate → leaf Certificate) with a CA bundle that
+       the APIService's caBundle references.
+    4. RBAC so the SA can read the Dynadot API credentials from the
+       openova-system namespace at the ChallengeRequest source.
+
+  All four are templated here.
+type: application
+keywords: [catalyst, blueprint, cert-manager, dns01, dynadot, webhook]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — the binary is Catalyst-owned and there is no upstream
+# Helm chart to depend on. The `sigstore/common` library subchart below is
+# included ONLY to satisfy the platform-wide blueprint-release.yaml
+# hollow-chart gate (issue #181) — every umbrella MUST declare at least
+# one dependency. `common` is a tiny library chart (helper templates only,
+# zero runtime resources) and contributes nothing to the rendered
+# manifests of bp-cert-manager-dynadot-webhook. Mirrors bp-coraza which
+# uses the same pattern for the same reason.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

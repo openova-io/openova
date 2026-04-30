@@ -1,0 +1,77 @@
+{{- if .Values.rbac.create }}
+# ─── Aggregated apiserver RBAC ───────────────────────────────────────────
+# An aggregated apiserver (which is what a cert-manager external webhook
+# is) needs to delegate auth/authz back to the kube-apiserver. The
+# `extension-apiserver-authentication-reader` ClusterRole and the
+# `system:auth-delegator` ClusterRole are the standard pair documented in
+# https://kubernetes.io/docs/tasks/extend-kubernetes/configure-aggregation-layer/
+# — we bind both to the webhook's ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:auth-delegator
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:auth-reader
+  namespace: kube-system
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# ─── Dynadot credentials access ──────────────────────────────────────────
+# The webhook reads the api-key, api-secret, and managed-domains list
+# from the Dynadot secret in openova-system at startup. Two Roles are
+# required because the binary does not run cross-namespace via
+# informers — it just reads the K8s Secret directly via the projected
+# volume in deployment.yaml. This Role exists ONLY so the chart can be
+# pre-flight validated by `kubectl auth can-i get secret/...` from the
+# webhook's SA, which the bootstrap-kit's gating contract checks before
+# considering the chart Ready.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:dynadot-secret-reader
+  namespace: {{ .Values.dynadot.credentialsSecret.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ .Values.dynadot.credentialsSecret.name }}"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:dynadot-secret-reader
+  namespace: {{ .Values.dynadot.credentialsSecret.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:dynadot-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
