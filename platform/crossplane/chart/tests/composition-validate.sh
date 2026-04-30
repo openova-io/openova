@@ -27,7 +27,13 @@
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Resolve CHART_DIR to an ABSOLUTE path BEFORE the cd below — otherwise
+# CI invokes us with the relative path `platform/crossplane/chart` and
+# every later `"$CHART_DIR/<sub>"` reference (notably FIXTURE_DIR) ends
+# up pointing into a non-existent path because we've already chdir'd
+# into the chart dir.
+CHART_DIR_INPUT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+CHART_DIR="$(cd "$CHART_DIR_INPUT" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
