@@ -1,0 +1,29 @@
+apiVersion: v2
+name: bp-external-secrets-stores
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
+  that wire each Sovereign's bp-external-secrets controller to its bp-openbao
+  backend. Split from bp-external-secrets@1.0.0 (issue #331) to resolve
+  CRD-ordering deadlock: the ClusterSecretStore CR must be applied AFTER ESO's
+  CRDs are registered AND the controller is Ready, which Helm's
+  `before-hook-creation` delete policy can't guarantee within a single
+  HelmRelease (the policy's lookup runs before the upstream chart's CRDs
+  finish registration → "no matches for kind ClusterSecretStore" — see
+  bp-external-secrets@1.0.0 incident on otech.omani.works 2026-04-30).
+
+  Mirrors the bp-crossplane / bp-crossplane-claims split shape (PR #247):
+  controller chart owns the operator + CRDs, separate stores chart owns the
+  CRs, Flux dependsOn orders them.
+
+  Keeps zero upstream subchart deps — the chart is pure Catalyst templates
+  applying CRs against the upstream-registered CRDs.
+type: application
+keywords: [catalyst, blueprint, external-secrets, eso, openbao, secrets, clustersecretstore]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-external-secrets,bp-openbao"
