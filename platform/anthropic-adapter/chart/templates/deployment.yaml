@@ -1,0 +1,107 @@
+{{- if .Values.adapter.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-anthropic-adapter.fullname" . }}
+  labels:
+    {{- include "bp-anthropic-adapter.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.adapter.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-anthropic-adapter.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "bp-anthropic-adapter.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.adapter.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "bp-anthropic-adapter.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.adapter.podSecurityContext | nindent 8 }}
+      {{- with .Values.adapter.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: adapter
+          # Image tag MUST be SHA-pinned by the per-cluster overlay
+          # (Inviolable Principle #4a — Images: GitHub Actions is the
+          # only build path). Empty default fails the render with a
+          # clear error rather than silently shipping :latest.
+          image: "{{ required "adapter.image.tag MUST be SHA-pinned by the per-cluster overlay (never :latest, never empty)" .Values.adapter.image.tag | printf "%s:%s" .Values.adapter.image.repository }}"
+          imagePullPolicy: {{ .Values.adapter.image.pullPolicy }}
+          env:
+            - name: PORT
+              value: {{ .Values.adapter.port | quote }}
+            - name: ANTHROPIC_BASE_URL
+              value: {{ .Values.adapter.anthropic.baseUrl | quote }}
+            - name: ANTHROPIC_API_VERSION
+              value: {{ .Values.adapter.anthropic.apiVersion | quote }}
+            - name: AUTH_MODE
+              value: {{ .Values.adapter.auth.mode | quote }}
+            # OAuth/Max subscription token mounted from the K8s Secret
+            # materialized by ESO from bp-openbao. NEVER an
+            # ANTHROPIC_API_KEY (memory/feedback_no_api_key.md).
+            - name: ANTHROPIC_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adapter.auth.secretName | quote }}
+                  key: {{ .Values.adapter.auth.secretKey | quote }}
+            - name: DEFAULT_MODEL
+              value: {{ .Values.adapter.defaults.model | quote }}
+            - name: DEFAULT_MAX_TOKENS
+              value: {{ .Values.adapter.defaults.maxTokens | quote }}
+            - name: DEFAULT_TEMPERATURE
+              value: {{ .Values.adapter.defaults.temperature | quote }}
+            {{- if .Values.configMap.enabled }}
+            - name: MODEL_MAP_PATH
+              value: /etc/anthropic-adapter/model-map.json
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.adapter.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.adapter.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.adapter.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.adapter.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.adapter.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.adapter.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.adapter.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.adapter.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.adapter.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.adapter.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.adapter.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.configMap.enabled }}
+            - name: config
+              mountPath: /etc/anthropic-adapter
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.configMap.enabled }}
+        - name: config
+          configMap:
+            name: {{ include "bp-anthropic-adapter.fullname" . }}-config
+        {{- end }}
+{{- end }}

@@ -1,0 +1,208 @@
+# Catalyst Blueprint umbrella metadata — the upstream `temporal` chart is
+# resolved as a Helm subchart via Chart.yaml `dependencies:`. This values
+# file carries:
+#
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `temporal:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#   3. Catalyst overlay knobs for CNPG-backed Postgres, Keycloak OIDC
+#      integration, and NetworkPolicy guard rendered by templates/.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operator-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream: { chart: temporal, version: "1.2.0", repo: "https://go.temporal.io/helm-charts" }
+
+# ─── Upstream chart values (subchart key: temporal) ───────────────────────
+# Upstream chart 1.2.0 is a major rewrite vs the historical 0.x line:
+# the per-datastore top-level keys (`cassandra:`, `mysql:`, `postgresql:`,
+# `elasticsearch:`, `prometheus:`, `grafana:`) were ALL removed and
+# replaced with a single `server.config.persistence.datastores.*` map.
+# The chart's validations.yaml fails fast if the legacy keys are present,
+# so this overlay strictly follows the new shape.
+temporal:
+  # Server topology — single-replica frontend / history / matching is the
+  # solo-Sovereign minimum. Multi-region Sovereigns bump replicaCount via
+  # per-cluster overlay (server.replicaCount + frontend/history/matching).
+  server:
+    enabled: true
+    replicaCount: 1
+
+    # Prometheus annotations on pods — keep ON (annotations only; the
+    # ServiceMonitor below is what's gated by the bootstrap-kit ordering).
+    metrics:
+      annotations:
+        enabled: true
+      # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md
+      # §11.2. The `monitoring.coreos.com/v1` CRD ships with
+      # kube-prometheus-stack — an Application Blueprint that itself
+      # depends on the bootstrap-kit; defaulting `enabled: true` here
+      # would render a ServiceMonitor that the apiserver immediately
+      # rejects on a fresh Sovereign install (issue #182). Operator
+      # opts in via per-cluster overlay once kube-prometheus-stack is
+      # reconciled.
+      serviceMonitor:
+        enabled: false
+        interval: 30s
+
+    config:
+      # Logging — debug level for solo-Sovereign smoke testing; production
+      # overlays drop to "info" or "warn".
+      logLevel: "info"
+
+      # Persistence is wired via the Catalyst overlay (templates/
+      # cnpg-cluster.yaml). The datastores map below points at the
+      # CNPG-backed Postgres service; credentials come from the Secret
+      # that CNPG materializes (`bp-temporal-pg-app`).
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        # numHistoryShards is immutable post-install; 512 is the upstream
+        # default and matches Temporal's recommendation for solo
+        # Sovereigns. Multi-region overlays at scale bump pre-install
+        # only (and only by full re-init).
+        numHistoryShards: 512
+        datastores:
+          # Default store — workflow execution history, mutable state.
+          default:
+            sql:
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal
+              # Short DNS — both the Temporal pods and the CNPG primary
+              # service live in the release namespace, so the bare
+              # service name resolves without needing the FQDN.
+              # Per-Sovereign overlays may override to a cross-namespace
+              # FQDN if Temporal is moved out of the CNPG namespace.
+              connectAddr: "bp-temporal-pg-rw:5432"
+              connectProtocol: tcp
+              user: temporal
+              # `existingSecret` + `secretKey` are Helm-specific fields
+              # that the chart strips before rendering the server config;
+              # they fetch the password from the named Secret at install
+              # time. CNPG materializes `bp-temporal-pg-app` with the
+              # `password` key when the Cluster is provisioned.
+              existingSecret: bp-temporal-pg-app
+              secretKey: password
+              maxConns: 20
+              maxIdleConns: 20
+              maxConnLifetime: "1h"
+          # Visibility store — search + filter index. Catalyst defaults
+          # to the same Postgres cluster (single CNPG instance, two
+          # databases). Multi-region overlays at scale separate the
+          # visibility store onto a dedicated cluster.
+          visibility:
+            sql:
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal_visibility
+              connectAddr: "bp-temporal-pg-rw:5432"
+              connectProtocol: tcp
+              user: temporal
+              existingSecret: bp-temporal-pg-app
+              secretKey: password
+              maxConns: 10
+              maxIdleConns: 10
+              maxConnLifetime: "1h"
+
+      metrics:
+        prometheus:
+          timerType: histogram
+          listenAddress: "0.0.0.0:9090"
+
+  # Schema setup — `temporal-sql-tool create-database + setup-schema +
+  # update-schema` runs as a Helm pre-install/pre-upgrade hook (see
+  # upstream templates/server-job.yaml). useHelmHooks=true is upstream
+  # default; we keep it on so the schema bootstrap completes before the
+  # frontend / history / matching pods come up.
+  schema:
+    useHelmHooks: true
+    backoffLimit: 100
+
+  # Web UI — enabled by default; operators flip to false on headless
+  # Sovereigns. Resources are tuned for solo-Sovereign minimum; production
+  # overlays bump for multi-tenant access.
+  web:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # Ingress — disabled in chart values. Catalyst fronts every Web UI
+    # via Cilium Gateway / HTTPRoute, not chart-rendered Ingress.
+    ingress:
+      enabled: false
+
+  # Admintools pod — operators run `tctl namespace register` and ad-hoc
+  # administration through this pod (`kubectl exec -it temporal-admintools
+  # -- tctl ...`).
+  admintools:
+    enabled: true
+
+  # `shims.dockerize` and `shims.elasticsearchTool` toggle compatibility
+  # with the temporalio/server 1.29.x images. We pin 1.31.0 (chart
+  # appVersion), so both shims can be off — keeps the install lean.
+  shims:
+    dockerize: false
+    elasticsearchTool: false
+
+# ─── Catalyst overlay: CNPG-backed Postgres ──────────────────────────────
+# The bp-cnpg `Cluster` CR rendered by templates/cnpg-cluster.yaml. The
+# resulting `bp-temporal-pg-rw` Service is what
+# `temporal.server.config.persistence.datastores.{default,visibility}.sql.connectAddr`
+# above points at. Postgres credentials end up in the
+# `bp-temporal-pg-app` Secret that the upstream chart consumes via
+# `existingSecret`.
+catalystOverlay:
+  cnpg:
+    enabled: true
+    instances: 1
+    storage:
+      size: 5Gi
+      storageClass: ""
+    # Resources scoped to a single-replica frontend/history footprint;
+    # bump via per-cluster overlay for production.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # Postgres image — pinned to a CNPG-managed minor version. Operators
+    # bump in lockstep with bp-cnpg via per-cluster overlay.
+    imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
+
+  # ─── Keycloak OIDC integration ───────────────────────────────────────
+  # Temporal supports OIDC auth via `--auth-claim-mapper` + JWT key
+  # provider. When `auth.enabled: true` and the operator provides
+  # `auth.keycloak.realm` + `auth.keycloak.clientId`, the rendered
+  # ConfigMap wires the Temporal frontend's `authorization.jwtKeyProvider`
+  # to the Keycloak realm's JWKS endpoint and sets the claim mapper.
+  #
+  # DEFAULT FALSE — operator opts in once bp-keycloak is reconciled and a
+  # realm/client exists. Disabled-by-default keeps the chart installable
+  # on a fresh Sovereign before the IDP tier is up
+  # (docs/BLUEPRINT-AUTHORING.md §11.2 spirit — every cross-tier
+  # dependency defaults off).
+  auth:
+    enabled: false
+    keycloak:
+      issuer: ""        # https://keycloak.<env>.<sovereign-domain>/realms/<realm>
+      realm: ""         # e.g. "temporal" or the Sovereign's master realm
+      clientId: ""      # e.g. "temporal-frontend"
+      jwksUri: ""       # https://keycloak.<env>.<sovereign-domain>/realms/<realm>/protocol/openid-connect/certs
+      claimMapper: "default"   # default | noop | <fully-qualified-go-type>
+
+  # ─── NetworkPolicy ───────────────────────────────────────────────────
+  # DEFAULT FALSE — flip via per-cluster overlay once a baseline
+  # NetworkPolicy posture is decided for the Sovereign.
+  networkPolicy:
+    enabled: false

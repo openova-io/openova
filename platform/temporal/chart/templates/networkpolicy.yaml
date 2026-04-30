@@ -1,0 +1,25 @@
+{{- /*
+Catalyst overlay: NetworkPolicy for bp-temporal.
+
+DEFAULT OFF — flip via per-cluster overlay once a baseline NetworkPolicy
+posture is decided for the Sovereign.
+*/ -}}
+{{- if .Values.catalystOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-temporal-default
+  labels:
+    {{- include "bp-temporal.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {}     # Operator narrows via per-cluster overlay; default permits intra-namespace.
+  egress:
+    - {}
+{{- end }}

@@ -1,0 +1,41 @@
+{{- /*
+Catalyst overlay: Keycloak OIDC integration for bp-llm-gateway.
+
+LiteLLM proxy supports JWT-based auth via its `general_settings.master_key`
+fallback + per-route JWT validation; Keycloak realm tokens are validated
+against the realm's JWKS endpoint. This ConfigMap renders an `auth.yaml`
+fragment that the operator wires into the LiteLLM pod via the upstream
+chart's `volumes:` / `volumeMounts:` overlay.
+
+DEFAULT OFF (`catalystOverlay.auth.enabled: false`) — operator opts in
+once bp-keycloak is reconciled, an `llm-gateway` realm/client exists, and
+the per-cluster overlay references this ConfigMap. Keeping it off by
+default keeps the chart installable on a fresh Sovereign before the IDP
+tier is up (docs/BLUEPRINT-AUTHORING.md §11.2 spirit — every cross-tier
+dependency defaults off).
+
+CRITICAL — this is for HUMAN callers (Catalyst Portal, Console, devs
+hitting the proxy from the IDP). Programmatic callers (Catalyst app
+services, CI runners) authenticate via per-tenant master keys rendered
+into `bp-llm-gateway-env` by ESO from bp-openbao. The operator's Claude
+OAuth/Max subscription token used for the Anthropic backend is a
+SEPARATE secret — see values.yaml `catalystOverlay.backends.anthropic`
+docs and memory/feedback_no_api_key.md.
+*/ -}}
+{{- if .Values.catalystOverlay.auth.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-llm-gateway-keycloak-oidc
+  labels:
+    {{- include "bp-llm-gateway.labels" . | nindent 4 }}
+data:
+  auth.yaml: |
+    auth:
+      mode: {{ .Values.catalystOverlay.auth.mode | quote }}
+      keycloak:
+        issuer: {{ .Values.catalystOverlay.auth.keycloak.issuer | quote }}
+        jwksUri: {{ .Values.catalystOverlay.auth.keycloak.jwksUri | quote }}
+        audience: {{ .Values.catalystOverlay.auth.keycloak.audience | quote }}
+        clientId: {{ .Values.catalystOverlay.auth.keycloak.clientId | quote }}
+{{- end }}

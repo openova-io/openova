@@ -1,0 +1,47 @@
+{{- /*
+Catalyst overlay: CNPG-backed Postgres for Temporal persistence + visibility.
+
+bp-temporal lists `bp-cnpg` as a hard dependency in blueprint.yaml. At install
+time, this `Cluster` CR is reconciled by the cluster-wide CloudNativePG
+operator (provided by bp-cnpg). The resulting `bp-temporal-pg-rw` Service is
+what the upstream temporal chart's
+`server.config.persistence.datastores.{default,visibility}.sql.connectAddr`
+values reference, and the `bp-temporal-pg-app` Secret is consumed via
+`existingSecret` for the password lookup performed by the upstream chart's
+`temporal.persistence.eachStore` helper.
+
+Two databases are required (`temporal` for the default workflow store,
+`temporal_visibility` for the search/index visibility store). CNPG's
+`bootstrap.initdb` creates the primary database; the second is created
+via `postInitApplicationSQL`. The upstream chart's pre-install schema
+job then runs `temporal-sql-tool setup-schema` on each.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operator-tunable
+knob lives in values.yaml `catalystOverlay.cnpg.*`.
+*/ -}}
+{{- if .Values.catalystOverlay.cnpg.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: bp-temporal-pg
+  labels:
+    {{- include "bp-temporal.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.catalystOverlay.cnpg.instances }}
+  {{- with .Values.catalystOverlay.cnpg.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  storage:
+    size: {{ .Values.catalystOverlay.cnpg.storage.size }}
+    {{- with .Values.catalystOverlay.cnpg.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.catalystOverlay.cnpg.resources | nindent 4 }}
+  bootstrap:
+    initdb:
+      database: temporal
+      owner: temporal
+      postInitApplicationSQL:
+        - CREATE DATABASE temporal_visibility OWNER temporal;
+{{- end }}
