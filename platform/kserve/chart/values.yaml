@@ -1,0 +1,155 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `kserve:` key flow into the upstream subchart unchanged.
+# Values consumed by templates/ live alongside under `kserveOverlay:`.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value (deployment mode, ingress class, controller replicas,
+# observability toggles) is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: kserve
+    version: "v0.16.0"
+    repo: "oci://ghcr.io/kserve/charts"
+
+# ─── Upstream chart values (subchart key: kserve) ────────────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `kserve:` key flow into that subchart unchanged.
+kserve:
+  kserve:
+    # KServe pinned data-plane version — tracks Chart.yaml dependency.
+    version: "v0.16.0"
+
+    # ─── Controller (KServe controller-manager) ─────────────────────────
+    controller:
+      # Catalyst default = RawDeployment. KServe writes plain
+      # Deployment+Service+HPA per InferenceService; no Knative hop on
+      # the hot path. Per-InferenceService annotations
+      # (`serving.kserve.io/deploymentMode: Serverless`) opt in to
+      # Knative Service rendering on a per-tenant basis — bp-knative is
+      # still installed (declared as a hard dep in blueprint.yaml) so
+      # this works without infra changes.
+      deploymentMode: "RawDeployment"
+
+      # Controller replicas — solo Sovereign 1, multi-AZ overlay 3.
+      # (KServe controller is leader-elected so multiple replicas are
+      # passive standbys.)
+      replicaCount: 1
+
+      # Resources — controller is light.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      gateway:
+        # Ingress domain — REQUIRED. Per docs/INVIOLABLE-PRINCIPLES.md
+        # #4 cluster overlays MUST set this to the Sovereign FQDN. The
+        # upstream chart defaults to "example.com" which we deliberately
+        # leave in place so a misconfigured render fails loudly via a
+        # template-level guard in templates/_helpers.tpl
+        # (see kserveOverlay.requireDomain).
+        domain: example.com
+        domainTemplate: "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}"
+        urlScheme: http
+        # RawDeployment renders Ingress objects per InferenceService —
+        # keep enabled so the gateway path works out of the box.
+        disableIngressCreation: false
+        # Catalyst is istio-less — disable the Istio VirtualHost layer.
+        disableIstioVirtualHost: true
+
+        # Local gateway — used by Serverless mode for in-cluster
+        # routing. Catalyst rewrites both to point at Cilium:
+        # the upstream defaults reference istio-system / Knative-Istio
+        # which Catalyst Sovereigns do NOT ship. RawDeployment does NOT
+        # use these (they are no-ops in Standard mode); we keep them on
+        # cilium so a per-IS Serverless override still resolves to the
+        # right gateway.
+        localGateway:
+          gateway: knative-serving/knative-local-gateway
+          gatewayService: knative-local-gateway.knative-serving.svc.cluster.local
+          knativeGatewayService: ""
+
+        # Ingress gateway — Catalyst uses Gateway-API (Cilium) instead
+        # of legacy Ingress.
+        ingressGateway:
+          # Catalyst defaults to Gateway-API native — Cilium is the
+          # ingress controller. Cluster overlays MAY flip this off to
+          # fall back to legacy Ingress (e.g. on a cluster running an
+          # older Cilium without Gateway-API support — though those are
+          # not Catalyst-targeted).
+          enableGatewayApi: true
+          # KServe Gateway resource — kserve namespace, named
+          # `kserve-ingress-gateway`. Cluster overlays MAY route to a
+          # different Gateway (e.g. one Gateway per Org).
+          kserveGateway: kserve/kserve-ingress-gateway
+          # Render the default kserve Gateway resource on install.
+          # Cluster overlays MAY set false and ship a bespoke Gateway
+          # CR in their own kustomization.
+          createGateway: true
+          # Class — when Gateway-API is on, this is informational
+          # only. Catalyst convention is `cilium`.
+          className: cilium
+          # Gateway namespace/name (legacy Knative wiring; ignored
+          # when enableGatewayApi: true).
+          gateway: knative-serving/knative-ingress-gateway
+
+    # ─── Metrics aggregator ──────────────────────────────────────────────
+    # Metrics aggregation collects per-IS metrics from queue-proxy
+    # sidecars (Serverless) or rbac-proxy (RawDeployment). Default OFF
+    # per docs/BLUEPRINT-AUTHORING.md §11.2 — Prometheus annotations on
+    # IS pods need scrape config that lives downstream in
+    # kube-prometheus-stack.
+    metricsaggregator:
+      enableMetricAggregation: "false"
+      enablePrometheusScraping: "false"
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# These are NOT passed to the upstream subchart. They drive the Catalyst-
+# authored overlay templates that ship alongside the upstream subchart.
+kserveOverlay:
+
+  # ─── NetworkPolicy (DEFAULT FALSE) ──────────────────────────────────────
+  # Per Catalyst convention NetworkPolicy ships disabled — operator turns
+  # this on via per-Sovereign overlay once consumer namespaces are pinned.
+  # The KServe controller-manager talks to:
+  #   - apiserver (CRD watches, child resource creation)
+  #   - bp-cert-manager (webhook TLS, served-cert refresh)
+  #   - InferenceService namespaces (per-IS resource creation)
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is
+  # operator-tunable.
+  networkPolicy:
+    enabled: false
+
+  # ─── ServiceMonitor (DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2)
+  # The `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack —
+  # an Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+  # `enabled: true` would render a ServiceMonitor that the apiserver
+  # rejects on a fresh Sovereign install.
+  serviceMonitor:
+    enabled: false
+    interval: "30s"
+    scrapeTimeout: "10s"
+    path: "/metrics"
+    namespace: ""                   # default: release namespace
+    labels: {}
+
+  # ─── HorizontalPodAutoscaler (DEFAULT FALSE) ────────────────────────────
+  # The KServe controller-manager is leader-elected; HPA rarely makes
+  # sense for it. Per-Sovereign overlays MAY enable for multi-tenant
+  # Sovereigns where the controller + webhook see heavy concurrent
+  # InferenceService reconcile pressure.
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+    # Target Deployment — defaults to `kserve-controller-manager`.
+    targetDeployment: kserve-controller-manager

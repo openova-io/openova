@@ -1,0 +1,49 @@
+{{- /*
+ServiceMonitor — Catalyst overlay for the KServe controller-manager
+metrics endpoint.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The
+`monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack — an
+Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+`enabled: true` would render a ServiceMonitor that the apiserver rejects
+on a fresh Sovereign install.
+
+Defense in depth: the values toggle (.Values.kserveOverlay.serviceMonitor
+.enabled) is the operator switch; the Capabilities gate skips the
+resource entirely on a Sovereign that has not yet reconciled the CRD, so
+flipping the toggle on a too-early Sovereign cannot break the bp-kserve
+reconcile.
+
+Note: this scrapes the *controller* only. Per-InferenceService metrics
+are exposed by queue-proxy (Serverless) or rbac-proxy (RawDeployment)
+and require the upstream `metricsaggregator.enablePrometheusScraping`
+toggle plus per-IS pod annotations — opt in there once the Sovereign's
+observability stack is reconciled.
+*/}}
+{{- if and .Values.kserveOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-kserve
+  namespace: {{ default .Release.Namespace .Values.kserveOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-kserve.labels" . | nindent 4 }}
+    {{- with .Values.kserveOverlay.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      control-plane: kserve-controller-manager
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: https
+      scheme: https
+      path: {{ .Values.kserveOverlay.serviceMonitor.path | quote }}
+      interval: {{ .Values.kserveOverlay.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.kserveOverlay.serviceMonitor.scrapeTimeout | quote }}
+      tlsConfig:
+        insecureSkipVerify: true
+{{- end }}

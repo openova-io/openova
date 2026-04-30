@@ -1,0 +1,163 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `knative-operator:` key flow into the upstream subchart
+# unchanged. Values consumed by templates/ live alongside under
+# `knativeOverlay:`.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value (Sovereign FQDN, ingress class, scale-to-zero gate,
+# observability toggles) is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: knative-operator
+    version: "v1.21.1"
+    repo: "https://knative.github.io/operator"
+
+# ─── Upstream chart values (subchart key: knative-operator) ──────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `knative-operator:` key flow into that subchart unchanged.
+knative-operator:
+  knative_operator:
+    knative_operator:
+      # Pinned upstream image tag — DO NOT use floating tags per
+      # docs/INVIOLABLE-PRINCIPLES.md #4.
+      image: gcr.io/knative-releases/knative.dev/operator/cmd/operator
+      tag: v1.21.1
+      affinity: {}
+      tolerations: []
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    operator_webhook:
+      image: gcr.io/knative-releases/knative.dev/operator/cmd/webhook
+      tag: v1.21.1
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: operator-webhook
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      tolerations: []
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    kubernetes_min_version: v1.25.0
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# These are NOT passed to the upstream subchart. They drive the Catalyst-
+# authored overlay templates that ship alongside the upstream subchart —
+# most importantly the KnativeServing CR which configures the Knative
+# control-plane in istio-less mode.
+knativeOverlay:
+
+  # ─── KnativeServing custom resource (the actual Knative install) ────────
+  # The knative-operator chart ships only the operator + CRDs. To get a
+  # running Knative install, an `operator.knative.dev/v1beta1.KnativeServing`
+  # CR must be applied; this Catalyst-curated overlay does that by default
+  # so a single Helm install gets you a functional Knative Serving in
+  # istio-less mode.
+  #
+  # Cluster overlays MAY set `knativeServing.create: false` and ship their
+  # own KnativeServing CR (e.g. multi-region active-active with a bespoke
+  # autoscaler config).
+  knativeServing:
+    create: true
+    name: knative-serving
+    # Target namespace for the KnativeServing CR. The KnativeServing CR is
+    # cluster-scoped in name but its namespace controls where Knative
+    # Serving's data-plane components are deployed. Default mirrors the
+    # upstream Knative convention.
+    namespace: knative-serving
+    # Pinned KnativeServing version — matches the operator version. The
+    # operator reconciles the data plane to this exact version so we
+    # avoid the floating-tag failure mode.
+    version: "1.21.1"
+    # Sovereign FQDN — Knative Serving uses this to template route URLs:
+    #   <service>.<namespace>.<sovereign-fqdn>
+    # REQUIRED — per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode)
+    # cluster overlays MUST set this to the Sovereign's FQDN. Empty
+    # string in default values → render fails with a clear error
+    # (see templates/knativeserving.yaml).
+    sovereignFqdn: ""
+    # Ingress class — Catalyst defaults to Cilium native Gateway-API
+    # (istio-less). Cluster overlays MAY override to another ingress class.
+    ingressClass: cilium
+    # Istio-less mode — explicitly disable the Knative Istio integration
+    # so the Cilium native Gateway is the L7 path. Per
+    # docs/PLATFORM-TECH-STACK.md §3.4 (Networking) Catalyst does NOT
+    # ship Istio.
+    istioless: true
+    # Scale-to-zero — keep enabled so idle Knative Services consume zero
+    # pods. Cluster overlays disable for low-latency tenants where cold
+    # start is unacceptable.
+    scaleToZero:
+      enabled: true
+      gracePeriod: "30s"
+      stableWindow: "60s"
+    # High-availability — operator-only HA (control plane). Solo
+    # Sovereigns set 1; multi-AZ overlays bump to 3.
+    highAvailability:
+      replicas: 1
+    # Domain template — Knative URL pattern. Default mirrors upstream
+    # convention; cluster overlays MAY rewrite (e.g. `{{.Name}}-{{.Namespace}}.{{.Domain}}`
+    # to drop the dot for shorter hostnames).
+    domainTemplate: "{{.Name}}.{{.Namespace}}.{{.Domain}}"
+
+  # ─── NetworkPolicy (DEFAULT FALSE) ──────────────────────────────────────
+  # Per Catalyst convention NetworkPolicy ships disabled — operator turns
+  # this on via per-Sovereign overlay once consumer namespaces are pinned.
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is
+  # operator-tunable.
+  networkPolicy:
+    enabled: false
+
+  # ─── ServiceMonitor (DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2)
+  # The `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack —
+  # an Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+  # `enabled: true` would render a ServiceMonitor that the apiserver
+  # rejects on a fresh Sovereign install. Operator opts in via per-cluster
+  # overlay once kube-prometheus-stack reconciles.
+  serviceMonitor:
+    enabled: false
+    interval: "30s"
+    scrapeTimeout: "10s"
+    path: "/metrics"
+    namespace: ""                   # default: release namespace
+    labels: {}
+
+  # ─── HorizontalPodAutoscaler (DEFAULT FALSE) ────────────────────────────
+  # The Knative operator itself rarely needs HPA (it's leader-elected).
+  # Default solo-Sovereign keeps a single replica. Per-Sovereign overlays
+  # MAY enable for multi-tenant Sovereigns where the operator + webhook
+  # see heavy concurrent reconcile pressure.
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+    # Target Deployment — defaults to the operator. Cluster overlays
+    # MAY override to target the operator-webhook instead.
+    targetDeployment: knative-operator

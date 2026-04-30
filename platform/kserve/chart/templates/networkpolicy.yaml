@@ -1,0 +1,108 @@
+{{- /*
+NetworkPolicy — locks the KServe controller-manager pod down to the
+minimum egress / ingress required.
+
+Ingress:
+  - apiserver → controller-manager webhook (TCP 9443) for InferenceService
+    admission validation.
+  - Prometheus scraping (TCP 8080 — kube-rbac-proxy) when ServiceMonitor
+    is opted in.
+
+Egress:
+  - cluster DNS (always required).
+  - apiserver (controller watches CRDs + reconciles per-IS Deployments,
+    Services, Ingresses, HPAs).
+  - cert-manager namespace (webhook served-cert refresh).
+  - intra-namespace traffic (controller ↔ webhook ↔ rbac-proxy
+    sidecar).
+
+DEFAULT FALSE per Catalyst overlay convention. Per-IS workloads
+(InferenceService → Deployment / Knative Service) live in tenant
+namespaces and are governed by per-Application NetworkPolicies.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable.
+*/}}
+{{- if .Values.kserveOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-kserve
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-kserve.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: kserve-controller-manager
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-namespace traffic.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # apiserver → webhook (admission validation).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 9443
+    # Prometheus scraping — only when ServiceMonitor is opted in.
+    {{- if .Values.kserveOverlay.serviceMonitor.enabled }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8443
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+  egress:
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Intra-namespace traffic.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # apiserver — controller watches every InferenceService /
+    # ServingRuntime / TrainedModel / InferenceGraph CR.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # cert-manager — webhook served-cert refresh.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cert-manager
+      ports:
+        - protocol: TCP
+          port: 9443
+    # All namespaces — controller creates Deployments/Services/Ingresses
+    # per InferenceService in tenant namespaces. The blast radius is
+    # narrowed by Kubernetes RBAC (ClusterRole) rather than NetworkPolicy.
+    - to:
+        - namespaceSelector: {}
+{{- end }}

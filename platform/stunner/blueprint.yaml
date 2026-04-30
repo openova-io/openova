@@ -1,0 +1,83 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-stunner
+  labels:
+    catalyst.openova.io/section: pts-4-5-communication
+spec:
+  version: 1.0.0
+  card:
+    title: STUNner
+    summary: |
+      K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps
+      the upstream `stunner/stunner-gateway-operator` chart and ships
+      Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays.
+      Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the
+      in-cluster SFU. Cilium-native Gateway integration (no separate
+      Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a
+      UDP-listening Gateway whose backing Service is exposed on the
+      Sovereign's UDP allocation port range (default 30000-32767, opened
+      at the Hetzner firewall by the Sovereign's bp-firewall composition).
+    icon: stunner.svg
+    category: communication
+  visibility: unlisted              # bootstrap-kit infrastructure component
+  configSchema:
+    type: object
+    properties:
+      udpPortRange:
+        type: object
+        properties:
+          start:
+            type: integer
+            default: 30000
+            minimum: 1024
+            maximum: 65535
+          end:
+            type: integer
+            default: 32767
+            minimum: 1024
+            maximum: 65535
+        description: |
+          UDP port range allocated for TURN media relay. Must match the
+          range opened at the Sovereign's edge firewall. Default 30000-
+          32767 mirrors Hetzner Cloud Firewall convention.
+      dataplane:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [legacy, managed]
+            default: managed
+            description: |
+              `managed` lets the gateway-operator dynamically render
+              dataplane Deployments per Gateway CR (recommended).
+              `legacy` runs a single static dataplane.
+          replicas:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 10
+      gatewayClass:
+        type: object
+        properties:
+          create:
+            type: boolean
+            default: true
+            description: |
+              Render a `stunner.l7mp.io/v1` GatewayClass referencing
+              this operator. Cluster overlays MAY set false and ship
+              their own GatewayClass pointing at a different operator.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+    minRegions: 1
+    maxRegions: 3
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium            # Cilium GatewayClass / Gateway-API CRDs underpin the L4 path
+      version: ^1
+    - blueprint: bp-cert-manager      # TURN-DTLS termination cert (per-Sovereign overlay)
+      version: ^1
+  upgrades:
+    from: ["0.x"]

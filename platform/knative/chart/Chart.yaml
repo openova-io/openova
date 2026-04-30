@@ -1,0 +1,36 @@
+apiVersion: v2
+name: bp-knative
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for Knative — serverless
+  platform foundation for bp-kserve model serving and any application
+  Blueprint that runs as a Knative Service. Depends on the upstream
+  `knative-operator` chart as a Helm subchart so `helm dependency build`
+  pulls the upstream payload into this artifact; the Catalyst overlay
+  templates in templates/ (KnativeServing CR for istio-less mode + Cilium
+  Gateway-API ingress, NetworkPolicy guard, ServiceMonitor toggle, HPA
+  toggle) sit alongside the upstream subchart and Helm renders both at
+  install time. Catalyst-curated values flow into the upstream subchart
+  under the `knative-operator:` key in values.yaml.
+
+  Istio-less mode: the KnativeServing CR ships with `ingress.istio:
+  enabled: false` and `config.network.ingress-class: cilium` so the
+  Catalyst Cilium native Gateway is the L7 path — no Istio sidecar
+  injection, no Istio CRDs required.
+type: application
+appVersion: "1.21.1"
+keywords: [catalyst, blueprint, knative, serverless, kserve, autoscale, istio-less]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to knative-operator v1.21.1
+# (matches platform/knative/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: knative-operator
+    version: "v1.21.1"
+    repository: "https://knative.github.io/operator"

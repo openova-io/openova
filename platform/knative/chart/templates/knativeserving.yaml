@@ -1,0 +1,96 @@
+{{- /*
+KnativeServing custom resource — the Catalyst-curated Knative Serving
+install configured for **istio-less** mode.
+
+The upstream `knative-operator` chart ships only the operator + CRDs.
+This template renders the actual `KnativeServing` CR alongside so a
+single Helm install gets a functional Knative install. Per docs/
+INVIOLABLE-PRINCIPLES.md #4 every knob is operator-tunable; cluster
+overlays MAY set `knativeOverlay.knativeServing.create: false` and ship
+their own KnativeServing CR with bespoke autoscaler / HA tuning.
+
+Capabilities-gated on `operator.knative.dev/v1beta1` so a Sovereign that
+hasn't yet reconciled the upstream knative-operator's CRDs (delivered by
+this chart's subchart) does not fail Helm render — the resource is
+silently skipped on the very first reconcile pass and the next pass
+picks it up. The upstream operator runs the apiserver-extension
+controller that registers `operator.knative.dev/v1beta1` so this only
+matters on the very first install — Helm's CRD-then-CR ordering during
+install handles it correctly.
+
+Sovereign FQDN handling: if `knativeOverlay.knativeServing.sovereignFqdn`
+is empty we deliberately FAIL the render with a clear error rather than
+substitute a hardcoded fallback (per docs/INVIOLABLE-PRINCIPLES.md #4).
+Cluster overlays MUST populate this value.
+*/}}
+{{- if .Values.knativeOverlay.knativeServing.create }}
+{{- $sov := .Values.knativeOverlay.knativeServing.sovereignFqdn -}}
+{{- if not $sov -}}
+{{- fail "knativeOverlay.knativeServing.sovereignFqdn is required — set it to the Sovereign FQDN (e.g. omantel.omani.works) in the per-cluster overlay. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), bp-knative ships no fallback default." -}}
+{{- end -}}
+apiVersion: operator.knative.dev/v1beta1
+kind: KnativeServing
+metadata:
+  name: {{ .Values.knativeOverlay.knativeServing.name | quote }}
+  namespace: {{ .Values.knativeOverlay.knativeServing.namespace | quote }}
+  labels:
+    {{- include "bp-knative.labels" . | nindent 4 }}
+spec:
+  # Pin the data-plane version explicitly (operator reconciles to this
+  # exact version; avoids floating-tag drift per docs/INVIOLABLE-
+  # PRINCIPLES.md #4).
+  version: {{ .Values.knativeOverlay.knativeServing.version | quote }}
+
+  # ── Istio-less ingress: Cilium native Gateway-API is the L7 path ───────
+  # `ingress.istio.enabled: false` disables the Knative-Istio integration.
+  # `ingress.contour.enabled: false` and `ingress.kourier.enabled: false`
+  # likewise — Catalyst does NOT ship contour or kourier. The Knative
+  # `network.ingress-class` config below points at Cilium so Knative
+  # Routes resolve to Cilium HTTPRoute / Gateway-API objects.
+  ingress:
+    istio:
+      enabled: {{ ne .Values.knativeOverlay.knativeServing.istioless true }}
+    contour:
+      enabled: false
+    kourier:
+      enabled: false
+
+  # ── Knative config — the canonical config-* ConfigMaps controlled via
+  #    the KnativeServing CR's `config:` field.
+  config:
+    network:
+      # Ingress class — Catalyst defaults to Cilium native Gateway-API
+      # (istio-less). Per-Sovereign overlays MAY override.
+      ingress-class: {{ printf "%s.ingress.networking.knative.dev" .Values.knativeOverlay.knativeServing.ingressClass | quote }}
+      # Domain template — Knative URL pattern uses the Sovereign FQDN.
+      domain-template: {{ .Values.knativeOverlay.knativeServing.domainTemplate | quote }}
+      # Auto-TLS — Catalyst Sovereigns ship cert-manager (bp-cert-manager).
+      # Cluster overlays opt in by setting auto-tls / tls / http-protocol
+      # in their own KnativeServing CR (or this overlay once a per-tenant
+      # ClusterIssuer is wired).
+
+    domain:
+      # Default Knative domain — the Sovereign FQDN. The KnativeServing
+      # CR's `config.domain` map keys are domain names; the value is a
+      # comma-separated label selector that must match the Service's
+      # labels. Empty string ("") matches all Services so this becomes
+      # the cluster-default domain.
+      {{ $sov | quote }}: ""
+
+    autoscaler:
+      enable-scale-to-zero: {{ .Values.knativeOverlay.knativeServing.scaleToZero.enabled | quote }}
+      scale-to-zero-grace-period: {{ .Values.knativeOverlay.knativeServing.scaleToZero.gracePeriod | quote }}
+      stable-window: {{ .Values.knativeOverlay.knativeServing.scaleToZero.stableWindow | quote }}
+
+  # ── High availability — controls replica count of Knative Serving's
+  #    control-plane components (activator, autoscaler, controller,
+  #    webhook). Solo Sovereign = 1; multi-AZ overlays bump to 3.
+  high-availability:
+    replicas: {{ .Values.knativeOverlay.knativeServing.highAvailability.replicas }}
+
+  # ── Workloads — disable the Knative net-istio component explicitly so
+  #    the operator does not auto-deploy it.
+  deployments:
+    - name: webhook
+      replicas: {{ .Values.knativeOverlay.knativeServing.highAvailability.replicas }}
+{{- end }}

@@ -1,0 +1,93 @@
+{{- /*
+NetworkPolicy — locks the STUNner gateway-operator + dataplane pods down
+to the minimum egress / ingress required for WebRTC media relay.
+
+Ingress:
+  - bp-relay (LiveKit / SFU) → dataplane on the UDP TURN port range
+    (default 30000-32767, operator-configurable via
+    `stunnerOverlay.udpPortRange`).
+  - Prometheus scraping when ServiceMonitor is opted in (TCP 8080).
+
+Egress:
+  - cluster DNS (always required).
+  - intra-namespace traffic between operator and dataplane pods.
+  - external WebRTC clients reach the dataplane through the cloud LB +
+    edge firewall — that egress path lives outside the K8s NetworkPolicy
+    boundary (the dataplane is the *target*, not the *source*, of media
+    flows from external clients).
+
+DEFAULT FALSE per Catalyst overlay convention — operator turns this on
+via per-Sovereign overlay once consumer namespaces are known. Per
+docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port / namespace is
+operator-tunable.
+*/}}
+{{- if .Values.stunnerOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-stunner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-stunner.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      catalyst.openova.io/blueprint: bp-stunner
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-namespace traffic between operator and dataplane.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # bp-relay (LiveKit / SFU) → STUNner dataplane on the UDP TURN port
+    # range. WebRTC clients themselves enter via the cloud LB / edge
+    # firewall — the K8s NetworkPolicy scope is in-cluster sources only.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.stunnerOverlay.networkPolicy.relayNamespace | quote }}
+      ports:
+        - protocol: UDP
+          port: {{ .Values.stunnerOverlay.udpPortRange.start }}
+          endPort: {{ .Values.stunnerOverlay.udpPortRange.end }}
+    # Prometheus scraping — only when ServiceMonitor is opted in.
+    {{- if .Values.stunnerOverlay.serviceMonitor.enabled }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+  egress:
+    # Cluster DNS — operator + dataplane resolve in-cluster Service FQDNs.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Intra-namespace traffic between operator and dataplane.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # apiserver (operator watches CRDs).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+{{- end }}

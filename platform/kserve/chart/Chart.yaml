@@ -1,0 +1,41 @@
+apiVersion: v2
+name: bp-kserve
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for KServe — Kubernetes-
+  native model serving. Depends on the upstream `kserve` chart as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into
+  this artifact; the Catalyst overlay templates in templates/
+  (NetworkPolicy guard, ServiceMonitor toggle, HPA toggle) sit alongside
+  the upstream subchart and Helm renders both at install time. Catalyst-
+  curated values flow into the upstream subchart under the `kserve:` key
+  in values.yaml.
+
+  RawDeployment mode is the Catalyst default — KServe writes plain
+  Deployment+Service+HPA per InferenceService (no Knative hop). bp-knative
+  is still installed (declared as a hard dependency) so per-Inference
+  Service annotations can opt in to Serverless mode (scale-to-zero) on a
+  per-tenant basis. Both modes use the Cilium native Gateway-API ingress
+  (istio-less).
+type: application
+appVersion: "0.16.0"
+keywords: [catalyst, blueprint, kserve, model-serving, inference, vllm, knative]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to kserve/kserve v0.16.0
+# (matches platform/kserve/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+#
+# The kserve chart bundles its CRDs as a `kserve-crd` subchart of its own,
+# pulled transitively. We pin v0.16.0 — the latest version published on
+# the official OCI registry as of 2026-04-30 (later releases like v0.18.0
+# appear only in the source tree without an OCI artifact).
+dependencies:
+  - name: kserve
+    version: "v0.16.0"
+    repository: "oci://ghcr.io/kserve/charts"

@@ -2,7 +2,20 @@
 
 K8s-native TURN/STUN for WebRTC NAT traversal. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5 — Communication). Used by `bp-relay` to make LiveKit (WebRTC SFU) reachable from clients behind NATs.
 
-**Status:** Accepted | **Updated:** 2026-04-27
+**Status:** Accepted | **Updated:** 2026-04-30
+
+---
+
+## Blueprint chart
+
+This folder ships an umbrella Helm chart at `chart/` that wraps the upstream `stunner/stunner-gateway-operator` chart (1.1.0) under `dependencies:`. Catalyst-curated overlay templates render alongside:
+
+- `chart/templates/gatewayclass.yaml` — `gateway.networking.k8s.io/v1.GatewayClass` claiming the operator (`stunner.l7mp.io/gateway-operator` controller). Capabilities-gated on Gateway-API CRDs (delivered by `bp-cilium`).
+- `chart/templates/networkpolicy.yaml` — locks operator + dataplane pods to the minimum ingress/egress (DEFAULT FALSE; per-Sovereign overlay opts in once consumer namespaces are pinned).
+- `chart/templates/servicemonitor.yaml` — `monitoring.coreos.com/v1.ServiceMonitor` (DEFAULT FALSE per [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §11.2; double-gated on Capabilities).
+- `chart/templates/hpa.yaml` — `autoscaling/v2.HorizontalPodAutoscaler` for the dataplane Deployment (DEFAULT FALSE).
+
+**Cilium-native Gateway integration**: STUNner registers a GatewayClass and the operator dynamically materializes dataplane Deployments backing each Gateway CR. UDP port range default 30000-32767 matches the range opened at the Sovereign edge firewall (Crossplane `bp-firewall` composition).
 
 ---
 

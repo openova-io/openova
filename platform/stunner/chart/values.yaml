@@ -1,0 +1,172 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `stunner-gateway-operator:` key flow into the upstream subchart
+# unchanged. Values consumed by templates/ live alongside under
+# `stunnerOverlay:`.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value (UDP port range, dataplane mode, replicas, image tag,
+# observability toggles) is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: stunner-gateway-operator
+    version: "1.1.0"
+    repo: "https://l7mp.io/stunner"
+
+# ─── Upstream chart values (subchart key: stunner-gateway-operator) ──────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `stunner-gateway-operator:` key flow into that subchart
+# unchanged.
+stunner-gateway-operator:
+  stunnerGatewayOperator:
+    enabled: true
+    deployment:
+      name: stunner-gateway-operator
+      podLabels:
+        catalyst.openova.io/blueprint: bp-stunner
+        catalyst.openova.io/component: gateway-operator
+      tolerations: []
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        runAsNonRoot: true
+      container:
+        manager:
+          image:
+            # Pinned upstream image — DO NOT use floating tags per
+            # docs/INVIOLABLE-PRINCIPLES.md #4.
+            name: docker.io/l7mp/stunner-gateway-operator
+            pullPolicy: IfNotPresent
+            tag: "1.1.0"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          args:
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=127.0.0.1:8080
+            - --leader-elect
+            - --zap-log-level=info
+          securityContext:
+            allowPrivilegeEscalation: false
+  # Dataplane — `managed` mode lets the operator render dataplane
+  # Deployments per Gateway CR (recommended). `legacy` runs a single
+  # static dataplane.
+  dataplane:
+    mode: managed
+    spec:
+      replicas: 1
+      image:
+        name: docker.io/l7mp/stunnerd
+        pullPolicy: IfNotPresent
+        tag: "1.1.0"
+      command:
+        - stunnerd
+      args:
+        - -w
+        - --udp-thread-num=16
+      env: []
+      resources:
+        requests:
+          cpu: 200m
+          memory: 128Mi
+        limits:
+          cpu: 1
+          memory: 512Mi
+      terminationGracePeriodSeconds: 3600
+      # Upstream metrics endpoint — kept OFF here (Catalyst exposes
+      # observability via `stunnerOverlay.serviceMonitor.enabled`
+      # below; turning it on triggers the upstream chart's own scraping
+      # config which is redundant with the Catalyst overlay).
+      enableMetricsEndpoint: false
+      hostNetwork: false
+      labels:
+        catalyst.openova.io/blueprint: bp-stunner
+        catalyst.openova.io/component: dataplane
+      annotations: {}
+      affinity: {}
+      containerSecurityContext: {}
+      securityContext: {}
+      tolerations: []
+
+  # STUNner auth-service — vendored TURN credential issuer. Off by
+  # default; per-Sovereign overlay enables when the Org uses long-term
+  # TURN credentials (most do once they have multi-tenant LiveKit).
+  stunnerAuthService:
+    enabled: false
+    deployment:
+      podLabels:
+        catalyst.openova.io/blueprint: bp-stunner
+        catalyst.openova.io/component: auth-service
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# These are NOT passed to the upstream subchart. They drive the Catalyst-
+# authored overlay templates that ship alongside the upstream subchart.
+stunnerOverlay:
+  # ─── UDP port range for TURN media relay ────────────────────────────────
+  # The dataplane needs a contiguous UDP port range exposed on the
+  # Sovereign's edge firewall. Default 30000-32767 mirrors the Hetzner
+  # Cloud Firewall convention (cf. Crossplane bp-firewall composition
+  # at platform/crossplane/compositions/xrd-firewall.yaml). Per-Sovereign
+  # overlays MAY narrow or widen the range to fit the cloud provider's
+  # NodePort allocation policy.
+  udpPortRange:
+    start: 30000
+    end: 32767
+
+  # ─── Cilium-native Gateway integration ──────────────────────────────────
+  # Render a `stunner.l7mp.io/v1` GatewayClass that the upstream
+  # `stunner-gateway-operator` claims. Cluster overlays MAY set
+  # `gatewayClass.create: false` and author their own GatewayClass
+  # (e.g. multi-tenant Sovereigns where each Org owns a distinct
+  # GatewayClass).
+  gatewayClass:
+    create: true
+    name: "stunner-gatewayclass"
+    # Operator-controller-name claimed by the gateway-operator; matches
+    # the upstream chart's default. Cluster overlays MAY override if a
+    # second operator instance is run side-by-side.
+    controllerName: "stunner.l7mp.io/gateway-operator"
+
+  # ─── NetworkPolicy (DEFAULT FALSE) ──────────────────────────────────────
+  # Per Catalyst convention NetworkPolicy ships disabled — operator turns
+  # this on via per-Sovereign overlay once consumer namespaces (where
+  # bp-relay / LiveKit runs) are pinned. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 every selector / port is operator-tunable.
+  networkPolicy:
+    enabled: false
+    # Namespace where bp-relay (LiveKit / SFU) runs. Per-Sovereign
+    # overlay overrides if relay lives elsewhere.
+    relayNamespace: "relay"
+
+  # ─── ServiceMonitor (DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2)
+  # The `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack —
+  # an Application Blueprint installed AFTER the bootstrap-kit. Defaulting
+  # `enabled: true` would render a ServiceMonitor that the apiserver
+  # rejects on a fresh Sovereign install ("no matches for kind
+  # ServiceMonitor in version monitoring.coreos.com/v1"). Operator opts in
+  # via per-cluster overlay once kube-prometheus-stack reconciles.
+  serviceMonitor:
+    enabled: false
+    interval: "30s"
+    scrapeTimeout: "10s"
+    path: "/metrics"
+    namespace: ""                   # default: release namespace
+    labels: {}
+
+  # ─── HorizontalPodAutoscaler (DEFAULT FALSE) ────────────────────────────
+  # STUNner dataplane scales with active TURN allocations. Per-Sovereign
+  # overlays enable HPA on sovereigns serving multi-tenant WebRTC traffic
+  # at scale. Default solo-Sovereign keeps a single dataplane replica.
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
