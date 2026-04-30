@@ -95,6 +95,14 @@ type Handler struct {
 	phase1WatchResync        time.Duration
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
+
+	// refreshWatchSeedTimeout — bound on how long
+	// POST /api/v1/deployments/{id}/refresh-watch blocks waiting for
+	// the bridge seed hook to fire. Zero falls back to
+	// defaultRefreshWatchSeedTimeout (30s). Tests inject a tiny value
+	// (e.g. 200ms) to exercise the 504-on-seed-timeout path
+	// deterministically against a stuck fake informer.
+	refreshWatchSeedTimeout time.Duration
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate

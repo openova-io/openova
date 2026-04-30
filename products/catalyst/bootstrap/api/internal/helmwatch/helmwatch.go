@@ -315,6 +315,51 @@ type Watcher struct {
 	// OutcomeTimeout / OutcomeFluxNotReconciling at the moment Watch
 	// returns.
 	outcome string
+
+	// informer — reference to the live dynamic informer driving
+	// processEvent. Captured under w.mu inside Watch right after the
+	// informer is constructed so SnapshotComponents() can walk the
+	// local cache without re-listing the apiserver. nil while
+	// Watch() has not yet started; readers must check.
+	informer cache.SharedIndexInformer
+
+	// onSyncedOnce fires exactly once when WaitForCacheSync returns
+	// true. The handler subscribes to it via OnInitialListSynced so
+	// it can call jobs.Bridge.SeedJobsFromInformerList immediately
+	// after the informer's initial-list ADDs have been processed —
+	// this is the load-bearing hook for the table-view UX, where a
+	// HR that has been Ready=True for an hour MUST seed a Job row
+	// even though processEvent's per-transition emit already wrote
+	// the same.
+	//
+	// The hook list is populated via OnInitialListSynced under
+	// w.mu, then drained (under the lock) on the first Sync. Late
+	// subscribers (registered AFTER Sync fires) are invoked
+	// immediately so the call is order-independent at the handler
+	// caller site.
+	mu2          sync.Mutex
+	onSyncedHooks []func([]ComponentSnapshot)
+	syncedOnce   bool
+}
+
+// ComponentSnapshot is one entry in the informer's local cache — the
+// value the SnapshotComponents() / OnInitialListSynced() paths emit.
+//
+// AppID is the normalised component id ("cilium" — bp- prefix
+// stripped); Status is the helmwatch state enum
+// (StatePending|StateInstalling|StateInstalled|StateDegraded|StateFailed);
+// HelmReleaseName is the cluster-side metadata.name ("bp-cilium");
+// Namespace is always FluxNamespace; LastTransitionAt is the
+// Ready-condition lastTransitionTime when present (zero when Ready is
+// missing, e.g. pre-first-reconcile pending); Message is the Ready
+// condition message verbatim.
+type ComponentSnapshot struct {
+	AppID            string    `json:"appId"`
+	Status           string    `json:"status"`
+	HelmReleaseName  string    `json:"helmReleaseName"`
+	Namespace        string    `json:"namespace"`
+	LastTransitionAt time.Time `json:"lastTransitionAt"`
+	Message          string    `json:"message"`
 }
 
 // NewWatcher returns a Watcher with cfg applied. emit must be non-nil
@@ -368,6 +413,14 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		nil,
 	)
 	informer := factory.ForResource(HelmReleaseGVR).Informer()
+
+	// Stash the informer for SnapshotComponents() / OnInitialListSynced
+	// readers. Captured under w.mu so the read path
+	// (SnapshotComponents) sees a non-nil pointer at the linearisation
+	// point of "informer is constructed".
+	w.mu.Lock()
+	w.informer = informer
+	w.mu.Unlock()
 
 	// terminated fires when every observed component has reached a
 	// terminal state. processEvent closes it under w.mu so a
@@ -434,6 +487,15 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		w.setOutcome(w.classifyOutcomeOnContextEnd())
 		return final, fmt.Errorf("helmwatch: informer cache failed to sync: %w", watchCtx.Err())
 	}
+
+	// Initial-list synced — fire the post-sync hooks. The bridge
+	// uses this to seed Jobs from every HelmRelease the informer
+	// already has in its cache, including HRs that have been
+	// Ready=True for an hour (the AddFunc → processEvent path emits
+	// a state-change event for those too, but the hook gives the
+	// bridge a single atomic batch instead of N transitions to
+	// process — which makes idempotency cheaper to reason about).
+	w.fireOnSyncedHooks()
 
 	// First-seen ticker — periodically checks whether the watch has
 	// observed at least one bp-* HelmRelease within FirstSeenTimeout.
@@ -856,5 +918,115 @@ func CompileMinBootstrapKitHRs(raw string) int {
 		return DefaultMinBootstrapKitHRs
 	}
 	return n
+}
+
+// SnapshotComponents returns the current contents of the informer's
+// local cache as a slice of ComponentSnapshot, one per bp-* HelmRelease.
+// Filters out non-bp-* names (defence in depth — the FilteringResourceEventHandler
+// already drops them, but the cache may still hold non-matching items
+// observed via a different code path in future).
+//
+// Returns an empty slice (not nil) when:
+//   - Watch() has not yet been called (informer is nil)
+//   - The cache is empty
+//   - Watch() has returned and the informer was garbage-collected
+//
+// Concurrency: safe to call from any goroutine. Each call is O(N) over
+// the cache; callers expecting hot polling should debounce.
+func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
+	w.mu.Lock()
+	informer := w.informer
+	w.mu.Unlock()
+	if informer == nil {
+		return []ComponentSnapshot{}
+	}
+	store := informer.GetStore()
+	if store == nil {
+		return []ComponentSnapshot{}
+	}
+	items := store.List()
+	out := make([]ComponentSnapshot, 0, len(items))
+	for _, it := range items {
+		u, ok := it.(*unstructured.Unstructured)
+		if !ok {
+			continue
+		}
+		name := u.GetName()
+		if !strings.HasPrefix(name, "bp-") {
+			continue
+		}
+		conds, _ := extractConditions(u)
+		state := DeriveState(conds)
+		message := messageFromConditions(conds, state)
+		var lastTransitionAt time.Time
+		if ready := findCondition(conds, "Ready"); ready != nil {
+			lastTransitionAt = ready.LastTransitionTime.Time
+		}
+		ns := u.GetNamespace()
+		if ns == "" {
+			ns = FluxNamespace
+		}
+		out = append(out, ComponentSnapshot{
+			AppID:            ComponentIDFromHelmRelease(name),
+			Status:           state,
+			HelmReleaseName:  name,
+			Namespace:        ns,
+			LastTransitionAt: lastTransitionAt.UTC(),
+			Message:          message,
+		})
+	}
+	return out
+}
+
+// OnInitialListSynced registers a callback the Watcher will invoke
+// exactly once with the SnapshotComponents() result at the moment
+// WaitForCacheSync first returns true. This is the canonical hook the
+// handler uses to call jobs.Bridge.SeedJobsFromInformerList immediately
+// after every helmwatch start — including the resume-after-restart
+// path AND the on-demand POST /refresh-watch flow.
+//
+// If the sync has ALREADY fired by the time this method is called
+// (e.g. a late subscriber registering after Watch() has been running
+// for a while), the hook fires synchronously with the current cache
+// contents. This makes the call order-independent at the handler.
+//
+// Concurrency: safe to call from any goroutine. The handler invokes
+// it once per new Watcher under dep.mu so there is no realistic race
+// between subscribe and Sync — but the implementation defends against
+// it anyway.
+func (w *Watcher) OnInitialListSynced(hook func([]ComponentSnapshot)) {
+	if hook == nil {
+		return
+	}
+	w.mu2.Lock()
+	if w.syncedOnce {
+		w.mu2.Unlock()
+		hook(w.SnapshotComponents())
+		return
+	}
+	w.onSyncedHooks = append(w.onSyncedHooks, hook)
+	w.mu2.Unlock()
+}
+
+// fireOnSyncedHooks drains the registered post-sync hooks under w.mu2
+// and invokes each with the current SnapshotComponents result. Marks
+// syncedOnce so any subsequent OnInitialListSynced subscriber fires
+// synchronously. Idempotent — calling fireOnSyncedHooks twice on the
+// same Watcher is a no-op (the second call sees an empty hook slice
+// and syncedOnce already true).
+func (w *Watcher) fireOnSyncedHooks() {
+	w.mu2.Lock()
+	hooks := w.onSyncedHooks
+	w.onSyncedHooks = nil
+	w.syncedOnce = true
+	w.mu2.Unlock()
+
+	if len(hooks) == 0 {
+		return
+	}
+	snap := w.SnapshotComponents()
+	for _, h := range hooks {
+		h(snap)
+	}
 }
 

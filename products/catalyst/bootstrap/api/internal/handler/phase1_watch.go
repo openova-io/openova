@@ -136,6 +136,35 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 		return
 	}
 
+	// Subscribe the bridge to the watcher's initial-list-synced hook
+	// so a HelmRelease that has been Ready=True for an hour STILL
+	// materialises a Job row + a synthetic-log-line Execution as
+	// soon as the informer's first list completes. This is what
+	// makes the table-view UX backfill correctly when the wizard
+	// connects long after the watch's per-transition emits ran.
+	//
+	// Idempotency is guaranteed by SeedJobsFromInformerList itself
+	// — calling it again on every helmwatch start is a no-op when
+	// the Job already has a LatestExecutionID.
+	h.attachBridgeSeederHook(dep, watcher)
+
+	// Stash the live watcher on the deployment so the
+	// /components/state and /refresh-watch endpoints can read its
+	// in-memory informer cache without reaching into the cluster.
+	dep.mu.Lock()
+	dep.liveWatcher = watcher
+	dep.mu.Unlock()
+	defer func() {
+		// Clear the live-watcher pointer so a subsequent
+		// /refresh-watch invocation doesn't see a stale reference
+		// to a Watcher whose Watch loop has already returned.
+		dep.mu.Lock()
+		if dep.liveWatcher == watcher {
+			dep.liveWatcher = nil
+		}
+		dep.mu.Unlock()
+	}()
+
 	// Use the background context so a finished HTTP request from the
 	// caller doesn't cancel a multi-minute Phase-1 watch. The watch
 	// has its own configured timeout via cfg.WatchTimeout.

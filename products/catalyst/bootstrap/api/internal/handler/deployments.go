@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -131,6 +132,21 @@ type Deployment struct {
 	// no-ops the forward when bridge is nil OR the Handler's jobs
 	// store is nil (tests without persistence).
 	jobsBridge *jobs.Bridge
+
+	// liveWatcher — pointer to the helmwatch.Watcher currently
+	// driving Phase-1 events for this deployment, populated by
+	// runPhase1Watch / resumePhase1Watch / refreshWatch. The
+	// /components/state endpoint reads SnapshotComponents() off it
+	// to return the in-memory informer cache as JSON; the
+	// /refresh-watch endpoint short-circuits to "already running"
+	// when this is non-nil. Cleared after Watch() returns so a
+	// subsequent /refresh-watch can spin up a fresh informer (the
+	// previous Watcher's GVR informer is single-shot).
+	//
+	// Holding a pointer here is safe — Watcher is goroutine-safe
+	// for SnapshotComponents() and the GC reclaims the old one
+	// once the field is overwritten.
+	liveWatcher *helmwatch.Watcher
 }
 
 // recordEvent appends ev to the durable history under the mutex, evicting
