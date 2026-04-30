@@ -137,12 +137,15 @@ function writePersistedCloudExpanded(open: boolean): void {
 
 type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'settings'
 
+// Cloud section is active when the path matches any of the
+// `/cloud[/...]` or legacy `/infrastructure[/...]` segments. We use a
+// regex against discrete segments rather than `includes('/cloud')`
+// because deploymentIds are free-form strings that may legitimately
+// contain the word "cloud" themselves.
+const CLOUD_PATH_RE = /\/(cloud|infrastructure)(\/|$)/
+
 function deriveActiveSection(pathname: string): ActiveSection {
-  // Both the new /cloud/* surface AND the legacy /infrastructure/*
-  // surface activate the Cloud section in the sidebar — the legacy
-  // path resolves via redirect to /cloud/* but the brief moment
-  // before the redirect fires shouldn't blank the active state.
-  if (pathname.includes('/cloud') || pathname.includes('/infrastructure')) return 'cloud'
+  if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (pathname.endsWith('/dashboard')) return 'dashboard'
   if (pathname.endsWith('/jobs')) return 'jobs'
   if (pathname.startsWith('/sovereign/wizard') || pathname.startsWith('/wizard')) return 'settings'
