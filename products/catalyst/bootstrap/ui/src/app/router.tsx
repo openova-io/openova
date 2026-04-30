@@ -83,10 +83,22 @@ const provisionAppRoute = createRoute({
 // Global jobs list — table view (issue #204 founder spec). Each row is
 // a clickable link that navigates to the per-job detail page (owned by
 // the JobDetail sibling agent and merged via #208).
+//
+// `?view` search param drives the active tab in the JobsPage tab strip:
+//   • view=table (default) — JobsTable
+//   • view=flow            — JobsFlowView (two-level Sugiyama DAG)
+// validateSearch coerces unknown values to `undefined` so deep links
+// from older builds keep working without throwing. The Flow tab ships
+// in this PR (urgent founder request).
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
+  validateSearch: (raw: Record<string, unknown>): { view?: 'table' | 'flow' } => {
+    const v = raw?.view
+    if (v === 'flow' || v === 'table') return { view: v }
+    return {}
+  },
 })
 
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
