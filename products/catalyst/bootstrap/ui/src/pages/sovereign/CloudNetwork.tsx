@@ -1,13 +1,14 @@
 /**
- * InfrastructureNetwork — Network tab. Flat table [LB · Peering ·
- * Firewall · DNS zone], reads off the shared infrastructure tree.
+ * CloudNetwork — Sovereign Cloud / Network sub-page. Flat tables for
+ * load balancers, peerings, firewalls and DNS zones; reads off the
+ * shared infrastructure tree provided by CloudPage.
  *
- * Per founder spec (issue #228): "Network — flat table [LB · Peering
- * · Firewall · DNS zone]. Bulk: add rule, attach."
+ * Per founder spec (issue #309 supersedes #228): bulk actions cover
+ * add rule + attach.
  */
 
 import { useMemo, useState } from 'react'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import {
   AddLBModal,
   AddPeeringModal,
@@ -38,8 +39,8 @@ interface FirewallRow {
   region: RegionSpec
 }
 
-export function InfrastructureNetwork() {
-  const { deploymentId, data, isLoading } = useInfrastructure()
+export function CloudNetwork() {
+  const { deploymentId, data, isLoading } = useCloud()
 
   const { lbs, peerings, firewalls, networks } = useMemo(() => {
     const lbs: LBRow[] = []
@@ -75,15 +76,15 @@ export function InfrastructureNetwork() {
     !isLoading && lbs.length === 0 && peerings.length === 0 && firewalls.length === 0
 
   return (
-    <div data-testid="infrastructure-network">
+    <div data-testid="cloud-network">
       {isLoading && (
-        <div className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]" data-testid="infrastructure-network-loading">
+        <div className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]" data-testid="cloud-network-loading">
           Loading network resources…
         </div>
       )}
 
       {isEmpty && (
-        <div className="infra-empty" data-testid="infrastructure-network-empty">
+        <div className="infra-empty" data-testid="cloud-network-empty">
           <p className="title">No network resources yet.</p>
           <p className="sub">Load balancers, peerings, firewalls and DNS zones will appear here.</p>
         </div>
@@ -91,32 +92,32 @@ export function InfrastructureNetwork() {
 
       {!isEmpty && data && (
         <>
-          <div className="infra-bulk-actions" data-testid="infrastructure-network-bulk">
+          <div className="infra-bulk-actions" data-testid="cloud-network-bulk">
             <span className="label">Bulk actions</span>
             <button
               type="button"
               className="primary"
-              data-testid="infrastructure-network-add-peering"
+              data-testid="cloud-network-add-peering"
               onClick={() => setAddPeeringOpen(true)}
             >
               + Add peering
             </button>
             <button
               type="button"
-              data-testid="infrastructure-network-edit-dns"
+              data-testid="cloud-network-edit-dns"
               onClick={() => setEditDNS(`zone-${data.topology.regions[0]?.id ?? 'default'}`)}
             >
               Edit DNS zone
             </button>
           </div>
 
-          <section className="infra-section" data-testid="infrastructure-lbs-section">
+          <section className="infra-section" data-testid="cloud-lbs-section">
             <h2>
-              Load Balancers <span className="count" data-testid="infrastructure-lbs-count">{lbs.length}</span>
+              Load Balancers <span className="count" data-testid="cloud-lbs-count">{lbs.length}</span>
             </h2>
-            <FlatTable testId="infrastructure-lbs-table" headers={['Name', 'Public IP', 'Listeners', 'Targets', 'Region', 'Status', '']}>
+            <FlatTable testId="cloud-lbs-table" headers={['Name', 'Public IP', 'Listeners', 'Targets', 'Region', 'Status', '']}>
               {lbs.map(({ lb, region }) => (
-                <tr key={lb.id} data-testid={`infrastructure-lb-row-${lb.id}`}>
+                <tr key={lb.id} data-testid={`cloud-lb-row-${lb.id}`}>
                   <td>{lb.name}</td>
                   <td style={{ fontFamily: 'monospace' }}>{lb.publicIP}</td>
                   <td>{lb.listeners.map((l) => `${l.protocol}:${l.port}`).join(', ')}</td>
@@ -136,7 +137,7 @@ export function InfrastructureNetwork() {
                   type="button"
                   style={{ ...rowBtn, borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}
                   onClick={() => setAddLBFor(r)}
-                  data-testid={`infrastructure-network-add-lb-${r.id}`}
+                  data-testid={`cloud-network-add-lb-${r.id}`}
                 >
                   + Add LB to {r.name}
                 </button>
@@ -144,13 +145,13 @@ export function InfrastructureNetwork() {
             </div>
           </section>
 
-          <section className="infra-section" data-testid="infrastructure-peerings-section">
+          <section className="infra-section" data-testid="cloud-peerings-section">
             <h2>
-              Peerings <span className="count" data-testid="infrastructure-peerings-count">{peerings.length}</span>
+              Peerings <span className="count" data-testid="cloud-peerings-count">{peerings.length}</span>
             </h2>
-            <FlatTable testId="infrastructure-peerings-table" headers={['Name', 'VPCs', 'Subnets', 'Region', 'Status']}>
+            <FlatTable testId="cloud-peerings-table" headers={['Name', 'VPCs', 'Subnets', 'Region', 'Status']}>
               {peerings.map(({ peering, region }) => (
-                <tr key={peering.id} data-testid={`infrastructure-peering-row-${peering.id}`}>
+                <tr key={peering.id} data-testid={`cloud-peering-row-${peering.id}`}>
                   <td>{peering.name}</td>
                   <td>{peering.vpcPair}</td>
                   <td style={{ fontFamily: 'monospace' }}>{peering.subnets}</td>
@@ -170,13 +171,13 @@ export function InfrastructureNetwork() {
             </FlatTable>
           </section>
 
-          <section className="infra-section" data-testid="infrastructure-firewalls-section">
+          <section className="infra-section" data-testid="cloud-firewalls-section">
             <h2>
-              Firewalls <span className="count" data-testid="infrastructure-firewalls-count">{firewalls.length}</span>
+              Firewalls <span className="count" data-testid="cloud-firewalls-count">{firewalls.length}</span>
             </h2>
-            <FlatTable testId="infrastructure-firewalls-table" headers={['Name', 'Rules', 'Region', 'Status', '']}>
+            <FlatTable testId="cloud-firewalls-table" headers={['Name', 'Rules', 'Region', 'Status', '']}>
               {firewalls.map(({ firewall, region }) => (
-                <tr key={firewall.id} data-testid={`infrastructure-firewall-row-${firewall.id}`}>
+                <tr key={firewall.id} data-testid={`cloud-firewall-row-${firewall.id}`}>
                   <td>{firewall.name}</td>
                   <td>{firewall.rules.length}</td>
                   <td>{region.providerRegion}</td>
@@ -188,7 +189,7 @@ export function InfrastructureNetwork() {
                       type="button"
                       style={rowBtn}
                       onClick={() => setEditFirewall(firewall)}
-                      data-testid={`infrastructure-firewall-row-${firewall.id}-edit`}
+                      data-testid={`cloud-firewall-row-${firewall.id}-edit`}
                     >
                       Edit rules
                     </button>

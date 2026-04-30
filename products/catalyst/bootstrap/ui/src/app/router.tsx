@@ -25,11 +25,11 @@ import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { FlowPage } from '@/pages/sovereign/FlowPage'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
-import { InfrastructurePage } from '@/pages/sovereign/InfrastructurePage'
-import { InfrastructureTopology } from '@/pages/sovereign/InfrastructureTopology'
-import { InfrastructureCompute } from '@/pages/sovereign/InfrastructureCompute'
-import { InfrastructureStorage } from '@/pages/sovereign/InfrastructureStorage'
-import { InfrastructureNetwork } from '@/pages/sovereign/InfrastructureNetwork'
+import { CloudPage } from '@/pages/sovereign/CloudPage'
+import { Architecture } from '@/pages/sovereign/Architecture'
+import { CloudCompute } from '@/pages/sovereign/CloudCompute'
+import { CloudStorage } from '@/pages/sovereign/CloudStorage'
+import { CloudNetwork } from '@/pages/sovereign/CloudNetwork'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -151,15 +151,68 @@ const provisionDashboardRoute = createRoute({
   component: Dashboard,
 })
 
-// Sovereign Infrastructure surface (issue #227) — Topology canvas is
-// the DEFAULT tab per founder spec ("the infrastructure page must be
-// opened by default with the topology page"). The shell renders
-// header + tabs and an <Outlet />; bare /infrastructure redirects to
-// the topology sub-route so the URL shape is always explicit.
+// Sovereign Cloud surface (issue #309 supersedes #227/#228) — the
+// previous "Infrastructure" section is renamed to "Cloud" and its
+// in-page tab strip is replaced by an accordion in the left sidebar
+// (see Sidebar.tsx). The shell renders header + an <Outlet />; bare
+// /cloud redirects to the architecture sub-route so the URL shape is
+// always explicit.
+//
+// The legacy /infrastructure/* paths below are preserved as
+// redirect-only routes so deep links and bookmarks land on the
+// renamed surface without 404'ing.
+const provisionCloudRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/cloud',
+  component: CloudPage,
+})
+
+const provisionCloudIndexRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/architecture',
+      params,
+    })
+  },
+})
+
+const provisionCloudArchitectureRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/architecture',
+  component: Architecture,
+})
+
+const provisionCloudComputeRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/compute',
+  component: CloudCompute,
+})
+
+const provisionCloudStorageRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/storage',
+  component: CloudStorage,
+})
+
+const provisionCloudNetworkRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/network',
+  component: CloudNetwork,
+})
+
+// Legacy /infrastructure/* — every legacy path now redirects to its
+// /cloud/* equivalent so deep links and bookmarks keep working
+// without rendering the renamed surface twice. The components are
+// no-op stubs because tanstack-router still needs a `component` for
+// the route node to resolve before `beforeLoad` fires.
+const NoopRedirectComponent = () => null
+
 const provisionInfrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/infrastructure',
-  component: InfrastructurePage,
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureIndexRoute = createRoute({
@@ -167,34 +220,59 @@ const provisionInfrastructureIndexRoute = createRoute({
   path: '/',
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: '/provision/$deploymentId/infrastructure/topology',
+      to: '/provision/$deploymentId/cloud/architecture',
       params,
     })
   },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureTopologyRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/topology',
-  component: InfrastructureTopology,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/architecture',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureComputeRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/compute',
-  component: InfrastructureCompute,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/compute',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureStorageRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/storage',
-  component: InfrastructureStorage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/storage',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 const provisionInfrastructureNetworkRoute = createRoute({
   getParentRoute: () => provisionInfrastructureRoute,
   path: '/network',
-  component: InfrastructureNetwork,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/network',
+      params,
+    })
+  },
+  component: NoopRedirectComponent,
 })
 
 // Per-Batch detail page (epic #204 item #4) — surfaces a single batch
@@ -258,6 +336,13 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
+  provisionCloudRoute.addChildren([
+    provisionCloudIndexRoute,
+    provisionCloudArchitectureRoute,
+    provisionCloudComputeRoute,
+    provisionCloudStorageRoute,
+    provisionCloudNetworkRoute,
+  ]),
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
     provisionInfrastructureTopologyRoute,

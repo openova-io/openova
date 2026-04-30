@@ -1268,141 +1268,93 @@ test.describe('@cosmetic-guard StepComponents card description', () => {
 })
 
 /* ──────────────────────────────────────────────────────────────────
- * Infrastructure page (issue #227)
+ * Cloud section (issue #309 supersedes #227/#228)
  *
  * Founder spec lock-in:
- *   • Bare /infrastructure URL redirects to /infrastructure/topology
- *   • Topology tab is the active default landing
- *   • Tabs are exactly Topology / Compute / Storage / Network (in that
- *     order, no accordions, no extras)
+ *   • Section is "Cloud" in the sidebar (not "Infrastructure"); the
+ *     left rail surfaces a Cloud accordion with sub-items
+ *     Architecture / Compute / Network / Storage.
+ *   • Bare /cloud URL redirects to /cloud/architecture.
+ *   • Legacy /infrastructure/* URLs redirect to /cloud/* equivalents
+ *     so deep links + bookmarks survive the rename.
+ *
+ * The deeper Cloud-specific behaviour (accordion expand state,
+ * sub-item routing, legacy redirects) is asserted in the dedicated
+ * cloud-nav.spec.ts so this guard stays focused on the structural
+ * surface contract.
  * ────────────────────────────────────────────────────────────────── */
 
-test.describe('@cosmetic-guard infrastructure page', () => {
-  test('Infrastructure page redirects /infrastructure → /infrastructure/topology', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/infrastructure')
+test.describe('@cosmetic-guard cloud section', () => {
+  test('Bare /cloud redirects to /cloud/architecture', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/cloud')
     await page.waitForLoadState('domcontentloaded')
 
-    // Wait for the redirect to settle. TanStack-router's beforeLoad
-    // redirect fires synchronously on first paint so the URL should
-    // already carry the topology suffix by the time domcontentloaded
-    // resolves; we still poll briefly to allow the SPA shell to
-    // hydrate.
     await page.waitForFunction(
-      () => window.location.pathname.endsWith('/infrastructure/topology'),
+      () => window.location.pathname.endsWith('/cloud/architecture'),
       { timeout: 5000 },
     )
 
     const url = new URL(page.url())
     expect(
-      url.pathname.endsWith('/infrastructure/topology'),
-      `Expected /infrastructure to redirect to /infrastructure/topology; got pathname=${url.pathname}. The redirect lives in src/app/router.tsx (provisionInfrastructureIndexRoute beforeLoad). Founder spec: "the infrastructure page must be opened by default with the topology page".`,
+      url.pathname.endsWith('/cloud/architecture'),
+      `Expected /cloud to redirect to /cloud/architecture; got pathname=${url.pathname}. The redirect lives in src/app/router.tsx (provisionCloudIndexRoute beforeLoad). Founder spec (issue #309): "/cloud opens with Architecture view as default".`,
     ).toBe(true)
   })
 
-  test('Topology tab is the active default and tabs are Topology / Compute / Storage / Network', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/infrastructure/topology')
-    await page.waitForLoadState('domcontentloaded')
-
-    const tablist = page.getByTestId('infrastructure-tabs')
-    await expect(
-      tablist,
-      'Infrastructure page does not expose a [data-testid=infrastructure-tabs] tablist. Add the testid to the <nav role=tablist> in InfrastructurePage.tsx.',
-    ).toBeVisible()
-
-    // Tab order + labels.
-    const expected = ['Topology', 'Compute', 'Storage', 'Network']
-    for (let i = 0; i < expected.length; i++) {
-      const tab = tablist.getByRole('tab').nth(i)
-      const label = (await tab.textContent())?.trim()
+  test('Legacy /infrastructure/* paths redirect to /cloud/* equivalents', async ({ page }) => {
+    const cases: Array<{ from: string; to: string }> = [
+      { from: 'provision/test-deployment-id/infrastructure', to: '/cloud/architecture' },
+      { from: 'provision/test-deployment-id/infrastructure/topology', to: '/cloud/architecture' },
+      { from: 'provision/test-deployment-id/infrastructure/compute', to: '/cloud/compute' },
+      { from: 'provision/test-deployment-id/infrastructure/network', to: '/cloud/network' },
+      { from: 'provision/test-deployment-id/infrastructure/storage', to: '/cloud/storage' },
+    ]
+    for (const c of cases) {
+      await page.goto(c.from)
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForFunction(
+        (suffix) => window.location.pathname.endsWith(suffix),
+        c.to,
+        { timeout: 5000 },
+      )
+      const pathname = new URL(page.url()).pathname
       expect(
-        label,
-        `Infrastructure tab #${i} label = "${label}"; expected "${expected[i]}". Founder spec verbatim: "tabs of compute (clusters and worker nodes), storage (pvcs, buckets etc) and network (lbs, drgs, peerings etc)" — Topology is the canonical default landing.`,
-      ).toBe(expected[i])
+        pathname.endsWith(c.to),
+        `Expected ${c.from} to redirect to a path ending in ${c.to}; got ${pathname}. Redirects live in src/app/router.tsx (provisionInfrastructure*Route beforeLoad).`,
+      ).toBe(true)
     }
-
-    // Topology tab is the active default.
-    const topologyTab = page.getByTestId('infra-tab-topology')
-    const ariaSelected = await topologyTab.getAttribute('aria-selected')
-    expect(
-      ariaSelected,
-      'Topology tab is not aria-selected by default. The default landing for /sovereign/provision/$deploymentId/infrastructure must be the topology view per founder spec.',
-    ).toBe('true')
-
-    // Topology canvas mounts (loading, error, empty, or populated state — any of those is acceptable here).
-    const canvas = page.getByTestId('infrastructure-topology-canvas')
-    await expect(
-      canvas,
-      'Topology tab is the default but the canvas frame is missing. Add data-testid=infrastructure-topology-canvas to the canvas wrapper.',
-    ).toBeVisible()
   })
 
-  test('Sidebar exposes an Infrastructure nav item that links to /infrastructure', async ({ page }) => {
+  test('Sidebar exposes a Cloud accordion (not a flat Infrastructure entry)', async ({ page }) => {
     await page.goto('provision/test-deployment-id')
     await page.waitForLoadState('domcontentloaded')
 
-    const navItem = page.getByTestId('sov-nav-infrastructure')
+    const cloudHeader = page.getByTestId('sov-nav-cloud')
     await expect(
-      navItem,
-      'Sidebar is missing the Infrastructure nav item. Add a NAV entry with id=infrastructure pointing at /provision/$deploymentId/infrastructure (see Sidebar.tsx).',
+      cloudHeader,
+      'Sidebar is missing the Cloud accordion header. Add a button with data-testid=sov-nav-cloud (see Sidebar.tsx).',
     ).toBeVisible()
 
-    const href = await navItem.getAttribute('href')
     expect(
-      href ?? '',
-      `Infrastructure nav item href = "${href}"; expected to contain /infrastructure. The link target lives in Sidebar.tsx NAV[].to.`,
-    ).toMatch(/\/infrastructure/)
+      cloudHeader.getAttribute('aria-controls'),
+      'Cloud accordion header must declare aria-controls pointing at the sub-list group.',
+    ).resolves.toBe('sov-nav-cloud-group')
+
+    // The legacy flat "Infrastructure" entry must be gone.
+    expect(
+      await page.getByTestId('sov-nav-infrastructure').count(),
+      'Sidebar still renders a flat sov-nav-infrastructure item — issue #309 replaced it with a Cloud accordion.',
+    ).toBe(0)
   })
 
-  test('Topology default landing exposes the layered hierarchical canvas + side panel + Add Region modal', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/infrastructure/topology')
+  test('Per-Sovereign switcher renders in the Cloud header', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/cloud/architecture')
     await page.waitForLoadState('domcontentloaded')
 
-    // Layered SVG must render — the page falls back to the local
-    // fixture when the backend isn't deployed yet.
-    const svg = page.getByTestId('infrastructure-topology-svg')
-    await expect(
-      svg,
-      'Layered topology canvas SVG missing. Issue #228: the Topology tab must render the hierarchical 4-depth graph by default.',
-    ).toBeVisible({ timeout: 5000 })
-
-    // 4 depth rows must be present (cloud / region / cluster / vcluster).
-    const depthLabels = page.getByTestId('infrastructure-topology-depth-labels')
-    await expect(depthLabels).toBeVisible()
-
-    // Click the cloud-hetzner node — detail panel must slide in.
-    const cloudNode = page.getByTestId('infra-node-cloud-hetzner').first()
-    await expect(
-      cloudNode,
-      'Topology canvas missing depth-0 cloud node. Layout function topologyLayout must emit a node per cloud entry.',
-    ).toBeVisible()
-    await cloudNode.click()
-    await expect(
-      page.getByTestId('infrastructure-detail-panel'),
-      'Right-side detail panel did not appear after clicking a node. Check InfrastructureDetailPanel mounting in InfrastructureTopology.tsx.',
-    ).toBeVisible()
-
-    // Add Region modal must be reachable from the top-level button.
-    await page.getByTestId('infrastructure-detail-panel-close').click()
-    const addRegionBtn = page.getByTestId('infrastructure-topology-add-region')
-    await expect(
-      addRegionBtn,
-      'Add Region trigger missing on the Topology view. The CRUD CTA must be reachable from the canvas.',
-    ).toBeVisible()
-    await addRegionBtn.click()
-    await expect(
-      page.getByTestId('infrastructure-modal-add-region'),
-      'AddRegionModal did not open after clicking the Add Region button.',
-    ).toBeVisible()
-  })
-
-  test('Per-Sovereign switcher renders in the Infrastructure header', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/infrastructure/topology')
-    await page.waitForLoadState('domcontentloaded')
-
-    const switcher = page.getByTestId('infrastructure-sovereign-switcher')
+    const switcher = page.getByTestId('cloud-sovereign-switcher')
     await expect(
       switcher,
-      'Per-Sovereign header switcher missing. Issue #228: dropdown must list all known deployments and default to the current one.',
+      'Per-Sovereign header switcher missing on the Cloud surface. CloudPage.tsx must expose [data-testid=cloud-sovereign-switcher].',
     ).toBeVisible()
   })
 })

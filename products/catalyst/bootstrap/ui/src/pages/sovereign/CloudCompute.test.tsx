@@ -1,5 +1,5 @@
 /**
- * InfrastructureCompute.test.tsx — render lock-in for the Compute tab.
+ * CloudCompute.test.tsx — render lock-in for the Compute tab.
  *
  * Coverage:
  *   1. Empty state shows when the tree has no clusters / nodes.
@@ -20,8 +20,8 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
-import { InfrastructurePage } from './InfrastructurePage'
-import { InfrastructureCompute } from './InfrastructureCompute'
+import { CloudPage } from './CloudPage'
+import { CloudCompute } from './CloudCompute'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useWizardStore } from '@/entities/deployment/store'
@@ -36,21 +36,21 @@ function renderComputePage(data: HierarchicalInfrastructure) {
     } as unknown as Response)) as typeof fetch
 
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
-  const infraRoute = createRoute({
+  const cloudRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/infrastructure',
-    component: () => <InfrastructurePage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
+    path: '/provision/$deploymentId/cloud',
+    component: () => <CloudPage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
   })
   const computeRoute = createRoute({
-    getParentRoute: () => infraRoute,
+    getParentRoute: () => cloudRoute,
     path: '/compute',
-    component: InfrastructureCompute,
+    component: CloudCompute,
   })
-  const tree = rootRoute.addChildren([infraRoute.addChildren([computeRoute])])
+  const tree = rootRoute.addChildren([cloudRoute.addChildren([computeRoute])])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
-      initialEntries: ['/provision/d-1/infrastructure/compute'],
+      initialEntries: ['/provision/d-1/cloud/compute'],
     }),
   })
   const qc = new QueryClient({
@@ -65,7 +65,7 @@ function renderComputePage(data: HierarchicalInfrastructure) {
 
 afterEach(() => cleanup())
 
-describe('InfrastructureCompute — empty', () => {
+describe('CloudCompute — empty', () => {
   it('renders the empty state when there are no clusters or nodes', async () => {
     const empty: HierarchicalInfrastructure = {
       cloud: [],
@@ -73,36 +73,36 @@ describe('InfrastructureCompute — empty', () => {
       storage: { pvcs: [], buckets: [], volumes: [] },
     }
     renderComputePage(empty)
-    expect(await screen.findByTestId('infrastructure-compute-empty')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-compute-empty')).toBeTruthy()
   })
 })
 
-describe('InfrastructureCompute — populated', () => {
+describe('CloudCompute — populated', () => {
   it('renders the Pools and Nodes tables', async () => {
     renderComputePage(infrastructureTopologyFixture)
-    expect(await screen.findByTestId('infrastructure-pools-table')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-nodes-table')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-pools-count').textContent).toBe('3')
+    expect(await screen.findByTestId('cloud-pools-table')).toBeTruthy()
+    expect(screen.getByTestId('cloud-nodes-table')).toBeTruthy()
+    expect(screen.getByTestId('cloud-pools-count').textContent).toBe('3')
     // 4 nodes in cluster-eu-central + 2 in helsinki = 6 total
-    expect(screen.getByTestId('infrastructure-nodes-count').textContent).toBe('6')
+    expect(screen.getByTestId('cloud-nodes-count').textContent).toBe('6')
   })
 
   it('renders the bulk-actions strip', async () => {
     renderComputePage(infrastructureTopologyFixture)
-    expect(await screen.findByTestId('infrastructure-compute-bulk')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-compute-bulk-scale')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-compute-bulk-drain')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-compute-bulk')).toBeTruthy()
+    expect(screen.getByTestId('cloud-compute-bulk-scale')).toBeTruthy()
+    expect(screen.getByTestId('cloud-compute-bulk-drain')).toBeTruthy()
   })
 
   it('opens ScalePoolModal when row-level Scale is clicked', async () => {
     renderComputePage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('infrastructure-pool-row-pool-eu-cp-scale'))
+    fireEvent.click(await screen.findByTestId('cloud-pool-row-pool-eu-cp-scale'))
     expect(screen.getByTestId('infrastructure-modal-scale-pool')).toBeTruthy()
   })
 
   it('opens NodeActionConfirm (drain) when row-level Drain is clicked', async () => {
     renderComputePage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('infrastructure-node-row-node-eu-w-0-drain'))
+    fireEvent.click(await screen.findByTestId('cloud-node-row-node-eu-w-0-drain'))
     expect(screen.getByTestId('infrastructure-modal-node-drain')).toBeTruthy()
   })
 })

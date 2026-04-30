@@ -1,28 +1,23 @@
 /**
- * InfrastructureTopology — hierarchical layered SVG canvas for the
- * Sovereign Infrastructure Topology tab (default landing).
+ * Architecture — hierarchical layered SVG canvas for the Sovereign
+ * Cloud / Architecture sub-page (default landing under /cloud).
  *
- * Per founder spec (issue #228):
- *   • 4 visual depths: Cloud → Region → Cluster → vCluster
- *   • Click node → graph zooms in (NOT accordion)
- *   • vClusters render dim until their parent cluster is zoomed
- *   • Right-side detail panel slides in (InfrastructureDetailPanel)
- *   • Layered, NOT force-directed — pure topologyLayout in
- *     `@/lib/topologyLayout`
+ * The four sub-pages (Architecture / Compute / Network / Storage) are
+ * filtered lenses over ONE backend response. Architecture reads the
+ * hierarchical tree directly; the others use flatten* helpers.
  *
- * The 4 tabs (Topology / Compute / Storage / Network) are filtered
- * lenses over ONE backend response. Topology reads the tree directly;
- * the others use flatten* helpers.
+ * The graph rewrite (force-directed layout, relations beyond pure
+ * containment) is tracked separately as P2 of issue #309 — this file
+ * keeps the existing layered topologyLayout intact in P1; only the
+ * file name, class name, and user-visible testids change.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md:
- *   #2 (no compromise) — pure layout function, no `reactflow`, no
- *      simulation.
- *   #4 (never hardcode) — every status colour comes from the
- *      `--color-*` CSS variables the rest of the portal uses.
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) — every
+ * status colour comes from the `--color-*` CSS variables the rest of
+ * the portal uses.
  */
 
 import { useMemo, useState } from 'react'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import { topologyLayout, type LayoutNode, type ZoomState } from '@/lib/topologyLayout'
 import type { TopologyStatus } from '@/lib/infrastructure.types'
 import { InfrastructureDetailPanel, type DetailAction } from '@/components/InfrastructureDetailPanel'
@@ -61,8 +56,8 @@ interface ModalState {
     | 'delete'
 }
 
-export function InfrastructureTopology() {
-  const { deploymentId, data, isLoading, isError, refetch } = useInfrastructure()
+export function Architecture() {
+  const { deploymentId, data, isLoading, isError, refetch } = useCloud()
 
   const [zoom, setZoom] = useState<ZoomState>({
     zoomedClusterId: null,
@@ -162,10 +157,10 @@ export function InfrastructureTopology() {
   const hasNodes = !!layout && layout.nodes.length > 0
 
   return (
-    <div data-testid="infrastructure-topology" className="relative">
+    <div data-testid="cloud-architecture" className="relative">
       {(zoom.zoomedClusterId || zoom.zoomedRegionId) && (
         <div
-          data-testid="infrastructure-topology-zoom-status"
+          data-testid="cloud-architecture-zoom-status"
           className="mb-2 flex items-center justify-between rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-1.5 text-xs"
         >
           <span className="text-[var(--color-text-dim)]">
@@ -175,7 +170,7 @@ export function InfrastructureTopology() {
           </span>
           <button
             type="button"
-            data-testid="infrastructure-topology-zoom-reset"
+            data-testid="cloud-architecture-zoom-reset"
             onClick={() => setZoom({ zoomedClusterId: null, zoomedRegionId: null })}
             className="rounded-md border border-[var(--color-border)] bg-transparent px-2 py-0.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-bg)]"
           >
@@ -186,25 +181,25 @@ export function InfrastructureTopology() {
 
       <div
         className="relative w-full overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)]"
-        data-testid="infrastructure-topology-canvas"
+        data-testid="cloud-architecture-canvas"
         style={{ minHeight: 480 }}
       >
         {isLoading && (
           <div
             className="flex h-[480px] items-center justify-center text-sm text-[var(--color-text-dim)]"
-            data-testid="infrastructure-topology-loading"
+            data-testid="cloud-architecture-loading"
           >
-            Loading topology…
+            Loading architecture…
           </div>
         )}
 
         {isError && !data && (
           <div
             className="flex h-[480px] flex-col items-center justify-center gap-2 px-6 text-center text-sm"
-            data-testid="infrastructure-topology-error"
+            data-testid="cloud-architecture-error"
           >
             <p className="font-medium text-[var(--color-danger)]">
-              Couldn&rsquo;t load topology
+              Couldn&rsquo;t load architecture
             </p>
             <p className="text-[var(--color-text-dim)]">
               The Catalyst API is temporarily unreachable. Retry will start
@@ -223,30 +218,30 @@ export function InfrastructureTopology() {
         {!hasNodes && !isLoading && !isError && (
           <div
             className="flex h-[480px] flex-col items-center justify-center gap-2 px-6 text-center text-sm"
-            data-testid="infrastructure-topology-empty"
+            data-testid="cloud-architecture-empty"
           >
             <div className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
             <p className="font-medium text-[var(--color-text)]">Provisioning&hellip;</p>
             <p className="text-[var(--color-text-dim)]">
-              Topology will appear here as soon as the Sovereign cluster
-              reports its first nodes.
+              The cloud architecture will appear here as soon as the
+              Sovereign cluster reports its first nodes.
             </p>
           </div>
         )}
 
         {hasNodes && layout && (
           <svg
-            data-testid="infrastructure-topology-svg"
+            data-testid="cloud-architecture-svg"
             width={layout.width}
             height={layout.height}
             viewBox={`0 0 ${layout.width} ${layout.height}`}
             role="img"
-            aria-label="Sovereign infrastructure topology"
+            aria-label="Sovereign cloud architecture"
             style={{ display: 'block', minWidth: '100%' }}
           >
             <defs>
               <marker
-                id="infra-topology-arrow"
+                id="cloud-architecture-arrow"
                 viewBox="0 0 10 10"
                 refX="9"
                 refY="5"
@@ -259,7 +254,7 @@ export function InfrastructureTopology() {
             </defs>
 
             {/* Depth row labels — anchor the layered intent. */}
-            <g data-testid="infrastructure-topology-depth-labels">
+            <g data-testid="cloud-architecture-depth-labels">
               {(['Cloud', 'Region', 'Cluster', 'vCluster'] as const).map((label, i) => {
                 const sample = layout.nodes.find((n) => n.depth === i)
                 if (!sample) return null
@@ -280,23 +275,23 @@ export function InfrastructureTopology() {
             </g>
 
             {/* Edges first so they sit beneath the nodes. */}
-            <g data-testid="infrastructure-topology-edges">
+            <g data-testid="cloud-architecture-edges">
               {layout.edges.map((e) => (
                 <polyline
                   key={e.id}
-                  data-testid={`infra-edge-${e.fromId}-${e.toId}`}
+                  data-testid={`cloud-edge-${e.fromId}-${e.toId}`}
                   points={e.points.map((p) => `${p.x},${p.y}`).join(' ')}
                   fill="none"
                   stroke="var(--color-border-strong)"
                   strokeWidth={1.5}
-                  markerEnd="url(#infra-topology-arrow)"
+                  markerEnd="url(#cloud-architecture-arrow)"
                   opacity={0.6}
                 />
               ))}
             </g>
 
             {/* Nodes. */}
-            <g data-testid="infrastructure-topology-nodes">
+            <g data-testid="cloud-architecture-nodes">
               {layout.nodes.map((n) => {
                 const fill = STATUS_FILL[n.status]
                 const ring = STATUS_RING[n.status]
@@ -304,7 +299,7 @@ export function InfrastructureTopology() {
                 return (
                   <g
                     key={n.id}
-                    data-testid={`infra-node-${n.id}`}
+                    data-testid={`cloud-node-${n.id}`}
                     data-kind={n.kind}
                     data-depth={n.depth}
                     data-status={n.status}
@@ -363,12 +358,12 @@ export function InfrastructureTopology() {
 
       {/* Top-level Add Region button — visible at all times when the
           tree has at least one cloud. Founder spec: every CRUD action
-          must be reachable from the Topology view. */}
+          must be reachable from the Architecture canvas. */}
       {hasNodes && data && (
         <div className="mt-3 flex items-center justify-end gap-2">
           <button
             type="button"
-            data-testid="infrastructure-topology-add-region"
+            data-testid="cloud-architecture-add-region"
             onClick={() => setModal({ kind: 'add-region' })}
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
           >
@@ -454,13 +449,13 @@ function truncate(s: string, max: number): string {
   return s.slice(0, Math.max(0, max - 1)) + '…'
 }
 
-function inferDefaultProvider(data: ReturnType<typeof useInfrastructure>['data']): CloudProvider {
+function inferDefaultProvider(data: ReturnType<typeof useCloud>['data']): CloudProvider {
   const first = data?.cloud[0]
   return ((first?.provider ?? 'hetzner') as CloudProvider)
 }
 
 function inferProviderForCluster(
-  data: ReturnType<typeof useInfrastructure>['data'],
+  data: ReturnType<typeof useCloud>['data'],
   clusterId: string,
 ): CloudProvider {
   if (!data) return 'hetzner'
