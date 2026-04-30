@@ -24,15 +24,17 @@
  *                              we surface its Kustomization-controller
  *                              becoming healthy as an explicit phase)
  *     b4.  crossplane         (day-2 IaC, adopts OpenTofu state)
- *     b5.  sealed-secrets     (in-Git encrypted secrets primitive)
- *     b6.  spire              (workload identity, prerequisite for OpenBao)
- *     b7.  jetstream          (NATS event bus for control-plane components)
- *     b8.  openbao            (secrets backend; uses SPIRE for auth)
- *     b9.  keycloak           (IdP; uses OpenBao for SQL credentials)
- *     b10. gitea              (GitOps repo for Sovereign-internal config)
- *     b11. bp-catalyst-platform (umbrella Blueprint: console, marketplace,
+ *     b5.  spire              (workload identity, prerequisite for OpenBao)
+ *     b6.  jetstream          (NATS event bus for control-plane components)
+ *     b7.  openbao            (secrets backend; uses SPIRE for auth)
+ *     b8.  keycloak           (IdP; uses OpenBao for SQL credentials)
+ *     b9.  gitea              (GitOps repo for Sovereign-internal config)
+ *     b10. bp-catalyst-platform (umbrella Blueprint: console, marketplace,
  *                                admin, lifecycle manager — the actual
  *                                Sovereign control plane)
+ *
+ * Note: bp-sealed-secrets was removed per #194 Option 2 (founder verdict
+ * 2026-04-30) — OpenBao+ESO is the sole secret pipeline from t=0.
  *
  * The backend SSE stream emits {phase, level, message} events. The `phase`
  * string in each event maps 1:1 to a `BootstrapPhase.id` here. The wizard
@@ -111,10 +113,19 @@ export const OPENTOFU_PHASES: BootstrapPhase[] = [
 ]
 
 /**
- * Phase B — 11-component bootstrap-kit, reconciled by Flux from inside the
- * new cluster. Order is dependency order, NOT installation order: Flux may
- * apply several in parallel where the dependency graph allows. The ids match
- * the Flux Kustomization names in clusters/<sovereign-fqdn>/.
+ * Phase B — bootstrap-kit, reconciled by Flux from inside the new cluster.
+ * Order is dependency order, NOT installation order: Flux may apply several
+ * in parallel where the dependency graph allows. The ids match the Flux
+ * Kustomization names in clusters/<sovereign-fqdn>/.
+ *
+ * NOTE: this list is the "umbrella view" — the upstream cascade (cilium →
+ * cert-manager → flux → crossplane → spire → jetstream → openbao → keycloak →
+ * gitea → bp-catalyst-platform). The full Phase 0 set (per
+ * docs/SOVEREIGN-PROVISIONING.md §3 step 4 + issue #310) is 15 charts —
+ * the additional 5 (bp-external-secrets, bp-cnpg, bp-powerdns, bp-external-dns,
+ * bp-crossplane-claims) are installed as siblings via the bootstrap-kit
+ * Kustomization but render here as part of the same Phase B cascade once
+ * the SSE backend emits them.
  */
 export const BOOTSTRAP_KIT_PHASES: BootstrapPhase[] = [
   {
@@ -143,13 +154,6 @@ export const BOOTSTRAP_KIT_PHASES: BootstrapPhase[] = [
     label: 'Crossplane',
     description: 'Day-2 IaC — adopts OpenTofu state, manages further infra',
     upstream: 'Crossplane',
-    layer: 'bootstrap-kit',
-  },
-  {
-    id: 'sealed-secrets',
-    label: 'Sealed Secrets',
-    description: 'In-Git encrypted secrets primitive',
-    upstream: 'Sealed Secrets',
     layer: 'bootstrap-kit',
   },
   {

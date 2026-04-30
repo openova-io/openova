@@ -11,9 +11,10 @@
 //     tofu-output / flux-bootstrap.
 //
 //   - Phase 1 — Flux on the new Sovereign reconciles the bootstrap-kit
-//     Kustomization, which materialises 11 HelmReleases (bp-cilium,
-//     bp-cert-manager, bp-flux, bp-crossplane, bp-sealed-secrets,
-//     bp-spire, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea,
+//     Kustomization, which materialises the canonical Phase-0 HelmReleases
+//     (bp-cilium, bp-cert-manager, bp-flux, bp-crossplane, bp-spire,
+//     bp-nats-jetstream, bp-openbao, bp-external-secrets, bp-keycloak,
+//     bp-gitea, bp-cnpg, bp-powerdns, bp-external-dns, bp-crossplane-claims,
 //     bp-catalyst-platform) in flux-system. helm-controller installs
 //     each in dependency order. THIS package observes those HelmReleases
 //     via a client-go dynamic informer and emits per-component events

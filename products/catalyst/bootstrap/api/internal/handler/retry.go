@@ -11,8 +11,8 @@
 //     IS the catalyst-api's job per docs/SOVEREIGN-PROVISIONING.md §3.
 //
 //  2. Phase 1 bootstrap-kit phases (cilium, cert-manager, flux,
-//     crossplane, sealed-secrets, spire, jetstream, openbao, keycloak,
-//     gitea, bp-catalyst-platform) — these are Flux HelmReleases on the
+//     crossplane, spire, jetstream, openbao, keycloak, gitea,
+//     bp-catalyst-platform) — these are Flux HelmReleases on the
 //     NEW Sovereign's cluster. Per docs/INVIOLABLE-PRINCIPLES.md #3
 //     ("Flux is the ONLY GitOps reconciler") and Lesson #24, the
 //     catalyst-api MUST NOT exec kubectl/helm to drive Phase 1. Flux
@@ -71,7 +71,6 @@ var phase1Phases = map[string]bool{
 	"cert-manager":         true,
 	"flux":                 true,
 	"crossplane":           true,
-	"sealed-secrets":       true,
 	"spire":                true,
 	"jetstream":            true,
 	"openbao":              true,

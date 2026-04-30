@@ -165,7 +165,6 @@ var dashboardFixture = []appFixture{
 	{id: "bp-cert-manager", name: "cert-manager", family: "spine", namespace: "cert-manager", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 18, healthPct: 100, agePct: 28},
 	{id: "bp-flux", name: "flux", family: "spine", namespace: "flux-system", cluster: "omantel-mkt", cpuLimit: 500, memLimit: 512 * 1024 * 1024, storage: 0, replicas: 4, utilizPct: 47, healthPct: 100, agePct: 28},
 	{id: "bp-crossplane", name: "crossplane", family: "spine", namespace: "crossplane-system", cluster: "omantel-mkt", cpuLimit: 300, memLimit: 512 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 22, healthPct: 100, agePct: 28},
-	{id: "bp-sealed-secrets", name: "sealed-secrets", family: "spine", namespace: "sealed-secrets", cluster: "omantel-mkt", cpuLimit: 100, memLimit: 128 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 9, healthPct: 100, agePct: 28},
 	// PILOT (auth + service mesh)
 	{id: "bp-keycloak", name: "keycloak", family: "pilot", namespace: "auth", cluster: "omantel-mkt", cpuLimit: 1000, memLimit: 2 * 1024 * 1024 * 1024, storage: 5 * 1024 * 1024 * 1024, replicas: 2, utilizPct: 71, healthPct: 100, agePct: 14},
 	{id: "bp-spire", name: "spire", family: "pilot", namespace: "spire-system", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 1 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 33, healthPct: 100, agePct: 14},
