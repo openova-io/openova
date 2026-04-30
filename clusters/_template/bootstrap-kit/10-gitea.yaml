@@ -32,6 +32,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: gitea
   targetNamespace: gitea
   dependsOn:
