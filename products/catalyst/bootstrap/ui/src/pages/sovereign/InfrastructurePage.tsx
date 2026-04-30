@@ -210,7 +210,22 @@ export function InfrastructurePage({
           clusters: (r.clusters ?? []).map((c) => ({
             ...c,
             vclusters: c.vclusters ?? [],
-            loadBalancers: c.loadBalancers ?? [],
+            loadBalancers: (c.loadBalancers ?? []).map((lb) => ({
+              ...lb,
+              // Older backend serialises `ports` as a CSV string; the
+              // new shape uses an array of {port, protocol}. Coerce
+              // either to the canonical array form.
+              listeners:
+                lb.listeners ??
+                (typeof (lb as unknown as { ports?: string }).ports === 'string'
+                  ? ((lb as unknown as { ports: string }).ports || '')
+                      .split(',')
+                      .map((p) => p.trim())
+                      .filter(Boolean)
+                      .map((p) => ({ port: parseInt(p, 10), protocol: 'tcp' }))
+                  : []),
+              targets: lb.targets ?? [],
+            })),
             nodePools: c.nodePools ?? [],
             nodes: c.nodes ?? [],
           })),

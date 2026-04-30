@@ -50,7 +50,11 @@ export function InfrastructureNetwork() {
     for (const region of data.topology.regions ?? []) {
       for (const cluster of region.clusters ?? []) {
         for (const lb of cluster.loadBalancers ?? []) {
-          lbs.push({ lb, region, clusterId: cluster.id })
+          lbs.push({
+            lb: { ...lb, listeners: lb.listeners ?? [], targets: lb.targets ?? [] },
+            region,
+            clusterId: cluster.id,
+          })
         }
       }
       for (const net of region.networks ?? []) {
