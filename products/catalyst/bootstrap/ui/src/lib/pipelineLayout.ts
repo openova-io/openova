@@ -72,6 +72,13 @@ export interface FlowNode {
   stage?: number
   /** Owning Job for `kind: 'job'`. Undefined for `kind: 'batch'`. */
   job?: Job
+  /**
+   * True when the node matches the optional `highlightJobId` passed to
+   * `pipelineLayout()`. Used by `FlowPage` to render the canonical
+   * thicker-border + glow treatment when this surface is embedded in
+   * the JobDetail Flow tab and one specific job is the focus.
+   */
+  highlighted?: boolean
 }
 
 /** A laid-out edge (inner-batch arrow OR cross-batch meta-edge). */
@@ -121,7 +128,7 @@ export interface FlowLayoutResult {
   height: number
 }
 
-/** Geometry knobs — keep in lockstep with the JobsFlowView CSS. */
+/** Geometry knobs — keep in lockstep with the FlowPage canvas CSS. */
 export interface FlowGeometry {
   /** Distance between adjacent stage columns (job inner). */
   jobColumnWidth: number
@@ -165,6 +172,13 @@ export interface PipelineLayoutOptions {
   collapsedBatchIds?: ReadonlySet<string>
   /** Geometry overrides; sparse partial — unspecified keys fall back to defaults. */
   geometry?: Partial<FlowGeometry>
+  /**
+   * Optional id of a job to mark as `highlighted = true` on its FlowNode
+   * output. Consumers (FlowPage) render a thicker-border glow treatment
+   * when set. Used by JobDetail's embedded Flow tab to draw the
+   * operator's eye to the parent job. Pure flag — no layout change.
+   */
+  highlightJobId?: string
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -531,6 +545,7 @@ export function pipelineLayout(
 ): FlowLayoutResult {
   const collapsed = opts.collapsedBatchIds ?? new Set<string>()
   const geom: FlowGeometry = { ...DEFAULT_GEOMETRY, ...opts.geometry }
+  const highlightJobId = opts.highlightJobId
 
   if (jobs.length === 0) {
     return {
@@ -788,6 +803,7 @@ export function pipelineLayout(
           kind: 'job',
           stage: rel.stage,
           job: j,
+          highlighted: highlightJobId === j.id,
         }
         nodes.push(absNode)
         jobNodeAbs.set(j.id, absNode)
@@ -930,7 +946,7 @@ export function defaultCollapsedBatchIds(jobs: readonly Job[]): Set<string> {
  *   • 3-point fallback → straight L through the middle point
  *
  * Pure helper, exported so tests can lock the contract and the
- * JobsFlowView doesn't have to repeat the if-ladder inline.
+ * FlowPage doesn't have to repeat the if-ladder inline.
  */
 export function edgeToPath(points: readonly { x: number; y: number }[]): string {
   if (points.length < 2) return ''
