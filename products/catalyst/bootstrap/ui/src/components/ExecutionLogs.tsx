@@ -31,6 +31,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { API_BASE } from '@/shared/config/urls'
 
 /* ── Types ──────────────────────────────────────────────────────── */
 
@@ -99,7 +100,11 @@ async function defaultFetchLogs({
     fromLine: String(fromLine),
     limit: String(limit),
   })
-  const res = await fetch(`/api/v1/actions/executions/${executionId}/logs?${params}`)
+  // API_BASE resolves to `${BASE}api`; under the /sovereign/ Vite
+  // base this becomes `/sovereign/api`, which the Traefik ingress
+  // routes correctly. A bare `/api/v1/...` (the previous shape) was
+  // not routed at all — every log fetch returned 404. See #305.
+  const res = await fetch(`${API_BASE}/v1/actions/executions/${executionId}/logs?${params}`)
   if (!res.ok) {
     throw new Error(`Failed to fetch logs: ${res.status}`)
   }
