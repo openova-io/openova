@@ -34,20 +34,37 @@ import (
 )
 
 // helmControllerNameRe — extracts the bp-<name> token from a
-// helm-controller log line. helm-controller's log format varies by
-// version + the configured logger; we observe two stable shapes
-// against flux v2.4 (the version Catalyst-Zero pins):
+// helm-controller log line. helm-controller's log shape varies by
+// version + the configured logger; we observe THREE stable formats
+// in production against flux v2.4 (the version Catalyst-Zero pins):
 //
-//   - logr/klog text: `... helmrelease="flux-system/bp-cilium" ...`
-//   - structured JSON: `... "helmrelease":"flux-system/bp-cilium" ...`
+//   - flat-string structured JSON:
+//       `... "helmrelease":"flux-system/bp-cilium" ...`
+//   - flat-string logr/klog text:
+//       `... helmrelease="flux-system/bp-cilium" ...`
+//   - NESTED-OBJECT structured JSON (live shape on otech.omani.works):
+//       `... "HelmRelease":{"name":"bp-cilium","namespace":"flux-system"}, ...`
 //
-// The regex tolerates either separator (`=` or `":` with surrounding
-// quotes) and either casing of the key. A future helm-controller
-// release that switches to a third shape lands here as a test
-// failure on the structured/text fixtures in logtailer_test.go.
+// The third shape is what flux v2.4's helm-controller actually emits
+// in production. The first two are still observed in legacy / debug
+// modes and on older fluxes. The regex alternates across all three so
+// every line is parsed correctly. A future helm-controller release
+// that switches to a fourth shape lands here as a test failure on the
+// fixtures in logtailer_test.go.
+//
+// Issue #305: without the nested-object alternation, every raw
+// helm-controller line was silently dropped — the GitLab-style log
+// viewer only ever rendered synthetic [seeded] / [<state>] anchor
+// lines.
 var helmControllerNameRe = regexp.MustCompile(
-	`(?:helmrelease|HelmRelease)["']?\s*[:=]\s*["']?` +
-		regexp.QuoteMeta(FluxNamespace) + `/(bp-[a-z0-9-]+)`,
+	// Alternative 1+2 — flat string `helmrelease[":=]flux-system/bp-X`
+	`(?:` +
+		`(?:helmrelease|HelmRelease)["']?\s*[:=]\s*["']?` +
+		regexp.QuoteMeta(FluxNamespace) + `/(bp-[a-z0-9-]+)` +
+		`)|(?:` +
+		// Alternative 3 — nested object `"HelmRelease":{...,"name":"bp-X",...}`
+		`["']?HelmRelease["']?\s*:\s*\{[^}]*?["']?name["']?\s*:\s*["'](bp-[a-z0-9-]+)["']` +
+		`)`,
 )
 
 type logTailer struct {
@@ -164,7 +181,7 @@ func (t *logTailer) pumpLines(ctx context.Context, stream io.Reader) error {
 			continue
 		}
 		match := helmControllerNameRe.FindStringSubmatch(line)
-		if len(match) < 2 {
+		if len(match) < 3 {
 			// Not associated with a bp-* HelmRelease — skip. The
 			// Sovereign Admin's Logs tab filters by component, so
 			// noise from the helm-controller's leader-election or
@@ -172,7 +189,17 @@ func (t *logTailer) pumpLines(ctx context.Context, stream io.Reader) error {
 			// component," which is not useful.
 			continue
 		}
-		componentID := ComponentIDFromHelmRelease(match[1])
+		// The regex has two alternatives, each with its own capture
+		// group; exactly one is populated per match. Pick whichever
+		// fired so the downstream emit doesn't see an empty string.
+		bpName := match[1]
+		if bpName == "" {
+			bpName = match[2]
+		}
+		if bpName == "" {
+			continue
+		}
+		componentID := ComponentIDFromHelmRelease(bpName)
 		t.emit(provisioner.Event{
 			Time:      t.now().UTC().Format(time.RFC3339),
 			Phase:     PhaseComponentLog,
