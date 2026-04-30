@@ -20,10 +20,19 @@ func TestPumpLines_ExtractsBPNameAndEmitsComponentLog(t *testing.T) {
 	tailer := newLogTailer(nil, rec.emit, time.Now)
 
 	input := strings.Join([]string{
+		// Flat-string structured JSON (legacy)
 		`{"level":"info","ts":"2026-04-29T10:00:00Z","logger":"controllers.HelmRelease","msg":"running install","helmrelease":"flux-system/bp-cilium"}`,
+		// Flat-string structured JSON, capitalised key (legacy)
 		`{"level":"error","ts":"2026-04-29T10:00:05Z","msg":"chart pull failed","HelmRelease":"flux-system/bp-cert-manager"}`,
-		`{"level":"info","msg":"leader election lost"}`, // no bp- token → must be skipped
-		`{"level":"warn","msg":"reconcile took too long","helmrelease":"flux-system/bp-keycloak"}`,
+		// Leader-election noise — no bp- token, must be skipped.
+		`{"level":"info","msg":"leader election lost"}`,
+		// logr/klog text shape (legacy)
+		`level=warn msg="reconcile took too long" helmrelease="flux-system/bp-keycloak"`,
+		// Real flux v2.4 NESTED-OBJECT shape — the production format
+		// (regression for #305 — was silently dropped before the
+		// alternation was added).
+		`{"level":"info","ts":"2026-04-30T18:37:49.961Z","msg":"dependencies do not meet ready condition","HelmRelease":{"name":"bp-mimir","namespace":"flux-system"},"name":"bp-mimir","namespace":"flux-system"}`,
+		`{"level":"error","ts":"2026-04-30T18:37:49.962Z","msg":"chart pull error","HelmRelease":{"name":"bp-seaweedfs","namespace":"flux-system"}}`,
 	}, "\n") + "\n"
 
 	if err := tailer.pumpLines(context.Background(), strings.NewReader(input)); err != nil {
@@ -31,8 +40,8 @@ func TestPumpLines_ExtractsBPNameAndEmitsComponentLog(t *testing.T) {
 	}
 
 	events := rec.snapshot()
-	if got, want := len(events), 3; got != want {
-		t.Fatalf("expected %d events (3 with bp-*, 1 leader-election skipped), got %d:\n%+v", want, got, events)
+	if got, want := len(events), 5; got != want {
+		t.Fatalf("expected %d events (5 with bp-*, 1 leader-election skipped), got %d:\n%+v", want, got, events)
 	}
 
 	// Component derivation + level classification.
@@ -43,6 +52,8 @@ func TestPumpLines_ExtractsBPNameAndEmitsComponentLog(t *testing.T) {
 		"cilium":       {level: "info", state: ""},
 		"cert-manager": {level: "error", state: ""},
 		"keycloak":     {level: "warn", state: ""},
+		"mimir":        {level: "info", state: ""},
+		"seaweedfs":    {level: "error", state: ""},
 	}
 	for _, ev := range events {
 		if ev.Phase != PhaseComponentLog {
