@@ -289,8 +289,17 @@ export function applyEvent(state: ReducerState, ev: DeploymentEvent): void {
   // produce the same UI surface — the AdminPage banner — because all
   // three result in zero ground-truth per-component data for this
   // deployment. The message is captured verbatim so the operator sees
-  // the actual reason, and `phase1WatchSkipped` flips to true. Once
-  // set, it stays set for the remainder of this deployment's lifetime.
+  // the actual reason, and `phase1WatchSkipped` flips to true.
+  //
+  // CLEAR-RULE (issue #232): the flag is NO LONGER monotonic. If we
+  // subsequently receive a per-component event carrying real ground-
+  // truth (state ≠ 'skipped' OR a non-empty `component:` field), then
+  // helmwatch IS observing this deployment after all and the banner
+  // must come down. The previous "stays set for lifetime" guarantee
+  // produced a stale banner whenever a single early `state: skipped`
+  // event in the SSE replay buffer contradicted a later stream of
+  // healthy per-component events. Reducer is now the source of truth
+  // for whether ground-truth data has actually arrived.
   if (
     ev.phase === 'component' &&
     (ev.level === 'warn' || ev.level === 'error') &&
@@ -298,6 +307,26 @@ export function applyEvent(state: ReducerState, ev: DeploymentEvent): void {
   ) {
     state.phase1WatchSkipped = true
     if (ev.message) state.phase1WatchSkippedReason = ev.message
+    if (time) state.clusterBootstrap.lastEventTime = time
+    pushEventToBucket(state, CLUSTER_BOOTSTRAP_KEY, ev)
+    return
+  }
+
+  // ── Deployment-level status that contradicts a stale skipped flag ─
+  // The catalyst-api also emits coarse `phase: "deployment"` events
+  // when its overall status transitions. Status `phase1-watching` /
+  // `installing` both prove helmwatch is alive and observing the new
+  // cluster — clear any prior `phase1WatchSkipped` so the AdminPage
+  // banner doesn't shadow live progress. (We do NOT clear on `ready`,
+  // `failed`, or `provisioning` — those are terminal/early phases
+  // where the skipped-flag may legitimately remain set.)
+  if (ev.phase === 'deployment') {
+    const status = (ev as { status?: string }).status
+    if (status === 'phase1-watching' || status === 'installing') {
+      state.phase1WatchSkipped = false
+      state.phase1WatchSkippedReason = null
+    }
+    if (ev.message) state.clusterBootstrap.message = ev.message
     if (time) state.clusterBootstrap.lastEventTime = time
     pushEventToBucket(state, CLUSTER_BOOTSTRAP_KEY, ev)
     return
@@ -325,6 +354,24 @@ export function applyEvent(state: ReducerState, ev: DeploymentEvent): void {
     if (time) app.lastEventTime = time
     app.eventCount += 1
     pushEventToBucket(state, appId, ev)
+    // CLEAR-RULE (issue #232): a real per-component event with a known
+    // state is ground truth from helmwatch. If a previous event flipped
+    // `phase1WatchSkipped` to true (or this is a replay where the
+    // skipped event preceded the live ones), unset it now so the
+    // AdminPage banner reflects the FRESH stream rather than stale
+    // history. We exclude the synthetic `'skipped'` state — that's the
+    // explicit "no data" marker the API emits and should keep the flag
+    // set if it arrives last.
+    //
+    // Note: `'skipped'` is NOT in the DeploymentEvent['state'] union
+    // (mapApiState returns null for it), but the API may emit it as a
+    // free-form string. The check below uses string comparison so we
+    // don't exclude any legitimate state by accident.
+    const evStateStr = ev.state as string | undefined
+    if (apiState !== null && evStateStr !== 'skipped') {
+      state.phase1WatchSkipped = false
+      state.phase1WatchSkippedReason = null
+    }
     return
   }
 
