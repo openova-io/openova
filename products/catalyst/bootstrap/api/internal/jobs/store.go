@@ -478,18 +478,25 @@ func (s *Store) GetJob(deploymentID, jobID string) (Job, []Execution, error) {
 	if err != nil {
 		return Job{}, nil, err
 	}
+	// Lookup accepts EITHER the full "<deploymentId>:<jobName>" id OR
+	// the bare jobName. The colon in the canonical id is path-safe per
+	// RFC 3986 §3.3 but Traefik (or some upstream proxy) was observed
+	// returning 404 on URL-encoded colons in the path segment, so the
+	// FE may send the bare jobName. (depID, jobName) is unique per
+	// deployment, so the bare-name lookup is always unambiguous.
 	for i := range idx.Jobs {
-		if idx.Jobs[i].ID == jobID {
+		j := idx.Jobs[i]
+		if j.ID == jobID || j.JobName == jobID {
 			execs := []Execution{}
 			for _, e := range idx.Executions {
-				if e.JobID == jobID {
+				if e.JobID == j.ID {
 					execs = append(execs, e)
 				}
 			}
 			sort.Slice(execs, func(a, b int) bool {
 				return execs[a].StartedAt.After(execs[b].StartedAt)
 			})
-			return idx.Jobs[i], execs, nil
+			return j, execs, nil
 		}
 	}
 	return Job{}, nil, fmt.Errorf("jobs: GetJob %q: %w", jobID, ErrNotFound)
