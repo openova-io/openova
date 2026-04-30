@@ -89,6 +89,15 @@ func main() {
 	// V1 emits a static placeholder shape — see dashboard.go header
 	// for the metrics-server upgrade plan.
 	r.Get("/api/v1/dashboard/treemap", h.GetDashboardTreemap)
+	// Sovereign Infrastructure surface (issue #227) — Topology canvas
+	// + Compute / Storage / Network card grids. Each endpoint reads
+	// from the deployment record + (future) live cluster kubeconfig;
+	// see internal/handler/infrastructure.go for the data-source
+	// contract.
+	r.Get("/api/v1/deployments/{depId}/infrastructure/topology", h.GetInfrastructureTopology)
+	r.Get("/api/v1/deployments/{depId}/infrastructure/compute", h.GetInfrastructureCompute)
+	r.Get("/api/v1/deployments/{depId}/infrastructure/storage", h.GetInfrastructureStorage)
+	r.Get("/api/v1/deployments/{depId}/infrastructure/network", h.GetInfrastructureNetwork)
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

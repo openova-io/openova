@@ -1080,3 +1080,90 @@ test.describe('@cosmetic-guard StepComponents card description', () => {
     }
   })
 })
+
+/* ──────────────────────────────────────────────────────────────────
+ * Infrastructure page (issue #227)
+ *
+ * Founder spec lock-in:
+ *   • Bare /infrastructure URL redirects to /infrastructure/topology
+ *   • Topology tab is the active default landing
+ *   • Tabs are exactly Topology / Compute / Storage / Network (in that
+ *     order, no accordions, no extras)
+ * ────────────────────────────────────────────────────────────────── */
+
+test.describe('@cosmetic-guard infrastructure page', () => {
+  test('Infrastructure page redirects /infrastructure → /infrastructure/topology', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/infrastructure')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Wait for the redirect to settle. TanStack-router's beforeLoad
+    // redirect fires synchronously on first paint so the URL should
+    // already carry the topology suffix by the time domcontentloaded
+    // resolves; we still poll briefly to allow the SPA shell to
+    // hydrate.
+    await page.waitForFunction(
+      () => window.location.pathname.endsWith('/infrastructure/topology'),
+      { timeout: 5000 },
+    )
+
+    const url = new URL(page.url())
+    expect(
+      url.pathname.endsWith('/infrastructure/topology'),
+      `Expected /infrastructure to redirect to /infrastructure/topology; got pathname=${url.pathname}. The redirect lives in src/app/router.tsx (provisionInfrastructureIndexRoute beforeLoad). Founder spec: "the infrastructure page must be opened by default with the topology page".`,
+    ).toBe(true)
+  })
+
+  test('Topology tab is the active default and tabs are Topology / Compute / Storage / Network', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/infrastructure/topology')
+    await page.waitForLoadState('domcontentloaded')
+
+    const tablist = page.getByTestId('infrastructure-tabs')
+    await expect(
+      tablist,
+      'Infrastructure page does not expose a [data-testid=infrastructure-tabs] tablist. Add the testid to the <nav role=tablist> in InfrastructurePage.tsx.',
+    ).toBeVisible()
+
+    // Tab order + labels.
+    const expected = ['Topology', 'Compute', 'Storage', 'Network']
+    for (let i = 0; i < expected.length; i++) {
+      const tab = tablist.getByRole('tab').nth(i)
+      const label = (await tab.textContent())?.trim()
+      expect(
+        label,
+        `Infrastructure tab #${i} label = "${label}"; expected "${expected[i]}". Founder spec verbatim: "tabs of compute (clusters and worker nodes), storage (pvcs, buckets etc) and network (lbs, drgs, peerings etc)" — Topology is the canonical default landing.`,
+      ).toBe(expected[i])
+    }
+
+    // Topology tab is the active default.
+    const topologyTab = page.getByTestId('infra-tab-topology')
+    const ariaSelected = await topologyTab.getAttribute('aria-selected')
+    expect(
+      ariaSelected,
+      'Topology tab is not aria-selected by default. The default landing for /sovereign/provision/$deploymentId/infrastructure must be the topology view per founder spec.',
+    ).toBe('true')
+
+    // Topology canvas mounts (loading, error, empty, or populated state — any of those is acceptable here).
+    const canvas = page.getByTestId('infrastructure-topology-canvas')
+    await expect(
+      canvas,
+      'Topology tab is the default but the canvas frame is missing. Add data-testid=infrastructure-topology-canvas to the canvas wrapper.',
+    ).toBeVisible()
+  })
+
+  test('Sidebar exposes an Infrastructure nav item that links to /infrastructure', async ({ page }) => {
+    await page.goto('provision/test-deployment-id')
+    await page.waitForLoadState('domcontentloaded')
+
+    const navItem = page.getByTestId('sov-nav-infrastructure')
+    await expect(
+      navItem,
+      'Sidebar is missing the Infrastructure nav item. Add a NAV entry with id=infrastructure pointing at /provision/$deploymentId/infrastructure (see Sidebar.tsx).',
+    ).toBeVisible()
+
+    const href = await navItem.getAttribute('href')
+    expect(
+      href ?? '',
+      `Infrastructure nav item href = "${href}"; expected to contain /infrastructure. The link target lives in Sidebar.tsx NAV[].to.`,
+    ).toMatch(/\/infrastructure/)
+  })
+})

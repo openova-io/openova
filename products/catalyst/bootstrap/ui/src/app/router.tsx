@@ -24,6 +24,11 @@ import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
+import { InfrastructurePage } from '@/pages/sovereign/InfrastructurePage'
+import { InfrastructureTopology } from '@/pages/sovereign/InfrastructureTopology'
+import { InfrastructureCompute } from '@/pages/sovereign/InfrastructureCompute'
+import { InfrastructureStorage } from '@/pages/sovereign/InfrastructureStorage'
+import { InfrastructureNetwork } from '@/pages/sovereign/InfrastructureNetwork'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -119,6 +124,52 @@ const provisionDashboardRoute = createRoute({
   component: Dashboard,
 })
 
+// Sovereign Infrastructure surface (issue #227) — Topology canvas is
+// the DEFAULT tab per founder spec ("the infrastructure page must be
+// opened by default with the topology page"). The shell renders
+// header + tabs and an <Outlet />; bare /infrastructure redirects to
+// the topology sub-route so the URL shape is always explicit.
+const provisionInfrastructureRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/infrastructure',
+  component: InfrastructurePage,
+})
+
+const provisionInfrastructureIndexRoute = createRoute({
+  getParentRoute: () => provisionInfrastructureRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/infrastructure/topology',
+      params,
+    })
+  },
+})
+
+const provisionInfrastructureTopologyRoute = createRoute({
+  getParentRoute: () => provisionInfrastructureRoute,
+  path: '/topology',
+  component: InfrastructureTopology,
+})
+
+const provisionInfrastructureComputeRoute = createRoute({
+  getParentRoute: () => provisionInfrastructureRoute,
+  path: '/compute',
+  component: InfrastructureCompute,
+})
+
+const provisionInfrastructureStorageRoute = createRoute({
+  getParentRoute: () => provisionInfrastructureRoute,
+  path: '/storage',
+  component: InfrastructureStorage,
+})
+
+const provisionInfrastructureNetworkRoute = createRoute({
+  getParentRoute: () => provisionInfrastructureRoute,
+  path: '/network',
+  component: InfrastructureNetwork,
+})
+
 // Per-Batch detail page (epic #204 item #4) — surfaces a single batch
 // progress card at the top + a JobsTable filtered to that batch's
 // rows. Reachable from the batch chip in any JobsTable row (both
@@ -179,6 +230,13 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
+  provisionInfrastructureRoute.addChildren([
+    provisionInfrastructureIndexRoute,
+    provisionInfrastructureTopologyRoute,
+    provisionInfrastructureComputeRoute,
+    provisionInfrastructureStorageRoute,
+    provisionInfrastructureNetworkRoute,
+  ]),
   provisionBatchDetailRoute,
   legacyProvisionRoute,
   designsRoute,

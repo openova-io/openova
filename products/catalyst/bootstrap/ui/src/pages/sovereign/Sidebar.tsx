@@ -42,13 +42,14 @@ interface SidebarProps {
 }
 
 interface NavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'settings'
+  id: 'apps' | 'jobs' | 'dashboard' | 'infrastructure' | 'settings'
   label: string
   /** Tanstack-router target — `null` for static external/non-tanstack routes. */
   to:
     | '/provision/$deploymentId'
     | '/provision/$deploymentId/jobs'
     | '/provision/$deploymentId/dashboard'
+    | '/provision/$deploymentId/infrastructure'
     | '/wizard'
   /** SVG path data — same `d` strings as core/console for visual parity. */
   icon: string
@@ -76,6 +77,15 @@ const NAV: NavItem[] = [
     icon: 'M3 3h7v9H3V3zm11 0h7v5h-7V3zM14 10h7v11h-7V10zM3 14h7v7H3v-7z',
   },
   {
+    id: 'infrastructure',
+    label: 'Infrastructure',
+    to: '/provision/$deploymentId/infrastructure',
+    // Server-stack icon — three horizontal bars suggesting clusters /
+    // nodes, distinct from the dashboard's quadrant grid and the apps
+    // 4-square shape.
+    icon: 'M5 12H3m18 0h-2M5 7h14M5 12h14M5 17h14M5 7a2 2 0 00-2 2v6a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5z',
+  },
+  {
     id: 'settings',
     label: 'Settings',
     to: '/wizard',
@@ -85,6 +95,7 @@ const NAV: NavItem[] = [
 
 /** Compute the active nav item from the current pathname. */
 function deriveActive(pathname: string): NavItem['id'] {
+  if (pathname.includes('/infrastructure')) return 'infrastructure'
   if (pathname.endsWith('/dashboard')) return 'dashboard'
   if (pathname.endsWith('/jobs')) return 'jobs'
   if (pathname.startsWith('/sovereign/wizard') || pathname.startsWith('/wizard')) return 'settings'
