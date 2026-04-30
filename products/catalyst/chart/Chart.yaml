@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.4
-appVersion: 1.1.4
+version: 1.1.5
+appVersion: 1.1.5
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -38,6 +38,21 @@ description: |
   `catalyst-platform-postgresql.catalyst-system` and Helm post-render
   refused the second occurrence — install_failed on otech.omani.works,
   2026-04-30 (issue #252).
+  Bumped to 1.1.5 to remove three legacy Traefik-era ingress template
+  files (templates/ingress.yaml, templates/sme-services/ingress.yaml,
+  templates/marketplace-api/ingress.yaml). They emitted
+  `traefik.io/v1alpha1 Middleware` (strip-sovereign, strip-nova,
+  root-to-nova) plus Ingress objects hardcoded to `console.openova.io` /
+  `admin.openova.io` / `marketplace.openova.io` / `openova.io` with
+  `ingressClassName: traefik`. Sovereigns use Cilium native gateway
+  (per docs/ARCHITECTURE.md §11) — Traefik CRDs are not installed and
+  never will be — and per-Sovereign Catalyst hostnames are
+  `console.${SOVEREIGN_FQDN}` / `admin.${SOVEREIGN_FQDN}` etc., not the
+  contabo-mkt openova.io domain. Helm install was failing on otech with
+  `no matches for kind "Middleware" in version "traefik.io/v1alpha1"`.
+  Per-Sovereign HTTPRoute resources for the Catalyst console/admin/
+  marketplace will be authored separately (out of scope here) — issue
+  #279, 2026-04-30.
 type: application
 
 dependencies:
