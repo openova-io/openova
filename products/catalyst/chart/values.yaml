@@ -27,3 +27,19 @@ bp-gitea:
   gitea:
     postgresql:
       fullnameOverride: gitea-postgresql
+
+# ProvisioningState CRD — the canonical persistence shape for Sovereign
+# provisioning runs (issue #88). Keeps observability of in-flight wizard
+# runs on the K8s plane (`kubectl get provisioningstates -A`) in addition
+# to the catalyst-api Pod's local flat-file store at
+# /var/lib/catalyst/deployments. The two stores compose: the flat file is
+# authoritative (full event log, fsync-rename atomic), the CRD is the
+# coarse-grained projection (state machine pending → ... → ready | failed)
+# that operators and sibling controllers consume.
+provisioningState:
+  crd:
+    # Default true: the CRD is part of the bp-catalyst-platform contract.
+    # Disable only if the cluster has the CRD installed by an out-of-band
+    # mechanism (test envtest harness, sibling Catalyst instance) and a
+    # second install would conflict.
+    enabled: true
