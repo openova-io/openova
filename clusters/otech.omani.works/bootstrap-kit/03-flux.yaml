@@ -52,6 +52,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
+  timeout: 15m
   releaseName: flux
   targetNamespace: flux-system
   dependsOn:
