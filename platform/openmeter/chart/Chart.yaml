@@ -1,0 +1,44 @@
+apiVersion: v2
+name: bp-openmeter
+version: 1.0.0
+appVersion: "1.0.0-beta.213"
+description: |
+  Catalyst Blueprint umbrella chart for OpenMeter — real-time CloudEvents
+  usage metering. Depends on the upstream `openmeter` chart published as
+  an OCI artifact at `oci://ghcr.io/openmeterio/helm-charts/openmeter`,
+  pulled in as a Helm subchart so `helm dependency build` bundles the
+  upstream payload into this Blueprint's OCI artifact (per
+  docs/BLUEPRINT-AUTHORING.md §11.1 — hollow charts forbidden).
+
+  omantel-1 ships the ClickHouse-less profile per
+  docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4. The upstream chart's bundled
+  ClickHouse / Kafka / Postgres / Redis / Svix subcharts are all DISABLED
+  in `values.yaml` because Catalyst supplies CNPG (postgres), JetStream
+  (event bus), and Valkey (redis-compat) at the platform tier. The
+  chart-level `backend.kind` knob (default `cnpg`) records the active
+  profile so observability/audit pipelines can report it; the upstream
+  binary's `aggregation.clickhouse.address` is left blank — a per-Sovereign
+  overlay supplies it once a ClickHouse cluster exists (re-roll with
+  `backend.kind: clickhouse`).
+
+  Catalyst overlay templates in `templates/` (NetworkPolicy, ServiceMonitor,
+  HPA — all default OFF per docs/BLUEPRINT-AUTHORING.md §11.2) sit alongside
+  the upstream subchart and Helm renders both at install time.
+  Catalyst-curated values flow into the upstream subchart under the
+  `openmeter:` key in values.yaml.
+type: application
+keywords: [catalyst, blueprint, openmeter, metering, usage, billing, cloudevents]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to openmeterio/openmeter
+# 1.0.0-beta.213 (matches platform/openmeter/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: openmeter
+    version: "1.0.0-beta.213"
+    repository: "oci://ghcr.io/openmeterio/helm-charts"

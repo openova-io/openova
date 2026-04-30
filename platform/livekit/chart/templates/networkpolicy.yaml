@@ -1,0 +1,90 @@
+{{- /*
+NetworkPolicy — Catalyst overlay locking the livekit pods down to the
+minimum egress / ingress required.
+
+Egress targets:
+  - Cluster DNS (kube-system) — service discovery for bp-valkey + bp-stunner.
+  - bp-valkey signaling-state store on port 6379 (when replicaCount > 1).
+  - bp-stunner UDP-gateway on port 3478 — TURN/STUN routing.
+
+Ingress is locked to:
+  - Ingress controller namespace (operator-supplied label) — terminates
+    public LiveKit signaling on the chart's `.livekit-server.livekit.port`.
+  - Same-namespace traffic between livekit pods.
+
+NB: LiveKit's RTC port range (50000-60000 UDP) is intentionally NOT
+listed here — when LiveKit runs on hostNetwork (the upstream chart
+default; restated in values.yaml), pod-level NetworkPolicies do NOT
+apply to host-network pods. The Hetzner firewall rule is the
+load-bearing control for the SFU port range; the per-Sovereign
+overlay opens it. See docs/SECURITY.md §4 for the layered control.
+
+DEFAULT FALSE per Catalyst overlay convention — operator turns this on
+via per-Sovereign overlay once consumer namespaces are known. Per
+docs/INVIOLABLE-PRINCIPLES.md #4 every selector / namespace label /
+port is operator-tunable through `networkPolicy.*`.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-livekit
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-livekit.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: livekit-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Same-namespace traffic between livekit pods.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # Ingress controller — terminates public signaling.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace | default "traefik" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.signalingPort | default 7880 }}
+  egress:
+    # Cluster DNS — livekit resolves valkey + stunner Services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Same-namespace egress (signaling fan-out).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # bp-valkey signaling-state store — required when replicaCount > 1.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.valkeyNamespace | default "valkey" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.valkeyPort | default 6379 }}
+    # bp-stunner UDP-gateway — TURN/STUN routing.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.stunnerNamespace | default "stunner" }}
+      ports:
+        - protocol: UDP
+          port: {{ .Values.networkPolicy.stunnerPort | default 3478 }}
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.stunnerPort | default 3478 }}
+{{- end }}

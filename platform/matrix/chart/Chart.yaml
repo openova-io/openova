@@ -1,0 +1,45 @@
+apiVersion: v2
+name: bp-matrix
+version: 1.0.0
+appVersion: "1.151.0"
+description: |
+  Catalyst Blueprint umbrella chart for Synapse — the reference Matrix
+  homeserver. Depends on the upstream `matrix-synapse` chart from
+  ananace/charts (the most actively maintained community chart for
+  Synapse; element-hq has not published a first-party Helm chart) as a
+  Helm subchart so `helm dependency build` pulls the upstream payload
+  into this Blueprint's OCI artifact (per
+  docs/BLUEPRINT-AUTHORING.md §11.1 — hollow charts forbidden).
+
+  Catalyst-curated overlay templates in `templates/` (NetworkPolicy,
+  ServiceMonitor, HPA — all default OFF per
+  docs/BLUEPRINT-AUTHORING.md §11.2) sit alongside the upstream
+  subchart and Helm renders both at install time. Catalyst-curated
+  values flow into the upstream subchart under the `matrix-synapse:`
+  key in values.yaml.
+
+  Catalyst defaults pair Synapse with bp-cnpg (Postgres backend via the
+  upstream chart's `externalPostgresql` block), bp-keycloak (OIDC SSO
+  via `extraConfig.oidc_providers`), and bp-cert-manager (TLS via
+  cluster Issuer). Federation is OFF by default — Catalyst's per-
+  Sovereign tenancy default keeps each Sovereign's Matrix instance
+  private until operator overlays flip it on per-Organization.
+
+  ("Synapse" here refers to the Matrix server implementation, NOT the
+  deprecated OpenOva product noun retired in favor of `bp-axon`.)
+type: application
+keywords: [catalyst, blueprint, matrix, synapse, chat, messaging, federation, e2ee, oidc]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to ananace/matrix-synapse
+# 3.12.25 (Synapse v1.151.0; matches platform/matrix/blueprint.yaml +
+# values.yaml `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: matrix-synapse
+    version: "3.12.25"
+    repository: "https://ananace.gitlab.io/charts"

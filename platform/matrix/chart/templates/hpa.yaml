@@ -1,0 +1,49 @@
+{{- /*
+HorizontalPodAutoscaler — Catalyst overlay for the Synapse main
+Deployment. DEFAULT FALSE.
+
+Solo-Sovereign baseline runs Synapse monolithic with replicaCount: 1.
+Multi-tenant Sovereigns enable workers (`workers.generic_worker.enabled
+= true`, etc.) plus HPA when room/event throughput warrants. Per
+docs/BLUEPRINT-AUTHORING.md §11.2 — DEFAULT OFF.
+
+NB: scaling Synapse beyond a single replica also requires switching
+the chart to worker mode + a Redis/Valkey signaling backend. See the
+upstream chart's worker docs.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (min/max replicas,
+CPU/memory targets, target Deployment name) is operator-tunable.
+*/}}
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bp-matrix
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-matrix.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ default (include "bp-matrix.fullname" .) .Values.hpa.targetDeploymentName }}
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    {{- if .Values.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

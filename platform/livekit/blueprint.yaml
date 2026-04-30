@@ -1,0 +1,112 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-livekit
+  labels:
+    catalyst.openova.io/category: application
+    catalyst.openova.io/section: pts-4-5-communication
+spec:
+  version: 1.0.0
+  card:
+    title: LiveKit
+    summary: |
+      WebRTC SFU for real-time video, audio, and data. Powers the
+      Huawei iFlytek voice demo and any Application that needs
+      sub-second media routing. Pairs with bp-stunner for K8s-native
+      TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner
+      Service so SFU traffic survives the host cluster's NAT
+      boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC
+      port range) per the operator's per-Sovereign overlay.
+    icon: livekit.svg
+    category: application
+    tags: [webrtc, sfu, video, audio, communication, application]
+    documentation: https://docs.livekit.io
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      keys:
+        type: object
+        description: |
+          LiveKit API keys (`<api_key>: <api_secret>` pairs). For
+          production overlays use `storeKeysInSecret.existingSecret`
+          to project an ExternalSecret instead of inlining values
+          here. Per docs/INVIOLABLE-PRINCIPLES.md #4 nothing is
+          hardcoded — the wrapper ships an empty map and operator
+          overlays inject the secret reference.
+      rtc:
+        type: object
+        properties:
+          portRangeStart:
+            type: integer
+            default: 50000
+            description: |
+              Start of the UDP port range LiveKit binds for RTC
+              traffic. Must match the Hetzner firewall rule the
+              per-Sovereign overlay opens.
+          portRangeEnd:
+            type: integer
+            default: 60000
+            description: |
+              End of the UDP port range LiveKit binds for RTC
+              traffic. Must match the Hetzner firewall rule the
+              per-Sovereign overlay opens.
+      stunner:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              Route TURN/STUN through bp-stunner instead of running a
+              co-located TURN server. Catalyst standard.
+          gatewayService:
+            type: string
+            default: "udp-gateway.stunner.svc.cluster.local:3478"
+            description: |
+              Cluster-internal endpoint of the stunner UDP-gateway
+              Service. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
+              operator MAY override per-Sovereign.
+      tls:
+        type: object
+        properties:
+          issuerRef:
+            type: string
+            default: "letsencrypt-prod"
+            description: |
+              cert-manager ClusterIssuer name (per-Sovereign overlay
+              chooses staging vs prod).
+      serviceMonitor:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              monitoring.coreos.com/v1 ServiceMonitor — requires the
+              Prometheus Operator CRDs from kube-prometheus-stack.
+              Per docs/BLUEPRINT-AUTHORING.md §11.2 default false;
+              operator opts in via per-cluster overlay (issue #182).
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+    minRegions: 1
+    maxRegions: 1
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-stunner            # K8s-native TURN/STUN for NAT traversal
+      version: ^1
+    - blueprint: bp-cert-manager       # ingress TLS via ClusterIssuer
+      version: ^1
+    - blueprint: bp-valkey             # required when LiveKit runs >1 replica (signaling state)
+      version: ^1
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

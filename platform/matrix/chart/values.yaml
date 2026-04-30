@@ -1,0 +1,223 @@
+# Catalyst Blueprint umbrella metadata — the upstream matrix-synapse
+# chart is resolved as a Helm subchart via Chart.yaml `dependencies:`.
+# This values.yaml carries:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact.
+#   2. The upstream subchart values overlay under the `matrix-synapse:`
+#      key (umbrella-chart convention — the dependency name from
+#      Chart.yaml is the values namespace).
+#   3. Catalyst-overlay knobs (networkPolicy, serviceMonitor, hpa) — all
+#      DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: matrix-synapse
+    version: "3.12.25"
+    repo: "https://ananace.gitlab.io/charts"
+
+# ─── Upstream chart values (subchart key: matrix-synapse) ────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `matrix-synapse:` key flow into that subchart unchanged.
+matrix-synapse:
+
+  image:
+    repository: ghcr.io/element-hq/synapse
+    pullPolicy: IfNotPresent
+
+  # ─── Server identity ───────────────────────────────────────────────────
+  # Per-Sovereign overlay supplies the actual hostname (typically
+  # chat.<sovereign-fqdn>). Default placeholder so `helm template` smoke
+  # renders without `--set` — operator overrides via per-Sovereign
+  # overlay. Per docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded.
+  serverName: "matrix.example.local"
+  publicServerName: "matrix.example.local"
+
+  # Signing-key job — generates Synapse's federation signing key on
+  # first install. Catalyst's per-Sovereign tenancy default keeps
+  # federation OFF, but Synapse still requires a signing key for
+  # internal cryptographic operations. Operator overlays can supply an
+  # `existingSecret` to preserve the key across re-rolls.
+  signingkey:
+    job:
+      enabled: true
+    existingSecret: ""
+
+  # ─── Federation — OFF by default (per-Sovereign tenancy) ───────────────
+  # The upstream chart does not expose a top-level `federation.enabled`
+  # toggle; federation is gated by:
+  #   - whether the chart-rendered ingress includes the federation port,
+  #   - whether `extraConfig.federation_domain_whitelist` is set,
+  #   - whether the homeserver.yaml `disable_federation: true` knob is
+  #     supplied via `extraConfig`.
+  # Catalyst's wrapper supplies the OFF posture via `extraConfig` below;
+  # operator overlays delete the override (or supply a domain whitelist)
+  # to enable federation per-Organization.
+  extraConfig:
+    # Catalyst per-Sovereign tenancy default — federation OFF.
+    federation_domain_whitelist: []
+    # Local-account registration OFF — Catalyst standard is OIDC-only
+    # accounts (registration handled in Keycloak).
+    enable_registration: false
+    enable_registration_without_verification: false
+
+  # ─── Postgres backend — bp-cnpg (external) ─────────────────────────────
+  # Disable the bundled bitnami/postgresql; route Synapse at the bp-cnpg
+  # Cluster CR via `externalPostgresql`. Per-Sovereign overlay supplies
+  # the actual host + ExternalSecret holding the password.
+  postgresql:
+    enabled: false
+
+  externalPostgresql:
+    host: "matrix-postgres-rw.matrix.svc.cluster.local"
+    port: 5432
+    username: "synapse"
+    database: "synapse"
+    # Operator-supplied ExternalSecret holding the postgres password.
+    # Default is a placeholder name so the upstream chart's `required`
+    # password validation is satisfied at `helm template` smoke render
+    # time. The per-Sovereign overlay supplies the real ExternalSecret
+    # name (e.g. "matrix-postgres-credentials") at install time. Per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded — the
+    # placeholder is operator-replaceable.
+    existingSecret: "matrix-postgres-credentials"
+    existingSecretPasswordKey: "password"
+    sslmode: "require"
+
+  # ─── Redis (signaling-state for workers) ───────────────────────────────
+  # Bundled redis OFF — Catalyst routes at bp-valkey when workers are
+  # enabled. Default solo-Sovereign topology has no workers, so no
+  # Redis is required.
+  redis:
+    enabled: false
+
+  externalRedis:
+    enabled: false
+    host: "valkey-primary.valkey.svc.cluster.local"
+    port: 6379
+    existingSecret: ""                  # e.g. "matrix-redis-credentials"
+
+  # ─── Persistence ───────────────────────────────────────────────────────
+  # Synapse media repository — local PVC. Multi-tenant overlays MAY
+  # swap to bp-seaweedfs S3-backed media storage via the upstream
+  # chart's `media` config block.
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  # ─── Ingress — Catalyst standard ───────────────────────────────────────
+  # The upstream chart renders an Ingress when `ingress.enabled: true`.
+  # Per-Sovereign overlay supplies csHosts (chat.<sovereign-fqdn>) +
+  # ClusterIssuer annotations. Default placeholder hosts so `helm
+  # template` smoke renders without `--set`.
+  ingress:
+    enabled: true
+    annotations: {}
+    csHosts: []                         # operator-supplied (e.g. ["chat.<sovereign-fqdn>"])
+    hosts: []
+    wkHosts: []
+    tls: []
+
+  # ─── Synapse main pod ──────────────────────────────────────────────────
+  synapse:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+
+  # ─── Workers (sharding) — DEFAULT OFF ──────────────────────────────────
+  # Solo-Sovereign baseline runs Synapse monolithic. Multi-tenant
+  # overlays enable workers (and consequently bp-valkey for inter-worker
+  # signaling). Per docs/BLUEPRINT-AUTHORING.md §11.2 — DEFAULT OFF.
+  workers:
+    generic_worker:
+      enabled: false
+    federation_sender:
+      enabled: false
+    media_repository:
+      enabled: false
+
+  # ─── ServiceMonitor — upstream chart does NOT publish one ──────────────
+  # The Catalyst-overlay ServiceMonitor lives in templates/servicemonitor
+  # .yaml (gated by .Values.serviceMonitor.enabled, default false). The
+  # upstream chart sets prometheus.io/scrape annotations on the metrics
+  # port; the Catalyst overlay turns those into a proper ServiceMonitor.
+
+# ─── Catalyst-overlay knobs (consumed by templates/ in this chart) ───────
+# All DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+
+# Catalyst-side OIDC config — applied via the upstream chart's
+# `extraConfig.oidc_providers` block at install time. Operator's
+# per-Sovereign overlay supplies the actual issuer URL + ExternalSecret
+# holding the client secret. Default OFF until operator wires Keycloak.
+oidc:
+  enabled: true
+  idpId: "keycloak"
+  idpName: "Keycloak"
+  issuer: ""                            # operator-supplied (e.g. https://keycloak.<loc>.<sovereign-domain>/realms/<org>)
+  clientId: "matrix-synapse"
+  scopes: ["openid", "profile", "email"]
+  # ExternalSecret name carrying client_secret. Required key:
+  # OIDC_CLIENT_SECRET. Operator-supplied.
+  existingSecret: ""                    # e.g. "matrix-oidc-credentials"
+
+# Federation toggle — Catalyst-overlay marker. The actual federation
+# behaviour is gated by upstream chart values + the homeserver.yaml
+# config block; this knob is the documentation-level switch operators
+# flip when enabling per-Organization federation. DEFAULT FALSE per
+# Catalyst per-Sovereign tenancy.
+federation:
+  enabled: false
+
+# Element-Web client — separate Application Blueprint (bp-element-web,
+# slot 47). This block is a documentation-level pointer the per-
+# Sovereign overlay reads when wiring chat-web.<sovereign-fqdn>.
+elementWeb:
+  enabled: true
+  hostHint: "chat-web.<sovereign-fqdn>"
+
+# NetworkPolicy — locks the synapse pods down to the minimum egress /
+# ingress required (kube-dns, cnpg, keycloak, ingress). Default off —
+# operator opts in via per-Sovereign overlay once consumer namespaces
+# are known. Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector /
+# namespace label / port is operator-tunable.
+networkPolicy:
+  enabled: false
+  cnpgNamespace: "cnpg"
+  cnpgPort: 5432
+  keycloakNamespace: "keycloak"
+  keycloakPort: 8443
+  ingressNamespace: "traefik"
+  # Federation port (only used when federation.enabled=true) — Synapse
+  # listens on 8448 for inbound federation traffic.
+  federationPort: 8448
+  # Synapse client API port.
+  clientPort: 8008
+
+# ServiceMonitor — Catalyst-overlay variant. The upstream chart does
+# NOT publish a ServiceMonitor template; this Catalyst-side template is
+# the only path for Prometheus scraping. Per docs/BLUEPRINT-AUTHORING.md
+# §11.2 — DEFAULT OFF.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/_synapse/metrics"
+  labels: {}
+
+# HorizontalPodAutoscaler for the Synapse main Deployment. Default OFF.
+# Solo-Sovereign baseline runs Synapse monolithic with replicaCount: 1.
+# Multi-tenant overlays enable workers + HPA when room/event throughput
+# warrants. Per docs/BLUEPRINT-AUTHORING.md §11.2 — DEFAULT OFF.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

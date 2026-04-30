@@ -1,0 +1,165 @@
+# Catalyst Blueprint umbrella metadata — the upstream openmeter chart is
+# resolved as a Helm subchart via Chart.yaml `dependencies:`. This
+# values.yaml carries:
+#   1. The catalystBlueprint metadata block (provenance + version + the
+#      ClickHouse-less profile flag) so observability/audit pipelines can
+#      inspect the artifact and report which upstream chart + version is
+#      bundled and which aggregation backend is active.
+#   2. The upstream subchart values overlay under the `openmeter:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#   3. Catalyst-overlay knobs (networkPolicy, serviceMonitor, hpa) — all
+#      DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: openmeter
+    version: "1.0.0-beta.213"
+    repo: "oci://ghcr.io/openmeterio/helm-charts"
+  # ClickHouse-less profile flag — per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md
+  # §6.4. omantel-1 (and every solo Sovereign that has not added
+  # bp-clickhouse) runs `cnpg`: aggregation against CNPG materialized
+  # views, raw events on a JetStream subject. Re-roll with `clickhouse`
+  # once a host cluster adds bp-clickhouse.
+  backend:
+    kind: cnpg                        # cnpg | clickhouse
+  eventBus:
+    kind: jetstream                   # jetstream | kafka
+
+# ─── Upstream chart values (subchart key: openmeter) ─────────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `openmeter:` key flow into that subchart unchanged.
+openmeter:
+
+  image:
+    repository: ghcr.io/openmeterio/openmeter
+    pullPolicy: IfNotPresent
+    # tag pinned via the chart appVersion (1.0.0-beta.213); operator
+    # overlays MAY override per docs/INVIOLABLE-PRINCIPLES.md #4.
+    tag: ""
+
+  # ─── Bundled subcharts — DISABLED for the ClickHouse-less profile ──────
+  #
+  # Catalyst supplies these at the platform tier; the upstream chart's
+  # bundled bitnami/clickhouse-operator/svix images are not co-installed.
+  # Per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4: omantel-1 routes
+  # aggregation into bp-cnpg (PostgreSQL) and raw events into a
+  # bp-nats-jetstream subject. Where the upstream binary still expects a
+  # ClickHouse address (the OpenMeter binary today lacks a native cnpg
+  # aggregation driver), the per-Sovereign overlay supplies the endpoint
+  # via `openmeter.config.aggregation.clickhouse.address`. On hosts
+  # without bp-clickhouse, the OpenMeter pods stay Pending/CrashLoopBackOff
+  # at the application layer — that is the documented App-tier deferral
+  # per §6.4 and the Catalyst projector reports it to the operator.
+
+  clickhouse:
+    enabled: false
+    operator:
+      install: false
+
+  kafka:
+    enabled: false
+
+  postgresql:
+    enabled: false
+
+  redis:
+    enabled: false
+
+  svix:
+    enabled: false
+
+  # ─── OpenMeter binary configuration ────────────────────────────────────
+  #
+  # The upstream chart merges `.Values.openmeter.config` over the
+  # auto-generated overrides for the bundled subcharts. Because every
+  # bundled subchart is disabled above, the operator MUST supply the
+  # actual endpoints via per-Sovereign overlay. Defaults below are
+  # intentionally placeholders that yield a successful `helm template`
+  # smoke render — at install time the operator overlays:
+  #
+  #   openmeter:
+  #     config:
+  #       aggregation:
+  #         clickhouse:
+  #           address: <host>:<port>           # supplied per-Sovereign
+  #       postgres:
+  #         url: postgres://<cnpg-user>:<pw>@<cnpg-svc>:5432/openmeter
+  #       ingest:
+  #         kafka:
+  #           broker: <jetstream-shim>:9092    # bp-nats-jetstream front
+  #       sink:
+  #         kafka:
+  #           brokers: <jetstream-shim>:9092
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded — the
+  # default below is the empty config; the chart still renders. Operator
+  # overlays inject the real endpoints.
+  config: {}
+
+  # ─── API + worker replicas — solo-Sovereign baseline ───────────────────
+  api:
+    replicaCount: 1
+  balanceWorker:
+    replicaCount: 1
+  notificationService:
+    replicaCount: 1
+  sinkWorker:
+    replicaCount: 1
+
+  # ─── Service ──────────────────────────────────────────────────────────
+  service:
+    type: ClusterIP
+    port: 80
+
+  # ─── Ingress — DEFAULT OFF (per-Sovereign overlay enables) ────────────
+  ingress:
+    enabled: false
+
+  # ─── Resource baseline ─────────────────────────────────────────────────
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# ─── Catalyst-overlay knobs (consumed by templates/ in this chart) ───────
+# All DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+
+# NetworkPolicy — locks the openmeter pods down to the minimum egress
+# required (CNPG, JetStream, kube-dns). Default off — operator opts in
+# via per-Sovereign overlay once consumer namespaces are known.
+networkPolicy:
+  enabled: false
+  cnpgNamespace: "cnpg"
+  jetstreamNamespace: "nats-jetstream"
+  jetstreamPort: 4222
+  cnpgPort: 5432
+  ingressNamespace: "traefik"
+
+# ServiceMonitor — Catalyst-overlay variant. The upstream chart does not
+# publish a ServiceMonitor; this template is the forward-compatibility
+# guard that lands the metrics scraping behind a single operator toggle.
+# Per docs/BLUEPRINT-AUTHORING.md §11.2 — DEFAULT OFF.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# HorizontalPodAutoscaler for the OpenMeter API Deployment. Default
+# OFF — solo Sovereigns stay at the single-replica baseline. Per-cluster
+# overlays enable HPA on multi-tenant Sovereigns where ingest throughput
+# needs autoscaling (kube-prometheus-stack + metrics-server required).
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

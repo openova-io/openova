@@ -1,0 +1,140 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-matrix
+  labels:
+    catalyst.openova.io/category: application
+    catalyst.openova.io/section: pts-4-5-communication
+spec:
+  version: 1.0.0
+  card:
+    title: Matrix (Synapse)
+    summary: |
+      Self-hosted, federation-capable team chat. Synapse is the
+      reference Matrix homeserver implementation — Catalyst's per-
+      Sovereign tenancy default keeps federation OFF (private rooms
+      only), and operator overlays toggle it on per-Organization for
+      cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn>
+      with a paired Element-Web client at chat-web.<sovereign-fqdn>.
+      OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg.
+      ("Synapse" here = the Matrix server implementation, NOT the
+      retired OpenOva product noun.)
+    icon: matrix.svg
+    category: application
+    tags: [chat, messaging, federation, e2ee, oidc, application]
+    documentation: https://element-hq.github.io/synapse/
+    license: AGPL-3.0
+  visibility: listed
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    required: [serverName]
+    properties:
+      serverName:
+        type: string
+        format: hostname
+        description: |
+          The Matrix server name (becomes the @user:<serverName> domain
+          part). Per-Sovereign overlay supplies this — typically
+          chat.<sovereign-fqdn>.
+      publicServerName:
+        type: string
+        format: hostname
+        description: |
+          The public-facing client hostname for /.well-known/matrix
+          discovery. Defaults to the same value as serverName.
+      federation:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              Federation OFF by default — Catalyst's per-Sovereign
+              tenancy default keeps each Sovereign's Matrix instance
+              private. Operator overlays flip this on per-Organization
+              for cross-Sovereign collaboration.
+      oidc:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              OIDC SSO via bp-keycloak. Catalyst standard.
+          idpId:
+            type: string
+            default: "keycloak"
+            description: |
+              Synapse's IdP ID for the Keycloak provider. Becomes part
+              of the OIDC client name registered in Keycloak.
+          issuer:
+            type: string
+            description: |
+              Keycloak realm issuer URL (e.g. https://keycloak.<loc>
+              .<sovereign-domain>/realms/<org>). Per-Sovereign overlay
+              supplies this; nothing is hardcoded
+              (docs/INVIOLABLE-PRINCIPLES.md #4).
+      registration:
+        type: object
+        properties:
+          enableRegistration:
+            type: boolean
+            default: false
+            description: |
+              Local-account registration. Catalyst standard is OIDC-only
+              accounts (registration handled in Keycloak); local
+              registration OFF.
+      elementWeb:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              Deploy the Element-Web client at chat-web.<sovereign-fqdn>
+              alongside the Synapse homeserver. The Element-Web image
+              is wired by the bp-element-web Application Blueprint
+              (slot 47); this knob is a documentation-level pointer
+              for the per-Sovereign overlay.
+      tls:
+        type: object
+        properties:
+          issuerRef:
+            type: string
+            default: "letsencrypt-prod"
+            description: |
+              cert-manager ClusterIssuer name (per-Sovereign overlay
+              chooses staging vs prod).
+      serviceMonitor:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              monitoring.coreos.com/v1 ServiceMonitor — requires the
+              Prometheus Operator CRDs from kube-prometheus-stack.
+              Per docs/BLUEPRINT-AUTHORING.md §11.2 default false;
+              operator opts in via per-cluster overlay (issue #182).
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+    minRegions: 1
+    maxRegions: 1
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg               # Postgres backend (postgresql.cnpg.io/v1.Cluster)
+      version: ^1
+    - blueprint: bp-keycloak           # OIDC SSO
+      version: ^1
+    - blueprint: bp-cert-manager       # ingress TLS via ClusterIssuer
+      version: ^1
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

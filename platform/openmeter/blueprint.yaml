@@ -1,0 +1,97 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-openmeter
+  labels:
+    catalyst.openova.io/category: application
+    catalyst.openova.io/section: pts-4-8-identity-and-metering
+spec:
+  version: 1.0.0
+  card:
+    title: OpenMeter
+    summary: |
+      Real-time usage metering. CloudEvents ingestion, deterministic
+      per-subject aggregation, OpenAPI Query endpoint. Used by
+      bp-fingate (Open Banking) to meter API calls per TPP for
+      monetization, and available to any Application that needs
+      per-event usage tracking. omantel-1 ships the ClickHouse-less
+      profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend
+      writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event
+      bus). Re-roll with backend.kind=clickhouse once a host cluster
+      adds bp-clickhouse.
+    icon: openmeter.svg
+    category: application
+    tags: [metering, usage, billing, cloudevents, application]
+    documentation: https://openmeter.io/docs
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      backend:
+        type: object
+        description: |
+          Aggregation backend selector. Catalyst defaults to `cnpg` —
+          the ClickHouse-less profile (CNPG materialized views + a
+          JetStream subject for raw events) per
+          docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4. Re-roll with
+          `clickhouse` once a host cluster adds bp-clickhouse.
+        properties:
+          kind:
+            type: string
+            enum: [cnpg, clickhouse]
+            default: cnpg
+            description: |
+              `cnpg` (default): aggregate via CNPG materialized views,
+              raw events on a JetStream subject. `clickhouse`: route
+              aggregation to an external ClickHouse cluster supplied
+              by bp-clickhouse.
+      eventBus:
+        type: object
+        properties:
+          kind:
+            type: string
+            enum: [jetstream, kafka]
+            default: jetstream
+            description: |
+              Catalyst defaults to NATS JetStream (bp-nats-jetstream).
+              The upstream OpenMeter binary speaks Kafka natively;
+              Catalyst routes via the OpenTelemetry Collector or the
+              JetStream→Kafka shim documented at
+              docs/PLATFORM-TECH-STACK.md §4.8.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 10
+      serviceMonitor:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              monitoring.coreos.com/v1 ServiceMonitor — requires the
+              Prometheus Operator CRDs from kube-prometheus-stack.
+              Per docs/BLUEPRINT-AUTHORING.md §11.2 default false;
+              operator opts in via per-cluster overlay (issue #182).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg              # aggregation backend (ClickHouse-less profile)
+      version: ^1
+    - blueprint: bp-nats-jetstream    # raw-event subject (ClickHouse-less profile)
+      version: ^1
+    - blueprint: bp-cert-manager      # ingress TLS
+      version: ^1
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

@@ -1,0 +1,104 @@
+{{- /*
+NetworkPolicy — Catalyst overlay locking the Synapse pods down to the
+minimum egress / ingress required.
+
+Egress targets:
+  - Cluster DNS (kube-system) — service discovery for bp-cnpg + bp-keycloak.
+  - bp-cnpg cluster (Postgres backend) on port 5432.
+  - bp-keycloak (OIDC discovery + token endpoint) on port 8443.
+
+Ingress is locked to:
+  - Ingress controller namespace (operator-supplied label) — terminates
+    public Synapse client API on port 8008 (and federation on 8448
+    when federation.enabled = true).
+  - Same-namespace traffic between Synapse + worker pods.
+
+DEFAULT FALSE per Catalyst overlay convention — operator turns this on
+via per-Sovereign overlay once consumer namespaces are known. Per
+docs/INVIOLABLE-PRINCIPLES.md #4 every selector / namespace label /
+port is operator-tunable through `networkPolicy.*`.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-matrix
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-matrix.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-synapse
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Same-namespace traffic between Synapse + worker pods.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # Ingress controller — terminates public client API.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace | default "traefik" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.clientPort | default 8008 }}
+        {{- if .Values.federation.enabled }}
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.federationPort | default 8448 }}
+        {{- end }}
+  egress:
+    # Cluster DNS — Synapse resolves CNPG + Keycloak Services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Same-namespace egress (Synapse → workers, workers → media-repo, etc.).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # bp-cnpg — Postgres backend.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgNamespace | default "cnpg" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.cnpgPort | default 5432 }}
+    # bp-keycloak — OIDC discovery + token endpoint.
+    {{- if .Values.oidc.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.keycloakNamespace | default "keycloak" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.keycloakPort | default 8443 }}
+    {{- end }}
+    # Federation outbound (when enabled) — Synapse contacts other
+    # Matrix homeservers on the public internet on port 8448.
+    {{- if .Values.federation.enabled }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8448
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

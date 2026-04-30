@@ -1,0 +1,49 @@
+{{- /*
+ServiceMonitor — Catalyst-overlay variant for Synapse.
+
+The upstream matrix-synapse chart does NOT publish a ServiceMonitor
+template; Synapse exposes its metrics on /_synapse/metrics, and the
+upstream chart sets `prometheus.io/scrape` annotations on the metrics
+port. This Catalyst-side template lands those metrics behind a proper
+ServiceMonitor so operators don't need an annotation-based scrape
+configuration.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — Prometheus
+Operator (monitoring.coreos.com/v1) is NOT in the bootstrap-kit prior
+to slot 25 (kube-prometheus-stack), so a ServiceMonitor shipped
+enabled-by-default would generate Helm install errors on a Sovereign
+that hasn't reached Phase 2 yet.
+
+Defense in depth: the values toggle (.Values.serviceMonitor.enabled)
+is the operator switch; the Capabilities gate skips the resource
+entirely on a Sovereign that has not yet reconciled the CRD, so
+flipping the toggle on a too-early Sovereign cannot break the
+bp-matrix reconcile.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
+labels, scrape path) is operator-tunable.
+*/}}
+{{- if and .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-matrix
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-matrix.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-synapse
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.serviceMonitor.path | quote }}
+      interval: {{ .Values.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

@@ -1,0 +1,196 @@
+# Catalyst Blueprint umbrella metadata — the upstream livekit-server
+# chart is resolved as a Helm subchart via Chart.yaml `dependencies:`.
+# This values.yaml carries:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact.
+#   2. The upstream subchart values overlay under the `livekit-server:`
+#      key (umbrella-chart convention — the dependency name from
+#      Chart.yaml is the values namespace).
+#   3. Catalyst-overlay knobs (networkPolicy, serviceMonitor, hpa) — all
+#      DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: livekit-server
+    version: "1.9.0"
+    repo: "https://helm.livekit.io"
+
+# ─── Upstream chart values (subchart key: livekit-server) ────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `livekit-server:` key flow into that subchart unchanged.
+livekit-server:
+
+  # Solo-Sovereign baseline — single replica. LiveKit signaling state is
+  # carried in Redis when replicaCount > 1, so multi-tenant overlays MUST
+  # supply `livekit.redis.address` (Catalyst routes this to bp-valkey).
+  replicaCount: 1
+
+  image:
+    repository: livekit/livekit-server
+    pullPolicy: IfNotPresent
+
+  # ─── LiveKit binary configuration ──────────────────────────────────────
+  livekit:
+    port: 7880
+    log_level: info
+
+    rtc:
+      tcp_port: 7881
+      # UDP port range for RTC traffic. Must match the Hetzner firewall
+      # rule the per-Sovereign overlay opens. Per
+      # docs/INVIOLABLE-PRINCIPLES.md #4 every port is operator-tunable.
+      port_range_start: 50000
+      port_range_end: 60000
+      use_external_ip: true
+
+    # Redis (signaling-state store). Empty by default — Catalyst's per-
+    # Sovereign overlay points this at the bp-valkey Service when
+    # replicaCount > 1. Solo-Sovereigns with replicaCount: 1 leave this
+    # blank.
+    redis: {}
+
+    # API keys — empty by default. Operator MUST supply via
+    # `storeKeysInSecret.existingSecret` referencing an ExternalSecret
+    # (do NOT inline keys in cluster overlays). Per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded.
+    keys: {}
+
+    # ─── TURN server — Catalyst routes to bp-stunner ─────────────────────
+    # The upstream chart's bundled `livekit.turn` runs a co-located TURN
+    # server. Catalyst's standard pattern is to route TURN/STUN through
+    # bp-stunner (K8s-native) for NAT traversal — leave the bundled
+    # `livekit.turn.enabled` OFF and the per-Sovereign overlay supplies
+    # the stunner UDP-gateway endpoint via a Catalyst overlay annotation
+    # (see `livekitOverlay.stunner` below).
+    turn:
+      enabled: false
+
+  # Store API keys in a Secret instead of the ConfigMap. DEFAULT FALSE —
+  # the upstream chart's secret template requires either an
+  # `existingSecret` reference or an inline `keys:` map plus
+  # `livekit.key_file`. Catalyst's standard pattern is to project an
+  # ExternalSecret and have the operator's per-Sovereign overlay flip
+  # `enabled: true` and supply `existingSecret`. Default-off keeps
+  # `helm template` smoke renders clean without operator overlays.
+  storeKeysInSecret:
+    enabled: false
+    existingSecret: ""                # operator-supplied (e.g. "livekit-keys")
+    keys: {}
+
+  # ─── Service / loadBalancer ────────────────────────────────────────────
+  # Single-instance LiveKit runs on hostNetwork so the SFU port range is
+  # reachable. The upstream chart sets podHostNetwork: true by default;
+  # Catalyst keeps it.
+  loadBalancer:
+    type: disable
+    servicePort: 80
+    annotations: {}
+
+  # turnLoadbalancer — left enabled to match upstream defaults; the
+  # service is harmless when bundled TURN is off.
+  turnLoadbalancer:
+    enable: true
+
+  # Autoscaling (HPA) — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false; HPA is gated on
+  # metrics-server which is part of the kube-prometheus-stack tier).
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+
+  # Resource baseline — LiveKit recommends "plenty of resources" because
+  # only one instance per physical node fits (port range exclusivity).
+  # Solo-Sovereign baseline below; multi-tenant overlays bump.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 4
+      memory: 2Gi
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  # hostNetwork required so the SFU port range maps directly to the
+  # node's external IP. Upstream default — restate explicitly.
+  podHostNetwork: true
+
+  podAnnotations:
+    sidecar.istio.io/inject: "false"
+    linkerd.io/inject: disabled
+
+  # ─── Upstream ServiceMonitor — DEFAULT OFF ─────────────────────────────
+  # Per docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    create: false
+    annotations: {}
+    name: ""
+    interval: 30s
+
+# ─── Catalyst-overlay knobs (consumed by templates/ in this chart) ───────
+# All DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+
+# bp-stunner integration — the Catalyst standard for WebRTC NAT
+# traversal. The per-Sovereign overlay flips `enabled: true` and points
+# `gatewayService` at the bp-stunner UDP-gateway. The bp-livekit chart
+# emits this only as Service annotations + a Catalyst-overlay
+# ConfigMap; the actual UDPRoute / Gateway resources live in
+# bp-stunner's own chart.
+livekitOverlay:
+  stunner:
+    enabled: false
+    gatewayService: "udp-gateway.stunner.svc.cluster.local:3478"
+    # Realm + shared-secret used by the upstream livekit binary's
+    # `turn_server` config. Operator supplies via ExternalSecret.
+    realm: "stunner.l7mp.io"
+    sharedSecretName: ""              # ExternalSecret name (e.g. "livekit-stunner-shared-secret")
+
+# NetworkPolicy — locks the livekit pods down to the minimum egress /
+# ingress required (kube-dns, valkey, stunner, ingress). Default off —
+# operator opts in via per-Sovereign overlay once consumer namespaces
+# are known. Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector /
+# namespace label / port is operator-tunable.
+networkPolicy:
+  enabled: false
+  valkeyNamespace: "valkey"
+  valkeyPort: 6379
+  stunnerNamespace: "stunner"
+  stunnerPort: 3478
+  ingressNamespace: "traefik"
+  # The signaling port the upstream chart exposes (`.livekit-server.livekit.port`).
+  signalingPort: 7880
+
+# ServiceMonitor — Catalyst-overlay variant. The upstream chart
+# already publishes its own ServiceMonitor (gated by `serviceMonitor.create`
+# above, which we keep defaulted false). This Catalyst-side knob is the
+# forward-compatibility guard so a future aggregate ServiceMonitor lands
+# behind the same operator switch. Per docs/BLUEPRINT-AUTHORING.md
+# §11.2 — DEFAULT OFF.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# HorizontalPodAutoscaler for the LiveKit Deployment. Default OFF.
+# The upstream chart already exposes `livekit-server.autoscaling.enabled`
+# (kept defaulted false above); this Catalyst-side knob is the
+# forward-compatibility guard for a Catalyst-authored HPA shape (e.g.
+# scaling on custom signaling-room metrics). Per
+# docs/BLUEPRINT-AUTHORING.md §11.2 — DEFAULT OFF.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 80
