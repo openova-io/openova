@@ -89,8 +89,8 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
 
 const NODE_RADIUS = 30 // px
 const COLLIDE_PADDING = 6
-const VIEW_W = 2000 // virtual SVG width — preserveAspectRatio will scale
-const VIEW_H = 1100 // virtual SVG height
+// VIEW_H still used as a fallback for empty-region geometry.
+const VIEW_H = 1100
 
 /* Sim node shape. */
 type SimNode = SimulationNodeDatum & {
@@ -128,26 +128,30 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const nodesRef = useRef<Map<string, SimNode>>(new Map())
   const [tick, setTick] = useState(0)
 
-  // Region midpoints — divide canvas vertically by region count.
+  // Region midpoints — divide vertical band by region count.
+  // Constants in pixels of the simulation coord system; viewBox below
+  // auto-fits so these absolute numbers don't matter for canvas usage.
+  const REGION_BAND_H = NODE_RADIUS * 8 // 240px per region
   const regionYMid = useMemo(() => {
     const map = new Map<string, number>()
     const regions = layout.regions
     if (regions.length === 0) return map
-    const bandH = VIEW_H / regions.length
     regions.forEach((r, i) => {
-      map.set(r.id, bandH * i + bandH / 2)
+      map.set(r.id, i * REGION_BAND_H + REGION_BAND_H / 2)
     })
     return map
-  }, [layout.regions])
+  }, [layout.regions, REGION_BAND_H])
 
-  // Depth-to-x mapping: spread across 90% of width with 5% margin each side.
+  // Depth-to-x mapping: each unit of depth advances by a fixed
+  // PER_DEPTH_X step. The auto-fit viewBox below scales the WHOLE
+  // canvas to whatever total span the simulation produced — so even
+  // 2 nodes at depth 0/1 won't fly to opposite edges (small bbox →
+  // tight zoom) and 35 nodes at depth 0..6 will fill (big bbox →
+  // wide zoom). This is the user's "smart fill" requirement.
+  const PER_DEPTH_X = NODE_RADIUS * 5 // 150px per depth step
   const depthToX = useCallback(
-    (depth: number) => {
-      const max = Math.max(1, layout.maxDepth)
-      const t = depth / max // 0..1
-      return VIEW_W * 0.06 + t * (VIEW_W * 0.88)
-    },
-    [layout.maxDepth],
+    (depth: number) => depth * PER_DEPTH_X,
+    [PER_DEPTH_X],
   )
 
   // Family palette lookup.
@@ -242,8 +246,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
           .id((d) => d.id)
+          // Each link prefers ~120px (= NODE_RADIUS*4). Hard caps on x-attractor
+          // depthToX(maxDepth=N) keep total horizontal span bounded by node count.
           .distance(NODE_RADIUS * 4)
-          .strength(0.04),
+          .strength(0.08),
       )
       .on('tick', () => setTick((t) => t + 1))
 
@@ -280,12 +286,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
       .on('end', function (event) {
         if (!event.active) sim.alphaTarget(0)
-        const id = (this as SVGGElement).getAttribute('data-job-id')
-        const d = id ? nodesRef.current.get(id) : null
-        if (d) {
-          d.fx = null
-          d.fy = null
-        }
+        // PIN where the user dropped — operator wants drag to stick.
+        // event.x/y are the final cursor position (already applied to fx/fy
+        // during the last 'drag' event). Leaving fx/fy non-null pins the
+        // node permanently against the simulation's anchor pull.
+        // Operator can re-drag any time.
       })
 
     const sel = select(svgRef.current).selectAll<SVGGElement, unknown>(
@@ -316,12 +321,32 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
+  // Auto-fit viewBox: compute the bounding box of all simulated nodes
+  // each render, add padding for labels, use that as the SVG viewBox.
+  // This is the operator's "smart fill" requirement — 2 bubbles tightly
+  // zoomed, 35 bubbles wider zoomed, always ~85-95% canvas usage.
+  let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity
+  for (const p of livePos.values()) {
+    if (p.x < bbMinX) bbMinX = p.x
+    if (p.y < bbMinY) bbMinY = p.y
+    if (p.x > bbMaxX) bbMaxX = p.x
+    if (p.y > bbMaxY) bbMaxY = p.y
+  }
+  // Padding accounts for: bubble radius + label below + a bit of breathing room.
+  const PAD_X = NODE_RADIUS + 30
+  const PAD_Y_TOP = NODE_RADIUS + 12
+  const PAD_Y_BOTTOM = NODE_RADIUS + 40 // extra for the text label below
+  const vbX = (Number.isFinite(bbMinX) ? bbMinX : 0) - PAD_X
+  const vbY = (Number.isFinite(bbMinY) ? bbMinY : 0) - PAD_Y_TOP
+  const vbW = Math.max(NODE_RADIUS * 4, (bbMaxX - bbMinX) + PAD_X * 2)
+  const vbH = Math.max(NODE_RADIUS * 4, (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM)
+
   return (
     <svg
       ref={svgRef}
       width="100%"
       height="100%"
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      viewBox={`${vbX.toFixed(1)} ${vbY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}`}
       preserveAspectRatio="xMidYMid meet"
       className="flow-canvas-svg-organic"
       data-testid="flow-canvas-svg"
@@ -387,7 +412,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   )
 }
 
-/* ── FlowEdge ──────────────────────────────────────────────────── */
+/* ── FlowEdge — straight line, rim-to-rim, with arrowhead ──────── */
 
 function FlowEdge({
   from,
@@ -402,24 +427,17 @@ function FlowEdge({
   const dx = to.x - from.x
   const dy = to.y - from.y
   const len = Math.hypot(dx, dy) || 1
-  const off = Math.min(80, len * 0.18)
-  const nx = -dy / len
-  const ny = dx / len
-  // Trim path so arrowhead lands ON the rim, not inside the bubble
-  const trim = NODE_RADIUS + 6
+  const trim = NODE_RADIUS + 6 // arrow-head clearance
   const fx = from.x + (dx / len) * NODE_RADIUS
   const fy = from.y + (dy / len) * NODE_RADIUS
   const tx = to.x - (dx / len) * trim
   const ty = to.y - (dy / len) * trim
-  const c1x = fx + dx * 0.33 + nx * off
-  const c1y = fy + dy * 0.33 + ny * off
-  const c2x = fx + dx * 0.66 + nx * off
-  const c2y = fy + dy * 0.66 + ny * off
-  const d = `M ${fx.toFixed(1)} ${fy.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${tx.toFixed(1)} ${ty.toFixed(1)}`
   return (
-    <path
-      d={d}
-      fill="none"
+    <line
+      x1={fx.toFixed(1)}
+      y1={fy.toFixed(1)}
+      x2={tx.toFixed(1)}
+      y2={ty.toFixed(1)}
       stroke={tone.edge}
       strokeWidth={1.6}
       markerEnd={`url(#flow-org-arrow-${status})`}
