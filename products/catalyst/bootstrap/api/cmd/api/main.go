@@ -85,6 +85,14 @@ func main() {
 	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
 	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
+	// Backfill endpoints — give the FE an explicit handshake to
+	// re-attach the helmwatch goroutine after a Pod restart and to
+	// snapshot the in-memory informer cache. The bridge seeds a Job
+	// per HR observed on initial-list so HRs that have been
+	// Ready=True for an hour materialise rows immediately rather
+	// than only on state transitions.
+	r.Post("/api/v1/deployments/{depId}/refresh-watch", h.RefreshWatch)
+	r.Get("/api/v1/deployments/{depId}/components/state", h.GetComponentsState)
 	// Sovereign Dashboard treemap (resource utilisation). Read-only.
 	// V1 emits a static placeholder shape — see dashboard.go header
 	// for the metrics-server upgrade plan.

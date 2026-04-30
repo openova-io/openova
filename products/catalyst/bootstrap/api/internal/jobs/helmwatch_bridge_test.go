@@ -234,3 +234,229 @@ func TestJobStatusFromHelmState(t *testing.T) {
 		}
 	}
 }
+
+// TestSeedJobsFromInformerList_idempotent proves the load-bearing
+// property of the bridge's backfill path: calling
+// SeedJobsFromInformerList twice with the SAME cache contents writes
+// each Job + Execution + LogLine exactly once. This is what makes it
+// safe for the handler to call the seed hook on every Watcher start
+// (resume-after-restart, /refresh-watch).
+func TestSeedJobsFromInformerList_idempotent(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC)
+
+	seeds := []InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "Helm install succeeded", ObservedAt: now},
+		{Component: "cert-manager", State: HelmStateInstalled, Message: "Helm install succeeded", ObservedAt: now.Add(time.Minute)},
+		{Component: "flux", State: HelmStateInstalling, Message: "first reconcile", ObservedAt: now.Add(2 * time.Minute)},
+		{Component: "crossplane", State: HelmStateFailed, Message: "InstallFailed: timed out", ObservedAt: now.Add(3 * time.Minute)},
+	}
+
+	jobsWritten1, execs1, err := br.SeedJobsFromInformerList(seeds)
+	if err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	if jobsWritten1 != 4 {
+		t.Errorf("first seed jobsWritten: want 4, got %d", jobsWritten1)
+	}
+	// 3 terminal states (cilium installed, cert-manager installed,
+	// crossplane failed) → 3 executions seeded. The "installing" flux
+	// HR is non-terminal so no execution is allocated.
+	if execs1 != 3 {
+		t.Errorf("first seed executionsSeeded: want 3, got %d", execs1)
+	}
+
+	gotAfterFirst, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotAfterFirst) != 4 {
+		t.Fatalf("after first seed: want 4 jobs, got %d", len(gotAfterFirst))
+	}
+
+	// Snapshot per-Job content for the idempotency comparison.
+	beforeByName := map[string]Job{}
+	for _, j := range gotAfterFirst {
+		beforeByName[j.JobName] = j
+	}
+
+	// Second seed with identical input MUST be a no-op for terminal
+	// states (no second Execution allocated, no second LogLine
+	// appended). Non-terminal states (the "installing" flux row) are
+	// cheap to re-Upsert so the bridge does, but the Status doesn't
+	// change.
+	jobsWritten2, execs2, err := br.SeedJobsFromInformerList(seeds)
+	if err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+	if jobsWritten2 != 4 {
+		t.Errorf("second seed jobsWritten: want 4 (re-upsert is idempotent), got %d", jobsWritten2)
+	}
+	if execs2 != 0 {
+		t.Errorf("second seed executionsSeeded: want 0 (idempotent), got %d", execs2)
+	}
+
+	gotAfterSecond, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotAfterSecond) != 4 {
+		t.Fatalf("after second seed: want 4 jobs (no duplicates), got %d", len(gotAfterSecond))
+	}
+	for _, j := range gotAfterSecond {
+		prev, ok := beforeByName[j.JobName]
+		if !ok {
+			t.Errorf("second seed introduced unexpected job %q", j.JobName)
+			continue
+		}
+		// Status + LatestExecutionID must be stable across the two
+		// seeds; a non-stable LatestExecutionID would mean the
+		// bridge allocated a fresh Execution (the bug we're guarding).
+		if j.Status != prev.Status {
+			t.Errorf("status drift for %q: was %q now %q", j.JobName, prev.Status, j.Status)
+		}
+		if j.LatestExecutionID != prev.LatestExecutionID {
+			t.Errorf("LatestExecutionID drift for %q: was %q now %q", j.JobName, prev.LatestExecutionID, j.LatestExecutionID)
+		}
+	}
+
+	// Per-Job execution count must be exactly 1 for terminal jobs and
+	// 0 for the installing job, both before AND after the duplicate
+	// seed. This is the strongest idempotency invariant.
+	for _, name := range []string{"install-cilium", "install-cert-manager", "install-crossplane"} {
+		_, execs, err := st.GetJob(depID, JobID(depID, name))
+		if err != nil {
+			t.Fatalf("GetJob %q: %v", name, err)
+		}
+		if len(execs) != 1 {
+			t.Errorf("%s: want 1 execution after dup seed, got %d", name, len(execs))
+		}
+	}
+	_, fluxExecs, err := st.GetJob(depID, JobID(depID, "install-flux"))
+	if err != nil {
+		t.Fatalf("GetJob install-flux: %v", err)
+	}
+	if len(fluxExecs) != 0 {
+		t.Errorf("install-flux: want 0 executions for non-terminal seed, got %d", len(fluxExecs))
+	}
+}
+
+// TestSeedJobsFromInformerList_writesSyntheticLogLine proves every
+// terminal-state seed materialises exactly one INFO/ERROR log line of
+// the form "[seeded] state=<state> at <ts>: <message>". The
+// table-view UX deep-links to this Execution's logs even when no
+// real helm-controller events were ever emitted (because the watch
+// started AFTER Ready=True had already flipped).
+func TestSeedJobsFromInformerList_writesSyntheticLogLine(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC)
+	seeds := []InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "Helm install succeeded", ObservedAt: now},
+		{Component: "crossplane", State: HelmStateFailed, Message: "InstallFailed: timed out", ObservedAt: now.Add(time.Minute)},
+		{Component: "flux", State: HelmStateInstalling, Message: "first reconcile", ObservedAt: now.Add(2 * time.Minute)},
+	}
+	if _, _, err := br.SeedJobsFromInformerList(seeds); err != nil {
+		t.Fatalf("SeedJobsFromInformerList: %v", err)
+	}
+
+	type logCheck struct {
+		jobName     string
+		wantLevel   string
+		wantStateIn string
+	}
+	checks := []logCheck{
+		{"install-cilium", LevelInfo, "state=installed"},
+		{"install-crossplane", LevelError, "state=failed"},
+	}
+	for _, c := range checks {
+		t.Run(c.jobName, func(t *testing.T) {
+			job, execs, err := st.GetJob(depID, JobID(depID, c.jobName))
+			if err != nil {
+				t.Fatalf("GetJob: %v", err)
+			}
+			if len(execs) != 1 {
+				t.Fatalf("expected exactly 1 Execution, got %d", len(execs))
+			}
+			page, err := st.PageLogs(depID, job.LatestExecutionID, 1, 100)
+			if err != nil {
+				t.Fatalf("PageLogs: %v", err)
+			}
+			if page.Total != 1 {
+				t.Fatalf("expected exactly 1 LogLine, got %d", page.Total)
+			}
+			ll := page.Lines[0]
+			if ll.Level != c.wantLevel {
+				t.Errorf("level: want %q, got %q", c.wantLevel, ll.Level)
+			}
+			if !strings.HasPrefix(ll.Message, "[seeded]") {
+				t.Errorf("message must start with [seeded]: %q", ll.Message)
+			}
+			if !strings.Contains(ll.Message, c.wantStateIn) {
+				t.Errorf("message must contain %q: %q", c.wantStateIn, ll.Message)
+			}
+		})
+	}
+
+	// The non-terminal install-flux row must NOT have a synthetic log
+	// line — the watch will allocate one when the next transition
+	// fires through OnHelmReleaseEvent.
+	_, fluxExecs, err := st.GetJob(depID, JobID(depID, "install-flux"))
+	if err != nil {
+		t.Fatalf("GetJob install-flux: %v", err)
+	}
+	if len(fluxExecs) != 0 {
+		t.Errorf("install-flux must not have a synthetic execution, got %d", len(fluxExecs))
+	}
+}
+
+// TestSeedJobsFromInformerList_subsequentTransitionSuppressed proves
+// the bridge's lastState cursor is primed by the seed: after seeding
+// `cilium` as installed, a follow-up OnHelmReleaseEvent with
+// HelmStateInstalled MUST be a no-op (no second Job upsert, no second
+// log line). This is the load-bearing property that keeps the seed +
+// emit paths from double-counting on a HR that has been Ready=True
+// for an hour.
+func TestSeedJobsFromInformerList_subsequentTransitionSuppressed(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC)
+
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "ok", ObservedAt: now},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// First the watch's processEvent fires AddFunc → bridge sees the
+	// installed state. Because lastState[cilium] is already
+	// "installed" from the seed, the bridge must short-circuit and
+	// NOT allocate a second Execution.
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "still ok", now.Add(time.Second)); err != nil {
+		t.Fatalf("OnHelmReleaseEvent: %v", err)
+	}
+	_, execs, err := st.GetJob(depID, JobID(depID, "install-cilium"))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if len(execs) != 1 {
+		t.Errorf("seed + dup transition: want 1 execution, got %d", len(execs))
+	}
+}
+
+// TestSeedJobsFromInformerList_skipsEmptyComponent guards against a
+// future helmwatch.SnapshotComponents bug that returned a row with an
+// empty AppID — the bridge must skip those rather than synthesise a
+// "install-" Job with no chart name.
+func TestSeedJobsFromInformerList_skipsEmptyComponent(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "", State: HelmStateInstalled},
+		{Component: "  ", State: HelmStateInstalled},
+		{Component: "cilium", State: HelmStateInstalled},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	got, _ := st.ListJobs(depID)
+	if len(got) != 1 {
+		t.Errorf("expected 1 job (empty components skipped), got %d", len(got))
+	}
+}

@@ -38,6 +38,7 @@ package jobs
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -65,19 +66,24 @@ type Bridge struct {
 	store        *Store
 	deploymentID string
 
+	// mu serialises access to the in-memory cursors below.
+	// SeedJobsFromInformerList runs from the helmwatch.Watcher's
+	// post-Sync hook (fireOnSyncedHooks) while OnHelmReleaseEvent
+	// runs from the informer's processEvent goroutine — without
+	// this lock the two paths race on activeExecID + lastState.
+	// Store-level writes are already serialised under Store.mu so
+	// the lock here is purely for the bridge's own state.
+	mu sync.Mutex
+
 	// activeExecID — per-job map of the in-flight Execution.id. Set
 	// on the first transition out of StatePending; cleared when the
-	// Job reaches a terminal state. Concurrent OnEvent calls for
-	// different Jobs are race-free because the Store serialises
-	// every write under its own mutex; however, the per-Job cursor
-	// itself is not accessed concurrently for the same Job by
-	// design (helmwatch emits state changes for a given component
-	// strictly sequentially).
+	// Job reaches a terminal state. Mutated under b.mu.
 	activeExecID map[string]string
 
 	// lastState — per-job last-seen helmwatch state, so the bridge
 	// can suppress duplicate appends when helmwatch refires UpdateFunc
 	// at the informer's resync cadence without an actual transition.
+	// Mutated under b.mu.
 	lastState map[string]string
 }
 
@@ -131,6 +137,181 @@ type SeedSpec struct {
 	DependsOn []string
 }
 
+// InformerSeed is one HelmRelease the helmwatch informer has in its
+// local cache when SeedJobsFromInformerList runs. The bridge translates
+// each entry into a Job (and, for terminal states, an Execution + a
+// single synthetic LogLine) so a wizard that connects to the
+// catalyst-api LONG after the watch terminated still sees the full
+// table-view of Jobs.
+//
+// Spec source: helmwatch.Watcher.SnapshotComponents() walks the
+// informer's local cache after HasSynced and produces one InformerSeed
+// per bp-* HelmRelease. Component is the normalised id ("cilium"),
+// State is the helmwatch state enum (HelmStatePending /
+// HelmStateInstalling / HelmStateInstalled / HelmStateFailed /
+// HelmStateDegraded), Message is the HelmRelease.status.conditions[Ready]
+// message verbatim, ObservedAt is the LastTransitionTime when known
+// (falls back to time.Now() inside the bridge if zero).
+type InformerSeed struct {
+	Component  string
+	State      string
+	Message    string
+	ObservedAt time.Time
+}
+
+// SeedJobsFromInformerList takes a snapshot of the helmwatch informer's
+// local cache (one entry per bp-* HelmRelease present at the moment
+// HasSynced returns true) and writes a Job per entry — plus, for
+// terminal states (succeeded | failed), a single Execution and a
+// synthetic LogLine "[seeded] state=<state> at <ts>: <message>" so the
+// table-view UX has a non-empty Executions list to deep-link to.
+//
+// Idempotency is the load-bearing property here: this method runs on
+// every helmwatch start, including the resume-after-Pod-restart path
+// AND the on-demand POST /refresh-watch. A second invocation with the
+// SAME state for the SAME component MUST be a no-op (no duplicate
+// Execution rows, no duplicate LogLine entries). Idempotency is
+// enforced by:
+//
+//   - UpsertJob's monotonic merge in store.mergeJob — re-emitting an
+//     existing terminal Job preserves its StartedAt/FinishedAt and does
+//     not create a second Execution.
+//   - The "skip when LatestExecutionID is already set" guard below —
+//     the synthetic Execution + LogLine pair is allocated at most once
+//     per (deployment, component) tuple.
+//   - For non-terminal states (pending / installing) the method is a
+//     plain UpsertJob (status reflected, no Execution allocated yet).
+//     Subsequent transitions through OnHelmReleaseEvent allocate the
+//     Execution at the first non-pending edge.
+//
+// Returns the count of (Jobs written, terminal Executions newly seeded)
+// so the handler can log a one-line summary.
+func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, executionsSeeded int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, s := range seeds {
+		comp := strings.TrimSpace(s.Component)
+		if comp == "" {
+			continue
+		}
+		jobName := JobNamePrefix + comp
+		jobID := JobID(b.deploymentID, jobName)
+
+		// Reflect the cluster-current state into a Job row. The
+		// translation matches OnHelmReleaseEvent so the seed and the
+		// ongoing event stream agree on Status semantics — a
+		// HelmStateInstalled HR observed during initial-list seeds a
+		// Status=succeeded Job, exactly as if a transition had been
+		// emitted.
+		nextStatus := jobStatusFromHelmState(s.State)
+		if err := b.store.UpsertJob(Job{
+			DeploymentID: b.deploymentID,
+			JobName:      jobName,
+			AppID:        comp,
+			BatchID:      BatchBootstrapKit,
+			DependsOn:    []string{},
+			Status:       nextStatus,
+		}); err != nil {
+			return jobsWritten, executionsSeeded, err
+		}
+		jobsWritten++
+
+		// Mirror the in-memory cursor so a follow-up
+		// OnHelmReleaseEvent(comp, sameState, ...) is suppressed by
+		// lastState — the seed is the canonical "first observation"
+		// for every component it covers.
+		b.lastState[comp] = s.State
+
+		// Non-terminal seed: just the Job row, no Execution. The watch
+		// will allocate one when the next transition fires through
+		// OnHelmReleaseEvent.
+		if !isTerminalHelmState(s.State) {
+			continue
+		}
+
+		// Terminal seed: allocate at most one Execution + emit the
+		// synthetic log line. The "already has an Execution" check
+		// reads the persisted Job back so a previous SeedJobsFromInformerList
+		// call (or an OnHelmReleaseEvent run that already allocated)
+		// does not get duplicated. This is what makes the method safe
+		// to call on every helmwatch start.
+		job, _, getErr := b.store.GetJob(b.deploymentID, jobID)
+		if getErr == nil && job.LatestExecutionID != "" {
+			// Already has an Execution from a prior seed or from a
+			// transition emitted earlier in the same Pod's life —
+			// nothing more to do.
+			b.activeExecID[comp] = "" // cursor cleared because terminal
+			continue
+		}
+
+		t := s.ObservedAt
+		if t.IsZero() {
+			t = time.Now().UTC()
+		} else {
+			t = t.UTC()
+		}
+
+		exec, startErr := b.store.StartExecution(b.deploymentID, jobName, t)
+		if startErr != nil {
+			return jobsWritten, executionsSeeded, startErr
+		}
+		executionsSeeded++
+
+		// One synthetic log line so the GitLab-CI viewer renders a
+		// non-empty Executions tab. Format documented at the call
+		// site so a future grep on production logs surfaces every
+		// seeded execution unambiguously.
+		message := strings.TrimSpace(s.Message)
+		line := "[seeded] state=" + s.State + " at " + t.Format(time.RFC3339)
+		if message != "" {
+			line = line + ": " + message
+		}
+		level := LevelInfo
+		if s.State == HelmStateFailed {
+			level = LevelError
+		}
+		if appendErr := b.store.AppendLogLines(b.deploymentID, exec.ID, []LogLine{{
+			Timestamp: t,
+			Level:     level,
+			Message:   line,
+		}}); appendErr != nil {
+			return jobsWritten, executionsSeeded, appendErr
+		}
+
+		// Flip the Execution + parent Job into the right terminal
+		// status. This mirrors what OnHelmReleaseEvent does on a
+		// pending → installed/failed transition; the only difference
+		// is we already wrote the synthetic line so the FinishExecution
+		// call only needs to stamp the timestamps + status.
+		final := StatusSucceeded
+		if s.State == HelmStateFailed {
+			final = StatusFailed
+		}
+		if finishErr := b.store.FinishExecution(b.deploymentID, exec.ID, final, t); finishErr != nil {
+			return jobsWritten, executionsSeeded, finishErr
+		}
+
+		// The cursor is cleared because the seed has driven the Job
+		// to a terminal state. A future Day-2 retry that re-emits a
+		// "running" event will allocate a fresh Execution row, which
+		// is the documented per-attempt model.
+		b.activeExecID[comp] = ""
+	}
+	return jobsWritten, executionsSeeded, nil
+}
+
+// isTerminalHelmState reports whether a helmwatch state string maps
+// onto a terminal Job status (succeeded | failed). Pulled out so the
+// seed path and OnHelmReleaseEvent agree on the boundary.
+func isTerminalHelmState(state string) bool {
+	switch state {
+	case HelmStateInstalled, HelmStateFailed:
+		return true
+	}
+	return false
+}
+
 // OnHelmReleaseEvent is the single entry point the helmwatch
 // consumer calls. componentID is helmwatch.ComponentIDFromHelmRelease
 // (the chart name with bp- stripped); state is one of the HelmState*
@@ -146,6 +327,9 @@ type SeedSpec struct {
 // the helmwatch event loop — the handler's emit path treats this as
 // a non-fatal best-effort write.
 func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t time.Time) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	jobName := JobNamePrefix + componentID
 
 	prev := b.lastState[componentID]
