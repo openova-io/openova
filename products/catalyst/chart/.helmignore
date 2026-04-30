@@ -1,0 +1,14 @@
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*~
+
+# Contabo-mkt only — applied by contabo's Flux Kustomization as raw YAML.
+# Excluded from Sovereign chart packaging (Sovereigns use Cilium gateway, no Traefik).
+templates/ingress.yaml
+templates/ingress-console-tls.yaml
+templates/sme-services/
+templates/marketplace-api/

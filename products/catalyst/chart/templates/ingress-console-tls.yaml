@@ -1,0 +1,43 @@
+# Contabo-mkt only — TLS-terminating ingress for console.openova.io.
+# Sovereigns skip via .helmignore (they use Cilium gateway, not Traefik).
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: console-openova-tls
+  namespace: catalyst
+spec:
+  secretName: console-openova-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: console.openova.io
+  dnsNames:
+    - console.openova.io
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console-openova-tls
+  namespace: catalyst
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "200"
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: "catalyst-strip-sovereign@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - console.openova.io
+      secretName: console-openova-tls
+  rules:
+    - host: console.openova.io
+      http:
+        paths:
+          - path: /sovereign
+            pathType: Prefix
+            backend:
+              service:
+                name: catalyst-ui
+                port:
+                  number: 80

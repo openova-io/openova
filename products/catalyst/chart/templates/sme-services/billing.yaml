@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+  namespace: sme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-billing
+  template:
+    metadata:
+      labels:
+        app: sme-billing
+    spec:
+      serviceAccountName: billing
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: billing
+          image: ghcr.io/openova-io/openova/services-billing:046e5eb
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8085
+          env:
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sme-pg-app
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sme-pg-app
+                  key: password
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: POSTGRES_PORT
+            - name: DATABASE_URL
+              value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/sme_billing?sslmode=disable"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+            - name: SUCCESS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CHECKOUT_SUCCESS_URL
+            - name: CANCEL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CHECKOUT_CANCEL_URL
+            - name: CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CATALOG_URL
+            - name: TENANT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: TENANT_URL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing
+  namespace: sme
+spec:
+  selector:
+    app: sme-billing
+  ports:
+    - port: 8085
+      targetPort: 8085
