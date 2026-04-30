@@ -7,10 +7,16 @@
  *   • Dependencies + Apps tabs are GONE (removed in v3).
  *   • Flow tab renders the embedded FlowPage (data-testid='flow-page-embedded').
  *   • Exec Log tab renders the ExecutionLogs viewer.
+ *   • [Regression] When the URL jobId is in the BACKEND format
+ *     (`<deploymentId>:install-cilium`), JobDetail looks it up via
+ *     mergeJobs(reducerJobs, liveJobs) — NOT deriveJobs alone — and
+ *     renders the populated job view rather than the not-found state.
+ *     This locks in the fix for the regression where every Flow-canvas
+ *     double-click landed on "is not part of this deployment".
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -23,13 +29,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { JobDetail } from './JobDetail'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
+import type { Job } from '@/lib/jobs.types'
 
 function renderDetail(deploymentId: string, jobId: string) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const detailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/jobs/$jobId',
-    component: () => <JobDetail disableStream />,
+    component: () => <JobDetail disableStream disableJobsBackfill />,
   })
   const flowRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -74,6 +81,73 @@ beforeEach(() => {
 
 afterEach(() => cleanup())
 
+/**
+ * Regression-test helper — renders JobDetail with the live-jobs backfill
+ * ENABLED, plus a fetch stub that returns the supplied liveJobs on the
+ * `/jobs` URL and an empty event slice on the `/events` URL. Lets us
+ * assert that backend-format ids (e.g. `d1:install-cilium`) resolve via
+ * mergeJobs() rather than falling through to the not-found state.
+ */
+function renderDetailWithLiveJobs(
+  deploymentId: string,
+  jobId: string,
+  liveJobs: Job[],
+) {
+  const rootRoute = createRootRoute({ component: () => <Outlet /> })
+  const detailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/jobs/$jobId',
+    // Live backfill ENABLED so useLiveJobsBackfill fetches the stubbed
+    // jobs payload. SSE is still disabled (jsdom can't drive it).
+    component: () => <JobDetail disableStream />,
+  })
+  const flowRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/flow',
+    component: () => <div data-testid="flow-target" />,
+  })
+  const jobsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/jobs',
+    component: () => <div data-testid="jobs-target" />,
+  })
+  const homeRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId',
+    component: () => <div data-testid="apps-target" />,
+  })
+  const tree = rootRoute.addChildren([detailRoute, flowRoute, jobsRoute, homeRoute])
+  const router = createRouter({
+    routeTree: tree,
+    history: createMemoryHistory({
+      initialEntries: [`/provision/${deploymentId}/jobs/${jobId}`],
+    }),
+  })
+  // URL-aware fetch stub: /jobs → liveJobs; everything else → empty
+  // events slice (matches the default useDeploymentEvents shape).
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.endsWith(`/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`)) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ jobs: liveJobs }),
+      } as unknown as Response)
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ events: [], state: undefined, done: false }),
+    } as unknown as Response)
+  }) as typeof fetch
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+}
+
 describe('JobDetail — v3 tab strip', () => {
   it('renders exactly 2 tabs labeled Flow + Exec Log', async () => {
     // Use a known fixture job id — `bp-cilium` lives in the bootstrap-kit
@@ -116,5 +190,56 @@ describe('JobDetail — v3 tab strip', () => {
     expect(logTab.getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByTestId('job-detail-logs-panel')).toBeTruthy()
     expect(screen.queryByTestId('job-detail-flow-panel')).toBeNull()
+  })
+})
+
+describe('JobDetail — backend-format jobId lookup (regression for #245 not-found)', () => {
+  // Without the fix, the FlowPage navigated to JobDetail with a
+  // backend-format id ("d1:install-cilium") and JobDetail looked it up
+  // against deriveJobs() output only — which uses catalog ids
+  // ("bp-cilium"). The lookup missed and JobDetail rendered the
+  // not-found state for every Flow-canvas double-click.
+  //
+  // The fix mirrors JobsPage / FlowPage: deriveJobs → adaptDerivedJobsToFlat
+  // → mergeJobs(reducerJobs, liveJobs). When the live API returns a row
+  // whose id matches the URL jobId, mergeJobs surfaces it.
+  it('renders the populated job view when jobId is in the backend "<deploymentId>:install-<x>" format', async () => {
+    const deploymentId = 'd1'
+    const jobId = `${deploymentId}:install-cilium`
+    const liveJobs: Job[] = [
+      {
+        id: jobId,
+        jobName: 'Install Cilium',
+        appId: 'bp-cilium',
+        batchId: 'applications',
+        dependsOn: ['cluster-bootstrap'],
+        status: 'running',
+        startedAt: '2026-04-29T10:00:00Z',
+        finishedAt: null,
+        durationMs: 5_000,
+      },
+    ]
+    renderDetailWithLiveJobs(deploymentId, jobId, liveJobs)
+
+    // Header populated → NOT the not-found state.
+    await waitFor(() => {
+      expect(screen.queryByTestId('job-detail-not-found')).toBeNull()
+      expect(screen.queryByTestId(`job-detail-${jobId}`)).toBeTruthy()
+    })
+    expect(screen.getByTestId('job-detail-title').textContent).toBe('Install Cilium')
+    // Tablist still mounts (Flow + Exec Log).
+    const tablist = screen.getByTestId('job-detail-tablist')
+    const tabs = tablist.querySelectorAll('[role="tab"]')
+    expect(tabs.length).toBe(2)
+  })
+
+  it('still renders not-found when no live job AND no reducer-derived job matches', async () => {
+    const deploymentId = 'd1'
+    // Backend format id but the live API has no rows; reducer derives
+    // catalog ids only — no match either way.
+    renderDetailWithLiveJobs(deploymentId, `${deploymentId}:install-cilium`, [])
+    await waitFor(() => {
+      expect(screen.queryByTestId('job-detail-not-found')).toBeTruthy()
+    })
   })
 })

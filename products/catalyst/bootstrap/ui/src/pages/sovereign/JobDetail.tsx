@@ -29,7 +29,10 @@ import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs, fmtTime, statusBadge } from './jobs'
-import type { Job } from './jobs'
+import type { JobUiStatus } from './jobs'
+import { adaptDerivedJobsToFlat } from './jobsAdapter'
+import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
+import type { Job } from '@/lib/jobs.types'
 import { ExecutionLogs } from '@/components/ExecutionLogs'
 import { FlowPage } from './FlowPage'
 
@@ -43,11 +46,17 @@ const TABS: { key: TabKey; label: string; testid: string }[] = [
 interface JobDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
+  /** Test seam — disables the live-jobs backfill polling. */
+  disableJobsBackfill?: boolean
   /** Test seam — initial tab override. */
   initialTab?: TabKey
 }
 
-export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDetailProps = {}) {
+export function JobDetail({
+  disableStream = false,
+  disableJobsBackfill = false,
+  initialTab = 'flow',
+}: JobDetailProps = {}) {
   const params = useParams({
     from: '/provision/$deploymentId/jobs/$jobId' as never,
   }) as { deploymentId: string; jobId: string }
@@ -60,7 +69,7 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
   )
   const applicationIds = useMemo(() => applications.map((a) => a.id), [applications])
 
-  const { state, snapshot } = useDeploymentEvents({
+  const { state, snapshot, streamStatus } = useDeploymentEvents({
     deploymentId,
     applicationIds,
     disableStream,
@@ -68,8 +77,30 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
 
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
-  // Derive the full job set + index by id.
-  const jobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  // Mirror JobsPage / FlowPage data-source:
+  //   deriveJobs (reducer)  →  adaptDerivedJobsToFlat  →  reducerJobs
+  //   useLiveJobsBackfill   →  liveJobs (backend Jobs API)
+  //   mergeJobs(reducer, live) — backend wins as soon as it returns ≥1 row.
+  //
+  // Why this matters: FlowPage navigates with the BACKEND-format id
+  // (`<deploymentId>:install-cilium`) the moment the backend has data.
+  // The reducer-only deriveJobs() output uses catalog ids
+  // (`bp-cilium`, `cluster-bootstrap`, `infrastructure:tofu-init`) that
+  // never match — so without the merge, every double-click on a Flow
+  // bubble lands on the not-found state. See useLiveJobsBackfill.ts:142
+  // for the divergence comment.
+  const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  const reducerJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
+  const inFlight = streamStatus !== 'completed' && streamStatus !== 'failed'
+  const { liveJobs } = useLiveJobsBackfill({
+    deploymentId,
+    enabled: !disableJobsBackfill,
+    disablePolling: disableJobsBackfill || !inFlight,
+  })
+  const jobs = useMemo(
+    () => mergeJobs(reducerJobs, liveJobs),
+    [reducerJobs, liveJobs],
+  )
   const jobsById = useMemo<Record<string, Job>>(() => {
     const out: Record<string, Job> = {}
     for (const j of jobs) out[j.id] = j
@@ -108,15 +139,15 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
     )
   }
 
-  const badge = statusBadge(job.status)
-  const completedN = job.steps.filter((s) => s.status === 'succeeded').length
-  const total = job.steps.length
+  // statusBadge accepts the legacy JobUiStatus union; JobStatus shares
+  // the same four string literals so the cast is a no-op at runtime.
+  const badge = statusBadge(job.status as JobUiStatus)
+  const lastUpdate = job.finishedAt ?? job.startedAt
 
-  // Resolve the parent batch id for the embedded FlowPage. The
-  // `batchId` field is added by the eventReducer/jobsAdapter pipeline;
-  // fall back to the legacy phase-derived id when missing so the Flow
-  // tab never fails to mount.
-  const batchId = (job as unknown as { batchId?: string }).batchId ?? deriveBatchIdFromJob(job)
+  // Resolve the parent batch id for the embedded FlowPage. The flat Job
+  // shape always carries `batchId` (assigned by the backend Jobs API or
+  // by adaptDerivedJobsToFlat for reducer-only fallback rows).
+  const batchId = job.batchId
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
@@ -140,17 +171,17 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
               className="truncate text-2xl font-bold text-[var(--color-text-strong)]"
               data-testid="job-detail-title"
             >
-              {job.title}
+              {job.jobName}
             </h1>
             <p className="mt-1 truncate font-mono text-xs text-[var(--color-text-dim)]">
               {job.id}
-              {job.app && job.app !== 'infrastructure' && job.app !== 'cluster-bootstrap'
-                ? ` · ${job.app}`
+              {job.appId && job.appId !== 'infrastructure' && job.appId !== 'cluster-bootstrap'
+                ? ` · ${job.appId}`
                 : ''}
             </p>
             <p className="mt-2 text-xs text-[var(--color-text-dim)]">
-              {completedN}/{total} steps
-              {fmtTime(job.updatedAt) ? ` · last update ${fmtTime(job.updatedAt)}` : ''}
+              <span data-testid="job-detail-batch">{job.batchId}</span>
+              {fmtTime(lastUpdate) ? ` · last update ${fmtTime(lastUpdate)}` : ''}
             </p>
           </div>
           <span
@@ -202,7 +233,7 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
             >
               <FlowPage
                 disableStream={disableStream}
-                disableJobsBackfill={disableStream}
+                disableJobsBackfill={disableJobsBackfill || disableStream}
                 embedded
                 deploymentIdOverride={deploymentId}
                 scopeOverride={{ kind: 'batch', batchId }}
@@ -224,17 +255,4 @@ export function JobDetail({ disableStream = false, initialTab = 'flow' }: JobDet
       </div>
     </PortalShell>
   )
-}
-
-/**
- * Fallback batch derivation — mirrors the jobsAdapter `batchOf()`
- * mapping: infrastructure → phase-0-infra, cluster-bootstrap → its
- * own batch, everything else → 'applications'. Keeps the Flow tab
- * from failing to mount when the Job model only surfaces the legacy
- * `app` classification.
- */
-function deriveBatchIdFromJob(job: Job): string {
-  if (job.id.startsWith('infrastructure:')) return 'phase-0-infra'
-  if (job.id === 'cluster-bootstrap') return 'cluster-bootstrap'
-  return 'applications'
 }
