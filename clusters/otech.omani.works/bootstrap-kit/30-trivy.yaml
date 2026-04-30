@@ -1,0 +1,71 @@
+# bp-trivy — Catalyst bootstrap-kit Blueprint #30 (W2.K3, Tier 7 — Security/Policy).
+# Trivy Operator. Static-scanning half of the Catalyst security stack:
+# vulnerability + misconfiguration scanning of running workloads, images,
+# RBAC, and rendered manifests. Pairs with bp-falco (runtime, slot 31)
+# and bp-kyverno (admission, slot 27).
+#
+# Wrapper chart: platform/trivy/chart/ (umbrella over upstream
+# aquasecurity/trivy-operator chart, Catalyst-curated values under the
+# `trivy-operator:` key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — Trivy Operator's admission webhook (and its
+#     ConfigAuditReport mutating-webhook in HA mode) requires a TLS cert
+#     from the cluster's letsencrypt-prod / internal CA ClusterIssuer
+#     before the apiserver will route AdmissionReview traffic. Without
+#     bp-cert-manager Ready, the Certificate resource sits Pending and
+#     the webhook serves stale or no certs.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trivy-system
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-trivy
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-trivy
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: trivy
+  targetNamespace: trivy-system
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-trivy
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-trivy
+        namespace: flux-system
+  # Event-driven install: Trivy Operator pulls a multi-hundred-MB
+  # vulnerability database on first run; pod Ready is dominated by
+  # initial DB hydration, not manifest apply. disableWait lets Flux
+  # mark this Ready as soon as manifests apply; runtime convergence
+  # (DB hydration, first scan reports landing) is observed via kubectl.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

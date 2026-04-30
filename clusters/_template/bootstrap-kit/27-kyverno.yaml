@@ -1,0 +1,73 @@
+# bp-kyverno — Catalyst bootstrap-kit Blueprint #27 (W2.K3, Tier 7 — Security/Policy).
+# Kubernetes-native admission policy engine. Validating/mutating/generating
+# admission control via ClusterPolicy/Policy CRDs. HA mode with separate
+# admission/background/cleanup/reports controllers. The first guardrail
+# downstream Catalyst Apps land behind once the platform is bootstrapped.
+#
+# Wrapper chart: platform/kyverno/chart/ (umbrella over upstream
+# kyverno/kyverno chart, Catalyst-curated values under the `kyverno:` key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium — Kyverno admission webhooks need a working CNI + Service
+#     mesh substrate to receive AdmissionReview requests from the apiserver.
+#     Cilium is the root of the Catalyst-Zero DAG; until it is Ready the
+#     apiserver→webhook path is not reachable and Kyverno install is racy.
+#
+# No further dependsOn: Kyverno installs its own CRDs and does not require
+# cert-manager (it auto-generates admission webhook TLS via its built-in
+# certificate controller).
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-kyverno
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-kyverno
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: kyverno
+  targetNamespace: kyverno
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-kyverno
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-kyverno
+        namespace: flux-system
+  # Event-driven install: Kyverno HA mode brings up four controller
+  # Deployments (admission, background, cleanup, reports) plus the
+  # admission webhook TLS bootstrap. Pod Ready is multi-minute on a
+  # cold cluster; Helm `--wait` would hold the HR's Ready=True signal
+  # past the point where downstream HRs could legitimately reconcile.
+  # disableWait lets Flux mark this Ready as soon as manifests apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

@@ -1,0 +1,67 @@
+# bp-reloader — Catalyst bootstrap-kit Blueprint #28 (W2.K3, Tier 7 — Security/Policy).
+# Stakater Reloader watches ConfigMap/Secret changes and triggers rolling
+# restarts of dependent Deployments/StatefulSets/DaemonSets that opt in
+# via annotations. The secret/configmap-rotation glue across Catalyst —
+# bp-* workloads pick up rotated TLS material and rotated bootstrap
+# credentials without manual rollouts.
+#
+# Wrapper chart: platform/reloader/chart/ (umbrella over upstream
+# stakater/reloader chart, Catalyst-curated values under the `reloader:`
+# key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn: (none) — Reloader is independent infrastructure. It only
+# watches Kubernetes API resources and triggers rollouts; it does not
+# require any sibling Blueprint. Listed at slot 28 for numeric grouping
+# with the security/policy cohort but Flux will install it as soon as
+# the cluster is reachable.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reloader
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-reloader
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-reloader
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: reloader
+  targetNamespace: reloader
+  chart:
+    spec:
+      chart: bp-reloader
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-reloader
+        namespace: flux-system
+  # Event-driven install (Catalyst convention) — Reloader's single
+  # Deployment Ready path is fast in practice but disableWait keeps the
+  # HR Ready signal aligned with manifest apply rather than runtime
+  # convergence, matching the rest of the bootstrap-kit.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
