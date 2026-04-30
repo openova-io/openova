@@ -1,0 +1,47 @@
+{{- if .Values.coraza.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-coraza.fullname" . }}
+  labels:
+    {{- include "bp-coraza.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.coraza.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-coraza.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-coraza.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-coraza.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: coraza-spoa
+          image: "{{ .Values.coraza.image.repository }}:{{ .Values.coraza.image.tag }}"
+          imagePullPolicy: {{ .Values.coraza.image.pullPolicy }}
+          ports:
+            - name: spoa
+              containerPort: {{ .Values.coraza.spoaPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.coraza.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.coraza.securityContext | nindent 12 }}
+          {{- if .Values.coraza.configMap }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coraza-spoa
+              readOnly: true
+          {{- end }}
+      {{- if .Values.coraza.configMap }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.coraza.configMap }}
+      {{- end }}
+{{- end }}

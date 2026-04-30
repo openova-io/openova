@@ -1,0 +1,73 @@
+# Catalyst Blueprint scratch chart — no upstream Helm chart is published
+# for coraza-spoa. All values consumed by templates/ in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      coraza-spoa: "ghcr.io/corazawaf/coraza-spoa"
+
+# ─── Coraza WAF (SPOA mode) ──────────────────────────────────────────────
+coraza:
+  enabled: true
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump to
+  # 3 once a regional Sovereign needs WAF HA in front of the gateway.
+  replicas: 1
+
+  # Pin upstream image tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md.
+  image:
+    repository: ghcr.io/corazawaf/coraza-spoa
+    tag: "0.7.0"
+    pullPolicy: IfNotPresent
+
+  # SPOA listener — HAProxy SPOE protocol on TCP/9000.
+  spoaPort: 9000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  # SecurityContext — non-root.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # Coraza configuration — empty by default. Per-Sovereign overlays SET
+  # ModSecurity rules (e.g. OWASP CRS) via a ConfigMap referenced by
+  # `coraza.configMap` once the rule bundle lands in the platform.
+  configMap: ""
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 9000
+  targetPort: 9000
+
+# ─── ServiceAccount + RBAC ───────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+serviceMonitor:
+  enabled: false
+
+# ─── Catalyst overlay values ─────────────────────────────────────────────
+corazaOverlay:
+  networkPolicy:
+    enabled: false
