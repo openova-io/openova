@@ -1,0 +1,39 @@
+{{- /*
+ServiceMonitor — Catalyst overlay.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+toggles must default false). The `monitoring.coreos.com/v1` CRD ships
+with kube-prometheus-stack — a downstream Application Blueprint that
+itself depends on the bootstrap-kit; defaulting `enabled: true` here
+would render a ServiceMonitor that the apiserver immediately rejects on
+a fresh Sovereign install.
+
+Defense in depth: the values toggle (.Values.serviceMonitor.enabled) is
+the operator switch; the Capabilities gate skips the resource entirely
+on a Sovereign that has not yet reconciled the CRD, so flipping the
+toggle on a too-early Sovereign cannot break the bp-vllm reconcile.
+*/}}
+{{- if and .Values.vllm.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "bp-vllm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-vllm.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "bp-vllm.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.path | quote }}
+      interval: {{ .Values.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

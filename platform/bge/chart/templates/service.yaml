@@ -1,0 +1,27 @@
+{{- if .Values.bge.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-bge.fullname" . }}
+  labels:
+    {{- include "bp-bge.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.bge.embeddings.port }}
+      targetPort: embeddings
+      protocol: TCP
+      name: embeddings
+    {{- if .Values.bge.reranker.enabled }}
+    - port: {{ .Values.bge.reranker.port }}
+      targetPort: reranker
+      protocol: TCP
+      name: reranker
+    {{- end }}
+  selector:
+    {{- include "bp-bge.selectorLabels" . | nindent 4 }}
+{{- end }}

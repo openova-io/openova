@@ -1,0 +1,35 @@
+{{- /*
+ConfigMap — rendered ONLY when configMap.enabled = true AND
+configMap.externalName is empty. Production deployments overlay
+configMap.externalName to mount a richer tenant-authored ConfigMap
+holding the full Colang flow bundle.
+
+`nemoguardrails server` expects a directory of subfolders, each holding
+a `config.yml` plus `*.co` Colang flow files. ConfigMap data keys cannot
+encode subdirectories, so the Deployment mounts individual keys via
+`subPath` into `/config/<rail>/...` to materialize the expected layout.
+The default rail is named `default` — its config.yml + main.co are
+rendered from values below.
+*/}}
+{{- if and .Values.guardrails.enabled .Values.configMap.enabled (not .Values.configMap.externalName) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-nemo-guardrails.fullname" . }}-config
+  labels:
+    {{- include "bp-nemo-guardrails.labels" . | nindent 4 }}
+data:
+  config.yml: |
+{{ .Values.configMap.defaultConfig.configYml | indent 4 }}
+{{- if .Values.guardrails.llm.endpoint }}
+    # LLM model wiring rendered from values.yaml when llm.endpoint is set.
+    models:
+      - type: main
+        engine: {{ .Values.guardrails.llm.engine | quote }}
+        model: {{ .Values.guardrails.llm.model | quote }}
+        parameters:
+          openai_api_base: {{ .Values.guardrails.llm.endpoint | quote }}
+{{- end }}
+  main.co: |
+{{ .Values.configMap.defaultConfig.mainCo | indent 4 }}
+{{- end }}

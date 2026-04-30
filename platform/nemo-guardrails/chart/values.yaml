@@ -1,0 +1,203 @@
+# Catalyst Blueprint scratch chart for NeMo Guardrails — no upstream
+# Helm chart is published by NVIDIA. All values consumed by templates/
+# in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value (image, LLM endpoint, model, config
+# path) is configurable; cluster overlays in clusters/<sovereign>/ may
+# override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      # Catalyst-built image from the upstream Dockerfile in
+      # github.com/NVIDIA/NeMo-Guardrails. Pinned via tag so per-
+      # Sovereign overlays MAY swap to an air-gapped mirror.
+      guardrails: "ghcr.io/openova-io/openova/nemo-guardrails"
+
+# ─── NeMo Guardrails server ──────────────────────────────────────────────
+guardrails:
+  enabled: true
+
+  # Solo-Sovereign minimum — single replica. Stateless server, so
+  # per-Sovereign overlays bump for HA + throughput.
+  replicas: 1
+
+  # Pinned image tag matching the upstream NeMo-Guardrails release. DO
+  # NOT use floating tags per docs/INVIOLABLE-PRINCIPLES.md #4. Bump
+  # in lockstep with `appVersion` in Chart.yaml.
+  image:
+    repository: ghcr.io/openova-io/openova/nemo-guardrails
+    tag: "0.21.0"
+    pullPolicy: IfNotPresent
+
+  # FastAPI listener port. Catalyst convention is 8000 for guardrails
+  # / inference servers; bp-llm-gateway routes to this on the
+  # ClusterIP.
+  port: 8000
+
+  # CLI args for `nemoguardrails server` — every operator-tunable.
+  args:
+    # Disable the bundled chat UI. MUST be true for production
+    # deployments per upstream guidance.
+    disableChatUi: true
+    # Auto-reload config on change. Development only.
+    autoReload: false
+    # Verbose logging. Helpful for triage; per-tenant overlays MAY
+    # disable for noise reduction.
+    verbose: true
+    # Path inside the container where guardrail configs are mounted
+    # (must match the `configPath` ConfigMap mount).
+    configPath: "/config"
+    # Arbitrary extra CLI args appended verbatim.
+    extraArgs: []
+
+  # Upstream LLM the guardrails server proxies to. Empty string =
+  # rendered config has no `models:` block (operator MUST overlay
+  # to wire bp-vllm or bp-llm-gateway). Convention: in-cluster
+  # Service URL like `http://bp-vllm.ai-runtime.svc.cluster.local:8000/v1`.
+  llm:
+    endpoint: ""
+    model: "meta-llama/Llama-3.1-8B-Instruct"
+    # Engine name passed to the rails config — controls how
+    # nemoguardrails formats outbound calls. `vllm_openai` works for
+    # bp-vllm's OpenAI-compatible API. Other supported: `openai`,
+    # `nvidia_ai_endpoints`, `huggingface_pipeline`.
+    engine: "vllm_openai"
+    # API key secret (typically empty for in-cluster bp-vllm; required
+    # for external endpoints).
+    apiKey:
+      enabled: false
+      secretName: ""
+      secretKey: "api-key"
+
+  # Resources — guardrails is CPU-bound; embeddings + reranker rails
+  # call out to bp-bge. Default sized for a single tenant; per-Sovereign
+  # overlays bump for throughput.
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  # SecurityContext — non-root. Container runs as UID 1000.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false   # poetry / nemoguardrails write cache to /tmp
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness + readiness — nemoguardrails server exposes /v1/rails/configs
+  # and the OpenAI-compatible /v1/chat/completions endpoint. There is no
+  # dedicated /healthz; we probe the lightweight rails/configs listing.
+  probes:
+    liveness:
+      path: /v1/rails/configs
+      initialDelaySeconds: 60
+      periodSeconds: 30
+      timeoutSeconds: 10
+    readiness:
+      path: /v1/rails/configs
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 5
+
+# ─── Service ─────────────────────────────────────────────────────────────
+# Annotated for bp-llm-gateway discovery — the gateway watches Services
+# tagged with `catalyst.openova.io/llm-gateway-route` and routes
+# inbound /v1/chat/completions calls through the guardrails first.
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+  annotations:
+    catalyst.openova.io/llm-gateway-route: "guardrails"
+    catalyst.openova.io/llm-gateway-port: "8000"
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── ConfigMap (rails / flows / prompts) ─────────────────────────────────
+# nemoguardrails server expects a directory of config subfolders, each
+# with config.yml + *.co Colang flow files. By default the chart renders
+# a stub `default/config.yml` from values; production overlays SET
+# `configMap.externalName` to mount a pre-authored ConfigMap with the
+# tenant's full rail bundle (Colang flows, custom prompts, fact-checking
+# sources, etc.) at /config.
+configMap:
+  enabled: true
+  # If non-empty, mount this externally-managed ConfigMap at /config
+  # instead of rendering one from `defaultConfig` below. Use this in
+  # production — Colang flows are too rich to express as Helm values.
+  externalName: ""
+  # Stub config rendered when externalName is empty. Per-tenant overlays
+  # SHOULD provide a richer config via externalName; this stub is enough
+  # for a smoke test that the server starts.
+  defaultConfig:
+    # Top-level config.yml content (YAML).
+    configYml: |
+      # Catalyst stub config — production deployments MUST overlay
+      # configMap.externalName with a tenant-authored ConfigMap.
+      colang_version: "2.x"
+      instructions:
+        - type: general
+          content: |
+            You are a helpful assistant. Refuse to answer questions
+            about prohibited topics.
+    # Default Colang flow rendered as default/main.co
+    mainCo: |
+      # Catalyst stub Colang flow — replace via configMap.externalName.
+      flow main
+        activate llm continuation
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+# nemoguardrails server emits Prometheus metrics on /metrics on the
+# API port. The `monitoring.coreos.com/v1` CRD ships with
+# kube-prometheus-stack — a downstream Application Blueprint that
+# depends on the bootstrap-kit. Defaulting `enabled: true` here would
+# render a ServiceMonitor that the apiserver rejects on a fresh
+# Sovereign install.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+networkPolicy:
+  enabled: false
+  # Namespace where bp-llm-gateway runs (slot 40)
+  llmGatewayNamespace: "ai-runtime"
+  # Namespace where bp-vllm runs (slot 39)
+  llmServingNamespace: "ai-runtime"
+  # Namespace where bp-bge runs (slot 42) — guardrails fact-checking
+  # rail calls bp-bge for embeddings / reranking.
+  embeddingsNamespace: "ai-runtime"
+  # Allow egress to external LLM endpoints (e.g. when proxying to
+  # OpenAI / Anthropic instead of in-cluster bp-vllm). Disable on
+  # air-gapped Sovereigns.
+  allowExternalLlmEgress: false
+
+# ─── HorizontalPodAutoscaler — DEFAULT FALSE ─────────────────────────────
+# Guardrails is CPU-bound and stateless, so HPA scales linearly with
+# request rate. Per-Sovereign overlays enable on multi-tenant
+# Sovereigns where rail enforcement throughput needs autoscaling.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
