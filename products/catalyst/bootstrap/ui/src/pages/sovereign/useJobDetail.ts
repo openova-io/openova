@@ -96,9 +96,15 @@ async function defaultFetchJobDetail(
   deploymentId: string,
   jobId: string,
 ): Promise<JobDetailResponse> {
+  // jobId is the canonical "<deploymentId>:<jobName>" string. The colon
+  // is RFC 3986 path-safe, but encodeURIComponent turns it into %3A,
+  // which chi's path matcher does NOT decode before route lookup —
+  // every detail fetch returns 404 with the encoded form. Insert the
+  // jobId raw; deploymentId is a 16-byte hex with no special chars so
+  // encoding it is a no-op.
   const url =
     `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}` +
-    `/jobs/${encodeURIComponent(jobId)}`
+    `/jobs/${jobId}`
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
   if (res.status === 404) {
     throw new JobNotFoundError(deploymentId, jobId)

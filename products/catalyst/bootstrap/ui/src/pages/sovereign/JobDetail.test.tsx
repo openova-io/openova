@@ -296,10 +296,12 @@ describe('JobDetail — Exec Log tab wires the real execution id (regression for
           json: () => Promise.resolve({ jobs: [job] }),
         } as unknown as Response)
       }
-      // /jobs/{jobId} (detail) → emit the executions[].
+      // /jobs/{jobId} (detail) → emit the executions[]. The jobId is
+      // inserted raw (NOT encodeURIComponent'd) so the colon survives
+      // — chi's path matcher rejects %3A. See useJobDetail.ts.
       if (
         url.endsWith(
-          `/v1/deployments/${encodeURIComponent(deploymentId)}/jobs/${encodeURIComponent(jobId)}`,
+          `/v1/deployments/${encodeURIComponent(deploymentId)}/jobs/${jobId}`,
         )
       ) {
         return Promise.resolve({
@@ -376,6 +378,12 @@ describe('JobDetail — Exec Log tab wires the real execution id (regression for
         .toBe(true)
       // Synthetic `:latest` id MUST NOT appear in any URL.
       expect(seenUrls.some((u) => u.includes(`${jobId}:latest`))).toBe(false)
+      // The jobId in the detail-fetch URL must use the RAW colon, not
+      // %3A — chi's path matcher does not decode %3A and would 404
+      // every detail fetch.
+      const detailHits = seenUrls.filter((u) => u.includes('/v1/deployments/') && u.includes('/jobs/'))
+      expect(detailHits.some((u) => u.endsWith(`/jobs/${jobId}`))).toBe(true)
+      expect(detailHits.some((u) => u.includes('%3A'))).toBe(false)
     })
   })
 
