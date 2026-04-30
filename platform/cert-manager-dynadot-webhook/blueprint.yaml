@@ -1,0 +1,33 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager-dynadot-webhook
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: cert-manager-dynadot-webhook
+    summary: |
+      cert-manager DNS-01 external webhook for Dynadot. Lets the
+      letsencrypt-dns01-prod ClusterIssuer (in bp-cert-manager) issue
+      wildcard TLS certificates (e.g. *.<sovereign>.<pool>) by
+      provisioning ACME challenge TXT records on the per-Sovereign apex
+      via the Dynadot api3.json. Closes openova#159.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends:
+    # bp-cert-manager registers the cert-manager.io CRDs and deploys the
+    # controllers; this webhook is meaningless without them. Per the
+    # waterfall locked in by docs/INVIOLABLE-PRINCIPLES.md (intra-chart
+    # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
+    # is Ready — Flux dependsOn enforces that at the HelmRelease level.
+    - bp-cert-manager
+  outputs:
+    # Tells dependents (bp-cilium-gateway's wildcard Certificate, etc.)
+    # which solverName the ClusterIssuer's solvers[].dns01.webhook
+    # block must reference. Defaults are baked into the chart values
+    # but exposing them here keeps the blueprint DAG's contract honest.
+    solverName: dynadot
+    groupName: acme.dynadot.openova.io

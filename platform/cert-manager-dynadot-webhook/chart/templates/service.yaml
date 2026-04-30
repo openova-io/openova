@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: https
+      # The Service exposes 443 because that is what an APIService points
+      # at by convention; the targetPort is the binary's --secure-port
+      # which is operator-overridable in case 4443 collides.
+      port: {{ .Values.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.webhook.securePort }}
+  selector:
+    {{- include "bp-cert-manager-dynadot-webhook.selectorLabels" . | nindent 4 }}

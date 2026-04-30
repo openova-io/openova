@@ -1,0 +1,81 @@
+{{- if .Values.servingCert.enabled }}
+# Two-step CA chain inside cert-manager — required because cert-manager's
+# Certificate CR cannot self-sign a leaf in one operation. The flow is:
+#
+#   1. SelfSigned Issuer  →  signs anything that asks
+#   2. Root CA Certificate (issued by SelfSigned, isCA=true)
+#   3. CA Issuer that uses the Root CA secret
+#   4. Leaf serving Certificate (issued by the CA Issuer)
+#
+# The leaf's caBundle is what `cert-manager.io/inject-ca-from` on the
+# APIService reads to splice trust into the kube-apiserver. Same shape
+# every cert-manager external webhook uses; lifted from
+# https://cert-manager.io/docs/configuration/acme/dns01/webhook/.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.selfSignedIssuer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.rootCACertificate" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-cert-manager-dynadot-webhook.rootCACertificate" . }}
+  duration: {{ .Values.servingCert.duration }}
+  renewBefore: {{ .Values.servingCert.renewBefore }}
+  isCA: true
+  commonName: "ca.{{ include "bp-cert-manager-dynadot-webhook.fullname" . }}.cert-manager"
+  privateKey:
+    rotationPolicy: Always
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ include "bp-cert-manager-dynadot-webhook.selfSignedIssuer" . }}
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.rootCAIssuer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "bp-cert-manager-dynadot-webhook.rootCACertificate" . }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.servingCertificate" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-cert-manager-dynadot-webhook.servingCertificate" . }}
+  duration: {{ .Values.servingCert.duration }}
+  renewBefore: {{ .Values.servingCert.renewBefore }}
+  privateKey:
+    rotationPolicy: Always
+    algorithm: ECDSA
+    size: 256
+  # cert-manager's Service-DNS name is what the kube-apiserver
+  # presents to the webhook; the leaf cert MUST list both forms so
+  # the TLS handshake succeeds regardless of which name kube uses.
+  dnsNames:
+    - {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}
+    - {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}.{{ .Release.Namespace }}
+    - {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}.{{ .Release.Namespace }}.svc
+  issuerRef:
+    name: {{ include "bp-cert-manager-dynadot-webhook.rootCAIssuer" . }}
+    kind: Issuer
+{{- end }}

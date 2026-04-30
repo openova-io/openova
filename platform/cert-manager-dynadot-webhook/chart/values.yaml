@@ -1,0 +1,174 @@
+# Catalyst Blueprint values for bp-cert-manager-dynadot-webhook.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""           # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      webhook: "ghcr.io/openova-io/openova/cert-manager-dynadot-webhook"
+
+# ─── Webhook protocol identity ───────────────────────────────────────────
+# The groupName + solverName tuple is how cert-manager's DNS-01
+# ClusterIssuer addresses this webhook. They MUST match the values
+# configured in bp-cert-manager's
+# templates/clusterissuer-letsencrypt-dns01.yaml — see the contract
+# bridge in the README.
+webhook:
+  # API group registered as /apis/acme.dynadot.openova.io/v1alpha1.
+  groupName: acme.dynadot.openova.io
+  # Solver name advertised over that API group. cert-manager dispatches
+  # only when the issuer's solverName matches the binary's Name() return.
+  solverName: dynadot
+
+  # Replica count. Single-replica works for one Sovereign; bump to 2 in
+  # an HA overlay so a node drain doesn't stall an in-flight challenge.
+  replicas: 1
+
+  # Pin SHA tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md. CI overwrites this value via
+  # `yq eval -i .webhook.image.tag = "<sha>"` when promoting a build
+  # into clusters/<sovereign>/.
+  image:
+    repository: ghcr.io/openova-io/openova/cert-manager-dynadot-webhook
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Listen port for the aggregated apiserver. The Service + APIService
+  # resources both reference this. cert-manager's controllers reach the
+  # service via DNS so the port is also the Service's targetPort.
+  securePort: 4443
+
+  # Pod log level — debug surfaces every Dynadot HTTP exchange.
+  logLevel: info
+
+  # Resource budget — small. The webhook does no caching, no informers;
+  # each Present/CleanUp is one (or two) HTTPS calls to api.dynadot.com.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  # Pod-level securityContext — non-root + readOnlyRootFilesystem.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+# ─── Dynadot API credentials ─────────────────────────────────────────────
+# The webhook reads its credentials from a K8s Secret in its OWN release
+# namespace (a Pod's secretKeyRef cannot cross namespace boundaries — that
+# is what ExternalSecret / Reflector are for). The default secret name
+# (`dynadot-api-credentials`) matches the canonical secret produced by
+# pool-domain-manager and catalyst-dns; the canonical instance lives in
+# `openova-system`, so a Sovereign overlay MUST replicate it into the
+# webhook's namespace before this chart's pod can start.
+#
+# Two patterns the cluster overlay can use:
+#
+#   1. ExternalSecret (recommended) — bp-external-secrets templates a
+#      `kind: ExternalSecret` that materializes the same K8s Secret in
+#      every namespace that needs it. Add an entry for the webhook's
+#      release namespace.
+#   2. Reflector annotations — the upstream sealed-secrets / reflector
+#      controllers can copy a Secret across namespaces via annotation.
+#      The canonical secret in openova-system gets
+#      `reflector.v1.k8s.emberstack.com/reflection-allowed: "true"` etc.
+#
+# The chart does NOT template the cross-namespace replication itself —
+# that is a bootstrap-kit / cluster-overlay concern. See
+# clusters/_template/dynadot-credentials-replication.yaml for the
+# canonical pattern (issue openova#159 follow-up).
+dynadot:
+  credentialsSecret:
+    name: dynadot-api-credentials
+    # Namespace the RBAC Role+RoleBinding target. Defaults to the chart's
+    # release namespace (.Release.Namespace) when blank. Override only if
+    # the operator chooses NOT to replicate the secret and instead hosts
+    # the webhook in the credentials' canonical namespace.
+    namespace: ""
+    keys:
+      apiKey: api-key
+      apiSecret: api-secret
+      # Comma- or whitespace-separated allowlist of pool domains the
+      # webhook is permitted to mutate. The legacy single-domain key
+      # `domain` is honoured as a fallback (per #108) — see
+      # core/cmd/cert-manager-dynadot-webhook/main.go loadConfigFromEnv.
+      managedDomains: domains
+      legacyDomain: domain
+  # Optional override for tests / staging (e.g. a recorded fixture
+  # server). Production leaves blank — the client falls back to
+  # https://api.dynadot.com/api3.json.
+  baseURL: ""
+
+# ─── Service + APIService ────────────────────────────────────────────────
+service:
+  # ClusterIP — cert-manager calls the webhook via the kube-apiserver's
+  # aggregated-apiserver path; no external exposure required.
+  type: ClusterIP
+  port: 443
+
+# Skip the APIService registration if the operator has wired the webhook
+# in some other way (e.g. an external OIDC-fronted apiserver). Default
+# true — the chart owns the contract.
+apiService:
+  enabled: true
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+
+# ─── Serving certificate (issued by cert-manager itself) ─────────────────
+# The webhook serves TLS via a leaf cert chained to a CA cert that the
+# APIService's caBundle references. cert-manager writes to
+# `secrets[].annotations.cert-manager.io/inject-ca-from` to splice the
+# CA bundle into the APIService at install time.
+servingCert:
+  # Disable if the operator wires the cert from elsewhere (e.g. an
+  # external Vault PKI). Default true.
+  enabled: true
+  duration: 8760h    # 1y
+  renewBefore: 720h  # 30d
+
+# ─── ServiceAccount + RBAC ───────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  # The webhook needs:
+  #   - get on flowcontrol.apiserver.k8s.io and authentication.k8s.io
+  #     (it's an aggregated apiserver, so the standard kube-apiserver
+  #     proxying RBAC applies)
+  #   - get on the Dynadot credentials Secret in openova-system
+  create: true
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The
+# kube-prometheus-stack CRDs ship with a separate Application Blueprint;
+# enabling this on a fresh Sovereign that has not yet reconciled the
+# observability tier creates a circular dependency. Operator opts in
+# from the per-cluster overlay after observability lands.
+serviceMonitor:
+  enabled: false
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Egress to api.dynadot.com (TCP/443) is the only outbound the webhook
+# needs. Ingress is restricted to the kube-apiserver IP range.
+networkPolicy:
+  enabled: false

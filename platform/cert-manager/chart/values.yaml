@@ -79,9 +79,14 @@ certManager:
     #   https://acme-staging-v02.api.letsencrypt.org/directory
     acmeServer: https://acme-v02.api.letsencrypt.org/directory
     dns01:
-      # Disabled until cmd/cert-manager-dynadot-webhook ships. See the
-      # runbook in templates/clusterissuer-letsencrypt-dns01.yaml.
-      enabled: false
+      # ENABLED as of openova#159 — bp-cert-manager-dynadot-webhook ships
+      # the binary that satisfies the solver contract referenced below.
+      # Operator MUST install bp-cert-manager-dynadot-webhook in the same
+      # Sovereign before this flag activates; the dependent Blueprint's
+      # `depends: [bp-cert-manager]` keeps the bootstrap-kit DAG ordered.
+      # Disabling this flag is the rollback path — http01 below remains
+      # active and continues to issue per-host certs.
+      enabled: true
       webhookGroupName: acme.dynadot.openova.io
       webhookSolverName: dynadot
     http01:

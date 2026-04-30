@@ -23,16 +23,19 @@ spec:
   # both issuers; this output names the one a dependent Blueprint should
   # default to in production.
   outputs:
-    # Default issuer name. Cluster overlays MAY override this to the DNS-01
-    # variant once the cert-manager-dynadot-webhook lands; until then the
-    # interim HTTP-01 issuer is the default since it's the one the chart's
-    # values.yaml enables out of the box.
-    issuerName: letsencrypt-http01-prod
+    # Default issuer name. As of openova#159 (bp-cert-manager-dynadot-webhook
+    # ships) the wildcard-capable DNS-01 issuer is enabled by default in
+    # the chart's values.yaml — dependents that issue wildcard certs (the
+    # Cilium Gateway's *.<sub>.<pool> TLS listener) reference this name
+    # directly. Cluster overlays MAY revert to letsencrypt-http01-prod by
+    # flipping certManager.issuers.dns01.enabled=false in the umbrella
+    # chart values; the http01 issuer remains templated for that path.
+    issuerName: letsencrypt-dns01-prod
     # Kind is always ClusterIssuer for Catalyst — the wildcard cert lives
     # in cilium-gateway and is consumed cluster-wide.
     issuerKind: ClusterIssuer
-    # The TARGET-STATE issuer name. Dependents that want wildcard certs
-    # (e.g. the Gateway's TLS listener) pin to this; flipping
-    # certManager.issuers.dns01.enabled=true in the umbrella chart's values
-    # is the only operator action needed to activate it.
+    # The TARGET-STATE wildcard issuer name. Equal to issuerName above now
+    # that DNS-01 is the default; kept as a separate field so a dependent
+    # Blueprint that explicitly needs the wildcard variant can pin to it
+    # independent of which issuer is currently the default.
     wildcardIssuerName: letsencrypt-dns01-prod

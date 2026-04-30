@@ -27,24 +27,25 @@
 # 2026-04-28.
 #
 # What we ship today (this file):
-#   - letsencrypt-dns01-prod   — TARGET STATE. Templated against a future
-#     Catalyst-built cert-manager-Dynadot webhook (issue
-#     #TBD: build cmd/cert-manager-dynadot-webhook/). Disabled by default
-#     so cert-manager doesn't try to use a webhook that isn't deployed.
-#   - letsencrypt-http01-prod  — INTERIM. Works today for the explicit
-#     hostnames (console, gitea, harbor, admin, api). Wildcard certs are
-#     NOT possible on this issuer; the Cilium Gateway must list each
-#     subdomain explicitly until the DNS-01 webhook is built.
+#   - letsencrypt-dns01-prod   — TARGET STATE, ACTIVE. Templated against
+#     bp-cert-manager-dynadot-webhook (closes openova#159). Issues
+#     wildcard certificates for the canonical Sovereign 6-record set.
+#   - letsencrypt-http01-prod  — INTERIM, RETAINED. Continues to issue
+#     per-host certs for explicit hostnames. Operator may flip the
+#     active issuer at any time via certManager.issuers.dns01.enabled
+#     and certManager.issuers.http01.enabled.
 #
-# Operator runbook for activating DNS-01:
-#   1. Build + push ghcr.io/openova-io/openova/cert-manager-dynadot-webhook:<sha>
-#      (a Go binary implementing webhook.acme.cert-manager.io/v1alpha1
-#      against products/catalyst/bootstrap/api/internal/dynadot/).
-#   2. Deploy the webhook Service (e.g. cert-manager-webhook-dynadot in
-#      cert-manager namespace, port 443) and APIService registration.
-#   3. Set certManager.issuers.dns01.enabled=true in this chart's values.
-#   4. cert-manager will start using DNS-01; existing certs reissued at
-#      next renewal pick up the wildcard.
+# Webhook contract — the dns01 issuer below references
+# acme.dynadot.openova.io/v1alpha1 / solver "dynadot", which match the
+# binary's GROUP_NAME default and Solver.Name() return. See
+# core/cmd/cert-manager-dynadot-webhook/main.go and
+# platform/cert-manager-dynadot-webhook/chart/values.yaml.
+#
+# Operator runbook (rollback):
+#   1. Set certManager.issuers.dns01.enabled=false in the umbrella values
+#      to revert to http01 — existing certs remain valid until renewal.
+#   2. Optionally `flux suspend` the bp-cert-manager-dynadot-webhook
+#      HelmRelease to free cert-manager namespace resources.
 #
 # Reference: https://cert-manager.io/docs/configuration/acme/dns01/
 
