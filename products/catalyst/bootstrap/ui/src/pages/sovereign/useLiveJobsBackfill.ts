@@ -139,10 +139,14 @@ export function mergeJobs(
   reducerJobs: readonly Job[],
   liveJobs: readonly Job[],
 ): Job[] {
-  if (liveJobs.length === 0) return [...reducerJobs]
-  const byId = new Map<string, Job>()
-  for (const j of reducerJobs) byId.set(j.id, j)
-  // Live wins on conflict — overwrite the reducer entry.
-  for (const j of liveJobs) byId.set(j.id, j)
-  return Array.from(byId.values())
+  // Backend is authoritative once it has any data. Reducer-derived
+  // jobs use catalog ids ("bp-cilium") that don't match the backend's
+  // "<deploymentId>:install-cilium" canonical id, so dedup-by-id
+  // produces duplicates. Reducer-derived rows are also missing the
+  // appId/batchId shape the backend uses, and clicking them navigates
+  // to a route the backend can't resolve (→ 404 → "Failed to load
+  // log page"). Switch to backend-only the moment it returns ≥1 row;
+  // reducer-derived stays as the empty-state fallback.
+  if (liveJobs.length > 0) return [...liveJobs]
+  return [...reducerJobs]
 }
