@@ -1,0 +1,68 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `policy-controller:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: policy-controller
+    version: "0.10.6"
+    repo: "https://sigstore.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: policy-controller) ─────────────
+policy-controller:
+  # CRDs — installed by the umbrella so HelmRelease ordering works.
+  installCRDs: true
+
+  loglevel: info
+
+  # Webhook namespace selector — solo-Sovereign default is opt-in via
+  # `policy.sigstore.dev/include: "true"` namespace label. Per-Sovereign
+  # overlays MAY widen to all `bp-*` namespaces by patching the webhook
+  # ObjectSelector once the supply-chain rollout is complete.
+  webhook:
+    name: webhook
+    replicaCount: 1
+    # Pin upstream image — DO NOT use floating tags per
+    # docs/INVIOLABLE-PRINCIPLES.md.
+    image:
+      repository: ghcr.io/sigstore/policy-controller/policy-controller
+      version: "sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab"
+      pullPolicy: IfNotPresent
+    # failurePolicy=Ignore on solo-Sovereign so a single-pod webhook
+    # restart doesn't block all admission. Per-Sovereign overlays MAY flip
+    # to Fail once 3-replica HA is in place.
+    failurePolicy: Ignore
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    serviceAccount:
+      create: true
+    # The policy controller needs to reach Fulcio/Rekor/TUF for verification.
+    # Per-Sovereign overlays SET trust-root configuration via ClusterImagePolicy.
+    env: {}
+    envFrom: {}
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+  serviceMonitor:
+    enabled: false
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, default
+# ClusterImagePolicy that requires signatures on `ghcr.io/openova-io/*`)
+# added in a follow-up PR once bp-sigstore is consumed in
+# clusters/_template/.
+sigstoreOverlay:
+  networkPolicy:
+    enabled: false
+  # Default ClusterImagePolicy — empty; per-Sovereign overlays SET to require
+  # signatures on `ghcr.io/openova-io/*` images and other supply-chain trust
+  # roots once bp-harbor + Cosign signing pipeline are wired.
+  defaultClusterImagePolicy: ""
