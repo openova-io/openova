@@ -51,12 +51,16 @@ describe('mergeJobs — pure helper', () => {
     expect(merged[0]!.durationMs).toBe(12_345)
   })
 
-  it('union of ids when reducer and live disagree', () => {
+  it('backend wins entirely when live has data — reducer-derived ids are dropped', () => {
+    // Reducer-derived ids ("bp-cilium") and backend ids
+    // ("<deploymentId>:install-cilium") never match. A union would
+    // produce duplicates in the JobsTable. Once the backend has any
+    // data, the reducer-derived list is dropped entirely.
     const reducer = [makeJob({ id: 'a' })]
     const live = [makeJob({ id: 'b' }), makeJob({ id: 'c' })]
     const merged = mergeJobs(reducer, live)
     const ids = merged.map((j) => j.id).sort()
-    expect(ids).toEqual(['a', 'b', 'c'])
+    expect(ids).toEqual(['b', 'c'])
   })
 
   it('fixes the omantel symptom — 0 reducer jobs + 5 backend jobs renders 5 rows', () => {
