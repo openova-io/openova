@@ -50,8 +50,18 @@ spire:
     controllerManager:
       identities:
         clusterSPIFFEIDs:
+          # All 4 default-enabled identities disabled at bootstrap. The
+          # CRD is registered by the chart's pre-install hook, but Helm
+          # still tries to apply ALL clusterSPIFFEIDs templates before
+          # the CRD becomes observable. Operators re-enable per-Sovereign
+          # post-bootstrap when SPIRE workloads need identities.
           default:
             enabled: false
+          oidc-discovery-provider:
+            enabled: false
+          test-keys:
+            enabled: false
+          # child-servers already defaults false upstream
   spire-agent:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
