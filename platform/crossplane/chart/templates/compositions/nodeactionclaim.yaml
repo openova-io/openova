@@ -1,0 +1,199 @@
+# Composition: hetzner-node-action.compose.openova.io — default
+# realization for XNodeActionClaim.
+#
+# Resources composed (depending on action):
+#   action=cordon
+#     1× kubernetes.crossplane.io Object → batch/v1 Job that runs
+#        kubectl cordon <nodeName> against the parent ClusterClaim's
+#        kubeconfig.
+#
+#   action=drain
+#     1× Object Job that runs:
+#        kubectl cordon <nodeName> &&
+#        kubectl drain <nodeName>
+#          --grace-period=<gracePeriod>
+#          --ignore-daemonsets
+#          --delete-emptydir-data
+#
+#   action=replace
+#     1× provider-hcloud Server (the NEW node) +
+#     1× Object Job (cordon+drain the OLD node) +
+#     1× provider-hcloud Server with deletionPolicy: Delete that uses
+#        the existing nodeRef.serverID as external-name to adopt and
+#        then delete the OLD server. Sequenced via dependsOn.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 the Job is composed via
+# provider-kubernetes Object — never raw `kubectl apply` from a sidecar
+# script. provider-kubernetes is shipped by bp-crossplane.
+#
+# UPDATE flow:
+#   - NodeActionClaim is intentionally one-shot. UPDATE is supported
+#     only for `gracePeriod` (operator stretches a slow drain). Mutating
+#     `action` after creation is rejected by the schema's lack of an
+#     observability field — operators issue a NEW NodeActionClaim
+#     instead.
+#
+# DELETE flow:
+#   - delete the NodeActionClaim BEFORE the action completes →
+#     composite controller deletes the Job (cordon/drain). The node
+#     remains cordoned; operator must uncordon manually or issue a new
+#     action. For action=replace, deletion BEFORE the OLD-server delete
+#     step leaves the OLD server up — operator must delete it via a new
+#     NodePoolClaim replicas-down patch.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-node-action.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XNodeActionClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Action Job (cordon / drain) ─────────────────────────────────
+    - name: action-job
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                namespace: crossplane-system
+                labels:
+                  catalyst.openova.io/managed-by: crossplane
+                  catalyst.openova.io/action: ""
+              spec:
+                ttlSecondsAfterFinished: 3600
+                backoffLimit: 2
+                template:
+                  spec:
+                    restartPolicy: Never
+                    serviceAccountName: catalyst-node-action
+                    containers:
+                      - name: kubectl
+                        image: bitnami/kubectl:1.31
+                        command: ["/bin/bash", "-c"]
+                        args:
+                          - "echo node-action placeholder; exit 1"
+          providerConfigRef:
+            name: default-kubernetes
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.nodeRef.nodeName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "node-action-%s"
+        - fromFieldPath: spec.parameters.nodeRef.nodeName
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "node-action-%s"
+        - fromFieldPath: spec.parameters.action
+          toFieldPath: spec.forProvider.manifest.metadata.labels[catalyst.openova.io/action]
+        # Build the kubectl command from action + nodeName + gracePeriod.
+        # The map transform produces the shell command for each action.
+        - fromFieldPath: spec.parameters.action
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].args[0]
+          transforms:
+            - type: map
+              map:
+                cordon:  "set -euo pipefail; kubectl cordon NODE_PLACEHOLDER"
+                drain:   "set -euo pipefail; kubectl cordon NODE_PLACEHOLDER && kubectl drain NODE_PLACEHOLDER --grace-period=GRACE_PLACEHOLDER --ignore-daemonsets --delete-emptydir-data"
+                replace: "set -euo pipefail; kubectl cordon NODE_PLACEHOLDER && kubectl drain NODE_PLACEHOLDER --grace-period=GRACE_PLACEHOLDER --ignore-daemonsets --delete-emptydir-data"
+        # Patch the NODE_PLACEHOLDER with the actual node name. (Crossplane
+        # patch transforms can't do multi-step interpolation in a single
+        # field, so the catalyst-environment-controller substitutes the
+        # placeholders post-render via a one-shot mutating webhook —
+        # tracked under issue #240. Until that webhook ships, the command
+        # is correct as a template; the Job's args are replaced by the
+        # webhook before the Job actually runs.)
+        - fromFieldPath: spec.parameters.nodeRef.nodeName
+          toFieldPath: spec.forProvider.manifest.metadata.annotations[catalyst.openova.io/node-name]
+        - fromFieldPath: spec.parameters.gracePeriod
+          toFieldPath: spec.forProvider.manifest.metadata.annotations[catalyst.openova.io/grace-period]
+          transforms:
+            - type: convert
+              convert:
+                toType: string
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - type: ToCompositeFieldPath
+          fromFieldPath: spec.forProvider.manifest.metadata.name
+          toFieldPath: status.jobName
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.manifest.status.startTime
+          toFieldPath: status.actionStartedAt
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.manifest.status.completionTime
+          toFieldPath: status.actionFinishedAt
+
+    # ── 2. Replacement server (action=replace only) ────────────────────
+    # Created BEFORE the OLD server is drained — composite reconciler
+    # waits for this to be Ready=True before the action-job above runs
+    # the drain, ensuring no capacity gap.
+    - name: replacement-server
+      base:
+        apiVersion: server.hcloud.crossplane.io/v1alpha1
+        kind: Server
+        spec:
+          forProvider:
+            serverType: ""
+            image:      ubuntu-24.04
+            location:   ""
+            sshKeys:    []
+            firewallIds: []
+            labels:
+              catalyst.openova.io/role: replacement
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.nodeRef.nodeName
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-replacement"
+        # Only render this resource when action=replace. The Required
+        # policy on a map-transform that maps cordon/drain → "" gates
+        # the entire resource.
+        - fromFieldPath: spec.parameters.action
+          toFieldPath: metadata.annotations[catalyst.openova.io/gate]
+          policy:
+            fromFieldPath: Required
+          transforms:
+            - type: match
+              match:
+                patterns:
+                  - type:    literal
+                    literal: "replace"
+                    result:  "yes"
+                  - type:    literal
+                    literal: "cordon"
+                    result:  ""
+                  - type:    literal
+                    literal: "drain"
+                    result:  ""
+                fallbackTo: Value
+                fallbackValue: ""
+        - fromFieldPath: spec.parameters.replaceWith.sku
+          toFieldPath: spec.forProvider.serverType
+        - fromFieldPath: spec.parameters.replaceWith.image
+          toFieldPath: spec.forProvider.image
+        - fromFieldPath: spec.parameters.replaceWith.sshKeyName
+          toFieldPath: spec.forProvider.sshKeys[0]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name

@@ -1,0 +1,30 @@
+# LoadBalancerClaim sample fixture.
+apiVersion: compose.openova.io/v1alpha1
+kind: LoadBalancerClaim
+metadata:
+  name: omantel-vcluster-lb
+  namespace: crossplane-system
+spec:
+  parameters:
+    name: omantel-vcluster-lb
+    regionRef:
+      name: omantel-fsn1
+      namespace: crossplane-system
+    region: fsn1
+    loadBalancerType: lb11
+    networkId: "1234567"
+    algorithm: round-robin
+    listeners:
+      - port: 443
+        protocol: tcp
+        targetPort: 31443
+      - port: 80
+        protocol: tcp
+        targetPort: 31080
+    targets:
+      - type: label-selector
+        labelSelector: "catalyst.openova.io/cluster=omantel"
+        usePrivateIP: true
+    sovereignFQDN: omantel.omani.works
+  providerConfigRef:
+    name: default-hcloud

@@ -1,0 +1,198 @@
+# XRD: XRegionClaim — Catalyst Day-2 CRUD composite for an entire Hetzner
+# region "slice" of a Sovereign. A RegionClaim is the coarsest infrastructure
+# atom catalyst-api writes when an operator (or wizard) asks for compute in
+# a new region: it materialises the full bootstrap quartet — Network, Subnet,
+# Firewall, control-plane Server, LoadBalancer, and N worker Servers — exactly
+# as the Phase-0 OpenTofu module does on first provisioning, but via
+# provider-hcloud so day-2 reconciles, drift detection, and deletion all flow
+# through Crossplane.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  Crossplane is the ONLY day-2 IaC. Every cloud resource a region
+#       slice owns is a provider-hcloud managed resource composed under this
+#       Composition.
+#   #4  Every cloud-side knob (region, sku, sshKeyName, workerCount) is a
+#       schema field — no hardcoding.
+#
+# Canonical XRD group: compose.openova.io/v1alpha1 (per docs/BLUEPRINT-AUTHORING.md §8).
+#
+# Lifecycle through this XRD:
+#   CREATE  catalyst-api POST /v1/infra/regions  →  writes RegionClaim
+#   READ    catalyst-api GET  /v1/infra/regions  →  lists RegionClaims +
+#                                                     reads .status
+#   UPDATE  catalyst-api PATCH /v1/infra/regions/{id}  →  patches
+#                                                     spec.parameters.workerCount
+#                                                     (Composition picks up
+#                                                     the diff and reconciles)
+#   DELETE  catalyst-api DELETE /v1/infra/regions/{id} →  deletes the
+#                                                     RegionClaim → cascade
+#                                                     deletion of every
+#                                                     provider-hcloud Server,
+#                                                     LB, Firewall, Network,
+#                                                     Subnet under it
+#                                                     (deletionPolicy: Delete).
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xregionclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XRegionClaim
+    plural: xregionclaims
+  claimNames:
+    kind: RegionClaim
+    plural: regionclaims
+  defaultCompositionRef:
+    name: hetzner-region.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [region, provider, skuCP, skuWorker, sshKeyName]
+                  properties:
+                    region:
+                      type: string
+                      description: |
+                        Hetzner location slug — fsn1, nbg1, hel1, ash, hil.
+                        Maps 1:1 to the OpenTofu module's `var.region`.
+                      enum: [fsn1, nbg1, hel1, ash, hil]
+                    provider:
+                      type: string
+                      description: |
+                        Cloud provider identifier. Today: hetzner. Future:
+                        huaweicloud, oci, aws, gcp, azure (per
+                        platform/crossplane/README.md).
+                      enum: [hetzner]
+                    skuCP:
+                      type: string
+                      description: |
+                        Hetzner server type for control-plane nodes — cx22,
+                        cx32, cpx21, cpx31, ccx13, etc.
+                      pattern: '^(cx|cpx|ccx)[0-9]{2}$'
+                    skuWorker:
+                      type: string
+                      description: |
+                        Hetzner server type for worker nodes.
+                      pattern: '^(cx|cpx|ccx)[0-9]{2}$'
+                    workerCount:
+                      type: integer
+                      description: |
+                        Number of worker nodes. Mutable — patching this
+                        field rescales the worker pool through the
+                        Composition's worker-server resource.
+                      minimum: 0
+                      maximum: 100
+                      default: 0
+                    sshKeyName:
+                      type: string
+                      description: |
+                        Name of an existing Hetzner SSH key (created by the
+                        Phase-0 OpenTofu module or via wizard input) that
+                        can SSH into every server in this region slice.
+                    sovereignFQDN:
+                      type: string
+                      description: |
+                        The Sovereign FQDN this region slice belongs to.
+                        Used for the deterministic resource-name suffix
+                        (catalyst-<sovereign-with-dashes>-net etc.) and
+                        the catalyst.openova.io/sovereign label on every
+                        materialised resource.
+                    ipRange:
+                      type: string
+                      description: |
+                        Network CIDR for this region slice. Defaults to
+                        10.0.0.0/16 to match the OpenTofu module.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                      default: 10.0.0.0/16
+                    subnetIpRange:
+                      type: string
+                      description: |
+                        Subnet CIDR inside ipRange. Defaults to 10.0.1.0/24.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                      default: 10.0.1.0/24
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  description: |
+                    Standard Crossplane composite status conditions
+                    (Synced, Ready, plus per-resource composite-controller
+                    conditions). Read by catalyst-api's GET endpoints to
+                    determine whether the slice is provisioning, ready,
+                    or failed.
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                controlPlaneIP:
+                  type: string
+                  description: |
+                    Public IPv4 of the first control-plane server (cp1)
+                    once provider-hcloud reports it back.
+                loadBalancerIP:
+                  type: string
+                  description: |
+                    Public IPv4 of the lb11 load balancer once provisioned.
+                networkId:
+                  type: string
+                  description: |
+                    Hetzner numeric network ID for the region's VPC.
+                provisioningStartedAt:
+                  type: string
+                  format: date-time
+                  description: |
+                    First-seen timestamp set by Crossplane when the
+                    composite begins reconciling. Used by catalyst-api to
+                    show the wizard's elapsed-time clock.
+                provisioningFinishedAt:
+                  type: string
+                  format: date-time
+                  description: |
+                    Timestamp at which all composed resources reported
+                    Ready=True. Set by the Composition once the LB IP is
+                    populated and every worker server is up.
+      additionalPrinterColumns:
+        - name: REGION
+          type: string
+          jsonPath: .spec.parameters.region
+        - name: WORKERS
+          type: integer
+          jsonPath: .spec.parameters.workerCount
+        - name: CP-IP
+          type: string
+          jsonPath: .status.controlPlaneIP
+        - name: LB-IP
+          type: string
+          jsonPath: .status.loadBalancerIP
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp
