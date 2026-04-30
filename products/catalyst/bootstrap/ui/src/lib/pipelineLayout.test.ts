@@ -342,6 +342,33 @@ describe('pipelineLayout — collapsed batches', () => {
   })
 })
 
+describe('pipelineLayout — highlightJobId', () => {
+  it('marks exactly one job node as highlighted when option is set', () => {
+    const result = pipelineLayout(FIVE_JOB_FANIN, { highlightJobId: '3' })
+    const highlighted = result.nodes.filter(
+      (n) => n.kind === 'job' && n.highlighted === true,
+    )
+    expect(highlighted.length).toBe(1)
+    expect(highlighted[0]!.id).toBe('3')
+  })
+
+  it('marks zero nodes as highlighted when option is unset', () => {
+    const result = pipelineLayout(FIVE_JOB_FANIN)
+    const highlighted = result.nodes.filter(
+      (n) => n.kind === 'job' && n.highlighted === true,
+    )
+    expect(highlighted.length).toBe(0)
+  })
+
+  it('matches no node when highlightJobId is unknown', () => {
+    const result = pipelineLayout(FIVE_JOB_FANIN, { highlightJobId: 'no-such-id' })
+    const highlighted = result.nodes.filter(
+      (n) => n.kind === 'job' && n.highlighted === true,
+    )
+    expect(highlighted.length).toBe(0)
+  })
+})
+
 /* ──────────────────────────────────────────────────────────────────
  * Helpers — pure functions that the layout exports
  * ────────────────────────────────────────────────────────────────── */
