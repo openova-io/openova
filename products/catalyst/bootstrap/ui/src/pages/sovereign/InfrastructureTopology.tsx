@@ -22,7 +22,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import { topologyLayout, type LayoutNode, type ZoomState } from '@/lib/topologyLayout'
 import type { TopologyStatus } from '@/lib/infrastructure.types'
 import { InfrastructureDetailPanel, type DetailAction } from '@/components/InfrastructureDetailPanel'
@@ -62,7 +62,7 @@ interface ModalState {
 }
 
 export function InfrastructureTopology() {
-  const { deploymentId, data, isLoading, isError, refetch } = useInfrastructure()
+  const { deploymentId, data, isLoading, isError, refetch } = useCloud()
 
   const [zoom, setZoom] = useState<ZoomState>({
     zoomedClusterId: null,
@@ -454,13 +454,13 @@ function truncate(s: string, max: number): string {
   return s.slice(0, Math.max(0, max - 1)) + '…'
 }
 
-function inferDefaultProvider(data: ReturnType<typeof useInfrastructure>['data']): CloudProvider {
+function inferDefaultProvider(data: ReturnType<typeof useCloud>['data']): CloudProvider {
   const first = data?.cloud[0]
   return ((first?.provider ?? 'hetzner') as CloudProvider)
 }
 
 function inferProviderForCluster(
-  data: ReturnType<typeof useInfrastructure>['data'],
+  data: ReturnType<typeof useCloud>['data'],
   clusterId: string,
 ): CloudProvider {
   if (!data) return 'hetzner'
