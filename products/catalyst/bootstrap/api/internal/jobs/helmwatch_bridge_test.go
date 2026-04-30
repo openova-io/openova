@@ -259,11 +259,13 @@ func TestSeedJobsFromInformerList_idempotent(t *testing.T) {
 	if jobsWritten1 != 4 {
 		t.Errorf("first seed jobsWritten: want 4, got %d", jobsWritten1)
 	}
-	// 3 terminal states (cilium installed, cert-manager installed,
-	// crossplane failed) → 3 executions seeded. The "installing" flux
-	// HR is non-terminal so no execution is allocated.
-	if execs1 != 3 {
-		t.Errorf("first seed executionsSeeded: want 3, got %d", execs1)
+	// All four seeds allocate an Execution: 3 terminal (cilium /
+	// cert-manager installed, crossplane failed) + 1 non-terminal
+	// (flux installing). The non-terminal Execution stays open so raw
+	// helm-controller log lines can append to it; terminal Executions
+	// are stamped finished by the seed itself. See issue #305.
+	if execs1 != 4 {
+		t.Errorf("first seed executionsSeeded: want 4, got %d", execs1)
 	}
 
 	gotAfterFirst, err := st.ListJobs(depID)
@@ -332,12 +334,18 @@ func TestSeedJobsFromInformerList_idempotent(t *testing.T) {
 			t.Errorf("%s: want 1 execution after dup seed, got %d", name, len(execs))
 		}
 	}
+	// install-flux was seeded as "installing" — a single open
+	// Execution must exist so the FE log viewer has a row to deep-link
+	// to and the logtailer's raw helm-controller lines can append.
 	_, fluxExecs, err := st.GetJob(depID, JobID(depID, "install-flux"))
 	if err != nil {
 		t.Fatalf("GetJob install-flux: %v", err)
 	}
-	if len(fluxExecs) != 0 {
-		t.Errorf("install-flux: want 0 executions for non-terminal seed, got %d", len(fluxExecs))
+	if len(fluxExecs) != 1 {
+		t.Errorf("install-flux: want 1 open execution for installing seed, got %d", len(fluxExecs))
+	}
+	if len(fluxExecs) == 1 && fluxExecs[0].FinishedAt != nil {
+		t.Errorf("install-flux execution must remain open (no FinishedAt), got %+v", fluxExecs[0].FinishedAt)
 	}
 }
 
@@ -397,15 +405,30 @@ func TestSeedJobsFromInformerList_writesSyntheticLogLine(t *testing.T) {
 		})
 	}
 
-	// The non-terminal install-flux row must NOT have a synthetic log
-	// line — the watch will allocate one when the next transition
-	// fires through OnHelmReleaseEvent.
-	_, fluxExecs, err := st.GetJob(depID, JobID(depID, "install-flux"))
+	// The non-terminal install-flux row gets a single open Execution
+	// with the synthetic anchor "[seeded] state=installing ..." line.
+	// Subsequent raw helm-controller log lines append to this same
+	// Execution; the FinishedAt remains nil until the HR transitions
+	// to a terminal state.
+	job, fluxExecs, err := st.GetJob(depID, JobID(depID, "install-flux"))
 	if err != nil {
 		t.Fatalf("GetJob install-flux: %v", err)
 	}
-	if len(fluxExecs) != 0 {
-		t.Errorf("install-flux must not have a synthetic execution, got %d", len(fluxExecs))
+	if len(fluxExecs) != 1 {
+		t.Fatalf("install-flux: want 1 open execution, got %d", len(fluxExecs))
+	}
+	if fluxExecs[0].FinishedAt != nil {
+		t.Errorf("install-flux execution must remain open (FinishedAt nil), got %v", fluxExecs[0].FinishedAt)
+	}
+	page, err := st.PageLogs(depID, job.LatestExecutionID, 1, 100)
+	if err != nil {
+		t.Fatalf("PageLogs install-flux: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("install-flux: want exactly 1 anchor LogLine, got %d", page.Total)
+	}
+	if !strings.HasPrefix(page.Lines[0].Message, "[seeded]") || !strings.Contains(page.Lines[0].Message, "state=installing") {
+		t.Errorf("install-flux anchor line shape unexpected: %q", page.Lines[0].Message)
 	}
 }
 
@@ -458,5 +481,173 @@ func TestSeedJobsFromInformerList_skipsEmptyComponent(t *testing.T) {
 	got, _ := st.ListJobs(depID)
 	if len(got) != 1 {
 		t.Errorf("expected 1 job (empty components skipped), got %d", len(got))
+	}
+}
+
+// TestOnRawComponentLog_appendsToActiveExecution proves a raw
+// helm-controller log line forwarded by OnProvisionerEvent (Phase=
+// component-log) lands verbatim on the active Execution allocated by
+// the seed, with the level surfaced via mapLevel.
+func TestOnRawComponentLog_appendsToActiveExecution(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC)
+
+	// Seed a non-terminal "installing" component → allocates an open
+	// Execution + writes the synthetic [seeded] anchor line.
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "seaweedfs", State: HelmStateInstalling, Message: "first reconcile", ObservedAt: now},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rawLines := []struct {
+		ts    time.Time
+		level string
+		msg   string
+	}{
+		{now.Add(1 * time.Second), "info", `{"ts":"...","level":"info","msg":"reconciling helmrelease","helmrelease":"flux-system/bp-seaweedfs"}`},
+		{now.Add(2 * time.Second), "warn", `level=warn helmrelease="flux-system/bp-seaweedfs" msg="retrying chart pull"`},
+		{now.Add(3 * time.Second), "error", `level=error helmrelease="flux-system/bp-seaweedfs" msg="post-install hook timed out"`},
+	}
+	for _, r := range rawLines {
+		if err := br.OnProvisionerEvent(provisioner.Event{
+			Time:      r.ts.Format(time.RFC3339),
+			Phase:     phaseComponentLog,
+			Level:     r.level,
+			Component: "seaweedfs",
+			Message:   r.msg,
+		}); err != nil {
+			t.Fatalf("OnProvisionerEvent: %v", err)
+		}
+	}
+
+	job, execs, err := st.GetJob(depID, JobID(depID, "install-seaweedfs"))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if len(execs) != 1 {
+		t.Fatalf("want 1 execution, got %d", len(execs))
+	}
+	if execs[0].FinishedAt != nil {
+		t.Errorf("execution must remain open during installing state, got finished=%v", execs[0].FinishedAt)
+	}
+	page, err := st.PageLogs(depID, job.LatestExecutionID, 1, 100)
+	if err != nil {
+		t.Fatalf("PageLogs: %v", err)
+	}
+	// 1 anchor [seeded] line + 3 raw helm-controller lines.
+	if page.Total != 4 {
+		t.Fatalf("want 4 log lines (1 anchor + 3 raw), got %d", page.Total)
+	}
+	for i, want := range []string{LevelInfo, LevelInfo, LevelWarn, LevelError} {
+		if got := page.Lines[i].Level; got != want {
+			t.Errorf("line %d level: got %q, want %q", i, got, want)
+		}
+	}
+	for i := 1; i <= 3; i++ {
+		if page.Lines[i].Message != rawLines[i-1].msg {
+			t.Errorf("line %d message must round-trip verbatim:\n  got  %q\n  want %q",
+				i, page.Lines[i].Message, rawLines[i-1].msg)
+		}
+	}
+}
+
+// TestOnRawComponentLog_allocatesExecutionWhenJobMissing proves a raw
+// helm-controller log line for a component the bridge has never seen
+// before still gets persisted: a Job + Execution are created on the
+// fly. Covers the "Pod restart wiped both the cursor AND the index"
+// edge case that used to drop every line.
+func TestOnRawComponentLog_allocatesExecutionWhenJobMissing(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	t0 := time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC)
+
+	if err := br.OnProvisionerEvent(provisioner.Event{
+		Time:      t0.Format(time.RFC3339),
+		Phase:     phaseComponentLog,
+		Level:     "info",
+		Component: "openbao",
+		Message:   `helmrelease="flux-system/bp-openbao" msg="installing chart"`,
+	}); err != nil {
+		t.Fatalf("OnProvisionerEvent: %v", err)
+	}
+
+	job, execs, err := st.GetJob(depID, JobID(depID, "install-openbao"))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if job.Status != StatusRunning {
+		t.Errorf("job status: want running, got %q", job.Status)
+	}
+	if len(execs) != 1 {
+		t.Fatalf("want 1 execution, got %d", len(execs))
+	}
+	page, err := st.PageLogs(depID, job.LatestExecutionID, 1, 100)
+	if err != nil {
+		t.Fatalf("PageLogs: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("want 1 log line, got %d", page.Total)
+	}
+}
+
+// TestOnRawComponentLog_dropsAfterTerminal proves helm-controller's
+// post-install drift-check chatter does NOT extend a closed Execution.
+// Once the Job has reached a terminal status the line is dropped.
+func TestOnRawComponentLog_dropsAfterTerminal(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 4, 30, 11, 0, 0, 0, time.UTC)
+
+	// Seed cilium as installed (terminal) so the bridge has a closed
+	// Execution + cleared cursor on record.
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "ok", ObservedAt: now},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := br.OnProvisionerEvent(provisioner.Event{
+		Time:      now.Add(time.Hour).Format(time.RFC3339),
+		Phase:     phaseComponentLog,
+		Level:     "info",
+		Component: "cilium",
+		Message:   `helmrelease="flux-system/bp-cilium" msg="reconciliation drift check"`,
+	}); err != nil {
+		t.Fatalf("OnProvisionerEvent: %v", err)
+	}
+
+	job, _, err := st.GetJob(depID, JobID(depID, "install-cilium"))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	page, err := st.PageLogs(depID, job.LatestExecutionID, 1, 100)
+	if err != nil {
+		t.Fatalf("PageLogs: %v", err)
+	}
+	// Only the 1 anchor [seeded] line — the post-terminal raw line
+	// must be dropped.
+	if page.Total != 1 {
+		t.Fatalf("want 1 log line (post-terminal raw line dropped), got %d", page.Total)
+	}
+}
+
+// TestOnProvisionerEvent_dropsUnknownPhases keeps the bridge inert for
+// Phase-0 OpenTofu events (Phase="phase-0", Phase="tofu-init") that
+// have no Job analogue — a regression guard against accidentally
+// materialising Jobs for opentofu output.
+func TestOnProvisionerEvent_dropsUnknownPhases(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	for _, ph := range []string{"phase-0", "tofu-init", "tofu-apply", ""} {
+		if err := br.OnProvisionerEvent(provisioner.Event{
+			Time:      time.Now().UTC().Format(time.RFC3339),
+			Phase:     ph,
+			Component: "anything",
+			Message:   "noise",
+		}); err != nil {
+			t.Errorf("phase %q must not error: %v", ph, err)
+		}
+	}
+	got, _ := st.ListJobs(depID)
+	if len(got) != 0 {
+		t.Errorf("non-component phases must not allocate Jobs, got %d", len(got))
 	}
 }
