@@ -49,12 +49,24 @@ function renderJobs(deploymentId: string) {
     path: '/provision/$deploymentId/jobs/$jobId',
     component: () => <div data-testid="job-detail-target" />,
   })
+  const batchDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/batches/$batchId',
+    component: () => <div data-testid="batch-detail-target" />,
+  })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/wizard',
     component: () => <div data-testid="wizard-target" />,
   })
-  const tree = rootRoute.addChildren([jobsRoute, homeRoute, detailRoute, jobDetailRoute, wizardRoute])
+  const tree = rootRoute.addChildren([
+    jobsRoute,
+    homeRoute,
+    detailRoute,
+    jobDetailRoute,
+    batchDetailRoute,
+    wizardRoute,
+  ])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}/jobs`] }),
@@ -146,5 +158,28 @@ describe('JobsPage — search', () => {
     renderJobs('d-1')
     const search = await screen.findByTestId('jobs-search')
     expect(search.tagName.toLowerCase()).toBe('input')
+  })
+})
+
+describe('JobsPage — batches strip removed (epic #204 item #4)', () => {
+  it('does NOT render the per-batch progress strip', async () => {
+    // Founder verbatim: "On the jobs page the top 3 cards are not
+    // required, the progress bar needs to be shown only when I click
+    // a specific batch and it shows the batch page along with its
+    // batch progress at the top". This guard locks in the removal.
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('batch-progress')).toBeNull()
+    const batchRows = document.querySelectorAll('[data-testid^="batch-row-"]')
+    expect(batchRows.length).toBe(0)
+  })
+
+  it('batch chip in a row links to the BatchDetail page', async () => {
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    const chip = screen.getByTestId('jobs-cell-batch-bp-cilium') as HTMLAnchorElement
+    expect(chip.tagName.toLowerCase()).toBe('a')
+    // Spot-check the route shape — the batch id varies by job.
+    expect(chip.getAttribute('href')).toMatch(/^\/provision\/d-1\/batches\//)
   })
 })

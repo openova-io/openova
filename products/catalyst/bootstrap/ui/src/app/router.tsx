@@ -22,6 +22,7 @@ import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
+import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -106,6 +107,19 @@ const provisionJobDetailRoute = createRoute({
   component: JobDetail,
 })
 
+// Per-Batch detail page (epic #204 item #4) — surfaces a single batch
+// progress card at the top + a JobsTable filtered to that batch's
+// rows. Reachable from the batch chip in any JobsTable row (both
+// JobsPage and AppDetail's Jobs tab). Founder verbatim:
+//   "the progress bar needs to be shown only when I click a specific
+//    batch and it shows the batch page along with its batch progress
+//    at the top"
+const provisionBatchDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/batches/$batchId',
+  component: BatchDetail,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout. Once the public smoke tests move to the new
@@ -152,6 +166,7 @@ const routeTree = rootRoute.addChildren([
   provisionJobsRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
+  provisionBatchDetailRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,
