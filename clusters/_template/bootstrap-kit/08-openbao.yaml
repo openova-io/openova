@@ -31,7 +31,6 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
-  timeout: 15m
   releaseName: openbao
   targetNamespace: openbao
   dependsOn:
@@ -44,9 +43,16 @@ spec:
         kind: HelmRepository
         name: bp-openbao
         namespace: flux-system
+  # Event-driven install: OpenBao 3-node Raft cluster requires manual
+  # unseal via `bao operator init` — pods stay sealed (Ready=False) until
+  # an operator runs the unseal flow. Blocking Helm install on Ready=True
+  # is structurally wrong for a sealed-by-default secret backend.
+  # Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3

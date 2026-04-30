@@ -1,11 +1,11 @@
 apiVersion: v2
 name: bp-spire
-version: 1.1.3
+version: 1.1.4
 description: |
   Catalyst-curated Blueprint umbrella chart for SPIRE. Depends on the
-  upstream `spire` chart (spiffe.github.io/helm-charts-hardened) as a Helm
-  subchart so `helm dependency build` pulls the upstream payload into this
-  artifact; the Catalyst overlay templates in templates/ (NetworkPolicy,
+  upstream `spire-crds` and `spire` charts (spiffe.github.io/helm-charts-hardened)
+  as Helm subcharts so `helm dependency build` pulls the upstream payload into
+  this artifact; the Catalyst overlay templates in templates/ (NetworkPolicy,
   ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
   Helm renders both at install time. Catalyst-curated values flow into the
   upstream subchart under the `spire:` key in values.yaml.
@@ -15,12 +15,28 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to spiffe/spire 0.21.0 (matches
-# platform/spire/blueprint.yaml + values.yaml `catalystBlueprint.upstream
-# .version`). Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
-# version is operator-bumpable via PR + Blueprint release.
+# Upstream charts pulled in as Helm subcharts so `helm dependency build`
+# bundles them into the OCI artifact.
+#
+# 1.1.4 (2026-04-30): Added spire-crds 0.5.0 as the FIRST dependency.
+#   Root cause: the upstream `spire` chart does NOT install its own CRDs
+#   (ClusterSPIFFEID / ClusterStaticEntry / ClusterFederatedTrustDomain in
+#   spire.spiffe.io/v1alpha1). Without them registered, spire-controller-
+#   manager crash-loops with "failed to wait for clusterstaticentry caches
+#   to sync: timed out waiting for cache to be synced for Kind
+#   *v1alpha1.ClusterStaticEntry" — observed live on otech.omani.works
+#   (36 restarts, HR Ready=False). Helm installs subcharts in dependency
+#   order, so listing spire-crds first guarantees the CRDs are applied
+#   before the spire subchart's controller-manager Deployment starts.
+#
+# Pinned to spire 0.21.0 + spire-crds 0.5.0 (matches the upstream pairing
+# documented at https://artifacthub.io/packages/helm/spiffe/spire-crds).
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the versions are
+# operator-bumpable via PR + Blueprint release.
 dependencies:
+  - name: spire-crds
+    version: "0.5.0"
+    repository: "https://spiffe.github.io/helm-charts-hardened"
   - name: spire
     version: "0.21.0"
     repository: "https://spiffe.github.io/helm-charts-hardened"
