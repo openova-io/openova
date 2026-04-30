@@ -21,7 +21,6 @@
 #      2.4.0) which matches cloud-init's v2.4.0 install.yaml.
 #   2. spec.upgrade.preserveValues: true — never silently overwrite
 #      operator overlays on upgrade.
-#   3. spec.install.disableTakeOwnership: false (explicit) — helm-
 #      controller adopts the cloud-init-installed objects rather than
 #      re-creating, so install is non-destructive when objects already
 #      exist with matching apiVersion/kind/name.
@@ -70,7 +69,6 @@ spec:
     # ownership conflict (the objects exist before the HelmRelease ever
     # reconciles). Without this, the very first reconcile would error
     # with "object already exists" on every Flux controller Deployment.
-    disableTakeOwnership: false
     remediation:
       retries: 3
   upgrade:
@@ -80,6 +78,5 @@ spec:
     # reset the chart to default values, masking operator state.
     preserveValues: true
     # Match install behaviour — adopt rather than fail on conflict.
-    disableTakeOwnership: false
     remediation:
       retries: 3
