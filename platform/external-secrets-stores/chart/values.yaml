@@ -1,0 +1,25 @@
+# Catalyst-curated values overlay for bp-external-secrets-stores.
+#
+# This chart owns the ClusterSecretStore CR(s) that the bp-external-secrets
+# controller chart can no longer ship in-line (CRD-ordering deadlock; see
+# Chart.yaml). All knobs that previously lived under
+# `clusterSecretStore:` in bp-external-secrets/values.yaml move here
+# unchanged — cluster overlays in clusters/<sovereign>/ that previously
+# overrode `clusterSecretStore.*` continue to work via the same key path,
+# they just target this chart now.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally
+# meaningful value flows from this file; cluster overlays may set
+# `clusterSecretStore.*` without rebuilding the Blueprint OCI artifact.
+
+clusterSecretStore:
+  enabled: true
+  name: vault-region1
+  server: "http://openbao.openbao.svc.cluster.local:8200"
+  path: secret
+  version: v2
+  kubernetesAuth:
+    mountPath: kubernetes
+    role: external-secrets
+    serviceAccountName: external-secrets
+    serviceAccountNamespace: external-secrets-system

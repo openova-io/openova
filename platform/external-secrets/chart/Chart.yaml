@@ -1,15 +1,20 @@
 apiVersion: v2
 name: bp-external-secrets
-version: 1.0.0
+version: 1.1.0
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
-  (ESO). Depends on the upstream `external-secrets` chart as a Helm
-  subchart so `helm dependency build` pulls the upstream payload into
-  this artifact; the Catalyst overlay templates in templates/ (default
-  ClusterSecretStore wired to bp-openbao, NetworkPolicy guard,
-  ServiceMonitor toggle) sit alongside the upstream subchart and Helm
-  renders both at install time. Catalyst-curated values flow into the
-  upstream subchart under the `external-secrets:` key in values.yaml.
+  (ESO) — controller-only as of 1.1.0. Depends on the upstream
+  `external-secrets` chart as a Helm subchart so `helm dependency build`
+  pulls the upstream payload into this artifact.
+
+  1.1.0 (issue #331): the default ClusterSecretStore CR was extracted
+  into a separate chart `bp-external-secrets-stores@1.0.0`. Reason:
+  Helm's `before-hook-creation` delete policy on the ClusterSecretStore
+  hook ran a kubectl-style lookup of the CR before the upstream chart's
+  CRDs finished registration, deadlocking the install on first
+  reconcile with `no matches for kind ClusterSecretStore` (incident on
+  otech.omani.works 2026-04-30). Mirrors the bp-crossplane@1.1.3 ↔
+  bp-crossplane-claims@1.0.0 split shipped in PR #247.
 type: application
 keywords: [catalyst, blueprint, external-secrets, eso, openbao, secrets]
 maintainers:
