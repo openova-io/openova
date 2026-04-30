@@ -60,20 +60,21 @@ import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 import {
-  flowLayoutV4,
-  DEFAULT_FAMILIES,
+  flowLayoutOrganic,
   FALLBACK_REGION_ID,
-  type FlowFamily,
-  type FlowRegion,
-  type FlowNodeHints,
-} from '@/lib/flowLayoutV4'
+  type OrganicFamily,
+  type OrganicRegion,
+  type OrganicNodeHints,
+} from '@/lib/flowLayoutOrganic'
+import { DEFAULT_FAMILIES } from '@/lib/flowLayoutV4' // re-use existing palette only
 import type { Job } from '@/lib/jobs.types'
 import { FloatingLogPane } from '@/components/FloatingLogPane'
 import {
   StatusStrip,
   type ProvisioningStatus,
 } from '@/components/StatusStrip'
-import { FlowCanvasV4 } from './FlowCanvasV4'
+import { FlowCanvasOrganic } from './FlowCanvasOrganic'
+import { BatchSummaryPane } from './BatchSummaryPane'
 import { PRODUCTS } from '@/pages/wizard/steps/componentGroups'
 
 /* ──────────────────────────────────────────────────────────────────
@@ -129,7 +130,7 @@ interface FlowPageProps {
  * StepComponents page colour-coding). Falls back to the default palette
  * for entries the catalog hasn't taught us yet (catalyst, platform).
  */
-function useFamilyPalette(): FlowFamily[] {
+function useFamilyPalette(): OrganicFamily[] {
   return useMemo(() => {
     const fromCatalog = PRODUCTS.map((p) => {
       const fallback = DEFAULT_FAMILIES.find((f) => f.id === p.id)
@@ -137,7 +138,7 @@ function useFamilyPalette(): FlowFamily[] {
         id: p.id,
         label: p.name,
         color: fallback?.color ?? '#94A3B8',
-      } satisfies FlowFamily
+      } satisfies OrganicFamily
     })
     // Append entries that exist in DEFAULT_FAMILIES but not in PRODUCTS.
     const seen = new Set(fromCatalog.map((f) => f.id))
@@ -174,11 +175,11 @@ function useFamilyPalette(): FlowFamily[] {
 function useJobHints(args: {
   jobs: readonly Job[]
   applications: readonly ApplicationDescriptor[]
-  regions: readonly FlowRegion[]
-}): Map<string, FlowNodeHints> {
+  regions: readonly OrganicRegion[]
+}): Map<string, OrganicNodeHints> {
   const { jobs, applications, regions } = args
   return useMemo(() => {
-    const out = new Map<string, FlowNodeHints>()
+    const out = new Map<string, OrganicNodeHints>()
     const appById = new Map<string, ApplicationDescriptor>()
     const appByBareId = new Map<string, ApplicationDescriptor>()
     for (const a of applications) {
@@ -230,24 +231,18 @@ function useJobHints(args: {
       }
 
       let familyId: string
-      let stage: number
       const extraDepIds: string[] = []
 
       if (j.appId === 'infrastructure') {
         familyId = 'catalyst'
-        // Stage by tofu phase order — init/plan/apply/output → 1/1/1/1
-        // (single-column anchor in the mockup's stage 1).
-        stage = 1
       } else if (j.appId === 'cluster-bootstrap') {
         familyId = 'catalyst'
-        stage = 2
         if (phase0FinalJobId) extraDepIds.push(phase0FinalJobId)
       } else {
         const app = appById.get(j.appId)
         familyId = app?.familyId ?? 'platform'
-        const d = app?.bareId ? depth(app.bareId) : 0
-        stage = 3 + d
-        // Inject component-level deps as extra layout edges.
+        // Inject component-level deps as extra layout edges so the
+        // organic depth assignment captures the dependency graph.
         if (app) {
           for (const dep of app.dependencies ?? []) {
             const depJobId = jobIdForBare(dep)
@@ -259,8 +254,9 @@ function useJobHints(args: {
         if (bootstrapJobId) extraDepIds.push(bootstrapJobId)
       }
 
-      const label = j.jobName.replace(/^install-/, '')
-      out.set(j.id, { regionId, familyId, label, stage, extraDepIds })
+      // depth() unused for organic — kept for cycle defence + cache warmup
+      void depth
+      out.set(j.id, { regionId, familyId, extraDepIds })
     }
     return out
   }, [jobs, applications, regions])
@@ -436,7 +432,7 @@ export function FlowPage({
 
   /* ── Region descriptors (multi-region support) ───────────────── */
 
-  const regions = useMemo<FlowRegion[]>(() => {
+  const regions = useMemo<OrganicRegion[]>(() => {
     if (store.regions && store.regions.length > 0) {
       return store.regions.map((r) => ({
         id: r.id,
@@ -461,8 +457,8 @@ export function FlowPage({
   /* ── Layout ───────────────────────────────────────────────────── */
 
   const layout = useMemo(
-    () => flowLayoutV4(renderJobs, { hints, regions, families, highlightJobId }),
-    [renderJobs, hints, regions, families, highlightJobId],
+    () => flowLayoutOrganic(renderJobs, { hints, regions, families }),
+    [renderJobs, hints, regions, families],
   )
 
   /* ── Click semantics (single vs double, debounced 220ms) ────── */
@@ -496,12 +492,27 @@ export function FlowPage({
   const handleJobDoubleClick = useCallback(
     (jobId: string) => {
       cancelPendingClick()
+      // Batch mode: double-click on a batch bubble drills into its
+      // children inline. Other batches stay rendered at the parent level
+      // (operator spec 2026-04-30) — implemented by setting scope=batch:<id>
+      // which the canvas reads to render only that batch's children, then
+      // we render sibling batch summaries beside it.
+      if (mode === 'batches') {
+        if (scopeOverride) return
+        navigate({
+          to: '/provision/$deploymentId/flow' as never,
+          params: { deploymentId } as never,
+          search: { scope: `batch:${jobId}`, view: 'jobs' } as never,
+        })
+        return
+      }
+      // Jobs mode: double-click navigates to the job-detail page.
       navigate({
         to: '/provision/$deploymentId/jobs/$jobId' as never,
         params: { deploymentId, jobId } as never,
       })
     },
-    [navigate, deploymentId, cancelPendingClick],
+    [navigate, deploymentId, cancelPendingClick, mode, scopeOverride],
   )
 
   const handleCanvasBackgroundClick = useCallback(() => {
@@ -551,9 +562,8 @@ export function FlowPage({
   /* ── Render ──────────────────────────────────────────────────── */
 
   const canvas = (
-    <FlowCanvasV4
+    <FlowCanvasOrganic
       layout={layout}
-      families={families}
       embedded={embedded}
       highlightJobId={highlightJobId ?? null}
       openJobId={openJobId}
@@ -574,8 +584,23 @@ export function FlowPage({
     </div>
   )
 
-  const logPane =
-    !embedded && openJob ? (
+  // Single-click pane:
+  //   • In jobs mode → FloatingLogPane (live exec log of that job).
+  //   • In batches mode → BatchSummaryPane (started-at, finished-at OR
+  //     ETA, succeeded/running/pending/failed counts, total duration).
+  const logPane = useMemo(() => {
+    if (embedded || !openJob) return null
+    if (mode === 'batches') {
+      const childJobs = scopedJobs.filter((j) => (j.batchId ?? 'misc') === openJob.id)
+      return (
+        <BatchSummaryPane
+          batchId={openJob.id}
+          jobs={childJobs}
+          onClose={() => setOpenJobId(null)}
+        />
+      )
+    }
+    return (
       <FloatingLogPane
         executionId={openJob.startedAt ? `${openJob.id}:latest` : null}
         jobTitle={openJob.jobName}
@@ -583,7 +608,8 @@ export function FlowPage({
         statusTone={openJob.status}
         onClose={() => setOpenJobId(null)}
       />
-    ) : null
+    )
+  }, [embedded, openJob, mode, scopedJobs])
 
   if (embedded) {
     return (
