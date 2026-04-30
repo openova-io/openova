@@ -1,7 +1,11 @@
 // infrastructure_test.go — coverage for the Sovereign Infrastructure
-// REST surface. Pins the wire shape every endpoint emits + the 404
-// path so the UI's contract stays stable as the data sources evolve
-// (today: deployment record only; future: live-cluster kubeconfig).
+// REST surface.
+//
+// The unified GET .../infrastructure/topology emits the hierarchical
+// TopologyResponse shape (cloud → topology.regions[*] → clusters →
+// vclusters | pools | nodes | LBs + storage). The legacy flat
+// /compute, /storage, /network endpoints remain wired with their
+// pre-existing shapes until the FE migrates to the unified topology.
 package handler
 
 import (
@@ -14,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/infrastructure"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -32,6 +37,7 @@ func installInfraDeployment(t *testing.T, h *Handler, status string) (*Deploymen
 			ControlPlaneSize: "cpx21",
 			WorkerSize:       "cpx41",
 			WorkerCount:      2,
+			HetznerProjectID: "test-project",
 		},
 		mu: sync.Mutex{},
 	}
@@ -63,6 +69,9 @@ func TestInfrastructureTopology_NotFound(t *testing.T) {
 	}
 }
 
+// TestInfrastructureTopology_OKShape pins the unified hierarchical
+// shape: cloud, topology.regions[*].clusters[*].nodes[*]/pools[*]/LBs,
+// storage. The legacy flat nodes/edges shape is no longer emitted.
 func TestInfrastructureTopology_OKShape(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	dep, id := installInfraDeployment(t, h, "ready")
@@ -76,37 +85,61 @@ func TestInfrastructureTopology_OKShape(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	var out infraTopologyResponse
+	var out infrastructure.TopologyResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out.Nodes) == 0 {
-		t.Fatalf("expected non-empty nodes")
+
+	// Cloud — exactly one tenant per provider.
+	if len(out.Cloud) != 1 {
+		t.Fatalf("expected 1 cloud tenant; got %d", len(out.Cloud))
 	}
-	if len(out.Edges) == 0 {
-		t.Fatalf("expected non-empty edges")
+	if out.Cloud[0].Provider != "hetzner" {
+		t.Fatalf("cloud provider: got %q want hetzner", out.Cloud[0].Provider)
+	}
+	if out.Cloud[0].ProjectID != "test-project" {
+		t.Fatalf("cloud projectID: got %q want test-project", out.Cloud[0].ProjectID)
 	}
 
-	// Cloud + cluster + LB + workers must all surface. Spot-check kinds.
-	kinds := map[string]int{}
-	for _, n := range out.Nodes {
-		kinds[n.Kind]++
+	// Topology — pattern + 1 region (legacy singular path).
+	if out.Topology.Pattern == "" {
+		t.Fatalf("topology pattern is required")
 	}
-	if kinds["cloud"] != 1 {
-		t.Fatalf("expected 1 cloud node; got %d", kinds["cloud"])
+	if len(out.Topology.Regions) != 1 {
+		t.Fatalf("expected 1 region; got %d", len(out.Topology.Regions))
 	}
-	if kinds["cluster"] != 1 {
-		t.Fatalf("expected 1 cluster node; got %d", kinds["cluster"])
+	rg := out.Topology.Regions[0]
+	if rg.ProviderRegion != "fsn1" {
+		t.Fatalf("region.providerRegion: got %q want fsn1", rg.ProviderRegion)
 	}
-	if kinds["lb"] != 1 {
-		t.Fatalf("expected 1 lb node when LoadBalancerIP set; got %d", kinds["lb"])
+	if rg.SkuCP != "cpx21" {
+		t.Fatalf("region.skuCP: got %q want cpx21", rg.SkuCP)
 	}
-	// At least the workers + control plane.
-	if kinds["node"] < 3 {
-		t.Fatalf("expected >=3 node entries (1 cp + 2 workers); got %d", kinds["node"])
+	if len(rg.Clusters) != 1 {
+		t.Fatalf("expected 1 cluster per region; got %d", len(rg.Clusters))
+	}
+	c := rg.Clusters[0]
+	if c.Name != "omantel.omani.works" {
+		t.Fatalf("cluster.name: got %q want omantel.omani.works", c.Name)
+	}
+	// 1 cp + 2 workers
+	if len(c.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes (1 cp + 2 workers); got %d", len(c.Nodes))
+	}
+	if len(c.LoadBalancers) != 1 {
+		t.Fatalf("expected 1 LB when LoadBalancerIP set; got %d", len(c.LoadBalancers))
+	}
+	if c.LoadBalancers[0].PublicIP != "203.0.113.10" {
+		t.Fatalf("lb publicIP: got %q want 203.0.113.10", c.LoadBalancers[0].PublicIP)
+	}
+	// node pools: 1 cp pool + 1 worker pool
+	if len(c.NodePools) != 2 {
+		t.Fatalf("expected 2 node pools (cp + worker); got %d", len(c.NodePools))
 	}
 }
 
+// TestInfrastructureTopology_NoLBWhenAbsent — pre-LB-reconcile
+// deployment must not surface a synthesised LB row.
 func TestInfrastructureTopology_NoLBWhenAbsent(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	_, id := installInfraDeployment(t, h, "provisioning")
@@ -114,11 +147,56 @@ func TestInfrastructureTopology_NoLBWhenAbsent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	var out infraTopologyResponse
+	var out infrastructure.TopologyResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	for _, n := range out.Nodes {
-		if n.Kind == "lb" {
-			t.Fatalf("expected no lb node before LoadBalancerIP is reported; got %+v", n)
+	if len(out.Topology.Regions) != 1 {
+		t.Fatalf("expected 1 region; got %d", len(out.Topology.Regions))
+	}
+	if len(out.Topology.Regions[0].Clusters) == 0 {
+		t.Fatal("expected 1 cluster")
+	}
+	if len(out.Topology.Regions[0].Clusters[0].LoadBalancers) != 0 {
+		t.Fatalf("expected no LBs before LoadBalancerIP reported; got %+v", out.Topology.Regions[0].Clusters[0].LoadBalancers)
+	}
+}
+
+// TestInfrastructureTopology_StorageEmptyFallback — storage arrays
+// MUST serialise as `[]` (never null) so the FE can iterate them.
+func TestInfrastructureTopology_StorageEmptyFallback(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	_, id := installInfraDeployment(t, h, "ready")
+	rec := callInfra(t, h, http.MethodGet, "topology", id, h.GetInfrastructureTopology)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"pvcs":[]`) {
+		t.Fatalf("storage.pvcs must serialise as []; body=%s", body)
+	}
+	if !strings.Contains(body, `"buckets":[]`) {
+		t.Fatalf("storage.buckets must serialise as []; body=%s", body)
+	}
+	if !strings.Contains(body, `"volumes":[]`) {
+		t.Fatalf("storage.volumes must serialise as []; body=%s", body)
+	}
+}
+
+// TestInfrastructureTopology_PeeringsEmptyByDefault — when no
+// PeeringClaim XRCs exist, the loader emits an empty peerings array.
+func TestInfrastructureTopology_PeeringsEmptyByDefault(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	_, id := installInfraDeployment(t, h, "ready")
+	rec := callInfra(t, h, http.MethodGet, "topology", id, h.GetInfrastructureTopology)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	var out infrastructure.TopologyResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	for _, rg := range out.Topology.Regions {
+		for _, n := range rg.Networks {
+			if n.Peerings == nil {
+				t.Fatalf("network.peerings must be [] not null")
+			}
 		}
 	}
 }
@@ -174,7 +252,6 @@ func TestInfrastructureStorage_OKEmpty(t *testing.T) {
 	if len(out.PVCs) != 0 || len(out.Buckets) != 0 || len(out.Volumes) != 0 {
 		t.Fatalf("expected empty arrays for live-cluster sourced data; got %+v", out)
 	}
-	// JSON arrays MUST be `[]` not `null` so the UI can iterate them.
 	body := rec.Body.String()
 	if !strings.Contains(body, `"pvcs":[]`) {
 		t.Fatalf("pvcs field must serialise as `[]`, got body=%s", body)

@@ -32,7 +32,7 @@ func main() {
 		// from the new VM, not a browser), but enabling PUT here
 		// keeps the policy consistent for any future browser-side
 		// resume flow that re-uses the same endpoint.
-		AllowedMethods: []string{"GET", "POST", "PUT", "OPTIONS"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
 		MaxAge:         300,
 	}))
@@ -97,15 +97,33 @@ func main() {
 	// V1 emits a static placeholder shape — see dashboard.go header
 	// for the metrics-server upgrade plan.
 	r.Get("/api/v1/dashboard/treemap", h.GetDashboardTreemap)
-	// Sovereign Infrastructure surface (issue #227) — Topology canvas
-	// + Compute / Storage / Network card grids. Each endpoint reads
-	// from the deployment record + (future) live cluster kubeconfig;
-	// see internal/handler/infrastructure.go for the data-source
-	// contract.
+	// Sovereign Infrastructure surface — unified topology read +
+	// Day-2 CRUD via Crossplane XRC writes (issue #227 + Day-2 IaC).
+	// Read endpoints compose from the deployment record + live
+	// cluster informer cache; mutation endpoints write Composite
+	// Resource Claims to the Sovereign cluster's kubeconfig per
+	// docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane is the ONLY
+	// Day-2 IaC seam). Every mutation also commits a Job entry to
+	// the existing /jobs surface for full audit-trail.
 	r.Get("/api/v1/deployments/{depId}/infrastructure/topology", h.GetInfrastructureTopology)
 	r.Get("/api/v1/deployments/{depId}/infrastructure/compute", h.GetInfrastructureCompute)
 	r.Get("/api/v1/deployments/{depId}/infrastructure/storage", h.GetInfrastructureStorage)
 	r.Get("/api/v1/deployments/{depId}/infrastructure/network", h.GetInfrastructureNetwork)
+
+	// CRUD — every endpoint writes a Crossplane XRC + a mutation Job.
+	// The third-sibling chart authors the matching Compositions; until
+	// they land Crossplane sits the claim Pending and the catalyst-api
+	// surfaces "Awaiting Composition for <kind>" in the audit log.
+	r.Post("/api/v1/deployments/{depId}/infrastructure/regions", h.CreateInfrastructureRegion)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/regions/{id}/clusters", h.CreateInfrastructureCluster)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/vclusters", h.CreateInfrastructureVCluster)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/pools", h.CreateInfrastructurePool)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/pools/{id}", h.PatchInfrastructurePool)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/loadbalancers", h.CreateInfrastructureLoadBalancer)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/peerings", h.CreateInfrastructurePeering)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/firewalls/{id}/rules", h.CreateInfrastructureFirewallRule)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
+	r.Delete("/api/v1/deployments/{depId}/infrastructure/{kind}/{id}", h.DeleteInfrastructureResource)
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
