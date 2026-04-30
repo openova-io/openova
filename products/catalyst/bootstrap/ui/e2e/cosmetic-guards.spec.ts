@@ -967,3 +967,116 @@ test.describe('@cosmetic-guard PortalShell theme toggle', () => {
     ).toBe(after)
   })
 })
+
+/* ──────────────────────────────────────────────────────────────────
+ * Test 18 — Component cards reserve 2 lines for description text
+ *
+ * The 4-line card grid (logo+title / desc-line-1 / desc-line-2 /
+ * chip row) requires the description's vertical footprint to be
+ * IDENTICAL across cards regardless of how short the actual copy
+ * is — without a min-height, single-line descriptions collapsed by
+ * ~14px and pulled the chip row up, leaving a visibly ragged Y for
+ * the chips across a 4-card row.
+ * ────────────────────────────────────────────────────────────────── */
+
+test.describe('@cosmetic-guard StepComponents card description', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedWizardStore(page, {
+      currentStep: 5,
+      orgName: 'Acme',
+      orgIndustry: 'finance',
+      orgSize: '50-200',
+      orgHeadquarters: 'Frankfurt, Germany',
+      topology: 'three-region-ha',
+      airgap: false,
+    })
+    await page.goto('wizard')
+  })
+
+  test('every component card has min-h:108px and 2-line description', async ({ page }) => {
+    const cards = page.locator('[data-testid^="component-card-"]')
+    await expect(cards.first()).toBeVisible({ timeout: 10_000 })
+    const n = await cards.count()
+    expect(n, 'StepComponents grid rendered no cards — search filter or seed state broke the grid').toBeGreaterThan(0)
+
+    // Sample up to 12 cards to keep the assertion fast while still
+    // catching the regression at the grid scale (a 4×3 first viewport).
+    const sampleSize = Math.min(n, 12)
+    const failures: string[] = []
+    const chipYs: number[] = []
+
+    for (let i = 0; i < sampleSize; i++) {
+      const card = cards.nth(i)
+      const tid = (await card.getAttribute('data-testid')) ?? `idx-${i}`
+      const cardBox = await card.boundingBox()
+      if (!cardBox) {
+        failures.push(`${tid}: bounding box null`)
+        continue
+      }
+      if (Math.round(cardBox.height) < 108) {
+        failures.push(`${tid}: card height ${Math.round(cardBox.height)}px < 108px floor`)
+      }
+
+      const desc = card.locator('.corp-comp-desc').first()
+      const lineClamp = await desc.evaluate(
+        (el) => window.getComputedStyle(el).webkitLineClamp,
+      )
+      if (lineClamp !== '2') {
+        failures.push(
+          `${tid}: getComputedStyle(.corp-comp-desc).webkitLineClamp = "${lineClamp}", canonical = "2" (see .corp-comp-desc rule in StepComponents.tsx)`,
+        )
+      }
+
+      // Description min-height — the regression we're guarding. The
+      // CSS rule is min-height: 2.5em; we read computed pixels and
+      // compare to 2 × line-height × font-size. A flat-1-line desc
+      // without min-height returns ~17px; with the rule it returns
+      // ~31px (2.5 × 0.76rem × 1.4 lh × 16px = ~26px floor).
+      const descBox = await desc.boundingBox()
+      if (!descBox) {
+        failures.push(`${tid}: .corp-comp-desc has no bounding box`)
+      } else if (descBox.height < 26) {
+        failures.push(
+          `${tid}: .corp-comp-desc height ${descBox.height.toFixed(1)}px < 26px (the 2-line min-height floor); short descriptions are collapsing the card body`,
+        )
+      }
+
+      // Capture the chip-row Y for the row-uniformity assertion below.
+      const chips = card.locator('.corp-comp-chips').first()
+      const chipsBox = await chips.boundingBox()
+      if (chipsBox) chipYs.push(chipsBox.y)
+    }
+
+    expect(
+      failures,
+      `Card description geometry failures:\n  - ${failures.join('\n  - ')}`,
+    ).toEqual([])
+
+    // Row-uniformity guard — within a single visual row, chip-row Y
+    // should be identical (sub-pixel jitter only). We only assert this
+    // for cards in the SAME row, so we cluster by Y of the card itself.
+    if (chipYs.length >= 2) {
+      // Group sampled cards by visual row (cards within ~10px of each
+      // other vertically belong to the same row).
+      const rows = new Map<number, number[]>()
+      for (let i = 0; i < chipYs.length; i++) {
+        const card = cards.nth(i)
+        const cb = await card.boundingBox()
+        if (!cb) continue
+        const rowKey = Math.round(cb.y / 10) * 10
+        const arr = rows.get(rowKey) ?? []
+        arr.push(chipYs[i]!)
+        rows.set(rowKey, arr)
+      }
+      for (const [rowKey, ys] of rows.entries()) {
+        if (ys.length < 2) continue
+        const min = Math.min(...ys)
+        const max = Math.max(...ys)
+        expect(
+          max - min,
+          `Chip-row Y drifts across cards in the same visual row (rowY≈${rowKey}px): min=${min.toFixed(1)}, max=${max.toFixed(1)}, spread=${(max - min).toFixed(1)}px. Anything > 2px means descriptions of varying length pull the chip row to different Ys; the .corp-comp-desc rule must reserve the 2-line min-height (see StepComponents.tsx).`,
+        ).toBeLessThanOrEqual(2)
+      }
+    }
+  })
+})
