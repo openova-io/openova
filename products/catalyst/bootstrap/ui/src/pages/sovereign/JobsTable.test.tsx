@@ -263,4 +263,50 @@ describe('JobsTable — render', () => {
     expect(link.tagName.toLowerCase()).toBe('a')
     expect(link.getAttribute('href')).toBe('/provision/d-1/jobs/job-install-cilium')
   })
+
+  // Issue #232 verbatim: "simulates 0 reducer-derived jobs + 5
+  // backend-API jobs, expects 5 rows rendered with backend data".
+  // The JobsPage merges reducer-derived + live-backfill via mergeJobs()
+  // before passing the array to JobsTable; this test exercises the
+  // table's render path with the merged input directly.
+  it('renders all rows when fed exclusively from a backend-jobs API list (issue #232)', async () => {
+    const liveOnly: Job[] = [
+      {
+        id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium',
+        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        startedAt: '2026-04-29T10:00:00Z', finishedAt: '2026-04-29T10:01:00Z',
+        durationMs: 60_000,
+      },
+      {
+        id: 'bp-cert-manager', jobName: 'Install cert-manager', appId: 'bp-cert-manager',
+        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        startedAt: '2026-04-29T10:01:00Z', finishedAt: '2026-04-29T10:02:00Z',
+        durationMs: 60_000,
+      },
+      {
+        id: 'bp-flux', jobName: 'Install Flux', appId: 'bp-flux',
+        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        startedAt: '2026-04-29T10:02:00Z', finishedAt: '2026-04-29T10:03:00Z',
+        durationMs: 60_000,
+      },
+      {
+        id: 'bp-crossplane', jobName: 'Install Crossplane', appId: 'bp-crossplane',
+        batchId: 'applications', dependsOn: [], status: 'running',
+        startedAt: '2026-04-29T10:03:00Z', finishedAt: null, durationMs: 0,
+      },
+      {
+        id: 'bp-vault', jobName: 'Install Vault', appId: 'bp-vault',
+        batchId: 'applications', dependsOn: [], status: 'pending',
+        startedAt: null, finishedAt: null, durationMs: 0,
+      },
+    ]
+    renderTable({ jobs: liveOnly, deploymentId: 'd-1' })
+    await screen.findByTestId('jobs-table')
+    const rows = screen.getAllByTestId(/^jobs-table-row-/)
+    expect(rows.length).toBe(5)
+    // Statuses surface verbatim from the backend list (no demotion to pending).
+    expect(screen.getByTestId('jobs-cell-status-bp-cilium').textContent?.toLowerCase()).toContain('succeeded')
+    expect(screen.getByTestId('jobs-cell-status-bp-crossplane').textContent?.toLowerCase()).toContain('running')
+    expect(screen.getByTestId('jobs-cell-status-bp-vault').textContent?.toLowerCase()).toContain('pending')
+  })
 })

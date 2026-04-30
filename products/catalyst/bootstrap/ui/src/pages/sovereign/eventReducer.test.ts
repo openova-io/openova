@@ -213,16 +213,79 @@ describe('eventReducer — reduceEvents + markAllReady', () => {
     expect(s.phase1WatchSkippedReason).toMatch(/Phase-1 watch could not start/)
   })
 
-  // Once flipped, phase1WatchSkipped stays true even if subsequent
-  // events arrive (this is the "stays set for the lifetime of the
-  // deployment" guarantee — operator never sees the banner flicker
-  // off after a stray event).
-  it('phase1WatchSkipped is monotonic — once true, stays true', () => {
+  // Once flipped, phase1WatchSkipped stays true through events that
+  // carry NO ground truth for per-component install state (tofu /
+  // flux-bootstrap / unrelated noise). It only clears when a fresh
+  // per-component event with real `state:` arrives — see the
+  // "clears on fresh component event" test below.
+  it('phase1WatchSkipped survives non-component events (tofu, flux-bootstrap)', () => {
     const s = buildInitialState(APPS)
     applyEvent(s, { phase: 'component', level: 'warn', message: 'kubeconfig missing' })
     expect(s.phase1WatchSkipped).toBe(true)
     applyEvent(s, { phase: 'tofu-output' })
     applyEvent(s, { phase: 'flux-bootstrap' })
+    expect(s.phase1WatchSkipped).toBe(true)
+  })
+
+  // CLEAR-RULE (issue #232) — the AdminPage banner was sticking
+  // permanently because of an old SSE replay event with `state:
+  // skipped` from a transient `status: ready` phase, even though the
+  // deployment record had since transitioned to `phase1-watching` and
+  // the UI was now receiving healthy per-component events. The
+  // monotonic-true guarantee was therefore wrong: a fresh per-
+  // component event with real ground truth must clear the flag.
+  it('phase1WatchSkipped clears on a fresh per-component event with real state', () => {
+    const s = buildInitialState(APPS)
+    // Flip the flag with the kubeconfig-missing warn event.
+    applyEvent(s, { phase: 'component', level: 'warn', message: 'kubeconfig missing' })
+    expect(s.phase1WatchSkipped).toBe(true)
+    // A real installing event arrives — helmwatch IS observing.
+    applyEvent(s, { phase: 'component', component: 'bp-cilium', state: 'installing' })
+    expect(s.phase1WatchSkipped).toBe(false)
+    expect(s.phase1WatchSkippedReason).toBeNull()
+    // Card itself is now installing.
+    expect(s.apps['bp-cilium']?.status).toBe('installing')
+  })
+
+  // Same path, terminal state — `installed` clears the flag too.
+  it('phase1WatchSkipped clears on a per-component installed event', () => {
+    const s = buildInitialState(APPS)
+    applyEvent(s, { phase: 'component', level: 'warn', message: 'kubeconfig missing' })
+    expect(s.phase1WatchSkipped).toBe(true)
+    applyEvent(s, { phase: 'component', component: 'bp-flux', state: 'installed' })
+    expect(s.phase1WatchSkipped).toBe(false)
+  })
+
+  // A `phase: deployment` event with status==='phase1-watching' is
+  // the explicit signal from the catalyst-api that helmwatch is alive.
+  // It clears any stale skipped flag even before per-component events
+  // start arriving.
+  it('phase1WatchSkipped clears on phase: deployment status=phase1-watching', () => {
+    const s = buildInitialState(APPS)
+    applyEvent(s, { phase: 'component', level: 'warn', message: 'kubeconfig missing' })
+    expect(s.phase1WatchSkipped).toBe(true)
+    applyEvent(s, {
+      phase: 'deployment',
+      message: 'helmwatch attached',
+      // status is in the catalyst-api wire shape but not the typed
+      // DeploymentEvent; the reducer reads it via a runtime cast.
+      ...({ status: 'phase1-watching' } as Record<string, string>),
+    } as never)
+    expect(s.phase1WatchSkipped).toBe(false)
+    expect(s.phase1WatchSkippedReason).toBeNull()
+  })
+
+  // A `state: skipped` per-component event does NOT clear the flag —
+  // it's the API's explicit "no data for this slot" marker.
+  it('phase1WatchSkipped does NOT clear when component event carries state=skipped', () => {
+    const s = buildInitialState(APPS)
+    applyEvent(s, { phase: 'component', level: 'warn', message: 'kubeconfig missing' })
+    expect(s.phase1WatchSkipped).toBe(true)
+    applyEvent(s, {
+      phase: 'component',
+      component: 'bp-cilium',
+      ...({ state: 'skipped' } as Record<string, string>),
+    } as never)
     expect(s.phase1WatchSkipped).toBe(true)
   })
 
