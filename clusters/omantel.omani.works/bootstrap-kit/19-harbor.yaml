@@ -1,0 +1,69 @@
+# bp-harbor — Catalyst bootstrap-kit Blueprint, W2.K1 slot 19.
+# Per-Sovereign OCI registry. Mirrors blueprint chart artifacts and
+# container images so the Sovereign isn't dependent on ghcr.io for
+# day-2 image pulls; also hosts Org-private images per Application.
+#
+# Per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.7 — Harbor sits in the
+# storage cohort (W2.K1) rather than apps cohort because it is a
+# consumer of CNPG (registry metadata DB) and SeaweedFS (blob backend),
+# and its presence gates Cosign signing in bp-sigstore (slot 32) and
+# image pinning across all later HRs.
+#
+# Wrapper chart: platform/harbor/chart/
+# Catalyst-curated values: platform/harbor/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: harbor
+  labels:
+    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-harbor
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-harbor
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: harbor
+  targetNamespace: harbor
+  # Harbor depends on:
+  #   - bp-cnpg(16): registry metadata DB (postgresql.cnpg.io/v1.Cluster).
+  #   - bp-seaweedfs(18): registry blob backend (S3-compatible).
+  #   - bp-cert-manager(02): registry endpoint TLS via ClusterIssuer.
+  dependsOn:
+    - name: bp-cnpg
+    - name: bp-seaweedfs
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-harbor
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-harbor
+        namespace: flux-system
+  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
