@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import {
   ScalePoolModal,
   ChangeSKUModal,
@@ -33,7 +33,7 @@ interface NodeRow {
 }
 
 export function InfrastructureCompute() {
-  const { deploymentId, data, isLoading } = useInfrastructure()
+  const { deploymentId, data, isLoading } = useCloud()
 
   const { pools, nodes } = useMemo(() => {
     const pools: PoolRow[] = []
@@ -129,7 +129,7 @@ export function InfrastructureCompute() {
                   </td>
                   <td>
                     <Link
-                      to={`/provision/$deploymentId/infrastructure/topology` as never}
+                      to={`/provision/$deploymentId/cloud/architecture` as never}
                       params={{ deploymentId } as never}
                       data-testid={`infrastructure-pool-row-${pool.id}-cluster-link`}
                     >

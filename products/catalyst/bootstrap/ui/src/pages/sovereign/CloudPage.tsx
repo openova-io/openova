@@ -1,39 +1,33 @@
 /**
- * InfrastructurePage — Sovereign-portal Infrastructure surface served at
- *   /sovereign/provision/$deploymentId/infrastructure/{topology,compute,storage,network}
+ * CloudPage — Sovereign-portal Cloud surface served at
+ *   /sovereign/provision/$deploymentId/cloud/{architecture,compute,storage,network}
  *
- * Founder spec (verbatim, post issue #228):
- *   "/infrastructure opens with Topology view as default. The other 3
- *    tabs are lenses on the same data, not separate fetches. All 4
- *    tabs render from ONE backend response
- *    (GET /api/v1/deployments/$id/infrastructure/topology)."
- *
- * Layout contract:
- *   • Bare /infrastructure redirects to /infrastructure/topology — the
- *     redirect is enforced by the router (see app/router.tsx); this
- *     component never renders standalone for the bare URL.
- *   • The shell renders a header (title + tagline + Sovereign switcher)
- *     and a `<nav role=tablist>` with four tabs in the canonical
- *     AppsPage style (.tabs/.tab/.tab-count) so the visual rhythm
- *     matches the rest of the Sovereign portal.
- *   • Active tab is derived from the current pathname — clicking a tab
- *     navigates via TanStack Router's <Link>; back/forward keeps the
- *     active tab in sync.
+ * Layout contract (issue #309):
+ *   • Bare /cloud redirects to /cloud/architecture — the redirect is
+ *     enforced by the router (see app/router.tsx); this component
+ *     never renders standalone for the bare URL.
+ *   • The shell renders a header (title + tagline + Sovereign
+ *     switcher) and an <Outlet />. The sub-page navigation lives in
+ *     the left sidebar as an accordion under "Cloud" — the previous
+ *     in-page tab strip has been removed (see Sidebar.tsx).
  *   • The page owns ONE React Query for the hierarchical
- *     infrastructure tree. Tabs read from the shared query via
- *     `InfrastructureContext` — no per-tab fetches.
+ *     infrastructure tree. Sub-pages read from the shared query via
+ *     `CloudContext` — no per-page fetches.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
- *   #1 (waterfall) — all four tabs ship at once, not "topology now,
- *      compute later".
- *   #2 (no compromise) — tabs are TABS (role=tablist + role=tab),
- *      never accordions.
- *   #4 (never hardcode) — every label / route is derived from the TABS
- *      table; no inline "/infrastructure/foo" string outside this table.
+ *   #1 (waterfall) — all four sub-pages ship at once.
+ *   #4 (never hardcode) — every label / route is derived from the
+ *      router's path constants; no inline "/cloud/foo" string outside
+ *      the redirect target in the page-switcher.
+ *
+ * The data shape `HierarchicalInfrastructure` and the
+ * `getHierarchicalInfrastructure` API call retain the legacy
+ * "infrastructure" name because they are server-side contract
+ * identifiers, not user-visible strings.
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
+import { Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
@@ -74,37 +68,9 @@ function inferCloudFromTopology(topology?: TopologyTree): CloudSpec[] {
   return Array.from(byProvider.values())
 }
 
-/* ── Tab table — single source of truth ────────────────────────── */
-
-export type InfraTabKey = 'topology' | 'compute' | 'storage' | 'network'
-
-interface InfraTab {
-  key: InfraTabKey
-  label: string
-  /** Pathname suffix appended to /provision/$deploymentId/infrastructure. */
-  suffix: 'topology' | 'compute' | 'storage' | 'network'
-}
-
-export const INFRA_TABS: readonly InfraTab[] = [
-  { key: 'topology', label: 'Topology', suffix: 'topology' },
-  { key: 'compute',  label: 'Compute',  suffix: 'compute'  },
-  { key: 'storage',  label: 'Storage',  suffix: 'storage'  },
-  { key: 'network',  label: 'Network',  suffix: 'network'  },
-] as const
-
-/** Resolve the active tab from the current pathname. Defaults to
- *  topology when no suffix matches (covers the redirect-in-flight
- *  paint and any lossy URL the user pastes). */
-export function resolveActiveTab(pathname: string): InfraTabKey {
-  for (const t of INFRA_TABS) {
-    if (pathname.endsWith(`/infrastructure/${t.suffix}`)) return t.key
-  }
-  return 'topology'
-}
-
 /* ── Shared infrastructure query context ───────────────────────── */
 
-export interface InfrastructureContextValue {
+export interface CloudContextValue {
   deploymentId: string
   data: HierarchicalInfrastructure | null
   isLoading: boolean
@@ -112,12 +78,12 @@ export interface InfrastructureContextValue {
   refetch: () => void
 }
 
-const InfrastructureContext = createContext<InfrastructureContextValue | null>(null)
+const CloudContext = createContext<CloudContextValue | null>(null)
 
-export function useInfrastructure(): InfrastructureContextValue {
-  const ctx = useContext(InfrastructureContext)
+export function useCloud(): CloudContextValue {
+  const ctx = useContext(CloudContext)
   if (!ctx) {
-    throw new Error('useInfrastructure must be used inside an InfrastructurePage subtree')
+    throw new Error('useCloud must be used inside a CloudPage subtree')
   }
   return ctx
 }
@@ -126,39 +92,41 @@ const STALE_MS = 30_000
 
 /* ── Page shell ────────────────────────────────────────────────── */
 
-export interface InfrastructurePageProps {
+export interface CloudPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
   /**
    * Test seam — render a content slot directly instead of using
-   * <Outlet />. Allows AppsPage-style component tests to mount the
-   * shell without requiring a full TanStack-Router child tree.
+   * <Outlet />. Allows component tests to mount the shell without
+   * requiring a full TanStack-Router child tree.
    */
   contentOverride?: ReactNode
   /**
    * Test seam — bypass the React Query fetcher with synthetic data.
-   * The data flows through InfrastructureContext to children so the
-   * 4 tabs all see the same response.
+   * The data flows through CloudContext to children so every sub-page
+   * sees the same response.
    */
   initialDataOverride?: HierarchicalInfrastructure
   /** Test seam — bypass the deployments-list fetch. */
   deploymentsOverride?: DeploymentSummary[]
 }
 
-export function InfrastructurePage({
+export function CloudPage({
   disableStream = false,
   contentOverride,
   initialDataOverride,
   deploymentsOverride,
-}: InfrastructurePageProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/infrastructure' as never,
-  }) as { deploymentId: string }
+}: CloudPageProps = {}) {
+  // tanstack-router resolves the matched route's params at runtime;
+  // both the new `/cloud` parent and the legacy `/infrastructure`
+  // parent expose the same `deploymentId` param, and the strict:false
+  // option lets us share this component across both during the
+  // rename window.
+  const params = useParams({ strict: false }) as { deploymentId: string }
   const deploymentId = params.deploymentId
   const navigate = useNavigate()
 
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeTab = resolveActiveTab(pathname)
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,
@@ -167,7 +135,7 @@ export function InfrastructurePage({
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
-  // Single hierarchical-topology fetch — all 4 tabs read off this.
+  // Single hierarchical-topology fetch — every sub-page reads off this.
   const topologyQuery = useQuery<HierarchicalInfrastructure>({
     queryKey: ['infra-hierarchical', deploymentId],
     queryFn: () => getHierarchicalInfrastructure(deploymentId),
@@ -176,8 +144,8 @@ export function InfrastructurePage({
     // The fixture serves as the local-dev fallback when the live
     // backend isn't deployed — the UI never fails closed in that
     // case. Per founder spec, the fixture-backed path is the
-    // explicit pre-backend mode and must serve every tab off the
-    // same shape.
+    // explicit pre-backend mode and must serve every sub-page off
+    // the same shape.
     retry: 1,
   })
 
@@ -244,7 +212,7 @@ export function InfrastructurePage({
     }
   }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
 
-  const ctx: InfrastructureContextValue = useMemo(
+  const ctx: CloudContextValue = useMemo(
     () => ({
       deploymentId,
       data,
@@ -270,33 +238,39 @@ export function InfrastructurePage({
 
   function handleSwitch(nextId: string) {
     if (nextId === deploymentId) return
+    // Preserve the current sub-page when switching Sovereigns: if the
+    // operator is on /cloud/compute, keep them on compute under the
+    // new deployment. Falls back to /architecture otherwise.
+    const suffixMatch = pathname.match(/\/(architecture|compute|storage|network|topology)$/)
+    const suffix =
+      suffixMatch && suffixMatch[1] !== 'topology' ? suffixMatch[1] : 'architecture'
     navigate({
-      to: '/provision/$deploymentId/infrastructure/topology' as never,
+      to: `/provision/$deploymentId/cloud/${suffix}` as never,
       params: { deploymentId: nextId } as never,
     })
   }
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <style>{INFRA_PAGE_CSS}</style>
+      <style>{CLOUD_PAGE_CSS}</style>
 
-      <div data-testid="infrastructure-page" className="mx-auto max-w-7xl">
+      <div data-testid="cloud-page" className="mx-auto max-w-7xl">
         <header className="mb-3 flex items-start justify-between gap-4">
           <div>
             <h1
               className="text-2xl font-bold text-[var(--color-text-strong)]"
-              data-testid="infrastructure-title"
+              data-testid="cloud-title"
             >
-              Infrastructure
+              Cloud
             </h1>
             <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-              Sovereign topology, compute, storage and network — pulled live from
-              the deployment&rsquo;s cluster.
+              Sovereign cloud — regions, clusters, and resources for{' '}
+              {sovereignFQDN ?? `deployment ${deploymentId.slice(0, 8)}`}.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <select
-              data-testid="infrastructure-sovereign-switcher"
+              data-testid="cloud-sovereign-switcher"
               value={deploymentId}
               onChange={(e) => handleSwitch(e.target.value)}
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-xs text-[var(--color-text)]"
@@ -313,77 +287,24 @@ export function InfrastructurePage({
           </div>
         </header>
 
-        <nav
-          className="tabs"
-          role="tablist"
-          aria-label="Infrastructure sections"
-          data-testid="infrastructure-tabs"
-        >
-          {INFRA_TABS.map((tab) => {
-            const isActive = tab.key === activeTab
-            return (
-              <Link
-                key={tab.key}
-                to={`/provision/$deploymentId/infrastructure/${tab.suffix}` as never}
-                params={{ deploymentId } as never}
-                role="tab"
-                aria-selected={isActive}
-                aria-current={isActive ? 'page' : undefined}
-                className={`tab${isActive ? ' active' : ''}`}
-                data-testid={`infra-tab-${tab.key}`}
-              >
-                {tab.label}
-              </Link>
-            )
-          })}
-        </nav>
-
-        <InfrastructureContext.Provider value={ctx}>
-          <div className="mt-4" data-testid="infrastructure-content">
+        <CloudContext.Provider value={ctx}>
+          <div className="mt-4" data-testid="cloud-content">
             {contentOverride ?? <Outlet />}
           </div>
-        </InfrastructureContext.Provider>
+        </CloudContext.Provider>
       </div>
     </PortalShell>
   )
 }
 
 /**
- * Pixel-aligned tab CSS — same selectors and values AppsPage exports
- * for its tab strip. Duplicated here so InfrastructurePage doesn't
- * depend on AppsPage's `<style>` block being mounted (every page in
- * the Sovereign portal owns its own scoped CSS payload).
+ * Page-scoped CSS — shared layout primitives (.infra-grid /
+ * .infra-section / .infra-card / .infra-empty / .infra-bulk-actions)
+ * are still consumed by the four sub-pages. The legacy `.tabs` /
+ * `.tab` rules were removed when the in-page tab strip was replaced
+ * by the sidebar accordion.
  */
-const INFRA_PAGE_CSS = `
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  margin: 1rem 0 0.5rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.tab {
-  background: transparent;
-  border: none;
-  padding: 0.6rem 0.9rem;
-  color: var(--color-text-dim);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 500;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  text-decoration: none;
-}
-.tab:hover { color: var(--color-text); }
-.tab.active {
-  color: var(--color-text-strong);
-  border-bottom-color: var(--color-accent);
-  font-weight: 600;
-}
-
+const CLOUD_PAGE_CSS = `
 .infra-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

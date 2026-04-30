@@ -20,7 +20,7 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
-import { InfrastructurePage } from './InfrastructurePage'
+import { CloudPage } from './CloudPage'
 import { InfrastructureStorage } from './InfrastructureStorage'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
@@ -36,21 +36,21 @@ function renderStoragePage(data: HierarchicalInfrastructure) {
     } as unknown as Response)) as typeof fetch
 
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
-  const infraRoute = createRoute({
+  const cloudRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/infrastructure',
-    component: () => <InfrastructurePage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
+    path: '/provision/$deploymentId/cloud',
+    component: () => <CloudPage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
   })
   const storageRoute = createRoute({
-    getParentRoute: () => infraRoute,
+    getParentRoute: () => cloudRoute,
     path: '/storage',
     component: InfrastructureStorage,
   })
-  const tree = rootRoute.addChildren([infraRoute.addChildren([storageRoute])])
+  const tree = rootRoute.addChildren([cloudRoute.addChildren([storageRoute])])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
-      initialEntries: ['/provision/d-1/infrastructure/storage'],
+      initialEntries: ['/provision/d-1/cloud/storage'],
     }),
   })
   const qc = new QueryClient({

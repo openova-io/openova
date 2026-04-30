@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import {
   AddLBModal,
   AddPeeringModal,
@@ -39,7 +39,7 @@ interface FirewallRow {
 }
 
 export function InfrastructureNetwork() {
-  const { deploymentId, data, isLoading } = useInfrastructure()
+  const { deploymentId, data, isLoading } = useCloud()
 
   const { lbs, peerings, firewalls, networks } = useMemo(() => {
     const lbs: LBRow[] = []

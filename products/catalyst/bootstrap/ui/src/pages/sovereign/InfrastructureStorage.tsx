@@ -7,14 +7,14 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useInfrastructure } from './InfrastructurePage'
+import { useCloud } from './CloudPage'
 import { DeleteCascadeConfirm } from '@/components/CrudModals'
 import { ModalShell, FormRow, TextInput } from '@/components/CrudModals/_shared'
 import { pvcAction } from '@/lib/infrastructure-crud'
 import type { PVCItem } from '@/lib/infrastructure.types'
 
 export function InfrastructureStorage() {
-  const { deploymentId, data, isLoading } = useInfrastructure()
+  const { deploymentId, data, isLoading } = useCloud()
 
   const { pvcs, buckets, volumes } = useMemo(() => {
     if (!data) return { pvcs: [], buckets: [], volumes: [] }

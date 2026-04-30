@@ -24,7 +24,7 @@ import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
-import { InfrastructurePage } from '@/pages/sovereign/InfrastructurePage'
+import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { InfrastructureTopology } from '@/pages/sovereign/InfrastructureTopology'
 import { InfrastructureCompute } from '@/pages/sovereign/InfrastructureCompute'
 import { InfrastructureStorage } from '@/pages/sovereign/InfrastructureStorage'
@@ -147,7 +147,7 @@ const provisionDashboardRoute = createRoute({
 const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/cloud',
-  component: InfrastructurePage,
+  component: CloudPage,
 })
 
 const provisionCloudIndexRoute = createRoute({
@@ -191,7 +191,7 @@ const provisionCloudNetworkRoute = createRoute({
 const provisionInfrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/infrastructure',
-  component: InfrastructurePage,
+  component: CloudPage,
 })
 
 const provisionInfrastructureIndexRoute = createRoute({
