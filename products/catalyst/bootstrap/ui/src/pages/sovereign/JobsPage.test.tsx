@@ -50,10 +50,10 @@ function renderJobs(deploymentId: string) {
     path: '/provision/$deploymentId/jobs/$jobId',
     component: () => <div data-testid="job-detail-target" />,
   })
-  const batchDetailRoute = createRoute({
+  const flowRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/batches/$batchId',
-    component: () => <div data-testid="batch-detail-target" />,
+    path: '/provision/$deploymentId/flow',
+    component: () => <div data-testid="flow-target" />,
   })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -65,7 +65,7 @@ function renderJobs(deploymentId: string) {
     homeRoute,
     detailRoute,
     jobDetailRoute,
-    batchDetailRoute,
+    flowRoute,
     wizardRoute,
   ])
   const router = createRouter({
@@ -185,12 +185,35 @@ describe('JobsPage — batches strip removed (epic #204 item #4)', () => {
     expect(batchRows.length).toBe(0)
   })
 
-  it('batch chip in a row links to the BatchDetail page', async () => {
+  it('batch chip in a row links to /flow?scope=batch:<id> (v3 routing)', async () => {
     renderJobs('d-1')
     await screen.findByTestId('jobs-table')
     const chip = screen.getByTestId('jobs-cell-batch-bp-cilium') as HTMLAnchorElement
     expect(chip.tagName.toLowerCase()).toBe('a')
-    // Spot-check the route shape — the batch id varies by job.
-    expect(chip.getAttribute('href')).toMatch(/^\/provision\/d-1\/batches\//)
+    // v3 founder spec: batch chip → /flow?scope=batch:<batchId>.
+    const href = chip.getAttribute('href') ?? ''
+    expect(href).toMatch(/^\/provision\/d-1\/flow/)
+    expect(href).toMatch(/scope=batch%3A|scope=batch:/)
+  })
+})
+
+describe('JobsPage — v3 routing (no Tab strip, has Show-as-Flow button)', () => {
+  it('does NOT render a jobs-view-tabs strip', async () => {
+    // PR #242 added a `?view=table|flow` Tab strip. The founder
+    // rejected that pattern; the Flow surface now lives at /flow.
+    renderJobs('d-1')
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('jobs-view-tabs')).toBeNull()
+    expect(screen.queryByTestId('jobs-view-tab-table')).toBeNull()
+    expect(screen.queryByTestId('jobs-view-tab-flow')).toBeNull()
+  })
+
+  it('exposes a "Show as Flow" button that navigates to /flow?scope=all', async () => {
+    renderJobs('d-1')
+    const btn = await screen.findByTestId('sov-jobs-show-as-flow') as HTMLAnchorElement
+    expect(btn.tagName.toLowerCase()).toBe('a')
+    const href = btn.getAttribute('href') ?? ''
+    expect(href).toMatch(/^\/provision\/d-1\/flow/)
+    expect(href).toMatch(/scope=all/)
   })
 })

@@ -22,6 +22,7 @@ import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
+import { FlowPage } from '@/pages/sovereign/FlowPage'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 import { InfrastructurePage } from '@/pages/sovereign/InfrastructurePage'
@@ -81,23 +82,37 @@ const provisionAppRoute = createRoute({
 })
 
 // Global jobs list — table view (issue #204 founder spec). Each row is
-// a clickable link that navigates to the per-job detail page (owned by
-// the JobDetail sibling agent and merged via #208).
+// a clickable link that navigates to the per-job detail page.
 //
-// `?view` search param drives the active tab in the JobsPage tab strip:
-//   • view=table (default) — JobsTable
-//   • view=flow            — JobsFlowView (two-level Sugiyama DAG)
-// validateSearch coerces unknown values to `undefined` so deep links
-// from older builds keep working without throwing. The Flow tab ships
-// in this PR (urgent founder request).
+// v3 (PR feat/flow-canvas-polish-and-routing) — the previous
+// `?view=table|flow` Tab strip was removed. The Flow surface lives at
+// its own /flow route below. JobsPage now has a "Show as Flow" button
+// in the header that links to /flow?scope=all.
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
-  validateSearch: (raw: Record<string, unknown>): { view?: 'table' | 'flow' } => {
-    const v = raw?.view
-    if (v === 'flow' || v === 'table') return { view: v }
-    return {}
+})
+
+// Per-deployment flow canvas — every job (or one batch) as bubbles in
+// a Sugiyama-laid DAG. Founder spec (this PR):
+//   • ?scope=all              → render every job in the deployment
+//   • ?scope=batch:<batchId>  → filter to a single batch
+//   • ?view=jobs|batches      → mode toggle (default = jobs)
+const provisionFlowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/flow',
+  component: FlowPage,
+  validateSearch: (raw: Record<string, unknown>): {
+    scope?: string
+    view?: 'jobs' | 'batches'
+  } => {
+    const out: { scope?: string; view?: 'jobs' | 'batches' } = {}
+    const scope = raw?.scope
+    if (typeof scope === 'string' && scope.length > 0) out.scope = scope
+    const view = raw?.view
+    if (view === 'jobs' || view === 'batches') out.view = view
+    return out
   },
 })
 
@@ -239,6 +254,7 @@ const routeTree = rootRoute.addChildren([
   provisionRoute,
   provisionAppRoute,
   provisionJobsRoute,
+  provisionFlowRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
