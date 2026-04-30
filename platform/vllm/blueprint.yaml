@@ -1,0 +1,66 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-vllm
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-6-llm-serving
+spec:
+  version: 1.0.0
+  card:
+    title: vLLM
+    summary: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
+    icon: vllm.svg
+    category: ai-runtime
+    tags: [llm, inference, openai-compatible, gpu, ai]
+    documentation: https://docs.vllm.ai/
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      model:
+        type: string
+        default: "meta-llama/Llama-3.1-8B-Instruct"
+        description: HuggingFace model ID or in-cluster path served by vLLM.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 16
+      gpu:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Set true on a GPU-equipped Sovereign. When false, vLLM runs on CPU (dev only — not for production traffic).
+          count:
+            type: integer
+            default: 1
+            description: Number of `nvidia.com/gpu` units to request when gpu.enabled=true.
+      maxModelLen:
+        type: integer
+        default: 8192
+        description: Maximum context length passed to vLLM via --max-model-len.
+      gpuMemoryUtilization:
+        type: number
+        default: 0.9
+        description: Fraction of GPU memory vLLM may use (--gpu-memory-utilization).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-kserve
+      version: ^1.0
+      alias: kserve
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

@@ -1,0 +1,75 @@
+{{- /*
+NetworkPolicy — locks the vLLM pod down to the minimum set required for
+inference + model download.
+
+Ingress: bp-llm-gateway (slot 40) is the canonical caller; the gateway
+fans out across model-runtime pods (vllm, kserve InferenceServices).
+Prometheus scraping is allowed when serviceMonitor.enabled = true.
+
+Egress: cluster DNS (always); HuggingFace Hub (huggingface.co +
+cdn-lfs.huggingface.co on TCP/443) when allowHuggingfaceEgress = true,
+so vLLM can pull model weights on first start. Air-gapped Sovereigns
+pre-load the PVC and overlay allowHuggingfaceEgress = false.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable. Disabled by default (cluster overlays MAY enable in target
+state).
+*/}}
+{{- if and .Values.vllm.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-vllm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-vllm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-vllm.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # bp-llm-gateway → vLLM (OpenAI-compatible API)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.llmGatewayNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vllm.port }}
+    # Prometheus scraping
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vllm.port }}
+  egress:
+    # Cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.allowHuggingfaceEgress }}
+    # HuggingFace Hub model download (huggingface.co, cdn-lfs.huggingface.co)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

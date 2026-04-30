@@ -1,0 +1,146 @@
+{{- if .Values.bge.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-bge.fullname" . }}
+  labels:
+    {{- include "bp-bge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.bge.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-bge.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "bp-bge.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.bge.embeddings.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "bp-bge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.bge.podSecurityContext | nindent 8 }}
+      containers:
+        # Embeddings container — text-embeddings-inference (TEI) running
+        # the BAAI/bge-* embeddings model on port 8080.
+        - name: embeddings
+          image: "{{ .Values.bge.image.repository }}:{{ .Values.bge.image.tag }}"
+          imagePullPolicy: {{ .Values.bge.image.pullPolicy }}
+          args:
+            - "--model-id"
+            - {{ .Values.bge.embeddings.model | quote }}
+            - "--port"
+            - {{ .Values.bge.embeddings.port | quote }}
+            - "--max-batch-tokens"
+            - {{ mul .Values.bge.embeddings.args.maxBatchSize 512 | quote }}
+            - "--max-concurrent-requests"
+            - {{ .Values.bge.embeddings.args.maxConcurrentRequests | quote }}
+            - "--max-client-batch-size"
+            - {{ .Values.bge.embeddings.args.maxClientBatchSize | quote }}
+            - "--pooling"
+            - {{ .Values.bge.embeddings.args.pooling | quote }}
+            - "--hf-api-token-timeout"
+            - {{ .Values.bge.embeddings.args.hfApiTimeout | quote }}
+          env:
+            {{- if .Values.bge.huggingfaceToken.enabled }}
+            - name: HF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.bge.huggingfaceToken.secretName | quote }}
+                  key: {{ .Values.bge.huggingfaceToken.secretKey | quote }}
+            {{- end }}
+            - name: HUGGINGFACE_HUB_CACHE
+              value: "/data/hf-cache"
+          ports:
+            - name: embeddings
+              containerPort: {{ .Values.bge.embeddings.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.bge.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.bge.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.bge.probes.liveness.path }}
+              port: embeddings
+            initialDelaySeconds: {{ .Values.bge.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bge.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.bge.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.bge.probes.readiness.path }}
+              port: embeddings
+            initialDelaySeconds: {{ .Values.bge.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bge.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.bge.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+        {{- if .Values.bge.reranker.enabled }}
+        # Reranker sidecar container — TEI running the BAAI/bge-reranker
+        # model on port 8081 in the same Pod (shared model-cache volume).
+        - name: reranker
+          image: "{{ .Values.bge.image.repository }}:{{ .Values.bge.image.tag }}"
+          imagePullPolicy: {{ .Values.bge.image.pullPolicy }}
+          args:
+            - "--model-id"
+            - {{ .Values.bge.reranker.model | quote }}
+            - "--port"
+            - {{ .Values.bge.reranker.port | quote }}
+            - "--max-batch-tokens"
+            - {{ mul .Values.bge.reranker.args.maxBatchSize 512 | quote }}
+            - "--max-concurrent-requests"
+            - {{ .Values.bge.reranker.args.maxConcurrentRequests | quote }}
+          env:
+            {{- if .Values.bge.huggingfaceToken.enabled }}
+            - name: HF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.bge.huggingfaceToken.secretName | quote }}
+                  key: {{ .Values.bge.huggingfaceToken.secretKey | quote }}
+            {{- end }}
+            - name: HUGGINGFACE_HUB_CACHE
+              value: "/data/hf-cache"
+          ports:
+            - name: reranker
+              containerPort: {{ .Values.bge.reranker.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.bge.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.bge.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.bge.probes.liveness.path }}
+              port: reranker
+            initialDelaySeconds: {{ .Values.bge.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bge.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.bge.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.bge.probes.readiness.path }}
+              port: reranker
+            initialDelaySeconds: {{ .Values.bge.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bge.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.bge.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+        {{- end }}
+      volumes:
+        - name: model-cache
+          {{- if eq .Values.bge.modelCache.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.bge.modelCache.pvc.claimName | default (printf "%s-model-cache" (include "bp-bge.fullname" .)) | quote }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 10Gi
+          {{- end }}
+{{- end }}

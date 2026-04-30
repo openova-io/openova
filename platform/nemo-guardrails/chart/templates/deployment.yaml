@@ -1,0 +1,128 @@
+{{- if .Values.guardrails.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-nemo-guardrails.fullname" . }}
+  labels:
+    {{- include "bp-nemo-guardrails.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.guardrails.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-nemo-guardrails.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "bp-nemo-guardrails.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.guardrails.port | quote }}
+        prometheus.io/path: "/metrics"
+        # Pod restart on config rotation. Keeps the rails fresh after
+        # operator edits without requiring an explicit `kubectl rollout`.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+    spec:
+      serviceAccountName: {{ include "bp-nemo-guardrails.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.guardrails.podSecurityContext | nindent 8 }}
+      containers:
+        - name: guardrails
+          image: "{{ .Values.guardrails.image.repository }}:{{ .Values.guardrails.image.tag }}"
+          imagePullPolicy: {{ .Values.guardrails.image.pullPolicy }}
+          # `nemoguardrails server` CLI. Per docs/INVIOLABLE-PRINCIPLES.md
+          # #4 nothing is hardcoded — config path, port, UI toggle, and
+          # auto-reload are all overlay-driven.
+          args:
+            - "server"
+            - "--port"
+            - {{ .Values.guardrails.port | quote }}
+            - "--config"
+            - {{ .Values.guardrails.args.configPath | quote }}
+            {{- if .Values.guardrails.args.disableChatUi }}
+            - "--disable-chat-ui"
+            {{- end }}
+            {{- if .Values.guardrails.args.autoReload }}
+            - "--auto-reload"
+            {{- end }}
+            {{- if .Values.guardrails.args.verbose }}
+            - "--verbose"
+            {{- end }}
+            {{- range .Values.guardrails.args.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if .Values.guardrails.llm.apiKey.enabled }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.guardrails.llm.apiKey.secretName | quote }}
+                  key: {{ .Values.guardrails.llm.apiKey.secretKey | quote }}
+            {{- end }}
+            # Disable telemetry / opt-in metrics collection by upstream.
+            - name: NEMOGUARDRAILS_DO_NOT_TRACK
+              value: "1"
+          ports:
+            - name: http
+              containerPort: {{ .Values.guardrails.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.guardrails.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.guardrails.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.guardrails.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.guardrails.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.guardrails.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.guardrails.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.guardrails.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.guardrails.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.guardrails.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.guardrails.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            {{- /*
+            ConfigMap layout: nemoguardrails server expects
+            <configPath>/<rail>/config.yml + <rail>/*.co. We render the
+            default rail's two files into the ConfigMap and mount each
+            via subPath into /config/default/.
+            */}}
+            {{- if .Values.configMap.externalName }}
+            # External (production) ConfigMap mounted as the whole
+            # /config tree — operator-managed layout.
+            - name: config
+              mountPath: {{ .Values.guardrails.args.configPath }}
+              readOnly: true
+            {{- else if .Values.configMap.enabled }}
+            # Stub ConfigMap rendered from values — split into the
+            # `default/` subfolder via subPath so nemoguardrails finds
+            # the rail.
+            - name: config
+              mountPath: {{ .Values.guardrails.args.configPath }}/default/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: config
+              mountPath: {{ .Values.guardrails.args.configPath }}/default/main.co
+              subPath: main.co
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- if or .Values.configMap.externalName .Values.configMap.enabled }}
+        - name: config
+          configMap:
+            name: {{ include "bp-nemo-guardrails.configMapName" . }}
+        {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+{{- end }}

@@ -1,0 +1,62 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-bge
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-6-llm-serving
+spec:
+  version: 1.0.0
+  card:
+    title: BGE Embeddings + Reranker
+    summary: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
+    icon: bge.svg
+    category: ai-runtime
+    tags: [embeddings, reranker, rag, sentence-transformers, ai]
+    documentation: https://huggingface.co/BAAI
+    license: MIT
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      embeddingModel:
+        type: string
+        default: "BAAI/bge-small-en-v1.5"
+        description: HuggingFace model ID for the embeddings endpoint.
+      rerankerModel:
+        type: string
+        default: "BAAI/bge-reranker-base"
+        description: HuggingFace model ID for the reranker endpoint.
+      enableReranker:
+        type: boolean
+        default: true
+        description: Whether to start the reranker container alongside embeddings.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      maxBatchSize:
+        type: integer
+        default: 32
+      maxLength:
+        type: integer
+        default: 512
+        description: Token cap per request (bge-small-en-v1.5 supports 512; bge-m3 supports 8192).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg
+      version: ^1.0
+      alias: cnpg
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

@@ -1,0 +1,94 @@
+{{- /*
+NetworkPolicy — locks the NeMo Guardrails Pod down to the minimum set
+required for inline rail enforcement.
+
+Ingress: bp-llm-gateway (slot 40) is the canonical caller; the gateway
+fans inbound /v1/chat/completions through the guardrails before
+reaching the LLM. Prometheus scraping is allowed when
+serviceMonitor.enabled = true.
+
+Egress: cluster DNS (always); bp-vllm namespace (so guardrails can
+proxy to the LLM); bp-bge namespace (so the fact-checking rail can
+embed and rerank). External LLM endpoints (OpenAI / Anthropic) only
+when allowExternalLlmEgress = true.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable. Disabled by default (cluster overlays MAY enable in target
+state).
+*/}}
+{{- if and .Values.guardrails.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-nemo-guardrails.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-nemo-guardrails.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-nemo-guardrails.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # bp-llm-gateway → guardrails (chat completions with rails)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.llmGatewayNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.guardrails.port }}
+    # Prometheus scraping
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.guardrails.port }}
+  egress:
+    # Cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # bp-vllm — upstream LLM
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.llmServingNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8000
+    # bp-bge — embeddings + reranker for fact-checking rail
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.embeddingsNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
+    {{- if .Values.networkPolicy.allowExternalLlmEgress }}
+    # External LLM endpoints (OpenAI / Anthropic) — opt-in only.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

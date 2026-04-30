@@ -1,0 +1,146 @@
+{{- if .Values.vllm.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-vllm.fullname" . }}
+  labels:
+    {{- include "bp-vllm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.vllm.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-vllm.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "bp-vllm.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.vllm.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "bp-vllm.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.vllm.podSecurityContext | nindent 8 }}
+      {{- with .Values.vllm.gpu.nodeSelector }}
+      {{- if .Values.vllm.gpu.enabled }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.vllm.gpu.tolerations }}
+      {{- if $.Values.vllm.gpu.enabled }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      containers:
+        - name: vllm
+          image: "{{ .Values.vllm.image.repository }}:{{ .Values.vllm.image.tag }}"
+          imagePullPolicy: {{ .Values.vllm.image.pullPolicy }}
+          # vLLM CLI: model + every operator-tunable arg from values.yaml.
+          # Per docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded —
+          # the model, context length, GPU memory fraction, dtype, and
+          # quantization are all overlay-driven.
+          args:
+            - "--model"
+            - {{ .Values.vllm.model | quote }}
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - {{ .Values.vllm.port | quote }}
+            - "--max-model-len"
+            - {{ .Values.vllm.args.maxModelLen | quote }}
+            - "--gpu-memory-utilization"
+            - {{ .Values.vllm.args.gpuMemoryUtilization | quote }}
+            - "--dtype"
+            - {{ .Values.vllm.args.dtype | quote }}
+            - "--tensor-parallel-size"
+            - {{ .Values.vllm.args.tensorParallelSize | quote }}
+            {{- if .Values.vllm.args.quantization }}
+            - "--quantization"
+            - {{ .Values.vllm.args.quantization | quote }}
+            {{- end }}
+            {{- if .Values.vllm.args.enablePrefixCaching }}
+            - "--enable-prefix-caching"
+            {{- end }}
+            {{- if not .Values.vllm.gpu.enabled }}
+            # CPU-only mode — vLLM device flag picks up CPU. This path is
+            # smoke-test only; production traffic on CPU is non-viable.
+            - "--device"
+            - "cpu"
+            {{- end }}
+            {{- range .Values.vllm.args.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if .Values.vllm.huggingfaceToken.enabled }}
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vllm.huggingfaceToken.secretName | quote }}
+                  key: {{ .Values.vllm.huggingfaceToken.secretKey | quote }}
+            {{- end }}
+            - name: VLLM_DO_NOT_TRACK
+              value: "1"
+            - name: HF_HOME
+              value: "/data/hf-cache"
+          ports:
+            - name: http
+              containerPort: {{ .Values.vllm.port }}
+              protocol: TCP
+          resources:
+            {{- include "bp-vllm.resources" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.vllm.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.vllm.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.vllm.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllm.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllm.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.vllm.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.vllm.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllm.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllm.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+            - name: dshm
+              mountPath: /dev/shm
+            {{- if .Values.configMap.enabled }}
+            {{- if .Values.configMap.chatTemplate }}
+            - name: config
+              mountPath: /etc/vllm/chat-template.jinja
+              subPath: chat-template.jinja
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        - name: model-cache
+          {{- if eq .Values.vllm.modelCache.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.vllm.modelCache.pvc.claimName | default (printf "%s-model-cache" (include "bp-vllm.fullname" .)) | quote }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 100Gi
+          {{- end }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+        {{- if .Values.configMap.enabled }}
+        - name: config
+          configMap:
+            name: {{ include "bp-vllm.fullname" . }}-config
+        {{- end }}
+{{- end }}

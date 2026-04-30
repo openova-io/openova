@@ -1,0 +1,182 @@
+# Catalyst Blueprint scratch chart for vLLM — no upstream Helm chart is
+# published by vllm-project. All values consumed by templates/ in this
+# chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value (model, GPU count, context length,
+# memory utilization) is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      vllm: "vllm/vllm-openai"
+
+# ─── vLLM inference server ───────────────────────────────────────────────
+vllm:
+  enabled: true
+
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump
+  # for HA once a regional Sovereign serves multiple tenants.
+  replicas: 1
+
+  # Pinned upstream image tag. DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md #4. vllm-openai 0.6.4 is the latest
+  # GA release as of 2026-04 with stable Llama-3.1-8B support.
+  image:
+    repository: vllm/vllm-openai
+    tag: "v0.6.4"
+    pullPolicy: IfNotPresent
+
+  # Model — default to Llama-3.1-8B-Instruct (fits on a single 24GB GPU
+  # at fp16). Per-Sovereign overlays override per tenant requirement
+  # (e.g. Qwen3-32B-AWQ on multi-GPU nodes, smaller model on dev).
+  model: "meta-llama/Llama-3.1-8B-Instruct"
+
+  # vLLM REST API port (OpenAI-compatible). Catalyst convention is 8000
+  # for inference servers; bp-llm-gateway routes to this on the
+  # ClusterIP.
+  port: 8000
+
+  # vLLM engine knobs — every one operator-tunable.
+  args:
+    maxModelLen: 8192               # --max-model-len
+    gpuMemoryUtilization: 0.9       # --gpu-memory-utilization
+    dtype: "auto"                   # --dtype (auto|half|float16|bfloat16|float|float32)
+    quantization: ""                # --quantization (awq|gptq|fp8|empty for none)
+    tensorParallelSize: 1           # --tensor-parallel-size
+    enablePrefixCaching: false      # --enable-prefix-caching
+    extraArgs: []                   # arbitrary extra CLI args appended verbatim
+
+  # GPU configuration — DEFAULT FALSE for the dev/CPU path. A real
+  # production Sovereign overlays this to true with `gpu.count: N` to
+  # match the node's `nvidia.com/gpu` capacity. CPU mode is non-trivial
+  # in vLLM (extremely slow); offered only as a smoke-test path on
+  # dev Sovereigns without GPU hardware.
+  gpu:
+    enabled: false
+    count: 1                        # number of nvidia.com/gpu requested
+    nodeSelector: {}                # e.g. {gpu-type: a100} for tier routing
+    tolerations: []                 # e.g. [{key: nvidia.com/gpu, effect: NoSchedule}]
+
+  # Resources — split CPU vs GPU shape because they differ wildly.
+  resources:
+    cpu:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+      limits:
+        cpu: "8"
+        memory: "16Gi"
+    gpu:
+      requests:
+        cpu: "4"
+        memory: "16Gi"
+      limits:
+        cpu: "16"
+        memory: "64Gi"
+
+  # HuggingFace token — pulled from External Secret on Sovereigns where
+  # gated models (Llama family) are served. Empty = anonymous, only
+  # works for fully-public models.
+  huggingfaceToken:
+    enabled: false
+    secretName: ""                  # ExternalSecret-managed K8s Secret
+    secretKey: "token"
+
+  # Model cache — backing PVC so model weights survive pod restarts and
+  # rolling upgrades. Default is emptyDir so a fresh Sovereign smoke-
+  # tests without provisioning storage; production overlays MUST switch
+  # to a PVC bound to a SeaweedFS / longhorn class.
+  modelCache:
+    type: emptyDir                  # emptyDir | pvc
+    pvc:
+      claimName: ""
+      storageClass: ""
+      size: "100Gi"
+
+  # SecurityContext — non-root. vLLM container runs as UID 1000.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false   # vllm writes triton compile cache to /root/.triton
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness + readiness — vLLM exposes /health on the API port.
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 600      # model load can take many minutes for 8B+
+      periodSeconds: 30
+      timeoutSeconds: 10
+    readiness:
+      path: /health
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      timeoutSeconds: 10
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+  annotations: {}
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── ConfigMap (chat template / engine config overrides) ─────────────────
+# vLLM accepts a chat-template file via --chat-template; per-tenant
+# overlays may set additional engine-config knobs here.
+configMap:
+  enabled: true
+  chatTemplate: ""                  # raw Jinja2 chat template; empty = use model default
+  extraConfig: {}                   # arbitrary key:value rendered into vllm-config.yaml
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+# vLLM exposes Prometheus metrics on the API port at /metrics. The
+# `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack — a
+# downstream Application Blueprint that depends on the bootstrap-kit.
+# Defaulting `enabled: true` would render a ServiceMonitor that the
+# apiserver rejects on a fresh Sovereign install.
+#
+# Operator opts in via clusters/<sovereign>/bootstrap-kit/39-vllm.yaml
+# values overlay once kube-prometheus-stack reconciles.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── NetworkPolicy (egress to HuggingFace + ingress from gateway) ────────
+networkPolicy:
+  enabled: false
+  # Namespace where bp-llm-gateway runs (slot 40). Per-Sovereign
+  # overlays override if gateway lives elsewhere.
+  llmGatewayNamespace: "ai-runtime"
+  # Allow egress to HuggingFace Hub for model download. Disable on air-
+  # gapped Sovereigns where models are pre-downloaded into the PVC.
+  allowHuggingfaceEgress: true
+
+# ─── HorizontalPodAutoscaler — DEFAULT FALSE ─────────────────────────────
+# vLLM scaling is non-trivial (model load takes minutes); HPA off by
+# default to avoid scale-up flapping. Per-Sovereign overlays enable on
+# multi-GPU clusters with hot pre-warmed pools.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80

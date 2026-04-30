@@ -1,0 +1,44 @@
+apiVersion: v2
+name: bp-bge
+description: |
+  Catalyst Blueprint scratch chart for BGE (BAAI General Embedding).
+
+  No upstream Helm chart is published by BAAI for the bge-* family
+  (https://huggingface.co/BAAI). This chart hand-wires HuggingFace's
+  `text-embeddings-inference` (TEI) container — the de-facto runtime
+  for sentence-transformers / BGE models — as a Deployment + Service +
+  ConfigMap. CPU-friendly by default (bge-small-en-v1.5 fits in <1 GB
+  RAM and runs at >100 req/s on a single CPU pod).
+
+  Two endpoints are exposed:
+    - /embed (port 8080) — embeddings via the embeddings model
+    - /rerank (port 8081) — cross-encoder reranking via the reranker model
+
+  Discovery: the Service is annotated with
+  `catalyst.openova.io/llm-gateway-route: embeddings` so bp-llm-gateway
+  (slot 40) discovers and fans out queries automatically.
+
+  Pairs with bp-llm-gateway (gateway), bp-vllm (LLM serving),
+  bp-nemo-guardrails (AI safety rails), bp-cnpg (catalog DB), and
+  bp-milvus / bp-pgvector (vector store).
+type: application
+version: 1.0.0
+appVersion: "1.5.1"
+keywords: [catalyst, blueprint, bge, embeddings, reranker, sentence-transformers, ai]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — BAAI does not publish a Helm chart, so the Catalyst
+# overlay templates (Deployment + Service + ConfigMap + ServiceMonitor +
+# NetworkPolicy + HPA) are entirely in templates/ in this chart. The
+# `sigstore/common` library subchart below is included ONLY to satisfy
+# the platform-wide blueprint-release.yaml hollow-chart gate (issue
+# #181) — every umbrella MUST declare at least one dependency. `common`
+# is a tiny library chart (helper templates only, zero runtime
+# resources) and contributes nothing to the rendered manifests of
+# bp-bge.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

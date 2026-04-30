@@ -1,0 +1,160 @@
+# Catalyst Blueprint scratch chart for BGE — no upstream Helm chart is
+# published by BAAI. All values consumed by templates/ in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value (model ID, batch size, max length,
+# replicas) is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI
+# artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      tei: "ghcr.io/huggingface/text-embeddings-inference"
+
+# ─── BGE embeddings + reranker ──────────────────────────────────────────
+bge:
+  enabled: true
+
+  # Solo-Sovereign minimum — single replica. Embeddings are
+  # horizontally scalable (stateless), so per-Sovereign overlays bump
+  # for HA + throughput.
+  replicas: 1
+
+  # Pinned upstream image tag. The CPU image runs sentence-transformers
+  # / BGE models on x86 without GPU. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 we pin a real tag — DO NOT use `:latest`.
+  image:
+    repository: ghcr.io/huggingface/text-embeddings-inference
+    tag: "cpu-1.5"            # CPU image — bp-bge defaults to CPU
+    pullPolicy: IfNotPresent
+
+  # ─── Embeddings endpoint ──────────────────────────────────────────────
+  embeddings:
+    enabled: true
+    # Default to bge-small-en-v1.5 — 384-dim, English, fits on CPU.
+    # Per-Sovereign overlays override to BAAI/bge-m3 (multilingual,
+    # 1024-dim, hybrid sparse+dense) on GPU Sovereigns.
+    model: "BAAI/bge-small-en-v1.5"
+    port: 8080
+    args:
+      maxBatchSize: 32          # --max-batch-tokens divided by avg seq length
+      maxConcurrentRequests: 512
+      maxClientBatchSize: 32
+      pooling: "cls"            # cls | mean | last
+      hfApiTimeout: "60"        # seconds for HF Hub model download
+
+  # ─── Reranker endpoint (cross-encoder) ────────────────────────────────
+  # Reranker runs as a sidecar container in the same Pod with its own
+  # listener on port 8081. Disable on Sovereigns that only need
+  # embeddings (saves ~500MB RAM).
+  reranker:
+    enabled: true
+    model: "BAAI/bge-reranker-base"
+    port: 8081
+    args:
+      maxBatchSize: 16
+      maxConcurrentRequests: 256
+
+  # HuggingFace token — for gated/private models. Defaults disabled
+  # because bge-* models are public.
+  huggingfaceToken:
+    enabled: false
+    secretName: ""
+    secretKey: "token"
+
+  # Model cache — emptyDir by default so a fresh Sovereign smoke-tests
+  # without provisioning storage. Production overlays switch to a PVC
+  # bound to longhorn / SeaweedFS so model weights survive restarts.
+  modelCache:
+    type: emptyDir              # emptyDir | pvc
+    pvc:
+      claimName: ""
+      storageClass: ""
+      size: "10Gi"
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "4"
+      memory: "4Gi"
+
+  # SecurityContext — non-root. TEI container runs as UID 1000.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: ["ALL"]
+
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 120
+      periodSeconds: 30
+      timeoutSeconds: 10
+    readiness:
+      path: /health
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+
+# ─── Service ─────────────────────────────────────────────────────────────
+# Two-port Service: 8080 for embeddings, 8081 for reranking.
+# Annotated for bp-llm-gateway discovery — the gateway watches Services
+# tagged with `catalyst.openova.io/llm-gateway-route` and routes
+# inbound /v1/embeddings calls here automatically.
+service:
+  type: ClusterIP
+  annotations:
+    catalyst.openova.io/llm-gateway-route: "embeddings"
+    catalyst.openova.io/llm-gateway-port: "8080"
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── ConfigMap ───────────────────────────────────────────────────────────
+configMap:
+  enabled: true
+  # Extra env vars rendered into the Deployment (sentence-transformers
+  # tunables, HuggingFace cache paths, etc.)
+  extraEnv: {}
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+# TEI exposes Prometheus metrics on /metrics on the embeddings port.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+networkPolicy:
+  enabled: false
+  # Namespace where bp-llm-gateway runs (slot 40)
+  llmGatewayNamespace: "ai-runtime"
+  # Allow egress to HuggingFace Hub for model download. Disable on
+  # air-gapped Sovereigns where models are pre-loaded into the PVC.
+  allowHuggingfaceEgress: true
+
+# ─── HorizontalPodAutoscaler — DEFAULT FALSE ─────────────────────────────
+# BGE is CPU-bound and stateless, so HPA scales linearly with load.
+# Per-Sovereign overlays enable on multi-tenant Sovereigns.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

@@ -1,0 +1,17 @@
+{{- if and .Values.vllm.enabled .Values.configMap.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-vllm.fullname" . }}-config
+  labels:
+    {{- include "bp-vllm.labels" . | nindent 4 }}
+data:
+  {{- if .Values.configMap.chatTemplate }}
+  chat-template.jinja: |
+{{ .Values.configMap.chatTemplate | indent 4 }}
+  {{- end }}
+  {{- if .Values.configMap.extraConfig }}
+  vllm-config.yaml: |
+{{ toYaml .Values.configMap.extraConfig | indent 4 }}
+  {{- end }}
+{{- end }}

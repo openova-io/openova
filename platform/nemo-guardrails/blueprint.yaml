@@ -1,0 +1,63 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-nemo-guardrails
+  labels:
+    catalyst.openova.io/category: ai-safety
+    catalyst.openova.io/section: pts-4-7-ai-safety
+spec:
+  version: 1.0.0
+  card:
+    title: NeMo Guardrails
+    summary: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
+    icon: nemo-guardrails.svg
+    category: ai-safety
+    tags: [ai-safety, guardrails, prompt-injection, pii, llm, nvidia]
+    documentation: https://docs.nvidia.com/nemo/guardrails/
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      configMapName:
+        type: string
+        default: ""
+        description: Name of a ConfigMap holding the guardrail config (rails, flows, prompts). Mounted at /config inside the container. Empty = chart renders a stub config from values.
+      llmEndpoint:
+        type: string
+        default: ""
+        description: Upstream LLM endpoint the guardrails server proxies to. Typically the in-cluster bp-vllm Service URL or bp-llm-gateway URL.
+      llmModel:
+        type: string
+        default: "meta-llama/Llama-3.1-8B-Instruct"
+        description: Model ID forwarded to the upstream LLM endpoint.
+      disableChatUi:
+        type: boolean
+        default: true
+        description: Disable the bundled chat UI. MUST be true for production deployments.
+      autoReload:
+        type: boolean
+        default: false
+        description: Auto-reload config on change. Development only — never enable in production.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-vllm
+      version: ^1.0
+      alias: vllm
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

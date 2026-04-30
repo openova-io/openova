@@ -1,0 +1,20 @@
+{{- if and .Values.bge.enabled .Values.configMap.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-bge.fullname" . }}-config
+  labels:
+    {{- include "bp-bge.labels" . | nindent 4 }}
+data:
+  {{- if .Values.configMap.extraEnv }}
+  extra-env.sh: |
+    #!/bin/sh
+    {{- range $k, $v := .Values.configMap.extraEnv }}
+    export {{ $k }}={{ $v | quote }}
+    {{- end }}
+  {{- end }}
+  # Embeddings model + reranker model recorded for audit / discovery.
+  embeddings-model: {{ .Values.bge.embeddings.model | quote }}
+  reranker-model: {{ .Values.bge.reranker.model | quote }}
+  reranker-enabled: {{ .Values.bge.reranker.enabled | quote }}
+{{- end }}
