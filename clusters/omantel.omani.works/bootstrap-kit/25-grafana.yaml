@@ -1,0 +1,75 @@
+# bp-grafana — Catalyst Blueprint #25 (W2.K2 Observability batch).
+# Grafana — visualization layer of the LGTM stack. Pairs with bp-loki
+# (logs), bp-mimir (metrics), bp-tempo (traces); CNPG-backed Postgres
+# for dashboard/folder/alert state; Keycloak OIDC for SSO.
+#
+# Wrapper chart:  platform/grafana/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak are
+#                 all Ready.
+#
+# dependsOn:
+#   - bp-cnpg (slot 16)         — Postgres backend for Grafana state.
+#   - bp-loki (slot 22)         — datasource for logs.
+#   - bp-mimir (slot 23)        — datasource for metrics.
+#   - bp-tempo (slot 24)        — datasource for traces.
+#   - bp-keycloak (slot 09)     — OIDC IdP for SSO.
+#
+# disableWait: Grafana waits for its CNPG-managed `grafana-app` Secret
+# (synthesised by bp-cnpg via the chart's Cluster CR), and for upstream
+# datasource endpoints to answer. Helm `--wait` would block on the
+# Deployment rollout, which the HelmRelease cannot influence; runtime
+# convergence is observed via kubectl rollout status.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grafana
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-grafana
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-grafana
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: grafana
+  targetNamespace: grafana
+  dependsOn:
+    - name: bp-cnpg
+    - name: bp-loki
+    - name: bp-mimir
+    - name: bp-tempo
+    - name: bp-keycloak
+  chart:
+    spec:
+      chart: bp-grafana
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-grafana
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

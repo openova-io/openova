@@ -1,0 +1,68 @@
+# bp-loki — Catalyst Blueprint #22 (W2.K2 Observability batch).
+# Grafana Loki — log storage tier of the LGTM stack. Default deployment
+# shape is SingleBinary (one Loki StatefulSet) — minimum operational
+# cost for a Solo Sovereign; per-Sovereign overlays scale to
+# distributor/ingester/querier StatefulSets when load warrants.
+#
+# Wrapper chart:  platform/loki/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-seaweedfs is Ready (Loki chunks/index live on S3).
+#
+# dependsOn:
+#   - bp-seaweedfs (slot 18) — Loki uses SeaweedFS S3 for chunks and
+#     index storage. Without SeaweedFS Ready, Loki cannot persist logs.
+#
+# disableWait: Loki SingleBinary becomes Ready only after creating the
+# S3 bucket and writing the first WAL block — both of which require
+# bp-seaweedfs to be fully reconciled (not just HelmRelease=Ready).
+# Helm `--wait` would block waiting for the StatefulSet rollout, which
+# the HelmRelease cannot influence.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loki
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-loki
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-loki
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: loki
+  targetNamespace: loki
+  dependsOn:
+    - name: bp-seaweedfs
+  chart:
+    spec:
+      chart: bp-loki
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-loki
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

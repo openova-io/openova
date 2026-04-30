@@ -1,0 +1,71 @@
+# bp-alloy — Catalyst Blueprint #21 (W2.K2 Observability batch).
+# Grafana Alloy — the unified telemetry collector for the LGTM stack.
+# Runs as a DaemonSet on every node; tails container logs, scrapes
+# Prometheus metrics, and forwards traces. Co-resident with bp-opentelemetry
+# (slot 20) — Alloy handles host-level collection (kubelet, journald,
+# node_exporter) while OTel handles app-level OTLP.
+#
+# Wrapper chart:  platform/alloy/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-opentelemetry is Ready (Alloy's default config
+#                 forwards OTLP to the Collector's gRPC endpoint).
+#
+# dependsOn:
+#   - bp-opentelemetry (slot 20) — Alloy forwards OTLP to the Collector.
+#     Without the Collector Service in place, Alloy retries forever on a
+#     non-existent upstream.
+#
+# disableWait: Alloy is a DaemonSet — Helm `--wait` would block on
+# every node's Alloy Pod becoming Ready. On larger Sovereigns this can
+# legitimately take >5min during a cold-start image pull; the HelmRelease
+# reports Ready when manifests apply, runtime convergence observed via
+# kubectl.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alloy
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-alloy
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-alloy
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: alloy
+  targetNamespace: alloy
+  dependsOn:
+    - name: bp-opentelemetry
+  chart:
+    spec:
+      chart: bp-alloy
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-alloy
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
