@@ -196,10 +196,28 @@ jobs:
           set -euo pipefail
           chart_dir="${{ matrix.path }}/chart"
           chart_yaml="$chart_dir/Chart.yaml"
+          # Some Blueprints legitimately ship NO upstream subchart — their
+          # entire payload is Catalyst-authored CRs (e.g.
+          # bp-crossplane-claims, which carries only XRDs + Compositions
+          # for the compose.openova.io/v1alpha1 family). Those charts opt
+          # out of the dependencies-required rule by setting the
+          # annotation:
+          #   annotations:
+          #     catalyst.openova.io/no-upstream: "true"
+          # in their Chart.yaml. The hollow-chart rule remains in force
+          # for every other umbrella chart — the original failure
+          # (bp-cert-manager:1.0.0 silently shipping without cert-manager)
+          # cannot recur unless an author explicitly adds the annotation.
+          no_upstream=$(yq '.annotations["catalyst.openova.io/no-upstream"] // ""' "$chart_yaml")
           dep_count=$(yq '.dependencies | length // 0' "$chart_yaml")
           echo "Declared dependencies: $dep_count"
+          echo "no-upstream annotation: '$no_upstream'"
           if [ "$dep_count" -eq 0 ]; then
-            echo "::error title=Hollow chart::Chart $chart_yaml declares NO dependencies. Every Blueprint umbrella chart at platform/<name>/chart/ MUST declare its upstream chart under \`dependencies:\` per docs/BLUEPRINT-AUTHORING.md §11.1 Umbrella shape. See issue #181."
+            if [ "$no_upstream" = "true" ]; then
+              echo "Chart marked catalyst.openova.io/no-upstream=true — skipping upstream-subchart presence check."
+              exit 0
+            fi
+            echo "::error title=Hollow chart::Chart $chart_yaml declares NO dependencies. Every Blueprint umbrella chart at platform/<name>/chart/ MUST declare its upstream chart under \`dependencies:\` per docs/BLUEPRINT-AUTHORING.md §11.1 Umbrella shape. See issue #181. (To opt out for charts that legitimately ship only Catalyst-authored CRs, set annotations.catalyst.openova.io/no-upstream: \"true\".)"
             exit 1
           fi
           missing=0

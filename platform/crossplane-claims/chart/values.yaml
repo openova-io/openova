@@ -1,0 +1,9 @@
+# bp-crossplane-claims has no operator-tunable values — the XRDs and
+# Compositions it ships are static manifests with no Go-template
+# substitutions. This file exists so `helm template` and the CI smoke
+# render have an explicit defaults document; future per-Sovereign
+# overrides (e.g. defaultCompositionRef swaps for a non-Hetzner cloud)
+# would land here.
+
+catalystBlueprint:
+  upstream: null

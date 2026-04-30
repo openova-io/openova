@@ -1,0 +1,22 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-crossplane-claims
+  labels:
+    catalyst.openova.io/section: pts-3-2-gitops-and-iac
+spec:
+  version: 1.0.0
+  card:
+    title: crossplane-claims
+    summary: |
+      Catalyst Crossplane XRDs (compose.openova.io/v1alpha1 family) +
+      default Compositions. Splits the CRD-and-CR ordering bind from
+      bp-crossplane: this Blueprint MUST be installed AFTER bp-crossplane is
+      Ready so the apiextensions.crossplane.io CRDs that the upstream
+      crossplane subchart registers are live before these
+      CompositeResourceDefinition + Composition CRs are applied.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-crossplane
