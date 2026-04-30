@@ -1,0 +1,337 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `harbor:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: harbor
+    version: "1.18.3"
+    repo: "https://helm.goharbor.io"
+
+# ─── Upstream chart values (subchart key: harbor) ────────────────────────
+harbor:
+
+  # ─── External hostname / endpoint ──────────────────────────────────────
+  # Per-Sovereign overlay MUST set externalURL (e.g.
+  # "https://harbor.<location-code>.<sovereign-domain>"). Default is a
+  # placeholder so `helm template` smoke renders without `--set`.
+  externalURL: "https://harbor.example.local"
+
+  # ─── Expose (Ingress + TLS via cert-manager) ───────────────────────────
+  # Catalyst standard: ingress with cert-manager auto. Per-Sovereign
+  # overlay supplies the cluster Issuer name and the actual hostname.
+  expose:
+    type: ingress
+    tls:
+      enabled: true
+      certSource: secret             # cert-manager-issued Secret referenced below
+      auto:
+        commonName: ""
+      secret:
+        secretName: "harbor-tls"     # per-Sovereign overlay: this is the name of
+                                     # the Secret a cert-manager Certificate writes to
+        notarySecretName: ""
+    ingress:
+      hosts:
+        core: "harbor.example.local"
+      controller: default
+      kubeVersionOverride: ""
+      className: "cilium"
+      annotations:
+        # Per-Sovereign overlay sets the actual ClusterIssuer name (e.g.
+        # `letsencrypt-prod`). Empty here so `helm template` doesn't
+        # render an annotation that points at a non-existent issuer.
+        cert-manager.io/cluster-issuer: ""
+        ingress.kubernetes.io/proxy-body-size: "0"
+        nginx.ingress.kubernetes.io/proxy-body-size: "0"
+
+  # ─── Image-chart storage (SeaweedFS S3) ────────────────────────────────
+  # Catalyst encapsulates ALL S3 traffic via SeaweedFS per
+  # docs/PLATFORM-TECH-STACK.md §3.5. Harbor's blob store is no exception.
+  # Per-Sovereign overlay supplies the access/secret keys via ESO from
+  # the SeaweedFS-managed Secret (or a per-Sovereign-issued IAM token).
+  persistence:
+    enabled: true
+    resourcePolicy: "keep"
+    persistentVolumeClaim:
+      registry:
+        # Even with S3 backend, the upstream chart still allocates a tiny
+        # PVC for cache. Per-Sovereign overlay MAY override storageClass.
+        existingClaim: ""
+        storageClass: ""
+        subPath: ""
+        accessMode: ReadWriteOnce
+        size: 5Gi
+      jobservice:
+        jobLog:
+          existingClaim: ""
+          storageClass: ""
+          subPath: ""
+          accessMode: ReadWriteOnce
+          size: 1Gi
+      database:
+        # Catalyst uses bp-cnpg for DB — no embedded postgres PVC. The
+        # upstream chart still requires this block to exist when
+        # `database.type: external`; size kept at upstream default.
+        existingClaim: ""
+        storageClass: ""
+        subPath: ""
+        accessMode: ReadWriteOnce
+        size: 1Gi
+      redis:
+        existingClaim: ""
+        storageClass: ""
+        subPath: ""
+        accessMode: ReadWriteOnce
+        size: 1Gi
+      trivy:
+        existingClaim: ""
+        storageClass: ""
+        subPath: ""
+        accessMode: ReadWriteOnce
+        size: 5Gi
+    imageChartStorage:
+      disableRedirect: false
+      type: s3
+      s3:
+        # Per-Sovereign overlay populates these. The endpoint
+        # template assumes the canonical SeaweedFS S3 service per
+        # platform/seaweedfs/chart/values.yaml: seaweedfs-s3 in the
+        # seaweedfs namespace, port 8333.
+        region: "auto"
+        bucket: "harbor-data"
+        accesskey: ""
+        secretkey: ""
+        regionendpoint: "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
+        encrypt: false
+        keyid: ""
+        secure: false
+        v4auth: true
+        chunksize: ""
+        rootdirectory: ""
+        storageclass: "STANDARD"
+        multipartcopychunksize: ""
+        multipartcopymaxconcurrency: ""
+        multipartcopythresholdsize: ""
+
+  # ─── Database (external CNPG) ──────────────────────────────────────────
+  # Per-Sovereign overlay supplies CNPG Cluster ref via ExternalSecret +
+  # populates `host`, `password` from the secret. Default is placeholder
+  # so `helm template` smoke renders without `--set`.
+  database:
+    type: external
+    external:
+      host: "harbor-postgres-rw.harbor.svc.cluster.local"
+      port: "5432"
+      username: "harbor"
+      password: ""
+      coreDatabase: "registry"
+      existingSecret: "harbor-database-secret"   # ESO-projected from CNPG
+      sslmode: "disable"
+    maxIdleConns: 100
+    maxOpenConns: 900
+    podAnnotations: {}
+
+  # ─── Redis (internal — for solo Sovereign; HA overlay swaps to Valkey) ─
+  redis:
+    type: internal
+    internal:
+      image:
+        repository: goharbor/redis-photon
+        tag: "v2.14.3"
+      resources:
+        requests:
+          memory: 64Mi
+          cpu: 50m
+    external:
+      addr: ""
+      sentinelMasterSet: ""
+      coreDatabaseIndex: "0"
+      jobserviceDatabaseIndex: "1"
+      registryDatabaseIndex: "2"
+      trivyAdapterIndex: "5"
+      password: ""
+      existingSecret: ""
+
+  # ─── Image pin (per docs/INVIOLABLE-PRINCIPLES.md #4) ─────────────────
+  # The upstream chart sub-images come pre-pinned to appVersion 2.14.3 by
+  # the bundled defaults; we leave them at upstream defaults rather than
+  # diverging.
+
+  # ─── Component replica counts ──────────────────────────────────────────
+  portal:
+    image:
+      repository: goharbor/harbor-portal
+      tag: "v2.14.3"
+    replicas: 1
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 500m
+
+  core:
+    image:
+      repository: goharbor/harbor-core
+      tag: "v2.14.3"
+    replicas: 1
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 1
+    # `secretName` lets per-Sovereign overlay supply the Harbor admin
+    # secret (CSRF key, JWT signing key, admin password). Default empty
+    # — chart auto-generates on first install (rotated by overlay later).
+    secretName: ""
+    # Internal TLS — Catalyst's Cilium WireGuard handles cluster-internal
+    # traffic encryption; Harbor's internal TLS off by default.
+    tokenCert: ""
+    tokenKey: ""
+
+  jobservice:
+    image:
+      repository: goharbor/harbor-jobservice
+      tag: "v2.14.3"
+    replicas: 1
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 1
+    maxJobWorkers: 10
+    jobLoggers:
+      - file
+    loggerSweeperDuration: 14
+
+  registry:
+    registry:
+      image:
+        repository: goharbor/registry-photon
+        tag: "v2.14.3"
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 100m
+        limits:
+          memory: 1Gi
+          cpu: 1
+    controller:
+      image:
+        repository: goharbor/harbor-registryctl
+        tag: "v2.14.3"
+      resources:
+        requests:
+          memory: 64Mi
+          cpu: 50m
+        limits:
+          memory: 256Mi
+          cpu: 500m
+    replicas: 1
+    middleware:
+      enabled: false
+
+  # ─── Trivy vulnerability scanner ───────────────────────────────────────
+  # DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 logic — bp-trivy
+  # (slot 30) reconciles AFTER bp-harbor (slot 19) in the bootstrap kit
+  # ordering, so Trivy scanning here would race against an absent CRD
+  # surface. Per-Sovereign overlay flips this on once bp-trivy is Ready.
+  trivy:
+    enabled: false
+    image:
+      repository: goharbor/trivy-adapter-photon
+      tag: "v2.14.3"
+    replicas: 1
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 1
+    skipUpdate: false
+    offlineScan: false
+    timeout: 5m0s
+
+  # ─── Notary (image signing) — DEPRECATED in upstream Harbor 2.x ────────
+  # Sigstore (bp-sigstore, slot 32) is the Catalyst signing path. Notary
+  # OFF.
+  notary:
+    enabled: false
+
+  # ─── Exporter / metrics ────────────────────────────────────────────────
+  # ServiceMonitor / metrics — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING
+  # .md §11.2 (Observability toggles default false; kube-prometheus-stack
+  # CRDs may not exist on a fresh Sovereign).
+  metrics:
+    enabled: false
+    core:
+      path: /metrics
+      port: 8001
+    registry:
+      path: /metrics
+      port: 8001
+    jobservice:
+      path: /metrics
+      port: 8001
+    exporter:
+      path: /metrics
+      port: 8001
+    serviceMonitor:
+      enabled: false
+
+  # ─── Logging ──────────────────────────────────────────────────────────
+  logLevel: info
+
+  # ─── Update strategy ──────────────────────────────────────────────────
+  updateStrategy:
+    type: RollingUpdate
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays added in a follow-up PR once
+# bp-harbor is consumed in clusters/_template/:
+#  - NetworkPolicy isolating harbor namespace from non-Catalyst traffic
+#  - ExternalSecret projecting CNPG password + SeaweedFS S3 keys via ESO
+#    (bp-external-secrets) so values.database.external.password and
+#    values.persistence.imageChartStorage.s3.{accesskey,secretkey} land
+#    via Reloader-restart-on-rotation rather than chart-render-time.
+#  - cert-manager Certificate for harbor.<location-code>.<sovereign-domain>
+#    pointing at the per-Sovereign Issuer.
+#  - Keycloak OIDC client wiring for SSO when ssoEnabled flips true.
+#  - Harbor Project + Pull-mirror policy bootstrap (project: catalyst,
+#    pull-mirror: ghcr.io/openova-io/* every 6h).
+harborOverlay:
+  networkPolicy:
+    enabled: false
+    cnpgNamespace: "cnpg"
+    seaweedfsNamespace: "seaweedfs"
+    seaweedfsS3Port: 8333
+    keycloakNamespace: "keycloak"
+  serviceMonitor:
+    enabled: false                # docs/BLUEPRINT-AUTHORING.md §11.2
+    interval: "30s"
+    namespace: ""                 # default: release namespace
+  externalSecret:
+    enabled: false
+  certificate:
+    enabled: false
+    issuerRef:
+      kind: ClusterIssuer
+      name: ""
+  sso:
+    enabled: false
+    keycloakRealm: ""
+    keycloakClientId: ""
+  pullMirror:
+    enabled: false
+    upstreams: []     # list of {name, url, schedule, filter} entries

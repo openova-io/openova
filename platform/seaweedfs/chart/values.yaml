@@ -1,0 +1,327 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `seaweedfs:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: seaweedfs
+    version: "4.22.0"
+    repo: "https://seaweedfs.github.io/seaweedfs/helm"
+
+# ─── Upstream chart values (subchart key: seaweedfs) ─────────────────────
+seaweedfs:
+
+  # Multi-tenant namespacing — when true, every resource is prefixed
+  # `seaweedfs-`. Required because Catalyst runs ONE SeaweedFS per
+  # Sovereign and the prefix avoids name collisions with co-located
+  # workloads that ship resources named `master`, `volume`, `filer`, `s3`.
+  enableNamePrefix: true
+
+  global:
+    # Pin upstream image tag — DO NOT use floating tags per
+    # docs/INVIOLABLE-PRINCIPLES.md #4.
+    registry: "chrislusf/"
+    repository: ""
+    imageName: seaweedfs
+    imageTag: "4.22"
+    imagePullPolicy: IfNotPresent
+    # Cluster role label — used by upstream chart for affinity rules.
+    serviceAccountName: "seaweedfs"
+    # Per-Sovereign overlays MAY override `replicationPlacment` (sic —
+    # upstream's spelling) to "001" (one replica on different rack),
+    # "100" (one on different DC), etc. Default "000" = no replication
+    # — fine for solo Sovereign with bp-velero providing DR.
+    replicationPlacment: "000"
+    # Allow crashes to be visible (don't restart pods that are crash-
+    # looping faster than 10s).
+    monitoring:
+      enabled: false
+      gatewayHost: null
+      gatewayPort: null
+
+  # ─── Master ────────────────────────────────────────────────────────────
+  # 1 master is fine for a solo Sovereign. Per-Sovereign HA overlay bumps
+  # to 3 with raft consensus.
+  master:
+    enabled: true
+    repository: null
+    imageName: null
+    imageTag: null
+    imageOverride: null
+    restartPolicy: null
+    replicas: 1
+    port: 9333
+    grpcPort: 19333
+    metricsPort: 9327
+    ipBind: "0.0.0.0"
+    volumePreallocate: false
+    volumeSizeLimitMB: 30000
+    loggingOverrideLevel: null
+    # Disk type — per-Sovereign overlays MAY set "ssd" or "hdd".
+    data:
+      type: "persistentVolumeClaim"
+      size: "10Gi"
+      storageClass: ""
+    logs:
+      type: "hostPath"
+      size: ""
+      storageClass: ""
+      hostPathPrefix: /storage
+    # Resources tuned for solo Sovereign on cx32 (8 vCPU / 16 GB).
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 1
+    # Master uses internal raft for consensus. nodeSelector/tolerations
+    # left empty so master schedules anywhere.
+    nodeSelector: null
+    affinity: null
+    tolerations: null
+    # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+    metricsPort: 9327
+    config: |-
+      [master.maintenance]
+      scripts = """
+        lock
+        ec.encode -fullPercent=95 -quietFor=1h
+        ec.rebuild -force
+        ec.balance -force
+        volume.deleteEmpty -quietFor=24h -force
+        volume.balance -force
+        volume.fix.replication
+        s3.clean.uploads -timeAgo=24h
+        unlock
+      """
+      sleep_minutes = 17
+    # PodSecurity — non-root.
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1000
+    securityContext:
+      enabled: true
+      runAsUser: 1000
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+
+  # ─── Volume servers ────────────────────────────────────────────────────
+  # 3 replicas = standard local redundancy. Per docs/PLATFORM-TECH-STACK.md
+  # §3.5 (SeaweedFS as the unified S3 surface), volume size is the hot/warm
+  # local storage; cold tier offloads to cloud archive.
+  volume:
+    enabled: true
+    repository: null
+    imageName: null
+    imageTag: null
+    imageOverride: null
+    restartPolicy: null
+    replicas: 3
+    port: 8080
+    grpcPort: 18080
+    metricsPort: 9327
+    ipBind: "0.0.0.0"
+    # Volume PVC — 100Gi default, per-Sovereign overlay sizes per workload.
+    dataDirs:
+      - name: data
+        type: "persistentVolumeClaim"
+        size: "100Gi"
+        storageClass: ""
+        maxVolumes: 0
+    logs:
+      type: "hostPath"
+      size: ""
+      storageClass: ""
+      hostPathPrefix: /storage
+    # Idle timeout — close idle connections after 30 minutes.
+    idleTimeout: 30
+    # Resources tuned for solo Sovereign.
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 500m
+      limits:
+        memory: 4Gi
+        cpu: 2
+    nodeSelector: null
+    affinity: null
+    tolerations: null
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1000
+    securityContext:
+      enabled: true
+      runAsUser: 1000
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+
+  # ─── Filer (POSIX/HDFS surface; underpins S3) ──────────────────────────
+  # 1 replica solo, 2 HA. Filer stores metadata in its built-in store
+  # (default: leveldb on PVC). Per-Sovereign HA overlay swaps to a
+  # PostgreSQL/CNPG backing for metadata.
+  filer:
+    enabled: true
+    repository: null
+    imageName: null
+    imageTag: null
+    imageOverride: null
+    restartPolicy: null
+    replicas: 1
+    port: 8888
+    grpcPort: 18888
+    metricsPort: 9327
+    ipBind: "0.0.0.0"
+    s3:
+      enabled: false           # S3 has its own deployment block below
+      port: 8333
+      enableAuth: false
+      skipAuthSecretCreation: false
+    webdav:
+      enabled: false
+    # Filer PVC stores metadata leveldb. 8Gi is generous for solo.
+    data:
+      type: "persistentVolumeClaim"
+      size: "8Gi"
+      storageClass: ""
+    logs:
+      type: "hostPath"
+      size: ""
+      storageClass: ""
+      hostPathPrefix: /storage
+    extraVolumes: ""
+    extraVolumeMounts: ""
+    # Notification topic (for filer events). Default: null = no
+    # notification. Per-Sovereign overlay enables Kafka/NATS notification
+    # if needed.
+    notificationConfig: null
+    # Filer config (CSV stores, post-create scripts, etc.). Empty default;
+    # per-Sovereign overlay populates if a non-default backing store is
+    # used.
+    extraEnvironmentVars:
+      WEED_LEVELDB2_ENABLED: "true"
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 1
+    nodeSelector: null
+    affinity: null
+    tolerations: null
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1000
+    securityContext:
+      enabled: true
+      runAsUser: 1000
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+
+  # ─── S3 API (THE Catalyst-facing service: seaweedfs-s3:8333) ───────────
+  # This is the single endpoint every consumer talks to. Service exposes
+  # port 8333 (S3 API) over ClusterIP; HTTPS termination is handled by
+  # cert-manager-issued certificate referenced via per-Sovereign overlay.
+  s3:
+    enabled: true
+    repository: null
+    imageName: null
+    imageTag: null
+    imageOverride: null
+    restartPolicy: null
+    replicas: 2
+    port: 8333
+    httpsPort: 0                # 0 = HTTP; per-Sovereign overlay flips to 8443 with cert
+    metricsPort: 9327
+    allowEmptyFolder: false
+    enableAuth: true            # CRITICAL: every consumer authenticates with access/secret keys
+    skipAuthSecretCreation: false
+    # When `enableAuth: true`, the chart auto-generates a Secret
+    # `seaweedfs-s3-secret` with admin/anonymous access keys. Per-Sovereign
+    # overlay MAY supply existing secret name + per-bucket fine-grained
+    # IAM via `auditLogConfig` and `s3ConfigContents`.
+    s3ConfigContents: ""
+    extraEnvironmentVars:
+      WEED_FILER_BUCKETS_FOLDER: "/buckets"
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 1
+    # Service — ClusterIP. `enableNamePrefix: true` above makes the
+    # service name `seaweedfs-s3`. The canonical FQDN every consumer
+    # uses:
+    #   seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+    # (matches docs/PLATFORM-TECH-STACK.md §3.5 endpoint contract).
+    serviceType: "ClusterIP"
+    nodeSelector: null
+    affinity: null
+    tolerations: null
+    # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
+    metricsServiceMonitor:
+      enabled: false
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1000
+    securityContext:
+      enabled: true
+      runAsUser: 1000
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+
+  # ─── Cosi (Container Object Storage Interface) ─────────────────────────
+  # Off by default — k8s CSI-style dynamic bucket provisioning is not on
+  # the Catalyst critical path. Per-Sovereign overlay enables if needed.
+  cosi:
+    enabled: false
+
+  # ─── Certificates (TLS between SeaweedFS components) ───────────────────
+  # Off by default — cluster-internal traffic is encrypted at the Cilium
+  # WireGuard layer. Per-Sovereign overlay flips on with cert-manager
+  # ClusterIssuer ref if explicit TLS between components is required.
+  certificates:
+    commonName: "SeaweedFS CA"
+    keySize: 2048
+    duration: 2160h
+    renewBefore: 360h
+    issuer:
+      name: ""              # set by per-Sovereign overlay to a cert-manager Issuer
+      kind: ClusterIssuer
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, ExternalSecret for
+# S3 admin credentials wired via bp-external-secrets, ServiceMonitor opt-in
+# wrapper) added in a follow-up PR once bp-seaweedfs is consumed in
+# clusters/_template/.
+seaweedfsOverlay:
+  networkPolicy:
+    enabled: false
+  serviceMonitor:
+    enabled: false                # docs/BLUEPRINT-AUTHORING.md §11.2
+    interval: "30s"
+    namespace: ""                 # default: release namespace
+  externalSecret:
+    enabled: false
+  # Cold tier — per-Sovereign overlay MUST populate one of these blocks
+  # (or leave both null for hot-only). Catalyst's tier-config ConfigMap is
+  # rendered in the overlay PR.
+  coldTier:
+    cloudflareR2:
+      enabled: false
+      bucket: ""
+      accountId: ""
+    awsS3Glacier:
+      enabled: false
+      bucket: ""
+      region: ""
+    hetznerObjectStorage:
+      enabled: false
+      bucket: ""
+      region: ""

@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-harbor
+description: |
+  Catalyst Blueprint umbrella chart for Harbor. Depends on the upstream
+  `harbor` chart (goharbor/harbor-helm) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `harbor:` key in values.yaml.
+
+  Harbor is the per-Sovereign OCI registry (per docs/PLATFORM-TECH-STACK.md
+  §3.5 — every host cluster runs its own Harbor instance). It mirrors
+  Catalyst Blueprint OCI artefacts and container images so day-2 pulls
+  don't depend on ghcr.io. Catalyst-curated defaults route Harbor's blob
+  store to SeaweedFS (S3 driver) and its metadata DB to CNPG, so this
+  Blueprint hard-depends on bp-seaweedfs + bp-cnpg + bp-cert-manager.
+  Per-Sovereign overlays wire the actual SeaweedFS endpoint, CNPG
+  Cluster reference, and a cert-manager ClusterIssuer.
+type: application
+version: 1.0.0
+appVersion: "2.14.3"
+keywords: [catalyst, blueprint, harbor, oci, registry, container]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to goharbor/harbor 1.18.3 (appVersion 2.14.3) — current stable on
+# 2026-04-30. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: harbor
+    version: "1.18.3"
+    repository: "https://helm.goharbor.io"

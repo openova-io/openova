@@ -1,0 +1,45 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: vpa
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Vertical Pod Autoscaler
+    family: guardian
+    description: Automated CPU/memory right-sizing. Recommender + Updater + Admission Controller. Pairs with HPA/KEDA on the horizontal axis. Defaults to recommend-only mode (Off); SREs opt workloads into Auto via VerticalPodAutoscaler resources.
+    docs: https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      defaultUpdateMode:
+        type: string
+        enum: [Off, Initial, Auto, Recreate]
+        default: Off
+        description: Default update mode for VPAs that don't override it. Catalyst default is Off (recommend only) — SREs opt workloads into Auto explicitly.
+      recommenderReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      updaterReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      admissionControllerReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # VPA runs on every host cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # independent infrastructure helper — no sibling-Blueprint deps
+  upgrades:
+    from: ["0.x"]

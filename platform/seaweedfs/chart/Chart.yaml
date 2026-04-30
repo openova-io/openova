@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-seaweedfs
+description: |
+  Catalyst Blueprint umbrella chart for SeaweedFS. Depends on the upstream
+  `seaweedfs` chart (seaweedfs/seaweedfs) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `seaweedfs:` key in values.yaml.
+
+  SeaweedFS is the unified S3-compatible storage layer per
+  docs/PLATFORM-TECH-STACK.md §3.5 — the single S3 surface that every
+  Catalyst consumer talks to (Loki chunks, Mimir blocks, Tempo blocks,
+  Velero backups, Harbor blobs, CNPG WAL archive, OpenSearch snapshots,
+  per-Application buckets). NO per-app MinIO. SeaweedFS internally tiers
+  hot→warm→cold and offloads cold objects to a cloud archival backend
+  (Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage) configured at
+  Sovereign provisioning time.
+type: application
+version: 1.0.0
+appVersion: "4.22"
+keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to seaweedfs/seaweedfs 4.22.0 (appVersion 4.22) — current stable
+# on 2026-04-30. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: seaweedfs
+    version: "4.22.0"
+    repository: "https://seaweedfs.github.io/seaweedfs/helm"

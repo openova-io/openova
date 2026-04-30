@@ -1,0 +1,40 @@
+{{- /*
+ServiceMonitor — Catalyst-overlay variant for Harbor.
+
+The upstream `harbor` chart already renders its own ServiceMonitor when
+`metrics.serviceMonitor.enabled = true` (see chart/values.yaml — kept
+defaulted false). This Catalyst-side template is a forward-compatibility
+guard: it ensures any Catalyst-side observability surface added later
+(e.g. an aggregate ServiceMonitor across all 4 metrics ports) lands
+behind the same `harborOverlay.serviceMonitor.enabled` toggle the
+operator already flips for the upstream variant.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — Prometheus
+Operator (monitoring.coreos.com/v1) is NOT in the bootstrap-kit prior
+to slot 25 (kube-prometheus-stack), so a ServiceMonitor shipped enabled-
+by-default would generate Helm install errors on a Sovereign that
+hasn't reached Phase 2 yet.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
+labels) is operator-tunable.
+*/}}
+{{- if and .Values.harborOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-harbor-catalyst
+  namespace: {{ default .Release.Namespace .Values.harborOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: harbor
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.harborOverlay.serviceMonitor.interval | default "30s" }}
+      path: /metrics
+{{- end }}
