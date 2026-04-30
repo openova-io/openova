@@ -172,6 +172,81 @@ function useFamilyPalette(): OrganicFamily[] {
  * every component-job, so the canvas always reads stage-1 → stage-2 →
  * components.
  */
+/**
+ * Canonical bootstrap-kit dependency graph from
+ * docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 (slots 01–48).
+ *
+ * Live job objects backed by the catalyst-api don't carry their
+ * upstream dependsOn array yet (the bridge surfaces flat status only),
+ * so we inject the canonical graph here so the organic layout's depth
+ * computation actually populates beyond zero.
+ *
+ * Keys + values use bare blueprint ids (no "install-" prefix, no
+ * deploymentId prefix). Resolution to live Job ids happens in
+ * useJobHints which scans `jobs` for matching jobName/appId/id suffix.
+ */
+const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = {
+  // Tier 0 foundation
+  cilium: [],
+  'cert-manager': ['cilium'],
+  flux: ['cert-manager'],
+  crossplane: ['flux'],
+  'sealed-secrets': ['cilium'],
+  'crossplane-claims': ['crossplane'],
+  // Tier 1 identity
+  spire: ['cert-manager'],
+  openbao: ['spire'],
+  keycloak: ['cert-manager', 'openbao'],
+  // Tier 2 git + bus
+  gitea: ['keycloak'],
+  'nats-jetstream': ['cert-manager'],
+  // Tier 3 DNS
+  powerdns: ['cert-manager'],
+  'external-dns': ['cert-manager', 'powerdns'],
+  // Tier 4 catalyst umbrella
+  'catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
+  'bp-catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
+  // Tier 5 storage / DB
+  'external-secrets': ['openbao', 'cert-manager'],
+  cnpg: ['flux'],
+  valkey: ['flux'],
+  seaweedfs: ['flux', 'cert-manager'],
+  harbor: ['cnpg', 'seaweedfs', 'cert-manager'],
+  // Tier 6 observability
+  opentelemetry: ['cert-manager'],
+  alloy: ['opentelemetry'],
+  loki: ['seaweedfs'],
+  mimir: ['seaweedfs'],
+  tempo: ['seaweedfs'],
+  grafana: ['cnpg', 'loki', 'mimir', 'tempo', 'keycloak'],
+  langfuse: ['cnpg', 'keycloak', 'cert-manager'],
+  // Tier 7 security/policy
+  kyverno: ['cilium'],
+  reloader: [],
+  vpa: [],
+  trivy: ['cert-manager'],
+  falco: ['cilium'],
+  sigstore: ['cert-manager'],
+  'syft-grype': ['cert-manager'],
+  velero: ['seaweedfs'],
+  // Tier 8 edge
+  coraza: ['cilium', 'cert-manager'],
+  stunner: ['cilium', 'cert-manager'],
+  // Tier 9 apps + AI
+  knative: ['cert-manager'],
+  kserve: ['knative'],
+  vllm: ['kserve'],
+  'llm-gateway': ['cnpg', 'keycloak'],
+  'anthropic-adapter': ['llm-gateway'],
+  bge: ['cnpg'],
+  'nemo-guardrails': ['llm-gateway', 'bge', 'cnpg'],
+  temporal: ['cnpg', 'cert-manager'],
+  openmeter: ['cnpg', 'nats-jetstream'],
+  livekit: ['stunner', 'cert-manager'],
+  matrix: ['cnpg', 'keycloak', 'cert-manager'],
+  librechat: ['llm-gateway', 'vllm', 'bge', 'keycloak'],
+}
+
 function useJobHints(args: {
   jobs: readonly Job[]
   applications: readonly ApplicationDescriptor[]
@@ -188,36 +263,53 @@ function useJobHints(args: {
     }
     const fallbackRegion = regions[0]?.id ?? FALLBACK_REGION_ID
 
-    // Compute per-app component-graph depth (longest path in
-    // dependencies). Independent components → depth 0; depends on
-    // depth-0 → depth 1; etc.
-    const depthCache = new Map<string, number>()
-    function depth(bareId: string, seen: Set<string> = new Set()): number {
-      if (depthCache.has(bareId)) return depthCache.get(bareId)!
-      if (seen.has(bareId)) return 0 // cycle defence
-      seen.add(bareId)
-      const app = appByBareId.get(bareId)
-      const deps = app?.dependencies ?? []
-      if (deps.length === 0) {
-        depthCache.set(bareId, 0)
-        return 0
+    // Build a bareName → liveJobId lookup so dep names resolve to
+    // whatever id the live backend uses (e.g. backend "<deploymentId>:install-cnpg").
+    const liveIdByBare = new Map<string, string>()
+    for (const j of jobs) {
+      // Try job.appId — it's the bare blueprint id ('bp-cnpg' or 'cnpg').
+      const bare = j.appId.startsWith('bp-') ? j.appId.slice(3) : j.appId
+      if (!liveIdByBare.has(bare)) liveIdByBare.set(bare, j.id)
+      // Also check jobName — backend uses 'install-<bare>'.
+      const m = j.jobName.match(/^install-(.+)$/)
+      if (m) {
+        const fromName = m[1]
+        if (!liveIdByBare.has(fromName)) liveIdByBare.set(fromName, j.id)
       }
-      const d = 1 + Math.max(0, ...deps.map((d) => depth(d, seen)))
-      depthCache.set(bareId, d)
-      return d
+      // Also check id suffix — some backends use 'install-<bare>::<region>'.
+      const idMatch = j.id.match(/install-([a-z0-9-]+)/)
+      if (idMatch) {
+        const fromId = idMatch[1]
+        if (!liveIdByBare.has(fromId)) liveIdByBare.set(fromId, j.id)
+      }
     }
 
-    // Resolve a Phase 0 / bootstrap-aware Job id from a bareId.
-    function jobIdForBare(bareId: string): string | null {
-      const app = appByBareId.get(bareId)
-      return app?.id ?? null
+    // For depth derivation, infer a bare id for any job by stripping
+    // the "install-" prefix and the deployment-prefix.
+    function bareIdOf(j: Job): string {
+      // Try jobName first
+      const m = j.jobName.match(/^install-(.+)$/)
+      if (m) return m[1]
+      const m2 = j.id.match(/install-([a-z0-9-]+)/)
+      if (m2) return m2[1]
+      const m3 = j.appId.startsWith('bp-') ? j.appId.slice(3) : j.appId
+      return m3
     }
 
-    // Find the cluster-bootstrap job id (it's emitted with id
-    // 'cluster-bootstrap' by deriveJobs).
-    const bootstrapJobId = jobs.find((j) => j.appId === 'cluster-bootstrap')?.id ?? null
-    // Phase 0 final stage — the tofu-output job kicks off everything
-    // downstream.
+    function bootstrapDepsFor(bare: string): string[] {
+      // First try the canonical table; resolve each dep to a live job id.
+      const canon = BOOTSTRAP_KIT_DEPS[bare] ?? []
+      const ids: string[] = []
+      for (const d of canon) {
+        const liveId = liveIdByBare.get(d)
+        if (liveId) ids.push(liveId)
+      }
+      return ids
+    }
+
+    // Cluster-bootstrap + infrastructure ids if present.
+    const bootstrapJobId =
+      jobs.find((j) => j.appId === 'cluster-bootstrap')?.id ?? null
     const phase0FinalJobId =
       jobs.find((j) => j.id === 'infrastructure:tofu-output')?.id ?? null
 
@@ -241,21 +333,25 @@ function useJobHints(args: {
       } else {
         const app = appById.get(j.appId)
         familyId = app?.familyId ?? 'platform'
-        // Inject component-level deps as extra layout edges so the
-        // organic depth assignment captures the dependency graph.
+        // First try app catalog dependencies.
         if (app) {
           for (const dep of app.dependencies ?? []) {
-            const depJobId = jobIdForBare(dep)
-            if (depJobId) extraDepIds.push(depJobId)
+            const depApp = appByBareId.get(dep)
+            if (depApp) extraDepIds.push(depApp.id)
+            const fromBare = liveIdByBare.get(dep)
+            if (fromBare) extraDepIds.push(fromBare)
           }
         }
-        // Every leaf component-job depends on cluster-bootstrap so the
-        // canvas reads "infra → bootstrap → components" left to right.
-        if (bootstrapJobId) extraDepIds.push(bootstrapJobId)
+        // Then inject canonical bootstrap-kit dependency graph.
+        const bare = bareIdOf(j)
+        for (const d of bootstrapDepsFor(bare)) extraDepIds.push(d)
+        // Anchor leaf jobs to cluster-bootstrap so even an isolated
+        // node still has SOME parent for depth ordering.
+        if (extraDepIds.length === 0 && bootstrapJobId) {
+          extraDepIds.push(bootstrapJobId)
+        }
       }
 
-      // depth() unused for organic — kept for cycle defence + cache warmup
-      void depth
       out.set(j.id, { regionId, familyId, extraDepIds })
     }
     return out
