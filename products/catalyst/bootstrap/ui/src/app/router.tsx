@@ -151,11 +151,61 @@ const provisionDashboardRoute = createRoute({
   component: Dashboard,
 })
 
-// Sovereign Infrastructure surface (issue #227) — Topology canvas is
-// the DEFAULT tab per founder spec ("the infrastructure page must be
-// opened by default with the topology page"). The shell renders
-// header + tabs and an <Outlet />; bare /infrastructure redirects to
-// the topology sub-route so the URL shape is always explicit.
+// Sovereign Cloud surface (issue #309 supersedes #227/#228) — the
+// previous "Infrastructure" section is renamed to "Cloud" and its
+// in-page tab strip is replaced by an accordion in the left sidebar
+// (see Sidebar.tsx). The shell renders header + an <Outlet />; bare
+// /cloud redirects to the architecture sub-route so the URL shape is
+// always explicit.
+//
+// The legacy /infrastructure/* routes below are preserved for now and
+// render the same components — a follow-up commit converts them to
+// 301-style redirects to the /cloud/* equivalents. Keeping both
+// resolvable in this initial commit keeps the diff additive.
+const provisionCloudRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/cloud',
+  component: InfrastructurePage,
+})
+
+const provisionCloudIndexRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/provision/$deploymentId/cloud/architecture',
+      params,
+    })
+  },
+})
+
+const provisionCloudArchitectureRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/architecture',
+  component: InfrastructureTopology,
+})
+
+const provisionCloudComputeRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/compute',
+  component: InfrastructureCompute,
+})
+
+const provisionCloudStorageRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/storage',
+  component: InfrastructureStorage,
+})
+
+const provisionCloudNetworkRoute = createRoute({
+  getParentRoute: () => provisionCloudRoute,
+  path: '/network',
+  component: InfrastructureNetwork,
+})
+
+// Legacy /infrastructure/* — preserved at this commit so deep links
+// and bookmarks don't 404 mid-rollout. A subsequent commit converts
+// these to redirects targeting the /cloud/* equivalents.
 const provisionInfrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/infrastructure',
@@ -258,6 +308,13 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
+  provisionCloudRoute.addChildren([
+    provisionCloudIndexRoute,
+    provisionCloudArchitectureRoute,
+    provisionCloudComputeRoute,
+    provisionCloudStorageRoute,
+    provisionCloudNetworkRoute,
+  ]),
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
     provisionInfrastructureTopologyRoute,
