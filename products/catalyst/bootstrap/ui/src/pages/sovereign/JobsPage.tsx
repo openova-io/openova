@@ -105,23 +105,8 @@ export function JobsPage({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            to="/provision/$deploymentId/flow"
-            params={{ deploymentId }}
-            search={{ scope: 'all' }}
-            className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-accent)]/45 bg-[var(--color-accent)]/10 px-3 py-1.5 text-xs font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 no-underline"
-            data-testid="sov-jobs-show-as-flow"
-            aria-label="Show jobs as flow canvas"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
-              <circle cx="3"  cy="7" r="1.6" />
-              <circle cx="11" cy="3" r="1.6" />
-              <circle cx="11" cy="11" r="1.6" />
-              <path d="M4.4 6.2 L9.6 3.6" strokeLinecap="round" />
-              <path d="M4.4 7.8 L9.6 10.4" strokeLinecap="round" />
-            </svg>
-            Show as Flow
-          </Link>
+          {/* "Show as Flow" link removed 2026-04-30 — flows live only
+              embedded inside per-job / per-batch detail pages. */}
           <Link
             to="/provision/$deploymentId"
             params={{ deploymentId }}

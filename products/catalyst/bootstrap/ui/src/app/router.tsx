@@ -22,7 +22,6 @@ import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
-import { FlowPage } from '@/pages/sovereign/FlowPage'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 import { InfrastructurePage } from '@/pages/sovereign/InfrastructurePage'
@@ -94,27 +93,10 @@ const provisionJobsRoute = createRoute({
   component: JobsPage,
 })
 
-// Per-deployment flow canvas — every job (or one batch) as bubbles in
-// a Sugiyama-laid DAG. Founder spec (this PR):
-//   • ?scope=all              → render every job in the deployment
-//   • ?scope=batch:<batchId>  → filter to a single batch
-//   • ?view=jobs|batches      → mode toggle (default = jobs)
-const provisionFlowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/provision/$deploymentId/flow',
-  component: FlowPage,
-  validateSearch: (raw: Record<string, unknown>): {
-    scope?: string
-    view?: 'jobs' | 'batches'
-  } => {
-    const out: { scope?: string; view?: 'jobs' | 'batches' } = {}
-    const scope = raw?.scope
-    if (typeof scope === 'string' && scope.length > 0) out.scope = scope
-    const view = raw?.view
-    if (view === 'jobs' || view === 'batches') out.view = view
-    return out
-  },
-})
+// NOTE: the standalone /provision/$deploymentId/flow route was removed
+// (operator directive 2026-04-30) — flows live only in context, not as
+// a generic page. The FlowPage component remains imported for use as
+// the embedded Flow tab inside JobDetail and BatchDetail.
 
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
 // registered BEFORE the dynamic $jobId route below so TanStack Router
@@ -254,7 +236,6 @@ const routeTree = rootRoute.addChildren([
   provisionRoute,
   provisionAppRoute,
   provisionJobsRoute,
-  provisionFlowRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,

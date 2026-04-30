@@ -356,14 +356,13 @@ function JobRow({ job, deploymentId }: JobRowProps) {
         )}
       </td>
       <td className="jobs-cell jobs-cell-batch">
-        {/* Batch chip → /flow?scope=batch:<id>. The previous shape
-            (BatchDetail page) was retired in the v3 routing model:
-            the founder rejected the per-batch progress detail surface
-            in favour of a per-batch slice of the flow canvas. */}
+        {/* Batch chip → BatchDetail (per-batch detail page).
+            2026-04-30: standalone /flow route removed; batch chip now
+            points back to the canonical batch-detail page where the
+            embedded flow canvas is scoped to that batch. */}
         <Link
-          to="/provision/$deploymentId/flow"
-          params={{ deploymentId }}
-          search={{ scope: `batch:${job.batchId}` }}
+          to="/provision/$deploymentId/batches/$batchId"
+          params={{ deploymentId, batchId: job.batchId }}
           className="jobs-chip jobs-chip-batch jobs-chip-link"
           data-testid={`jobs-cell-batch-${job.id}`}
           title={job.batchId}

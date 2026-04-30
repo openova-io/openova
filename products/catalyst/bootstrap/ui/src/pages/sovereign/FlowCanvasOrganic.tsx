@@ -87,8 +87,14 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
   },
 }
 
-const NODE_RADIUS = 30 // px
-const COLLIDE_PADDING = 6
+const NODE_RADIUS = 22 // px — slimmed from 30 to allow tighter packing
+const COLLIDE_PADDING = 14 // increased so bubbles always have breathing room
+// MIN viewBox dimensions cap the apparent bubble size: when there are
+// only a few bubbles in batch view, the auto-fit would otherwise scale
+// the SVG up so much that one bubble fills the screen ("elephant"). This
+// floor pins the minimum coordinate space the SVG fits to.
+const MIN_VBOX_W = 1200
+const MIN_VBOX_H = 700
 // VIEW_H still used as a fallback for empty-region geometry.
 const VIEW_H = 1100
 
@@ -228,7 +234,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'x',
         forceX<SimNode>()
           .x((d) => depthToX(d.depth))
-          .strength(0.32),
+          // Strong attractor → nodes converge close to their depth
+          // column → pipeline-like structure, with vertical scatter
+          // still allowed by the weak forceY.
+          .strength(0.55),
       )
       .force(
         'y',
@@ -321,10 +330,23 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
-  // Auto-fit viewBox: compute the bounding box of all simulated nodes
-  // each render, add padding for labels, use that as the SVG viewBox.
-  // This is the operator's "smart fill" requirement — 2 bubbles tightly
-  // zoomed, 35 bubbles wider zoomed, always ~85-95% canvas usage.
+  // When a bubble is open (single-clicked), compute its directly
+  // connected neighbors so we can highlight the connection paths.
+  // Operator: "selected job should have a unique color, neighbors and
+  // connected lines should change color too."
+  const neighborIds = new Set<string>()
+  if (openJobId) {
+    for (const e of layout.edges) {
+      if (e.fromId === openJobId) neighborIds.add(e.toId)
+      else if (e.toId === openJobId) neighborIds.add(e.fromId)
+    }
+  }
+
+  // Auto-fit viewBox: compute the bounding box of all simulated nodes,
+  // add padding, but ENFORCE A MIN viewBox SIZE so single-bubble or
+  // few-bubble cases don't scale up to elephant-size. Operator: "the
+  // bubble should have max size" — capped here via the MIN_VBOX_W/H
+  // floor.
   let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity
   for (const p of livePos.values()) {
     if (p.x < bbMinX) bbMinX = p.x
@@ -332,14 +354,18 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     if (p.x > bbMaxX) bbMaxX = p.x
     if (p.y > bbMaxY) bbMaxY = p.y
   }
-  // Padding accounts for: bubble radius + label below + a bit of breathing room.
   const PAD_X = NODE_RADIUS + 30
   const PAD_Y_TOP = NODE_RADIUS + 12
   const PAD_Y_BOTTOM = NODE_RADIUS + 40 // extra for the text label below
-  const vbX = (Number.isFinite(bbMinX) ? bbMinX : 0) - PAD_X
-  const vbY = (Number.isFinite(bbMinY) ? bbMinY : 0) - PAD_Y_TOP
-  const vbW = Math.max(NODE_RADIUS * 4, (bbMaxX - bbMinX) + PAD_X * 2)
-  const vbH = Math.max(NODE_RADIUS * 4, (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM)
+  const naturalW = (bbMaxX - bbMinX) + PAD_X * 2
+  const naturalH = (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM
+  const vbW = Math.max(MIN_VBOX_W, naturalW)
+  const vbH = Math.max(MIN_VBOX_H, naturalH)
+  // Center bbox within the (possibly larger) viewBox.
+  const cx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
+  const cy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
+  const vbX = cx - vbW / 2
+  const vbY = cy - vbH / 2
 
   return (
     <svg
@@ -372,6 +398,17 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             <path d="M0,1 L9,5 L0,9 Z" fill={STATUS_TONE[s].arrow} opacity="0.92" />
           </marker>
         ))}
+        <marker
+          id="flow-org-arrow-highlight"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0,1 L9,5 L0,9 Z" fill="#FBBF24" opacity="1" />
+        </marker>
       </defs>
 
       {/* Edges first so nodes sit on top */}
@@ -379,12 +416,16 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         const s = livePos.get(e.fromId)
         const t = livePos.get(e.toId)
         if (!s || !t) return null
+        const onSelectionPath =
+          openJobId !== null &&
+          (e.fromId === openJobId || e.toId === openJobId)
         return (
           <FlowEdge
             key={`${e.fromId}-${e.toId}`}
             from={s}
             to={t}
             status={e.fromStatus}
+            highlighted={onSelectionPath}
           />
         )
       })}
@@ -394,6 +435,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         const pos = livePos.get(node.id)
         if (!pos) return null
         const family = familyById.get(node.familyId) ?? null
+        const isNeighbor = neighborIds.has(node.id)
         return (
           <FlowNode
             key={node.id}
@@ -403,6 +445,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             family={family}
             isOpen={openJobId === node.id}
             isHighlighted={highlightJobId === node.id}
+            isNeighbor={isNeighbor}
+            isDimmed={openJobId !== null && !isNeighbor && openJobId !== node.id}
             onClick={(e) => onJobClick(node.id, e)}
             onDoubleClick={() => onJobDoubleClick(node.id)}
           />
@@ -418,30 +462,38 @@ function FlowEdge({
   from,
   to,
   status,
+  highlighted = false,
 }: {
   from: { x: number; y: number }
   to: { x: number; y: number }
   status: JobStatus
+  highlighted?: boolean
 }) {
   const tone = STATUS_TONE[status]
   const dx = to.x - from.x
   const dy = to.y - from.y
   const len = Math.hypot(dx, dy) || 1
-  const trim = NODE_RADIUS + 6 // arrow-head clearance
+  const trim = NODE_RADIUS + 6
   const fx = from.x + (dx / len) * NODE_RADIUS
   const fy = from.y + (dy / len) * NODE_RADIUS
   const tx = to.x - (dx / len) * trim
   const ty = to.y - (dy / len) * trim
+  // Highlight tone: amber-ish, distinct from any status colour, so the
+  // selection path stands out regardless of underlying job status.
+  const stroke = highlighted ? '#FBBF24' : tone.edge
+  const opacity = highlighted ? 1 : 0.7
+  const width = highlighted ? 2.6 : 1.4
+  const marker = highlighted ? 'flow-org-arrow-highlight' : `flow-org-arrow-${status}`
   return (
     <line
       x1={fx.toFixed(1)}
       y1={fy.toFixed(1)}
       x2={tx.toFixed(1)}
       y2={ty.toFixed(1)}
-      stroke={tone.edge}
-      strokeWidth={1.6}
-      markerEnd={`url(#flow-org-arrow-${status})`}
-      opacity={0.85}
+      stroke={stroke}
+      strokeWidth={width}
+      markerEnd={`url(#${marker})`}
+      opacity={opacity}
     />
   )
 }
@@ -455,9 +507,16 @@ interface FlowNodeProps {
   family: OrganicFamily | null
   isOpen: boolean
   isHighlighted: boolean
+  isNeighbor: boolean
+  isDimmed: boolean
   onClick: (e: ReactMouseEvent<SVGGElement>) => void
   onDoubleClick: () => void
 }
+
+// Selection palette — distinct from any status colour so the
+// selected/neighbor states always read clearly.
+const SELECTION_RING = '#FBBF24'      // amber
+const NEIGHBOR_RING = '#FCD34D'       // lighter amber
 
 function FlowNode({
   node,
@@ -466,13 +525,17 @@ function FlowNode({
   family,
   isOpen,
   isHighlighted,
+  isNeighbor,
+  isDimmed,
   onClick,
   onDoubleClick,
 }: FlowNodeProps) {
   const tone = STATUS_TONE[node.status]
-  const ringColor = tone.ring
+  // Override the outer status ring with the selection/neighbor tint.
+  const outerRing = isOpen ? SELECTION_RING : isNeighbor ? NEIGHBOR_RING : tone.ring
   const familyColor = family?.color ?? 'rgba(148,163,184,0.55)'
   const grpStyle: CSSProperties = { cursor: 'grab' }
+  const groupOpacity = isDimmed ? 0.35 : 1
 
   return (
     <g
@@ -484,37 +547,44 @@ function FlowNode({
       data-family={node.familyId}
       data-open={isOpen ? 'true' : 'false'}
       data-highlighted={isHighlighted ? 'true' : 'false'}
+      data-neighbor={isNeighbor ? 'true' : 'false'}
+      data-dimmed={isDimmed ? 'true' : 'false'}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       style={grpStyle}
       transform={`translate(${x.toFixed(1)}, ${y.toFixed(1)})`}
+      opacity={groupOpacity}
     >
       <title>{`${node.label} — ${tone.label}${node.subLabel ? ` · ${node.subLabel}` : ''}`}</title>
-      {/* Glow underlay for active states */}
-      {(node.status === 'running' || node.status === 'failed' || isOpen || isHighlighted) ? (
+      {/* Glow underlay — strongest on selection */}
+      {isOpen ? (
+        <circle r={NODE_RADIUS + 10} fill="rgba(251,191,36,0.30)" />
+      ) : isNeighbor ? (
+        <circle r={NODE_RADIUS + 8} fill="rgba(252,211,77,0.18)" />
+      ) : (node.status === 'running' || node.status === 'failed' || isHighlighted) ? (
         <circle r={NODE_RADIUS + 8} fill={tone.glow} />
       ) : null}
-      {/* Family-coloured outer ring (thin) */}
+      {/* Family-coloured ring (thin) */}
       <circle
         r={NODE_RADIUS + 2}
         fill="none"
         stroke={familyColor}
-        strokeWidth={isHighlighted ? 2.5 : 1.2}
+        strokeWidth={isHighlighted ? 2.5 : 1}
         opacity={0.55}
       />
-      {/* Status ring */}
+      {/* Status fill (kept) + selection/neighbor ring overlay */}
       <circle
         r={NODE_RADIUS}
         fill={tone.fill}
-        stroke={ringColor}
-        strokeWidth={isOpen ? 3 : 2}
+        stroke={outerRing}
+        strokeWidth={isOpen ? 4 : isNeighbor ? 3 : 2}
       />
       {/* Status glyph */}
       <text
         x={0}
         y={6}
         textAnchor="middle"
-        fontSize={22}
+        fontSize={18}
         fontWeight={700}
         fill={tone.glyph}
         fontFamily="ui-sans-serif, system-ui, sans-serif"
@@ -525,9 +595,9 @@ function FlowNode({
       {/* Label below bubble */}
       <text
         x={0}
-        y={NODE_RADIUS + 18}
+        y={NODE_RADIUS + 14}
         textAnchor="middle"
-        fontSize={11}
+        fontSize={10}
         fill="rgba(255,255,255,0.85)"
         fontFamily="var(--font-mono, ui-monospace, monospace)"
         pointerEvents="none"
@@ -538,9 +608,9 @@ function FlowNode({
       {node.subLabel ? (
         <text
           x={0}
-          y={NODE_RADIUS + 32}
+          y={NODE_RADIUS + 26}
           textAnchor="middle"
-          fontSize={9}
+          fontSize={8}
           fill="rgba(255,255,255,0.45)"
           fontFamily="var(--font-mono, ui-monospace, monospace)"
           pointerEvents="none"
