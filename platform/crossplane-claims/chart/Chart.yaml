@@ -1,0 +1,35 @@
+apiVersion: v2
+name: bp-crossplane-claims
+version: 1.0.0
+description: |
+  Catalyst Crossplane XRDs + Compositions Blueprint. Carries ONLY the
+  apiextensions.crossplane.io/v1 CompositeResourceDefinition and
+  Composition CRs that define the compose.openova.io/v1alpha1 day-2 CRUD
+  family (XClusterClaim, XRegionClaim, XNodePoolClaim, XLoadBalancerClaim,
+  XPeeringClaim, XNodeActionClaim).
+
+  This chart was split out of bp-crossplane to resolve the intra-chart
+  CRD-ordering bind: a single Helm release cannot install a CRD AND a CR
+  of that CRD's kind in the same apply pass — the apiserver rejects the
+  CR because the CRD is not yet registered. The upstream crossplane
+  subchart (in bp-crossplane) registers the apiextensions.crossplane.io
+  CRDs; this chart depends on bp-crossplane being Ready (via Flux
+  HelmRelease `dependsOn`) before its templates are applied.
+
+  Pattern locked in by docs/INVIOLABLE-PRINCIPLES.md and reinforced by
+  the founder for ALL similar future cases: intra-chart CRD-ordering
+  breaks → split into two charts + Flux dependsOn.
+type: application
+keywords: [catalyst, blueprint, crossplane, claims, xrds, compositions]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# This chart legitimately ships NO upstream subchart — its entire payload
+# is Catalyst-authored XRDs + Compositions. The blueprint-release CI
+# guard (hollow-chart check, issue #181) reads this annotation and skips
+# the "MUST declare dependencies" rule for charts marked here. The check
+# remains in force for every other umbrella chart. See
+# .github/workflows/blueprint-release.yaml GUARD 1.
+annotations:
+  catalyst.openova.io/no-upstream: "true"

@@ -1,14 +1,20 @@
 apiVersion: v2
 name: bp-crossplane
-version: 1.1.2
+version: 1.1.3
 description: |
-  Catalyst-curated Blueprint umbrella chart for Crossplane. Depends on the
-  upstream `crossplane` chart as a Helm subchart so `helm dependency build`
-  pulls the upstream payload into this artifact; the Catalyst overlay
-  templates in templates/ (NetworkPolicy, ExternalSecret, ServiceMonitor)
-  sit alongside the upstream subchart and Helm renders both at install
-  time. Catalyst-curated values flow into the upstream subchart under the
-  `crossplane:` key in values.yaml.
+  Catalyst-curated Blueprint umbrella chart for Crossplane (controller-
+  only payload). Depends on the upstream `crossplane` chart as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into
+  this artifact; this chart no longer ships any Catalyst overlay
+  templates of its own — the compose.openova.io/v1alpha1 XRDs + default
+  Compositions moved to the sibling Blueprint `bp-crossplane-claims` so
+  Flux HelmRelease `dependsOn` can order CRD installation before CR
+  application. (Split landed at v1.1.3; v1.1.2 shipped both in one
+  release and broke first-install on every Sovereign with
+  `no matches for kind "CompositeResourceDefinition" in version
+  "apiextensions.crossplane.io/v1"`.) Catalyst-curated values flow
+  into the upstream subchart under the `crossplane:` key in
+  values.yaml.
 type: application
 keywords: [catalyst, blueprint, crossplane]
 maintainers:
