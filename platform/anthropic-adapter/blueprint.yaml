@@ -1,0 +1,89 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-anthropic-adapter
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-6-llm-serving
+spec:
+  version: 1.0.0
+  card:
+    title: Anthropic Adapter
+    summary: |
+      OpenAI ↔ Anthropic translation layer. Single Catalyst-authored Go
+      service that translates `/v1/chat/completions` (OpenAI) ↔
+      Anthropic `/v1/messages`, including streaming SSE. Pairs with
+      bp-llm-gateway so OpenAI-SDK clients can target Claude transparently.
+    icon: anthropic-adapter.svg
+    category: ai-runtime
+    tags: [llm, anthropic, claude, openai, adapter, proxy]
+    documentation: https://docs.anthropic.com/en/api/messages
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 16
+      anthropic:
+        type: object
+        properties:
+          baseUrl:
+            type: string
+            default: "https://api.anthropic.com"
+            description: |
+              Upstream Anthropic API base URL. Air-gapped Sovereigns
+              override to a regional egress proxy; cluster-internal
+              routing via bp-llm-gateway sets this to the in-cluster
+              gateway endpoint.
+          authMode:
+            type: string
+            enum: [oauth, subscription]
+            default: oauth
+            description: |
+              `oauth` = use the operator's Claude OAuth/Max
+              subscription token (NEVER an ANTHROPIC_API_KEY). The
+              token is mounted from the K8s Secret declared under
+              `auth.secretName`. `subscription` is reserved for future
+              tier-based routing — same secret, different validation.
+      auth:
+        type: object
+        properties:
+          secretName:
+            type: string
+            default: bp-anthropic-adapter-oauth
+            description: |
+              K8s Secret materialized by ESO from bp-openbao that
+              carries the operator's Claude OAuth/Max token under the
+              key `oauth_token`. NEVER commit a plaintext API key.
+      defaults:
+        type: object
+        properties:
+          model:
+            type: string
+            default: "claude-3-5-sonnet-20241022"
+            description: Default Anthropic model when the OpenAI request omits `model`.
+          maxTokens:
+            type: integer
+            default: 4096
+            description: Default Anthropic `max_tokens` when the OpenAI request omits it.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-external-secrets
+      version: ^1.0
+      alias: eso
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

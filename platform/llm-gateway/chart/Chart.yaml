@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-llm-gateway
+version: 1.0.0
+appVersion: "v1.57.2"
+description: |
+  Catalyst-curated Blueprint umbrella chart for the LLM Gateway —
+  subscription-aware proxy that fronts Anthropic (via operator OAuth/Max
+  subscription, NEVER API keys), Bedrock, Vertex, OpenAI-compatible
+  backends (via bp-anthropic-adapter), and self-hosted vLLM. Wraps the
+  upstream `litellm-helm` chart at oci://ghcr.io/berriai/litellm-helm
+  as a Helm subchart so `helm dependency build` bundles the upstream
+  payload into this artifact; the Catalyst overlay templates
+  (CNPG audit-log Cluster, Keycloak OIDC ConfigMap, NetworkPolicy guard,
+  ServiceMonitor toggle) sit alongside the upstream subchart and Helm
+  renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `litellm-helm:` key in values.yaml.
+type: application
+keywords: [catalyst, blueprint, llm, litellm, gateway, proxy, anthropic, claude, openai, bedrock, vertex]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to litellm-helm 0.1.572
+# (matches platform/llm-gateway/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: litellm-helm
+    version: "0.1.572"
+    repository: "oci://ghcr.io/berriai"

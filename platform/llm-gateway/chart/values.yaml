@@ -1,0 +1,242 @@
+# Catalyst Blueprint umbrella metadata — the upstream `litellm-helm` chart
+# is resolved as a Helm subchart via Chart.yaml `dependencies:`. This
+# values file carries:
+#
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `litellm-helm:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#   3. Catalyst overlay knobs for CNPG-backed audit log, Keycloak SSO,
+#      backend wiring (Anthropic via OAuth/Max — NEVER API keys —,
+#      Bedrock, Vertex, vLLM, anthropic-adapter), and NetworkPolicy.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operator-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream: { chart: litellm-helm, version: "0.1.572", repo: "oci://ghcr.io/berriai" }
+
+# ─── Upstream chart values (subchart key: litellm-helm) ───────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `litellm-helm:` key flow into that subchart unchanged.
+litellm-helm:
+  # Replicas — single replica is fine for solo Sovereigns; cluster overlays
+  # bump to 2-3 for HA on multi-node host clusters.
+  replicaCount: 1
+
+  # LiteLLM image — pin to a stable digest. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 (never hardcode) the tag is operator-bumpable via per-cluster
+  # overlay. We default to the upstream-published `main-stable` tag (which
+  # the chart's appVersion field also tracks).
+  #
+  # NOTE: the chart's default `litellm-database` image bundles a Prisma
+  # migration runner; we keep it because the upstream chart's migration
+  # Job assumes it. Operators on air-gapped Sovereigns mirror the image
+  # to harbor.<location-code>.<sovereign-domain> and override `repository`.
+  image:
+    repository: ghcr.io/berriai/litellm-database
+    pullPolicy: IfNotPresent
+    tag: ""   # empty = chart appVersion (v1.57.2)
+
+  # ServiceAccount — created by the chart so ESO Generators (e.g.
+  # KubernetesAuth-backed pulls from bp-openbao) can grant short-lived
+  # credentials.
+  serviceAccount:
+    create: true
+    automount: true
+
+  # The LiteLLM proxy listens on port 4000 internally; we expose a
+  # ClusterIP Service. Catalyst fronts the public surface via Cilium
+  # Gateway / HTTPRoute, not chart-rendered Ingress.
+  service:
+    type: ClusterIP
+    port: 4000
+
+  ingress:
+    enabled: false
+
+  # ─── Backend / model configuration ────────────────────────────────────
+  # `proxy_config` is rendered by the upstream chart into the LiteLLM
+  # proxy's config.yaml. The model_list below is the SHIPPED DEFAULT —
+  # operators override per Sovereign via per-cluster values overlay to
+  # add Claude / Bedrock / Vertex / vLLM endpoints. We default to a
+  # single, intentionally-broken `unconfigured-llm` entry so the
+  # gateway starts cleanly on a fresh Sovereign and emits a clear
+  # error when called without operator wiring.
+  proxy_config:
+    model_list:
+      - model_name: unconfigured-llm
+        litellm_params:
+          model: openai/unconfigured
+          api_key: "operator-must-override-via-overlay"
+          api_base: "http://anthropic-adapter.ai-runtime.svc.cluster.local:8000/v1"
+    general_settings:
+      # `master_key` is the LiteLLM proxy's bootstrap admin key, sourced
+      # from the K8s Secret `bp-llm-gateway-bootstrap` (rendered out-of-
+      # band by ESO from bp-openbao). DO NOT inline a plaintext key.
+      master_key: os.environ/PROXY_MASTER_KEY
+      # `database_url` is read from the env wired through environmentSecrets;
+      # the upstream chart renders Prisma migrations against this URL.
+
+  # Audit-log database — wired to the CNPG Cluster rendered by
+  # templates/cnpg-cluster.yaml below. The chart accepts a `db.useExisting`
+  # flag that points at an external Postgres; we set it true so the chart
+  # does NOT spin up the bundled bitnami postgresql subchart (which would
+  # collide with bp-cnpg's CNPG operator).
+  db:
+    useExisting: true
+    endpoint: "bp-llm-gateway-audit-rw"
+    database: litellm_audit
+    url: "postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST):5432/$(DATABASE_NAME)"
+    secret:
+      name: bp-llm-gateway-audit-app
+      usernameKey: username
+      passwordKey: password
+    # Both bundled-DB modes OFF — Catalyst manages persistence via bp-cnpg.
+    deployStandalone: false
+    useStackgresOperator: false
+
+  # Disable the bundled bitnami postgresql subchart explicitly (chart
+  # re-evaluates this even when db.deployStandalone=false).
+  postgresql:
+    architecture: standalone
+    auth:
+      username: litellm
+      database: litellm
+      # Required by chart schema even when subchart is gated off (chart
+      # condition: db.deployStandalone). Empty defaults are intentional.
+      password: ""
+      postgres-password: ""
+
+  # Bundled redis subchart — DISABLED. LiteLLM's request-cache feature
+  # is operator-opt-in via per-cluster overlay; when enabled, point
+  # `redis.host` at the cluster-wide bp-valkey Service (slot 17).
+  redis:
+    enabled: false
+
+  # Migration Job (Prisma schema) — leave ENABLED; the Job runs once
+  # post-install to set up the audit DB tables.
+  migrationJob:
+    enabled: true
+    retries: 3
+    backoffLimit: 4
+
+  # `environmentSecrets` exports keys from a K8s Secret as env vars to
+  # the LiteLLM pod. The Secret name below is rendered by ESO via
+  # bp-openbao (cluster overlays declare an ExternalSecret that
+  # materializes `bp-llm-gateway-env` with the right keys). This is how
+  # the operator's Claude OAuth token / Bedrock IAM creds / etc reach
+  # the proxy — never inlined as plaintext.
+  environmentSecrets:
+    - bp-llm-gateway-env
+
+  # Resources — solo-Sovereign minimum.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  # HorizontalPodAutoscaler — DEFAULT FALSE. Operator opts in via
+  # per-cluster overlay once steady-state traffic warrants scaling.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 80
+
+# ─── Catalyst overlay ────────────────────────────────────────────────────
+catalystOverlay:
+  # ─── CNPG-backed audit log database ──────────────────────────────────
+  # Every prompt + response routed through the gateway is persisted to
+  # this Postgres for compliance / tenant attribution. The Cluster CR is
+  # reconciled by the cluster-wide CloudNativePG operator (bp-cnpg).
+  cnpg:
+    enabled: true
+    instances: 1
+    storage:
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # CNPG-managed Postgres image; per-cluster overlay bumps in lockstep
+    # with bp-cnpg.
+    imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
+
+  # ─── Keycloak OIDC integration ───────────────────────────────────────
+  # LiteLLM proxy supports JWT verification via its `general_settings.
+  # ui_access_mode` + `enforce_user_role` knobs. Catalyst renders an
+  # auth ConfigMap that the operator can mount via litellm-helm's
+  # `volumes:` + `volumeMounts:` overlay once bp-keycloak is reconciled.
+  #
+  # DEFAULT FALSE — operator opts in once bp-keycloak is reconciled and
+  # an `llm-gateway` client/realm exists. Disabled-by-default keeps the
+  # chart installable on a fresh Sovereign before the IDP tier is up.
+  auth:
+    enabled: false
+    mode: keycloak    # keycloak | masterKey | hybrid
+    keycloak:
+      issuer: ""        # https://keycloak.<env>.<sovereign-domain>/realms/<realm>
+      jwksUri: ""       # https://keycloak.<env>.<sovereign-domain>/realms/<realm>/protocol/openid-connect/certs
+      audience: "llm-gateway"
+      clientId: "llm-gateway"
+
+  # ─── Backend wiring ──────────────────────────────────────────────────
+  # All four backends are operator-opt-in. The default model_list above
+  # ships an `unconfigured-llm` placeholder — operators MUST author a
+  # per-Sovereign overlay that adds the backends they want to expose.
+  #
+  # CRITICAL — Anthropic backend uses the operator's OAuth/Max
+  # subscription credential, NOT an ANTHROPIC_API_KEY. The token is
+  # rendered into bp-llm-gateway-env (ExternalSecret-backed) under the
+  # key `ANTHROPIC_OAUTH_TOKEN` and consumed via
+  # `os.environ/ANTHROPIC_OAUTH_TOKEN` in the model_list overlay. See
+  # memory feedback_no_api_key.md and the README's "Authentication" section.
+  backends:
+    anthropic:
+      enabled: false
+    bedrock:
+      enabled: false
+    vertex:
+      enabled: false
+    vllm:
+      enabled: false
+      # Service FQDN of bp-vllm in the ai-runtime namespace.
+      endpoint: "http://bp-vllm.ai-runtime.svc.cluster.local:8000/v1"
+    anthropicAdapter:
+      enabled: false
+      endpoint: "http://bp-anthropic-adapter.ai-runtime.svc.cluster.local:8000/v1"
+
+  # ─── NetworkPolicy ───────────────────────────────────────────────────
+  # DEFAULT FALSE — flip via per-cluster overlay once a baseline
+  # NetworkPolicy posture is decided for the Sovereign.
+  networkPolicy:
+    enabled: false
+    # Caller namespaces that are allowed to invoke the gateway. Defaults
+    # to ai-runtime (where bp-vllm + bp-anthropic-adapter live) and the
+    # Catalyst app-tier namespace.
+    allowedCallerNamespaces:
+      - ai-runtime
+      - catalyst-apps
+
+  # ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+  # The Catalyst overlay ships a ServiceMonitor that scrapes the
+  # LiteLLM /metrics endpoint. The `monitoring.coreos.com/v1` CRD ships
+  # with kube-prometheus-stack — an Application Blueprint that depends
+  # on the bootstrap-kit. Default OFF so a fresh Sovereign installs
+  # cleanly; operator opts in via per-cluster overlay once
+  # kube-prometheus-stack is reconciled (issue #182).
+  serviceMonitor:
+    enabled: false
+    interval: "30s"
+    scrapeTimeout: "10s"
+    path: "/metrics"
+    labels: {}

@@ -1,0 +1,85 @@
+{{- /*
+NetworkPolicy — locks the LiteLLM proxy down to the minimum set required
+for inbound from app-tier callers + outbound to backend LLM providers.
+
+Ingress: per-cluster overlay enumerates `allowedCallerNamespaces`. The
+default values list (ai-runtime, catalyst-apps) is a sensible solo-
+Sovereign starting point.
+
+Egress: cluster DNS (always); HTTPS to upstream LLM providers
+(api.anthropic.com / Bedrock regional endpoints / Vertex regional
+endpoints / openai.com) when the corresponding backend toggle is true.
+Air-gapped Sovereigns serve only the in-cluster vLLM + anthropic-adapter
+backends and leave every external toggle false.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable. Disabled by default (cluster overlays MAY enable in target
+state).
+*/}}
+{{- if .Values.catalystOverlay.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-llm-gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-llm-gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-llm-gateway.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- range .Values.catalystOverlay.networkPolicy.allowedCallerNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 4000
+    {{- end }}
+    # Prometheus scraping
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 4000
+  egress:
+    # Cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # CNPG audit-log Postgres
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: bp-llm-gateway-audit
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if or .Values.catalystOverlay.backends.anthropic.enabled .Values.catalystOverlay.backends.bedrock.enabled .Values.catalystOverlay.backends.vertex.enabled }}
+    # Egress to upstream LLM provider APIs (HTTPS only)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+{{- end }}

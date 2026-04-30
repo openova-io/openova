@@ -1,0 +1,168 @@
+# Catalyst Blueprint scratch chart for bp-anthropic-adapter — no upstream
+# Helm chart exists (the adapter is Catalyst-authored). All values
+# consumed by templates/ in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value (image tag, model defaults, auth secret
+# name, anthropic base URL) is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: ""               # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      adapter: "ghcr.io/openova-io/openova/anthropic-adapter"
+
+# ─── Anthropic Adapter Go service ────────────────────────────────────────
+adapter:
+  enabled: true
+
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump
+  # for HA on multi-tenant Sovereigns.
+  replicas: 1
+
+  # Catalyst-built image. The `tag` field is SHA-pinned (not :latest)
+  # per Inviolable Principle #4a (Images: GitHub Actions is the only
+  # build path). Per-cluster overlays bump the tag in lockstep with the
+  # CI run that produces the new image; bp-anthropic-adapter Blueprint
+  # release version bumps when the chart's appVersion changes.
+  image:
+    repository: ghcr.io/openova-io/openova/anthropic-adapter
+    # Empty default — the per-cluster overlay MUST pin a SHA. Leaving
+    # this blank intentionally fails Helm render with a clear error
+    # rather than silently shipping :latest.
+    tag: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  # Container port — Catalyst convention for adapter services is 8000.
+  port: 8000
+
+  # ─── Upstream Anthropic API ──────────────────────────────────────────
+  # The adapter forwards translated requests to api.anthropic.com.
+  # Air-gapped Sovereigns override to a regional egress proxy.
+  anthropic:
+    baseUrl: "https://api.anthropic.com"
+    apiVersion: "2023-06-01"
+
+  # ─── Authentication — OAuth/Max subscription token ───────────────────
+  # CRITICAL — per memory/feedback_no_api_key.md and the user's
+  # standing instruction, the adapter NEVER uses an ANTHROPIC_API_KEY.
+  # The Claude OAuth/Max subscription token is mounted from a K8s
+  # Secret materialized by ESO from bp-openbao. The Secret carries the
+  # token under the key `oauth_token`.
+  #
+  # The Catalyst control-plane provisions the token rotation; per-
+  # Sovereign overlays NEVER inline a plaintext token here.
+  auth:
+    secretName: bp-anthropic-adapter-oauth
+    secretKey: oauth_token
+    # Reserved for future tier-based validation. Today the adapter
+    # always uses the OAuth bearer mechanism.
+    mode: oauth
+
+  # ─── Defaults applied when the OpenAI request omits these ────────────
+  defaults:
+    model: "claude-3-5-sonnet-20241022"
+    maxTokens: 4096
+    temperature: 1.0
+
+  # Resources — solo-Sovereign minimum. The adapter is a streaming
+  # proxy; CPU is the dominant cost (TLS to Anthropic + JSON
+  # marshal/unmarshal). Per-Sovereign overlays bump for high-throughput
+  # tenants.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  # SecurityContext — non-root. The Catalyst-built scratch image runs
+  # as UID 65534 (nobody), per the Catalyst Go-service template.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness + readiness — the adapter exposes /healthz on the API port.
+  probes:
+    liveness:
+      path: /healthz
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+    readiness:
+      path: /readyz
+      initialDelaySeconds: 2
+      periodSeconds: 10
+      timeoutSeconds: 5
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+  annotations: {}
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── ConfigMap (model mapping + adapter config overrides) ────────────────
+# OpenAI model names → Anthropic model names. Per-Sovereign overlays
+# extend the map.
+configMap:
+  enabled: true
+  modelMap:
+    gpt-4: "claude-3-5-sonnet-20241022"
+    gpt-4-turbo: "claude-3-5-sonnet-20241022"
+    gpt-4o: "claude-3-5-sonnet-20241022"
+    gpt-4o-mini: "claude-3-5-haiku-20241022"
+    gpt-3.5-turbo: "claude-3-5-haiku-20241022"
+  extraConfig: {}
+
+# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+# Adapter exposes Prometheus metrics on the API port at /metrics. The
+# `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack — a
+# downstream Application Blueprint that depends on the bootstrap-kit.
+# Defaulting `enabled: true` would render a ServiceMonitor that the
+# apiserver rejects on a fresh Sovereign install.
+#
+# Operator opts in via per-cluster overlay once kube-prometheus-stack
+# reconciles (issue #182).
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── NetworkPolicy (egress to Anthropic, ingress from gateway) ───────────
+networkPolicy:
+  enabled: false
+  # Namespace where bp-llm-gateway runs. Per-Sovereign overlays override
+  # if the gateway lives elsewhere.
+  llmGatewayNamespace: "ai-runtime"
+  # Allow egress to api.anthropic.com (HTTPS / TCP 443). Disable on
+  # air-gapped Sovereigns where the adapter only fronts in-cluster vLLM.
+  allowAnthropicEgress: true
+
+# ─── HorizontalPodAutoscaler — DEFAULT FALSE ─────────────────────────────
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80

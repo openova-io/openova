@@ -1,0 +1,39 @@
+{{- /*
+ServiceMonitor — Catalyst overlay.
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+toggles must default false). The `monitoring.coreos.com/v1` CRD ships
+with kube-prometheus-stack — a downstream Application Blueprint that
+itself depends on the bootstrap-kit; defaulting `enabled: true` here
+would render a ServiceMonitor that the apiserver immediately rejects on
+a fresh Sovereign install.
+
+Defense in depth: the values toggle (.Values.catalystOverlay.serviceMonitor.enabled)
+is the operator switch; the Capabilities gate skips the resource entirely
+on a Sovereign that has not yet reconciled the CRD, so flipping the
+toggle on a too-early Sovereign cannot break the bp-llm-gateway reconcile.
+*/}}
+{{- if and .Values.catalystOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "bp-llm-gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-llm-gateway.labels" . | nindent 4 }}
+    {{- with .Values.catalystOverlay.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "bp-llm-gateway.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: {{ .Values.catalystOverlay.serviceMonitor.path | quote }}
+      interval: {{ .Values.catalystOverlay.serviceMonitor.interval | quote }}
+      scrapeTimeout: {{ .Values.catalystOverlay.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

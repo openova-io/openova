@@ -1,0 +1,19 @@
+{{- if and .Values.adapter.enabled .Values.configMap.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-anthropic-adapter.fullname" . }}-config
+  labels:
+    {{- include "bp-anthropic-adapter.labels" . | nindent 4 }}
+data:
+  # OpenAI model name → Anthropic model name. The adapter Go service
+  # reads this map at startup (env MODEL_MAP_PATH points here) and uses
+  # it to route incoming `/v1/chat/completions` calls. Per-Sovereign
+  # overlays extend the map without rebuilding the Blueprint.
+  model-map.json: |
+    {{- toJson .Values.configMap.modelMap | nindent 4 }}
+  {{- if .Values.configMap.extraConfig }}
+  extra-config.yaml: |
+{{ toYaml .Values.configMap.extraConfig | indent 4 }}
+  {{- end }}
+{{- end }}

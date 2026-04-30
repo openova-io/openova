@@ -1,0 +1,36 @@
+{{- /*
+Catalyst overlay: Keycloak OIDC integration for Temporal.
+
+Temporal supports OIDC authentication via the `--auth-claim-mapper` flag and
+a JWT key provider configured against the Keycloak realm's JWKS endpoint.
+This ConfigMap renders the auth.yaml fragment that the upstream chart
+includes when an operator opts in (bp-keycloak must be reconciled and a
+realm/client must exist first).
+
+DEFAULT OFF (`catalystOverlay.auth.enabled: false`) — operator opt-in once
+bp-keycloak is reconciled. Keeping it off by default keeps the chart
+installable on a fresh Sovereign before the IDP tier is up
+(docs/BLUEPRINT-AUTHORING.md §11.2 spirit — every cross-tier dependency
+defaults off).
+*/ -}}
+{{- if .Values.catalystOverlay.auth.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-temporal-keycloak-oidc
+  labels:
+    {{- include "bp-temporal.labels" . | nindent 4 }}
+data:
+  auth.yaml: |
+    global:
+      authorization:
+        jwtKeyProvider:
+          keySourceURIs:
+            - {{ .Values.catalystOverlay.auth.keycloak.jwksUri | quote }}
+          refreshInterval: 1h
+        permissionsClaimName: permissions
+        authorizer: default
+        claimMapper: {{ .Values.catalystOverlay.auth.keycloak.claimMapper | quote }}
+        issuer: {{ .Values.catalystOverlay.auth.keycloak.issuer | quote }}
+        audience: {{ .Values.catalystOverlay.auth.keycloak.clientId | quote }}
+{{- end }}

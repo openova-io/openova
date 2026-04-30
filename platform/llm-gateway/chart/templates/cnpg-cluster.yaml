@@ -1,0 +1,41 @@
+{{- /*
+Catalyst overlay: CNPG-backed audit-log Postgres for bp-llm-gateway.
+
+Every prompt + response routed through the LiteLLM proxy is persisted
+to this Postgres for compliance / tenant attribution. The resulting
+`bp-llm-gateway-audit-rw` Service is what the upstream litellm-helm
+chart's `db.endpoint` value points at, and the
+`bp-llm-gateway-audit-app` Secret (CNPG-materialized) is consumed via
+`db.secret.name` for the Prisma migration job + runtime DB writes.
+
+bp-llm-gateway lists `bp-cnpg` as a hard dependency in blueprint.yaml
+so this Cluster CR reconciles only after the cluster-wide CloudNativePG
+operator is Ready.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operator-tunable
+knob lives in values.yaml `catalystOverlay.cnpg.*`.
+*/ -}}
+{{- if .Values.catalystOverlay.cnpg.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: bp-llm-gateway-audit
+  labels:
+    {{- include "bp-llm-gateway.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.catalystOverlay.cnpg.instances }}
+  {{- with .Values.catalystOverlay.cnpg.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  storage:
+    size: {{ .Values.catalystOverlay.cnpg.storage.size }}
+    {{- with .Values.catalystOverlay.cnpg.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.catalystOverlay.cnpg.resources | nindent 4 }}
+  bootstrap:
+    initdb:
+      database: litellm_audit
+      owner: litellm
+{{- end }}

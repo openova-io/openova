@@ -1,0 +1,123 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-llm-gateway
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-6-llm-serving
+spec:
+  version: 1.0.0
+  card:
+    title: LLM Gateway
+    summary: |
+      Subscription-aware LLM proxy. Wraps the upstream LiteLLM proxy
+      (`ghcr.io/berriai/litellm:main-stable`) and routes requests to
+      Anthropic (via the operator's Claude OAuth/Max subscription —
+      NEVER an ANTHROPIC_API_KEY), Bedrock, Vertex, OpenAI-compatible
+      backends (via bp-anthropic-adapter), and self-hosted vLLM. CNPG-
+      backed audit log; Keycloak SSO for human callers.
+    icon: llm-gateway.svg
+    category: ai-runtime
+    tags: [llm, gateway, litellm, proxy, claude, openai, bedrock, vertex]
+    documentation: https://docs.litellm.ai/
+    license: MIT
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 16
+      auth:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [keycloak, masterKey, hybrid]
+            default: keycloak
+            description: |
+              `keycloak` = OIDC-only (every caller authenticates via
+              bp-keycloak realm). `masterKey` = static per-tenant master
+              keys (dev only — operators MUST NOT enable in production).
+              `hybrid` = Keycloak for human callers, master keys for
+              CI/automation accounts.
+          keycloak:
+            type: object
+            properties:
+              issuer:
+                type: string
+                description: Keycloak realm issuer URL (https://keycloak.<env>.<sovereign-domain>/realms/<realm>).
+              audience:
+                type: string
+                default: llm-gateway
+      audit:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: Enable CNPG-backed audit log (every prompt + response stored for compliance).
+      backends:
+        type: object
+        properties:
+          anthropic:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+                description: |
+                  Forward Claude requests via the operator's
+                  OAuth/Max subscription. NEVER set an ANTHROPIC_API_KEY
+                  — the gateway uses subscription tokens issued by the
+                  operator's Claude account.
+          bedrock:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+          vertex:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+          vllm:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+          anthropicAdapter:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+                description: Route OpenAI-compatible callers to Claude via bp-anthropic-adapter.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg
+      version: ^1.0
+      alias: db
+    - blueprint: bp-keycloak
+      version: ^1.0
+      alias: idp
+    - blueprint: bp-external-secrets
+      version: ^1.0
+      alias: eso
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

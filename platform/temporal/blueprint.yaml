@@ -1,0 +1,54 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-temporal
+  labels:
+    catalyst.openova.io/section: pts-4-3-workflow-and-processing
+spec:
+  version: 1.0.0
+  card:
+    title: Temporal
+    summary: Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.
+    icon: temporal.svg
+    category: workflow
+  visibility: listed
+  configSchema:
+    type: object
+    properties:
+      web:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: Enable the Temporal Web UI.
+      auth:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Enable Keycloak OIDC integration via `--auth-claim-mapper`. Operator opt-in once bp-keycloak is reconciled and a realm/client exists.
+      persistence:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [embedded, external]
+            default: external
+            description: external = Catalyst-curated CNPG Cluster (recommended); embedded = chart-bundled bitnami postgresql (dev only).
+  placementSchema:
+    modes: [single-region]
+    minRegions: 1
+    maxRegions: 1
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg
+      version: ^1
+      alias: db
+    - blueprint: bp-cert-manager
+      version: ^1
+      alias: certs
+  upgrades:
+    from: ["0.x"]
