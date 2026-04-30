@@ -1,0 +1,82 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-external-secrets
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: External Secrets Operator
+    summary: |
+      Day-2 secret pipeline. Materializes K8s Secrets from OpenBao
+      (the Catalyst secret backend) via ExternalSecret / PushSecret CRs
+      and ESO Generators. Replaces the bootstrap-only bp-sealed-secrets
+      slot 05 once OpenBao + ESO are Ready.
+    icon: external-secrets.svg
+    category: security
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      clusterSecretStore:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              Render the default `vault-region1` ClusterSecretStore that
+              points at the in-cluster bp-openbao service. Set false if
+              the operator wants to author ClusterSecretStore CRs
+              themselves (e.g. multi-region with explicit primary/replica).
+          name:
+            type: string
+            default: vault-region1
+            description: ClusterSecretStore name.
+          server:
+            type: string
+            default: "http://openbao.openbao-system.svc.cluster.local:8200"
+            description: |
+              In-cluster OpenBao endpoint. Cluster overlays override to
+              the external FQDN (https://openbao.<location-code>.<sovereign-domain>)
+              when ESO is reading from a different region's primary.
+          path:
+            type: string
+            default: secret
+          version:
+            type: string
+            default: v2
+            enum: [v1, v2]
+          kubernetesAuth:
+            type: object
+            properties:
+              mountPath:
+                type: string
+                default: kubernetes
+              role:
+                type: string
+                default: external-secrets
+              serviceAccountName:
+                type: string
+                default: external-secrets
+              serviceAccountNamespace:
+                type: string
+                default: external-secrets-system
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active            # ESO runs on every host cluster
+  manifests:
+    chart: ./chart
+  # Per W2.K1 PR #262 the Flux HR at clusters/_template/bootstrap-kit/
+  # 15-external-secrets.yaml gates install on bp-openbao + bp-cert-manager
+  # via dependsOn. Declared here for documentation parity; the
+  # blueprint-controller does not yet reconcile this field — it is the
+  # HR's dependsOn that takes effect at install time.
+  depends:
+    - blueprint: bp-openbao
+      version: ^1.0
+    - blueprint: bp-cert-manager
+      version: ^1.0
+  upgrades:
+    from: ["0.x"]

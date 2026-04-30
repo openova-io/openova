@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-external-secrets
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for External Secrets Operator
+  (ESO). Depends on the upstream `external-secrets` chart as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into
+  this artifact; the Catalyst overlay templates in templates/ (default
+  ClusterSecretStore wired to bp-openbao, NetworkPolicy guard,
+  ServiceMonitor toggle) sit alongside the upstream subchart and Helm
+  renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `external-secrets:` key in values.yaml.
+type: application
+keywords: [catalyst, blueprint, external-secrets, eso, openbao, secrets]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to external-secrets/external-secrets
+# 0.10.7 (matches platform/external-secrets/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: external-secrets
+    version: "0.10.7"
+    repository: "https://charts.external-secrets.io"

@@ -1,0 +1,65 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is now resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries
+# both:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `cloudnative-pg:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream: { chart: cloudnative-pg, version: "0.28.0", repo: "https://cloudnative-pg.github.io/charts" }
+
+# ─── Upstream chart values (subchart key: cloudnative-pg) ─────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `cloudnative-pg:` key flow into that subchart unchanged.
+cloudnative-pg:
+  # Install postgresql.cnpg.io CRDs as part of this chart. Required so
+  # consumers of `postgresql.cnpg.io/v1.Cluster` (bp-powerdns,
+  # bp-keycloak, bp-gitea, bp-langfuse, …) can gate themselves on bp-cnpg
+  # via Flux HelmRelease `dependsOn`. The CRDs ship with the upstream
+  # chart so a single Blueprint OCI artifact carries both controller +
+  # CRDs.
+  crds:
+    create: true
+
+  # Operator replicas — single replica is fine for solo Sovereigns;
+  # cluster overlays bump to 2-3 for HA on multi-node host clusters.
+  # CNPG operator is leader-elected, so multiple replicas are passive
+  # standbys.
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+  # PodMonitor for the operator — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false): the
+  # `monitoring.coreos.com/v1` CRDs that back PodMonitor ship with
+  # kube-prometheus-stack — an Application Blueprint installed AFTER the
+  # bootstrap-kit. Defaulting `podMonitorEnabled: true` would render a
+  # PodMonitor on a fresh Sovereign before the CRD exists, and the
+  # apiserver would reject it with "no matches for kind PodMonitor in
+  # version monitoring.coreos.com/v1". Operator opts in via per-cluster
+  # overlay (issue #182).
+  monitoring:
+    podMonitorEnabled: false
+
+  # Webhook is enabled by default in upstream — keep it that way (CNPG
+  # uses the webhook to validate Cluster CRs). cert-manager (bp-cert-
+  # manager) provides the TLS cert per Sovereign convention.
+
+# ─── Catalyst-managed overlay values consumed by templates/ ───────────────
+# (None today — the wrapper currently ships no Catalyst-authored
+# templates. Reserved for future NetworkPolicy / RBAC overlays once the
+# bootstrap-kit security tier (W2.K3) is fully reconciled.)

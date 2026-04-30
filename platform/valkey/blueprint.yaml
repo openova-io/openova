@@ -1,0 +1,72 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-valkey
+  labels:
+    catalyst.openova.io/section: pts-4-1-data-services
+spec:
+  version: 1.0.0
+  card:
+    title: Valkey
+    summary: |
+      Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under
+      Linux Foundation governance). Bootstrap-kit slot 17 — used by
+      Catalyst control-plane services for ephemeral session/state, and
+      by Application-tier Apps that need a Redis wire-protocol cache.
+      Replication via REPLICAOF (per-Application choice — see
+      docs/SRE.md §2.5).
+    icon: valkey.svg
+    category: data
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      architecture:
+        type: string
+        enum: [standalone, replication]
+        default: replication
+        description: |
+          Standalone (single primary, no replicas) or replication (one
+          primary + N replicas). Solo Sovereigns use replication with
+          replicaCount: 0 to keep the StatefulSet shape stable while
+          paying for only one pod.
+      auth:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: Enforce password auth on the Valkey wire protocol.
+      metrics:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              Sidecar Prometheus exporter (redis-exporter) on each pod.
+              Cluster overlays flip true once kube-prometheus-stack
+              reconciles (issue #182).
+          serviceMonitor:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+                description: |
+                  monitoring.coreos.com/v1 ServiceMonitor — requires the
+                  Prometheus Operator CRDs from kube-prometheus-stack.
+  placementSchema:
+    modes: [single-region, active-active, active-hotstandby]
+    default: single-region            # Valkey replication is per-Application
+  manifests:
+    chart: ./chart
+  # Valkey is a self-contained cache — only needs Flux Ready. The Flux HR
+  # at clusters/_template/bootstrap-kit/17-valkey.yaml encodes this
+  # dependsOn. Declared here for documentation parity; the
+  # blueprint-controller does not yet reconcile this field.
+  depends:
+    - blueprint: bp-flux
+      version: ^1.0
+  upgrades:
+    from: ["0.x"]

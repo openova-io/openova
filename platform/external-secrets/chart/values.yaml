@@ -1,0 +1,127 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is now resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries
+# both:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `external-secrets:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#   3. Catalyst overlay values consumed by templates/ (e.g. `clusterSecretStore:`
+#      governs templates/clustersecretstore-vault-region1.yaml).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream: { chart: external-secrets, version: "0.10.7", repo: "https://charts.external-secrets.io" }
+
+# ─── Upstream chart values (subchart key: external-secrets) ───────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `external-secrets:` key flow into that subchart unchanged.
+external-secrets:
+  # Install CRDs as part of this chart. ESO ships its own CRDs
+  # (external-secrets.io/v1beta1, generators.external-secrets.io/v1alpha1)
+  # — they MUST be installed as part of the same Helm release so the
+  # ClusterSecretStore template (templates/clustersecretstore-vault-region1.yaml)
+  # in this chart's post-install hook can be applied without `no matches for
+  # kind` failures.
+  installCRDs: true
+
+  # Replicas — single replica is fine for solo Sovereigns; cluster overlays
+  # bump to 2-3 for HA on multi-node host clusters.
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  # ESO webhook — needs a TLS cert from the cluster's ClusterIssuer
+  # (bp-cert-manager). Webhook resources/replicas tuned for solo Sovereign.
+  webhook:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    # Prometheus ServiceMonitor for the webhook component — DEFAULT OFF
+    # (operator opts in once kube-prometheus-stack reconciles).
+    serviceMonitor:
+      enabled: false
+    metrics:
+      service:
+        enabled: false
+
+  # Cert controller — manages ESO's own webhook TLS via cert-manager.
+  certController:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    serviceMonitor:
+      enabled: false
+    metrics:
+      service:
+        enabled: false
+
+  # Prometheus ServiceMonitor for the main ESO controller — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false): the
+  # `monitoring.coreos.com/v1` CRDs that back ServiceMonitor ship with
+  # kube-prometheus-stack — an Application Blueprint installed AFTER the
+  # bootstrap-kit. Defaulting `serviceMonitor.enabled: true` would render a
+  # ServiceMonitor on a fresh Sovereign before the CRD exists, and the
+  # apiserver would reject it with "no matches for kind ServiceMonitor in
+  # version monitoring.coreos.com/v1". Operator opts in via per-cluster
+  # overlay (issue #182).
+  serviceMonitor:
+    enabled: false
+  metrics:
+    service:
+      enabled: false
+
+# ─── Catalyst-managed default ClusterSecretStore (templates/clustersecretstore-vault-region1.yaml) ──
+# The Catalyst-curated wrapper renders ONE default ClusterSecretStore
+# (`vault-region1`) wired to the in-cluster bp-openbao service. Cluster
+# overlays MAY:
+#   - Set `clusterSecretStore.enabled: false` to disable the default and
+#     author their own ClusterSecretStore CRs (e.g. multi-region with
+#     explicit primary/replica).
+#   - Override `clusterSecretStore.server` to point at an external OpenBao
+#     FQDN when ESO is reading from a different region's primary.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") all knobs are
+# runtime-configurable; cluster overlays in clusters/<sovereign>/ may
+# override without rebuilding the Blueprint OCI artifact.
+clusterSecretStore:
+  # Render the default `vault-region1` ClusterSecretStore.
+  enabled: true
+  # ClusterSecretStore name — matches platform/external-secrets/blueprint.yaml.
+  name: vault-region1
+  # In-cluster OpenBao endpoint. Cluster overlays override to the external
+  # FQDN (https://openbao.<location-code>.<sovereign-domain>) when ESO is
+  # reading from a different region's primary.
+  server: "http://openbao.openbao.svc.cluster.local:8200"
+  # KV mount path inside OpenBao (default per platform/openbao/README.md).
+  path: secret
+  # KV engine version (v2 = versioned KV, the OpenBao default).
+  version: v2
+  kubernetesAuth:
+    # Auth mount inside OpenBao for the Kubernetes auth method.
+    mountPath: kubernetes
+    # OpenBao role granted to the ESO ServiceAccount.
+    role: external-secrets
+    # ServiceAccount that ESO uses to authenticate against OpenBao.
+    # Must match external-secrets.serviceAccount.name + targetNamespace.
+    serviceAccountName: external-secrets
+    serviceAccountNamespace: external-secrets-system
