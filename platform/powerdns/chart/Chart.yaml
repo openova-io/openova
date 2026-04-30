@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-powerdns
-version: 1.1.3
+version: 1.1.4
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
@@ -14,6 +14,21 @@ description: |
   Chart.yaml lists the upstream chart as a Helm dependency so
   `helm dependency build` resolves it; values.yaml carries both the
   catalystBlueprint metadata block and the upstream subchart values.
+
+  1.1.4 — adds a Catalyst-curated post-install/post-upgrade hook Job
+  (templates/init-zone-job.yaml) for optional bootstrap-zone creation,
+  superseding the upstream pschichtel/powerdns subchart's
+  `create-zone-if-not-exists-sh` Job. The upstream Job had no Helm hook
+  annotations, so on otech.omani.works it raced the
+  `powerdns-api-credentials` Secret rendered by
+  api-credentials-secret.yaml — Helm's same-pass apply put the Job
+  ahead of the Secret, the Job pod hit the API with an empty X-API-Key
+  header, got 401, and the install failed. The wrapper Job carries
+  `helm.sh/hook: post-install,post-upgrade`, weight 10, and
+  `before-hook-creation,hook-succeeded` delete policy; it runs AFTER
+  every other manifest in the release, eliminating the race. Default
+  remains `bootstrapZone.enabled: false` — PDM still creates Sovereign
+  zones post-install per #168.
 type: application
 keywords: [catalyst, blueprint, powerdns, dns, dnssec, lua-records, dnsdist]
 maintainers:

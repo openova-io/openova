@@ -377,3 +377,30 @@ crossplane:
     enabled: false                # gap: XHetznerFloatingIP composition not yet authored
     name: pdns-public-ns          # name used when the XR is created
     region: fsn1                  # initial region; multi-region added as the composition matures
+
+# ─── Optional install-time bootstrap zone (disabled by default) ───────────
+# Catalyst's per-Sovereign zone model (#168) creates Sovereign zones via
+# pool-domain-manager AFTER the cluster comes up — so the default for a
+# fresh Sovereign install is `bootstrapZone.enabled: false` and no zone
+# is created at install time.
+#
+# Operators who explicitly want a bootstrap zone created at Helm install
+# time (dev clusters, CI fixtures, local POCs) flip `enabled: true` and
+# provide a `name`. The wrapper Job at templates/init-zone-job.yaml runs
+# as a post-install/post-upgrade Helm hook (weight 10) — i.e. AFTER every
+# other manifest in the release, including api-credentials-secret.yaml —
+# so the chicken-egg between the Job and its `powerdns-api-credentials`
+# Secret can never re-occur (root cause behind the otech.omani.works
+# install failure that motivated 1.1.4).
+#
+# The upstream pschichtel/powerdns subchart's built-in
+# `create-zone-if-not-exists-sh` Job stays DISABLED via
+# `powerdns.zoneName: ""` regardless of these settings — the wrapper Job
+# completely supersedes it.
+bootstrapZone:
+  enabled: false                  # default: PDM creates zones post-install
+  # name: omantel.omani.works.    # FQDN with trailing dot — required when enabled
+  kind: Native                    # Native | Master | Slave
+  image: docker.io/curlimages/curl:8.7.1
+  activeDeadlineSeconds: 600      # 10-minute hard ceiling for the Job
+  backoffLimit: 5                 # retries before the Job gives up

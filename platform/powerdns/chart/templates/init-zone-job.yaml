@@ -1,0 +1,216 @@
+{{- /*
+init-zone-job.yaml — Catalyst-curated wrapper init Job that ensures a
+"bootstrap" PowerDNS zone exists before any record-write workload (PDM,
+external-dns, cert-manager DNS-01 webhook) starts pushing records into it.
+
+────────────────────────────────────────────────────────────────────────
+Why a wrapper Job rather than the upstream subchart's Job
+────────────────────────────────────────────────────────────────────────
+
+The upstream pschichtel/powerdns 0.10.0 chart ships
+`templates/create-zone-if-not-exists-sh-job.yaml`. We deliberately keep
+that Job DISABLED via `.Values.powerdns.zoneName: ""` (see values.yaml
+"Bootstrap zone" comment block) for two reasons:
+
+  1. Upstream's Job has NO Helm hook annotations, so Helm applies the
+     Job and the `powerdns-api-credentials` Secret (which the Job needs
+     to authenticate against the REST API) in the SAME install pass. The
+     apiserver picks an order, and on otech.omani.works that order put
+     the Job ahead of the Secret — the Job spawned a pod that called
+     the API with an empty `X-API-Key` header, got 401, and the Helm
+     install failed.
+  2. Catalyst's per-Sovereign zone model (#168) creates Sovereign zones
+     via pool-domain-manager's PDNS adapter AFTER the cluster comes up,
+     not at install time. Most Sovereigns therefore don't want a
+     bootstrap zone at all.
+
+This wrapper Job is the surgical fix for case (1) without giving up the
+ability to bootstrap a zone at install time. The Catalyst-curated
+defaults keep `bootstrapZone.enabled: false` — operators who genuinely
+want a zone created at install time (e.g. dev clusters, CI fixtures)
+flip this on and pick a `bootstrapZone.name`.
+
+────────────────────────────────────────────────────────────────────────
+Why post-install + post-upgrade hook annotations
+────────────────────────────────────────────────────────────────────────
+
+`helm.sh/hook: post-install,post-upgrade` defers Job application until
+AFTER every other manifest in the release is applied — including the
+`powerdns-api-credentials` Secret rendered by
+`api-credentials-secret.yaml` and the powerdns Deployment. By the time
+the Job pod spawns, the Secret exists and the powerdns webserver has
+been Ready long enough that the apiserver has taken its DNS Service
+endpoints into routing. No more chicken-egg.
+
+`helm.sh/hook-weight: "10"` orders this Job AFTER any other hooks the
+chart (or umbrella) might add at lower weights. Catalyst convention:
+weights 1-5 are reserved for CRDs / cluster-scoped resources;
+weights 6-9 for ClusterSecretStores; weight 10+ for record-/zone-
+shaped post-install ceremony.
+
+`helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded` keeps
+the Job idempotent across re-installs and re-upgrades — Helm GCs the
+previous pod before creating the next one, and on success the Job
+object disappears (we don't need its history once the zone exists; the
+Job re-runs on every upgrade and is a no-op when the zone is already
+there).
+
+────────────────────────────────────────────────────────────────────────
+Why this Job mounts only the API key (not the webserver password)
+────────────────────────────────────────────────────────────────────────
+
+The PowerDNS REST API authenticates with the `X-API-Key` header. The
+webserver password is for the human-facing admin webserver (gated
+separately by Traefik basicAuth at the ingress layer); a zone-creation
+script never needs it. Per docs/INVIOLABLE-PRINCIPLES.md #10
+(credential hygiene) we mount only what's needed.
+
+────────────────────────────────────────────────────────────────────────
+Operator overrides (all in values.yaml `bootstrapZone:` block)
+────────────────────────────────────────────────────────────────────────
+  - bootstrapZone.enabled: false  → Job is not rendered at all (default)
+  - bootstrapZone.name           → zone FQDN (e.g. "omantel.omani.works.")
+  - bootstrapZone.kind           → Native | Master | Slave (default: Native)
+  - bootstrapZone.image          → curl image override (default curlimages/curl:8.7.1)
+  - bootstrapZone.activeDeadlineSeconds → Job hard timeout (default 600)
+  - bootstrapZone.backoffLimit   → Job retries (default 5)
+*/}}
+{{- $bz := .Values.bootstrapZone | default dict -}}
+{{- if $bz.enabled }}
+{{- /* The api-key Secret reference lives under the upstream subchart's
+       values key (.Values.powerdns.powerdns.api.key — the outer
+       `powerdns` is the subchart root, the inner `powerdns` is the
+       upstream chart's own settings block). Default to the Catalyst-
+       curated `powerdns-api-credentials` Secret authored by
+       templates/api-credentials-secret.yaml when neither is set. */ -}}
+{{- $apiKey := dict -}}
+{{- if and .Values.powerdns .Values.powerdns.powerdns .Values.powerdns.powerdns.api -}}
+  {{- $apiKey = .Values.powerdns.powerdns.api.key | default dict -}}
+{{- end -}}
+{{- $apiKeySecretName := $apiKey.name | default "powerdns-api-credentials" -}}
+{{- $apiKeySecretKey := $apiKey.key | default "api-key" -}}
+{{- $zoneName := $bz.name | required "bootstrapZone.enabled=true requires bootstrapZone.name (FQDN with trailing dot, e.g. omantel.omani.works.)" -}}
+{{- $zoneKind := $bz.kind | default "Native" -}}
+{{- $image := $bz.image | default "docker.io/curlimages/curl:8.7.1" -}}
+{{- $deadline := $bz.activeDeadlineSeconds | default 600 -}}
+{{- $retries := $bz.backoffLimit | default 5 -}}
+{{- $svcHost := printf "%s.%s.svc.cluster.local" (include "bp-powerdns.fullname" .) .Release.Namespace -}}
+{{- $svcPort := 8081 -}}
+{{- if and .Values.powerdns .Values.powerdns.powerdns .Values.powerdns.powerdns.webserver .Values.powerdns.powerdns.webserver.bindPort -}}
+  {{- $svcPort = .Values.powerdns.powerdns.webserver.bindPort -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: powerdns-init-zone
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: powerdns-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    catalyst.openova.io/comment: |
+      Post-install/post-upgrade hook Job. Creates the Catalyst-curated
+      bootstrap zone via the PowerDNS REST API after the api-credentials
+      Secret is in place and the powerdns Deployment is Ready. Idempotent:
+      a 200/204 from `/api/v1/servers/localhost/zones/<zone>` short-
+      circuits the POST; only a 404 triggers zone creation.
+spec:
+  backoffLimit: {{ $retries }}
+  activeDeadlineSeconds: {{ $deadline }}
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      name: powerdns-init-zone
+      labels:
+        {{- include "bp-powerdns.labels" . | nindent 8 }}
+        catalyst.openova.io/component: powerdns-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init-zone
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PDNS_HOST
+              value: {{ $svcHost | quote }}
+            - name: PDNS_PORT
+              value: {{ $svcPort | quote }}
+            - name: ZONE
+              value: {{ $zoneName | quote }}
+            - name: ZONE_KIND
+              value: {{ $zoneKind | quote }}
+            - name: PDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $apiKeySecretName | quote }}
+                  key: {{ $apiKeySecretKey | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              zones_api_url="http://${PDNS_HOST}:${PDNS_PORT}/api/v1/servers/localhost/zones"
+              zone_url="${zones_api_url}/${ZONE}"
+
+              # ── Wait for the API to be reachable ──────────────────
+              # Even with the post-install hook the powerdns Deployment
+              # may have only just become Ready; give it a few seconds
+              # for the Service endpoints to settle.
+              attempts=0
+              until curl -fsS -H "X-API-Key: ${PDNS_API_KEY}" "${zones_api_url}" > /dev/null; do
+                attempts=$((attempts + 1))
+                if [ "$attempts" -ge 30 ]; then
+                  echo "PowerDNS API not reachable after 30 attempts — failing." >&2
+                  exit 1
+                fi
+                echo "Waiting for PowerDNS API at ${zones_api_url} (attempt ${attempts}/30)..."
+                sleep 5
+              done
+              echo "PowerDNS API reachable."
+
+              # ── Idempotent zone creation ──────────────────────────
+              # GET /zones/<zone> returns 200 if it exists, 404 if not.
+              # Only create on 404.
+              http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "X-API-Key: ${PDNS_API_KEY}" "${zone_url}")
+              if [ "$http_code" = "200" ]; then
+                echo "Zone ${ZONE} already exists — nothing to do."
+                exit 0
+              fi
+              if [ "$http_code" != "404" ]; then
+                echo "Unexpected status ${http_code} querying ${zone_url} — failing." >&2
+                exit 1
+              fi
+
+              echo "Zone ${ZONE} not found — creating (kind=${ZONE_KIND})..."
+              payload=$(printf '{"name":"%s","kind":"%s","nameservers":["ns1.%s"]}' \
+                "${ZONE}" "${ZONE_KIND}" "${ZONE}")
+              curl -fsS -X POST -d "${payload}" \
+                -H "X-API-Key: ${PDNS_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${zones_api_url}"
+              echo
+              echo "Zone ${ZONE} created."
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}
