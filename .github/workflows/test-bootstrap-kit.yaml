@@ -13,6 +13,8 @@ on:
       - 'platform/**/blueprint.yaml'
       - 'platform/**/chart/**'
       - 'clusters/**'
+      - 'scripts/check-bootstrap-deps.sh'
+      - 'scripts/expected-bootstrap-deps.yaml'
       - '.github/workflows/test-bootstrap-kit.yaml'
     branches: [main]
   pull_request:
@@ -21,14 +23,39 @@ on:
       - 'platform/**/blueprint.yaml'
       - 'platform/**/chart/**'
       - 'clusters/**'
+      - 'scripts/check-bootstrap-deps.sh'
+      - 'scripts/expected-bootstrap-deps.yaml'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
 
 jobs:
+  dependency-graph-audit:
+    # Audit the bootstrap-kit dependency graph against the expected DAG declared
+    # in scripts/expected-bootstrap-deps.yaml. Mechanically verifies every HR's
+    # spec.dependsOn matches the design contract in
+    # docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 + §3, and detects cycles. Runs on
+    # every PR that touches a bootstrap-kit HR or the audit data files. Owned by
+    # W2.K0; consumed by W2.K1-K4 PRs to validate slot 15-48 additions.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Run bootstrap-kit dependency audit
+        run: bash scripts/check-bootstrap-deps.sh
+
   manifest-validation:
     # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template
     # parsing + dependency order check. Runs on every push.
     runs-on: ubuntu-latest
+    needs: dependency-graph-audit
     defaults:
       run:
         working-directory: tests/e2e/bootstrap-kit
