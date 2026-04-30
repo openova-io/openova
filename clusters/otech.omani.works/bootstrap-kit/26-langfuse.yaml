@@ -1,0 +1,84 @@
+# bp-langfuse — Catalyst Blueprint #26 (W2.K2 Observability batch).
+# Langfuse — LLM observability platform (traces, evaluations, prompt
+# management, cost attribution). Hooks into the Catalyst LLM gateway
+# (slot 40) once W2.K4 lands. CNPG-backed Postgres; Keycloak OIDC SSO.
+#
+# Wrapper chart:  platform/langfuse/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-cnpg, bp-keycloak, bp-cert-manager are all Ready.
+#
+# dependsOn:
+#   - bp-cnpg (slot 16)         — Postgres backend for Langfuse traces /
+#                                 prompts / evaluations.
+#   - bp-keycloak (slot 09)     — OIDC IdP for SSO.
+#   - bp-cert-manager (slot 02) — TLS for the Langfuse Ingress.
+#
+# disableWait: Langfuse waits for its CNPG-managed `langfuse-app` Secret
+# and for upstream Bitnami subcharts to be filtered out at template time
+# (the chart sets `postgresql.deploy=false`, `redis.deploy=false`,
+# `clickhouse.deploy=false`, `s3.deploy=false` to route to bp-cnpg /
+# bp-valkey / bp-clickhouse / bp-seaweedfs respectively). Helm `--wait`
+# would block on the Deployment rollout, which the HelmRelease cannot
+# influence.
+#
+# Forward-prep notice — issue #215 (bp-langfuse:1.0.0 GHCR publish 500):
+#   At the time this HR file was authored, bp-langfuse:1.0.0 had not
+#   published to oci://ghcr.io/openova-io due to a Helm v3.16 + GHCR
+#   manifest interaction with langfuse's nested OCI subchart deps. W1.G
+#   is the concurrent track fixing the publish path. Until that lands,
+#   this HelmRelease will fail to install with a chart-pull error; this
+#   is expected and tracked in #215. The HR file is committed now so
+#   the moment the artifact is published, Flux reconciles the SeaweedFS-
+#   /CNPG-/Keycloak-Ready Sovereign to bring Langfuse online without a
+#   second deploy gate.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: langfuse
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-langfuse
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-langfuse
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: langfuse
+  targetNamespace: langfuse
+  dependsOn:
+    - name: bp-cnpg
+    - name: bp-keycloak
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-langfuse
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-langfuse
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

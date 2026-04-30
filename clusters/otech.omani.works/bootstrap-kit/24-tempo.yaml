@@ -1,0 +1,66 @@
+# bp-tempo — Catalyst Blueprint #24 (W2.K2 Observability batch).
+# Grafana Tempo — distributed tracing storage tier of the LGTM stack.
+# Default deployment shape is single-binary (one Tempo StatefulSet) —
+# minimum operational cost for a Solo Sovereign.
+#
+# Wrapper chart:  platform/tempo/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-seaweedfs is Ready (Tempo trace blocks live on S3).
+#
+# dependsOn:
+#   - bp-seaweedfs (slot 18) — Tempo blocks live on SeaweedFS S3.
+#     Without SeaweedFS Ready, Tempo cannot persist spans.
+#
+# disableWait: Tempo single-binary StatefulSet becomes Ready after
+# creating the S3 bucket and initialising the WAL — both require
+# bp-seaweedfs to be fully reconciled. Helm `--wait` would block on
+# the rollout, which the HelmRelease cannot influence.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tempo
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-tempo
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-tempo
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: tempo
+  targetNamespace: tempo
+  dependsOn:
+    - name: bp-seaweedfs
+  chart:
+    spec:
+      chart: bp-tempo
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-tempo
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

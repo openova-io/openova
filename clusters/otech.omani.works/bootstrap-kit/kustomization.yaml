@@ -24,3 +24,10 @@ resources:
   - 17-valkey.yaml
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
+  - 20-opentelemetry.yaml
+  - 21-alloy.yaml
+  - 22-loki.yaml
+  - 23-mimir.yaml
+  - 24-tempo.yaml
+  - 25-grafana.yaml
+  - 26-langfuse.yaml

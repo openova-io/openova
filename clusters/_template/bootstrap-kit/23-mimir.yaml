@@ -1,0 +1,68 @@
+# bp-mimir — Catalyst Blueprint #23 (W2.K2 Observability batch).
+# Grafana Mimir — metrics storage tier of the LGTM stack. SeaweedFS-backed
+# blocks-storage; Prometheus-compatible remote-write endpoint.
+#
+# Wrapper chart:  platform/mimir/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-seaweedfs is Ready (Mimir blocks live on S3).
+#
+# dependsOn:
+#   - bp-seaweedfs (slot 18) — Mimir blocks-storage uses SeaweedFS S3.
+#     Without SeaweedFS Ready, Mimir compactor/ingester StatefulSets
+#     cannot persist metric blocks.
+#
+# disableWait: Mimir is a multi-component distributed system (distributor,
+# ingester, querier, store-gateway, compactor, alertmanager, ruler).
+# Helm `--wait` would block on every StatefulSet rollout, which can
+# legitimately take >5min during a cold-start. The HelmRelease reports
+# Ready when manifests apply; runtime convergence is observed via
+# kubectl rollout status.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mimir
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-mimir
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-mimir
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: mimir
+  targetNamespace: mimir
+  dependsOn:
+    - name: bp-seaweedfs
+  chart:
+    spec:
+      chart: bp-mimir
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-mimir
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
