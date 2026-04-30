@@ -1,0 +1,89 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is now resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries
+# both:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `valkey:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml is
+#      the values namespace).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream: { chart: valkey, version: "5.5.1", repo: "https://charts.bitnami.com/bitnami" }
+
+# ─── Upstream chart values (subchart key: valkey) ─────────────────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `valkey:` key flow into that subchart unchanged.
+valkey:
+  # Replication architecture (one primary + N replicas). Solo Sovereigns
+  # use replicaCount: 0 to keep the StatefulSet shape stable while
+  # paying for only one pod. Multi-node host clusters bump replicaCount
+  # via cluster overlay.
+  architecture: replication
+
+  primary:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # 1Gi PVC — adequate for session/state caches on solo Sovereigns;
+    # cluster overlays bump for higher-volume Applications.
+    persistence:
+      enabled: true
+      size: 1Gi
+
+  replica:
+    # Default 0 replicas for solo Sovereigns. Cluster overlays bump to
+    # 2-3 for HA on multi-node host clusters.
+    replicaCount: 0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    persistence:
+      enabled: true
+      size: 1Gi
+
+  # Password auth ON by default — Catalyst convention. The bitnami chart
+  # auto-generates a random password and exposes it via the
+  # `<release-name>-valkey` Secret. Cluster overlays MAY override the
+  # password via `auth.existingSecret` to hand-roll secret rotation.
+  auth:
+    enabled: true
+
+  # NetworkPolicy from upstream chart — already enabled by default;
+  # restate to make the Catalyst posture explicit. (Default-deny is
+  # appropriate for a cache that should only be consumed in-cluster.)
+  networkPolicy:
+    enabled: true
+
+  # Prometheus exporter sidecar + ServiceMonitor — DEFAULT OFF.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
+  # §11.2 (Observability toggles must default false): the
+  # `monitoring.coreos.com/v1` CRDs that back ServiceMonitor /
+  # PrometheusRule ship with kube-prometheus-stack — an Application
+  # Blueprint installed AFTER the bootstrap-kit. Defaulting any of these
+  # toggles `true` would render a CR on a fresh Sovereign before the CRD
+  # exists, and the apiserver would reject it. Operator opts in via
+  # per-cluster overlay (issue #182).
+  metrics:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+    prometheusRule:
+      enabled: false
+
+# ─── Catalyst-managed overlay values consumed by templates/ ───────────────
+# (None today — the wrapper currently ships no Catalyst-authored
+# templates. Reserved for future NetworkPolicy / RBAC overlays once the
+# bootstrap-kit security tier (W2.K3) is fully reconciled.)

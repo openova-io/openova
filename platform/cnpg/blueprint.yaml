@@ -1,0 +1,59 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cnpg
+  labels:
+    catalyst.openova.io/section: pts-4-1-data-services
+spec:
+  version: 1.0.0
+  card:
+    title: CloudNativePG
+    summary: |
+      Production-grade PostgreSQL operator. Per-Sovereign Postgres-as-a-
+      service via postgresql.cnpg.io/v1.Cluster CRs. Bootstrap-kit slot 16
+      — required by every PG-backed bootstrap component (bp-powerdns,
+      bp-keycloak HA, bp-gitea metadata, bp-langfuse, bp-grafana config DB,
+      bp-temporal, bp-matrix synapse, bp-llm-gateway, bp-bge,
+      bp-nemo-guardrails, bp-openmeter, pool-domain-manager).
+    icon: cnpg.svg
+    category: data
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      monitoring:
+        type: object
+        properties:
+          podMonitorEnabled:
+            type: boolean
+            default: false
+            description: |
+              Render PodMonitor for the operator. Requires Prometheus
+              Operator CRDs (kube-prometheus-stack); cluster overlays flip
+              true once that Application Blueprint reconciles.
+      crds:
+        type: object
+        properties:
+          create:
+            type: boolean
+            default: true
+            description: |
+              Install postgresql.cnpg.io CRDs as part of this chart. CNPG's
+              CRDs ship with the upstream chart so consumers of
+              `postgresql.cnpg.io/v1.Cluster` (bp-powerdns, bp-keycloak,
+              bp-gitea, …) gate themselves on bp-cnpg via Flux dependsOn.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region            # operator runs once per host cluster; Cluster CRs handle replication
+  manifests:
+    chart: ./chart
+  # CNPG only needs Flux Ready (its own CRDs ship in the same chart;
+  # consumers of postgresql.cnpg.io/v1.Cluster gate themselves on bp-cnpg).
+  # The Flux HR at clusters/_template/bootstrap-kit/16-cnpg.yaml encodes
+  # this dependsOn. Declared here for documentation parity; the
+  # blueprint-controller does not yet reconcile this field.
+  depends:
+    - blueprint: bp-flux
+      version: ^1.0
+  upgrades:
+    from: ["0.x"]

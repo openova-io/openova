@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-valkey
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
+  cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a
+  Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact; the Catalyst overlay templates in templates/
+  (label propagation, observability toggles defaulted off) sit alongside
+  the upstream subchart and Helm renders both at install time.
+  Catalyst-curated values flow into the upstream subchart under the
+  `valkey:` key in values.yaml.
+type: application
+keywords: [catalyst, blueprint, valkey, redis, cache]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to bitnami/valkey 5.5.1
+# (matches platform/valkey/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: valkey
+    version: "5.5.1"
+    repository: "https://charts.bitnami.com/bitnami"

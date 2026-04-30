@@ -1,0 +1,27 @@
+apiVersion: v2
+name: bp-cnpg
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
+  the upstream `cloudnative-pg` chart as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact;
+  the Catalyst overlay templates in templates/ (label propagation,
+  observability toggles defaulted off) sit alongside the upstream subchart
+  and Helm renders both at install time. Catalyst-curated values flow into
+  the upstream subchart under the `cloudnative-pg:` key in values.yaml.
+type: application
+keywords: [catalyst, blueprint, cnpg, cloudnative-pg, postgres, postgresql]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to cnpg/cloudnative-pg 0.28.0
+# (matches platform/cnpg/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: cloudnative-pg
+    version: "0.28.0"
+    repository: "https://cloudnative-pg.github.io/charts"
