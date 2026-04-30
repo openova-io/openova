@@ -157,6 +157,11 @@ type InformerSeed struct {
 	State      string
 	Message    string
 	ObservedAt time.Time
+	// DependsOn — sibling AppIDs (bp-prefix stripped) this seed depends
+	// on, sourced from the HelmRelease's spec.dependsOn[].name.
+	// Translated to JobName form (install-<comp>) before being written
+	// to the Job record so the Flow view's edge graph renders.
+	DependsOn  []string
 }
 
 // SeedJobsFromInformerList takes a snapshot of the helmwatch informer's
@@ -205,12 +210,24 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		// Status=succeeded Job, exactly as if a transition had been
 		// emitted.
 		nextStatus := jobStatusFromHelmState(s.State)
+		// Translate sibling AppIDs into the JobName form the Flow
+		// view's edge graph keys off ("cilium" → "install-cilium").
+		// This is the load-bearing line for issue #204's pipeline
+		// view: without dependsOn, no edges render between Job rows.
+		deps := make([]string, 0, len(s.DependsOn))
+		for _, d := range s.DependsOn {
+			d = strings.TrimSpace(d)
+			if d == "" {
+				continue
+			}
+			deps = append(deps, JobNamePrefix+d)
+		}
 		if err := b.store.UpsertJob(Job{
 			DeploymentID: b.deploymentID,
 			JobName:      jobName,
 			AppID:        comp,
 			BatchID:      BatchBootstrapKit,
-			DependsOn:    []string{},
+			DependsOn:    deps,
 			Status:       nextStatus,
 		}); err != nil {
 			return jobsWritten, executionsSeeded, err

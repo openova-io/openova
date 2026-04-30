@@ -360,6 +360,10 @@ type ComponentSnapshot struct {
 	Namespace        string    `json:"namespace"`
 	LastTransitionAt time.Time `json:"lastTransitionAt"`
 	Message          string    `json:"message"`
+	// DependsOn — sibling AppIDs this HelmRelease depends on, sourced
+	// from spec.dependsOn[].name with the "bp-" prefix stripped.
+	// Drives the Jobs Flow view's edge graph (issue #204).
+	DependsOn        []string  `json:"dependsOn,omitempty"`
 }
 
 // NewWatcher returns a Watcher with cfg applied. emit must be non-nil
@@ -754,6 +758,44 @@ func ComponentIDFromHelmRelease(name string) string {
 	return strings.TrimPrefix(name, "bp-")
 }
 
+// extractDependsOn pulls spec.dependsOn[].name from an unstructured
+// HelmRelease and returns the sibling AppIDs (with "bp-" prefix
+// stripped). Each dependsOn entry's `namespace` field is ignored —
+// the bootstrap-kit charts all live in flux-system, and the wizard's
+// Flow view shows dependencies by AppID, not namespace-qualified.
+//
+// Returns nil (NOT empty slice) when no dependsOn array is present
+// so the JSON serialiser omits the field cleanly via omitempty.
+//
+// Schema reference: helm.toolkit.fluxcd.io/v2 HelmRelease.spec.dependsOn
+// is `[]CrossNamespaceDependencyReference{ name, namespace? }`.
+func extractDependsOn(u *unstructured.Unstructured) []string {
+	if u == nil {
+		return nil
+	}
+	raw, found, err := unstructured.NestedSlice(u.Object, "spec", "dependsOn")
+	if err != nil || !found || len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out = append(out, ComponentIDFromHelmRelease(name))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // DeriveState implements the state machine documented on
 // provisioner.Event. Exported so tests can drive it on synthetic
 // condition slices without spinning a fake informer.
@@ -973,6 +1015,7 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 			Namespace:        ns,
 			LastTransitionAt: lastTransitionAt.UTC(),
 			Message:          message,
+			DependsOn:        extractDependsOn(u),
 		})
 	}
 	return out
