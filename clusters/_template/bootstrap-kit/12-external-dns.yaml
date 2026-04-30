@@ -21,7 +21,7 @@ kind: Namespace
 metadata:
   name: external-dns
   labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -74,7 +74,7 @@ spec:
   # cluster overlays patch this with the actual zone list.
   values:
     external-dns:
-      txtOwnerId: SOVEREIGN_FQDN_PLACEHOLDER
+      txtOwnerId: ${SOVEREIGN_FQDN}
       txtPrefix: _externaldns.
       domainFilters:
-        - SOVEREIGN_FQDN_PLACEHOLDER
+        - ${SOVEREIGN_FQDN}

@@ -1,10 +1,19 @@
-# Per-Sovereign Flux Kustomization root.
+# Shared Sovereign Flux Kustomization root.
 #
-# Copied from clusters/_template/ → clusters/<sovereign-fqdn>/ at provisioning
-# time, with SOVEREIGN_FQDN_PLACEHOLDER substituted. The Sovereign's k3s
-# control plane (cloud-init bootstrap) installs Flux core, then applies a
-# GitRepository pointing at this Sovereign's directory. From there Flux owns
-# everything.
+# Issue #218: this directory is the canonical bootstrap tree for EVERY
+# Sovereign. The Sovereign's FQDN is interpolated into the manifests at
+# Flux apply time via the cloud-init Kustomization's
+# `postBuild.substitute.SOVEREIGN_FQDN` envsubst hook (see
+# infra/hetzner/cloudinit-control-plane.tftpl). No per-Sovereign copy
+# of this tree is committed to the repo before provisioning.
+#
+# The Sovereign's k3s control plane (cloud-init bootstrap) installs
+# Flux core, then applies a GitRepository selecting this _template
+# tree (`!/clusters/_template`) plus two Kustomizations whose `path`
+# fields point at `clusters/_template/bootstrap-kit` and
+# `clusters/_template/infrastructure`. Flux's envsubst replaces
+# `${SOVEREIGN_FQDN}` in the rendered manifests with the Sovereign's
+# FQDN. From there Flux owns everything.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
