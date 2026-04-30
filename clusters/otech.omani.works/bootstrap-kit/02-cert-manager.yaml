@@ -1,0 +1,57 @@
+# bp-cert-manager — Catalyst bootstrap-kit Blueprint. TLS for everything below — Lets Encrypt issuer with Dynadot DNS-01 (omani.works pool) or HTTP-01 (BYO domains).
+#
+# Wrapper chart: platform/cert-manager/chart/
+# Catalyst-curated values: platform/cert-manager/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cert-manager
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cert-manager
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: cert-manager
+  targetNamespace: cert-manager
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-cert-manager
+      version: 1.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cert-manager
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    cert-manager:
+      prometheus:
+        enabled: false
+        servicemonitor:
+          enabled: false

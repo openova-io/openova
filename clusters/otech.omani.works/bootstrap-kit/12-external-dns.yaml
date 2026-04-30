@@ -1,0 +1,73 @@
+# bp-external-dns — Catalyst Blueprint #12 of 13. Per-Sovereign DNS sync —
+# ExternalDNS reconciles Service/Ingress hostnames into the per-Sovereign
+# PowerDNS authoritative server via the native `pdns` provider. Geo +
+# health-checked failover responses are owned by PowerDNS lua-records,
+# NOT by ExternalDNS.
+#
+# Wrapper chart: platform/external-dns/chart/
+#
+# dependsOn:
+#   - bp-cert-manager — ExternalDNS HelmRelease only after TLS issuers
+#     are reconciled, so any cert-manager-fronted webhook endpoints in
+#     downstream overlays come up cleanly.
+#   - bp-powerdns — native `pdns` provider points at the in-cluster
+#     bp-powerdns Service and reads the `powerdns-api-credentials` Secret
+#     it renders. Without bp-powerdns the ExternalDNS pod CrashLoops
+#     trying to dial a non-existent DNS API.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-external-dns
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-external-dns
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: external-dns
+  targetNamespace: external-dns
+  dependsOn:
+    - name: bp-cert-manager
+    - name: bp-powerdns
+  chart:
+    spec:
+      chart: bp-external-dns
+      version: 1.1.2
+      sourceRef:
+        kind: HelmRepository
+        name: bp-external-dns
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # Per-Sovereign overrides — txtOwnerId MUST be the Sovereign FQDN so two
+  # Sovereigns sharing a parent zone don't fight over the same record set.
+  # domainFilters narrow the zones ExternalDNS will manage; per-Sovereign
+  # cluster overlays patch this with the actual zone list.
+  values:
+    external-dns:
+      txtOwnerId: otech.omani.works
+      txtPrefix: _externaldns.
+      domainFilters:
+        - otech.omani.works
