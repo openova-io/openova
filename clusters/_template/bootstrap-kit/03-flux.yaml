@@ -52,7 +52,6 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
-  timeout: 15m
   releaseName: flux
   targetNamespace: flux-system
   dependsOn:
@@ -65,7 +64,12 @@ spec:
         kind: HelmRepository
         name: bp-flux
         namespace: flux-system
+  # Event-driven install: bp-flux adopts the cloud-init-installed Flux
+  # controllers; the helm-controller pod that reconciles THIS HR is itself
+  # a target of the chart, so blocking on Ready=True is structurally
+  # impossible. disableWait avoids the deadlock. Replaces PR #221 timeout.
   install:
+    disableWait: true
     # Adopt cloud-init-installed Flux objects rather than fail on
     # ownership conflict (the objects exist before the HelmRelease ever
     # reconciles). Without this, the very first reconcile would error
@@ -73,6 +77,7 @@ spec:
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     # Keep operator-supplied values (e.g. resource overrides applied via
     # helm-controller out-of-band, or dry-run patches during incident
     # response) on chart upgrades. Without this, every upgrade would
