@@ -1,0 +1,85 @@
+# bp-flux — Catalyst bootstrap-kit Blueprint. Host-level Flux. Per-vcluster Flux is bootstrapped later by environment-controller.
+#
+# Wrapper chart: platform/flux/chart/
+# Catalyst-curated values: platform/flux/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# DOUBLE-INSTALL SAFETY (omantel.omani.works incident, 2026-04-29)
+# ----------------------------------------------------------------
+# Cloud-init pre-installs Flux core via
+#   curl https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml
+# so that this very HelmRelease can be reconciled. helm-controller then
+# runs `helm install` for bp-flux on top of the already-running Flux. If
+# the chart's subchart `flux2` version disagrees with the cloud-init
+# install (different upstream Flux release), CRD `storedVersions`
+# mismatches → Helm install fails → rollback → rollback DELETES the
+# running Flux controllers → cluster has no GitOps engine and is
+# unrecoverable in-place.
+#
+# Mitigations applied here:
+#   1. bp-flux:1.1.2 pins the `flux2` subchart at 2.14.1 (= appVersion
+#      2.4.0) which matches cloud-init's v2.4.0 install.yaml.
+#   2. spec.upgrade.preserveValues: true — never silently overwrite
+#      operator overlays on upgrade.
+#   3. spec.install.disableTakeOwnership: false (explicit) — helm-
+#      controller adopts the cloud-init-installed objects rather than
+#      re-creating, so install is non-destructive when objects already
+#      exist with matching apiVersion/kind/name.
+# See docs/RUNBOOK-PROVISIONING.md §"bp-flux double-install".
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flux-system
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-flux
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-flux
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: flux
+  targetNamespace: flux-system
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-flux
+      version: 1.1.2
+      sourceRef:
+        kind: HelmRepository
+        name: bp-flux
+        namespace: flux-system
+  install:
+    # Adopt cloud-init-installed Flux objects rather than fail on
+    # ownership conflict (the objects exist before the HelmRelease ever
+    # reconciles). Without this, the very first reconcile would error
+    # with "object already exists" on every Flux controller Deployment.
+    disableTakeOwnership: false
+    remediation:
+      retries: 3
+  upgrade:
+    # Keep operator-supplied values (e.g. resource overrides applied via
+    # helm-controller out-of-band, or dry-run patches during incident
+    # response) on chart upgrades. Without this, every upgrade would
+    # reset the chart to default values, masking operator state.
+    preserveValues: true
+    # Match install behaviour — adopt rather than fail on conflict.
+    disableTakeOwnership: false
+    remediation:
+      retries: 3

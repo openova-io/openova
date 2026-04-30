@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Order is documented but not enforced here — Flux respects HelmRelease
+# dependsOn declarations for actual install order. Listing in canonical
+# Phase 0 sequence per SOVEREIGN-PROVISIONING.md §3.
+resources:
+  - 01-cilium.yaml
+  - 02-cert-manager.yaml
+  - 03-flux.yaml
+  - 04-crossplane.yaml
+  - 05-sealed-secrets.yaml
+  - 06-spire.yaml
+  - 07-nats-jetstream.yaml
+  - 08-openbao.yaml
+  - 09-keycloak.yaml
+  - 10-gitea.yaml
+  - 11-powerdns.yaml
+  - 12-external-dns.yaml
+  - 13-bp-catalyst-platform.yaml

@@ -1,0 +1,15 @@
+# ProviderConfig for provider-hcloud. Token source = the K8s secret
+# `hcloud-credentials` in `crossplane-system`, which the OpenTofu module's
+# cloud-init writes at Phase-0 time so Crossplane can adopt resources
+# immediately after install.
+apiVersion: hcloud.crossplane.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: hcloud-credentials
+      key: token
