@@ -16,7 +16,7 @@ description: |
   (Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage) configured at
   Sovereign provisioning time.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:
