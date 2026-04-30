@@ -1,9 +1,10 @@
 /**
- * InfrastructureStorage — Storage tab. Flat table [PVC · Bucket ·
- * Volume], reads off the shared infrastructure tree.
+ * CloudStorage — Sovereign Cloud / Storage sub-page. Flat tables for
+ * PVCs, object buckets and block volumes; reads off the shared
+ * infrastructure tree provided by CloudPage.
  *
- * Per founder spec (issue #228): "Storage — flat table [PVC · Bucket
- * · Volume]. Bulk: snapshot, expand, delete."
+ * Per founder spec (issue #309 supersedes #228): bulk actions cover
+ * snapshot, expand, delete.
  */
 
 import { useMemo, useState } from 'react'
@@ -13,7 +14,7 @@ import { ModalShell, FormRow, TextInput } from '@/components/CrudModals/_shared'
 import { pvcAction } from '@/lib/infrastructure-crud'
 import type { PVCItem } from '@/lib/infrastructure.types'
 
-export function InfrastructureStorage() {
+export function CloudStorage() {
   const { deploymentId, data, isLoading } = useCloud()
 
   const { pvcs, buckets, volumes } = useMemo(() => {
@@ -44,15 +45,15 @@ export function InfrastructureStorage() {
   }
 
   return (
-    <div data-testid="infrastructure-storage">
+    <div data-testid="cloud-storage">
       {isLoading && (
-        <div className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]" data-testid="infrastructure-storage-loading">
+        <div className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]" data-testid="cloud-storage-loading">
           Loading storage resources…
         </div>
       )}
 
       {isEmpty && (
-        <div className="infra-empty" data-testid="infrastructure-storage-empty">
+        <div className="infra-empty" data-testid="cloud-storage-empty">
           <p className="title">No storage resources yet.</p>
           <p className="sub">PVCs, buckets and volumes will appear here as the cluster reports them.</p>
         </div>
@@ -60,11 +61,11 @@ export function InfrastructureStorage() {
 
       {!isEmpty && (
         <>
-          <div className="infra-bulk-actions" data-testid="infrastructure-storage-bulk">
+          <div className="infra-bulk-actions" data-testid="cloud-storage-bulk">
             <span className="label">Bulk · {selected.length} selected</span>
             <button
               type="button"
-              data-testid="infrastructure-storage-bulk-snapshot"
+              data-testid="cloud-storage-bulk-snapshot"
               disabled={selected.filter((s) => s.kind === 'pvc').length === 0}
               onClick={() => {
                 const pick = selected.find((s) => s.kind === 'pvc')
@@ -77,7 +78,7 @@ export function InfrastructureStorage() {
             </button>
             <button
               type="button"
-              data-testid="infrastructure-storage-bulk-expand"
+              data-testid="cloud-storage-bulk-expand"
               disabled={selected.filter((s) => s.kind === 'pvc').length !== 1}
               onClick={() => {
                 const pick = selected.find((s) => s.kind === 'pvc')
@@ -90,7 +91,7 @@ export function InfrastructureStorage() {
             </button>
             <button
               type="button"
-              data-testid="infrastructure-storage-bulk-delete"
+              data-testid="cloud-storage-bulk-delete"
               disabled={selected.length !== 1}
               onClick={() => {
                 const pick = selected[0]
@@ -108,22 +109,22 @@ export function InfrastructureStorage() {
             </button>
           </div>
 
-          <section className="infra-section" data-testid="infrastructure-pvcs-section">
+          <section className="infra-section" data-testid="cloud-pvcs-section">
             <h2>
-              Persistent Volume Claims <span className="count" data-testid="infrastructure-pvcs-count">{pvcs.length}</span>
+              Persistent Volume Claims <span className="count" data-testid="cloud-pvcs-count">{pvcs.length}</span>
             </h2>
             <FlatTable
-              testId="infrastructure-pvcs-table"
+              testId="cloud-pvcs-table"
               headers={['', 'Name', 'Namespace', 'Capacity', 'Used', 'Class', 'Status', '']}
             >
               {pvcs.map((p) => (
-                <tr key={p.id} data-testid={`infrastructure-pvc-row-${p.id}`}>
+                <tr key={p.id} data-testid={`cloud-pvc-row-${p.id}`}>
                   <td>
                     <input
                       type="checkbox"
                       checked={selected.some((s) => s.kind === 'pvc' && s.id === p.id)}
                       onChange={(e) => toggle('pvc', p.id, e.target.checked)}
-                      data-testid={`infrastructure-pvc-row-${p.id}-select`}
+                      data-testid={`cloud-pvc-row-${p.id}-select`}
                     />
                   </td>
                   <td>{p.name}</td>
@@ -138,7 +139,7 @@ export function InfrastructureStorage() {
                     <button
                       type="button"
                       onClick={() => setExpandPvc(p)}
-                      data-testid={`infrastructure-pvc-row-${p.id}-expand`}
+                      data-testid={`cloud-pvc-row-${p.id}-expand`}
                       style={rowBtn}
                     >
                       Expand
@@ -146,7 +147,7 @@ export function InfrastructureStorage() {
                     <button
                       type="button"
                       onClick={() => void pvcAction({ deploymentId, pvcId: p.id, action: 'snapshot' }).catch(() => {})}
-                      data-testid={`infrastructure-pvc-row-${p.id}-snapshot`}
+                      data-testid={`cloud-pvc-row-${p.id}-snapshot`}
                       style={rowBtn}
                     >
                       Snapshot
@@ -157,22 +158,22 @@ export function InfrastructureStorage() {
             </FlatTable>
           </section>
 
-          <section className="infra-section" data-testid="infrastructure-buckets-section">
+          <section className="infra-section" data-testid="cloud-buckets-section">
             <h2>
-              Object Buckets <span className="count" data-testid="infrastructure-buckets-count">{buckets.length}</span>
+              Object Buckets <span className="count" data-testid="cloud-buckets-count">{buckets.length}</span>
             </h2>
             <FlatTable
-              testId="infrastructure-buckets-table"
+              testId="cloud-buckets-table"
               headers={['', 'Name', 'Endpoint', 'Capacity', 'Used', 'Retention']}
             >
               {buckets.map((b) => (
-                <tr key={b.id} data-testid={`infrastructure-bucket-row-${b.id}`}>
+                <tr key={b.id} data-testid={`cloud-bucket-row-${b.id}`}>
                   <td>
                     <input
                       type="checkbox"
                       checked={selected.some((s) => s.kind === 'bucket' && s.id === b.id)}
                       onChange={(e) => toggle('bucket', b.id, e.target.checked)}
-                      data-testid={`infrastructure-bucket-row-${b.id}-select`}
+                      data-testid={`cloud-bucket-row-${b.id}-select`}
                     />
                   </td>
                   <td>{b.name}</td>
@@ -185,22 +186,22 @@ export function InfrastructureStorage() {
             </FlatTable>
           </section>
 
-          <section className="infra-section" data-testid="infrastructure-volumes-section">
+          <section className="infra-section" data-testid="cloud-volumes-section">
             <h2>
-              Block Volumes <span className="count" data-testid="infrastructure-volumes-count">{volumes.length}</span>
+              Block Volumes <span className="count" data-testid="cloud-volumes-count">{volumes.length}</span>
             </h2>
             <FlatTable
-              testId="infrastructure-volumes-table"
+              testId="cloud-volumes-table"
               headers={['', 'Name', 'Capacity', 'Region', 'Attached', 'Status']}
             >
               {volumes.map((v) => (
-                <tr key={v.id} data-testid={`infrastructure-volume-row-${v.id}`}>
+                <tr key={v.id} data-testid={`cloud-volume-row-${v.id}`}>
                   <td>
                     <input
                       type="checkbox"
                       checked={selected.some((s) => s.kind === 'volume' && s.id === v.id)}
                       onChange={(e) => toggle('volume', v.id, e.target.checked)}
-                      data-testid={`infrastructure-volume-row-${v.id}-select`}
+                      data-testid={`cloud-volume-row-${v.id}-select`}
                     />
                   </td>
                   <td>{v.name}</td>

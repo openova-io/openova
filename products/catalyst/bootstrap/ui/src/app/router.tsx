@@ -25,10 +25,10 @@ import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
-import { InfrastructureTopology } from '@/pages/sovereign/InfrastructureTopology'
-import { InfrastructureCompute } from '@/pages/sovereign/InfrastructureCompute'
-import { InfrastructureStorage } from '@/pages/sovereign/InfrastructureStorage'
-import { InfrastructureNetwork } from '@/pages/sovereign/InfrastructureNetwork'
+import { Architecture } from '@/pages/sovereign/Architecture'
+import { CloudCompute } from '@/pages/sovereign/CloudCompute'
+import { CloudStorage } from '@/pages/sovereign/CloudStorage'
+import { CloudNetwork } from '@/pages/sovereign/CloudNetwork'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -140,10 +140,9 @@ const provisionDashboardRoute = createRoute({
 // /cloud redirects to the architecture sub-route so the URL shape is
 // always explicit.
 //
-// The legacy /infrastructure/* routes below are preserved for now and
-// render the same components — a follow-up commit converts them to
-// 301-style redirects to the /cloud/* equivalents. Keeping both
-// resolvable in this initial commit keeps the diff additive.
+// The legacy /infrastructure/* paths below are preserved as
+// redirect-only routes so deep links and bookmarks land on the
+// renamed surface without 404'ing.
 const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/cloud',
@@ -164,25 +163,25 @@ const provisionCloudIndexRoute = createRoute({
 const provisionCloudArchitectureRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/architecture',
-  component: InfrastructureTopology,
+  component: Architecture,
 })
 
 const provisionCloudComputeRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/compute',
-  component: InfrastructureCompute,
+  component: CloudCompute,
 })
 
 const provisionCloudStorageRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/storage',
-  component: InfrastructureStorage,
+  component: CloudStorage,
 })
 
 const provisionCloudNetworkRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/network',
-  component: InfrastructureNetwork,
+  component: CloudNetwork,
 })
 
 // Legacy /infrastructure/* — every legacy path now redirects to its

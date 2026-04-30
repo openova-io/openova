@@ -1,6 +1,6 @@
 /**
  * _shared.tsx — modal shell + form atoms used by every CRUD modal in
- * the Sovereign Infrastructure surface (issue #228).
+ * the Sovereign Cloud surface (issue #309 supersedes #228).
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
  *   #2 (no compromise) — every CRUD modal speaks the same vocabulary
