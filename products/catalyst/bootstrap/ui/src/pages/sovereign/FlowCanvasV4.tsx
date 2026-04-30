@@ -33,7 +33,20 @@
  *      every colour in the FlowFamily palette.
  */
 
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
+import {
+  forceSimulation,
+  forceCollide,
+  forceX,
+  forceY,
+  forceLink,
+  type Simulation,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
+} from 'd3-force'
+import { drag as d3drag } from 'd3-drag'
+import { select } from 'd3-selection'
 import {
   pointsToPath,
   type FlowLayoutV4Result,
@@ -112,8 +125,115 @@ export interface FlowCanvasV4Props {
   onCanvasBackgroundClick: () => void
 }
 
+/* Simulation node shape — extends d3 SimulationNodeDatum with our own
+ * jobId and the layout-suggested anchor point we softly pull toward. */
+type SimNode = SimulationNodeDatum & {
+  id: string
+  ax: number // anchor x (from layout)
+  ay: number // anchor y (from layout)
+  r: number  // collision radius
+}
+
 export function FlowCanvasV4(props: FlowCanvasV4Props) {
   const { layout, families, openJobId, highlightJobId, onJobClick, onJobDoubleClick, onCanvasBackgroundClick } = props
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const simRef = useRef<Simulation<SimNode, SimulationLinkDatum<SimNode>> | null>(null)
+  const nodesRef = useRef<Map<string, SimNode>>(new Map())
+  // tick: bumped on every simulation frame so React re-renders node positions
+  const [tick, setTick] = useState(0)
+
+  // Build / refresh sim nodes whenever layout changes (job added/removed
+  // or mode toggled). We preserve any jobs already simulated so dragged
+  // positions survive a layout refresh.
+  const simNodes = useMemo<SimNode[]>(() => {
+    const next: SimNode[] = []
+    const seen = new Set<string>()
+    for (const n of layout.nodes) {
+      seen.add(n.id)
+      const existing = nodesRef.current.get(n.id)
+      const r = n.r + 4
+      if (existing) {
+        // Update anchor + radius; keep current x/y (drag survives)
+        existing.ax = n.cx
+        existing.ay = n.cy
+        existing.r = r
+        next.push(existing)
+      } else {
+        const fresh: SimNode = { id: n.id, x: n.cx, y: n.cy, ax: n.cx, ay: n.cy, r }
+        nodesRef.current.set(n.id, fresh)
+        next.push(fresh)
+      }
+    }
+    // Drop nodes that no longer exist
+    for (const id of Array.from(nodesRef.current.keys())) {
+      if (!seen.has(id)) nodesRef.current.delete(id)
+    }
+    return next
+  }, [layout])
+
+  // Build / restart simulation when sim nodes change.
+  useEffect(() => {
+    if (simNodes.length === 0) {
+      simRef.current?.stop()
+      simRef.current = null
+      return
+    }
+    const links: SimulationLinkDatum<SimNode>[] = []
+    for (const e of layout.edges) {
+      const s = nodesRef.current.get(e.fromId)
+      const t = nodesRef.current.get(e.toId)
+      if (s && t) links.push({ source: s, target: t })
+    }
+    const avgR = simNodes.reduce((s, n) => s + n.r, 0) / Math.max(1, simNodes.length)
+    const sim = forceSimulation<SimNode>(simNodes)
+      .alpha(0.6)
+      .alphaDecay(0.05)
+      .velocityDecay(0.35)
+      .force('collide', forceCollide<SimNode>().radius((d) => d.r).strength(0.85).iterations(2))
+      .force('x', forceX<SimNode>().x((d) => d.ax).strength(0.18))
+      .force('y', forceY<SimNode>().y((d) => d.ay).strength(0.22))
+      .force('link', forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
+        .id((d) => d.id)
+        .distance(avgR * 4)
+        .strength(0.04))
+      .on('tick', () => setTick((t) => t + 1))
+
+    simRef.current = sim
+    return () => {
+      sim.stop()
+    }
+  }, [simNodes, layout.edges])
+
+  // Wire d3-drag onto each node group. Re-run when nodes change.
+  useEffect(() => {
+    if (!svgRef.current) return
+    const svg = select(svgRef.current)
+    const sim = simRef.current
+    if (!sim) return
+
+    const dragBehavior = d3drag<SVGGElement, SimNode>()
+      .on('start', (event, d) => {
+        if (!event.active) sim.alphaTarget(0.3).restart()
+        d.fx = d.x ?? 0
+        d.fy = d.y ?? 0
+      })
+      .on('drag', (event, d) => {
+        d.fx = event.x
+        d.fy = event.y
+      })
+      .on('end', (event, d) => {
+        if (!event.active) sim.alphaTarget(0)
+        // Release pin so it settles back into anchor pull when not dragged.
+        d.fx = null
+        d.fy = null
+      })
+
+    const sel = svg.selectAll<SVGGElement, SimNode>('[data-flow-draggable]')
+      .data(simNodes, (d) => d?.id ?? '')
+    // d3-drag attaches via .call — TS gets confused; runtime is fine.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(sel as any).call(dragBehavior)
+  }, [simNodes, tick])
 
   if (layout.nodes.length === 0 && layout.regions.length === 0) {
     return (
@@ -129,8 +249,19 @@ export function FlowCanvasV4(props: FlowCanvasV4Props) {
   const familyById = new Map<string, FlowFamily>()
   for (const f of families) familyById.set(f.id, f)
 
+  // Build a position-override map from sim state so render uses simulated
+  // x/y instead of static layout x/y.
+  const livePos = new Map<string, { x: number; y: number }>()
+  for (const n of simNodes) {
+    if (typeof n.x === 'number' && typeof n.y === 'number') {
+      livePos.set(n.id, { x: n.x, y: n.y })
+    }
+  }
+  void tick // ensure re-render on each tick
+
   return (
     <svg
+      ref={svgRef}
       width="100%"
       height="100%"
       viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -213,22 +344,51 @@ export function FlowCanvasV4(props: FlowCanvasV4Props) {
       ))}
 
       {/* ── Edges (drawn before nodes so nodes sit on top) ──────── */}
-      {layout.edges.map((edge) => (
-        <FlowEdge key={`${edge.fromId}-${edge.toId}`} edge={edge} />
-      ))}
+      {layout.edges.map((edge) => {
+        const s = livePos.get(edge.fromId)
+        const t = livePos.get(edge.toId)
+        // When live positions exist, recompute control points so the
+        // bezier follows the dragged/simulated nodes. Two control
+        // points perpendicular to the centre line.
+        let liveEdge: FlowEdgeV4 = edge
+        if (s && t) {
+          const dx = t.x - s.x
+          const dy = t.y - s.y
+          const len = Math.hypot(dx, dy) || 1
+          const off = Math.min(60, len * 0.18)
+          const nx = -dy / len
+          const ny = dx / len
+          liveEdge = {
+            ...edge,
+            points: [
+              { x: s.x, y: s.y },
+              { x: s.x + dx * 0.33 + nx * off, y: s.y + dy * 0.33 + ny * off },
+              { x: s.x + dx * 0.66 + nx * off, y: s.y + dy * 0.66 + ny * off },
+              { x: t.x, y: t.y },
+            ],
+          }
+        }
+        return (
+          <FlowEdge key={`${edge.fromId}-${edge.toId}`} edge={liveEdge} />
+        )
+      })}
 
       {/* ── Nodes (circular glyph + ring + arc + label) ─────────── */}
-      {layout.nodes.map((node) => (
-        <FlowNode
-          key={node.id}
-          node={node}
-          family={familyById.get(node.familyId) ?? null}
-          isOpen={openJobId === node.id}
-          isHighlighted={node.highlighted || highlightJobId === node.id}
-          onClick={(e) => onJobClick(node.id, e)}
-          onDoubleClick={() => onJobDoubleClick(node.id)}
-        />
-      ))}
+      {layout.nodes.map((node) => {
+        const pos = livePos.get(node.id)
+        const liveNode: FlowNodeV4 = pos ? { ...node, cx: pos.x, cy: pos.y } : node
+        return (
+          <FlowNode
+            key={node.id}
+            node={liveNode}
+            family={familyById.get(node.familyId) ?? null}
+            isOpen={openJobId === node.id}
+            isHighlighted={node.highlighted || highlightJobId === node.id}
+            onClick={(e) => onJobClick(node.id, e)}
+            onDoubleClick={() => onJobDoubleClick(node.id)}
+          />
+        )
+      })}
     </svg>
   )
 }
@@ -344,6 +504,7 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
   return (
     <g
       data-testid={`flow-job-${node.id}`}
+      data-flow-draggable
       data-status={node.status}
       data-region={node.regionId}
       data-family={node.familyId}
@@ -351,7 +512,7 @@ function FlowNode({ node, family, isOpen, isHighlighted, onClick, onDoubleClick 
       data-open={isOpen ? 'true' : 'false'}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'grab' }}
       transform={`translate(${node.cx.toFixed(1)}, ${node.cy.toFixed(1)})`}
     >
       <title>{tooltip}</title>
