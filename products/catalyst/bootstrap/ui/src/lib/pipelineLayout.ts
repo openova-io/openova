@@ -545,8 +545,17 @@ export function pipelineLayout(
   // 1. Group jobs by batch. Preserve discovery order so that, when
   //    the meta-DAG has no cross-batch edges, the meta-Sugiyama
   //    position tie-breaker (id ascending) yields a stable layout.
+  //
+  // Job.dependsOn is a list of jobNames ("install-cilium"), not full
+  // ids ("<deploymentId>:install-cilium"). The catalyst-api Bridge
+  // emits this form so dependsOn is operator-readable across the
+  // wire. We index BOTH forms here so the inner/meta edge lookup
+  // resolves a dep regardless of which form the source feed uses.
   const jobById = new Map<string, Job>()
-  for (const j of jobs) jobById.set(j.id, j)
+  for (const j of jobs) {
+    jobById.set(j.id, j)
+    if (j.jobName && j.jobName !== j.id) jobById.set(j.jobName, j)
+  }
 
   const batchIds: string[] = []
   const jobsByBatch = new Map<string, Job[]>()
@@ -610,7 +619,10 @@ export function pipelineLayout(
         const depJob = jobById.get(dep)
         if (!depJob) continue
         if (depJob.batchId !== batchId) continue
-        inner.push({ from: dep, to: j.id })
+        // Always emit edges using the canonical Job.id form so the
+        // sugiyama() ids[] (built from j.id) and the relNodes lookup
+        // by-id later resolve consistently. dep may be the jobName.
+        inner.push({ from: depJob.id, to: j.id })
       }
     }
     const innerSugi = sugiyama(ids, inner)
