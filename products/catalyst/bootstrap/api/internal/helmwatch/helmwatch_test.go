@@ -608,6 +608,33 @@ func TestWatch_NilEmitRejected(t *testing.T) {
 	}
 }
 
+// TestNewWatcher_DefaultsBothFactories locks in the production wiring:
+// when the caller leaves DynamicFactory AND CoreFactory unset, NewWatcher
+// fills them with the real-cluster constructors so the dynamic informer
+// runs AND the helm-controller log tailer runs (issue #305 — without the
+// CoreFactory default, every PhaseComponentLog event would be silently
+// dropped because the tailer never started in production).
+func TestNewWatcher_DefaultsBothFactories(t *testing.T) {
+	rec := &recorder{}
+	// Provide a parseable kubeconfig YAML so NewWatcher doesn't reject
+	// it on the empty-string check; the factories are NOT invoked here
+	// (Watch() invokes them) so the kubeconfig contents don't have to
+	// resolve to a real cluster.
+	cfg := Config{
+		KubeconfigYAML: "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n",
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	if w.cfg.DynamicFactory == nil {
+		t.Errorf("DynamicFactory must default to NewDynamicClientFromKubeconfig in production")
+	}
+	if w.cfg.CoreFactory == nil {
+		t.Errorf("CoreFactory must default to NewKubernetesClientFromKubeconfig in production (regression for #305 — log tailer was disabled in prod)")
+	}
+}
+
 // TestWatch_OnlyEmitsOnTransition proves the de-dup branch: a second
 // informer Update event for the same HelmRelease with no state change
 // (e.g. a status subresource patch from helm-controller's

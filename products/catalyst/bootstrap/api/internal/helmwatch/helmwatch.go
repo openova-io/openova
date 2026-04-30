@@ -379,6 +379,15 @@ func NewWatcher(cfg Config, emit Emit) (*Watcher, error) {
 	if cfg.DynamicFactory == nil {
 		cfg.DynamicFactory = NewDynamicClientFromKubeconfig
 	}
+	if cfg.CoreFactory == nil {
+		// Production default: same kubeconfig → typed clientset for the
+		// helm-controller log tailer. Without this fallback, every
+		// `bp-*` HelmRelease's raw helm-controller stdout would be
+		// dropped — the FE log viewer would only ever render synthetic
+		// `[seeded]` / `[<state>]` summary lines. See issue #305.
+		// Tests still inject a fake.NewSimpleClientset via Config.CoreFactory.
+		cfg.CoreFactory = NewKubernetesClientFromKubeconfig
+	}
 	cfg.applyDefaults()
 	return &Watcher{
 		cfg:      cfg,
