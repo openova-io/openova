@@ -1,0 +1,104 @@
+# bp-powerdns — Catalyst Blueprint #11 of 13. Per-Sovereign authoritative
+# DNS. Every Sovereign owns its own PowerDNS Authoritative server with the
+# Sovereign's zones loaded into a CNPG-backed gpgsql backend; per-zone
+# DNSSEC (ECDSAP256SHA256), lua-records for geo + health-checked failover,
+# and a dnsdist companion for query rate-limiting + DDoS posture.
+#
+# Architectural anchor — per-Sovereign PowerDNS, NOT a shared instance:
+#   This file was added so each Sovereign has its own bp-powerdns release
+#   alongside bp-external-dns (#12). The original Phase-0 dial-tone
+#   PowerDNS used to live as a singleton in the openova-system namespace
+#   on contabo-mkt; #168 ("per-Sovereign PowerDNS zones") flipped that
+#   model so a Sovereign's zones never leave the Sovereign's own cluster.
+#   bp-external-dns's `dependsOn: [bp-powerdns]` therefore must be
+#   satisfied by an in-cluster sibling release — this file IS that
+#   sibling.
+#
+# Wrapper chart: platform/powerdns/chart/
+# Catalyst-curated values: platform/powerdns/chart/values.yaml
+#   - 3 PowerDNS Authoritative replicas behind dnsdist
+#   - CNPG-managed `pdns-pg` Postgres cluster for zone storage
+#   - DNSSEC ON by default (ECDSAP256SHA256)
+#   - Lua-records ON (geo + health-checked failover patterns)
+#   - REST API at pdns.<sovereign>/api behind Traefik basicAuth
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — the REST API ingress requests a TLS cert from
+#     the cluster's letsencrypt-prod ClusterIssuer; without bp-cert-manager
+#     reconciled first the Certificate resource sits Pending.
+#
+# Hard-but-implicit dependencies (CRDs, NOT sibling Blueprints):
+#   - postgresql.cnpg.io/v1.Cluster — provided by the CNPG operator. The
+#     chart's templates/cnpg-cluster.yaml renders this CR; if CNPG isn't
+#     yet installed on the Sovereign, the HelmRelease will wait. CNPG is
+#     a fixture of Catalyst-Zero (FABRIC group, componentGroups.ts `cnpg`)
+#     and is installed alongside this kit by the bootstrap installer.
+#   - traefik.io/v1alpha1.Middleware — Traefik is the Catalyst-Zero
+#     ingress controller and is a fixture of every Sovereign.
+#
+# Per-Sovereign overrides intentionally NOT set here:
+#   - Zones, API basic-auth credentials, anycast Floating-IP target — all
+#     of those are provisioned by Crossplane / pool-domain-manager (PDM)
+#     after the cluster comes up, NOT baked into the bootstrap kit. This
+#     file installs the chart with defaults so the Sovereign has a working
+#     authoritative DNS surface that PDM can then load zones into.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: powerdns
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-powerdns
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-powerdns
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: powerdns
+  targetNamespace: powerdns
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-powerdns
+      version: 1.1.3
+      sourceRef:
+        kind: HelmRepository
+        name: bp-powerdns
+        namespace: flux-system
+  # disableWait: a Sovereign without bp-cnpg yet reconciled has no
+  # `pdns-pg-app` Secret (the chart's CNPG Cluster template is gated
+  # behind the `postgresql.cnpg.io/v1` CRD via Capabilities.APIVersions
+  # check — see chart/templates/cnpg-cluster.yaml). Without disableWait,
+  # Helm's `--wait` would hold until the powerdns Deployment is Ready,
+  # which can't happen until CNPG comes up and synthesises the Secret.
+  # The HelmRelease itself reports Ready as soon as the manifests apply
+  # cleanly; runtime convergence (powerdns pods becoming Ready once
+  # CNPG lands) is observed via kubectl, not gated on Helm.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

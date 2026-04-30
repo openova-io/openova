@@ -38,14 +38,21 @@ spec:
   chart:
     spec:
       chart: bp-keycloak
-      version: 1.1.1
+      version: 1.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
         namespace: flux-system
+  # Event-driven install: Keycloak DB schema migration + realm import is
+  # legitimately multi-minute on first install (PostgreSQL backend +
+  # 100+ Liquibase changesets). Helm install completes when manifests
+  # apply; downstream dependsOn checks Ready=True independently.
+  # Replaces PR #221 spec.timeout: 15m.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3

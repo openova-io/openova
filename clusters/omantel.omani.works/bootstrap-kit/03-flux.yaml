@@ -21,7 +21,6 @@
 #      2.4.0) which matches cloud-init's v2.4.0 install.yaml.
 #   2. spec.upgrade.preserveValues: true — never silently overwrite
 #      operator overlays on upgrade.
-#   3. spec.install.disableTakeOwnership: false (explicit) — helm-
 #      controller adopts the cloud-init-installed objects rather than
 #      re-creating, so install is non-destructive when objects already
 #      exist with matching apiVersion/kind/name.
@@ -65,21 +64,25 @@ spec:
         kind: HelmRepository
         name: bp-flux
         namespace: flux-system
+  # Event-driven install: bp-flux adopts the cloud-init-installed Flux
+  # controllers; the helm-controller pod that reconciles THIS HR is itself
+  # a target of the chart, so blocking on Ready=True is structurally
+  # impossible. disableWait avoids the deadlock. Replaces PR #221 timeout.
   install:
+    disableWait: true
     # Adopt cloud-init-installed Flux objects rather than fail on
     # ownership conflict (the objects exist before the HelmRelease ever
     # reconciles). Without this, the very first reconcile would error
     # with "object already exists" on every Flux controller Deployment.
-    disableTakeOwnership: false
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     # Keep operator-supplied values (e.g. resource overrides applied via
     # helm-controller out-of-band, or dry-run patches during incident
     # response) on chart upgrades. Without this, every upgrade would
     # reset the chart to default values, masking operator state.
     preserveValues: true
     # Match install behaviour — adopt rather than fail on conflict.
-    disableTakeOwnership: false
     remediation:
       retries: 3

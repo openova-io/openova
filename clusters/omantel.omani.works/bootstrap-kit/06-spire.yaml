@@ -38,14 +38,23 @@ spec:
   chart:
     spec:
       chart: bp-spire
-      version: 1.1.1
+      version: 1.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-spire
         namespace: flux-system
+  # Event-driven install: Helm completes when manifests apply, not when
+  # pods reach Ready. spire-server StatefulSet has a multi-minute Ready
+  # path (controller-manager waits for CRD informer cache sync, which is
+  # itself triggered by the spire-crds subchart's CRD install). Flux's
+  # `dependsOn` on downstream HRs (bp-nats-jetstream, bp-openbao) checks
+  # Ready=True on this HR independently, so disableWait is the correct
+  # shape — replaces the blanket spec.timeout: 15m band-aid from PR #221.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
