@@ -123,6 +123,7 @@ func snapshotsToSeeds(snap []helmwatch.ComponentSnapshot) []jobs.InformerSeed {
 			State:      s.Status,
 			Message:    s.Message,
 			ObservedAt: s.LastTransitionAt,
+			DependsOn:  s.DependsOn,
 		})
 	}
 	return out
