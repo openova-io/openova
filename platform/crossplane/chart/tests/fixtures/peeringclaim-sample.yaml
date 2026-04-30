@@ -1,0 +1,19 @@
+# PeeringClaim sample fixture.
+apiVersion: compose.openova.io/v1alpha1
+kind: PeeringClaim
+metadata:
+  name: omantel-fsn1-nbg1
+  namespace: crossplane-system
+spec:
+  parameters:
+    name: omantel-fsn1-nbg1
+    regionAID: "1234567"
+    regionBID: "7654321"
+    cidrA: 10.0.0.0/16
+    cidrB: 10.1.0.0/16
+    gatewayA: 10.0.1.1
+    gatewayB: 10.1.1.1
+    bidirectional: true
+    sovereignFQDN: omantel.omani.works
+  providerConfigRef:
+    name: default-hcloud

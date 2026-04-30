@@ -1,0 +1,189 @@
+# XRD: XLoadBalancerClaim — Catalyst Day-2 CRUD composite for an
+# additional Hetzner LoadBalancer beyond the one OpenTofu Phase 0
+# creates for the Sovereign control plane. Use cases:
+#   - Per-Org vcluster ingress LB
+#   - Regional DR replica LB
+#   - App-specific public LB (e.g. dedicated for a Catalyst-managed app)
+#
+# A LoadBalancerClaim composes:
+#   1× provider-hcloud LoadBalancer
+#   1× LoadBalancerNetwork (attaches LB to the parent RegionClaim's network)
+#   N× LoadBalancerService (one per `listeners` entry)
+#   N× LoadBalancerTarget   (one per `targets` entry — server-id or
+#                             label-selector based)
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3: never bypass Crossplane with
+# raw kubectl manifests for cloud resources.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xloadbalancerclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XLoadBalancerClaim
+    plural: xloadbalancerclaims
+  claimNames:
+    kind: LoadBalancerClaim
+    plural: loadbalancerclaims
+  defaultCompositionRef:
+    name: hetzner-load-balancer-claim.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, regionRef, listeners]
+                  properties:
+                    name:
+                      type: string
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    regionRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    region:
+                      type: string
+                      description: |
+                        Hetzner location — repeated here so the LB can be
+                        provisioned in the same region as the parent
+                        RegionClaim without resolving the cross-resource
+                        reference through a Required patch.
+                      enum: [fsn1, nbg1, hel1, ash, hil]
+                    loadBalancerType:
+                      type: string
+                      description: |
+                        Hetzner LB SKU — lb11, lb21, lb31. Defaults to lb11
+                        (matches OpenTofu module).
+                      enum: [lb11, lb21, lb31]
+                      default: lb11
+                    networkId:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID — the parent RegionClaim's
+                        status.networkId. Used to attach the LB to the
+                        private network so it can target backend servers
+                        by their private IP.
+                    algorithm:
+                      type: string
+                      enum: [round-robin, least-conn]
+                      default: round-robin
+                      description: |
+                        Translated to provider-hcloud's LoadBalancer
+                        spec.forProvider.algorithm.type as round_robin or
+                        least_connections by the Composition.
+                    listeners:
+                      type: array
+                      description: |
+                        One LoadBalancerService composed per entry. Each
+                        listener pairs a public port + protocol with the
+                        backend's destination port.
+                      minItems: 1
+                      maxItems: 50
+                      items:
+                        type: object
+                        required: [port, protocol, targetPort]
+                        properties:
+                          port:
+                            type: integer
+                            minimum: 1
+                            maximum: 65535
+                          protocol:
+                            type: string
+                            enum: [tcp, http, https]
+                          targetPort:
+                            type: integer
+                            minimum: 1
+                            maximum: 65535
+                    targets:
+                      type: array
+                      description: |
+                        Backend targets. Each entry is either an explicit
+                        server id (`type: server`) or a label selector
+                        (`type: label-selector`) — translated to a
+                        provider-hcloud LoadBalancerTarget by the
+                        Composition.
+                      items:
+                        type: object
+                        required: [type]
+                        properties:
+                          type:
+                            type: string
+                            enum: [server, label-selector, ip]
+                          serverID:
+                            type: string
+                          labelSelector:
+                            type: string
+                          ip:
+                            type: string
+                          usePrivateIP:
+                            type: boolean
+                            default: true
+                    sovereignFQDN:
+                      type: string
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                publicIP:
+                  type: string
+                  description: |
+                    Public IPv4 of the LB once provider-hcloud reports back.
+                loadBalancerID:
+                  type: string
+                targetHealth:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      target:    { type: string }
+                      healthy:   { type: boolean }
+                      lastCheck: { type: string, format: date-time }
+      additionalPrinterColumns:
+        - name: NAME
+          type: string
+          jsonPath: .spec.parameters.name
+        - name: TYPE
+          type: string
+          jsonPath: .spec.parameters.loadBalancerType
+        - name: PUBLIC-IP
+          type: string
+          jsonPath: .status.publicIP
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

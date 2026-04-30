@@ -1,0 +1,22 @@
+# RegionClaim sample fixture — exercised by tests/composition-validate.sh.
+# Mirrors the Phase-0 OpenTofu module's default Sovereign provisioning
+# parameters; a real catalyst-api Day-2 CRUD POST writes a manifest with
+# the same shape.
+apiVersion: compose.openova.io/v1alpha1
+kind: RegionClaim
+metadata:
+  name: omantel-fsn1
+  namespace: crossplane-system
+spec:
+  parameters:
+    region: fsn1
+    provider: hetzner
+    skuCP: cpx21
+    skuWorker: cpx21
+    workerCount: 0
+    sshKeyName: catalyst-omantel-omani-works
+    sovereignFQDN: omantel.omani.works
+    ipRange: 10.0.0.0/16
+    subnetIpRange: 10.0.1.0/24
+  providerConfigRef:
+    name: default-hcloud

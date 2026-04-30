@@ -1,0 +1,18 @@
+# ClusterClaim sample fixture.
+apiVersion: compose.openova.io/v1alpha1
+kind: ClusterClaim
+metadata:
+  name: omantel-cluster
+  namespace: crossplane-system
+spec:
+  parameters:
+    name: omantel
+    regionRef:
+      name: omantel-fsn1
+      namespace: crossplane-system
+    k3sVersion: v1.31.4+k3s1
+    tags:
+      catalyst.openova.io/sovereign: omantel.omani.works
+      catalyst.openova.io/tier: production
+  providerConfigRef:
+    name: default-hcloud
