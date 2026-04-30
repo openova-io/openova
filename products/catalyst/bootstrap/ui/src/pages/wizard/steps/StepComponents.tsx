@@ -249,61 +249,67 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
     <>
       <ComponentLogo entry={entry} />
 
+      {/* Floating Add / Remove circle button — absolute-positioned in the
+          top-right corner of the card with z-index above the body so it
+          OVERLAYS the description text. This deliberately reclaims the
+          right ¼ of the card body for full-width description text rather
+          than reserving a vertical column / sharing the line-1 chip row.
+          Opacity 0 by default, fades to opacity 1 on card hover; always
+          visible (and tinted green) when the card is in-cart so removal
+          is one click without hover-fishing. Stops propagation so the
+          outer anchor's product-detail navigation never fires when the
+          operator intends to toggle selection. Suppressed in read-only
+          mode (Tab 2 mandatory infra cards). */}
+      {!readOnly && (
+        <button
+          type="button"
+          aria-pressed={selected}
+          aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggle?.()
+          }}
+          data-testid={`toggle-${entry.id}`}
+          className={`corp-comp-add-btn ${selected ? 'added' : ''}`}
+          title={selected ? `Remove ${entry.name} from stack` : `Add ${entry.name} to stack`}
+        >
+          {selected ? (
+            <Check size={12} strokeWidth={3} aria-hidden />
+          ) : (
+            <Plus size={12} strokeWidth={2.5} aria-hidden />
+          )}
+        </button>
+      )}
+
       <div className="corp-comp-body">
-        {/* Line 1 — name (left, flex) + family chip + inline toggle
-            button (right). Chips and the toggle share this row so no
-            vertical column on the right is reserved; lines 2-3 (desc)
-            consume the FULL body width. The toggle button is suppressed
-            in read-only mode and replaced by the static category pill. */}
+        {/* Line 1 — name (left, flex) + family chip (right). The toggle
+            button is rendered ABOVE this body as an absolute overlay so
+            it doesn't reserve a vertical column; lines 2-3 (desc) consume
+            the FULL body width and the floating "+" bubble simply overlays
+            the description's top-right corner when needed. The family chip
+            stays inline so it remains clickable as a separate target. */}
         <div className="corp-comp-top">
           <span className="corp-comp-name">{entry.name}</span>
           {readOnly ? (
             <span className="corp-comp-cat">{entry.groupName}</span>
           ) : (
-            <>
-              <Link
-                to="/marketplace/family/$familyId"
-                params={{ familyId: entry.product }}
-                data-testid={`family-chip-${entry.id}`}
-                onClick={(e) => e.stopPropagation()}
-                className="corp-comp-family-chip"
-                style={{
-                  background: palette.bg,
-                  color: palette.fg,
-                  border: `1px solid ${palette.border}`,
-                }}
-                aria-label={`Open ${entry.groupName} family portfolio`}
-                title={`Open ${entry.groupName} family portfolio`}
-              >
-                {entry.groupName}
-              </Link>
-              {/* Inline Add / Remove circle button — sits at the end of
-                  line 1 next to the family chip. Opacity 0 by default,
-                  fades to opacity 1 on card hover; always visible (and
-                  tinted green) when the card is in-cart so removal is one
-                  click without hover-fishing. Stops propagation so the
-                  outer anchor's product-detail navigation never fires
-                  when the operator intends to toggle selection. */}
-              <button
-                type="button"
-                aria-pressed={selected}
-                aria-label={selected ? `Remove ${entry.name}` : `Add ${entry.name}`}
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onToggle?.()
-                }}
-                data-testid={`toggle-${entry.id}`}
-                className={`corp-comp-add-btn ${selected ? 'added' : ''}`}
-                title={selected ? `Remove ${entry.name} from stack` : `Add ${entry.name} to stack`}
-              >
-                {selected ? (
-                  <Check size={12} strokeWidth={3} aria-hidden />
-                ) : (
-                  <Plus size={12} strokeWidth={2.5} aria-hidden />
-                )}
-              </button>
-            </>
+            <Link
+              to="/marketplace/family/$familyId"
+              params={{ familyId: entry.product }}
+              data-testid={`family-chip-${entry.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="corp-comp-family-chip"
+              style={{
+                background: palette.bg,
+                color: palette.fg,
+                border: `1px solid ${palette.border}`,
+              }}
+              aria-label={`Open ${entry.groupName} family portfolio`}
+              title={`Open ${entry.groupName} family portfolio`}
+            >
+              {entry.groupName}
+            </Link>
           )}
         </div>
         {/* Lines 2-3 — description, two-line clamp, full body width. */}
@@ -1279,7 +1285,15 @@ export function StepComponents() {
         /* Lines 2-3 — description, two-line clamp. Spans the FULL body
            width (no padding-right cap) so descriptions actually breathe.
            font-size + line-height tuned so two filled lines plus line 1
-           and line 4 fit cleanly inside the 108px card height. */
+           and line 4 fit cleanly inside the 108px card height.
+
+           min-height: 2.5em RESERVES two lines' worth of vertical space
+           even when the description is naturally one line — without this,
+           short-description cards collapsed by ~14px and the chip row
+           (line 4) floated up inconsistently across the grid, leaving a
+           visibly ragged Y for the chips. The 2.5em value = font-size
+           0.76rem * line-height 1.4 * 2 ≈ 2.13em, padded to 2.5em to
+           absorb sub-pixel rounding without reserving a full third line. */
         .corp-comp-desc {
           margin: 0;
           color: var(--wiz-text-md);
@@ -1289,6 +1303,7 @@ export function StepComponents() {
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
+          min-height: 2.5em;
         }
         /* Line 4 — chip row. align-items: center keeps the SELECTED
            pill (margin-left: auto) and the tier / dep chips on the same
@@ -1349,16 +1364,20 @@ export function StepComponents() {
           box-shadow: 0 0 0 2px rgba(74,222,128,0.18);
         }
 
-        /* Inline Add / Remove button — sits at the end of line 1 next
-           to the family chip, sharing horizontal space with chips. 22×22
-           round (smaller than SME's 32×32 to fit cleanly inline without
-           displacing the line-1 chips). Opacity 0 by default, fades to
-           opacity 1 on card hover; always visible (and tinted green)
-           when in-cart so removal is one click without hover-fishing.
-           margin-left: auto pins it to the trailing edge of line 1
-           regardless of family-chip width. */
+        /* Floating Add / Remove button — absolute overlay anchored to
+           the card's top-right corner with z-index above the body so it
+           sits ON TOP of the description text. 22×22 round, kept compact
+           so the overlay covers ~one description glyph at most. Opacity
+           0 by default, fades to opacity 1 on card hover; always visible
+           (and tinted green) when in-cart so removal is one click without
+           hover-fishing. The card body's lines 2-3 (.corp-comp-desc) span
+           the FULL body width regardless — the overlay is purely visual
+           layering, no horizontal space is reserved. */
         .corp-comp-add-btn {
-          margin-left: 0;
+          position: absolute;
+          top: 0.5rem;
+          right: 0.5rem;
+          z-index: 10;
           width: 22px;
           height: 22px;
           flex-shrink: 0;
