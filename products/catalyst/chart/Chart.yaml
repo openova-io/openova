@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.5
-appVersion: 1.1.5
+version: 1.1.6
+appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -53,6 +53,20 @@ description: |
   Per-Sovereign HTTPRoute resources for the Catalyst console/admin/
   marketplace will be authored separately (out of scope here) — issue
   #279, 2026-04-30.
+  Bumped to 1.1.6 to delete the entire `templates/sme-services/`
+  directory (admin/auth/billing/catalog/configmap/console/domain/
+  gateway/marketplace/notification/provisioning/serviceaccounts/tenant
+  — 13 manifests, ~36 resources). Every one of them was hardcoded to
+  `namespace: sme` and to `sme.openova.io` URLs. The SME microservice
+  mesh is a contabo-mkt-only product (the OpenOva.io marketplace) that
+  was dragged into the Catalyst umbrella during Group C cutover; it
+  has no role on franchised Sovereigns. Sovereigns don't run SME and
+  don't have an `sme` namespace, so the Helm install was failing with
+  `failed to create resource: namespaces "sme" not found` on
+  otech.omani.works. Resolution: SME services are out of scope for the
+  bp-catalyst-platform Blueprint — they will be re-homed in a
+  contabo-mkt-only Kustomization (or a separate `bp-sme` Blueprint)
+  if/when SME is re-deployed. Issue #281, 2026-04-30.
 type: application
 
 dependencies:
