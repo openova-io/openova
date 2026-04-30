@@ -22,6 +22,7 @@ import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
+import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 
 // Root
@@ -107,6 +108,17 @@ const provisionJobDetailRoute = createRoute({
   component: JobDetail,
 })
 
+// Sovereign Dashboard — resource-utilisation treemap (founder spec).
+// Box area = allocated capacity, colour = utilisation/health/age. Lives
+// alongside the AppsPage / JobsPage Sovereign-portal surfaces under the
+// same /provision/$deploymentId namespace so the sidebar nav entry
+// resolves with the same tanstack-router params as its siblings.
+const provisionDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/dashboard',
+  component: Dashboard,
+})
+
 // Per-Batch detail page (epic #204 item #4) — surfaces a single batch
 // progress card at the top + a JobsTable filtered to that batch's
 // rows. Reachable from the batch chip in any JobsTable row (both
@@ -166,6 +178,7 @@ const routeTree = rootRoute.addChildren([
   provisionJobsRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
+  provisionDashboardRoute,
   provisionBatchDetailRoute,
   legacyProvisionRoute,
   designsRoute,
