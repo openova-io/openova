@@ -22,6 +22,7 @@ import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
+import { Dashboard } from '@/pages/sovereign/Dashboard'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -106,6 +107,17 @@ const provisionJobDetailRoute = createRoute({
   component: JobDetail,
 })
 
+// Sovereign Dashboard — resource-utilisation treemap (founder spec).
+// Box area = allocated capacity, colour = utilisation/health/age. Lives
+// alongside the AppsPage / JobsPage Sovereign-portal surfaces under the
+// same /provision/$deploymentId namespace so the sidebar nav entry
+// resolves with the same tanstack-router params as its siblings.
+const provisionDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/dashboard',
+  component: Dashboard,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout. Once the public smoke tests move to the new
@@ -152,6 +164,7 @@ const routeTree = rootRoute.addChildren([
   provisionJobsRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
+  provisionDashboardRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,

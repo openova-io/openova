@@ -66,6 +66,16 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // The UI is served under `base: '/sovereign/'`, so fetch calls
+      // emitted by `${API_BASE}/v1/...` (where API_BASE = `/sovereign/api`)
+      // arrive here as `/sovereign/api/...`. Rewrite to `/api/...` so
+      // catalyst-api receives the canonical path. Production traefik
+      // performs the same prefix strip, so dev mirrors prod.
+      '/sovereign/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        rewrite: (p: string) => p.replace(/^\/sovereign/, ''),
+      },
     },
   },
   // Vitest config — drives `npm run test` in this package. The test runner

@@ -85,6 +85,10 @@ func main() {
 	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
 	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
+	// Sovereign Dashboard treemap (resource utilisation). Read-only.
+	// V1 emits a static placeholder shape — see dashboard.go header
+	// for the metrics-server upgrade plan.
+	r.Get("/api/v1/dashboard/treemap", h.GetDashboardTreemap)
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

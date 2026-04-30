@@ -80,14 +80,16 @@ describe('Sidebar — chrome', () => {
 })
 
 describe('Sidebar — navigation', () => {
-  it('renders exactly Apps + Jobs + Settings nav items', async () => {
+  it('renders Apps + Jobs + Dashboard + Settings nav items', async () => {
     renderSidebarAt('/provision/d-test-1234')
     expect(await screen.findByTestId('sov-nav-apps')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-jobs')).toBeTruthy()
+    // Dashboard nav added with the resource-utilisation treemap
+    // surface (founder spec — `/provision/$deploymentId/dashboard`).
+    expect(await screen.findByTestId('sov-nav-dashboard')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-settings')).toBeTruthy()
-    // Canonical-but-omitted items must NOT render: dashboard / domains /
-    // billing / team. Their absence is part of the contract.
-    expect(screen.queryByTestId('sov-nav-dashboard')).toBeNull()
+    // Canonical-but-omitted items must NOT render: domains / billing /
+    // team are tenant-console concerns, not Sovereign-provision ones.
     expect(screen.queryByTestId('sov-nav-domains')).toBeNull()
     expect(screen.queryByTestId('sov-nav-billing')).toBeNull()
     expect(screen.queryByTestId('sov-nav-team')).toBeNull()
