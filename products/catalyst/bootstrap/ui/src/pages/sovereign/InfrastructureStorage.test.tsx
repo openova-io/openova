@@ -1,9 +1,15 @@
 /**
  * InfrastructureStorage.test.tsx — render lock-in for the Storage tab.
+ *
+ * Coverage:
+ *   1. Empty state.
+ *   2. PVCs / Buckets / Volumes tables with counts.
+ *   3. Bulk actions strip.
+ *   4. Row-level Expand opens the ExpandPVCModal.
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -14,17 +20,33 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
+import { InfrastructurePage } from './InfrastructurePage'
 import { InfrastructureStorage } from './InfrastructureStorage'
-import type { StorageResponse } from '@/lib/infrastructure.types'
+import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
+import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
+import { useWizardStore } from '@/entities/deployment/store'
+import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
-function renderStorage(data: StorageResponse | undefined) {
+function renderStoragePage(data: HierarchicalInfrastructure) {
+  useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ events: [], state: undefined, done: false }),
+    } as unknown as Response)) as typeof fetch
+
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
-  const route = createRoute({
+  const infraRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/infrastructure/storage',
-    component: () => <InfrastructureStorage initialDataOverride={data} />,
+    path: '/provision/$deploymentId/infrastructure',
+    component: () => <InfrastructurePage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
   })
-  const tree = rootRoute.addChildren([route])
+  const storageRoute = createRoute({
+    getParentRoute: () => infraRoute,
+    path: '/storage',
+    component: InfrastructureStorage,
+  })
+  const tree = rootRoute.addChildren([infraRoute.addChildren([storageRoute])])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
@@ -45,53 +67,38 @@ afterEach(() => cleanup())
 
 describe('InfrastructureStorage — empty', () => {
   it('renders the empty state when no PVCs / buckets / volumes exist', async () => {
-    renderStorage({ pvcs: [], buckets: [], volumes: [] })
+    const empty: HierarchicalInfrastructure = {
+      cloud: [],
+      topology: { pattern: 'solo', regions: [] },
+      storage: { pvcs: [], buckets: [], volumes: [] },
+    }
+    renderStoragePage(empty)
     expect(await screen.findByTestId('infrastructure-storage-empty')).toBeTruthy()
   })
 })
 
 describe('InfrastructureStorage — populated', () => {
-  const sample: StorageResponse = {
-    pvcs: [
-      {
-        id: 'p1',
-        name: 'cnpg-pgdata',
-        namespace: 'cnpg-system',
-        capacity: '20Gi',
-        used: '4Gi',
-        storageClass: 'local-path',
-        status: 'healthy',
-      },
-    ],
-    buckets: [
-      {
-        id: 'b1',
-        name: 'observability',
-        endpoint: 's3.openova.io',
-        capacity: '100Gi',
-        used: '12Gi',
-        retentionDays: '30',
-      },
-    ],
-    volumes: [
-      {
-        id: 'v1',
-        name: 'pgdata-vol',
-        capacity: '50Gi',
-        region: 'fsn1',
-        attachedTo: 'node-cp-fsn1',
-        status: 'healthy',
-      },
-    ],
-  }
-
-  it('renders PVC, bucket and volume cards', async () => {
-    renderStorage(sample)
-    expect(await screen.findByTestId('infrastructure-pvc-card-p1')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-bucket-card-b1')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-volume-card-v1')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-pvcs-count').textContent).toBe('1')
+  it('renders PVC, bucket and volume tables with counts', async () => {
+    renderStoragePage(infrastructureTopologyFixture)
+    expect(await screen.findByTestId('infrastructure-pvcs-table')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-buckets-table')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-volumes-table')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-pvcs-count').textContent).toBe('2')
     expect(screen.getByTestId('infrastructure-buckets-count').textContent).toBe('1')
     expect(screen.getByTestId('infrastructure-volumes-count').textContent).toBe('1')
+  })
+
+  it('renders the bulk-actions strip', async () => {
+    renderStoragePage(infrastructureTopologyFixture)
+    expect(await screen.findByTestId('infrastructure-storage-bulk')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-storage-bulk-snapshot')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-storage-bulk-expand')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-storage-bulk-delete')).toBeTruthy()
+  })
+
+  it('opens ExpandPVCModal on row-level Expand', async () => {
+    renderStoragePage(infrastructureTopologyFixture)
+    fireEvent.click(await screen.findByTestId('infrastructure-pvc-row-pvc-postgres-data-expand'))
+    expect(screen.getByTestId('infrastructure-modal-expand-pvc')).toBeTruthy()
   })
 })

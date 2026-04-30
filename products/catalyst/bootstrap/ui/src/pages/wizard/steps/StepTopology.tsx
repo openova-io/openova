@@ -326,10 +326,28 @@ function AirgapAddon() {
 }
 
 /* ── StepTopology ───────────────────────────────────────────────── */
-export function StepTopology() {
+/**
+ * StepTopology mode.
+ *   • 'wizard'        — canonical wizard step (default)
+ *   • 'add-cluster'   — embedded in InfrastructurePage's
+ *                       AddClusterModal (cluster-spec form re-use).
+ */
+export type StepTopologyMode = 'wizard' | 'add-cluster'
+
+export interface StepTopologyProps {
+  mode?: StepTopologyMode
+}
+
+export function StepTopology({ mode = 'wizard' }: StepTopologyProps = {}) {
   const store = useWizardStore()
   const { next, back } = useStepNav()
   const bp = useBreakpoint()
+  const isAddCluster = mode === 'add-cluster'
+  // Reserved — `isAddCluster` will gate the topology-pattern picker
+  // once cluster-only-add lands here (the AddClusterModal currently
+  // owns its own form). Issue #228 reserves the prop for forward
+  // compat.
+  void isAddCluster
 
   const selected = TOPOLOGIES.find(t => t.id === store.topology) ?? null
   const twoPaneLayout = bp === 'desktop'

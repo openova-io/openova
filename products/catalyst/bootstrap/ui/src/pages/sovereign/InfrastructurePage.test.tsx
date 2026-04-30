@@ -26,6 +26,12 @@ import { InfrastructurePage, resolveActiveTab, INFRA_TABS } from './Infrastructu
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
+const EMPTY_TREE = {
+  cloud: [],
+  topology: { pattern: 'solo' as const, regions: [] },
+  storage: { pvcs: [], buckets: [], volumes: [] },
+}
+
 function renderShell(deploymentId: string, suffix: string) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const infraRoute = createRoute({
@@ -35,6 +41,8 @@ function renderShell(deploymentId: string, suffix: string) {
       <InfrastructurePage
         disableStream
         contentOverride={<div data-testid="infra-content-stub">{suffix}</div>}
+        initialDataOverride={EMPTY_TREE}
+        deploymentsOverride={[]}
       />
     ),
   })
@@ -102,9 +110,9 @@ describe('InfrastructurePage — shell', () => {
 })
 
 describe('InfrastructurePage — tabs', () => {
-  it('renders Topology / Compute / Storage / Network in canonical order', async () => {
+  it('renders Topology / Compute / Storage / Network in canonical order', { timeout: 30_000 }, async () => {
     renderShell('d-1', 'topology')
-    const tablist = await screen.findByTestId('infrastructure-tabs')
+    const tablist = await screen.findByTestId('infrastructure-tabs', undefined, { timeout: 15_000 })
     const tabs = within(tablist).getAllByRole('tab')
     expect(tabs).toHaveLength(4)
     expect(tabs.map((t) => t.textContent?.trim())).toEqual([

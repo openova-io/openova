@@ -64,6 +64,166 @@ export interface TopologyResponse {
   edges: TopologyEdge[]
 }
 
+/* ── Hierarchical topology (issue #228) ───────────────────────────
+ *
+ * The new /infrastructure/topology contract delivers ONE hierarchical
+ * tree (cloud → region → cluster → vcluster | node | lb | network)
+ * that powers all four tabs (Topology / Compute / Storage / Network).
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall, target shape) —
+ * this is the FINAL shape. Backend returns a well-shaped empty
+ * response when the live cluster query isn't implemented yet.
+ *
+ * Founder-locked spec verbatim:
+ *   Org/Sovereign
+ *     └─ Topology pattern (SOLO | HA-PAIR | MULTI-REGION | AIR-GAP add-on)
+ *         └─ Region(s)
+ *             ├─ Provider tenant
+ *             ├─ SKU
+ *             ├─ Worker count
+ *             └─ Physical Cluster(s)
+ *                 ├─ vClusters [DMZ · RTZ · MGMT]
+ *                 ├─ LBs / peerings / firewalls
+ *                 ├─ PVCs / buckets / volumes
+ *                 └─ Worker nodes
+ */
+
+export type TopologyPattern = 'solo' | 'ha-pair' | 'multi-region' | 'air-gap'
+
+export type IsolationMode = 'dmz' | 'rtz' | 'mgmt'
+
+export interface VClusterSpec {
+  id: string
+  name: string
+  isolationMode: IsolationMode
+  status: TopologyStatus
+}
+
+export interface NodePoolSpec {
+  id: string
+  sku: string
+  replicas: number
+  status: TopologyStatus
+}
+
+export interface NodeSpec {
+  id: string
+  name: string
+  sku: string
+  role: string
+  ip: string
+  status: TopologyStatus
+}
+
+export interface LBListener {
+  port: number
+  protocol: string
+}
+
+export interface LBTarget {
+  id: string
+  ip: string
+  status: TopologyStatus
+}
+
+export interface LoadBalancerSpec {
+  id: string
+  name: string
+  publicIP: string
+  listeners: LBListener[]
+  targets: LBTarget[]
+  region: string
+  status: TopologyStatus
+}
+
+export interface FirewallRule {
+  id: string
+  protocol: string
+  port: string
+  source: string
+  action: 'allow' | 'deny'
+}
+
+export interface FirewallSpec {
+  id: string
+  name: string
+  rules: FirewallRule[]
+  status: TopologyStatus
+}
+
+export interface PeeringSpec {
+  id: string
+  name: string
+  vpcPair: string
+  subnets: string
+  status: TopologyStatus
+}
+
+export interface NetworkSpec {
+  id: string
+  cidr: string
+  region: string
+  peerings: PeeringSpec[]
+  firewalls: FirewallSpec[]
+}
+
+export interface ClusterSpec {
+  id: string
+  name: string
+  version: string
+  status: TopologyStatus
+  nodeCount: number
+  vclusters: VClusterSpec[]
+  loadBalancers: LoadBalancerSpec[]
+  nodePools: NodePoolSpec[]
+  nodes: NodeSpec[]
+}
+
+export interface RegionSpec {
+  id: string
+  name: string
+  provider: string
+  providerRegion: string
+  skuCp: string
+  skuWorker: string
+  workerCount: number
+  status: TopologyStatus
+  clusters: ClusterSpec[]
+  networks: NetworkSpec[]
+}
+
+export interface CloudSpec {
+  id: string
+  name: string
+  provider: string
+  regionCount: number
+  quotaUsed: number
+  quotaLimit: number
+}
+
+export interface TopologyTree {
+  pattern: TopologyPattern
+  regions: RegionSpec[]
+}
+
+export interface InfrastructureStorageBlock {
+  pvcs: PVCItem[]
+  buckets: BucketItem[]
+  volumes: VolumeItem[]
+}
+
+export interface HierarchicalInfrastructure {
+  cloud: CloudSpec[]
+  topology: TopologyTree
+  storage: InfrastructureStorageBlock
+}
+
+export interface DeploymentSummary {
+  id: string
+  sovereignFQDN: string
+  status: string
+}
+
 /* ── Compute ───────────────────────────────────────────────────── */
 
 export interface ClusterItem {
@@ -230,6 +390,120 @@ export async function getNetwork(deploymentId: string): Promise<NetworkResponse>
     throw new Error(`network fetch failed: ${res.status}`)
   }
   return (await res.json()) as NetworkResponse
+}
+
+/**
+ * Fetch the hierarchical infrastructure tree for a deployment. Single
+ * round-trip, all four tabs render filtered views off the same response.
+ */
+export async function getHierarchicalInfrastructure(
+  deploymentId: string,
+): Promise<HierarchicalInfrastructure> {
+  const res = await fetch(
+    `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/infrastructure/topology`,
+    { headers: { Accept: 'application/json' } },
+  )
+  if (!res.ok) {
+    throw new Error(`topology fetch failed: ${res.status}`)
+  }
+  return (await res.json()) as HierarchicalInfrastructure
+}
+
+/** List all known deployments — feeds the per-Sovereign header switcher. */
+export async function listDeployments(): Promise<DeploymentSummary[]> {
+  const res = await fetch(`${API_BASE}/v1/deployments`, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`deployments fetch failed: ${res.status}`)
+  }
+  const body = (await res.json()) as { deployments?: DeploymentSummary[] } | DeploymentSummary[]
+  if (Array.isArray(body)) return body
+  return body.deployments ?? []
+}
+
+/* ── Tree → flat-table projections ─────────────────────────────── */
+
+export function flattenCompute(tree: HierarchicalInfrastructure): ComputeResponse {
+  const clusters: ClusterItem[] = []
+  const nodes: NodeItem[] = []
+  for (const region of tree.topology.regions) {
+    for (const cluster of region.clusters) {
+      clusters.push({
+        id: cluster.id,
+        name: cluster.name,
+        controlPlane: 'k3s',
+        version: cluster.version,
+        region: region.providerRegion,
+        nodeCount: cluster.nodeCount,
+        status: cluster.status,
+      })
+      for (const node of cluster.nodes) {
+        nodes.push({
+          id: node.id,
+          name: node.name,
+          sku: node.sku,
+          region: region.providerRegion,
+          role: node.role,
+          ip: node.ip,
+          status: node.status,
+        })
+      }
+    }
+  }
+  return { clusters, nodes }
+}
+
+export function flattenStorage(tree: HierarchicalInfrastructure): StorageResponse {
+  return {
+    pvcs: tree.storage.pvcs,
+    buckets: tree.storage.buckets,
+    volumes: tree.storage.volumes,
+  }
+}
+
+export function flattenNetwork(tree: HierarchicalInfrastructure): NetworkResponse {
+  const loadBalancers: LoadBalancerItem[] = []
+  const drgs: DRGItem[] = []
+  const peerings: PeeringItem[] = []
+  for (const region of tree.topology.regions) {
+    for (const cluster of region.clusters) {
+      for (const lb of cluster.loadBalancers) {
+        loadBalancers.push({
+          id: lb.id,
+          name: lb.name,
+          publicIP: lb.publicIP,
+          ports: lb.listeners.map((l) => String(l.port)).join(','),
+          targetHealth:
+            lb.targets.length === 0
+              ? '—'
+              : `${lb.targets.filter((t) => t.status === 'healthy').length}/${lb.targets.length} healthy`,
+          region: lb.region || region.providerRegion,
+          status: lb.status,
+        })
+      }
+    }
+    for (const network of region.networks) {
+      drgs.push({
+        id: network.id,
+        name: `vpc-${network.id.slice(0, 6)}`,
+        cidr: network.cidr,
+        region: network.region,
+        peers: network.peerings.map((p) => p.name).join(','),
+        status: 'healthy',
+      })
+      for (const p of network.peerings) {
+        peerings.push({
+          id: p.id,
+          name: p.name,
+          vpcPair: p.vpcPair,
+          subnets: p.subnets,
+          status: p.status,
+        })
+      }
+    }
+  }
+  return { loadBalancers, drgs, peerings }
 }
 
 /* ── Topology layout ──────────────────────────────────────────── */
