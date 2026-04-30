@@ -23,6 +23,7 @@ import {
   createMemoryHistory,
   Outlet,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { JobsPage } from './JobsPage'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -32,7 +33,7 @@ function renderJobs(deploymentId: string) {
   const jobsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/jobs',
-    component: () => <JobsPage disableStream />,
+    component: () => <JobsPage disableStream disableJobsBackfill />,
   })
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -71,7 +72,17 @@ function renderJobs(deploymentId: string) {
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}/jobs`] }),
   })
-  return render(<RouterProvider router={router} />)
+  // Each render gets its own QueryClient so the live-jobs-backfill
+  // query cache never bleeds between tests. Even with backfill
+  // disabled the JobsPage's useQuery() still requires a provider.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {
