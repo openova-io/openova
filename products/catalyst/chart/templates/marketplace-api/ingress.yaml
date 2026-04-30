@@ -1,0 +1,25 @@
+# Contabo-mkt only — applied via Flux Kustomization at this path.
+# Sovereigns skip via .helmignore.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: marketplace-api
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - openova.io
+      secretName: marketplace-api-tls
+  rules:
+    - host: openova.io
+      http:
+        paths:
+          - path: /api/marketplace
+            pathType: Prefix
+            backend:
+              service:
+                name: marketplace-api
+                port:
+                  number: 80
