@@ -1,0 +1,41 @@
+apiVersion: v2
+name: bp-livekit
+version: 1.0.0
+appVersion: "v1.9.0"
+description: |
+  Catalyst Blueprint umbrella chart for LiveKit — WebRTC SFU. Depends on
+  the upstream `livekit-server` chart (livekit/helm-charts) as a Helm
+  subchart so `helm dependency build` pulls the upstream payload into
+  this Blueprint's OCI artifact (per docs/BLUEPRINT-AUTHORING.md §11.1
+  — hollow charts forbidden).
+
+  Catalyst-curated overlay templates in `templates/` (NetworkPolicy,
+  ServiceMonitor, HPA — all default OFF per
+  docs/BLUEPRINT-AUTHORING.md §11.2) sit alongside the upstream subchart
+  and Helm renders both at install time. Catalyst-curated values flow
+  into the upstream subchart under the `livekit-server:` key in
+  values.yaml.
+
+  Catalyst defaults pair LiveKit with bp-stunner for K8s-native TURN/
+  STUN — the upstream chart's bundled `livekit.turn.enabled` is left
+  off, and the operator's per-Sovereign overlay points the LiveKit TURN
+  config at the stunner UDP-gateway Service. The RTC UDP port range
+  (50000-60000) is exposed via the LiveKit Service in `hostNetwork`
+  mode and must match the Hetzner firewall rule the per-Sovereign
+  overlay opens.
+type: application
+keywords: [catalyst, blueprint, livekit, webrtc, sfu, video, audio, realtime]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to livekit/livekit-server
+# 1.9.0 (matches platform/livekit/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: livekit-server
+    version: "1.9.0"
+    repository: "https://helm.livekit.io"

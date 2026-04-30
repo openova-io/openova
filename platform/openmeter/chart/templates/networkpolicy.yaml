@@ -1,0 +1,79 @@
+{{- /*
+NetworkPolicy — Catalyst overlay locking the openmeter pods down to the
+minimum egress / ingress required for the ClickHouse-less profile.
+
+Egress targets:
+  - Cluster DNS (kube-system) — service discovery for CNPG + JetStream.
+  - bp-cnpg cluster (aggregation backend on the cnpg profile) on port 5432.
+  - bp-nats-jetstream (raw event subject) on port 4222.
+
+Ingress is locked to:
+  - Ingress controller namespace (operator-supplied label) — terminates
+    public OpenMeter Ingest + Query API.
+  - Same-namespace traffic between API + worker pods.
+
+DEFAULT FALSE per Catalyst overlay convention — operator turns this on
+via per-Sovereign overlay once consumer namespaces / ClickHouse cluster
+endpoints (when re-rolled with backend.kind=clickhouse) are known. Per
+docs/INVIOLABLE-PRINCIPLES.md #4 every selector / namespace / port is
+operator-tunable through `networkPolicy.*`.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-openmeter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-openmeter.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openmeter
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Same-namespace traffic between API + worker pods.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # Ingress controller — terminates the public Ingest + Query API.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace | default "traefik" }}
+  egress:
+    # Cluster DNS — openmeter resolves CNPG + JetStream services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Same-namespace egress (API → workers, workers → sink, etc.).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    # CNPG aggregation backend (ClickHouse-less profile).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgNamespace | default "cnpg" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.cnpgPort | default 5432 }}
+    # NATS JetStream — raw event subject (ClickHouse-less profile).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.jetstreamNamespace | default "nats-jetstream" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.jetstreamPort | default 4222 }}
+{{- end }}
