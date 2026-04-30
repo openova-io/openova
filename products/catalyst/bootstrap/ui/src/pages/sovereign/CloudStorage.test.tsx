@@ -1,5 +1,5 @@
 /**
- * InfrastructureStorage.test.tsx — render lock-in for the Storage tab.
+ * CloudStorage.test.tsx — render lock-in for the Storage tab.
  *
  * Coverage:
  *   1. Empty state.
@@ -21,7 +21,7 @@ import {
 } from '@tanstack/react-router'
 
 import { CloudPage } from './CloudPage'
-import { InfrastructureStorage } from './InfrastructureStorage'
+import { CloudStorage } from './CloudStorage'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useWizardStore } from '@/entities/deployment/store'
@@ -44,7 +44,7 @@ function renderStoragePage(data: HierarchicalInfrastructure) {
   const storageRoute = createRoute({
     getParentRoute: () => cloudRoute,
     path: '/storage',
-    component: InfrastructureStorage,
+    component: CloudStorage,
   })
   const tree = rootRoute.addChildren([cloudRoute.addChildren([storageRoute])])
   const router = createRouter({
@@ -65,7 +65,7 @@ function renderStoragePage(data: HierarchicalInfrastructure) {
 
 afterEach(() => cleanup())
 
-describe('InfrastructureStorage — empty', () => {
+describe('CloudStorage — empty', () => {
   it('renders the empty state when no PVCs / buckets / volumes exist', async () => {
     const empty: HierarchicalInfrastructure = {
       cloud: [],
@@ -73,32 +73,32 @@ describe('InfrastructureStorage — empty', () => {
       storage: { pvcs: [], buckets: [], volumes: [] },
     }
     renderStoragePage(empty)
-    expect(await screen.findByTestId('infrastructure-storage-empty')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-storage-empty')).toBeTruthy()
   })
 })
 
-describe('InfrastructureStorage — populated', () => {
+describe('CloudStorage — populated', () => {
   it('renders PVC, bucket and volume tables with counts', async () => {
     renderStoragePage(infrastructureTopologyFixture)
-    expect(await screen.findByTestId('infrastructure-pvcs-table')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-buckets-table')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-volumes-table')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-pvcs-count').textContent).toBe('2')
-    expect(screen.getByTestId('infrastructure-buckets-count').textContent).toBe('1')
-    expect(screen.getByTestId('infrastructure-volumes-count').textContent).toBe('1')
+    expect(await screen.findByTestId('cloud-pvcs-table')).toBeTruthy()
+    expect(screen.getByTestId('cloud-buckets-table')).toBeTruthy()
+    expect(screen.getByTestId('cloud-volumes-table')).toBeTruthy()
+    expect(screen.getByTestId('cloud-pvcs-count').textContent).toBe('2')
+    expect(screen.getByTestId('cloud-buckets-count').textContent).toBe('1')
+    expect(screen.getByTestId('cloud-volumes-count').textContent).toBe('1')
   })
 
   it('renders the bulk-actions strip', async () => {
     renderStoragePage(infrastructureTopologyFixture)
-    expect(await screen.findByTestId('infrastructure-storage-bulk')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-storage-bulk-snapshot')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-storage-bulk-expand')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-storage-bulk-delete')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-storage-bulk')).toBeTruthy()
+    expect(screen.getByTestId('cloud-storage-bulk-snapshot')).toBeTruthy()
+    expect(screen.getByTestId('cloud-storage-bulk-expand')).toBeTruthy()
+    expect(screen.getByTestId('cloud-storage-bulk-delete')).toBeTruthy()
   })
 
   it('opens ExpandPVCModal on row-level Expand', async () => {
     renderStoragePage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('infrastructure-pvc-row-pvc-postgres-data-expand'))
+    fireEvent.click(await screen.findByTestId('cloud-pvc-row-pvc-postgres-data-expand'))
     expect(screen.getByTestId('infrastructure-modal-expand-pvc')).toBeTruthy()
   })
 })

@@ -1,11 +1,10 @@
 /**
- * InfrastructureCompute — Compute tab. Flat table grouped by [Cluster ·
- * Node Pool], reads off the shared infrastructure tree provided by
- * InfrastructurePage.
+ * CloudCompute — Sovereign Cloud / Compute sub-page. Flat table
+ * grouped by [Cluster · Node Pool], reads off the shared
+ * infrastructure tree provided by CloudPage.
  *
- * Per founder spec (issue #228): "Compute — flat table grouped
- * [Cluster · Node Pool], each row links back to topology. Bulk
- * actions: scale, drain."
+ * Per founder spec (issue #309 supersedes #228): each row links back
+ * to the Architecture canvas. Bulk actions: scale, drain.
  */
 
 import { useMemo, useState } from 'react'
@@ -32,7 +31,7 @@ interface NodeRow {
   region: RegionSpec
 }
 
-export function InfrastructureCompute() {
+export function CloudCompute() {
   const { deploymentId, data, isLoading } = useCloud()
 
   const { pools, nodes } = useMemo(() => {
@@ -61,18 +60,18 @@ export function InfrastructureCompute() {
   const isEmpty = !isLoading && pools.length === 0 && nodes.length === 0
 
   return (
-    <div data-testid="infrastructure-compute">
+    <div data-testid="cloud-compute">
       {isLoading && (
         <div
           className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]"
-          data-testid="infrastructure-compute-loading"
+          data-testid="cloud-compute-loading"
         >
           Loading compute resources…
         </div>
       )}
 
       {isEmpty && (
-        <div className="infra-empty" data-testid="infrastructure-compute-empty">
+        <div className="infra-empty" data-testid="cloud-compute-empty">
           <p className="title">No clusters or worker nodes yet.</p>
           <p className="sub">
             Once the Sovereign cluster comes up, every k3s cluster and node VM
@@ -83,11 +82,11 @@ export function InfrastructureCompute() {
 
       {!isEmpty && data && (
         <>
-          <div className="infra-bulk-actions" data-testid="infrastructure-compute-bulk">
+          <div className="infra-bulk-actions" data-testid="cloud-compute-bulk">
             <span className="label">Bulk · {selectedPools.length} pool{selectedPools.length === 1 ? '' : 's'} / {selectedNodes.length} node{selectedNodes.length === 1 ? '' : 's'}</span>
             <button
               type="button"
-              data-testid="infrastructure-compute-bulk-scale"
+              data-testid="cloud-compute-bulk-scale"
               disabled={selectedPools.length !== 1}
               onClick={() => {
                 const row = pools.find((p) => p.pool.id === selectedPools[0])
@@ -98,7 +97,7 @@ export function InfrastructureCompute() {
             </button>
             <button
               type="button"
-              data-testid="infrastructure-compute-bulk-drain"
+              data-testid="cloud-compute-bulk-drain"
               disabled={selectedNodes.length !== 1}
               onClick={() => {
                 const row = nodes.find((n) => n.node.id === selectedNodes[0])
@@ -109,29 +108,29 @@ export function InfrastructureCompute() {
             </button>
           </div>
 
-          <section className="infra-section" data-testid="infrastructure-pools-section">
+          <section className="infra-section" data-testid="cloud-pools-section">
             <h2>
-              Node Pools <span className="count" data-testid="infrastructure-pools-count">{pools.length}</span>
+              Node Pools <span className="count" data-testid="cloud-pools-count">{pools.length}</span>
             </h2>
             <FlatTable
-              testId="infrastructure-pools-table"
+              testId="cloud-pools-table"
               headers={['', 'Cluster', 'Pool', 'SKU', 'Replicas', 'Status', '']}
             >
               {pools.map(({ pool, cluster, region }) => (
-                <tr key={pool.id} data-testid={`infrastructure-pool-row-${pool.id}`}>
+                <tr key={pool.id} data-testid={`cloud-pool-row-${pool.id}`}>
                   <td>
                     <input
                       type="checkbox"
                       checked={selectedPools.includes(pool.id)}
                       onChange={(e) => toggle(e.target.checked, pool.id, setSelectedPools)}
-                      data-testid={`infrastructure-pool-row-${pool.id}-select`}
+                      data-testid={`cloud-pool-row-${pool.id}-select`}
                     />
                   </td>
                   <td>
                     <Link
                       to={`/provision/$deploymentId/cloud/architecture` as never}
                       params={{ deploymentId } as never}
-                      data-testid={`infrastructure-pool-row-${pool.id}-cluster-link`}
+                      data-testid={`cloud-pool-row-${pool.id}-cluster-link`}
                     >
                       {cluster.name}
                     </Link>
@@ -149,7 +148,7 @@ export function InfrastructureCompute() {
                     <button
                       type="button"
                       onClick={() => setScalePool({ pool, cluster, region })}
-                      data-testid={`infrastructure-pool-row-${pool.id}-scale`}
+                      data-testid={`cloud-pool-row-${pool.id}-scale`}
                       style={rowBtn}
                     >
                       Scale
@@ -157,7 +156,7 @@ export function InfrastructureCompute() {
                     <button
                       type="button"
                       onClick={() => setChangeSku({ pool, cluster, region })}
-                      data-testid={`infrastructure-pool-row-${pool.id}-change-sku`}
+                      data-testid={`cloud-pool-row-${pool.id}-change-sku`}
                       style={rowBtn}
                     >
                       Change SKU
@@ -192,7 +191,7 @@ export function InfrastructureCompute() {
                         provider: region.provider as CloudProvider,
                       })
                     }
-                    data-testid={`infrastructure-pool-add-for-${cluster.id}`}
+                    data-testid={`cloud-pool-add-for-${cluster.id}`}
                   >
                     + Add pool to {cluster.name}
                   </button>
@@ -201,22 +200,22 @@ export function InfrastructureCompute() {
             </div>
           </section>
 
-          <section className="infra-section" data-testid="infrastructure-nodes-section">
+          <section className="infra-section" data-testid="cloud-nodes-section">
             <h2>
-              Worker Nodes <span className="count" data-testid="infrastructure-nodes-count">{nodes.length}</span>
+              Worker Nodes <span className="count" data-testid="cloud-nodes-count">{nodes.length}</span>
             </h2>
             <FlatTable
-              testId="infrastructure-nodes-table"
+              testId="cloud-nodes-table"
               headers={['', 'Cluster', 'Node', 'SKU', 'Role', 'IP', 'Status', '']}
             >
               {nodes.map(({ node, cluster }) => (
-                <tr key={node.id} data-testid={`infrastructure-node-row-${node.id}`}>
+                <tr key={node.id} data-testid={`cloud-node-row-${node.id}`}>
                   <td>
                     <input
                       type="checkbox"
                       checked={selectedNodes.includes(node.id)}
                       onChange={(e) => toggle(e.target.checked, node.id, setSelectedNodes)}
-                      data-testid={`infrastructure-node-row-${node.id}-select`}
+                      data-testid={`cloud-node-row-${node.id}-select`}
                     />
                   </td>
                   <td>{cluster.name}</td>
@@ -231,7 +230,7 @@ export function InfrastructureCompute() {
                     <button
                       type="button"
                       onClick={() => setDrainNode({ node, cluster, region: data.topology.regions.find((r) => r.clusters.some((c) => c.id === cluster.id))! })}
-                      data-testid={`infrastructure-node-row-${node.id}-drain`}
+                      data-testid={`cloud-node-row-${node.id}-drain`}
                       style={rowBtn}
                     >
                       Drain

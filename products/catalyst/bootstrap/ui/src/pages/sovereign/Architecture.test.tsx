@@ -1,6 +1,7 @@
 /**
- * InfrastructureTopology.test.tsx — render lock-in for the hierarchical
- * Topology canvas (issue #228).
+ * Architecture.test.tsx — render lock-in for the Sovereign Cloud /
+ * Architecture sub-page hierarchical canvas (issue #309 supersedes
+ * #228).
  *
  * Coverage:
  *   1. Empty state shows when the tree has no nodes.
@@ -25,7 +26,7 @@ import {
 } from '@tanstack/react-router'
 
 import { CloudPage } from './CloudPage'
-import { InfrastructureTopology } from './InfrastructureTopology'
+import { Architecture } from './Architecture'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useWizardStore } from '@/entities/deployment/store'
@@ -48,7 +49,7 @@ function renderTopologyPage(data: HierarchicalInfrastructure) {
   const architectureRoute = createRoute({
     getParentRoute: () => cloudRoute,
     path: '/architecture',
-    component: InfrastructureTopology,
+    component: Architecture,
   })
   const tree = rootRoute.addChildren([cloudRoute.addChildren([architectureRoute])])
   const router = createRouter({
@@ -69,7 +70,7 @@ function renderTopologyPage(data: HierarchicalInfrastructure) {
 
 afterEach(() => cleanup())
 
-describe('InfrastructureTopology — empty', () => {
+describe('Architecture — empty', () => {
   it('renders the Provisioning… overlay when the tree is empty', async () => {
     const empty: HierarchicalInfrastructure = {
       cloud: [],
@@ -77,35 +78,35 @@ describe('InfrastructureTopology — empty', () => {
       storage: { pvcs: [], buckets: [], volumes: [] },
     }
     renderTopologyPage(empty)
-    expect(await screen.findByTestId('infrastructure-topology-empty')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-architecture-empty')).toBeTruthy()
   })
 })
 
-describe('InfrastructureTopology — hierarchical render', () => {
+describe('Architecture — hierarchical render', () => {
   it('renders the canvas with all 4 depths', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    expect(await screen.findByTestId('infrastructure-topology-svg')).toBeTruthy()
+    expect(await screen.findByTestId('cloud-architecture-svg')).toBeTruthy()
 
     // Depth 0 — cloud
-    expect(screen.getByTestId('infra-node-cloud-hetzner')).toBeTruthy()
+    expect(screen.getByTestId('cloud-node-cloud-hetzner')).toBeTruthy()
     // Depth 1 — region
-    expect(screen.getByTestId('infra-node-region-eu-central')).toBeTruthy()
+    expect(screen.getByTestId('cloud-node-region-eu-central')).toBeTruthy()
     // Depth 2 — cluster
-    expect(screen.getByTestId('infra-node-cluster-eu-central-primary')).toBeTruthy()
+    expect(screen.getByTestId('cloud-node-cluster-eu-central-primary')).toBeTruthy()
     // Depth 3 — vcluster
-    expect(screen.getByTestId('infra-node-vc-eu-central-dmz')).toBeTruthy()
+    expect(screen.getByTestId('cloud-node-vc-eu-central-dmz')).toBeTruthy()
   })
 
   it('renders edges between parent and child', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    await screen.findByTestId('infrastructure-topology-svg')
-    expect(screen.getByTestId('infra-edge-cloud-hetzner-region-eu-central')).toBeTruthy()
-    expect(screen.getByTestId('infra-edge-region-eu-central-cluster-eu-central-primary')).toBeTruthy()
+    await screen.findByTestId('cloud-architecture-svg')
+    expect(screen.getByTestId('cloud-edge-cloud-hetzner-region-eu-central')).toBeTruthy()
+    expect(screen.getByTestId('cloud-edge-region-eu-central-cluster-eu-central-primary')).toBeTruthy()
   })
 
   it('opens the right-side detail panel on node click and closes it on dismiss', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    const node = await screen.findByTestId('infra-node-cluster-eu-central-primary')
+    const node = await screen.findByTestId('cloud-node-cluster-eu-central-primary')
     expect(screen.queryByTestId('infrastructure-detail-panel')).toBeNull()
     fireEvent.click(node)
     expect(screen.getByTestId('infrastructure-detail-panel')).toBeTruthy()
@@ -116,26 +117,26 @@ describe('InfrastructureTopology — hierarchical render', () => {
 
   it('zooms in on a cluster click — vClusters lose data-dim=true', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    const cluster = await screen.findByTestId('infra-node-cluster-eu-central-primary')
+    const cluster = await screen.findByTestId('cloud-node-cluster-eu-central-primary')
 
     // Before zoom — vClusters are dim by default.
-    const vcBefore = screen.getByTestId('infra-node-vc-eu-central-dmz')
+    const vcBefore = screen.getByTestId('cloud-node-vc-eu-central-dmz')
     expect(vcBefore.getAttribute('data-dim')).toBe('true')
 
     fireEvent.click(cluster)
 
     // After zoom — vClusters of THIS cluster are bright.
-    const vcAfter = screen.getByTestId('infra-node-vc-eu-central-dmz')
+    const vcAfter = screen.getByTestId('cloud-node-vc-eu-central-dmz')
     expect(vcAfter.getAttribute('data-dim')).toBe('false')
     // Zoom-status banner is visible.
-    expect(screen.getByTestId('infrastructure-topology-zoom-status')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-zoom-status')).toBeTruthy()
   })
 })
 
-describe('InfrastructureTopology — CRUD modal triggers', () => {
+describe('Architecture — CRUD modal triggers', () => {
   it('opens the Add Region modal when the top-level button is clicked', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    const btn = await screen.findByTestId('infrastructure-topology-add-region')
+    const btn = await screen.findByTestId('cloud-architecture-add-region')
     fireEvent.click(btn)
     const modal = screen.getByTestId('infrastructure-modal-add-region')
     expect(modal).toBeTruthy()
@@ -144,14 +145,14 @@ describe('InfrastructureTopology — CRUD modal triggers', () => {
 
   it('opens the Add Cluster modal from a region detail panel', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('infra-node-region-eu-central'))
+    fireEvent.click(await screen.findByTestId('cloud-node-region-eu-central'))
     fireEvent.click(screen.getByTestId('infrastructure-detail-panel-action-add-cluster'))
     expect(screen.getByTestId('infrastructure-modal-add-cluster')).toBeTruthy()
   })
 
   it('opens the Add vCluster modal from a cluster detail panel', async () => {
     renderTopologyPage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('infra-node-cluster-eu-central-primary'))
+    fireEvent.click(await screen.findByTestId('cloud-node-cluster-eu-central-primary'))
     fireEvent.click(screen.getByTestId('infrastructure-detail-panel-action-add-vcluster'))
     expect(screen.getByTestId('infrastructure-modal-add-vcluster')).toBeTruthy()
   })
