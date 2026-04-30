@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 1.1.1
+  version: 1.1.2
   card:
     title: gitea
     summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
