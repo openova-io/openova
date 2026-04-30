@@ -250,6 +250,28 @@ export function ExecutionLogs({
     return `${digits}ch`
   }, [allLines])
 
+  // Empty-state copy — see issue #232. The previous "Waiting for log
+  // lines…" / "Connecting to log stream…" copy was indistinguishable
+  // from the error overlay, and the founder's symptom was a backend
+  // returning {lines:[], total:0, executionFinished:false} for jobs
+  // that have no captured logs (most Phase 0 jobs are like this until
+  // the bridge starts recording state-transition lines). The viewer
+  // now distinguishes three states:
+  //
+  //   • isLoading            → "Connecting to log stream…"
+  //   • !isError, no lines   → "No logs captured yet for this job."
+  //                            (the canonical issue-#232 wording)
+  //   • executionFinished    → "Execution finished — no log lines were emitted."
+  //
+  // The error overlay (with a Retry button) only renders on a real
+  // fetch failure (query.isError). A "successful response with empty
+  // lines array" is NOT an error.
+  function emptyCopy(): string {
+    if (query.isLoading) return 'Connecting to log stream…'
+    if (query.data?.executionFinished) return 'Execution finished — no log lines were emitted.'
+    return 'No logs captured yet for this job.'
+  }
+
   return (
     <div
       data-testid="execution-logs-root"
@@ -280,11 +302,7 @@ export function ExecutionLogs({
               fontSize: '0.78rem',
             }}
           >
-            {query.isLoading
-              ? 'Connecting to log stream…'
-              : query.data?.executionFinished
-              ? 'Execution finished — no log lines were emitted.'
-              : 'Waiting for log lines…'}
+            {emptyCopy()}
           </div>
         ) : (
           allLines.map((line) => (
@@ -321,6 +339,10 @@ export function ExecutionLogs({
         <div
           data-testid="execution-logs-error"
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.6rem',
             padding: '0.5rem 1rem',
             background: 'rgba(248, 81, 73, 0.15)',
             color: '#f85149',
@@ -328,7 +350,24 @@ export function ExecutionLogs({
             borderTop: '1px solid rgba(248, 81, 73, 0.3)',
           }}
         >
-          Failed to load log page — retrying.
+          <span>Failed to load log page.</span>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            data-testid="execution-logs-retry"
+            style={{
+              background: 'transparent',
+              color: '#f85149',
+              border: '1px solid rgba(248, 81, 73, 0.5)',
+              borderRadius: 4,
+              padding: '0.18rem 0.6rem',
+              fontSize: '0.7rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
 

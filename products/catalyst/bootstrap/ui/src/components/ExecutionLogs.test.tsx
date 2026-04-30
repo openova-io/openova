@@ -152,6 +152,42 @@ describe('ExecutionLogs — rendering', () => {
     })
   })
 
+  // Issue #232 verbatim: when the API returns
+  //   {lines: [], total: 0, executionFinished: false}
+  // the viewer must show "No logs captured yet for this job."
+  // It must NOT show the error/retry banner (the previous bug — the
+  // generic empty path was indistinguishable from the failure path).
+  it('shows "No logs captured yet" copy on empty success response (issue #232)', async () => {
+    const fetcher = vi.fn(async (): Promise<ExecutionLogsResponse> => ({
+      lines: [],
+      total: 0,
+      executionFinished: false,
+    }))
+    renderViewer({ executionId: 'exec-empty-success', fetcher, disablePolling: true })
+    await waitFor(() => {
+      const empty = screen.getByTestId('execution-logs-empty')
+      expect(empty.textContent).toContain('No logs captured yet')
+    })
+    // Critical anti-regression: NO error banner, NO retry button
+    // when the API returned a successful empty response.
+    expect(screen.queryByTestId('execution-logs-error')).toBeNull()
+    expect(screen.queryByTestId('execution-logs-retry')).toBeNull()
+  })
+
+  // Issue #232 — the error path retains the "Failed to load" banner
+  // and exposes a Retry button (replaces the previous "retrying..."
+  // copy that ran indefinitely without operator agency).
+  it('shows the error banner with a Retry button when the fetcher throws', async () => {
+    const fetcher = vi.fn(async (): Promise<ExecutionLogsResponse> => {
+      throw new Error('500 Internal Server Error')
+    })
+    renderViewer({ executionId: 'exec-failed', fetcher, disablePolling: true })
+    await waitFor(() => {
+      expect(screen.getByTestId('execution-logs-error')).toBeTruthy()
+    })
+    expect(screen.getByTestId('execution-logs-retry')).toBeTruthy()
+  })
+
   it('uses the canonical #0D1117 background colour', async () => {
     const fetcher = vi.fn(async (): Promise<ExecutionLogsResponse> => ({
       lines: [makeLine(1, 'INFO', 'go')],
