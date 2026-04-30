@@ -67,19 +67,13 @@ import {
   type FlowRegion,
   type FlowNodeHints,
 } from '@/lib/flowLayoutV4'
-import type { Job, JobStatus } from '@/lib/jobs.types'
+import type { Job } from '@/lib/jobs.types'
 import { FloatingLogPane } from '@/components/FloatingLogPane'
 import {
   StatusStrip,
   type ProvisioningStatus,
 } from '@/components/StatusStrip'
 import { FlowCanvasV4 } from './FlowCanvasV4'
-import { FlowLogFeed, type FlowLogStreamLine } from './FlowLogFeed'
-import {
-  FlowDeploymentTree,
-  type FlowGroupRow,
-} from './FlowDeploymentTree'
-import { buildFlowGroupRows } from './flowDeploymentTreeData'
 import { PRODUCTS } from '@/pages/wizard/steps/componentGroups'
 
 /* ──────────────────────────────────────────────────────────────────
@@ -151,17 +145,6 @@ function useFamilyPalette(): FlowFamily[] {
       if (!seen.has(f.id)) fromCatalog.push(f)
     }
     return fromCatalog
-  }, [])
-}
-
-/** Family description lookup — feeds the deployment tree side panel. */
-function useFamilyDescriptions(): Readonly<Record<string, string>> {
-  return useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const p of PRODUCTS) out[p.id] = p.subtitle ?? ''
-    out.catalyst = 'Bootstrap & K8s'
-    out.platform = 'Platform'
-    return out
   }, [])
 }
 
@@ -356,6 +339,101 @@ export function FlowPage({
     return allJobs.filter((j) => j.batchId === scope.batchId)
   }, [allJobs, scope])
 
+  /* ── Job/Batch view switching ────────────────────────────────────
+   * In `mode='batches'` we collapse the per-job bubbles into one
+   * meta-bubble per batchId. The meta-bubble's status is derived from
+   * the rollup of its child jobs (failed > running > pending > succeeded).
+   * Edges between batches are inferred from cross-batch dependsOn.
+   * ──────────────────────────────────────────────────────────────── */
+
+  const renderJobs = useMemo<Job[]>(() => {
+    if (mode !== 'batches') return scopedJobs
+    type Bucket = {
+      id: string
+      jobs: Job[]
+      depsBatches: Set<string>
+    }
+    const buckets = new Map<string, Bucket>()
+    for (const j of scopedJobs) {
+      const bid = j.batchId ?? 'misc'
+      let b = buckets.get(bid)
+      if (!b) {
+        b = { id: bid, jobs: [], depsBatches: new Set() }
+        buckets.set(bid, b)
+      }
+      b.jobs.push(j)
+    }
+    // For each batch, collect the set of OTHER batches that this batch's
+    // jobs depend on (cross-batch edges).
+    const jobToBatch = new Map<string, string>()
+    for (const j of scopedJobs) jobToBatch.set(j.id, j.batchId ?? 'misc')
+    for (const b of buckets.values()) {
+      for (const j of b.jobs) {
+        for (const depId of j.dependsOn ?? []) {
+          const depBatch = jobToBatch.get(depId)
+          if (depBatch && depBatch !== b.id) b.depsBatches.add(depBatch)
+        }
+      }
+    }
+    // Roll up status: failed > running > pending > succeeded.
+    function rollup(jobs: Job[]): Job['status'] {
+      if (jobs.some((j) => j.status === 'failed')) return 'failed'
+      if (jobs.some((j) => j.status === 'running')) return 'running'
+      if (jobs.some((j) => j.status === 'pending')) return 'pending'
+      return 'succeeded'
+    }
+    function earliest(jobs: Job[]): string | null {
+      let earliest: number | null = null
+      let earliestIso: string | null = null
+      for (const j of jobs) {
+        if (!j.startedAt) continue
+        const t = Date.parse(j.startedAt)
+        if (!Number.isFinite(t)) continue
+        if (earliest === null || t < earliest) {
+          earliest = t
+          earliestIso = j.startedAt
+        }
+      }
+      return earliestIso
+    }
+    function latest(jobs: Job[]): string | null {
+      let latest: number | null = null
+      let latestIso: string | null = null
+      for (const j of jobs) {
+        if (!j.finishedAt) continue
+        const t = Date.parse(j.finishedAt)
+        if (!Number.isFinite(t)) continue
+        if (latest === null || t > latest) {
+          latest = t
+          latestIso = j.finishedAt
+        }
+      }
+      return latestIso
+    }
+    const collapsed: Job[] = []
+    for (const b of buckets.values()) {
+      const status = rollup(b.jobs)
+      const startedAt = earliest(b.jobs)
+      const finishedAt = latest(b.jobs)
+      const dur =
+        startedAt && finishedAt
+          ? Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt))
+          : 0
+      collapsed.push({
+        id: b.id,
+        appId: b.id,
+        batchId: b.id,
+        jobName: `${b.id} (${b.jobs.length})`,
+        status,
+        startedAt: startedAt ?? '',
+        finishedAt: finishedAt ?? '',
+        durationMs: dur,
+        dependsOn: Array.from(b.depsBatches),
+      })
+    }
+    return collapsed
+  }, [scopedJobs, mode])
+
   /* ── Region descriptors (multi-region support) ───────────────── */
 
   const regions = useMemo<FlowRegion[]>(() => {
@@ -378,14 +456,13 @@ export function FlowPage({
   /* ── Family palette + descriptions + per-job hints ──────────── */
 
   const families = useFamilyPalette()
-  const familyDescriptions = useFamilyDescriptions()
-  const hints = useJobHints({ jobs: scopedJobs, applications, regions })
+  const hints = useJobHints({ jobs: renderJobs, applications, regions })
 
   /* ── Layout ───────────────────────────────────────────────────── */
 
   const layout = useMemo(
-    () => flowLayoutV4(scopedJobs, { hints, regions, families, highlightJobId }),
-    [scopedJobs, hints, regions, families, highlightJobId],
+    () => flowLayoutV4(renderJobs, { hints, regions, families, highlightJobId }),
+    [renderJobs, hints, regions, families, highlightJobId],
   )
 
   /* ── Click semantics (single vs double, debounced 220ms) ────── */
@@ -471,72 +548,6 @@ export function FlowPage({
   }, [provisioningStatus])
   const elapsedMs = earliestStarted === null ? 0 : Math.max(0, now - earliestStarted)
 
-  /* ── Deployment-tree rows ────────────────────────────────────── */
-
-  const deploymentTreeGroups: FlowGroupRow[] = useMemo(
-    () =>
-      buildFlowGroupRows({
-        jobs: scopedJobs,
-        hintByJob: hints,
-        regions,
-        families,
-        familyDescriptions,
-      }),
-    [scopedJobs, hints, regions, families, familyDescriptions],
-  )
-
-  /* ── Log-feed lines: derive from the active job's events ─────── */
-
-  // Pick a focused job for the right-side log feed when nothing has been
-  // explicitly opened: prefer the first running job, then the first
-  // pending, else the first job overall. This matches the mockup's
-  // "always show something" behaviour.
-  const focusedJob = useMemo<Job | null>(() => {
-    if (openJob) return openJob
-    if (highlightJobId) {
-      const h = scopedJobs.find((j) => j.id === highlightJobId)
-      if (h) return h
-    }
-    const running = scopedJobs.find((j) => j.status === 'running')
-    if (running) return running
-    const failed = scopedJobs.find((j) => j.status === 'failed')
-    if (failed) return failed
-    return scopedJobs[0] ?? null
-  }, [openJob, highlightJobId, scopedJobs])
-
-  const logLines = useMemo<FlowLogStreamLine[]>(() => {
-    if (!focusedJob) return []
-    // Replay the focused job's recent events from the reducer state. We
-    // mirror what JobDetail's Exec Log surfaces but condensed to a few
-    // lines for the always-on stream.
-    const eventsFor = focusedJob.appId
-    const buckets = state.eventsByTarget ?? {}
-    const stream = buckets[eventsFor] ?? buckets[focusedJob.id] ?? []
-    const recent = stream.slice(-12)
-    return recent.map((ev, i) => {
-      const status: JobStatus =
-        ev.level === 'error'
-          ? 'failed'
-          : ev.state === 'installed'
-            ? 'succeeded'
-            : ev.state === 'failed'
-              ? 'failed'
-              : ev.state === 'pending'
-                ? 'pending'
-                : 'running'
-      const message = ev.message?.trim() || `${ev.phase}${ev.component ? ` · ${ev.component}` : ''}`
-      return {
-        id: `${ev.phase}-${ev.component ?? '_'}-${i}`,
-        timestamp: ev.time ?? null,
-        status,
-        message,
-      }
-    })
-  }, [focusedJob, state])
-
-  const logFeedLive =
-    !!focusedJob && (focusedJob.status === 'running' || focusedJob.status === 'pending')
-
   /* ── Render ──────────────────────────────────────────────────── */
 
   const canvas = (
@@ -552,29 +563,14 @@ export function FlowPage({
     />
   )
 
-  // The canvas + log feed + tree always render together — even during
-  // the (intentionally rare) "no jobs" empty state — so the operator
-  // always sees the same chrome and the live log panel persists.
+  // SINGLE-PANE canvas. The left tree + right always-visible log feed
+  // were removed per operator directive (2026-04-30). The exec log
+  // appears as a FloatingLogPane only on single-click of a job bubble.
   const flowSurface = (
     <div className="flow-surface" data-testid="flow-surface">
-      {!embedded ? (
-        <FlowDeploymentTree
-          groups={deploymentTreeGroups}
-          selectedJobId={openJobId}
-          onSelectJob={(id) => setOpenJobId(id)}
-          totals={{ finished: finishedCount, total: totalCount }}
-        />
-      ) : null}
       <div className="flow-canvas-host" data-testid="flow-canvas-host">
         {canvas}
       </div>
-      {!embedded ? (
-        <FlowLogFeed
-          job={focusedJob}
-          lines={logLines}
-          live={logFeedLive}
-        />
-      ) : null}
     </div>
   )
 
@@ -653,11 +649,8 @@ const FLOW_PAGE_CSS_V4 = `
 .flow-page-embedded { width: 100%; }
 
 .flow-surface {
-  display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 280px;
-  gap: 12px;
+  display: block;
   width: 100%;
-  align-items: stretch;
   border: 1px solid var(--color-border);
   border-radius: 14px;
   background: var(--color-surface, rgba(7,10,18,0.55));
@@ -668,7 +661,6 @@ const FLOW_PAGE_CSS_V4 = `
 }
 
 .flow-page-embedded .flow-surface {
-  grid-template-columns: 1fr;
   min-height: 0;
   padding: 0;
   border: 0;
@@ -943,16 +935,4 @@ const FLOW_PAGE_CSS_V4 = `
   50% { opacity: 0; }
 }
 
-/* ── Responsive — drop side panels on narrower viewports ────────── */
-@media (max-width: 1280px) {
-  .flow-surface { grid-template-columns: 200px minmax(0, 1fr) 240px; }
-}
-@media (max-width: 1080px) {
-  .flow-surface { grid-template-columns: minmax(0, 1fr) 240px; }
-  .flow-deployment-tree { display: none; }
-}
-@media (max-width: 840px) {
-  .flow-surface { grid-template-columns: minmax(0, 1fr); }
-  .flow-log-feed { display: none; }
-}
 `
