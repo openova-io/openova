@@ -239,11 +239,20 @@ export function CloudPage({
   function handleSwitch(nextId: string) {
     if (nextId === deploymentId) return
     // Preserve the current sub-page when switching Sovereigns: if the
-    // operator is on /cloud/compute, keep them on compute under the
-    // new deployment. Falls back to /architecture otherwise.
-    const suffixMatch = pathname.match(/\/(architecture|compute|storage|network|topology)$/)
-    const suffix =
-      suffixMatch && suffixMatch[1] !== 'topology' ? suffixMatch[1] : 'architecture'
+    // operator is on /cloud/compute/clusters, keep them on the same
+    // sub-route under the new deployment. Falls back to /architecture
+    // otherwise. Captures both the category and any deeper resource
+    // segment (P3 of #309).
+    const cloudIdx = pathname.indexOf('/cloud/')
+    let suffix = 'architecture'
+    if (cloudIdx >= 0) {
+      const tail = pathname.slice(cloudIdx + '/cloud/'.length).replace(/\/$/, '')
+      // Whitelist: only preserve known suffixes. Anything else (legacy
+      // /topology, malformed, …) collapses to /architecture.
+      if (tail.length > 0 && /^[a-z][a-z-]*(\/[a-z][a-z-]*)?$/.test(tail) && tail !== 'topology') {
+        suffix = tail
+      }
+    }
     navigate({
       to: `/provision/$deploymentId/cloud/${suffix}` as never,
       params: { deploymentId: nextId } as never,
