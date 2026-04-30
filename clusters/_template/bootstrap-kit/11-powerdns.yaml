@@ -51,7 +51,7 @@ kind: Namespace
 metadata:
   name: powerdns
   labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository

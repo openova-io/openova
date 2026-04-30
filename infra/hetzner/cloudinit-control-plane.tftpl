@@ -6,11 +6,15 @@
 # This script:
 #   1. Installs OS hardening (SSH password-auth off, fail2ban, unattended-upgrades).
 #   2. Installs k3s with --flannel-backend=none (Cilium replaces it).
-#   3. Installs Flux + bootstraps the GitRepository pointing at clusters/${sovereign_fqdn}/
-#      in the public OpenOva monorepo. From this point Flux is the GitOps
-#      reconciler and installs the 11-component bootstrap kit
-#      (Cilium → cert-manager → Crossplane → ... → bp-catalyst-platform) in
-#      dependency order via Kustomizations the cluster directory ships.
+#   3. Installs Flux + bootstraps the GitRepository pointing at the shared
+#      clusters/_template/ tree in the public OpenOva monorepo. The
+#      Sovereign's FQDN is interpolated into the template manifests via
+#      Flux postBuild.substitute (${SOVEREIGN_FQDN}) at apply time, so
+#      no per-Sovereign directory needs to be committed before
+#      provisioning. From this point Flux is the GitOps reconciler and
+#      installs the 11-component bootstrap kit (Cilium → cert-manager →
+#      Crossplane → ... → bp-catalyst-platform) in dependency order via
+#      Kustomizations the _template directory ships.
 #   4. Touches /var/lib/catalyst/cloud-init-complete so the catalyst-api
 #      provisioner can detect cloud-init has finished.
 
@@ -116,7 +120,7 @@ write_files:
 
   # ── flux-system/ghcr-pull Secret ─────────────────────────────────────
   #
-  # Every HelmRepository CR in clusters/${sovereign_fqdn}/bootstrap-kit/
+  # Every HelmRepository CR in clusters/_template/bootstrap-kit/
   # references `secretRef: name: ghcr-pull` because the bp-* OCI artifacts
   # at `ghcr.io/openova-io/` are PRIVATE. Without this Secret, the
   # source-controller logs:
@@ -157,10 +161,29 @@ write_files:
           }
         }))}
 
-  # Flux GitRepository + Kustomization that take over after k3s is up.
-  # The clusters/${sovereign_fqdn}/ directory in the public OpenOva monorepo
-  # contains a Kustomization tree that installs the 11-component bootstrap
-  # kit + bp-catalyst-platform umbrella in dependency order.
+  # Flux GitRepository + Kustomizations that take over after k3s is up.
+  #
+  # ── Per-Sovereign tree vs. shared _template (issue #218) ─────────────
+  #
+  # Earlier revisions of this template selected a per-FQDN cluster tree
+  # (`!/clusters/${sovereign_fqdn}`) and pointed the Kustomization
+  # `spec.path` at `./clusters/${sovereign_fqdn}/bootstrap-kit`. That
+  # required a per-Sovereign directory to be committed to the public
+  # openova repo BEFORE provisioning, which the wizard does NOT do —
+  # only `clusters/_template/` is canonical. Result on every fresh
+  # Sovereign was Phase-1 stall:
+  #   kustomization path not found:
+  #     stat /tmp/kustomization-…/clusters/<fqdn>/bootstrap-kit:
+  #     no such file or directory
+  # (live evidence: otech.omani.works deployment ce476aaf80731a46.)
+  #
+  # Canonical fix: GitRepository selects the shared `_template/` tree,
+  # Kustomization paths point at `clusters/_template/{bootstrap-kit,
+  # infrastructure}`, and Flux's `postBuild.substitute` interpolates
+  # `${SOVEREIGN_FQDN}` into the template manifests at apply time. The
+  # per-FQDN copy that prior provisioning depended on becomes a no-op:
+  # one shared tree serves every Sovereign, with the Sovereign's FQDN
+  # injected by Flux on the cluster instead of by sed in the repo.
   - path: /var/lib/catalyst/flux-bootstrap.yaml
     permissions: '0644'
     content: |
@@ -176,7 +199,7 @@ write_files:
           branch: ${gitops_branch}
         ignore: |
           /*
-          !/clusters/${sovereign_fqdn}
+          !/clusters/_template
           !/platform
           !/products
       ---
@@ -198,6 +221,12 @@ write_files:
       # Kustomization model tripped over with:
       #   no matches for kind "ProviderConfig" in version
       #   "hcloud.crossplane.io/v1beta1"
+      #
+      # postBuild.substitute (issue #218): Flux's envsubst runs over the
+      # rendered manifests after kustomize build, replacing ${SOVEREIGN_FQDN}
+      # with the Sovereign's FQDN that this cloud-init was rendered for.
+      # The template manifests in clusters/_template/bootstrap-kit/*.yaml
+      # use ${SOVEREIGN_FQDN} as the substitution token.
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
@@ -205,13 +234,16 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/${sovereign_fqdn}/bootstrap-kit
+        path: ./clusters/_template/bootstrap-kit
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
         wait: true
         timeout: 30m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
@@ -220,7 +252,7 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/${sovereign_fqdn}/infrastructure
+        path: ./clusters/_template/infrastructure
         prune: true
         sourceRef:
           kind: GitRepository
@@ -229,6 +261,9 @@ write_files:
           - name: bootstrap-kit
         wait: true
         timeout: 30m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
 
 runcmd:
   - swapoff -a
@@ -385,7 +420,8 @@ runcmd:
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
 
   # Install Flux core. Cilium is now the cluster's CNI, so Flux pods will
-  # actually start. Flux then reconciles clusters/${sovereign_fqdn}/ which
+  # actually start. Flux then reconciles clusters/_template/ (with
+  # SOVEREIGN_FQDN substituted via postBuild — issue #218) which
   # adopts the Helm release above as bp-cilium and continues with
   # bp-cert-manager, bp-flux (which ADOPTS this Flux install rather than
   # reinstalls — see version-pin invariant below), bp-crossplane, etc.
@@ -431,7 +467,8 @@ runcmd:
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
 
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
-  # owns the cluster: pulls clusters/${sovereign_fqdn}/, installs Cilium
+  # owns the cluster: pulls clusters/_template/ (with ${SOVEREIGN_FQDN}
+  # substituted to ${sovereign_fqdn} via postBuild), installs Cilium
   # via bp-cilium, cert-manager via bp-cert-manager, etc., then bp-catalyst-platform.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml'
 
@@ -439,4 +476,4 @@ runcmd:
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 
-final_message: "Catalyst control-plane bootstrap complete after $UPTIME seconds — Flux is now reconciling clusters/${sovereign_fqdn}/"
+final_message: "Catalyst control-plane bootstrap complete after $UPTIME seconds — Flux is now reconciling clusters/_template/ for ${sovereign_fqdn}"

@@ -11,7 +11,7 @@ kind: Namespace
 metadata:
   name: gitea
   labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -58,12 +58,12 @@ spec:
       retries: 3
   values:
     global:
-      sovereignFQDN: SOVEREIGN_FQDN_PLACEHOLDER
-    # gitea hostname is gitea.SOVEREIGN_FQDN_PLACEHOLDER. The DNS A record
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+    # gitea hostname is gitea.${SOVEREIGN_FQDN}. The DNS A record
     # was already published by the Phase-0 catalyst-dns helper.
     ingress:
       hosts:
-        - host: gitea.SOVEREIGN_FQDN_PLACEHOLDER
+        - host: gitea.${SOVEREIGN_FQDN}
           paths:
             - path: /
               pathType: Prefix

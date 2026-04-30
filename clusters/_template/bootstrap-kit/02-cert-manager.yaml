@@ -10,7 +10,7 @@ kind: Namespace
 metadata:
   name: cert-manager
   labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
