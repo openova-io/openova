@@ -1,0 +1,190 @@
+{{- /*
+LibreChat Deployment.
+
+Wires the official `ghcr.io/danny-avila/librechat` container against:
+  - bp-llm-gateway (OpenAI-compatible chat completions) — base URL +
+    optional bearer key from ExternalSecret,
+  - bp-bge (OpenAI-compatible embeddings) — base URL + optional bearer
+    key from ExternalSecret,
+  - bp-keycloak (OIDC SSO) — issuer/client-id from values, secret
+    material from ExternalSecret,
+  - FerretDB (Mongo wire) — full URI either inline (no creds) or from
+    ExternalSecret (with creds).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every connector
+target is values-driven; per docs/SECURITY.md every credential is
+sourced from ExternalSecret, never from chart values.
+*/}}
+{{- if .Values.librechat.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-librechat.fullname" . }}
+  labels:
+    {{- include "bp-librechat.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.librechat.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-librechat.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-librechat.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the Deployment when the rendered config changes (avoids
+        # operator pod-bounce after a values overlay edit).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-librechat.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.librechat.securityContext.runAsUser | default 1000 }}
+        fsGroup: {{ .Values.librechat.securityContext.runAsUser | default 1000 }}
+      containers:
+        - name: librechat
+          image: "{{ .Values.librechat.image.repository }}:{{ .Values.librechat.image.tag }}"
+          imagePullPolicy: {{ .Values.librechat.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.librechat.port }}
+              protocol: TCP
+          env:
+            # ─── Core ──────────────────────────────────────────────────
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.librechat.port | quote }}
+            - name: CONFIG_PATH
+              value: "/app/librechat.yaml"
+            # ─── Mongo wire backend (FerretDB on bp-cnpg) ──────────────
+            {{- if .Values.mongo.existingSecret }}
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongo.existingSecret | quote }}
+                  key: {{ .Values.mongo.existingSecretKey | quote }}
+            {{- else }}
+            - name: MONGO_URI
+              value: {{ .Values.mongo.uri | quote }}
+            {{- end }}
+            # ─── App credentials (CREDS_KEY/IV, JWT_*) ─────────────────
+            {{- if .Values.credentials.existingSecret }}
+            - name: CREDS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret | quote }}
+                  key: CREDS_KEY
+            - name: CREDS_IV
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret | quote }}
+                  key: CREDS_IV
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret | quote }}
+                  key: JWT_SECRET
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret | quote }}
+                  key: JWT_REFRESH_SECRET
+            {{- end }}
+            # ─── LLM Gateway ───────────────────────────────────────────
+            {{- if .Values.llmGateway.existingSecret }}
+            - name: LLM_GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmGateway.existingSecret | quote }}
+                  key: {{ .Values.llmGateway.existingSecretKey | quote }}
+            {{- else }}
+            - name: LLM_GATEWAY_API_KEY
+              value: ""
+            {{- end }}
+            # ─── Embeddings (bp-bge) ───────────────────────────────────
+            # LibreChat speaks the OpenAI-compatible embeddings shape via
+            # EMBEDDINGS_PROVIDER=openai + RAG_OPENAI_BASEURL when the
+            # backend (bp-bge) exposes an OpenAI-compatible /v1/embeddings
+            # endpoint. We map provider=bge to that pattern.
+            {{- if eq .Values.embeddings.provider "bge" }}
+            - name: EMBEDDINGS_PROVIDER
+              value: "openai"
+            - name: RAG_OPENAI_BASEURL
+              value: {{ .Values.embeddings.baseURL | quote }}
+            {{- else }}
+            - name: EMBEDDINGS_PROVIDER
+              value: {{ .Values.embeddings.provider | quote }}
+            - name: EMBEDDINGS_BASE_URL
+              value: {{ .Values.embeddings.baseURL | quote }}
+            {{- end }}
+            - name: EMBEDDINGS_MODEL
+              value: {{ .Values.embeddings.model | quote }}
+            {{- if .Values.embeddings.existingSecret }}
+            - name: RAG_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.embeddings.existingSecret | quote }}
+                  key: {{ .Values.embeddings.existingSecretKey | quote }}
+            {{- end }}
+            # ─── OpenID (Keycloak SSO) ─────────────────────────────────
+            {{- if .Values.keycloak.enabled }}
+            - name: ALLOW_SOCIAL_LOGIN
+              value: {{ .Values.keycloak.allowSocialLogin | quote }}
+            - name: ALLOW_SOCIAL_REGISTRATION
+              value: {{ .Values.keycloak.allowSocialRegistration | quote }}
+            - name: OPENID_ISSUER
+              value: {{ .Values.keycloak.issuer | quote }}
+            - name: OPENID_CLIENT_ID
+              value: {{ .Values.keycloak.clientId | quote }}
+            - name: OPENID_SCOPE
+              value: {{ .Values.keycloak.scope | quote }}
+            - name: OPENID_BUTTON_LABEL
+              value: {{ .Values.keycloak.buttonLabel | quote }}
+            {{- if .Values.ingress.host }}
+            - name: OPENID_CALLBACK_URL
+              value: "https://{{ .Values.ingress.host }}{{ .Values.keycloak.callbackPath }}"
+            {{- end }}
+            {{- if .Values.keycloak.existingSecret }}
+            - name: OPENID_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.existingSecret | quote }}
+                  key: OPENID_CLIENT_SECRET
+            - name: OPENID_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.existingSecret | quote }}
+                  key: OPENID_SESSION_SECRET
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.librechat.probes.liveness.path }}
+              port: {{ .Values.librechat.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.librechat.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.librechat.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.librechat.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.librechat.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.librechat.probes.readiness.path }}
+              port: {{ .Values.librechat.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.librechat.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.librechat.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.librechat.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.librechat.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.librechat.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.librechat.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/librechat.yaml
+              subPath: librechat.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "bp-librechat.configMapName" . }}
+{{- end }}

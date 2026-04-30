@@ -2,7 +2,47 @@
 
 Open-source chat UI with multi-model support and file uploads. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Default end-user chat surface in `bp-cortex` — fronts the LLM Gateway and routes through NeMo Guardrails for safety.
 
-**Status:** Accepted | **Updated:** 2026-04-27
+**Status:** Accepted | **Updated:** 2026-04-30
+
+---
+
+## Chart layout
+
+`platform/librechat/chart/` is a Catalyst-authored scratch chart (no upstream Helm chart is published by LibreChat). It hand-wires the official `ghcr.io/danny-avila/librechat` container as a Deployment + Service + Ingress (with cert-manager TLS) + ConfigMap + ServiceAccount + NetworkPolicy + ServiceMonitor (gated by Capabilities, default off) + HPA (default off).
+
+The chart's `Chart.yaml` declares a stub `sigstore/common` library subchart **only** to satisfy the platform-wide hollow-chart CI gate (issue #181) — `common` is a tiny library chart (helper templates, zero runtime resources) and contributes nothing to the rendered manifests. Same shape as `platform/coraza/`.
+
+| File | Purpose |
+|---|---|
+| `chart/Chart.yaml` | Umbrella metadata + stub library dependency (hollow-chart gate). |
+| `chart/values.yaml` | Operator-tunable values (every endpoint URL, model, secret ref). |
+| `chart/templates/deployment.yaml` | LibreChat container, env wiring (Mongo URI, JWT/CREDS, OpenID, RAG embeddings). |
+| `chart/templates/service.yaml` | ClusterIP on port 3080. |
+| `chart/templates/ingress.yaml` | cert-manager-issued TLS at `chat-app.<sovereign-fqdn>` (host is operator-supplied; never defaulted, per [INVIOLABLE-PRINCIPLES.md #4](../../docs/INVIOLABLE-PRINCIPLES.md)). |
+| `chart/templates/configmap.yaml` | `librechat.yaml` declaring the bp-llm-gateway custom endpoint, model list, file-upload limits. |
+| `chart/templates/networkpolicy.yaml` | Default-deny shell + explicit allows to bp-llm-gateway, bp-bge, FerretDB, bp-keycloak, kube-dns. |
+| `chart/templates/serviceaccount.yaml` | Per-release SA. |
+| `chart/templates/servicemonitor.yaml` | `monitoring.coreos.com/v1` ServiceMonitor — default off, double-gated by `.Values.serviceMonitor.enabled` AND `Capabilities.APIVersions.Has` per [`docs/BLUEPRINT-AUTHORING.md` §11.2](../../docs/BLUEPRINT-AUTHORING.md). |
+| `chart/templates/hpa.yaml` | HorizontalPodAutoscaler — default off; flipped on by multi-tenant Sovereigns. |
+| `chart/templates/_helpers.tpl` | Standard `bp-librechat.{name,fullname,labels,selectorLabels,serviceAccountName,configMapName}`. |
+| `chart/tests/observability-toggle.sh` | CI gate ([`docs/BLUEPRINT-AUTHORING.md` §11.2](../../docs/BLUEPRINT-AUTHORING.md)) — proves `serviceMonitor.enabled` defaults false, opt-in renders cleanly, explicit-off renders cleanly. |
+
+### Connectors
+
+| Connector | Backend | Wire shape |
+|---|---|---|
+| Chat completions | `bp-llm-gateway` (transitively `bp-vllm` + `bp-anthropic-adapter`) | OpenAI-compatible `/v1/chat/completions` exposed as a "custom" endpoint named `Catalyst LLM`. |
+| Embeddings (RAG) | `bp-bge` | OpenAI-compatible `/v1/embeddings`; LibreChat configured with `EMBEDDINGS_PROVIDER=openai` + `RAG_OPENAI_BASEURL=<bge.svc>`. |
+| SSO | `bp-keycloak` | OpenID Connect — operator-supplied issuer + client secret via ExternalSecret. Callback `/oauth/openid/callback`. |
+| Conversation store | FerretDB on `bp-cnpg` | MongoDB wire protocol over Postgres — operator-supplied connection URI. |
+
+### Observability
+
+`serviceMonitor.enabled` defaults `false` per [`docs/BLUEPRINT-AUTHORING.md` §11.2](../../docs/BLUEPRINT-AUTHORING.md). Operators flip it on at `clusters/<sovereign>/bootstrap-kit/48-librechat.yaml` once `bp-kube-prometheus-stack` reconciles.
+
+### Hosting
+
+`chat-app.${SOVEREIGN_FQDN}` (e.g. `chat-app.omantel.omani.works`). The host MUST be supplied by the cluster overlay — the chart `fail`s render if `ingress.host` is empty.
 
 ---
 

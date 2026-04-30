@@ -1,0 +1,41 @@
+apiVersion: v2
+name: bp-librechat
+version: 1.0.0
+appVersion: "0.7.5"
+description: |
+  Catalyst Blueprint scratch chart for LibreChat — multi-LLM chat UI.
+
+  No first-party Helm chart is published by the LibreChat upstream
+  (https://github.com/danny-avila/LibreChat ships a docker-compose, and
+  the community helm chart at github.com/josefig/librechat-helm is not
+  versioned/signed to the standard Catalyst requires). This chart hand-
+  wires the official `ghcr.io/danny-avila/librechat` container as a
+  Deployment + Service + Ingress + ConfigMap + ServiceAccount +
+  NetworkPolicy.
+
+  Connects to:
+    - bp-llm-gateway   (OpenAI-compatible chat completions endpoint)
+    - bp-bge           (OpenAI-compatible embeddings for RAG)
+    - bp-keycloak      (OIDC SSO; LibreChat speaks the OpenID protocol)
+    - FerretDB on bp-cnpg (MongoDB wire-protocol compat — see README.md)
+
+  Pairs with bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak (depends.list).
+type: application
+keywords: [catalyst, blueprint, librechat, chat, llm, ai, ui, openid, rag]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — the upstream LibreChat project does not publish a
+# Helm chart, so the Catalyst overlay templates (Deployment, Service,
+# Ingress, ConfigMap, NetworkPolicy, ServiceAccount) are entirely in
+# templates/ in this chart. The `sigstore/common` library subchart
+# below is included ONLY to satisfy the platform-wide
+# blueprint-release.yaml hollow-chart gate (issue #181) — every
+# umbrella MUST declare at least one dependency. `common` is a tiny
+# library chart (helper templates only, zero runtime resources) and
+# contributes nothing to the rendered manifests of bp-librechat.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

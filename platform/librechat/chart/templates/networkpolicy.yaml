@@ -1,0 +1,56 @@
+{{- /*
+NetworkPolicy — default-deny shell scoped to bp-librechat pods, with
+explicit allow rules for:
+  - ingress from the Sovereign's gateway/ingress namespace
+    (.Values.networkPolicy.ingress.fromNamespaceLabels),
+  - egress to the dependent backend services
+    (bp-llm-gateway, bp-bge, FerretDB, bp-keycloak)
+    declared in .Values.networkPolicy.egress,
+  - egress to kube-dns (DNS resolution).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / namespace label /
+port is operator-tunable.
+*/}}
+{{- if and .Values.librechat.enabled .Values.networkPolicy.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-librechat.fullname" . }}
+  labels:
+    {{- include "bp-librechat.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-librechat.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingress.fromNamespaceLabels | nindent 14 }}
+      ports:
+        - port: {{ .Values.librechat.port }}
+          protocol: TCP
+  egress:
+    # DNS — kube-dns / coredns in kube-system.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- range .Values.networkPolicy.egress }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespaceLabel | quote }}
+      ports:
+        - port: {{ .port }}
+          protocol: TCP
+    {{- end }}
+{{- end }}

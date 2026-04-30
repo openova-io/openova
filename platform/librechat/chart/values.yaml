@@ -1,0 +1,214 @@
+# Catalyst Blueprint scratch chart for LibreChat.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/bootstrap-kit/ may override any of these without
+# rebuilding the Blueprint OCI artifact. The Sovereign FQDN, Keycloak
+# issuer, llm-gateway URL, embeddings URL, and TLS issuer are all
+# operator-supplied at install time.
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      librechat: "ghcr.io/danny-avila/librechat"
+
+# ─── LibreChat application ───────────────────────────────────────────────
+librechat:
+  enabled: true
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump
+  # to 2+ once HA is needed (LibreChat is stateless once Mongo wire
+  # backend is FerretDB on CNPG).
+  replicas: 1
+
+  # Pin upstream image tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md #4.
+  image:
+    repository: ghcr.io/danny-avila/librechat
+    tag: "v0.7.5"
+    pullPolicy: IfNotPresent
+
+  # LibreChat HTTP listener — port 3080 is the upstream default.
+  port: 3080
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+  # SecurityContext — non-root.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness / readiness — LibreChat exposes /api/health (verified via
+  # upstream code path src/api/healthCheck.js).
+  probes:
+    liveness:
+      path: /api/health
+      port: 3080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /api/health
+      port: 3080
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# ─── MongoDB wire-protocol backend ───────────────────────────────────────
+# LibreChat persists conversations, users, and presets to a MongoDB-
+# compatible store. Catalyst routes this to FerretDB (MongoDB wire
+# protocol on top of bp-cnpg Postgres) — operator-supplied connection
+# string, never hardcoded credentials.
+mongo:
+  # FerretDB ClusterIP service — typically deployed alongside bp-cnpg.
+  # See platform/librechat/README.md for the FerretDB topology.
+  uri: "mongodb://ferretdb.ferretdb.svc.cluster.local:27017/librechat"
+  # ExternalSecret name (created out-of-band) holding the full URI with
+  # credentials — when set, mongo.uri is overridden by the secret value.
+  existingSecret: ""              # e.g. "librechat-mongo-uri"
+  existingSecretKey: "MONGO_URI"
+
+# ─── LLM Gateway backend (bp-llm-gateway) ────────────────────────────────
+# OpenAI-compatible chat completions endpoint. LibreChat treats this as
+# a "custom" endpoint (named "Catalyst LLM"). The gateway routes per-model
+# to bp-vllm / bp-anthropic-adapter / etc.
+llmGateway:
+  baseURL: "http://llm-gateway.llm-gateway.svc.cluster.local:8080/v1"
+  # ExternalSecret name with the API key the gateway expects in
+  # `Authorization: Bearer <key>`. When empty, no auth header is sent.
+  existingSecret: ""              # e.g. "librechat-llm-gateway-apikey"
+  existingSecretKey: "API_KEY"
+  models:
+    default:
+      - deep-thinker
+      - quick-thinker
+      - compliance-advisor
+    titleModel: quick-thinker
+
+# ─── Embeddings backend (bp-bge) ─────────────────────────────────────────
+# RAG embeddings via the BGE service exposed by bp-bge. LibreChat
+# supports an OpenAI-compatible embeddings endpoint via
+# EMBEDDINGS_PROVIDER=openai with a custom RAG_OPENAI_BASEURL. We map
+# `provider: bge` to that pattern at template-render time.
+embeddings:
+  provider: bge                   # bge | openai | huggingface | ollama
+  baseURL: "http://bge.bge.svc.cluster.local:8080/v1"
+  model: "BAAI/bge-large-en-v1.5"
+  existingSecret: ""              # e.g. "librechat-bge-apikey"
+  existingSecretKey: "API_KEY"
+
+# ─── Keycloak OIDC SSO ───────────────────────────────────────────────────
+# LibreChat speaks the standard OpenID Connect protocol — point at a
+# Keycloak realm. Issuer/clientId/clientSecret are operator-supplied via
+# ExternalSecret; nothing is hardcoded.
+keycloak:
+  enabled: true
+  issuer: ""                      # e.g. "https://keycloak.<loc>.<sovereign>/realms/<org>"
+  clientId: "librechat"
+  scope: "openid profile email"
+  callbackPath: "/oauth/openid/callback"
+  buttonLabel: "Sign in with Keycloak"
+  # ExternalSecret carrying client secret + (optional) session secret.
+  # Required keys: OPENID_CLIENT_SECRET, OPENID_SESSION_SECRET.
+  existingSecret: ""              # e.g. "librechat-oidc"
+  allowSocialLogin: true
+  allowSocialRegistration: true
+
+# ─── App credentials (LibreChat-internal) ────────────────────────────────
+# CREDS_KEY (32-byte hex), CREDS_IV (16-byte hex), JWT_SECRET, and
+# JWT_REFRESH_SECRET are LibreChat-internal cryptographic material.
+# Generated out-of-band, mounted via ExternalSecret. Required keys:
+# CREDS_KEY, CREDS_IV, JWT_SECRET, JWT_REFRESH_SECRET.
+credentials:
+  existingSecret: ""              # e.g. "librechat-app-creds"
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3080
+  targetPort: 3080
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── Ingress + cert-manager TLS ──────────────────────────────────────────
+# Hosted at chat-app.<sovereign-fqdn> per the operator's overlay (the
+# `host` value is mandatory at install — there is no platform-wide
+# default per docs/INVIOLABLE-PRINCIPLES.md #4).
+ingress:
+  enabled: true
+  className: "traefik"
+  host: ""                        # operator-supplied (e.g. chat-app.omantel.omani.works)
+  pathType: Prefix
+  path: "/"
+  annotations: {}
+  tls:
+    enabled: true
+    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    secretName: "librechat-tls"
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Default-allow ingress from the platform's gateway namespace; egress
+# to llm-gateway, bge, ferretdb, keycloak, and DNS. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 every selector / namespace / port is
+# operator-tunable.
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceLabels:
+      kubernetes.io/metadata.name: traefik
+  egress:
+    # bp-llm-gateway
+    - namespaceLabel: llm-gateway
+      port: 8080
+    # bp-bge
+    - namespaceLabel: bge
+      port: 8080
+    # FerretDB (Mongo wire) on the bp-cnpg layer
+    - namespaceLabel: ferretdb
+      port: 27017
+    # Keycloak realm OIDC discovery + token endpoint
+    - namespaceLabel: keycloak
+      port: 8443
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+# toggles must default false). Operator opts in via per-cluster overlay
+# at clusters/<sovereign>/bootstrap-kit/48-librechat.yaml once
+# kube-prometheus-stack reconciles. LibreChat has no /metrics endpoint
+# by default — this knob is a forward-compatibility guard for the
+# eventual telemetry surface.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── HorizontalPodAutoscaler ─────────────────────────────────────────────
+# DEFAULT FALSE — single-replica solo-Sovereigns don't need autoscaling,
+# and LibreChat is stateless once the Mongo wire backend is FerretDB on
+# CNPG. Multi-tenant Sovereigns enable HPA via the per-cluster overlay
+# once kube-prometheus-stack + metrics-server reconcile.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

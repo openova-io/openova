@@ -1,0 +1,94 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-librechat
+  labels:
+    catalyst.openova.io/category: application
+    catalyst.openova.io/section: pts-4-7-application-tier-chat-ui
+spec:
+  version: 1.0.0
+  card:
+    title: LibreChat
+    summary: |
+      Multi-LLM chat UI front-end. Joins bp-llm-gateway + bp-vllm + bp-bge,
+      with Keycloak SSO via OIDC. Backed by FerretDB (MongoDB wire compat
+      over CNPG Postgres) for conversation history.
+    icon: librechat.svg
+    category: application
+    tags: [chat, llm, ui, openid, rag, application]
+    documentation: https://www.librechat.ai/docs
+    license: MIT
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      host:
+        type: string
+        format: hostname
+        description: |
+          Public hostname for the LibreChat UI. Defaults to
+          chat-app.<sovereign-fqdn> per the Sovereign overlay.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 10
+      llmGateway:
+        type: object
+        properties:
+          baseURL:
+            type: string
+            description: Base URL of the OpenAI-compatible LLM gateway (bp-llm-gateway).
+            default: http://llm-gateway.llm-gateway.svc.cluster.local:8080/v1
+      embeddings:
+        type: object
+        properties:
+          provider:
+            type: string
+            enum: [bge, openai, huggingface, ollama]
+            default: bge
+          baseURL:
+            type: string
+            description: Base URL of the embeddings service (bp-bge).
+            default: http://bge.bge.svc.cluster.local:8080/v1
+          model:
+            type: string
+            default: BAAI/bge-large-en-v1.5
+      keycloak:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          issuer:
+            type: string
+            description: |
+              Keycloak realm issuer URL (e.g. https://keycloak.<location-code>
+              .<sovereign-domain>/realms/<org>). Operator-supplied; never
+              hardcoded.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-llm-gateway
+      version: ^1.0
+      alias: gateway
+    - blueprint: bp-vllm
+      version: ^1.0
+      alias: vllm
+    - blueprint: bp-bge
+      version: ^1.0
+      alias: bge
+    - blueprint: bp-keycloak
+      version: ^1.1
+      alias: idp
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

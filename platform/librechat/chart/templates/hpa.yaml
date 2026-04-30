@@ -1,0 +1,42 @@
+{{- /*
+HorizontalPodAutoscaler — DEFAULT FALSE.
+
+LibreChat is stateless once the Mongo wire backend is FerretDB on
+bp-cnpg, so HPA scales linearly with concurrent chat session load.
+Per-Sovereign overlays enable HPA on multi-tenant Sovereigns where
+chat throughput needs autoscaling; solo-Sovereigns stay at the
+single-replica baseline.
+*/}}
+{{- if and .Values.librechat.enabled .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "bp-librechat.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-librechat.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "bp-librechat.fullname" . }}
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    {{- if .Values.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
