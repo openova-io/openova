@@ -22,6 +22,14 @@ seaweedfs:
   enableNamePrefix: true
 
   global:
+    # SECURITY DISABLED for v1.0.x — upstream's templates/shared/security-configmap.yaml
+    # uses Helm template `fromToml` which is unsupported by the helm-controller
+    # v1.1.0 helm SDK on otech.omani.works. Re-enable when fluxcd/helm-controller
+    # is bumped to a version with helm SDK >= 3.13. JWT signing + HTTPS-internal
+    # are off here; the SeaweedFS API is reached internally via cluster-IP only,
+    # so disabling chart-level security is acceptable on Sovereign-1. To enable:
+    # set enableSecurity: true after upgrading helm-controller.
+    enableSecurity: false
     # Pin upstream image tag — DO NOT use floating tags per
     # docs/INVIOLABLE-PRINCIPLES.md #4.
     registry: "chrislusf/"
