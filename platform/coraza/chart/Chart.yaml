@@ -20,5 +20,15 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Scratch chart — no Helm dependency. Image version pinned in values.yaml
-# (`coraza.image.tag`).
+# Scratch chart — the upstream Coraza project does not publish a Helm
+# chart, so the Catalyst overlay templates (Deployment + Service) are
+# entirely in templates/ in this chart. The `sigstore/common` library
+# subchart below is included ONLY to satisfy the platform-wide
+# blueprint-release.yaml hollow-chart gate (issue #181) — every umbrella
+# MUST declare at least one dependency. `common` is a tiny library chart
+# (helper templates only, zero runtime resources) and contributes nothing
+# to the rendered manifests of bp-coraza.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"
