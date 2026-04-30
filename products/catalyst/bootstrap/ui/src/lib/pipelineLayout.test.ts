@@ -6,7 +6,7 @@
  *   • Empty input is well-formed (no crash, no nodes).
  *   • Canonical 5-job fan-in example: 4 stages, 4 edges, zero crossings,
  *     edge `2→5` rendered as a 4-point bezier (skips empty stage-2 col).
- *   • Real otech bootstrap-kit (13 jobs): 5 stages, fan-in at
+ *   • Real otech bootstrap-kit (12 jobs post-#194): 5 stages, fan-in at
  *     external-dns (2 incoming edges), zero crossings.
  *   • Two-batch fixture: meta-DAG with 1 meta-edge connecting the LAST
  *     stage of phase-0-infra to the first stage of bootstrap-kit.
@@ -43,10 +43,10 @@ const FIVE_JOB_FANIN: Job[] = [
 ]
 
 /**
- * Real otech bootstrap-kit shape (13 jobs):
+ * Real otech bootstrap-kit shape (12 jobs post-#194 — sealed-secrets removed):
  *   cilium (s0)
  *   cert-manager (s1, ←cilium)
- *   spire / sealed-secrets / flux / keycloak / powerdns (s2, ←cert-manager)
+ *   spire / flux / keycloak / powerdns (s2, ←cert-manager)
  *   crossplane (s3, ←flux), gitea (s3, ←keycloak), nats-jetstream (s3, ←spire),
  *     openbao (s3, ←spire), external-dns (s3, ←cert-manager + powerdns)
  *   catalyst-platform (s4, ←gitea)
@@ -67,7 +67,6 @@ function makeBootstrapKit(batchId = 'bootstrap-kit'): Job[] {
     j('cilium', []),
     j('cert-manager', ['cilium']),
     j('spire', ['cert-manager']),
-    j('sealed-secrets', ['cert-manager']),
     j('flux', ['cert-manager']),
     j('keycloak', ['cert-manager']),
     j('powerdns', ['cert-manager']),
@@ -149,13 +148,13 @@ describe('pipelineLayout — canonical 5-job fan-in', () => {
  * Real otech bootstrap-kit
  * ────────────────────────────────────────────────────────────────── */
 
-describe('pipelineLayout — bootstrap-kit (13 jobs, 5 stages)', () => {
+describe('pipelineLayout — bootstrap-kit (12 jobs, 5 stages)', () => {
   const jobs = makeBootstrapKit()
   const r = pipelineLayout(jobs)
   const byId = new Map(r.nodes.map((n) => [n.id, n]))
 
-  it('produces 13 job nodes', () => {
-    expect(r.nodes.length).toBe(13)
+  it('produces 12 job nodes', () => {
+    expect(r.nodes.length).toBe(12)
   })
 
   it('produces 5 distinct inner stages', () => {

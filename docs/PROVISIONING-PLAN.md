@@ -177,25 +177,31 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 **What:** Real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS with Catalyst-specific values, includes a `blueprint.yaml` per the unified Blueprint contract from `BLUEPRINT-AUTHORING.md` §1, publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out.
 
-**Components (in dependency order):**
+**Components (in dependency order — canonical 15-chart Phase 0 minimum per #310):**
 1. `platform/cilium/chart/` (CNI must come first)
-2. `platform/cert-manager/chart/`
-3. `platform/flux/chart/` (host-level)
-4. `platform/crossplane/chart/`
-5. `platform/sealed-secrets/chart/` (transient bootstrap-only)
-6. `platform/spire/chart/` (the `platform/spire/` folder may need to be added — workload identity)
-7. `platform/nats-jetstream/chart/` (the `platform/nats-jetstream/` folder may need to be added)
-8. `platform/openbao/chart/`
-9. `platform/keycloak/chart/`
-10. `platform/gitea/chart/`
-11. `products/catalyst/chart/` — the umbrella `bp-catalyst-platform`
+2. `platform/cert-manager/chart/` (TLS issuer)
+3. `platform/flux/chart/` (cluster's own GitOps reconciler)
+4. `platform/crossplane/chart/` (controller — XRDs/Compositions split into bp-crossplane-claims for CRD ordering)
+5. `platform/spire/chart/` (workload identity — 5-min rotating SVIDs)
+6. `platform/nats-jetstream/chart/` (event spine)
+7. `platform/openbao/chart/` (3-node Raft, sole secrets backend post-#194 Option 2)
+8. `platform/external-secrets/chart/` (ESO + ClusterSecretStore — replaces bp-sealed-secrets entirely)
+9. `platform/keycloak/chart/` (IdP; embedded postgresql)
+10. `platform/gitea/chart/` (per-Sovereign App repos; embedded postgresql)
+11. `platform/cnpg/chart/` (CloudNativePG operator — required by bp-powerdns)
+12. `platform/powerdns/chart/` (per-Sovereign authoritative zone with `pdns-pg` CNPG cluster, #167)
+13. `platform/external-dns/chart/` (writes A/CNAME into bp-powerdns)
+14. `platform/crossplane-claims/chart/` (XRDs/Compositions — split per intra-chart CRD-ordering decision)
+15. `products/catalyst/chart/` — the umbrella `bp-catalyst-platform` (handover trigger when Ready=True)
+
+`platform/sealed-secrets/chart/` was removed per #194 Option 2 — the transient pattern was designed but never used (zero SealedSecret CRs across both running clusters and entire repo). 19 Day-1 charts (valkey/seaweedfs/harbor/observability/security/velero/etc.) remain authored as bp-* OCI artifacts but are NOT in Phase 0 — they install via marketplace post-handover.
 
 **Outputs:**
-- 11 directories with `Chart.yaml`, `values.yaml`, `templates/`, `blueprint.yaml`, optional `compositions/`, `policies/`, `overlays/`
-- 11 entries in `openova/.github/workflows/blueprint-release.yaml` (path-matrix CI fan-out)
-- 11 OCI artifacts published at `ghcr.io/openova-io/bp-<name>:<semver>` after first CI run
-- One commit per chart (11 commits) — incremental review possible
-- VALIDATION-LOG entries: Pass 109 through Pass 119
+- 15 directories with `Chart.yaml`, `values.yaml`, `templates/`, `blueprint.yaml`, optional `compositions/`, `policies/`, `overlays/`
+- 15 entries in `openova/.github/workflows/blueprint-release.yaml` (path-matrix CI fan-out)
+- 15 OCI artifacts published at `ghcr.io/openova-io/bp-<name>:<semver>` after first CI run
+- One commit per chart (15 commits) — incremental review possible
+- VALIDATION-LOG entries: Pass 109 through Pass 123
 
 **Commit messages:** `feat(bp-<name>): G2 Catalyst-curated chart for <name> per BLUEPRINT-AUTHORING contract`
 

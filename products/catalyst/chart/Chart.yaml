@@ -1,17 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.8
-appVersion: 1.1.6
+version: 1.2.0
+appVersion: 1.2.0
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
   Deployed via Flux on Catalyst-Zero (Contabo k3s) and on every franchised Sovereign provisioned by Catalyst-Zero.
   Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
 
-  Umbrella that depends on the 10 leaf bootstrap-kit Blueprints
-  (cilium, cert-manager, flux, crossplane, sealed-secrets, spire,
-  nats-jetstream, openbao, keycloak, gitea) — each resolved as an OCI
-  artifact at ghcr.io/openova-io/bp-<name>. As of 1.1.0 each leaf is
+  Umbrella that depends on the 9 leaf bootstrap-kit Blueprints
+  (cilium, cert-manager, flux, crossplane, spire, nats-jetstream,
+  openbao, keycloak, gitea) — each resolved as an OCI artifact at
+  ghcr.io/openova-io/bp-<name>. As of 1.1.0 each leaf is
   itself a proper Helm umbrella that depends on its upstream chart
   (cert-manager, cilium, flux2, crossplane, ...) so installing
   bp-catalyst-platform brings up the full upstream payload — no
@@ -67,6 +67,19 @@ description: |
   bp-catalyst-platform Blueprint — they will be re-homed in a
   contabo-mkt-only Kustomization (or a separate `bp-sme` Blueprint)
   if/when SME is re-deployed. Issue #281, 2026-04-30.
+  Bumped to 1.2.0 (architectural minor bump, not a fix) to drop the
+  bp-sealed-secrets dependency entirely — founder confirmed Option 2
+  on issue #194 (2026-04-30): full removal in favor of OpenBao+ESO
+  from t=0. The transient pattern was designed but never used (zero
+  SealedSecret CRs across both running clusters and the entire repo).
+  bp-external-secrets becomes the sole post-OpenBao-Ready secret
+  pipeline; ESO + ClusterSecretStore replaces SealedSecret CRs for
+  every consumer that previously *might* have used them. This bump is
+  paired with the bootstrap-kit kustomization trim in issue #310 (the
+  PR that drops slot 05 + slots 16-35 entirely; Day-1 charts retained
+  as discoverable marketplace items, not Phase 0 install). The leaf
+  count drops 10 → 9; bp-sealed-secrets removed from `dependencies:`
+  below.
 type: application
 
 dependencies:
@@ -85,9 +98,6 @@ dependencies:
     version: 1.1.2
     repository: oci://ghcr.io/openova-io
   - name: bp-crossplane
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-sealed-secrets
     version: 1.1.1
     repository: oci://ghcr.io/openova-io
   - name: bp-spire
