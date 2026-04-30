@@ -48,17 +48,25 @@ gitea:
         auth:
           username: gitea
           database: gitea
+    # Bitnami evacuated docker.io/bitnami/postgresql tags around 2025-09;
+    # the chart's default 16.3.0-debian-12-r23 returns 404. bitnamilegacy
+    # is the frozen archive that still serves these tags. Same workaround
+    # as #191 for bp-keycloak. Long-term: cnpg subchart override.
+    image:
+      repository: bitnamilegacy/postgresql
+      tag: 16.3.0-debian-12-r23
     # PostgreSQL exporter + ServiceMonitor + PrometheusRule — DEFAULT OFF.
-    # The bitnami postgresql subchart bundled inside gitea ships a
-    # dedicated metrics exporter container that itself renders a
-    # ServiceMonitor and PrometheusRule. Same circular-CRD reasoning
-    # as above. Operator opts in via per-cluster overlay (issue #182).
     metrics:
       enabled: false
+      image:
+        repository: bitnamilegacy/postgres-exporter
       serviceMonitor:
         enabled: false
       prometheusRule:
         enabled: false
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
   redis-cluster:
     enabled: false
   valkey-cluster:
