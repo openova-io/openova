@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: trivy
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Trivy
+    family: guardian
+    description: Vulnerability and misconfiguration scanner operator. Scans workloads, images, IaC, RBAC. Targets bp-* namespaces; pairs with bp-falco (runtime) and bp-kyverno (admission).
+    docs: https://aquasecurity.github.io/trivy-operator/

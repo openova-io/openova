@@ -1,0 +1,102 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `trivy-operator:` key flow into the upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: trivy-operator
+    version: "0.32.1"
+    repo: "https://aquasecurity.github.io/helm-charts/"
+
+# ─── Upstream chart values (subchart key: trivy-operator) ────────────────
+trivy-operator:
+  # Operator deployment — single replica for solo Sovereign; per-Sovereign
+  # overlays may scale via leader-election once HA is required.
+  replicas: 1
+
+  # Pin upstream image tag — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md.
+  image:
+    registry: mirror.gcr.io
+    repository: aquasec/trivy-operator
+    tag: "0.30.1"
+    pullPolicy: IfNotPresent
+
+  # Trivy scanner image (used for vuln scans inside scan jobs).
+  trivy:
+    image:
+      registry: mirror.gcr.io
+      repository: aquasec/trivy
+      tag: "0.70.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 512Mi
+    # Vulnerability DB cache — persistent so DB downloads don't hammer the
+    # upstream registry on every scan.
+    storageClassEnabled: true
+    storageSize: 5Gi
+
+  # Operator scope — target namespaces follow the `bp-*` prefix convention
+  # so Trivy reports map cleanly to Catalyst Blueprint installation units.
+  # Empty string means "scan all namespaces"; per-Sovereign overlays MAY
+  # narrow to a comma-list.
+  operator:
+    namespace: ""
+    targetNamespaces: ""
+    excludeNamespaces: "kube-system,kube-public,kube-node-lease"
+    scanJobsConcurrentLimit: 10
+    scanJobsRetryDelay: 30s
+    # Scanners enabled — full posture for Catalyst Sovereigns.
+    vulnerabilityScannerEnabled: true
+    configAuditScannerEnabled: true
+    rbacAssessmentScannerEnabled: true
+    exposedSecretScannerEnabled: true
+    infraAssessmentScannerEnabled: true
+    clusterComplianceEnabled: true
+    metricsVulnIdEnabled: false
+    # Built-in policies — the upstream chart ships baseline policy bundle.
+    builtInTrivyServer: false
+
+  # Resources for the operator pod itself.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
+  # (Catalyst provides bp-grafana / kube-prometheus-stack separately).
+  serviceMonitor:
+    enabled: false
+
+  # RBAC — chart manages its own ClusterRole + ServiceAccount.
+  rbac:
+    create: true
+  serviceAccount:
+    create: true
+
+  # Network access — operator needs to pull vulnerability DBs from
+  # ghcr.io/aquasecurity/trivy-db. Per-Sovereign overlays MAY add an
+  # HTTP proxy via env vars.
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Reserved for Catalyst-side overlays (NetworkPolicy, alert routing into
+# the SIEM pipeline) added in a follow-up PR once bp-trivy is consumed in
+# clusters/_template/.
+trivyOverlay:
+  networkPolicy:
+    enabled: false
+  # bp-* namespace targeting — per-Sovereign overlays SET this to a list
+  # of Blueprint namespaces to focus scans.
+  blueprintNamespacePrefix: "bp-"
