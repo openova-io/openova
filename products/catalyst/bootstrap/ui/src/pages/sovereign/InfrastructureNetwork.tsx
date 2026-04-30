@@ -47,16 +47,16 @@ export function InfrastructureNetwork() {
     const firewalls: FirewallRow[] = []
     const networks: NetworkSpec[] = []
     if (!data) return { lbs, peerings, firewalls, networks }
-    for (const region of data.topology.regions) {
-      for (const cluster of region.clusters) {
-        for (const lb of cluster.loadBalancers) {
+    for (const region of data.topology.regions ?? []) {
+      for (const cluster of region.clusters ?? []) {
+        for (const lb of cluster.loadBalancers ?? []) {
           lbs.push({ lb, region, clusterId: cluster.id })
         }
       }
-      for (const net of region.networks) {
+      for (const net of region.networks ?? []) {
         networks.push(net)
-        for (const p of net.peerings) peerings.push({ peering: p, region })
-        for (const f of net.firewalls) firewalls.push({ firewall: f, region })
+        for (const p of net.peerings ?? []) peerings.push({ peering: p, region })
+        for (const f of net.firewalls ?? []) firewalls.push({ firewall: f, region })
       }
     }
     return { lbs, peerings, firewalls, networks }

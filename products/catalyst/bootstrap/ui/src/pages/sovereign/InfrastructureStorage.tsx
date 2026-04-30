@@ -19,9 +19,9 @@ export function InfrastructureStorage() {
   const { pvcs, buckets, volumes } = useMemo(() => {
     if (!data) return { pvcs: [], buckets: [], volumes: [] }
     return {
-      pvcs: data.storage.pvcs,
-      buckets: data.storage.buckets,
-      volumes: data.storage.volumes,
+      pvcs: data.storage?.pvcs ?? [],
+      buckets: data.storage?.buckets ?? [],
+      volumes: data.storage?.volumes ?? [],
     }
   }, [data])
 

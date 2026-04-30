@@ -196,7 +196,7 @@ export function topologyLayout(
   // Depth 2 — clusters. Sort by id within each region's cluster list.
   const allClusters: { region: RegionSpec; cluster: ClusterSpec }[] = []
   for (const region of regions) {
-    for (const c of [...region.clusters].sort((a, b) => a.id.localeCompare(b.id))) {
+    for (const c of [...(region.clusters ?? [])].sort((a, b) => a.id.localeCompare(b.id))) {
       allClusters.push({ region, cluster: c })
     }
   }
@@ -237,7 +237,7 @@ export function topologyLayout(
     vc: VClusterSpec
   }[] = []
   for (const { region, cluster } of allClusters) {
-    for (const vc of [...cluster.vclusters].sort((a, b) => a.id.localeCompare(b.id))) {
+    for (const vc of [...(cluster.vclusters ?? [])].sort((a, b) => a.id.localeCompare(b.id))) {
       allVCs.push({ region, cluster, vc })
     }
   }

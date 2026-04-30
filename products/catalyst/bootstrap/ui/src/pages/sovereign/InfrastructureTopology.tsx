@@ -464,8 +464,8 @@ function inferProviderForCluster(
   clusterId: string,
 ): CloudProvider {
   if (!data) return 'hetzner'
-  for (const r of data.topology.regions) {
-    for (const c of r.clusters) {
+  for (const r of data.topology.regions ?? []) {
+    for (const c of r.clusters ?? []) {
       if (c.id === clusterId) return r.provider as CloudProvider
     }
   }

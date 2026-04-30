@@ -39,10 +39,10 @@ export function InfrastructureCompute() {
     const pools: PoolRow[] = []
     const nodes: NodeRow[] = []
     if (!data) return { pools, nodes }
-    for (const region of data.topology.regions) {
-      for (const cluster of region.clusters) {
-        for (const pool of cluster.nodePools) pools.push({ pool, cluster, region })
-        for (const node of cluster.nodes) nodes.push({ node, cluster, region })
+    for (const region of data.topology.regions ?? []) {
+      for (const cluster of region.clusters ?? []) {
+        for (const pool of cluster.nodePools ?? []) pools.push({ pool, cluster, region })
+        for (const node of cluster.nodes ?? []) nodes.push({ node, cluster, region })
       }
     }
     return { pools, nodes }

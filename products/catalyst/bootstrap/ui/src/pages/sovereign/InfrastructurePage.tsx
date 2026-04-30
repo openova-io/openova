@@ -40,10 +40,39 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
+  type CloudSpec,
   type DeploymentSummary,
   type HierarchicalInfrastructure,
+  type TopologyTree,
 } from '@/lib/infrastructure.types'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
+
+/**
+ * Synthesise a `cloud` block from the regions list when the backend
+ * doesn't return one. Every distinct provider becomes a single
+ * cloud-tenant anchor.
+ */
+function inferCloudFromTopology(topology?: TopologyTree): CloudSpec[] {
+  const regions = topology?.regions ?? []
+  const byProvider = new Map<string, CloudSpec>()
+  for (const r of regions) {
+    const key = r.provider ?? 'unknown'
+    const existing = byProvider.get(key)
+    if (existing) {
+      existing.regionCount += 1
+    } else {
+      byProvider.set(key, {
+        id: `cloud-${key}`,
+        name: key,
+        provider: key,
+        regionCount: 1,
+        quotaUsed: 0,
+        quotaLimit: 0,
+      })
+    }
+  }
+  return Array.from(byProvider.values())
+}
 
 /* ── Tab table — single source of truth ────────────────────────── */
 
@@ -162,12 +191,42 @@ export function InfrastructurePage({
   })
 
   const data = useMemo<HierarchicalInfrastructure | null>(() => {
-    if (initialDataOverride) return initialDataOverride
-    if (topologyQuery.data) return topologyQuery.data
-    // When the backend isn't deployed yet the query errors —
-    // fall back to the fixture so the UI is still navigable.
-    if (topologyQuery.isError) return infrastructureTopologyFixture
-    return null
+    const raw =
+      initialDataOverride ??
+      topologyQuery.data ??
+      (topologyQuery.isError ? infrastructureTopologyFixture : null)
+    if (!raw) return null
+    // Backend-tolerant normalisation — every collection field defaults
+    // to an empty array so consumers can iterate freely. The current
+    // backend ships a flat-ish response without `cloud` / `storage`
+    // arrays; we synthesise them here so the topology tree always
+    // has the expected shape.
+    return {
+      cloud: raw.cloud ?? inferCloudFromTopology(raw.topology),
+      topology: {
+        pattern: raw.topology?.pattern ?? 'solo',
+        regions: (raw.topology?.regions ?? []).map((r) => ({
+          ...r,
+          clusters: (r.clusters ?? []).map((c) => ({
+            ...c,
+            vclusters: c.vclusters ?? [],
+            loadBalancers: c.loadBalancers ?? [],
+            nodePools: c.nodePools ?? [],
+            nodes: c.nodes ?? [],
+          })),
+          networks: (r.networks ?? []).map((n) => ({
+            ...n,
+            peerings: n.peerings ?? [],
+            firewalls: n.firewalls ?? [],
+          })),
+        })),
+      },
+      storage: {
+        pvcs: raw.storage?.pvcs ?? [],
+        buckets: raw.storage?.buckets ?? [],
+        volumes: raw.storage?.volumes ?? [],
+      },
+    }
   }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
 
   const ctx: InfrastructureContextValue = useMemo(
