@@ -866,139 +866,189 @@ test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => 
   })
 
   /* ────────────────────────────────────────────────────────────────
-   * Tests 5-8 — Flow tab (founder urgent spec, two-level Sugiyama)
+   * Tests 5-8 — Flow CANVAS (founder v3 spec).
    *
-   * The Jobs page MUST expose two view tabs: Table (default) and Flow.
-   * Switching tabs updates the URL ?view= search param so deep links
-   * preserve the operator's chosen view, browser-back works, and the
-   * choice is bookmarkable.
+   * Routing model (v3, this PR):
+   *   • JobsPage has NO tabs — just the table and a "Show as Flow"
+   *     button in the header that links to /flow?scope=all.
+   *   • Per-deployment flow canvas lives at /flow?scope=all
+   *   • Per-batch flow canvas lives at /flow?scope=batch:<batchId>
+   *   • Mode toggle (Jobs ↔ Batches) is in the StatusStrip.
+   *   • Single-click on a job bubble opens a 25vw FloatingLogPane.
    *
-   * The Flow tab renders a two-level Sugiyama layered DAG (batches as
-   * meta-stages, jobs as inner stages). Default zoom is "expanded" for
-   * batches with in-flight jobs; "collapsed" for all-succeeded batches.
+   * The previous `?view=table|flow` Tab strip on JobsPage was
+   * rejected by the founder (PR #242) and is anti-regression-checked
+   * in test 5 below.
    * ──────────────────────────────────────────────────────────────── */
 
-  test('5. Flow tab exists alongside Table tab in the Jobs view tabstrip', async ({ page }) => {
+  test('5. JobsPage has NO tab strip and exposes a "Show as Flow" button', async ({ page }) => {
     await page.goto('provision/test-deployment-id/jobs')
     await page.waitForLoadState('domcontentloaded')
 
-    const tabstrip = page.locator('[data-testid="jobs-view-tabs"]')
-    await expect(
-      tabstrip,
-      'JobsPage is missing [data-testid=jobs-view-tabs] — the founder urgent spec requires a tab strip with Table + Flow tabs at the top of the Jobs page. See JobsPage.tsx.',
-    ).toBeVisible({ timeout: 10_000 })
-
-    const tableTab = page.locator('[data-testid="jobs-view-tab-table"]')
-    const flowTab = page.locator('[data-testid="jobs-view-tab-flow"]')
-    await expect(tableTab, 'Table tab is missing from the Jobs view tabstrip.').toBeVisible()
-    await expect(
-      flowTab,
-      'Flow tab is missing from the Jobs view tabstrip — two-level Sugiyama DAG visualisation must be a peer of the Table tab.',
-    ).toBeVisible()
-
-    // Default landing — Table is the active tab.
+    // The legacy `?view=table|flow` Tab strip MUST be gone — the
+    // founder rejected that pattern in PR #242.
     expect(
-      await tableTab.getAttribute('aria-selected'),
-      'Table tab is not aria-selected by default. The default landing for /sovereign/provision/$id/jobs must be the Table view.',
-    ).toBe('true')
+      await page.locator('[data-testid="jobs-view-tabs"]').count(),
+      'JobsPage still renders the legacy [data-testid=jobs-view-tabs] Tab strip. PR #242 was rejected; the Flow surface now lives at its own /flow route. Remove the tab strip from JobsPage.tsx.',
+    ).toBe(0)
+    expect(
+      await page.locator('[data-testid="jobs-view-tab-table"]').count(),
+    ).toBe(0)
+    expect(
+      await page.locator('[data-testid="jobs-view-tab-flow"]').count(),
+    ).toBe(0)
+
+    // The header must expose the "Show as Flow" button → /flow?scope=all.
+    const showAsFlow = page.locator('[data-testid="sov-jobs-show-as-flow"]')
+    await expect(
+      showAsFlow,
+      'JobsPage is missing the [data-testid=sov-jobs-show-as-flow] button. Founder v3 spec: a button in the JobsPage header navigates to /flow?scope=all. See JobsPage.tsx.',
+    ).toBeVisible({ timeout: 10_000 })
+    const href = (await showAsFlow.getAttribute('href')) ?? ''
+    expect(
+      /\/provision\/[^/]+\/flow/.test(href),
+      `Show-as-Flow button href "${href}" must navigate to the /flow route.`,
+    ).toBe(true)
+    expect(
+      /scope=all/.test(href),
+      `Show-as-Flow button href "${href}" must set ?scope=all so the canvas renders the full deployment DAG.`,
+    ).toBe(true)
   })
 
-  test('6. clicking Flow tab updates URL to ?view=flow and renders the DAG canvas', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/jobs')
+  test('6. /flow?scope=all renders the canvas SVG with at least one batch + bubble', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/flow?scope=all')
     await page.waitForLoadState('domcontentloaded')
 
-    const flowTab = page.locator('[data-testid="jobs-view-tab-flow"]')
-    await expect(flowTab).toBeVisible({ timeout: 10_000 })
-    await flowTab.click()
-
-    // URL must now carry ?view=flow.
-    await page.waitForFunction(
-      () => window.location.search.includes('view=flow'),
-      { timeout: 5_000 },
-    )
-
-    const url = new URL(page.url())
-    expect(
-      url.searchParams.get('view'),
-      `Clicking the Flow tab did not push ?view=flow into the URL. Got search="${url.search}". The JobsPage must mirror the active tab into the search param so deep links + browser-back work.`,
-    ).toBe('flow')
-
-    // Flow DAG canvas mounts.
-    const svg = page.locator('[data-testid="jobs-flow-svg"]')
+    const svg = page.locator('[data-testid="flow-canvas-svg"]')
     await expect(
       svg,
-      'Flow tab is active but the [data-testid=jobs-flow-svg] canvas is missing. JobsFlowView must render an SVG with that testid.',
+      'FlowPage at /flow?scope=all did not render [data-testid=flow-canvas-svg]. See products/catalyst/bootstrap/ui/src/pages/sovereign/FlowPage.tsx.',
     ).toBeVisible({ timeout: 10_000 })
 
-    // Switching back to Table drops the search param.
-    const tableTab = page.locator('[data-testid="jobs-view-tab-table"]')
-    await tableTab.click()
+    // At least one batch swimlane is on the canvas.
+    const batches = page.locator('[data-testid^="flow-batch-"]')
+    expect(
+      await batches.count(),
+      'Flow canvas rendered with zero batch swimlanes — the bootstrap-kit batch alone must produce at least one.',
+    ).toBeGreaterThan(0)
+
+    // At least one job bubble is on the canvas.
+    const bubbles = page.locator('[data-testid^="flow-job-"]')
+    expect(
+      await bubbles.count(),
+      'Flow canvas rendered with zero job bubbles. Check pipelineLayout.ts + FlowPage.tsx <JobBubble /> rendering.',
+    ).toBeGreaterThan(0)
+  })
+
+  test('7. single-click on a job bubble opens the FloatingLogPane (25vw)', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/flow?scope=all')
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.locator('[data-testid="flow-canvas-svg"]')).toBeVisible({ timeout: 10_000 })
+    const bubble = page.locator('[data-testid^="flow-job-"]').first()
+    await bubble.click()
+
+    // Wait past the 220ms single-vs-double-click debounce.
+    const pane = page.locator('[data-testid="floating-log-pane"]')
+    await expect(
+      pane,
+      'Single-clicking a job bubble did not open [data-testid=floating-log-pane]. See FlowPage.tsx onJobSingleClick + FloatingLogPane.tsx.',
+    ).toBeVisible({ timeout: 5_000 })
+
+    // Width is 25vw — assert via inline style, since vw is a viewport unit.
+    const widthStyle = await pane.evaluate((el) => (el as HTMLElement).style.width)
+    expect(
+      widthStyle,
+      `FloatingLogPane width is "${widthStyle}"; founder spec requires 25vw verbatim.`,
+    ).toBe('25vw')
+  })
+
+  test('8. StatusStrip mode toggle (Jobs ↔ Batches) updates URL ?view=', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/flow?scope=all')
+    await page.waitForLoadState('domcontentloaded')
+
+    const toggle = page.locator('[data-testid="sov-status-strip-mode-toggle"]')
+    await expect(
+      toggle,
+      'FlowPage StatusStrip is missing the Jobs↔Batches mode toggle. See StatusStrip.tsx + FlowPage.tsx.',
+    ).toBeVisible({ timeout: 10_000 })
+
+    const batchesBtn = page.locator('[data-testid="sov-status-strip-mode-batches"]')
+    await expect(batchesBtn).toBeVisible()
+    await batchesBtn.click()
+
     await page.waitForFunction(
-      () => !window.location.search.includes('view=flow'),
+      () => window.location.search.includes('view=batches'),
       { timeout: 5_000 },
     )
+    expect(
+      new URL(page.url()).searchParams.get('view'),
+      'Clicking the Batches mode button did not push ?view=batches into the URL. The mode toggle must be URL-driven so Jobs↔Batches is bookmarkable.',
+    ).toBe('batches')
   })
+})
 
-  test('7. expanded batch shows job cards, collapse toggle shrinks to supernode', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/jobs?view=flow')
+test.describe('@cosmetic-guard JobDetail v3 (Flow + Exec Log only)', () => {
+  test('JobDetail tab strip has EXACTLY 2 tabs: Flow + Exec Log', async ({ page }) => {
+    // Pick a known job id from the default catalog. bp-cilium is in
+    // the bootstrap-kit batch; its detail page must mount with the
+    // v3 two-tab layout regardless of any live SSE replay.
+    await page.goto('provision/test-deployment-id/jobs/bp-cilium')
     await page.waitForLoadState('domcontentloaded')
 
-    const svg = page.locator('[data-testid="jobs-flow-svg"]')
-    await expect(svg, 'Flow tab did not mount on a deep link to ?view=flow.').toBeVisible({
-      timeout: 10_000,
-    })
-
-    // At least one batch must be on screen (the bootstrap-kit batch is
-    // always present once the catalog resolves; in test env without an
-    // SSE stream, every job is pending → batches stay expanded).
-    const batches = page.locator('[data-testid^="flow-batch-"]')
-    const nBatches = await batches.count()
+    const tablist = page.locator('[data-testid="job-detail-tablist"]')
+    await expect(tablist).toBeVisible({ timeout: 10_000 })
+    const tabs = tablist.locator('[role="tab"]')
     expect(
-      nBatches,
-      'Flow canvas rendered with zero batch swimlanes — the bootstrap-kit batch alone must produce at least one. Check pipelineLayout.ts grouping.',
-    ).toBeGreaterThan(0)
+      await tabs.count(),
+      'JobDetail must expose EXACTLY 2 tabs (Flow + Exec Log) per the v3 founder spec. Dependencies and Apps tabs were retired.',
+    ).toBe(2)
 
-    // At least one job card must be rendered (in-flight batches stay
-    // expanded by the default-collapse policy).
-    const jobs = page.locator('[data-testid^="flow-job-"]')
-    const nJobs = await jobs.count()
+    const labels = (await tabs.allTextContents()).map((s) => s.trim())
+    expect(labels).toEqual(['Flow', 'Exec Log'])
+
+    // Dependencies + Apps tabs are gone.
     expect(
-      nJobs,
-      'Expanded batch did not render any [data-testid^=flow-job-] cards. Check JobsFlowView.tsx <JobCardNode /> rendering.',
-    ).toBeGreaterThan(0)
+      await page.locator('[data-testid="job-detail-tab-dependencies"]').count(),
+      'JobDetail still renders the Dependencies tab — v3 spec retired it. See JobDetail.tsx.',
+    ).toBe(0)
+    expect(
+      await page.locator('[data-testid="job-detail-tab-apps"]').count(),
+      'JobDetail still renders the Apps tab — v3 spec retired it. See JobDetail.tsx.',
+    ).toBe(0)
 
-    // Click the collapse toggle on the first batch — its job cards
-    // disappear and its supernode glyph appears.
-    const firstBatch = batches.first()
-    const batchTestId = await firstBatch.getAttribute('data-testid')
-    const batchId = batchTestId!.replace(/^flow-batch-/, '')
-    const toggle = page.locator(`[data-testid="flow-batch-toggle-${batchId}"]`)
-    await toggle.click()
+    // Flow tab is the default-active one.
+    expect(
+      await page.locator('[data-testid="job-detail-tab-flow"]').getAttribute('aria-selected'),
+      'JobDetail Flow tab must be aria-selected by default per the v3 founder spec.',
+    ).toBe('true')
+  })
+})
 
-    // Collapsed supernode glyph is visible.
-    const supernode = page.locator(`[data-testid="flow-batch-supernode-${batchId}"]`)
+test.describe('@cosmetic-guard JobsTable batch chip → /flow link', () => {
+  test('batch chip in a JobsTable row is an <a> linking to /flow?scope=batch:<id>', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/jobs')
+    await page.waitForLoadState('domcontentloaded')
+
+    const chip = page.locator('[data-testid="jobs-cell-batch-bp-cilium"]')
     await expect(
-      supernode,
-      `Clicking the toggle on batch "${batchId}" did not collapse it. JobsFlowView.tsx onToggleBatch must flip the override set so the layout re-emits the batch as a supernode.`,
-    ).toBeVisible({ timeout: 5_000 })
-  })
-
-  test('8. default-expanded for in-flight batch (visible job cards on first paint)', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/jobs?view=flow')
-    await page.waitForLoadState('domcontentloaded')
-
-    await expect(page.locator('[data-testid="jobs-flow-svg"]')).toBeVisible({ timeout: 10_000 })
-
-    // The default-collapse policy collapses all-succeeded batches and
-    // expands everything else. In a fresh test deployment, every job
-    // is `pending` → no batch should be collapsed → at least one
-    // [data-testid^=flow-job-] card MUST be in the SVG on first paint.
-    const jobs = page.locator('[data-testid^="flow-job-"]')
-    const n = await jobs.count()
+      chip,
+      'JobsTable batch chip [data-testid=jobs-cell-batch-bp-cilium] is missing — the chip must be a link to the per-batch flow canvas.',
+    ).toBeVisible({ timeout: 10_000 })
+    const tag = await chip.evaluate((el) => el.tagName.toLowerCase())
     expect(
-      n,
-      `Flow canvas rendered with zero job cards on first paint, but no batch should be collapsed in the test fixture (every job is pending). defaultCollapsedBatchIds policy regressed — see pipelineLayout.ts.`,
-    ).toBeGreaterThan(0)
+      tag,
+      `JobsTable batch chip is a <${tag}> — must be an <a> (Link) so it navigates to /flow?scope=batch:<id>.`,
+    ).toBe('a')
+    const href = (await chip.getAttribute('href')) ?? ''
+    expect(
+      /\/provision\/[^/]+\/flow/.test(href),
+      `Batch chip href "${href}" must navigate to the /flow route.`,
+    ).toBe(true)
+    expect(
+      /scope=batch%3A|scope=batch:/.test(href),
+      `Batch chip href "${href}" must set ?scope=batch:<id> so the flow canvas filters to that batch only.`,
+    ).toBe(true)
   })
 })
 
