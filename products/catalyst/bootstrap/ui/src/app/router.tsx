@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router'
+import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
 
 // Lazy page imports
@@ -199,21 +199,43 @@ const provisionCloudArchitectureRoute = createRoute({
   component: Architecture,
 })
 
+// P3 of #309 — each category route is a thin <Outlet /> parent with
+// an index route hosting the landing page. This shape lets
+// /cloud/compute render the CloudComputePage tiles AND
+// /cloud/compute/clusters render ClustersPage inside the parent
+// outlet, all under the same accordion highlight.
+const CloudCategoryOutlet = () => <Outlet />
+
 const provisionCloudComputeRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/compute',
+  component: CloudCategoryOutlet,
+})
+const provisionCloudComputeIndexRoute = createRoute({
+  getParentRoute: () => provisionCloudComputeRoute,
+  path: '/',
   component: CloudComputePage,
 })
 
 const provisionCloudStorageRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/storage',
+  component: CloudCategoryOutlet,
+})
+const provisionCloudStorageIndexRoute = createRoute({
+  getParentRoute: () => provisionCloudStorageRoute,
+  path: '/',
   component: CloudStoragePage,
 })
 
 const provisionCloudNetworkRoute = createRoute({
   getParentRoute: () => provisionCloudRoute,
   path: '/network',
+  component: CloudCategoryOutlet,
+})
+const provisionCloudNetworkIndexRoute = createRoute({
+  getParentRoute: () => provisionCloudNetworkRoute,
+  path: '/',
   component: CloudNetworkPage,
 })
 
@@ -420,18 +442,21 @@ const routeTree = rootRoute.addChildren([
     provisionCloudIndexRoute,
     provisionCloudArchitectureRoute,
     provisionCloudComputeRoute.addChildren([
+      provisionCloudComputeIndexRoute,
       provisionCloudClustersRoute,
       provisionCloudVClustersRoute,
       provisionCloudNodePoolsRoute,
       provisionCloudWorkerNodesRoute,
     ]),
     provisionCloudStorageRoute.addChildren([
+      provisionCloudStorageIndexRoute,
       provisionCloudPvcsRoute,
       provisionCloudStorageClassesRoute,
       provisionCloudBucketsRoute,
       provisionCloudVolumesRoute,
     ]),
     provisionCloudNetworkRoute.addChildren([
+      provisionCloudNetworkIndexRoute,
       provisionCloudServicesRoute,
       provisionCloudIngressesRoute,
       provisionCloudLBsRoute,
