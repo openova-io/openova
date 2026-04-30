@@ -35,32 +35,68 @@
  */
 
 import { useMemo } from 'react'
-import { useParams, Link } from '@tanstack/react-router'
+import { useParams, Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
+import { JobsFlowView } from './JobsFlowView'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 
+/** Canonical tabs for the JobsPage view-mode. */
+export type JobsViewKey = 'table' | 'flow'
+
+export const JOBS_VIEW_TABS: ReadonlyArray<{ key: JobsViewKey; label: string }> = [
+  { key: 'table', label: 'Table' },
+  { key: 'flow',  label: 'Flow'  },
+]
+
+/** Resolve a free-form `?view=...` URL value to a known JobsViewKey. */
+export function resolveJobsView(raw: unknown): JobsViewKey {
+  if (raw === 'flow') return 'flow'
+  return 'table'
+}
+
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
   /** Test seam — disables the live-jobs backfill polling. */
   disableJobsBackfill?: boolean
+  /** Test seam — force the active view (bypasses ?view= URL parsing). */
+  initialView?: JobsViewKey
 }
 
 export function JobsPage({
   disableStream = false,
   disableJobsBackfill = false,
+  initialView,
 }: JobsPageProps = {}) {
   const params = useParams({
     from: '/provision/$deploymentId/jobs' as never,
   }) as { deploymentId: string }
   const { deploymentId } = params
   const store = useWizardStore()
+
+  // ?view=table|flow drives the active tab. We read the search params
+  // tolerantly — the Jobs route doesn't declare validateSearch (kept
+  // backward-compatible with existing deep links), so the value is
+  // typed as `unknown` and resolveJobsView() coerces it. The initial
+  // view prop overrides the URL for unit tests / Storybook embeds.
+  const search = useSearch({ strict: false }) as { view?: unknown }
+  const activeView: JobsViewKey = initialView ?? resolveJobsView(search?.view)
+  const navigate = useNavigate()
+  const setView = (next: JobsViewKey) => {
+    navigate({
+      to: '/provision/$deploymentId/jobs' as never,
+      params: { deploymentId } as never,
+      // `table` is the implicit default — keep the URL clean by
+      // dropping the param when the user picks the default.
+      search: (next === 'table' ? {} : { view: next }) as never,
+    })
+  }
 
   const applications = useMemo(
     () => resolveApplications(store.selectedComponents),
@@ -133,9 +169,73 @@ export function JobsPage({
         </div>
       ) : null}
 
+      <nav
+        className="jobs-view-tabs"
+        role="tablist"
+        aria-label="Jobs view"
+        data-testid="jobs-view-tabs"
+      >
+        <style>{JOBS_VIEW_TABS_CSS}</style>
+        {JOBS_VIEW_TABS.map((tab) => {
+          const isActive = tab.key === activeView
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-current={isActive ? 'page' : undefined}
+              className={`jobs-view-tab${isActive ? ' active' : ''}`}
+              data-testid={`jobs-view-tab-${tab.key}`}
+              onClick={() => setView(tab.key)}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </nav>
+
       <div className="mt-6" data-testid="sov-jobs-list">
-        <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
+        {activeView === 'flow' ? (
+          <JobsFlowView jobs={flatJobs} deploymentId={deploymentId} />
+        ) : (
+          <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
+        )}
       </div>
     </PortalShell>
   )
 }
+
+/* Tab strip CSS — mirrors the InfrastructurePage `.tabs` rhythm so
+ * the visual feel is consistent across Sovereign-portal surfaces. */
+const JOBS_VIEW_TABS_CSS = `
+.jobs-view-tabs {
+  display: inline-flex;
+  gap: 0;
+  margin-top: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+  width: 100%;
+}
+.jobs-view-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: color 0.12s ease, border-color 0.12s ease;
+  margin-bottom: -1px;
+}
+.jobs-view-tab:hover {
+  color: var(--color-text);
+}
+.jobs-view-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+`
