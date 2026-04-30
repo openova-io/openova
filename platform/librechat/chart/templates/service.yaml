@@ -1,0 +1,17 @@
+{{- if .Values.librechat.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-librechat.fullname" . }}
+  labels:
+    {{- include "bp-librechat.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "bp-librechat.selectorLabels" . | nindent 4 }}
+{{- end }}

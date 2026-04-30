@@ -1,0 +1,64 @@
+{{- /*
+LibreChat config — `librechat.yaml` in the upstream's expected format.
+
+Mounted at /app/librechat.yaml inside the container (set by env var
+CONFIG_PATH on the Deployment). Declares:
+  - the bp-llm-gateway custom endpoint (OpenAI-compatible) and the
+    Catalyst-curated model list,
+  - the bp-bge embeddings backend wired through the OpenAI-compatible
+    embeddings shape,
+  - registration / social-login flags,
+  - file-upload limits.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every endpoint
+URL, model name, and capability flag is operator-tunable via values.
+The plaintext API key NEVER appears here — the Deployment mounts it
+from an ExternalSecret and LibreChat substitutes ${API_KEY} at runtime.
+*/}}
+{{- if .Values.librechat.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-librechat.configMapName" . }}
+  labels:
+    {{- include "bp-librechat.labels" . | nindent 4 }}
+data:
+  librechat.yaml: |
+    version: 1.1.0
+    cache: true
+    registration:
+      socialLogins:
+        {{- if .Values.keycloak.enabled }}
+        - openid
+        {{- end }}
+    fileConfig:
+      endpoints:
+        custom:
+          fileLimit: 10
+          fileSizeLimit: 50
+          supportedMimeTypes:
+            - "application/pdf"
+            - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            - "text/plain"
+            - "text/markdown"
+    endpoints:
+      custom:
+        - name: "Catalyst LLM"
+          apiKey: "${LLM_GATEWAY_API_KEY}"
+          baseURL: "{{ .Values.llmGateway.baseURL }}"
+          models:
+            default:
+              {{- range .Values.llmGateway.models.default }}
+              - {{ . | quote }}
+              {{- end }}
+            fetch: false
+          titleConvo: true
+          titleModel: {{ .Values.llmGateway.models.titleModel | quote }}
+          summarize: false
+          summaryModel: {{ .Values.llmGateway.models.titleModel | quote }}
+          forcePrompt: false
+          modelDisplayLabel: "Catalyst"
+          dropParams:
+            - "stop"
+            - "user"
+{{- end }}
