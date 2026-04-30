@@ -243,3 +243,167 @@ describe('JobDetail — backend-format jobId lookup (regression for #245 not-fou
     })
   })
 })
+
+describe('JobDetail — Exec Log tab wires the real execution id (regression for #305)', () => {
+  // Without the fix, the JobDetail page constructed a synthetic
+  // executionId of `${jobId}:latest` and passed it to <ExecutionLogs>.
+  // The catalyst-api never had a `:latest` route — every log fetch
+  // returned 404 and the viewer rendered "Failed to load log page".
+  //
+  // The fix routes JobDetail through useJobDetail() which fetches
+  // `/api/v1/deployments/{depId}/jobs/{jobId}` and uses `executions[0].id`
+  // as the real exec id.
+  function renderDetailWithJobAndExecutions(
+    deploymentId: string,
+    jobId: string,
+    job: Job,
+    executions: Array<{ id: string; jobId: string; deploymentId: string; status: string; startedAt: string; lineCount: number }>,
+  ) {
+    const rootRoute = createRootRoute({ component: () => <Outlet /> })
+    const detailRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/provision/$deploymentId/jobs/$jobId',
+      component: () => <JobDetail disableStream />,
+    })
+    const flowRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/provision/$deploymentId/flow',
+      component: () => <div data-testid="flow-target" />,
+    })
+    const jobsRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/provision/$deploymentId/jobs',
+      component: () => <div data-testid="jobs-target" />,
+    })
+    const homeRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/provision/$deploymentId',
+      component: () => <div data-testid="apps-target" />,
+    })
+    const tree = rootRoute.addChildren([detailRoute, flowRoute, jobsRoute, homeRoute])
+    const router = createRouter({
+      routeTree: tree,
+      history: createMemoryHistory({
+        initialEntries: [`/provision/${deploymentId}/jobs/${jobId}`],
+      }),
+    })
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      // /jobs (list) → emit the same job so mergeJobs surfaces it.
+      if (url.endsWith(`/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ jobs: [job] }),
+        } as unknown as Response)
+      }
+      // /jobs/{jobId} (detail) → emit the executions[].
+      if (
+        url.endsWith(
+          `/v1/deployments/${encodeURIComponent(deploymentId)}/jobs/${encodeURIComponent(jobId)}`,
+        )
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ job, executions }),
+        } as unknown as Response)
+      }
+      // /executions/{execId}/logs → empty page (the test does not exercise
+      // pagination, just that the URL is constructed against the REAL exec id).
+      if (url.includes('/v1/actions/executions/')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ lines: [], total: 0, executionFinished: false }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({ events: [], state: undefined, done: false }),
+      } as unknown as Response)
+    }) as typeof fetch
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    return render(
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+  }
+
+  it('uses executions[0].id (NOT `${jobId}:latest`) when fetching log lines', async () => {
+    const deploymentId = 'd1'
+    const jobId = `${deploymentId}:install-seaweedfs`
+    const realExecId = 'df9893393d6cd84da027c4115674c1a0'
+
+    const job: Job = {
+      id: jobId,
+      jobName: 'install-seaweedfs',
+      appId: 'seaweedfs',
+      batchId: 'bootstrap-kit',
+      dependsOn: [],
+      status: 'running',
+      startedAt: '2026-04-30T09:00:00Z',
+      finishedAt: null,
+      durationMs: 0,
+    }
+
+    // Spy on fetch to capture every URL the component requests.
+    const seenUrls: string[] = []
+    renderDetailWithJobAndExecutions(deploymentId, jobId, job, [
+      {
+        id: realExecId,
+        jobId,
+        deploymentId,
+        status: 'running',
+        startedAt: '2026-04-30T09:00:00Z',
+        lineCount: 1,
+      },
+    ])
+    const inner = globalThis.fetch
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      seenUrls.push(url)
+      return inner(input, init)
+    }) as typeof fetch
+
+    fireEvent.click(await screen.findByTestId('job-detail-tab-logs'))
+
+    await waitFor(() => {
+      // Real exec id appears in at least one log fetch URL.
+      expect(seenUrls.some((u) => u.includes(`/v1/actions/executions/${realExecId}/logs`)))
+        .toBe(true)
+      // Synthetic `:latest` id MUST NOT appear in any URL.
+      expect(seenUrls.some((u) => u.includes(`${jobId}:latest`))).toBe(false)
+    })
+  })
+
+  it('renders the placeholder (not the log viewer) when executions[] is empty', async () => {
+    const deploymentId = 'd1'
+    const jobId = `${deploymentId}:install-seaweedfs`
+    const job: Job = {
+      id: jobId,
+      jobName: 'install-seaweedfs',
+      appId: 'seaweedfs',
+      batchId: 'bootstrap-kit',
+      dependsOn: [],
+      status: 'running',
+      startedAt: null,
+      finishedAt: null,
+      durationMs: 0,
+    }
+    renderDetailWithJobAndExecutions(deploymentId, jobId, job, [])
+    fireEvent.click(await screen.findByTestId('job-detail-tab-logs'))
+    await waitFor(() => {
+      // One of the placeholder testids must be present; the GitLab-CI
+      // viewer must NOT mount with a fake id.
+      const placeholder =
+        screen.queryByTestId('job-detail-logs-pending') ||
+        screen.queryByTestId('job-detail-logs-empty') ||
+        screen.queryByTestId('job-detail-logs-loading')
+      expect(placeholder).toBeTruthy()
+      expect(screen.queryByTestId('execution-logs')).toBeNull()
+    })
+  })
+})

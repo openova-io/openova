@@ -32,6 +32,7 @@ import { deriveJobs, fmtTime, statusBadge } from './jobs'
 import type { JobUiStatus } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
+import { useJobDetail } from './useJobDetail'
 import type { Job } from '@/lib/jobs.types'
 import { ExecutionLogs } from '@/components/ExecutionLogs'
 import { FlowPage } from './FlowPage'
@@ -110,11 +111,20 @@ export function JobDetail({
 
   const [tab, setTab] = useState<TabKey>(initialTab)
 
-  // Derive a synthetic execution id for the log viewer. Until the
-  // backend surfaces `executions[]` on the Job model, the most-recent
-  // execution is identified as `<jobId>:latest` so the URL the viewer
-  // hits is stable and the backend can route by job id when it lands.
-  const executionId = `${jobId}:latest`
+  // Resolve the REAL execution id by polling the per-job detail
+  // endpoint. The backend returns `executions[]` sorted started-at DESC
+  // server-side, so `executions[0].id` is the most-recent attempt's
+  // hex id. The synthetic `${jobId}:latest` id used previously was
+  // never a route the catalyst-api exposed — every log fetch returned
+  // 404 and the viewer rendered "Failed to load log page". See #305.
+  const detail = useJobDetail({
+    deploymentId,
+    jobId,
+    disablePolling: disableJobsBackfill || !inFlight,
+    enabled: !disableJobsBackfill,
+  })
+  const executionId = detail.latestExecutionId
+  const detailJobStatus = detail.job?.status
 
   if (!job) {
     return (
@@ -248,11 +258,74 @@ export function JobDetail({
               aria-labelledby="job-detail-tab-logs"
               data-testid="job-detail-logs-panel"
             >
-              <ExecutionLogs executionId={executionId} />
+              {executionId ? (
+                <ExecutionLogs executionId={executionId} />
+              ) : (
+                <ExecutionLogsPlaceholder
+                  jobStatus={detailJobStatus ?? job.status}
+                  isLoading={detail.isLoading}
+                  isError={detail.isError}
+                />
+              )}
             </div>
           )}
         </div>
       </div>
     </PortalShell>
+  )
+}
+
+interface ExecutionLogsPlaceholderProps {
+  jobStatus: string
+  isLoading: boolean
+  isError: boolean
+}
+
+/**
+ * ExecutionLogsPlaceholder renders the log panel while the job has no
+ * Execution to deep-link to. Three cases — pending (helm-controller
+ * hasn't started reconciling the HR yet), loading (first fetch in
+ * flight), and error (network/5xx; user can retry by reloading).
+ *
+ * The panel deliberately does NOT render the GitLab-style log viewer
+ * with an empty body — that produced the original "No logs captured"
+ * confusion when the real underlying problem was an unresolved
+ * execution id. Distinguishing the panel surfaces makes the operator's
+ * mental model match reality.
+ */
+function ExecutionLogsPlaceholder({
+  jobStatus,
+  isLoading,
+  isError,
+}: ExecutionLogsPlaceholderProps) {
+  let title = 'Waiting for first execution'
+  let detail =
+    'No execution has been allocated for this job yet. Logs will appear here once helm-controller starts reconciling the HelmRelease.'
+  let testid = 'job-detail-logs-pending'
+
+  if (isLoading) {
+    title = 'Loading execution metadata…'
+    detail = 'Fetching the latest execution id from the catalyst-api.'
+    testid = 'job-detail-logs-loading'
+  } else if (isError) {
+    title = 'Could not load execution metadata'
+    detail =
+      'The catalyst-api is unreachable or returned an error. The page will retry automatically every 5 seconds.'
+    testid = 'job-detail-logs-error'
+  } else if (jobStatus !== 'pending') {
+    title = 'Execution metadata pending'
+    detail =
+      'The catalyst-api has not yet recorded an execution for this job. If this persists past the next poll, the helmwatch bridge may not be running — check catalyst-api logs.'
+    testid = 'job-detail-logs-empty'
+  }
+
+  return (
+    <div
+      data-testid={testid}
+      className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center"
+    >
+      <h3 className="text-base font-semibold text-[var(--color-text-strong)]">{title}</h3>
+      <p className="mt-2 text-sm text-[var(--color-text-dim)]">{detail}</p>
+    </div>
   )
 }

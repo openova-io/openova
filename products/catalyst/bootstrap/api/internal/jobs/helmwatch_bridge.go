@@ -56,6 +56,14 @@ const (
 	HelmStateFailed     = "failed"
 )
 
+// Phase strings for provisioner.Event routing — duplicated here to
+// avoid the same import-cycle hazard as the HelmState* consts. Kept in
+// lockstep with helmwatch.PhaseComponent / PhaseComponentLog.
+const (
+	phaseComponent    = "component"
+	phaseComponentLog = "component-log"
+)
+
 // Bridge holds the per-deployment cursor the helmwatch consumer needs:
 // which Execution is currently active for which Job. The cursor is
 // memory-only and is discarded on Pod restart — a resumed Phase-1
@@ -240,25 +248,33 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		// for every component it covers.
 		b.lastState[comp] = s.State
 
-		// Non-terminal seed: just the Job row, no Execution. The watch
-		// will allocate one when the next transition fires through
-		// OnHelmReleaseEvent.
-		if !isTerminalHelmState(s.State) {
+		// "Pending" seeds remain Job-only: helm-controller has not yet
+		// started reconciling the HR, so allocating an Execution would
+		// leave an empty NDJSON file and confuse the GitLab-CI viewer.
+		// The next transition fires through OnHelmReleaseEvent which
+		// allocates the Execution at the pending → non-pending edge.
+		if s.State == HelmStatePending {
 			continue
 		}
 
-		// Terminal seed: allocate at most one Execution + emit the
-		// synthetic log line. The "already has an Execution" check
-		// reads the persisted Job back so a previous SeedJobsFromInformerList
-		// call (or an OnHelmReleaseEvent run that already allocated)
-		// does not get duplicated. This is what makes the method safe
-		// to call on every helmwatch start.
+		// installing / degraded / installed / failed all need a
+		// non-empty Execution so the FE log viewer has a row to
+		// deep-link to. Idempotency: if the persisted Job already has
+		// a LatestExecutionID, reuse it as the active cursor — the
+		// terminal-finish branch below is gated on a fresh allocation.
 		job, _, getErr := b.store.GetJob(b.deploymentID, jobID)
 		if getErr == nil && job.LatestExecutionID != "" {
 			// Already has an Execution from a prior seed or from a
-			// transition emitted earlier in the same Pod's life —
-			// nothing more to do.
-			b.activeExecID[comp] = "" // cursor cleared because terminal
+			// transition emitted earlier in the same Pod's life. For
+			// non-terminal states we keep the cursor live so subsequent
+			// raw-log forwards land on the same Execution; for terminal
+			// states we clear the cursor (the Execution has already
+			// been finished by the prior call).
+			if isTerminalHelmState(s.State) {
+				b.activeExecID[comp] = ""
+			} else {
+				b.activeExecID[comp] = job.LatestExecutionID
+			}
 			continue
 		}
 
@@ -275,10 +291,10 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		}
 		executionsSeeded++
 
-		// One synthetic log line so the GitLab-CI viewer renders a
-		// non-empty Executions tab. Format documented at the call
-		// site so a future grep on production logs surfaces every
-		// seeded execution unambiguously.
+		// Synthetic anchor line so the viewer renders a non-empty
+		// Executions tab even when no helm-controller log lines have
+		// been forwarded yet. The raw lines from the logtailer append
+		// after this anchor as they arrive.
 		message := strings.TrimSpace(s.Message)
 		line := "[seeded] state=" + s.State + " at " + t.Format(time.RFC3339)
 		if message != "" {
@@ -287,6 +303,8 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		level := LevelInfo
 		if s.State == HelmStateFailed {
 			level = LevelError
+		} else if s.State == HelmStateDegraded {
+			level = LevelWarn
 		}
 		if appendErr := b.store.AppendLogLines(b.deploymentID, exec.ID, []LogLine{{
 			Timestamp: t,
@@ -296,24 +314,25 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 			return jobsWritten, executionsSeeded, appendErr
 		}
 
-		// Flip the Execution + parent Job into the right terminal
-		// status. This mirrors what OnHelmReleaseEvent does on a
-		// pending → installed/failed transition; the only difference
-		// is we already wrote the synthetic line so the FinishExecution
-		// call only needs to stamp the timestamps + status.
-		final := StatusSucceeded
-		if s.State == HelmStateFailed {
-			final = StatusFailed
+		// Terminal seeds: stamp Execution + Job with the terminal
+		// status. Non-terminal seeds (installing / degraded) leave
+		// the Execution open so OnHelmReleaseEvent + OnRawComponentLog
+		// can keep appending until the HR reaches a terminal state.
+		if isTerminalHelmState(s.State) {
+			final := StatusSucceeded
+			if s.State == HelmStateFailed {
+				final = StatusFailed
+			}
+			if finishErr := b.store.FinishExecution(b.deploymentID, exec.ID, final, t); finishErr != nil {
+				return jobsWritten, executionsSeeded, finishErr
+			}
+			b.activeExecID[comp] = ""
+		} else {
+			// Keep the cursor pointing at the open Execution so
+			// downstream raw-log lines append here. OnHelmReleaseEvent
+			// will close it when the terminal transition arrives.
+			b.activeExecID[comp] = exec.ID
 		}
-		if finishErr := b.store.FinishExecution(b.deploymentID, exec.ID, final, t); finishErr != nil {
-			return jobsWritten, executionsSeeded, finishErr
-		}
-
-		// The cursor is cleared because the seed has driven the Job
-		// to a terminal state. A future Day-2 retry that re-emits a
-		// "running" event will allocate a fresh Execution row, which
-		// is the documented per-attempt model.
-		b.activeExecID[comp] = ""
 	}
 	return jobsWritten, executionsSeeded, nil
 }
@@ -414,19 +433,140 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 	return nil
 }
 
-// OnProvisionerEvent is a convenience adapter: the handler's emit
-// path passes provisioner.Event (the same struct the SSE stream
-// carries). Only PhaseComponent events are forwarded — Phase-0 OpenTofu
-// events have no Job analogue and fall through silently.
+// OnProvisionerEvent is the adapter the handler's emit path calls with
+// every provisioner.Event the helmwatch.Watcher emits. Two phase
+// classes have a Job/Execution analogue:
 //
-// The function is allocation-light: it builds no event copies, just
-// translates strings.
+//   - Phase=="component"     — HelmRelease state transition. Routes to
+//     OnHelmReleaseEvent which upserts the Job, allocates an Execution
+//     on the first non-pending edge, and closes the Execution on
+//     terminal transitions.
+//   - Phase=="component-log" — raw helm-controller log line tagged
+//     with the bp-* HR it relates to. Routes to OnRawComponentLog
+//     which appends the line verbatim to the active Execution so the
+//     GitLab-CI-style viewer renders the full helm-controller stdout
+//     for the install attempt.
+//
+// Phase-0 OpenTofu events ("phase-0", "tofu-init", etc.) have no
+// component-Job analogue and fall through silently.
 func (b *Bridge) OnProvisionerEvent(ev provisioner.Event) error {
-	if ev.Phase != "component" || ev.Component == "" || ev.State == "" {
+	if ev.Component == "" {
 		return nil
 	}
 	t := parseEventTime(ev.Time)
-	return b.OnHelmReleaseEvent(ev.Component, ev.State, ev.Level, ev.Message, t)
+	switch ev.Phase {
+	case phaseComponent:
+		if ev.State == "" {
+			return nil
+		}
+		return b.OnHelmReleaseEvent(ev.Component, ev.State, ev.Level, ev.Message, t)
+	case phaseComponentLog:
+		return b.OnRawComponentLog(ev.Component, ev.Level, ev.Message, t)
+	}
+	return nil
+}
+
+// OnRawComponentLog appends a single raw helm-controller log line to
+// the active Execution for the given component. The line is the
+// helmwatch logtailer's stdout payload verbatim — typically a logr
+// text or structured-JSON record from helm-controller pinned to the
+// matching `helmrelease="flux-system/bp-<name>"` token.
+//
+// Resolution policy when no active Execution is recorded for the
+// component:
+//
+//   1. If the persisted Job has a non-empty LatestExecutionID AND that
+//      Execution is still running, the line lands there. Covers the
+//      "Pod restart wiped the in-memory cursor" path.
+//   2. If the persisted Job is non-terminal but has no Execution yet
+//      (e.g. seed wrote a Job-only pending row), allocate a fresh
+//      Execution on the fly so no helm-controller line is dropped.
+//   3. If the Job is in a terminal state OR doesn't exist, the line
+//      is dropped — helm-controller emits maintenance lines after the
+//      install completes (drift checks, observed-generation patches)
+//      that should not extend a closed Execution.
+//
+// The bridge tolerates store errors (returns them) but does not abort
+// the helmwatch event loop — the handler's emit path treats this as
+// a non-fatal best-effort write.
+func (b *Bridge) OnRawComponentLog(componentID, level, message string, t time.Time) error {
+	if strings.TrimSpace(componentID) == "" {
+		return nil
+	}
+	message = strings.TrimRight(message, "\r\n")
+	if message == "" {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	jobName := JobNamePrefix + componentID
+	jobID := JobID(b.deploymentID, jobName)
+
+	execID := b.activeExecID[componentID]
+	if execID == "" {
+		// Cursor missing — fall back to the persisted Job's state.
+		job, _, getErr := b.store.GetJob(b.deploymentID, jobID)
+		switch {
+		case getErr != nil:
+			// No persisted Job (yet). Allocate the Job + Execution so
+			// the helm-controller line is captured. State is
+			// approximated as "running" since something is logging
+			// about it; the next OnHelmReleaseEvent fixes the canonical
+			// status.
+			if err := b.store.UpsertJob(Job{
+				DeploymentID: b.deploymentID,
+				JobName:      jobName,
+				AppID:        componentID,
+				BatchID:      BatchBootstrapKit,
+				DependsOn:    []string{},
+				Status:       StatusRunning,
+			}); err != nil {
+				return err
+			}
+			exec, err := b.store.StartExecution(b.deploymentID, jobName, t)
+			if err != nil {
+				return err
+			}
+			execID = exec.ID
+			b.activeExecID[componentID] = execID
+			b.lastState[componentID] = HelmStateInstalling
+		case job.LatestExecutionID != "" && !IsTerminal(job.Status):
+			// In-flight Execution exists but the in-memory cursor was
+			// lost (Pod restart). Re-attach.
+			execID = job.LatestExecutionID
+			b.activeExecID[componentID] = execID
+		case IsTerminal(job.Status):
+			// Job has completed — drop late helm-controller chatter.
+			return nil
+		default:
+			// Job exists but is pending and has no Execution. Allocate.
+			exec, err := b.store.StartExecution(b.deploymentID, jobName, t)
+			if err != nil {
+				return err
+			}
+			execID = exec.ID
+			b.activeExecID[componentID] = execID
+			if err := b.store.UpsertJob(Job{
+				DeploymentID: b.deploymentID,
+				JobName:      jobName,
+				AppID:        componentID,
+				BatchID:      BatchBootstrapKit,
+				DependsOn:    job.DependsOn,
+				Status:       StatusRunning,
+			}); err != nil {
+				return err
+			}
+			b.lastState[componentID] = HelmStateInstalling
+		}
+	}
+
+	return b.store.AppendLogLines(b.deploymentID, execID, []LogLine{{
+		Timestamp: t.UTC(),
+		Level:     mapLevel(level),
+		Message:   message,
+	}})
 }
 
 // dependsOnFromCharts converts a list of dependent chart names (e.g.
