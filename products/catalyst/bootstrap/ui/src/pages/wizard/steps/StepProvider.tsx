@@ -322,9 +322,28 @@ function RegionCard({
 }
 
 /* ── StepProvider ────────────────────────────────────────────────── */
-export function StepProvider() {
+/**
+ * StepProvider mode.
+ *   • 'wizard'      — the canonical wizard step (default)
+ *   • 'add-region'  — embedded in InfrastructurePage's AddRegionModal.
+ *                     Hides the Hetzner-token field (already
+ *                     provisioned), shows only region + SKU.
+ */
+export type StepProviderMode = 'wizard' | 'add-region'
+
+export interface StepProviderProps {
+  mode?: StepProviderMode
+}
+
+export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
   const store = useWizardStore()
   const { next, back } = useStepNav()
+  const isAddRegion = mode === 'add-region'
+  // Reserved — `isAddRegion` will gate any future provider-token
+  // input once one lands here (Hetzner currently has no in-step
+  // token input — issue #228 reserves the prop for the next step
+  // that does).
+  void isAddRegion
 
   const topology     = store.topology
   const regionCount  = topology ? (TOPOLOGY_REGION_COUNT[topology]  ?? 1) : 1

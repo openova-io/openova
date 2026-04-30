@@ -1,9 +1,16 @@
 /**
  * InfrastructureNetwork.test.tsx — render lock-in for the Network tab.
+ *
+ * Coverage:
+ *   1. Empty state.
+ *   2. LB / Peering / Firewall tables with counts.
+ *   3. Bulk-actions strip.
+ *   4. Per-region Add LB triggers AddLBModal.
+ *   5. Add Peering button opens AddPeeringModal.
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -14,17 +21,33 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
+import { InfrastructurePage } from './InfrastructurePage'
 import { InfrastructureNetwork } from './InfrastructureNetwork'
-import type { NetworkResponse } from '@/lib/infrastructure.types'
+import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
+import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
+import { useWizardStore } from '@/entities/deployment/store'
+import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
-function renderNetwork(data: NetworkResponse | undefined) {
+function renderNetworkPage(data: HierarchicalInfrastructure) {
+  useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ events: [], state: undefined, done: false }),
+    } as unknown as Response)) as typeof fetch
+
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
-  const route = createRoute({
+  const infraRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/infrastructure/network',
-    component: () => <InfrastructureNetwork initialDataOverride={data} />,
+    path: '/provision/$deploymentId/infrastructure',
+    component: () => <InfrastructurePage disableStream initialDataOverride={data} deploymentsOverride={[]} />,
   })
-  const tree = rootRoute.addChildren([route])
+  const networkRoute = createRoute({
+    getParentRoute: () => infraRoute,
+    path: '/network',
+    component: InfrastructureNetwork,
+  })
+  const tree = rootRoute.addChildren([infraRoute.addChildren([networkRoute])])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
@@ -44,53 +67,50 @@ function renderNetwork(data: NetworkResponse | undefined) {
 afterEach(() => cleanup())
 
 describe('InfrastructureNetwork — empty', () => {
-  it('renders the empty state when no LBs / DRGs / peerings exist', async () => {
-    renderNetwork({ loadBalancers: [], drgs: [], peerings: [] })
+  it('renders the empty state when no LBs / peerings / firewalls exist', async () => {
+    const empty: HierarchicalInfrastructure = {
+      cloud: [],
+      topology: { pattern: 'solo', regions: [] },
+      storage: { pvcs: [], buckets: [], volumes: [] },
+    }
+    renderNetworkPage(empty)
     expect(await screen.findByTestId('infrastructure-network-empty')).toBeTruthy()
   })
 })
 
 describe('InfrastructureNetwork — populated', () => {
-  const sample: NetworkResponse = {
-    loadBalancers: [
-      {
-        id: 'lb1',
-        name: 'ingress-lb',
-        publicIP: '203.0.113.10',
-        ports: '80,443,6443',
-        targetHealth: '3/3 healthy',
-        region: 'fsn1',
-        status: 'healthy',
-      },
-    ],
-    drgs: [
-      {
-        id: 'drg1',
-        name: 'sovereign-vpc',
-        cidr: '10.0.0.0/16',
-        region: 'fsn1',
-        peers: 'metro-vpc',
-        status: 'healthy',
-      },
-    ],
-    peerings: [
-      {
-        id: 'p1',
-        name: 'sovereign↔metro',
-        vpcPair: 'sovereign-vpc <-> metro-vpc',
-        subnets: '10.0.0.0/24,10.1.0.0/24',
-        status: 'healthy',
-      },
-    ],
-  }
-
-  it('renders LB / DRG / peering cards', async () => {
-    renderNetwork(sample)
-    expect(await screen.findByTestId('infrastructure-lb-card-lb1')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-drg-card-drg1')).toBeTruthy()
-    expect(screen.getByTestId('infrastructure-peering-card-p1')).toBeTruthy()
+  it('renders LB / Peering / Firewall tables with counts', async () => {
+    renderNetworkPage(infrastructureTopologyFixture)
+    expect(await screen.findByTestId('infrastructure-lbs-table')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-peerings-table')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-firewalls-table')).toBeTruthy()
     expect(screen.getByTestId('infrastructure-lbs-count').textContent).toBe('1')
-    expect(screen.getByTestId('infrastructure-drgs-count').textContent).toBe('1')
     expect(screen.getByTestId('infrastructure-peerings-count').textContent).toBe('1')
+    expect(screen.getByTestId('infrastructure-firewalls-count').textContent).toBe('1')
+  })
+
+  it('renders the bulk-actions strip', async () => {
+    renderNetworkPage(infrastructureTopologyFixture)
+    expect(await screen.findByTestId('infrastructure-network-bulk')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-network-add-peering')).toBeTruthy()
+    expect(screen.getByTestId('infrastructure-network-edit-dns')).toBeTruthy()
+  })
+
+  it('opens AddPeeringModal when Add Peering is clicked', async () => {
+    renderNetworkPage(infrastructureTopologyFixture)
+    fireEvent.click(await screen.findByTestId('infrastructure-network-add-peering'))
+    expect(screen.getByTestId('infrastructure-modal-add-peering')).toBeTruthy()
+  })
+
+  it('opens AddLBModal when per-region Add LB is clicked', async () => {
+    renderNetworkPage(infrastructureTopologyFixture)
+    fireEvent.click(await screen.findByTestId('infrastructure-network-add-lb-region-eu-central'))
+    expect(screen.getByTestId('infrastructure-modal-add-lb')).toBeTruthy()
+  })
+
+  it('opens EditFirewallRulesModal from row-level edit', async () => {
+    renderNetworkPage(infrastructureTopologyFixture)
+    fireEvent.click(await screen.findByTestId('infrastructure-firewall-row-fw-eu-central-edit'))
+    expect(screen.getByTestId('infrastructure-modal-edit-firewall-rules')).toBeTruthy()
   })
 })

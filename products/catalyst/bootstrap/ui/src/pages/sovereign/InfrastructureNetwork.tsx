@@ -1,182 +1,280 @@
 /**
- * InfrastructureNetwork — Network tab of the Infrastructure surface.
- * Three card sections: Load Balancers + DRGs / VPC Gateways + Peerings.
+ * InfrastructureNetwork — Network tab. Flat table [LB · Peering ·
+ * Firewall · DNS zone], reads off the shared infrastructure tree.
  *
- * Per founder spec: "network (lbs, drgs, peerings etc)".
+ * Per founder spec (issue #228): "Network — flat table [LB · Peering
+ * · Firewall · DNS zone]. Bulk: add rule, attach."
  */
 
-import { useParams } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useInfrastructure } from './InfrastructurePage'
 import {
-  getNetwork,
-  type DRGItem,
-  type LoadBalancerItem,
-  type NetworkResponse,
-  type PeeringItem,
+  AddLBModal,
+  AddPeeringModal,
+  EditFirewallRulesModal,
+  EditDNSRecordsModal,
+} from '@/components/CrudModals'
+import type {
+  FirewallSpec,
+  LoadBalancerSpec,
+  NetworkSpec,
+  PeeringSpec,
+  RegionSpec,
 } from '@/lib/infrastructure.types'
 
-const STALE_MS = 30_000
-
-interface InfrastructureNetworkProps {
-  initialDataOverride?: NetworkResponse
+interface LBRow {
+  lb: LoadBalancerSpec
+  region: RegionSpec
+  clusterId: string
 }
 
-export function InfrastructureNetwork({
-  initialDataOverride,
-}: InfrastructureNetworkProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/infrastructure/network' as never,
-  }) as { deploymentId: string }
-  const deploymentId = params.deploymentId
+interface PeeringRow {
+  peering: PeeringSpec
+  region: RegionSpec
+}
 
-  const query = useQuery<NetworkResponse>({
-    queryKey: ['infra-network', deploymentId],
-    queryFn: () => getNetwork(deploymentId),
-    staleTime: STALE_MS,
-    enabled: !initialDataOverride,
-  })
+interface FirewallRow {
+  firewall: FirewallSpec
+  region: RegionSpec
+}
 
-  const data = initialDataOverride ?? query.data
-  const isLoading = !initialDataOverride && query.isLoading && !data
-  const lbs = data?.loadBalancers ?? []
-  const drgs = data?.drgs ?? []
-  const peerings = data?.peerings ?? []
+export function InfrastructureNetwork() {
+  const { deploymentId, data, isLoading } = useInfrastructure()
+
+  const { lbs, peerings, firewalls, networks } = useMemo(() => {
+    const lbs: LBRow[] = []
+    const peerings: PeeringRow[] = []
+    const firewalls: FirewallRow[] = []
+    const networks: NetworkSpec[] = []
+    if (!data) return { lbs, peerings, firewalls, networks }
+    for (const region of data.topology.regions) {
+      for (const cluster of region.clusters) {
+        for (const lb of cluster.loadBalancers) {
+          lbs.push({ lb, region, clusterId: cluster.id })
+        }
+      }
+      for (const net of region.networks) {
+        networks.push(net)
+        for (const p of net.peerings) peerings.push({ peering: p, region })
+        for (const f of net.firewalls) firewalls.push({ firewall: f, region })
+      }
+    }
+    return { lbs, peerings, firewalls, networks }
+  }, [data])
+
+  const [addLBFor, setAddLBFor] = useState<RegionSpec | null>(null)
+  const [addPeeringOpen, setAddPeeringOpen] = useState(false)
+  const [editFirewall, setEditFirewall] = useState<FirewallSpec | null>(null)
+  const [editDNS, setEditDNS] = useState<string | null>(null)
+
   const isEmpty =
-    !isLoading && lbs.length === 0 && drgs.length === 0 && peerings.length === 0
+    !isLoading && lbs.length === 0 && peerings.length === 0 && firewalls.length === 0
 
   return (
     <div data-testid="infrastructure-network">
       {isLoading && (
-        <div
-          className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]"
-          data-testid="infrastructure-network-loading"
-        >
+        <div className="flex h-48 items-center justify-center text-sm text-[var(--color-text-dim)]" data-testid="infrastructure-network-loading">
           Loading network resources…
         </div>
       )}
 
-      {isEmpty && !query.isError && (
+      {isEmpty && (
         <div className="infra-empty" data-testid="infrastructure-network-empty">
           <p className="title">No network resources yet.</p>
-          <p className="sub">
-            Load balancers, DRGs and peerings will appear here as the
-            Sovereign cluster registers them.
-          </p>
+          <p className="sub">Load balancers, peerings, firewalls and DNS zones will appear here.</p>
         </div>
       )}
 
-      {!isEmpty && (
+      {!isEmpty && data && (
         <>
+          <div className="infra-bulk-actions" data-testid="infrastructure-network-bulk">
+            <span className="label">Bulk actions</span>
+            <button
+              type="button"
+              className="primary"
+              data-testid="infrastructure-network-add-peering"
+              onClick={() => setAddPeeringOpen(true)}
+            >
+              + Add peering
+            </button>
+            <button
+              type="button"
+              data-testid="infrastructure-network-edit-dns"
+              onClick={() => setEditDNS(`zone-${data.topology.regions[0]?.id ?? 'default'}`)}
+            >
+              Edit DNS zone
+            </button>
+          </div>
+
           <section className="infra-section" data-testid="infrastructure-lbs-section">
             <h2>
-              Load Balancers{' '}
-              <span className="count" data-testid="infrastructure-lbs-count">{lbs.length}</span>
+              Load Balancers <span className="count" data-testid="infrastructure-lbs-count">{lbs.length}</span>
             </h2>
-            {lbs.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-dim)]">
-                No load balancers reported.
-              </p>
-            ) : (
-              <div className="infra-grid" data-testid="infrastructure-lbs-grid">
-                {lbs.map((l) => <LBCard key={l.id} lb={l} />)}
-              </div>
-            )}
-          </section>
-
-          <section className="infra-section" data-testid="infrastructure-drgs-section">
-            <h2>
-              DRGs / VPC Gateways{' '}
-              <span className="count" data-testid="infrastructure-drgs-count">{drgs.length}</span>
-            </h2>
-            {drgs.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-dim)]">No DRGs reported.</p>
-            ) : (
-              <div className="infra-grid" data-testid="infrastructure-drgs-grid">
-                {drgs.map((d) => <DRGCard key={d.id} drg={d} />)}
-              </div>
-            )}
+            <FlatTable testId="infrastructure-lbs-table" headers={['Name', 'Public IP', 'Listeners', 'Targets', 'Region', 'Status', '']}>
+              {lbs.map(({ lb, region }) => (
+                <tr key={lb.id} data-testid={`infrastructure-lb-row-${lb.id}`}>
+                  <td>{lb.name}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{lb.publicIP}</td>
+                  <td>{lb.listeners.map((l) => `${l.protocol}:${l.port}`).join(', ')}</td>
+                  <td>{`${lb.targets.filter((t) => t.status === 'healthy').length}/${lb.targets.length}`}</td>
+                  <td>{region.providerRegion}</td>
+                  <td>
+                    <StatusBadge status={lb.status} />
+                  </td>
+                  <td />
+                </tr>
+              ))}
+            </FlatTable>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              {data.topology.regions.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  style={{ ...rowBtn, borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}
+                  onClick={() => setAddLBFor(r)}
+                  data-testid={`infrastructure-network-add-lb-${r.id}`}
+                >
+                  + Add LB to {r.name}
+                </button>
+              ))}
+            </div>
           </section>
 
           <section className="infra-section" data-testid="infrastructure-peerings-section">
             <h2>
-              Peerings{' '}
-              <span className="count" data-testid="infrastructure-peerings-count">{peerings.length}</span>
+              Peerings <span className="count" data-testid="infrastructure-peerings-count">{peerings.length}</span>
             </h2>
-            {peerings.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-dim)]">
-                No peerings reported.
-              </p>
-            ) : (
-              <div className="infra-grid" data-testid="infrastructure-peerings-grid">
-                {peerings.map((p) => <PeeringCard key={p.id} peering={p} />)}
-              </div>
-            )}
+            <FlatTable testId="infrastructure-peerings-table" headers={['Name', 'VPCs', 'Subnets', 'Region', 'Status']}>
+              {peerings.map(({ peering, region }) => (
+                <tr key={peering.id} data-testid={`infrastructure-peering-row-${peering.id}`}>
+                  <td>{peering.name}</td>
+                  <td>{peering.vpcPair}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{peering.subnets}</td>
+                  <td>{region.providerRegion}</td>
+                  <td>
+                    <StatusBadge status={peering.status} />
+                  </td>
+                </tr>
+              ))}
+              {peerings.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--color-text-dim)', padding: 12 }}>
+                    No peerings yet.
+                  </td>
+                </tr>
+              )}
+            </FlatTable>
+          </section>
+
+          <section className="infra-section" data-testid="infrastructure-firewalls-section">
+            <h2>
+              Firewalls <span className="count" data-testid="infrastructure-firewalls-count">{firewalls.length}</span>
+            </h2>
+            <FlatTable testId="infrastructure-firewalls-table" headers={['Name', 'Rules', 'Region', 'Status', '']}>
+              {firewalls.map(({ firewall, region }) => (
+                <tr key={firewall.id} data-testid={`infrastructure-firewall-row-${firewall.id}`}>
+                  <td>{firewall.name}</td>
+                  <td>{firewall.rules.length}</td>
+                  <td>{region.providerRegion}</td>
+                  <td>
+                    <StatusBadge status={firewall.status} />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      style={rowBtn}
+                      onClick={() => setEditFirewall(firewall)}
+                      data-testid={`infrastructure-firewall-row-${firewall.id}-edit`}
+                    >
+                      Edit rules
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {firewalls.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--color-text-dim)', padding: 12 }}>
+                    No firewalls yet.
+                  </td>
+                </tr>
+              )}
+            </FlatTable>
           </section>
         </>
+      )}
+
+      {addLBFor && (
+        <AddLBModal
+          open
+          deploymentId={deploymentId}
+          regionId={addLBFor.id}
+          onClose={() => setAddLBFor(null)}
+        />
+      )}
+      {addPeeringOpen && (
+        <AddPeeringModal
+          open
+          deploymentId={deploymentId}
+          networks={networks}
+          onClose={() => setAddPeeringOpen(false)}
+        />
+      )}
+      {editFirewall && (
+        <EditFirewallRulesModal
+          open
+          deploymentId={deploymentId}
+          firewall={editFirewall}
+          onClose={() => setEditFirewall(null)}
+        />
+      )}
+      {editDNS && (
+        <EditDNSRecordsModal
+          open
+          deploymentId={deploymentId}
+          zoneId={editDNS}
+          existingRecords={[]}
+          onClose={() => setEditDNS(null)}
+        />
       )}
     </div>
   )
 }
 
-function LBCard({ lb }: { lb: LoadBalancerItem }) {
+function FlatTable({ testId, headers, children }: { testId: string; headers: string[]; children: React.ReactNode }) {
   return (
-    <div
-      className="infra-card"
-      data-status={lb.status}
-      data-testid={`infrastructure-lb-card-${lb.id}`}
-    >
-      <span className="infra-card-status" data-status={lb.status}>
-        {lb.status}
-      </span>
-      <div className="infra-card-head">
-        <span className="infra-card-name">{lb.name}</span>
-        <span className="infra-card-kind">load balancer</span>
-      </div>
-      <div className="infra-card-row"><span>Public IP</span><span className="v">{lb.publicIP}</span></div>
-      <div className="infra-card-row"><span>Ports</span><span className="v">{lb.ports}</span></div>
-      <div className="infra-card-row"><span>Targets</span><span className="v">{lb.targetHealth}</span></div>
-      <div className="infra-card-row"><span>Region</span><span className="v">{lb.region}</span></div>
-    </div>
+    <table data-testid={testId} style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.82rem' }}>
+      <thead>
+        <tr>
+          {headers.map((h, i) => (
+            <th key={i} style={{ textAlign: 'left', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-dim)', padding: '6px 8px', borderBottom: '1px solid var(--color-border)' }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody style={{ verticalAlign: 'middle' }}>{children}</tbody>
+      <style>{`
+        tbody tr td { padding: 8px; border-bottom: 1px solid var(--color-border); color: var(--color-text); }
+        tbody tr:hover { background: var(--color-bg-2); }
+      `}</style>
+    </table>
   )
 }
 
-function DRGCard({ drg }: { drg: DRGItem }) {
+function StatusBadge({ status }: { status: 'healthy' | 'degraded' | 'failed' | 'unknown' }) {
   return (
-    <div
-      className="infra-card"
-      data-status={drg.status}
-      data-testid={`infrastructure-drg-card-${drg.id}`}
-    >
-      <span className="infra-card-status" data-status={drg.status}>
-        {drg.status}
-      </span>
-      <div className="infra-card-head">
-        <span className="infra-card-name">{drg.name}</span>
-        <span className="infra-card-kind">drg</span>
-      </div>
-      <div className="infra-card-row"><span>CIDR</span><span className="v">{drg.cidr}</span></div>
-      <div className="infra-card-row"><span>Region</span><span className="v">{drg.region}</span></div>
-      <div className="infra-card-row"><span>Peers</span><span className="v">{drg.peers || '—'}</span></div>
-    </div>
+    <span data-status={status} style={{ display: 'inline-block', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: 999, background: status === 'healthy' ? 'color-mix(in srgb, var(--color-success) 18%, transparent)' : status === 'degraded' ? 'color-mix(in srgb, var(--color-warn) 18%, transparent)' : status === 'failed' ? 'color-mix(in srgb, var(--color-danger) 18%, transparent)' : 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)', color: status === 'healthy' ? 'var(--color-success)' : status === 'degraded' ? 'var(--color-warn)' : status === 'failed' ? 'var(--color-danger)' : 'var(--color-text-dim)' }}>
+      {status}
+    </span>
   )
 }
 
-function PeeringCard({ peering }: { peering: PeeringItem }) {
-  return (
-    <div
-      className="infra-card"
-      data-status={peering.status}
-      data-testid={`infrastructure-peering-card-${peering.id}`}
-    >
-      <span className="infra-card-status" data-status={peering.status}>
-        {peering.status}
-      </span>
-      <div className="infra-card-head">
-        <span className="infra-card-name">{peering.name}</span>
-        <span className="infra-card-kind">peering</span>
-      </div>
-      <div className="infra-card-row"><span>VPCs</span><span className="v">{peering.vpcPair}</span></div>
-      <div className="infra-card-row"><span>Subnets</span><span className="v">{peering.subnets}</span></div>
-    </div>
-  )
+const rowBtn: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  background: 'transparent',
+  color: 'var(--color-text)',
+  padding: '3px 8px',
+  borderRadius: 5,
+  fontSize: '0.72rem',
+  cursor: 'pointer',
 }

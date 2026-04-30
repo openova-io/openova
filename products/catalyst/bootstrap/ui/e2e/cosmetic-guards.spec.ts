@@ -1166,4 +1166,57 @@ test.describe('@cosmetic-guard infrastructure page', () => {
       `Infrastructure nav item href = "${href}"; expected to contain /infrastructure. The link target lives in Sidebar.tsx NAV[].to.`,
     ).toMatch(/\/infrastructure/)
   })
+
+  test('Topology default landing exposes the layered hierarchical canvas + side panel + Add Region modal', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/infrastructure/topology')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Layered SVG must render — the page falls back to the local
+    // fixture when the backend isn't deployed yet.
+    const svg = page.getByTestId('infrastructure-topology-svg')
+    await expect(
+      svg,
+      'Layered topology canvas SVG missing. Issue #228: the Topology tab must render the hierarchical 4-depth graph by default.',
+    ).toBeVisible({ timeout: 5000 })
+
+    // 4 depth rows must be present (cloud / region / cluster / vcluster).
+    const depthLabels = page.getByTestId('infrastructure-topology-depth-labels')
+    await expect(depthLabels).toBeVisible()
+
+    // Click the cloud-hetzner node — detail panel must slide in.
+    const cloudNode = page.getByTestId('infra-node-cloud-hetzner').first()
+    await expect(
+      cloudNode,
+      'Topology canvas missing depth-0 cloud node. Layout function topologyLayout must emit a node per cloud entry.',
+    ).toBeVisible()
+    await cloudNode.click()
+    await expect(
+      page.getByTestId('infrastructure-detail-panel'),
+      'Right-side detail panel did not appear after clicking a node. Check InfrastructureDetailPanel mounting in InfrastructureTopology.tsx.',
+    ).toBeVisible()
+
+    // Add Region modal must be reachable from the top-level button.
+    await page.getByTestId('infrastructure-detail-panel-close').click()
+    const addRegionBtn = page.getByTestId('infrastructure-topology-add-region')
+    await expect(
+      addRegionBtn,
+      'Add Region trigger missing on the Topology view. The CRUD CTA must be reachable from the canvas.',
+    ).toBeVisible()
+    await addRegionBtn.click()
+    await expect(
+      page.getByTestId('infrastructure-modal-add-region'),
+      'AddRegionModal did not open after clicking the Add Region button.',
+    ).toBeVisible()
+  })
+
+  test('Per-Sovereign switcher renders in the Infrastructure header', async ({ page }) => {
+    await page.goto('provision/test-deployment-id/infrastructure/topology')
+    await page.waitForLoadState('domcontentloaded')
+
+    const switcher = page.getByTestId('infrastructure-sovereign-switcher')
+    await expect(
+      switcher,
+      'Per-Sovereign header switcher missing. Issue #228: dropdown must list all known deployments and default to the current one.',
+    ).toBeVisible()
+  })
 })

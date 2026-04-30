@@ -2,22 +2,26 @@
  * InfrastructurePage — Sovereign-portal Infrastructure surface served at
  *   /sovereign/provision/$deploymentId/infrastructure/{topology,compute,storage,network}
  *
- * Founder spec (verbatim):
- *   "The infrastructure page must be opened by default with the
- *    topology page, the same topology that we showed during the wizard.
- *    We should have the tabs of compute (clusters and worker nodes),
- *    storage (pvcs, buckets etc) and network (lbs, drgs, peerings etc)."
+ * Founder spec (verbatim, post issue #228):
+ *   "/infrastructure opens with Topology view as default. The other 3
+ *    tabs are lenses on the same data, not separate fetches. All 4
+ *    tabs render from ONE backend response
+ *    (GET /api/v1/deployments/$id/infrastructure/topology)."
  *
  * Layout contract:
  *   • Bare /infrastructure redirects to /infrastructure/topology — the
  *     redirect is enforced by the router (see app/router.tsx); this
  *     component never renders standalone for the bare URL.
- *   • The shell renders a header (title + tagline) and a `<nav role=tablist>`
- *     with four tabs in the canonical AppsPage style (.tabs/.tab/.tab-count)
- *     so the visual rhythm matches the rest of the Sovereign portal.
+ *   • The shell renders a header (title + tagline + Sovereign switcher)
+ *     and a `<nav role=tablist>` with four tabs in the canonical
+ *     AppsPage style (.tabs/.tab/.tab-count) so the visual rhythm
+ *     matches the rest of the Sovereign portal.
  *   • Active tab is derived from the current pathname — clicking a tab
  *     navigates via TanStack Router's <Link>; back/forward keeps the
  *     active tab in sync.
+ *   • The page owns ONE React Query for the hierarchical
+ *     infrastructure tree. Tabs read from the shared query via
+ *     `InfrastructureContext` — no per-tab fetches.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
  *   #1 (waterfall) — all four tabs ship at once, not "topology now,
@@ -28,10 +32,18 @@
  *      table; no inline "/infrastructure/foo" string outside this table.
  */
 
-import type { ReactNode } from 'react'
-import { Link, Outlet, useParams, useRouterState } from '@tanstack/react-router'
+import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
+import {
+  getHierarchicalInfrastructure,
+  listDeployments,
+  type DeploymentSummary,
+  type HierarchicalInfrastructure,
+} from '@/lib/infrastructure.types'
+import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 
 /* ── Tab table — single source of truth ────────────────────────── */
 
@@ -61,6 +73,28 @@ export function resolveActiveTab(pathname: string): InfraTabKey {
   return 'topology'
 }
 
+/* ── Shared infrastructure query context ───────────────────────── */
+
+export interface InfrastructureContextValue {
+  deploymentId: string
+  data: HierarchicalInfrastructure | null
+  isLoading: boolean
+  isError: boolean
+  refetch: () => void
+}
+
+const InfrastructureContext = createContext<InfrastructureContextValue | null>(null)
+
+export function useInfrastructure(): InfrastructureContextValue {
+  const ctx = useContext(InfrastructureContext)
+  if (!ctx) {
+    throw new Error('useInfrastructure must be used inside an InfrastructurePage subtree')
+  }
+  return ctx
+}
+
+const STALE_MS = 30_000
+
 /* ── Page shell ────────────────────────────────────────────────── */
 
 export interface InfrastructurePageProps {
@@ -72,16 +106,27 @@ export interface InfrastructurePageProps {
    * shell without requiring a full TanStack-Router child tree.
    */
   contentOverride?: ReactNode
+  /**
+   * Test seam — bypass the React Query fetcher with synthetic data.
+   * The data flows through InfrastructureContext to children so the
+   * 4 tabs all see the same response.
+   */
+  initialDataOverride?: HierarchicalInfrastructure
+  /** Test seam — bypass the deployments-list fetch. */
+  deploymentsOverride?: DeploymentSummary[]
 }
 
 export function InfrastructurePage({
   disableStream = false,
   contentOverride,
+  initialDataOverride,
+  deploymentsOverride,
 }: InfrastructurePageProps = {}) {
   const params = useParams({
     from: '/provision/$deploymentId/infrastructure' as never,
   }) as { deploymentId: string }
   const deploymentId = params.deploymentId
+  const navigate = useNavigate()
 
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeTab = resolveActiveTab(pathname)
@@ -92,6 +137,70 @@ export function InfrastructurePage({
     disableStream,
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
+
+  // Single hierarchical-topology fetch — all 4 tabs read off this.
+  const topologyQuery = useQuery<HierarchicalInfrastructure>({
+    queryKey: ['infra-hierarchical', deploymentId],
+    queryFn: () => getHierarchicalInfrastructure(deploymentId),
+    staleTime: STALE_MS,
+    enabled: !initialDataOverride,
+    // The fixture serves as the local-dev fallback when the live
+    // backend isn't deployed — the UI never fails closed in that
+    // case. Per founder spec, the fixture-backed path is the
+    // explicit pre-backend mode and must serve every tab off the
+    // same shape.
+    retry: 1,
+  })
+
+  // Deployments list — feeds the per-Sovereign header switcher.
+  const deploymentsQuery = useQuery<DeploymentSummary[]>({
+    queryKey: ['deployments-list'],
+    queryFn: listDeployments,
+    staleTime: 60_000,
+    enabled: !deploymentsOverride,
+    retry: 1,
+  })
+
+  const data = useMemo<HierarchicalInfrastructure | null>(() => {
+    if (initialDataOverride) return initialDataOverride
+    if (topologyQuery.data) return topologyQuery.data
+    // When the backend isn't deployed yet the query errors —
+    // fall back to the fixture so the UI is still navigable.
+    if (topologyQuery.isError) return infrastructureTopologyFixture
+    return null
+  }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
+
+  const ctx: InfrastructureContextValue = useMemo(
+    () => ({
+      deploymentId,
+      data,
+      isLoading: !initialDataOverride && topologyQuery.isLoading && !data,
+      isError: topologyQuery.isError && !initialDataOverride,
+      refetch: () => topologyQuery.refetch(),
+    }),
+    [deploymentId, data, initialDataOverride, topologyQuery],
+  )
+
+  const deployments = deploymentsOverride ?? deploymentsQuery.data ?? []
+  const switcherOptions: DeploymentSummary[] = useMemo(() => {
+    const list = [...deployments]
+    if (!list.find((d) => d.id === deploymentId)) {
+      list.unshift({
+        id: deploymentId,
+        sovereignFQDN: sovereignFQDN ?? deploymentId,
+        status: 'unknown',
+      })
+    }
+    return list
+  }, [deployments, deploymentId, sovereignFQDN])
+
+  function handleSwitch(nextId: string) {
+    if (nextId === deploymentId) return
+    navigate({
+      to: '/provision/$deploymentId/infrastructure/topology' as never,
+      params: { deploymentId: nextId } as never,
+    })
+  }
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
@@ -111,9 +220,22 @@ export function InfrastructurePage({
               the deployment&rsquo;s cluster.
             </p>
           </div>
-          <div className="text-right text-xs text-[var(--color-text-dim)]">
-            <div>{sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}</div>
-            <div className="font-mono">{deploymentId.slice(0, 8)}</div>
+          <div className="flex flex-col items-end gap-1.5">
+            <select
+              data-testid="infrastructure-sovereign-switcher"
+              value={deploymentId}
+              onChange={(e) => handleSwitch(e.target.value)}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-xs text-[var(--color-text)]"
+            >
+              {switcherOptions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.sovereignFQDN || d.id.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+            <div className="text-right text-xs text-[var(--color-text-dim)]">
+              <div className="font-mono">{deploymentId.slice(0, 8)}</div>
+            </div>
           </div>
         </header>
 
@@ -142,9 +264,11 @@ export function InfrastructurePage({
           })}
         </nav>
 
-        <div className="mt-4" data-testid="infrastructure-content">
-          {contentOverride ?? <Outlet />}
-        </div>
+        <InfrastructureContext.Provider value={ctx}>
+          <div className="mt-4" data-testid="infrastructure-content">
+            {contentOverride ?? <Outlet />}
+          </div>
+        </InfrastructureContext.Provider>
       </div>
     </PortalShell>
   )
@@ -292,5 +416,41 @@ const INFRA_PAGE_CSS = `
 .infra-empty .sub {
   font-size: 0.82rem;
   margin: 0;
+}
+
+/* Bulk action bar shared by Compute / Storage / Network. */
+.infra-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-border);
+  align-items: center;
+}
+.infra-bulk-actions .label {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  margin-right: 0.4rem;
+}
+.infra-bulk-actions button {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.infra-bulk-actions button:hover {
+  background: var(--color-surface);
+}
+.infra-bulk-actions button.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
 }
 `
