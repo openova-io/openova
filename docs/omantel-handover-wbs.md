@@ -356,4 +356,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
-| #387 | 🟡 in-progress (Agent #387-RESTART, scope tightened) | | |
+| #387 | ✅ done (Agent #387-RESTART) — per-Sovereign Cilium Gateway + Certificate authored in 01-cilium.yaml; HTTPRoute templates + values overlays for bp-keycloak / bp-gitea / bp-openbao / bp-grafana / bp-harbor / bp-powerdns / bp-catalyst-platform; all server-side dry-run validated | | |

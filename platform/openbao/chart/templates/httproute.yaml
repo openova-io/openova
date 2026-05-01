@@ -1,0 +1,43 @@
+{{- /*
+Catalyst HTTPRoute for OpenBao — bp-openbao (issue #387, Cilium Gateway
+API migration). Exposes the OpenBao UI/API at bao.<sovereign-fqdn>.
+
+The upstream openbao chart does not ship its own ingress template — UI
+exposure is the operator's responsibility. This template provides it
+through the per-Sovereign Cilium Gateway.
+
+Backend reference: the upstream openbao chart's active-instance Service
+is `<release>-openbao` (port 8200 — the OpenBao API/UI port). With
+releaseName=openbao in the bootstrap-kit slot the Service is
+`openbao-openbao`.
+*/}}
+{{- if and .Values.gateway .Values.gateway.enabled -}}
+{{- if not .Values.gateway.host }}
+{{- fail "values.gateway.host is required (e.g. bao.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.gateway.name | default "openbao" | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.gateway.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gateway.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (printf "%s-openbao" .Release.Name) | quote }}
+          port: {{ .Values.gateway.backendPort | default 8200 }}
+{{- end }}

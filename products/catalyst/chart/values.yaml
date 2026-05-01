@@ -43,3 +43,31 @@ provisioningState:
     # mechanism (test envtest harness, sibling Catalyst instance) and a
     # second install would conflict.
     enabled: true
+
+# ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
+# Renders templates/httproute.yaml when `ingress.gateway.enabled=true`
+# (default) AND per-Sovereign overlay supplies `ingress.hosts.console.host`
+# and `ingress.hosts.api.host`. The legacy contabo Ingress templates
+# (templates/ingress.yaml, templates/ingress-console-tls.yaml) are
+# excluded from Sovereign installs via .helmignore — Sovereigns ingress
+# exclusively through Cilium Gateway API per ADR-0001 §9.4.
+ingress:
+  gateway:
+    enabled: true
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: https
+  # Hosts populated by the bootstrap-kit slot
+  # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml).
+  # Empty here so `helm template` without a per-Sovereign overlay fails
+  # closed (Inviolable Principle #4).
+  hosts:
+    console:
+      host: ""
+    api:
+      host: ""
+    admin:
+      host: ""
+    marketplace:
+      host: ""

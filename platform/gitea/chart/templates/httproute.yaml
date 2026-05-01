@@ -1,0 +1,41 @@
+{{- /*
+Catalyst HTTPRoute for Gitea — bp-gitea (issue #387, Cilium Gateway API
+migration). Replaces any networking.k8s.io/v1.Ingress on Sovereigns.
+
+The upstream gitea-charts/gitea chart's `gitea.ingress.enabled` defaults
+to false; we keep it that way and route via Cilium Gateway here.
+
+Backend reference: the upstream gitea chart's HTTP Service is named
+`<release>-gitea-http` (port 3000 by default). With releaseName=gitea
+in the bootstrap-kit slot the Service is `gitea-gitea-http`.
+*/}}
+{{- if and .Values.gateway .Values.gateway.enabled -}}
+{{- if not .Values.gateway.host }}
+{{- fail "values.gateway.host is required (e.g. git.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.gateway.name | default "gitea" | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: gitea
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.gateway.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gateway.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (printf "%s-gitea-http" .Release.Name) | quote }}
+          port: {{ .Values.gateway.backendPort | default 3000 }}
+{{- end }}

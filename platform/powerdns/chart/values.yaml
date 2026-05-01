@@ -330,7 +330,20 @@ dnsdist:
     -- ─── Health checks + verbose logging off ────────────────────────
     setVerboseHealthChecks(false)
 
-# REST API ingress — operator-only access at pdns.openova.io/api.
+# REST API exposure — operator-only access at <host>/<path>.
+#
+# Two emission modes (mutually exclusive on a given cluster):
+#
+#   1. Legacy Ingress  (`api.enabled: true`, `api.gateway.enabled: false`)
+#      Renders networking.k8s.io/v1.Ingress + Traefik basicAuth Middleware.
+#      Used on contabo (the legacy demo cluster) per ADR-0001 §9.4.
+#
+#   2. Cilium Gateway HTTPRoute  (`api.gateway.enabled: true`)
+#      Renders gateway.networking.k8s.io/v1.HTTPRoute attached to the
+#      per-Sovereign cilium-gateway. Used on Sovereigns (issue #387).
+#      basicAuth is enforced via the upstream PowerDNS webserver itself
+#      (lookup-based; the basicAuth Secret is still consumed by the
+#      pod, not by Traefik).
 api:
   enabled: true
   host: pdns.openova.io
@@ -345,6 +358,25 @@ api:
     enabled: true
     secretName: powerdns-api-basicauth      # bcrypt(operator:<password>) — managed out-of-band, see api-ingress.yaml
   middlewareName: powerdns-api-auth
+  # Cilium Gateway API mode (issue #387). Set `enabled: true` ON SOVEREIGNS
+  # ONLY. parentRef defaults to cilium-gateway/kube-system, the per-Sovereign
+  # Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
+  # When this is true, the per-Sovereign overlay should ALSO set the
+  # legacy Ingress off by setting `api.ingressClassName` to "" and
+  # accepting that the Ingress template still renders if `api.enabled`
+  # remains true — the Ingress is harmless on a cluster that has no
+  # ingress controller configured for that class. (To suppress the Ingress
+  # entirely, set `api.enabled: false` and rely solely on the HTTPRoute.)
+  gateway:
+    enabled: false
+    name: powerdns-api
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: https
+    # Backend defaults to the existing powerdns subchart Service
+    backendService: ""    # default: powerdns
+    backendPort: 8081     # matches powerdns.powerdns.webserver.bindPort default
 
 # Anycast public NS endpoint — placeholder until XHetznerFloatingIP
 # Crossplane composition is authored. The Service of type=LoadBalancer

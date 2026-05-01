@@ -21,33 +21,22 @@ harbor:
   # placeholder so `helm template` smoke renders without `--set`.
   externalURL: "https://harbor.example.local"
 
-  # ─── Expose (Ingress + TLS via cert-manager) ───────────────────────────
-  # Catalyst standard: ingress with cert-manager auto. Per-Sovereign
-  # overlay supplies the cluster Issuer name and the actual hostname.
+  # ─── Expose (clusterIP + Cilium Gateway HTTPRoute) ─────────────────────
+  # Catalyst standard (issue #387): expose harbor-core as a ClusterIP
+  # Service and route external traffic through the per-Sovereign Cilium
+  # Gateway via the HTTPRoute in templates/httproute.yaml. TLS terminates
+  # at the Gateway (wildcard cert from cert-manager — see
+  # clusters/_template/bootstrap-kit/01-cilium.yaml), so the upstream
+  # chart's expose.tls block is disabled here.
   expose:
-    type: ingress
+    type: clusterIP
     tls:
-      enabled: true
-      certSource: secret             # cert-manager-issued Secret referenced below
-      auto:
-        commonName: ""
-      secret:
-        secretName: "harbor-tls"     # per-Sovereign overlay: this is the name of
-                                     # the Secret a cert-manager Certificate writes to
-        notarySecretName: ""
+      enabled: false
+    # ingress block retained for documentation / fallback only — when
+    # expose.type=clusterIP, the upstream chart does not render an Ingress.
     ingress:
       hosts:
         core: "harbor.example.local"
-      controller: default
-      kubeVersionOverride: ""
-      className: "cilium"
-      annotations:
-        # Per-Sovereign overlay sets the actual ClusterIssuer name (e.g.
-        # `letsencrypt-prod`). Empty here so `helm template` doesn't
-        # render an annotation that points at a non-existent issuer.
-        cert-manager.io/cluster-issuer: ""
-        ingress.kubernetes.io/proxy-body-size: "0"
-        nginx.ingress.kubernetes.io/proxy-body-size: "0"
 
   # ─── Image-chart storage (SeaweedFS S3) ────────────────────────────────
   # Catalyst encapsulates ALL S3 traffic via SeaweedFS per
@@ -335,3 +324,21 @@ harborOverlay:
   pullMirror:
     enabled: false
     upstreams: []     # list of {name, url, schedule, filter} entries
+
+# ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
+# Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
+# Per-Sovereign overlay supplies `gateway.host` (e.g. registry.<sovereign-fqdn>).
+# parentRef defaults to cilium-gateway/kube-system, the per-Sovereign
+# Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
+gateway:
+  enabled: true
+  # host: registry.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  host: ""
+  path: "/"
+  # Backend Service — defaults to <release>-harbor-core (harbor subchart core Service)
+  backendService: ""
+  backendPort: 80
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: https

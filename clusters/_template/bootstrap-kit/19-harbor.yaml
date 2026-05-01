@@ -67,3 +67,12 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # Per-Sovereign overrides — issue #387:
+  # Wire the per-Sovereign hostname into the HTTPRoute template
+  # (platform/harbor/chart/templates/httproute.yaml). The HTTPRoute
+  # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
+  # The upstream chart's expose.type is set to "clusterIP" in
+  # platform/harbor/chart/values.yaml so no Ingress is rendered.
+  values:
+    gateway:
+      host: registry.${SOVEREIGN_FQDN}

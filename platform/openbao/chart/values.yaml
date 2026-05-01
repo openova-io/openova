@@ -43,3 +43,21 @@ openbao:
   # overlay (issue #182).
   serviceMonitor:
     enabled: false
+
+# ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
+# Exposes the OpenBao UI/API via Cilium Gateway. Per-Sovereign overlay
+# supplies `gateway.host` (e.g. bao.<sovereign-fqdn>). parentRef defaults
+# to cilium-gateway/kube-system, the per-Sovereign Gateway shipped by
+# clusters/_template/bootstrap-kit/01-cilium.yaml.
+gateway:
+  enabled: true
+  # host: bao.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  host: ""
+  path: "/"
+  # Backend Service — defaults to <release>-openbao (active-instance Service)
+  backendService: ""
+  backendPort: 8200
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: https

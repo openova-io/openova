@@ -95,3 +95,21 @@ grafana:
 grafanaOverlay:
   networkPolicy:
     enabled: false
+
+# ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
+# Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
+# Per-Sovereign overlay supplies `gateway.host` (e.g. grafana.<sovereign-fqdn>).
+# parentRef defaults to cilium-gateway/kube-system, the per-Sovereign
+# Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
+gateway:
+  enabled: true
+  # host: grafana.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  host: ""
+  path: "/"
+  # Backend Service — defaults to <release> (grafana subchart fullname)
+  backendService: ""
+  backendPort: 80
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: https

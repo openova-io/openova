@@ -1,0 +1,46 @@
+{{- /*
+Catalyst HTTPRoute for Harbor — bp-harbor (issue #387, Cilium Gateway
+API migration). Replaces the upstream chart's networking.k8s.io/v1.Ingress
+on Sovereigns; the upstream `harbor.expose.type` is set to `clusterIP` (or
+`expose.ingress.enabled=false` equivalent) in per-Sovereign overlays so this
+HTTPRoute is the sole HTTP exposure.
+
+Backend reference: the upstream goharbor/harbor chart's core Service is
+`<release>-harbor-core` (port 80 → 8080 internally, when expose.type=clusterIP).
+Or when expose.type=ingress is disabled, the chart still creates the core
+Service at the same name. Operators can override via `gateway.backendService`.
+
+Path coverage: Harbor needs both UI (`/`) and registry-v2 API (`/v2/`)
+served on the same hostname; both go to harbor-core, so a single rule
+matching `/` is sufficient. Sub-path-specific rules can be added by an
+operator overlay if isolating /api/v2.0 separately is required.
+*/}}
+{{- if and .Values.gateway .Values.gateway.enabled -}}
+{{- if not .Values.gateway.host }}
+{{- fail "values.gateway.host is required (e.g. registry.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.gateway.name | default "harbor" | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.gateway.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gateway.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (printf "%s-harbor-core" .Release.Name) | quote }}
+          port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}
