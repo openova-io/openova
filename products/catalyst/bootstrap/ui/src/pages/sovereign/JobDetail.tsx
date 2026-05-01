@@ -46,12 +46,13 @@ import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs, fmtTime, statusBadge } from './jobs'
-import type { JobUiStatus } from './jobs'
+import type { Job as DerivedJob, JobUiStatus, JobStep } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 import { useJobDetail } from './useJobDetail'
 import type { Job } from '@/lib/jobs.types'
 import { LogPane } from '@/components/LogPane'
+import type { LogLine, LogLevel } from '@/components/ExecutionLogs'
 import { FlowPage } from './FlowPage'
 
 interface JobDetailProps {
@@ -86,6 +87,11 @@ export function JobDetail({
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
   const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
+  const derivedJobsById = useMemo<Record<string, DerivedJob>>(() => {
+    const out: Record<string, DerivedJob> = {}
+    for (const j of derivedJobs) out[j.id] = j
+    return out
+  }, [derivedJobs])
   const reducerJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
   const inFlight = streamStatus !== 'completed' && streamStatus !== 'failed'
   const { liveJobs } = useLiveJobsBackfill({
@@ -125,6 +131,21 @@ export function JobDetail({
   })
   const executionId = detail.latestExecutionId
   const detailJobStatus = detail.job?.status
+
+  // Bug #481 — derived-job fallback log lines. When `useJobDetail` has no
+  // Bridge-allocated execution (Phase-0 tofu jobs, cluster-bootstrap, or
+  // any per-bp-* job whose Helm watch has not yet emitted an execution
+  // row), the LogPane would render the "No execution recorded yet"
+  // empty state — even though we already have the SSE event log buffered
+  // in derivedJobs[selectedJobId].steps. Map those steps to LogLines so
+  // the operator sees the captured events.
+  const fallbackLines = useMemo<LogLine[]>(() => {
+    if (executionId) return [] // Real execution wins — don't double-render.
+    const id = selectedJob?.id ?? jobId
+    const dj = derivedJobsById[id]
+    if (!dj) return []
+    return stepsToLogLines(dj.steps)
+  }, [executionId, selectedJob, jobId, derivedJobsById])
 
   const onCanvasJobSelect = useCallback(
     (id: string | null) => {
@@ -280,6 +301,7 @@ export function JobDetail({
       {paneOpen ? (
         <CanvasLogBridge
           executionId={executionId}
+          fallbackLines={fallbackLines}
           jobTitle={logPaneJob.displayName ?? logPaneJob.jobName}
           jobStatus={logPaneStatus}
           onClose={() => {
@@ -302,12 +324,20 @@ export function JobDetail({
 
 interface CanvasLogBridgeProps {
   executionId: string | null | undefined
+  /** Bug #481 — derived-job fallback lines (Phase-0, cluster-bootstrap). */
+  fallbackLines: readonly LogLine[]
   jobTitle: string
   jobStatus: string
   onClose: () => void
 }
 
-function CanvasLogBridge({ executionId, jobTitle, jobStatus, onClose }: CanvasLogBridgeProps) {
+function CanvasLogBridge({
+  executionId,
+  fallbackLines,
+  jobTitle,
+  jobStatus,
+  onClose,
+}: CanvasLogBridgeProps) {
   const tone: 'pending' | 'running' | 'succeeded' | 'failed' =
     jobStatus === 'running' || jobStatus === 'succeeded' || jobStatus === 'failed'
       ? jobStatus
@@ -315,12 +345,48 @@ function CanvasLogBridge({ executionId, jobTitle, jobStatus, onClose }: CanvasLo
   return (
     <LogPane
       executionId={executionId ?? null}
+      fallbackLines={fallbackLines}
       jobTitle={jobTitle}
       statusLabel={jobStatus}
       statusTone={tone}
       onClose={onClose}
     />
   )
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * stepsToLogLines — DerivedJob.step[] → LogLine[] adapter (Bug #481)
+ *
+ * The reducer state owns the live SSE event log for derived jobs
+ * (Phase-0 tofu, cluster-bootstrap, per-bp-* installs whose Helm
+ * watcher hasn't allocated an Execution row yet). Each step maps 1:1
+ * to a LogLine — we just need to pick a sensible LogLevel from the
+ * step's status + name and number the lines from 1.
+ * ────────────────────────────────────────────────────────────────── */
+
+function stepsToLogLines(steps: readonly JobStep[]): LogLine[] {
+  return steps.map((s, i): LogLine => {
+    let level: LogLevel = 'INFO'
+    if (s.status === 'failed') level = 'ERROR'
+    // Heuristic: name strings starting with a `-` / `+` / `Initializing`
+    // are tofu CLI noise — surface them as DEBUG so a level-filter on
+    // INFO-only doesn't drown the operator. The reducer doesn't carry
+    // a level field for derived steps, so this is the cleanest place
+    // to derive one.
+    else if (
+      s.name.startsWith('+ ') ||
+      s.name.startsWith('- ') ||
+      s.name.startsWith('# ')
+    ) {
+      level = 'DEBUG'
+    }
+    return {
+      lineNumber: i + 1,
+      timestamp: s.startedAt ?? '',
+      level,
+      message: s.name,
+    }
+  })
 }
 
 const JOB_DETAIL_CSS = `
