@@ -204,8 +204,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,SCAF phase
-    class T316,T317,T322,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
-    class T319,T323,T326 wip
+    class T316,T317,T322,T326,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
+    class T319,T323 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
