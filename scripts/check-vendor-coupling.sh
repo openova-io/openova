@@ -117,7 +117,7 @@ fi
 # remaining vendor-coupled reference is either drift or net-new — both
 # must hard-fail. Until then, we can only warn (the drift IS the WIP).
 HARD_FAIL=0
-if [[ -d "${REPO_ROOT}/internal/objectstorage" ]]; then
+if [[ -d "${REPO_ROOT}/products/catalyst/bootstrap/api/internal/objectstorage" ]]; then
   HARD_FAIL=1
 fi
 if [[ "${FORCE_HARD_FAIL}" -eq 1 ]]; then
