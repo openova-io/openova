@@ -1,4 +1,8 @@
-# bp-cert-manager-powerdns-webhook — Catalyst bootstrap-kit Blueprint #36.
+# bp-cert-manager-powerdns-webhook — Catalyst bootstrap-kit Blueprint #49.
+# (Slot 36 was reserved in the W2.K0 forward-declared DAG for `bp-stunner`;
+# this Phase-2 webhook lands at slot 49 — first free slot after the W2.K4
+# forward declarations end at 48. Source of truth: scripts/expected-
+# bootstrap-deps.yaml.)
 # DNS-01 ACME solver against the Sovereign's OWN PowerDNS for wildcard
 # TLS post-handover. Closes openova#373; gates #319 (post-handover renewals).
 #
