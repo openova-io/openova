@@ -48,17 +48,23 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     await expect(page.getByTestId('arch-graph-stats-edges')).toBeVisible()
   })
 
-  test('exposes the edge legend, type badges, and the global density slider', async ({
+  test('exposes the edge legend (popover), type badges, and the global density slider', async ({
     page,
   }) => {
     await gotoArchitecture(page)
 
-    // Edge legend with at least the contains / runs-on / routes-to /
-    // attached-to relations the fixture is guaranteed to produce.
+    // Issue #366 item 3: legend is now a Popover. Trigger button always
+    // visible; legend rows render once the popover is opened.
+    const trigger = page.getByTestId('cloud-architecture-edge-legend-trigger')
+    await expect(trigger).toBeVisible()
+    await trigger.click()
     await expect(page.getByTestId('cloud-architecture-edge-legend')).toBeVisible()
     await expect(page.getByTestId('cloud-architecture-edge-legend-contains')).toBeVisible()
     await expect(page.getByTestId('cloud-architecture-edge-legend-runs-on')).toBeVisible()
     await expect(page.getByTestId('cloud-architecture-edge-legend-routes-to')).toBeVisible()
+    // Close again so the rest of the test runs against the default
+    // (closed) state.
+    await page.getByTestId('cloud-architecture-edge-legend-close').click()
 
     // Per-type badges.
     for (const type of [

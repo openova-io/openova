@@ -81,29 +81,21 @@ export function JobsPage({
   const liveBackfillActive = liveJobs.length > 0
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-strong)]">Jobs</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-            Provisioning, infrastructure, and per-application installs for{' '}
-            {sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* "Show as Flow" link removed 2026-04-30 — flows live only
-              embedded inside per-job / per-batch detail pages. */}
-          <Link
-            to="/provision/$deploymentId"
-            params={{ deploymentId }}
-            className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-            data-testid="sov-jobs-back-to-apps"
-          >
-            ← Back to apps
-          </Link>
-        </div>
-      </div>
-
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Jobs"
+      headerSlotLeft={
+        <Link
+          to="/provision/$deploymentId"
+          params={{ deploymentId }}
+          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+          data-testid="sov-jobs-back-to-apps"
+        >
+          ← Back to apps
+        </Link>
+      }
+    >
       {liveBackfillActive ? (
         <div
           role="status"

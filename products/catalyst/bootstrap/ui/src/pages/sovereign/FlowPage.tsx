@@ -622,31 +622,24 @@ export function FlowPage({
   }
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Flow"
+      headerSlotLeft={
+        <Link
+          to="/provision/$deploymentId/jobs"
+          params={{ deploymentId }}
+          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+          data-testid="flow-page-back-to-table"
+        >
+          ← Back to table
+        </Link>
+      }
+    >
       <style>{FLOW_PAGE_CSS}</style>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-strong)]">Flow</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-            Deployment-wide job tree for{' '}
-            <span className="font-mono">
-              {sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/provision/$deploymentId/jobs"
-            params={{ deploymentId }}
-            className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-            data-testid="flow-page-back-to-table"
-          >
-            ← Back to table
-          </Link>
-        </div>
-      </div>
 
-      <div className="mt-4">
+      <div className="mt-2">
         <StatusStrip
           deploymentId={deploymentId}
           sovereignFQDN={sovereignFQDN}

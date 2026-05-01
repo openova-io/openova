@@ -577,31 +577,11 @@ export function ArchitectureGraphPage({
         )}
       </div>
 
-      {/* Edge legend — ArchiMate symbol thumbnail + name + count. */}
+      {/* Edge legend trigger — a single info button at the bottom that
+       *  opens the legend in a Popover (issue #366 item 3). The legend
+       *  is no longer a permanent panel; it stays out of the canvas. */}
       {hasNodes && (
-        <div
-          data-testid="cloud-architecture-edge-legend"
-          className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2"
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
-            Relations
-          </span>
-          {ALL_EDGE_TYPES.map((t) => {
-            const count = edgeTypeCounts.get(t) ?? 0
-            return (
-              <span
-                key={t}
-                data-testid={`cloud-architecture-edge-legend-${t}`}
-                className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text)]"
-                aria-label={`${t} relation: ${count} edges`}
-              >
-                <EdgeLegendThumb type={t} />
-                <span>{t}</span>
-                <span className="text-[var(--color-text-dim)]">({count})</span>
-              </span>
-            )
-          })}
-        </div>
+        <EdgeLegendPopover edgeTypeCounts={edgeTypeCounts} />
       )}
 
       {/* Detail panel — slides in from the right on node click. */}
@@ -1166,6 +1146,127 @@ function PresetButton({
     >
       {preset}
     </button>
+  )
+}
+
+/* ── Edge legend popover (issue #366 item 3) ────────────────────── */
+
+const EDGE_LEGEND_STORAGE_KEY = 'sov-arch-legend-open'
+
+function readPersistedLegendOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(EDGE_LEGEND_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writePersistedLegendOpen(open: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(EDGE_LEGEND_STORAGE_KEY, open ? 'true' : 'false')
+  } catch {
+    /* noop */
+  }
+}
+
+function EdgeLegendPopover({
+  edgeTypeCounts,
+}: {
+  edgeTypeCounts: Map<ArchEdgeType, number>
+}) {
+  // Default closed; persisted to localStorage so operators who prefer
+  // the legend always-visible can leave it open.
+  const [open, setOpen] = useState<boolean>(() => readPersistedLegendOpen())
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    writePersistedLegendOpen(open)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(ev: MouseEvent) {
+      const t = ev.target as HTMLElement | null
+      if (!ref.current?.contains(t)) {
+        setOpen(false)
+      }
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const total = ALL_EDGE_TYPES.length
+  return (
+    <div
+      ref={ref}
+      data-testid="cloud-architecture-edge-legend-wrap"
+      className="relative mt-2"
+    >
+      <button
+        type="button"
+        data-testid="cloud-architecture-edge-legend-trigger"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2.5 py-1 text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+      >
+        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+          <circle cx="12" cy="12" r="9" />
+          <line x1="12" y1="8" x2="12" y2="8.01" strokeLinecap="round" />
+          <polyline points="11 12 12 12 12 16 13 16" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>ArchiMate connections ({total})</span>
+      </button>
+      {open && (
+        <div
+          data-testid="cloud-architecture-edge-legend"
+          role="dialog"
+          aria-label="ArchiMate connection legend"
+          className="absolute bottom-full left-0 z-30 mb-1 flex w-[28rem] max-w-[calc(100vw-3rem)] flex-col gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 shadow-xl"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
+              Relations
+            </span>
+            <button
+              type="button"
+              data-testid="cloud-architecture-edge-legend-close"
+              aria-label="Close legend"
+              onClick={() => setOpen(false)}
+              className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {ALL_EDGE_TYPES.map((t) => {
+              const count = edgeTypeCounts.get(t) ?? 0
+              return (
+                <span
+                  key={t}
+                  data-testid={`cloud-architecture-edge-legend-${t}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text)]"
+                  aria-label={`${t} relation: ${count} edges`}
+                >
+                  <EdgeLegendThumb type={t} />
+                  <span>{t}</span>
+                  <span className="text-[var(--color-text-dim)]">({count})</span>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

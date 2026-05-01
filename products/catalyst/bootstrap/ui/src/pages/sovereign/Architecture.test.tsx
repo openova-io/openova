@@ -119,9 +119,15 @@ describe('Architecture — force graph render', () => {
     expect(screen.getByTestId('arch-graph-node-Network-Network:net-eu-central')).toBeTruthy()
   })
 
-  it('renders the edge legend with every relation type', async () => {
+  it('renders the edge legend with every relation type (popover, issue #366 item 3)', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     await screen.findByTestId('arch-graph-svg')
+    // The legend is now a Popover — closed by default. The trigger
+    // button always renders; clicking it opens the legend body. Inner
+    // testids are only present once the popover is open.
+    const trigger = screen.getByTestId('cloud-architecture-edge-legend-trigger')
+    expect(trigger).toBeTruthy()
+    fireEvent.click(trigger)
     expect(screen.getByTestId('cloud-architecture-edge-legend')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-edge-legend-contains')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-edge-legend-runs-on')).toBeTruthy()

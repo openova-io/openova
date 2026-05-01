@@ -137,83 +137,97 @@ test.describe('Cloud shell — view toggle persistence (#350 item 7)', () => {
   })
 })
 
-test.describe('Cloud shell — list view tile grid + dropdown (#350 item 7)', () => {
+test.describe('Cloud shell — list view chip strip (#366 item 1)', () => {
   test.beforeEach(async ({ page }) => {
     await clearStorage(page)
   })
 
-  test('list view renders 12 tiles with counts; clicking a tile switches the active list', async ({
+  test('list view renders the toolbar chip strip with primary chips and a + More overflow', async ({
     page,
   }) => {
     await gotoProvision(page, 'cloud?view=list')
 
-    const tileGrid = page.getByTestId('cloud-list-view-tile-grid')
-    await expect(tileGrid).toBeVisible()
+    const chips = page.getByTestId('cloud-kind-chips')
+    await expect(chips).toBeVisible()
 
-    // 12 tiles, one per resource kind.
-    const expectedKinds = [
+    // Primary chips render inline. Founder priority order:
+    // Clusters, vClusters, Node Pools, PVCs, Load Balancers, Buckets.
+    const primaryKinds = [
       'clusters',
       'vclusters',
       'node-pools',
-      'worker-nodes',
-      'load-balancers',
-      'services',
-      'ingresses',
-      'dns-zones',
       'pvcs',
+      'load-balancers',
       'buckets',
-      'volumes',
-      'storage-classes',
     ]
-    for (const k of expectedKinds) {
+    for (const k of primaryKinds) {
       await expect(
-        page.getByTestId(`cloud-list-view-tile-${k}`),
-        `Tile [data-testid=cloud-list-view-tile-${k}] must render`,
+        page.getByTestId(`cloud-kind-chip-${k}`),
+        `Primary chip [data-testid=cloud-kind-chip-${k}] must render in the toolbar strip.`,
       ).toBeVisible()
       await expect(
-        page.getByTestId(`cloud-list-view-tile-${k}-count`),
-        `Tile count for ${k} must render`,
+        page.getByTestId(`cloud-kind-chip-${k}-count`),
+        `Chip count badge for ${k} must render.`,
       ).toBeVisible()
     }
 
-    // The default active kind is "clusters".
-    await expect(page.getByTestId('cloud-list-view-tile-clusters')).toHaveAttribute(
+    // The legacy 12-tile card grid is GONE.
+    expect(await page.getByTestId('cloud-list-view-tile-grid').count()).toBe(0)
+    expect(await page.getByTestId('cloud-list-view-kind-select').count()).toBe(0)
+
+    // Default active kind is "clusters".
+    await expect(page.getByTestId('cloud-kind-chip-clusters')).toHaveAttribute(
       'data-active',
       'true',
     )
     await expect(page.getByTestId(`cloud-list-view-active-clusters`)).toBeVisible()
 
-    // Click the PVCs tile — active switches.
-    await page.getByTestId('cloud-list-view-tile-pvcs').click()
+    // The active list table sits directly below the toolbar — assert it
+    // is in the viewport at 1440×900 (issue #366 item 1 acceptance:
+    // active list visible above the fold).
+    const activeTable = page.getByTestId(`cloud-list-view-active-clusters`)
+    await expect(activeTable).toBeInViewport()
+
+    // Click the PVCs chip — active switches.
+    await page.getByTestId('cloud-kind-chip-pvcs').click()
     await page.waitForFunction(() => /kind=pvcs/.test(window.location.search), undefined, {
       timeout: 5_000,
     })
-    await expect(page.getByTestId('cloud-list-view-tile-pvcs')).toHaveAttribute(
+    await expect(page.getByTestId('cloud-kind-chip-pvcs')).toHaveAttribute(
       'data-active',
       'true',
     )
-    await expect(page.getByTestId('cloud-list-view-tile-clusters')).toHaveAttribute(
+    await expect(page.getByTestId('cloud-kind-chip-clusters')).toHaveAttribute(
       'data-active',
       'false',
     )
   })
 
-  test('dropdown switcher mirrors the active kind and changes it', async ({ page }) => {
+  test('+ More popover exposes the overflow kinds and switches active', async ({ page }) => {
     await gotoProvision(page, 'cloud?view=list&kind=clusters')
 
-    const select = page.getByTestId('cloud-list-view-kind-select')
-    await expect(select).toBeVisible()
-    await expect(select).toHaveValue('clusters')
+    const more = page.getByTestId('cloud-kind-chip-more')
+    await expect(more).toBeVisible()
 
-    // Switch via dropdown.
-    await select.selectOption('volumes')
+    // Overflow popover opens on click.
+    await more.click()
+    const popover = page.getByTestId('cloud-kind-chip-more-popover')
+    await expect(popover).toBeVisible()
+
+    // Overflow contents — Worker Nodes, Services, Ingresses, DNS Zones,
+    // Volumes, Storage Classes.
+    for (const k of ['worker-nodes', 'services', 'ingresses', 'dns-zones', 'volumes', 'storage-classes']) {
+      await expect(
+        page.getByTestId(`cloud-kind-chip-more-item-${k}`),
+        `Overflow popover must expose the ${k} entry.`,
+      ).toBeVisible()
+    }
+
+    // Click the Volumes overflow item — popover closes, kind switches.
+    await page.getByTestId('cloud-kind-chip-more-item-volumes').click()
     await page.waitForFunction(() => /kind=volumes/.test(window.location.search), undefined, {
       timeout: 5_000,
     })
-    await expect(page.getByTestId('cloud-list-view-tile-volumes')).toHaveAttribute(
-      'data-active',
-      'true',
-    )
   })
 })
 
@@ -321,9 +335,9 @@ test.describe('Cloud shell — visual regression @ 1440×900', () => {
       fullPage: false,
     })
 
-    // 3: List view (PVCs) — show the card grid + active list table.
+    // 3: List view (PVCs) — show the chip strip + active list table.
     await gotoProvision(page, 'cloud?view=list&kind=pvcs')
-    await page.waitForSelector('[data-testid=cloud-list-view-tile-grid]')
+    await page.waitForSelector('[data-testid=cloud-kind-chips]')
     await page.screenshot({
       path: 'e2e/screenshots/p350-cloud-list-pvcs.png',
       fullPage: false,
