@@ -41,6 +41,12 @@ on:
 
 permissions:
   contents: read
+  # bp-* charts are PRIVATE GHCR packages under openova-io. The
+  # bootstrap-kit kustomization references them via OCI HelmRepositories;
+  # source-controller reads the `flux-system/ghcr-pull` Secret planted
+  # below. The runner-side `helm registry login` (next step) is needed
+  # for any direct `helm install oci://...` calls used during diagnostics.
+  packages: read
 
 jobs:
   preflight:
@@ -57,6 +63,16 @@ jobs:
           cluster_name: preflight-bootstrap-kit
           version: v0.25.0
           node_image: kindest/node:v1.30.6
+
+      - name: Login to GHCR (helm registry)
+        # bp-* charts are private GHCR packages; helm/source-controller
+        # both need GHCR auth to pull OCI manifests. Mirrors the seam in
+        # .github/workflows/preflight-crossplane-hcloud.yaml + blueprint-release.yaml.
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io \
+                --username "${{ github.actor }}" \
+                --password-stdin
 
       - name: Install Gateway API CRDs (standard channel, v1.2.0)
         run: |
