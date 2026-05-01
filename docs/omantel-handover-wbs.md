@@ -41,7 +41,7 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 17 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
 | 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | ❌ not deployed; **chart hardcodes SeaweedFS endpoint** ([#383](https://github.com/openova-io/openova/issues/383)) |
 | 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | ❌ not deployed; chart needs S3 endpoint rework ([#384](https://github.com/openova-io/openova/issues/384)) |
-| 20 | `bp-kyverno` | Admission policy | ❌ not deployed ([#379](https://github.com/openova-io/openova/issues/379)) |
+| 20 | `bp-kyverno` | Admission policy | ✅ chart-verified ([#379](https://github.com/openova-io/openova/issues/379)) — `bp-kyverno:1.0.0` published; smoke-installed on contabo, all 4 controllers Ready in 81s; admission denial functionally verified (`nginx:latest` blocked, `nginx:1.27-alpine` admitted) |
 | 21 | `bp-trivy` | Image CVE scanning | ❌ not deployed ([#380](https://github.com/openova-io/openova/issues/380)) |
 | 22 | `bp-grafana` | Grafana visualizer (Alloy/Loki/Mimir/Tempo are sibling slots 21-24) | ✅ chart-verified on contabo ([#381](https://github.com/openova-io/openova/issues/381)) |
 | 23 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | ✅ deployed; needs single-blueprint verification ([#385](https://github.com/openova-io/openova/issues/385)) |
@@ -169,8 +169,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T316,T338,T370,T373,T375,T377,T378,T387,T392 done
-    class T371,T376,T379,T380,T381 wip
+    class T316,T338,T370,T373,T375,T377,T378,T379,T387,T392 done
+    class T371,T376,T380,T381 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
@@ -347,7 +347,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #374 | (parked, gates on #373) | | |
 | #375 | ✅ chart-verified — bp-nats-jetstream v1.1.1 already published (1.0.0, 1.1.0, 1.1.1 on GHCR); helm template renders 8 kinds clean (StatefulSet replicas=3, ConfigMap, headless+client Service, PDB, Secret, nats-box Deployment); smoke install on contabo (`nats-smoke` ns) reached 3/3 Ready in 33s, JetStream R=3 stream `testStream` created with leader+2 replica quorum, pub/sub round-trip verified (5-byte msg, 1 stream message); smoke torn down clean; bootstrap-kit wiring already present in `_template/bootstrap-kit/07-nats-jetstream.yaml` (HelmRelease, dependsOn bp-spire, install/upgrade `disableWait: true` per intra-chart raft-quorum event-driven pattern). No PR needed — closing as duplicate. | (no-PR) | smoke evidence in close comment |
 | #376 | 🟢 chart-verified — `bp-gitea:1.1.2` (digest `sha256:c5f1cb50…`) already published by blueprint-release on commit `a1bd5502`. Smoke-installed in `gitea-smoke` ns on contabo: both pods (smoke-gitea-848d8486c7-sdbtm, smoke-postgresql-0) reached Ready ~2m38s after install, `/api/v1/version` returned `{"version":"1.22.3"}` (HTTP 200), `/` HTTP 200, admin auth (`gitea_admin`) HTTP 200 on `/api/v1/users/search`. Bootstrap-kit slot 10 wired in `_template/`, `omantel.omani.works/`, and (this PR) `otech.omani.works/` — all pinned 1.1.2, `gateway.host` set, `disableWait: true`. helm-template default-values renders 15 manifests clean (HTTPRoute skip-renders without `gateway.host` per #387/#402). Wizard catalog already lists gitea under `layer: 'bootstrap-kit'`. Sovereign-impact deferred to Phase 8. | (this PR) | bp-gitea:1.1.2 published; smoke evidence captured |
-| #379 | (parked) | | |
+| #379 | ✅ chart-verified — `bp-kyverno:1.0.0` (digest `sha256:16edc78e…`) already published on GHCR (2026-04-30); smoke-installed in `kyverno-smoke` ns on contabo. All 4 controllers (admission/background/cleanup/reports) reached 1/1 Ready in 81s. Helm template renders 80 resources (22 CRDs, 4 Deployments, 5 Pods, 6 Services). Admission denial functionally verified: ClusterPolicy `disallow :latest` blocked `nginx:latest` (`admission webhook "validate.kyverno.svc-fail" denied the request`), allowed `nginx:1.27-alpine`. Bootstrap-kit slot 27 wired in `_template/`, `omantel.omani.works/`, `otech.omani.works/` — all overlays clean (only `${SOVEREIGN_FQDN}` substitution diff). Smoke torn down clean. No PR needed for chart; this PR ticks WBS only. Sovereign-impact deferred to Phase 8. | (this PR) | bp-kyverno:1.0.0 published; smoke evidence in close comment |
 | #380 | (parked) | | |
 | #381 | ✅ chart-verified — `bp-grafana:1.0.0` published by blueprint-release run `25214143810` on commit `a1bd5502`. Helm template renders cleanly: defaults → 13 kinds (skip-render of HTTPRoute when `gateway.host` empty); with `gateway.host` set → 14 kinds (incl. HTTPRoute). Smoke install on contabo (`grafana-smoke` ns) reached 1/1 Ready in 65s, in-cluster `/login` returned HTTP 200, `/api/health` returned 200, image `docker.io/grafana/grafana:12.3.1` confirmed. Smoke torn down clean. Per-Sovereign overlay drift fixed: `gateway.host: grafana.<sovereign-fqdn>` now wired in `_template/`, `omantel.omani.works/`, and `otech.omani.works/` (parity with bp-keycloak). Wizard catalog already lists bp-grafana at slot 25. NOTE: scope reframed — bp-grafana is the Grafana visualizer only; Alloy/Loki/Mimir/Tempo are separate sibling Blueprints (slots 21-24). Sovereign-impact deferred to Phase 8. | (this PR) | bp-grafana:1.0.0 published; smoke evidence captured |
 | #382 | (parked) | | |
