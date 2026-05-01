@@ -1,0 +1,288 @@
+# Phase-8a preflight C — Cilium Gateway HTTPRoute admission for bp-catalyst-platform on kind.
+#
+# Surfaces Risk-register R3 (`docs/omantel-handover-wbs.md` §9a — Cilium
+# Gateway HTTPRoute admission untested). bp-catalyst-platform smoke skipped
+# HTTPRoute on contabo because contabo runs Traefik (no `cilium-gateway`
+# Gateway present per ADR-0001 §9.4). Phase 8a will hit this gate when
+# console.test.omani.works is unreachable — this workflow exposes the
+# admission contract on a disposable kind cluster ahead of Phase 8a.
+#
+# What this validates:
+#   1. Cilium 1.16.x with `gatewayAPI.enabled=true` registers the `cilium`
+#      GatewayClass and reports it Accepted.
+#   2. The per-Sovereign Gateway shape from
+#      `clusters/_template/bootstrap-kit/01-cilium.yaml` (HTTP listener)
+#      is admitted by the Cilium GatewayClass.
+#   3. The HTTPRoute templates inside bp-catalyst-platform's chart
+#      (`products/catalyst/chart/templates/httproute.yaml`) — `catalyst-ui`
+#      and `catalyst-api` — reach `Accepted=True` against that Gateway when
+#      rendered with sovereign-overlay values
+#      (`ingress.hosts.console.host`, `ingress.hosts.api.host`).
+#
+# What this does NOT validate (out of scope; Phase 8a/8b territory):
+#   - TLS termination (HTTP only — wildcard cert + cert-manager + DNS01 is
+#     Phase 8a on real Sovereign).
+#   - Backend health (we plant placeholder catalyst-ui / catalyst-api
+#     Services so `backendRefs` resolve; the Deployments behind them
+#     are not part of this contract).
+#   - The 10 leaf bp-* dependencies (bp-cert-manager, bp-flux, bp-keycloak,
+#     etc.) — those have their own chart-verify smoke runs (#377/#378/#382
+#     etc.). Here we render bp-catalyst-platform locally and apply only the
+#     catalyst-{ui,api} Service stubs + the rendered HTTPRoute manifests, to
+#     keep the kind cluster bounded to the admission seam under test.
+#
+# Anti-duplication:
+#   - Cilium install + GatewayClass wait pattern: same as
+#     `playwright-smoke.yaml` style (kind + helm), no duplicated cluster
+#     bring-up logic.
+#   - GHCR helm-registry-login matches `blueprint-release.yaml` §
+#     "Helm registry login" (line 173-177).
+#   - Per-Sovereign Gateway shape: 1:1 mirror of `clusters/_template/
+#     bootstrap-kit/01-cilium.yaml` HTTP listener — no new shape invented.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# triggered on push to this file's path + workflow_dispatch for re-runs.
+
+name: Phase-8a preflight C — Cilium Gateway HTTPRoute admission
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/preflight-cilium-httproute.yaml'
+      - 'products/catalyst/chart/templates/httproute.yaml'
+      - 'products/catalyst/chart/values.yaml'
+      - 'clusters/_template/bootstrap-kit/01-cilium.yaml'
+
+permissions:
+  contents: read
+  packages: read   # `helm pull oci://ghcr.io/openova-io/bp-catalyst-platform`
+
+jobs:
+  preflight:
+    name: Preflight Cilium HTTPRoute admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind cluster (no kindnet, kube-proxy disabled)
+        uses: helm/kind-action@v1
+        with:
+          version: v0.24.0
+          cluster_name: preflight-c
+          # Disable default CNI + kube-proxy so Cilium can take over both
+          # roles (matches the Sovereign k3s shape: --flannel-backend=none
+          # + --disable-kube-proxy in cloud-init).
+          config: |
+            kind: Cluster
+            apiVersion: kind.x-k8s.io/v1alpha4
+            networking:
+              disableDefaultCNI: true
+              kubeProxyMode: none
+            nodes:
+              - role: control-plane
+              - role: worker
+
+      - name: Install Gateway API CRDs (v1.2.0 — matches Cilium 1.16.x support matrix)
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+          kubectl wait --for=condition=Established --timeout=60s \
+            crd/gateways.gateway.networking.k8s.io \
+            crd/httproutes.gateway.networking.k8s.io \
+            crd/gatewayclasses.gateway.networking.k8s.io
+
+      - name: Install Cilium with Gateway API enabled
+        run: |
+          helm repo add cilium https://helm.cilium.io/
+          helm repo update
+          helm install cilium cilium/cilium \
+            --version 1.16.5 \
+            --namespace kube-system \
+            --set kubeProxyReplacement=true \
+            --set k8sServiceHost=preflight-c-control-plane \
+            --set k8sServicePort=6443 \
+            --set gatewayAPI.enabled=true \
+            --set envoy.enabled=true \
+            --set l7Proxy=true \
+            --set hubble.enabled=false \
+            --set operator.replicas=1 \
+            --wait --timeout 5m
+
+      - name: Wait for Cilium GatewayClass to be Accepted
+        run: |
+          for i in $(seq 1 30); do
+            STATUS="$(kubectl get gatewayclass cilium -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+            if [ "$STATUS" = "True" ]; then
+              echo "GatewayClass cilium Accepted=True after ${i}*5=$((i*5))s"
+              kubectl get gatewayclass cilium -o yaml
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "GatewayClass cilium did NOT reach Accepted=True"
+          kubectl describe gatewayclass cilium || true
+          kubectl -n kube-system get pods
+          exit 1
+
+      - name: Apply per-Sovereign Gateway (HTTP listener only — TLS is Phase 8a)
+        run: |
+          # Mirrors `clusters/_template/bootstrap-kit/01-cilium.yaml`
+          # Gateway shape (name: cilium-gateway, namespace: kube-system,
+          # gatewayClassName: cilium, listener `http` on port 80,
+          # allowedRoutes.namespaces.from=All). The HTTPS listener is
+          # omitted because TLS material requires cert-manager + DNS01
+          # (Phase 8a, not preflight scope). Catalyst HTTPRoutes will be
+          # attached via parentRef.sectionName=http override below.
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata:
+            name: cilium-gateway
+            namespace: kube-system
+            labels:
+              catalyst.openova.io/component: cilium-gateway
+              catalyst.openova.io/preflight: phase-8a-c
+          spec:
+            gatewayClassName: cilium
+            listeners:
+              - name: http
+                port: 80
+                protocol: HTTP
+                allowedRoutes:
+                  namespaces:
+                    from: All
+          EOF
+
+      - name: Wait for Gateway to be Accepted+Programmed
+        run: |
+          for i in $(seq 1 36); do
+            ACC="$(kubectl get gateway cilium-gateway -n kube-system -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+            PROG="$(kubectl get gateway cilium-gateway -n kube-system -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)"
+            if [ "$ACC" = "True" ] && [ "$PROG" = "True" ]; then
+              echo "Gateway Accepted=True Programmed=True after ${i}*5=$((i*5))s"
+              kubectl get gateway cilium-gateway -n kube-system -o yaml
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Gateway did not reach Accepted+Programmed"
+          kubectl describe gateway cilium-gateway -n kube-system || true
+          exit 1
+
+      - name: Helm registry login (GHCR)
+        # Matches `blueprint-release.yaml` §"Helm registry login" — same
+        # canonical seam, never duplicated.
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Render bp-catalyst-platform HTTPRoutes with sovereign overlay
+        run: |
+          # Pull the published OCI chart and render its catalyst-platform
+          # HTTPRoute templates with sovereign-overlay values. We render
+          # locally (not `helm install`) and apply only the resources
+          # under test — the 10 leaf bp-* deps would not boot in a
+          # 30-min kind window and are out of scope for the admission
+          # contract being verified here.
+          helm pull oci://ghcr.io/openova-io/bp-catalyst-platform \
+            --version 1.1.8 \
+            --untar --untardir /tmp/bp-cp
+          mkdir -p /tmp/preflight-render
+          # Render with:
+          #   - ingress.gateway.parentRef.sectionName=http (default values
+          #     are `https`; we don't have TLS in preflight)
+          #   - ingress.hosts.{console,api}.host=*.test.local — the Gateway
+          #     has no hostname filter (allow-all) so any value attaches.
+          #   - --show-only renders only the templates under test; this
+          #     bypasses the leaf bp-* dep chart rendering.
+          helm template catalyst-platform /tmp/bp-cp/bp-catalyst-platform \
+            --namespace catalyst \
+            --set ingress.gateway.enabled=true \
+            --set ingress.gateway.parentRef.name=cilium-gateway \
+            --set ingress.gateway.parentRef.namespace=kube-system \
+            --set ingress.gateway.parentRef.sectionName=http \
+            --set ingress.hosts.console.host=console.test.local \
+            --set ingress.hosts.api.host=api.test.local \
+            --show-only templates/httproute.yaml \
+            > /tmp/preflight-render/httproute.yaml
+          echo "--- rendered HTTPRoute manifest ---"
+          cat /tmp/preflight-render/httproute.yaml
+
+      - name: Apply catalyst namespace + backend Service stubs + HTTPRoutes
+        run: |
+          kubectl create namespace catalyst
+          # Placeholder Services so HTTPRoute backendRefs resolve. The
+          # admission contract requires named Services to exist in the
+          # same namespace as the HTTPRoute (port 80 for catalyst-ui,
+          # 8080 for catalyst-api — matches the chart's backendRefs).
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: catalyst-ui
+            namespace: catalyst
+          spec:
+            ports:
+              - name: http
+                port: 80
+                targetPort: 8080
+            selector:
+              app.kubernetes.io/name: catalyst-ui
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: catalyst-api
+            namespace: catalyst
+          spec:
+            ports:
+              - name: http
+                port: 8080
+                targetPort: 8080
+            selector:
+              app.kubernetes.io/name: catalyst-api
+          EOF
+          kubectl apply -f /tmp/preflight-render/httproute.yaml
+
+      - name: Verify HTTPRoute admission (catalyst-ui + catalyst-api Accepted=True)
+        run: |
+          set -e
+          # Cilium reconciles HTTPRoute status asynchronously — give it
+          # up to 90s before declaring failure.
+          for route in catalyst-ui catalyst-api; do
+            for i in $(seq 1 18); do
+              STATUS="$(kubectl get httproute "$route" -n catalyst -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)"
+              if [ "$STATUS" = "True" ]; then
+                echo "HTTPRoute $route Accepted=True after ${i}*5=$((i*5))s"
+                break
+              fi
+              if [ "$i" = "18" ]; then
+                echo "HTTPRoute $route did NOT reach Accepted=True"
+                kubectl get httproute -A -o wide || true
+                kubectl describe httproute "$route" -n catalyst || true
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+          echo "Both HTTPRoutes admitted by Cilium Gateway."
+          kubectl get httproute,gateway -A -o wide
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '## HTTPRoute admission preflight (Phase-8a R3)'
+            echo ''
+            echo '### GatewayClass'
+            kubectl get gatewayclass -o wide || true
+            echo ''
+            echo '### Gateway'
+            kubectl get gateway -A -o wide || true
+            echo ''
+            echo '### HTTPRoute'
+            kubectl get httproute -A -o wide || true
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
