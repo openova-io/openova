@@ -405,6 +405,32 @@ write_files:
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
+        name: sovereign-tls
+        namespace: flux-system
+      spec:
+        # Carries the cert-manager Certificate that backs Cilium Gateway's
+        # wildcard-TLS listener. Split out of bootstrap-kit so its
+        # `cert-manager.io/v1` CRD-dependent dry-run only runs AFTER
+        # bp-cert-manager is Ready (Phase-8a bug #13). dependsOn
+        # bootstrap-kit's `wait: true` semantics: bootstrap-kit reaches
+        # Ready iff every HelmRelease + Kustomization in it Ready=True.
+        interval: 5m
+        path: ./clusters/_template/sovereign-tls
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: true
+        timeout: 30m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+      ---
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
         name: infrastructure-config
         namespace: flux-system
       spec:
@@ -416,6 +442,7 @@ write_files:
           name: openova
         dependsOn:
           - name: bootstrap-kit
+          - name: sovereign-tls
         wait: true
         timeout: 30m
         postBuild:

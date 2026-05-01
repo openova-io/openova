@@ -1,0 +1,39 @@
+# Wildcard TLS Certificate for the Cilium Gateway listener.
+#
+# Split from clusters/_template/bootstrap-kit/01-cilium.yaml in
+# fix/cilium-cert-split-from-bootstrap-kit (Phase-8a bug #13). The
+# Cert lives in its OWN Flux Kustomization (`sovereign-tls`) which
+# depends on bootstrap-kit being Ready — i.e. cert-manager + the
+# powerdns-webhook are both installed and their CRDs registered.
+#
+# Without this split, Flux's server-side dry-run on the bootstrap-kit
+# Kustomization fails with `no matches for kind "Certificate" in
+# version "cert-manager.io/v1"` because the validation runs BEFORE any
+# HelmRelease has installed the cert-manager CRDs — and a single
+# dry-run failure aborts the entire Kustomization apply, leaving the
+# Sovereign with zero HRs reconciled.
+#
+# The Gateway resource stays in 01-cilium.yaml: Gateway.networking.k8s.io
+# CRDs ship with Cilium itself (gatewayAPI.enabled=true) and dry-run
+# against them only requires the Gateway API CRD bundle which Cilium
+# pre-installs at chart-time. The Certificate is the ONLY resource
+# whose CRD is provided by a HelmRelease in the same Kustomization
+# that needs to validate it.
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sovereign-wildcard-tls
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway
+spec:
+  secretName: sovereign-wildcard-tls
+  issuerRef:
+    name: letsencrypt-dns01-prod
+    kind: ClusterIssuer
+  commonName: "*.${SOVEREIGN_FQDN}"
+  dnsNames:
+    - "*.${SOVEREIGN_FQDN}"
+    - "${SOVEREIGN_FQDN}"
