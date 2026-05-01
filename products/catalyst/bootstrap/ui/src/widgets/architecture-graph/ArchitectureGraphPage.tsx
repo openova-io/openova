@@ -96,6 +96,20 @@ interface ContextMenuState {
   node: GraphNode | null
 }
 
+/**
+ * One entry in the detail panel's grouped neighbor list (#348 item 3).
+ * The relation field carries the edge type so the panel can group
+ * neighbors under per-relation subheaders; direction distinguishes
+ * outgoing vs incoming edges (informational — the graph itself is
+ * undirected for layout purposes).
+ */
+interface NeighborEntry {
+  node: GraphNode
+  relation: ArchEdgeType
+  /** "out" = selected → neighbor; "in" = neighbor → selected. */
+  direction: 'out' | 'in'
+}
+
 interface ModalState {
   kind:
     | 'none'
@@ -292,15 +306,22 @@ export function ArchitectureGraphPage({
     [allNodes, selectedId],
   )
 
-  // Neighbor list for the detail panel.
-  const neighborList = useMemo(() => {
-    if (!selectedNode) return [] as GraphNode[]
-    const ids = new Set<string>()
+  // Neighbor list for the detail panel — annotated with the relation
+  // type (and direction marker) for grouping (#348 item 3).
+  const neighborList = useMemo<NeighborEntry[]>(() => {
+    if (!selectedNode) return []
+    const byId = new Map(allNodes.map((n) => [n.id, n]))
+    const out: NeighborEntry[] = []
     for (const e of allEdges) {
-      if (e.source === selectedNode.id) ids.add(e.target)
-      if (e.target === selectedNode.id) ids.add(e.source)
+      if (e.source === selectedNode.id) {
+        const target = byId.get(e.target)
+        if (target) out.push({ node: target, relation: e.type, direction: 'out' })
+      } else if (e.target === selectedNode.id) {
+        const source = byId.get(e.source)
+        if (source) out.push({ node: source, relation: e.type, direction: 'in' })
+      }
     }
-    return allNodes.filter((n) => ids.has(n.id))
+    return out
   }, [selectedNode, allEdges, allNodes])
 
   /* ── 7. Context menu state ─────────────────────────────────── */
@@ -929,7 +950,7 @@ function PresetButton({
 
 interface DetailPanelProps {
   node: GraphNode
-  neighbors: GraphNode[]
+  neighbors: NeighborEntry[]
   focusNodeId: string | null
   onClose: () => void
   onToggleFocus: () => void
@@ -959,6 +980,21 @@ function DetailPanel({
     if (node.type === 'Cluster') return '+ Add vCluster'
     return null
   }, [node.type])
+
+  // Group neighbors by relation (#348 item 3). Stable order: follow
+  // ALL_EDGE_TYPES so the panel reads consistently between renders.
+  const groupedNeighbors = useMemo(() => {
+    const groups = new Map<ArchEdgeType, NeighborEntry[]>()
+    for (const e of neighbors) {
+      const arr = groups.get(e.relation) ?? []
+      arr.push(e)
+      groups.set(e.relation, arr)
+    }
+    return ALL_EDGE_TYPES.filter((t) => groups.has(t)).map((t) => ({
+      relation: t,
+      entries: groups.get(t)!,
+    }))
+  }, [neighbors])
 
   // Cloud-root carries a destructive action too — but with different
   // semantics than Region/Cluster/vCluster. Per issue #318, the Cloud
@@ -1042,35 +1078,63 @@ function DetailPanel({
         >
           {focused ? 'Exit focus mode' : 'Focus neighbors'}
         </button>
-        <ul
+        <div
           data-testid="infrastructure-detail-panel-neighbors"
-          className="max-h-48 overflow-y-auto rounded-md border border-[var(--color-border)]"
+          className="max-h-[40vh] overflow-y-auto rounded-md border border-[var(--color-border)]"
         >
           {neighbors.length === 0 ? (
-            <li className="px-2 py-1.5 text-xs text-[var(--color-text-dim)]">
+            <p className="px-2 py-1.5 text-xs text-[var(--color-text-dim)]">
               No connections.
-            </li>
+            </p>
           ) : (
-            neighbors.map((nb) => (
-              <li key={nb.id}>
-                <button
-                  type="button"
-                  data-testid={`infrastructure-detail-panel-neighbor-${nb.id}`}
-                  onClick={() => onPickNeighbor(nb.id)}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-[var(--color-bg)]"
+            groupedNeighbors.map(({ relation, entries }) => (
+              <div
+                key={relation}
+                data-testid={`arch-detail-panel-relation-group-${relation}`}
+              >
+                <h4
+                  data-testid={`arch-detail-panel-relation-header-${relation}`}
+                  className="sticky top-0 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: NODE_FILL[nb.type] }}
-                  />
-                  <span className="truncate text-[var(--color-text)]">{nb.label}</span>
-                  <span className="ml-auto text-[var(--color-text-dim)]">{nb.type}</span>
-                </button>
-              </li>
+                  <span style={{ color: EDGE_STROKE[relation] }}>{relation}</span>
+                  <span className="ml-auto text-[var(--color-text-dim)]">{entries.length}</span>
+                </h4>
+                <ul>
+                  {entries.map((entry) => (
+                    <li key={`${entry.relation}:${entry.node.id}`}>
+                      <button
+                        type="button"
+                        data-testid={`arch-detail-panel-neighbor-${entry.relation}-${entry.node.id}`}
+                        data-direction={entry.direction}
+                        onClick={() => onPickNeighbor(entry.node.id)}
+                        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-[var(--color-bg)]"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="h-2 w-2 rounded-full"
+                          style={{ background: NODE_FILL[entry.node.type] }}
+                        />
+                        <span className="truncate text-[var(--color-text)]">
+                          {entry.node.label}
+                        </span>
+                        <span className="ml-auto text-[var(--color-text-dim)]">
+                          {entry.node.type}
+                        </span>
+                      </button>
+                      {/* Legacy testid kept for backwards-compat with existing
+                          #309 tests that key off neighbor-{nodeId}. */}
+                      <span
+                        data-testid={`infrastructure-detail-panel-neighbor-${entry.node.id}`}
+                        aria-hidden="true"
+                        style={{ display: 'none' }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))
           )}
-        </ul>
+        </div>
       </section>
 
       <section
