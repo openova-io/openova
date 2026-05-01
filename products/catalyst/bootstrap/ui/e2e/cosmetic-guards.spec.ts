@@ -1325,30 +1325,34 @@ test.describe('@cosmetic-guard cloud section', () => {
     }
   })
 
-  test('Sidebar exposes a Cloud accordion (not a flat Infrastructure entry)', async ({ page }) => {
+  test('Sidebar exposes a single flat Cloud entry (not the legacy accordion or flat Infrastructure)', async ({ page }) => {
     await page.goto('provision/test-deployment-id')
     await page.waitForLoadState('domcontentloaded')
 
-    const cloudHeader = page.getByTestId('sov-nav-cloud')
+    const cloud = page.getByTestId('sov-nav-cloud')
     await expect(
-      cloudHeader,
-      'Sidebar is missing the Cloud accordion header. Add a button with data-testid=sov-nav-cloud (see Sidebar.tsx).',
+      cloud,
+      'Sidebar is missing the Cloud nav entry. Add an <a> with data-testid=sov-nav-cloud (see Sidebar.tsx).',
     ).toBeVisible()
 
+    // Issue #350 dropped the accordion — Cloud must be a flat <a>, no
+    // chevron, no aria-controls, no sub-items.
     expect(
-      cloudHeader.getAttribute('aria-controls'),
-      'Cloud accordion header must declare aria-controls pointing at the sub-list group.',
-    ).resolves.toBe('sov-nav-cloud-group')
+      await cloud.evaluate((el) => el.tagName),
+      'Cloud nav entry must be an anchor (single-level link) — issue #350 replaced the accordion with a flat link.',
+    ).toBe('A')
+    expect(await page.getByTestId('sov-nav-cloud-toggle').count()).toBe(0)
+    expect(await page.getByTestId('sov-nav-cloud-architecture').count()).toBe(0)
 
-    // The legacy flat "Infrastructure" entry must be gone.
+    // Legacy flat "Infrastructure" entry must remain gone.
     expect(
       await page.getByTestId('sov-nav-infrastructure').count(),
-      'Sidebar still renders a flat sov-nav-infrastructure item — issue #309 replaced it with a Cloud accordion.',
+      'Sidebar still renders a flat sov-nav-infrastructure item — issue #309 replaced it with the Cloud entry.',
     ).toBe(0)
   })
 
   test('Per-Sovereign switcher renders in the Cloud header', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/cloud/architecture')
+    await page.goto('provision/test-deployment-id/cloud?view=graph')
     await page.waitForLoadState('domcontentloaded')
 
     const switcher = page.getByTestId('cloud-sovereign-switcher')
