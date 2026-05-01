@@ -44,14 +44,18 @@ import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
   EDGE_DASHED,
+  EDGE_MARKER_END,
+  EDGE_MARKER_START,
   EDGE_STROKE,
   NODE_FILL,
   SMALL_TYPE_THRESHOLD,
   type ArchEdgeType,
   type ArchNodeType,
+  type EdgeMarker,
   type GraphEdge,
   type GraphNode,
 } from './types'
+import { markerId } from './markers'
 
 /* ── Constants ───────────────────────────────────────────────────── */
 
@@ -526,7 +530,7 @@ export function ArchitectureGraphPage({
         )}
       </div>
 
-      {/* Edge legend. */}
+      {/* Edge legend — ArchiMate symbol thumbnail + name + count. */}
       {hasNodes && (
         <div
           data-testid="cloud-architecture-edge-legend"
@@ -544,17 +548,7 @@ export function ArchitectureGraphPage({
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text)]"
                 aria-label={`${t} relation: ${count} edges`}
               >
-                <svg width={22} height={6} aria-hidden="true">
-                  <line
-                    x1={1}
-                    y1={3}
-                    x2={21}
-                    y2={3}
-                    stroke={EDGE_STROKE[t]}
-                    strokeWidth={1.5}
-                    strokeDasharray={EDGE_DASHED[t] ? '5,3' : undefined}
-                  />
-                </svg>
+                <EdgeLegendThumb type={t} />
                 <span>{t}</span>
                 <span className="text-[var(--color-text-dim)]">({count})</span>
               </span>
@@ -946,6 +940,98 @@ function PresetButton({
       {preset}
     </button>
   )
+}
+
+/* ── Edge legend thumbnail (ArchiMate symbol) ───────────────────── */
+
+function EdgeLegendThumb({ type }: { type: ArchEdgeType }) {
+  const stroke = EDGE_STROKE[type]
+  const dashed = EDGE_DASHED[type]
+  const startKind = EDGE_MARKER_START[type]
+  const endKind = EDGE_MARKER_END[type]
+  // Inline SVG with a self-contained <defs> so the legend thumbnail
+  // renders the same marker shapes the canvas uses. We keep this
+  // small (44x14) so it fits inline with the legend label.
+  const W = 44
+  const H = 14
+  return (
+    <svg width={W} height={H} aria-hidden="true">
+      <defs>
+        {startKind && <LegendMarker kind={startKind} stroke={stroke} />}
+        {endKind && <LegendMarker kind={endKind} stroke={stroke} />}
+      </defs>
+      <line
+        x1={6}
+        y1={H / 2}
+        x2={W - 6}
+        y2={H / 2}
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeDasharray={dashed ? '5,3' : undefined}
+        markerStart={startKind ? `url(#${markerId(startKind, stroke)}-legend)` : undefined}
+        markerEnd={endKind ? `url(#${markerId(endKind, stroke)}-legend)` : undefined}
+      />
+    </svg>
+  )
+}
+
+/**
+ * Standalone marker bodies for the legend SVGs. Kept distinct from
+ * the canvas's marker bodies (id suffix `-legend`) so a per-line
+ * marker reference doesn't collide with the canvas's main <defs>.
+ */
+function LegendMarker({ kind, stroke }: { kind: NonNullable<EdgeMarker>; stroke: string }) {
+  const id = `${markerId(kind, stroke)}-legend`
+  const common = {
+    markerUnits: 'strokeWidth' as const,
+    orient: 'auto' as const,
+  }
+  switch (kind) {
+    case 'composition':
+      return (
+        <marker id={id} {...common} markerWidth={14} markerHeight={10} refX={11} refY={5} viewBox="0 0 14 10">
+          <polygon points="0,5 7,1 14,5 7,9" fill={stroke} stroke={stroke} strokeWidth={1} />
+        </marker>
+      )
+    case 'aggregation':
+      return (
+        <marker id={id} {...common} markerWidth={14} markerHeight={10} refX={11} refY={5} viewBox="0 0 14 10">
+          <polygon points="0,5 7,1 14,5 7,9" fill="#0b0d12" stroke={stroke} strokeWidth={1.4} />
+        </marker>
+      )
+    case 'assignment-dot':
+      return (
+        <marker id={id} {...common} markerWidth={8} markerHeight={8} refX={4} refY={4} viewBox="0 0 8 8">
+          <circle cx={4} cy={4} r={3} fill={stroke} />
+        </marker>
+      )
+    case 'triggering':
+      return (
+        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
+          <polygon points="0,0 11,4.5 0,9" fill={stroke} />
+        </marker>
+      )
+    case 'used-by':
+      return (
+        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
+          <polyline points="0,0 11,4.5 0,9" fill="none" stroke={stroke} strokeWidth={1.4} />
+        </marker>
+      )
+    case 'realization':
+      return (
+        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
+          <polygon points="0,0 11,4.5 0,9" fill="#0b0d12" stroke={stroke} strokeWidth={1.4} />
+        </marker>
+      )
+    case 'attached':
+      return (
+        <marker id={id} {...common} markerWidth={9} markerHeight={9} refX={7} refY={4.5} viewBox="0 0 9 9">
+          <circle cx={4.5} cy={4.5} r={3} fill="#0b0d12" stroke={stroke} strokeWidth={1.2} />
+        </marker>
+      )
+    default:
+      return null
+  }
 }
 
 interface DetailPanelProps {

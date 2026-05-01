@@ -74,15 +74,19 @@ import {
 import {
   edgeNodeId,
   EDGE_DASHED,
+  EDGE_MARKER_END,
+  EDGE_MARKER_START,
   EDGE_STROKE,
   NODE_FILL,
   type ArchEdgeType,
   type ArchNodeType,
+  type EdgeMarker,
   type GraphEdge,
   type GraphNode,
   type LiveEdge,
   type LiveNode,
 } from './types'
+import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
 
@@ -203,6 +207,135 @@ function useContainerSize(): [React.RefObject<HTMLDivElement | null>, ResizeBox]
     return () => ro.disconnect()
   }, [])
   return [ref, size]
+}
+
+/* ── ArchiMate marker definitions ───────────────────────────────── */
+
+/**
+ * Renders the actual <marker> body for a (kind, stroke) pair. Marker
+ * geometry follows ArchiMate 3.x conventions: composition diamond
+ * 12×7, aggregation diamond 12×7 hollow, assignment dot r=3, triggering
+ * filled triangle 10×7, used-by open triangle 10×7, realization hollow
+ * triangle 10×7, attached small open circle r=4.
+ */
+function MarkerBody({ kind, stroke }: { kind: EdgeMarker; stroke: string }) {
+  if (!kind) return null
+  const common = {
+    markerUnits: 'strokeWidth' as const,
+    orient: 'auto' as const,
+  }
+  switch (kind) {
+    case 'composition':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={14}
+          markerHeight={10}
+          refX={11}
+          refY={5}
+          viewBox="0 0 14 10"
+        >
+          <polygon points="0,5 7,1 14,5 7,9" fill={stroke} stroke={stroke} strokeWidth={1} />
+        </marker>
+      )
+    case 'aggregation':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={14}
+          markerHeight={10}
+          refX={11}
+          refY={5}
+          viewBox="0 0 14 10"
+        >
+          <polygon
+            points="0,5 7,1 14,5 7,9"
+            fill="#0b0d12"
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+        </marker>
+      )
+    case 'assignment-dot':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={8}
+          markerHeight={8}
+          refX={4}
+          refY={4}
+          viewBox="0 0 8 8"
+        >
+          <circle cx={4} cy={4} r={3} fill={stroke} />
+        </marker>
+      )
+    case 'triggering':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polygon points="0,0 11,4.5 0,9" fill={stroke} />
+        </marker>
+      )
+    case 'used-by':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polyline points="0,0 11,4.5 0,9" fill="none" stroke={stroke} strokeWidth={1.4} />
+        </marker>
+      )
+    case 'realization':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polygon
+            points="0,0 11,4.5 0,9"
+            fill="#0b0d12"
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+        </marker>
+      )
+    case 'attached':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={9}
+          markerHeight={9}
+          refX={7}
+          refY={4.5}
+          viewBox="0 0 9 9"
+        >
+          <circle cx={4.5} cy={4.5} r={3} fill="#0b0d12" stroke={stroke} strokeWidth={1.2} />
+        </marker>
+      )
+    default:
+      return null
+  }
 }
 
 /* ── Component ───────────────────────────────────────────────────── */
@@ -587,6 +720,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
   const ds = dragState.current
   const draggingNode = ds.nodeId ? liveNodesRef.current.get(ds.nodeId) ?? null : null
 
+  // Compute the unique marker defs the current edge set needs. We
+  // memoise off `visibleEdges` (the upstream React-stable input)
+  // rather than `liveEdgeArr` (a fresh array every animation frame) —
+  // the marker palette depends purely on edge type, not on positions,
+  // so this avoids re-allocating the same defs 60 times a second.
+  const markerDefs = useMemo(
+    () => uniqueMarkerDefs(visibleEdges),
+    [visibleEdges],
+  )
+
   return (
     <div
       ref={containerRef}
@@ -604,6 +747,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         onContextMenu={onContextMenuSvg}
         style={{ cursor: ds.nodeId ? 'grabbing' : 'default', userSelect: 'none' }}
       >
+        <defs data-testid={`${testIdPrefix}-marker-defs`}>
+          {markerDefs.map(({ kind, stroke }) => (
+            <MarkerBody key={`${kind}-${stroke}`} kind={kind} stroke={stroke} />
+          ))}
+        </defs>
+
         {/* Edges first so they render under nodes. */}
         <g data-testid={`${testIdPrefix}-edges`}>
           {liveEdgeArr.map((e) => {
@@ -614,6 +763,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
             if (!s || !t) return null
             const stroke = EDGE_STROKE[e.type as ArchEdgeType] ?? '#888'
             const dash = EDGE_DASHED[e.type as ArchEdgeType] ? '6,4' : undefined
+            const startKind = EDGE_MARKER_START[e.type as ArchEdgeType]
+            const endKind = EDGE_MARKER_END[e.type as ArchEdgeType]
+            const markerStart = startKind ? `url(#${markerId(startKind, stroke)})` : undefined
+            const markerEnd = endKind ? `url(#${markerId(endKind, stroke)})` : undefined
             return (
               <line
                 key={e.id}
@@ -625,8 +778,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                 y2={t.y}
                 stroke={stroke}
                 strokeWidth={1.5}
-                strokeOpacity={0.65}
+                strokeOpacity={0.75}
                 strokeDasharray={dash}
+                markerStart={markerStart}
+                markerEnd={markerEnd}
               />
             )
           })}
