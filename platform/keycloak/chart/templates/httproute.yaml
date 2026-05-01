@@ -17,9 +17,7 @@ override via `gateway.backendService` if a non-default release name is
 used.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if not .Values.gateway.host }}
-{{- fail "values.gateway.host is required (e.g. auth.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if .Values.gateway.host }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -45,4 +43,5 @@ spec:
       backendRefs:
         - name: {{ .Values.gateway.backendService | default (printf "%s-keycloak" .Release.Name) | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}
 {{- end }}

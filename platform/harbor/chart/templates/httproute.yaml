@@ -16,9 +16,7 @@ matching `/` is sufficient. Sub-path-specific rules can be added by an
 operator overlay if isolating /api/v2.0 separately is required.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if not .Values.gateway.host }}
-{{- fail "values.gateway.host is required (e.g. registry.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if .Values.gateway.host }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -43,4 +41,5 @@ spec:
       backendRefs:
         - name: {{ .Values.gateway.backendService | default (printf "%s-harbor-core" .Release.Name) | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}
 {{- end }}

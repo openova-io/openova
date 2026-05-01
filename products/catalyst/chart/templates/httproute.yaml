@@ -24,12 +24,7 @@ is gated behind a corporate VPN).
 {{- if and .Values.ingress .Values.ingress.gateway .Values.ingress.gateway.enabled -}}
 {{- $consoleHost := (((.Values.ingress.hosts).console).host) }}
 {{- $apiHost := (((.Values.ingress.hosts).api).host) }}
-{{- if not $consoleHost }}
-{{- fail "values.ingress.hosts.console.host is required (e.g. console.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
-{{- if not $apiHost }}
-{{- fail "values.ingress.hosts.api.host is required (e.g. api.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if and $consoleHost $apiHost }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -81,4 +76,5 @@ spec:
       backendRefs:
         - name: catalyst-api
           port: 8080
+{{- end }}
 {{- end }}

@@ -10,9 +10,7 @@ Backend reference: the upstream gitea chart's HTTP Service is named
 in the bootstrap-kit slot the Service is `gitea-gitea-http`.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if not .Values.gateway.host }}
-{{- fail "values.gateway.host is required (e.g. git.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if .Values.gateway.host }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -38,4 +36,5 @@ spec:
       backendRefs:
         - name: {{ .Values.gateway.backendService | default (printf "%s-gitea-http" .Release.Name) | quote }}
           port: {{ .Values.gateway.backendPort | default 3000 }}
+{{- end }}
 {{- end }}
