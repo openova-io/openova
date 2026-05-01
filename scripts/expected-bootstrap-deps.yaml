@@ -226,3 +226,12 @@ slots:
     name: bp-librechat
     depends_on: [bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak]
     wave: W2.K4
+
+  # ---- Phase-2 (handover) — DNS-01 webhook against Sovereign's own PowerDNS -
+  # Authored under #373; lands at slot 49 because slots 36-48 were already
+  # forward-declared by the W2.K4 batch. Wave is "present" because the HR
+  # exists on disk now (chart-released; runtime exercise deferred to Phase 8).
+  - slot: 49
+    name: bp-cert-manager-powerdns-webhook
+    depends_on: [bp-cert-manager, bp-powerdns]
+    wave: present
