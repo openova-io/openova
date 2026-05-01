@@ -1,0 +1,37 @@
+# Cilium Gateway (Phase-8a bug #14 follow-up to #484).
+# Moved out of bootstrap-kit/01-cilium.yaml because gateway.networking.k8s.io/v1
+# CRDs are installed by the Cilium HelmRelease itself; Flux dry-runs the
+# whole Kustomization before applying any HR, so Gateway dry-run fails on
+# a fresh cluster. The sovereign-tls Kustomization dependsOn bootstrap-kit
+# Ready, so by the time Gateway is applied here, Cilium has installed.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: cilium-gateway
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.${SOVEREIGN_FQDN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: sovereign-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.${SOVEREIGN_FQDN}"
+      allowedRoutes:
+        namespaces:
+          from: All
