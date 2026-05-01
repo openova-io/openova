@@ -30,7 +30,7 @@
  * is no hand-maintained id list in this file.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter, Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
@@ -38,6 +38,7 @@ import { resolveApplications, type ApplicationDescriptor } from './applicationCa
 import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
 import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
+import { useNotifications } from '@/shared/ui/notifications'
 
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -69,6 +70,88 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const isFailed = streamStatus === 'failed' || streamStatus === 'unreachable'
   const failureMessage = streamError ?? snapshot?.error ?? null
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
+
+  // Wipe modal is owned by AppsPage so the "Cancel & Wipe" toast action
+  // can flip it open. The toast itself is mounted by the global tray; the
+  // modal stays here because it owns the destructive POST + spinner.
+  const [showWipeModal, setShowWipeModal] = useState(false)
+  const onWipeComplete = () => {
+    setShowWipeModal(false)
+    router.navigate({ to: '/wizard' })
+  }
+
+  // Surface terminal-failure + phase-1-skipped state as global toasts
+  // (founder #475 — Apps page must render only the apps grid). Same
+  // copy + same actions as the legacy banner, just delivered via the
+  // `useNotifications` seam so they stay visible across tabs and don't
+  // fight the apps grid for vertical space.
+  const { notify, dismiss } = useNotifications()
+  useEffect(() => {
+    const id = `deployment-failure:${deploymentId}`
+    if (!isFailed) {
+      dismiss(id)
+      return
+    }
+    const isUnreachable = streamStatus === 'unreachable'
+    notify({
+      id,
+      level: 'error',
+      title: isUnreachable
+        ? 'Couldn’t reach the deployment stream'
+        : 'Provisioning failed',
+      body: isUnreachable
+        ? `The catalyst-api is unreachable, or deployment ${deploymentId} is unknown to the backend.`
+        : `The catalyst-api emitted a terminal failure for deployment ${deploymentId}.`,
+      raw: failureMessage ?? undefined,
+      actions: [
+        {
+          label: 'Retry stream',
+          variant: 'primary',
+          testId: 'sov-failure-retry',
+          onClick: retry,
+          dismissOnClick: false,
+        },
+        {
+          label: 'Cancel & Wipe',
+          variant: 'danger',
+          testId: 'sov-failure-wipe',
+          onClick: () => setShowWipeModal(true),
+          dismissOnClick: false,
+        },
+        {
+          label: 'Back to wizard',
+          variant: 'ghost',
+          testId: 'sov-failure-back',
+          onClick: () => router.navigate({ to: '/wizard' }),
+        },
+      ],
+    })
+    // The dismiss-on-recovery branch above handles cleanup; no return
+    // closure needed because notification ids are stable per deployment.
+  }, [isFailed, streamStatus, failureMessage, deploymentId, notify, dismiss, retry, router])
+
+  useEffect(() => {
+    const id = `phase1-unavailable:${deploymentId}`
+    if (!state.phase1WatchSkipped) {
+      dismiss(id)
+      return
+    }
+    const target = sovereignFQDN ?? 'the new Sovereign cluster'
+    notify({
+      id,
+      level: 'warn',
+      title: 'Per-component install monitoring is unavailable for this deployment',
+      body: `The Catalyst API couldn’t fetch the new cluster’s kubeconfig. Use kubectl directly to check Helm releases on ${target}.`,
+      raw: state.phase1WatchSkippedReason ?? undefined,
+    })
+  }, [
+    state.phase1WatchSkipped,
+    state.phase1WatchSkippedReason,
+    sovereignFQDN,
+    deploymentId,
+    notify,
+    dismiss,
+  ])
 
   // Catalog = every Application this deployment knows about (canonical
   // calls this "every app in the org's catalog"; for the wizard surface
@@ -156,22 +239,23 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     >
       <style>{APPS_PAGE_CSS}</style>
 
-      {isFailed ? (
-        <FailureCard
+      {/*
+       * Failure + phase-1-unavailable banners used to render here above
+       * the apps grid. Per founder #475 they now fire as global toasts
+       * via the NotificationProvider mounted in RootLayout, leaving the
+       * Apps page to render only the grid + tabs + search box.
+       *
+       * The Cancel-&-Wipe action on the failure toast still needs a
+       * page-scoped modal mount, so WipeDeploymentModal lives below.
+       */}
+
+      {showWipeModal ? (
+        <WipeDeploymentModal
+          open={showWipeModal}
           deploymentId={deploymentId}
           sovereignFQDN={sovereignFQDN}
-          status={streamStatus as 'failed' | 'unreachable'}
-          message={failureMessage}
-          onRetry={retry}
-          onBack={() => router.navigate({ to: '/wizard' })}
-          onWiped={() => router.navigate({ to: '/wizard' })}
-        />
-      ) : null}
-
-      {state.phase1WatchSkipped ? (
-        <Phase1UnavailableBanner
-          fqdn={sovereignFQDN}
-          reason={state.phase1WatchSkippedReason}
+          onClose={() => setShowWipeModal(false)}
+          onWiped={onWipeComplete}
         />
       ) : null}
 
@@ -321,108 +405,6 @@ function AppCard({ app, status, deploymentId, isService }: AppCardProps) {
         )}
       </div>
     </Link>
-  )
-}
-
-interface FailureCardProps {
-  deploymentId: string
-  sovereignFQDN: string | null
-  status: 'failed' | 'unreachable'
-  message: string | null
-  onRetry: () => void
-  onBack: () => void
-  onWiped: () => void
-}
-
-function FailureCard({ deploymentId, sovereignFQDN, status, message, onRetry, onBack, onWiped }: FailureCardProps) {
-  const isUnreachable = status === 'unreachable'
-  const [showWipeModal, setShowWipeModal] = useState(false)
-  return (
-    <div
-      role="alert"
-      data-testid="sov-failure-card"
-      className="my-3 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-4 text-sm text-[var(--color-text)]"
-    >
-      <h3 className="m-0 mb-1 text-base font-semibold text-[var(--color-danger)]">
-        {isUnreachable ? 'Couldn’t reach the deployment stream' : 'Provisioning failed'}
-      </h3>
-      <p className="m-0 mb-2 text-[var(--color-text-dim)]">
-        {isUnreachable
-          ? `The catalyst-api is unreachable, or deployment ${deploymentId} is unknown to the backend.`
-          : `The catalyst-api emitted a terminal failure for deployment ${deploymentId}.`}
-      </p>
-      {message ? (
-        <pre data-testid="sov-failure-error" className="my-2 overflow-x-auto rounded bg-[var(--color-bg)] p-2 text-[11px] text-[var(--color-text-dim)]">
-          {message}
-        </pre>
-      ) : null}
-      <div className="mt-2 flex gap-2 flex-wrap">
-        <button
-          type="button"
-          onClick={onRetry}
-          data-testid="sov-failure-retry"
-          className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-1 text-xs font-semibold text-white hover:bg-[var(--color-accent-hover)]"
-        >
-          Retry stream
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowWipeModal(true)}
-          data-testid="sov-failure-wipe"
-          className="rounded-md border border-[var(--color-danger)] bg-[var(--color-danger)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
-        >
-          Cancel &amp; Wipe
-        </button>
-        <button
-          type="button"
-          onClick={onBack}
-          data-testid="sov-failure-back"
-          className="rounded-md border border-[var(--color-border)] bg-transparent px-3 py-1 text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-        >
-          Back to wizard
-        </button>
-      </div>
-      {showWipeModal ? (
-        <WipeDeploymentModal
-          open={showWipeModal}
-          deploymentId={deploymentId}
-          sovereignFQDN={sovereignFQDN}
-          onClose={() => setShowWipeModal(false)}
-          onWiped={() => { setShowWipeModal(false); onWiped() }}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-interface Phase1UnavailableBannerProps {
-  fqdn: string | null
-  reason: string | null
-}
-
-function Phase1UnavailableBanner({ fqdn, reason }: Phase1UnavailableBannerProps) {
-  const target = fqdn ?? 'the new Sovereign cluster'
-  return (
-    <div
-      role="status"
-      data-testid="sov-phase1-unavailable-banner"
-      className="my-3 rounded-lg border border-[var(--color-warn)]/35 bg-[var(--color-warn)]/10 p-3 text-sm text-[var(--color-text)]"
-    >
-      <strong className="text-[var(--color-warn)] font-bold">
-        Per-component install monitoring is unavailable for this deployment
-      </strong>{' '}
-      <span className="text-xs text-[var(--color-text-dim)]">
-        — the Catalyst API couldn’t fetch the new cluster’s kubeconfig. Use kubectl directly to check Helm releases on {target}.
-      </span>
-      {reason ? (
-        <pre
-          data-testid="sov-phase1-unavailable-reason"
-          className="mt-2 whitespace-pre-wrap break-words rounded bg-[var(--color-bg)] p-2 font-mono text-[11px] text-[var(--color-text-dim)]"
-        >
-          {reason}
-        </pre>
-      ) : null}
-    </div>
   )
 }
 

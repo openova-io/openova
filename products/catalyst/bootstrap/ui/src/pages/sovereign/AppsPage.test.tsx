@@ -24,9 +24,16 @@ import {
 import { AppsPage } from './AppsPage'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
+import { NotificationProvider } from '@/shared/ui/notifications'
 
 function renderProvision(deploymentId: string) {
-  const rootRoute = createRootRoute({ component: () => <Outlet /> })
+  const rootRoute = createRootRoute({
+    component: () => (
+      <NotificationProvider>
+        <Outlet />
+      </NotificationProvider>
+    ),
+  })
   const provisionRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId',
@@ -113,6 +120,29 @@ describe('AppsPage — tabs', () => {
     expect(countSpan).toBeTruthy()
     const n = Number((countSpan!.textContent ?? '').trim())
     expect(n).toBeGreaterThan(0)
+  })
+})
+
+describe('AppsPage — banner pollution gate (founder #475)', () => {
+  it('renders no role="alert" or role="status" inside main on first paint', async () => {
+    renderProvision('d-1')
+    // Wait for the page to settle.
+    await screen.findByText('Applications')
+    // The Apps page main surface must be free of inline banners. Toasts
+    // (which would render inside the global tray, not main) are allowed.
+    const main = document.querySelector('main')
+    expect(main).toBeTruthy()
+    expect(main!.querySelector('[role="alert"]')).toBeNull()
+    expect(main!.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('does not import or render the legacy FailureCard test ids', async () => {
+    renderProvision('d-1')
+    await screen.findByText('Applications')
+    // These test ids were the inline banner anchors. They must not paint
+    // anywhere on the Apps surface; the failure UX moves to global toasts.
+    expect(screen.queryByTestId('sov-failure-card')).toBeNull()
+    expect(screen.queryByTestId('sov-phase1-unavailable-banner')).toBeNull()
   })
 })
 
