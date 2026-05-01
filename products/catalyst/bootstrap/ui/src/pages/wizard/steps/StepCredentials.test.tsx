@@ -56,6 +56,13 @@ beforeEach(() => {
     hetznerToken: 'x'.repeat(64),
     hetznerProjectId: 'proj_abc',
     credentialValidated: true,
+    // Hetzner Object Storage (issue #371) — pre-validated in the test
+    // baseline so the SSH-section tests aren't gated on it. The
+    // ObjectStorageSection has its own focused tests (see below).
+    objectStorageRegion: 'fsn1',
+    objectStorageAccessKey: 'TESTACCESSKEY1234567',
+    objectStorageSecretKey: 'TESTSECRETKEY1234567890123456789012345678',
+    objectStorageValidated: true,
   })
 })
 

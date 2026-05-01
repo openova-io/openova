@@ -365,6 +365,322 @@ function TokenSection({
   )
 }
 
+/**
+ * ObjectStorageSection — Phase 0b credential capture for Hetzner Object
+ * Storage (issue #371). Hetzner does NOT expose a Cloud API to mint
+ * S3 access keys; the operator issues them once in the Hetzner Console
+ * (Object Storage → Manage Credentials, secret half shown exactly once).
+ * The wizard collects both halves, validates them via S3 ListBuckets
+ * against the chosen region's endpoint
+ * (`<region>.your-objectstorage.com`), and hands them to the catalyst-
+ * api in the deployment-create payload. The OpenTofu module then
+ * creates the per-Sovereign bucket via the `aminueza/minio` provider
+ * and writes the credentials into the new cluster's `flux-system/
+ * hetzner-object-storage` Secret at cloud-init time.
+ *
+ * Region defaults to fsn1 (Falkenstein); the operator can pick nbg1
+ * (Nuremberg) or hel1 (Helsinki) — Object Storage availability is
+ * European-only as of 2026-04. Compute regions outside Europe (ash, hil)
+ * still pick a European Object Storage region; Velero/Harbor are
+ * latency-tolerant on the async backup path.
+ *
+ * Validation gates the wizard's Next button so a typo'd credential pair
+ * surfaces here rather than 5 minutes into `tofu apply`.
+ */
+function ObjectStorageSection() {
+  const store = useWizardStore()
+  const [showSecret, setShowSecret] = useState(false)
+  const [state, setState] = useState<ValidationState>(
+    store.objectStorageValidated ? 'valid' : 'idle'
+  )
+  const [failure, setFailure] = useState<FailureDetail | null>(null)
+
+  const region = store.objectStorageRegion || 'fsn1'
+  const accessKey = store.objectStorageAccessKey
+  const secretKey = store.objectStorageSecretKey
+
+  function handleRegionChange(r: 'fsn1' | 'nbg1' | 'hel1') {
+    store.setObjectStorageRegion(r)
+    setFailure(null)
+    setState('idle')
+  }
+  function handleAccessChange(v: string) {
+    store.setObjectStorageAccessKey(v)
+    setFailure(null)
+    setState('idle')
+  }
+  function handleSecretChange(v: string) {
+    store.setObjectStorageSecretKey(v)
+    setFailure(null)
+    setState('idle')
+  }
+
+  async function validate() {
+    if (accessKey.trim().length < 16 || secretKey.trim().length < 32) {
+      setFailure({
+        kind: 'too-short',
+        summary: 'Object Storage credentials are too short',
+        hint:
+          'Hetzner Object Storage access keys are at least 16 chars and secrets at least 32 chars. ' +
+          'Re-issue the credential pair in Hetzner Console → Object Storage → Manage Credentials.',
+      })
+      setState('invalid')
+      return
+    }
+    if (!region) {
+      setFailure({
+        kind: 'rejected',
+        summary: 'Pick an Object Storage region',
+        hint: 'Hetzner Object Storage is European-only as of 2026-04. Pick fsn1, nbg1, or hel1.',
+      })
+      setState('invalid')
+      return
+    }
+    setState('validating')
+    setFailure(null)
+
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}/v1/credentials/object-storage/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ region, accessKey, secretKey }),
+      })
+    } catch (err) {
+      setFailure({
+        kind: 'network',
+        summary: 'Could not reach the validation service',
+        hint:
+          'The wizard could not POST to /api/v1/credentials/object-storage/validate. ' +
+          'You may be offline or the catalyst-api is down. Reload and retry.',
+        rawMessage: String(err),
+      })
+      setState('invalid')
+      store.setObjectStorageValidated(false)
+      return
+    }
+
+    let data: { valid?: boolean; message?: string } | null = null
+    try {
+      data = (await res.json()) as { valid?: boolean; message?: string }
+    } catch (err) {
+      setFailure({
+        kind: 'parse',
+        summary: 'Validation service returned a malformed response',
+        hint: "The backend's response could not be parsed as JSON.",
+        rawMessage: String(err),
+        status: res.status,
+      })
+      setState('invalid')
+      store.setObjectStorageValidated(false)
+      return
+    }
+
+    if (res.ok && data?.valid === true) {
+      setState('valid')
+      store.setObjectStorageValidated(true)
+      return
+    }
+
+    let kind: FailureKind = 'rejected'
+    if (res.status === 503) kind = 'unreachable'
+    else if (res.status === 400) kind = 'too-short'
+    else if (!res.ok) kind = 'http'
+
+    const hint = kind === 'rejected'
+      ? 'The credentials authenticated against Hetzner but were rejected (or the access/secret pair is wrong). ' +
+        'Re-issue a fresh pair in Hetzner Console → Object Storage → Manage Credentials.'
+      : kind === 'unreachable'
+        ? 'The catalyst-api could not reach Hetzner Object Storage. Check status.hetzner.com and retry.'
+        : FAILURE_HINTS[kind].hint
+
+    setFailure({
+      kind,
+      summary: kind === 'rejected' ? 'Object Storage credentials rejected' : FAILURE_HINTS[kind].summary,
+      hint,
+      rawMessage: data?.message,
+      status: res.status,
+    })
+    setState('invalid')
+    store.setObjectStorageValidated(false)
+  }
+
+  const canValidate =
+    accessKey.trim().length >= 16 &&
+    secretKey.trim().length >= 32 &&
+    !!region &&
+    state !== 'validating'
+
+  return (
+    <div style={{
+      borderRadius: 12, overflow: 'hidden',
+      border: state === 'valid'
+        ? '1.5px solid rgba(74,222,128,0.3)'
+        : '1.5px solid var(--wiz-border-sub)',
+      background: state === 'valid' ? 'rgba(74,222,128,0.03)' : 'var(--wiz-bg-xs)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--wiz-border-sub)' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wiz-text-hi)' }}>Hetzner Object Storage (S3)</span>
+            {state === 'valid' && <CheckCircle2 size={13} style={{ color: '#4ADE80' }} />}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--wiz-text-sub)', marginTop: 2 }}>
+            Per-Sovereign S3 bucket — backs Harbor (image registry) + Velero (cluster backup)
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Region picker */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+            Object Storage region
+          </span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(['fsn1', 'nbg1', 'hel1'] as const).map(r => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => handleRegionChange(r)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: `1.5px solid ${region === r ? 'rgba(56,189,248,0.5)' : 'var(--wiz-border-sub)'}`,
+                  background: region === r ? 'rgba(56,189,248,0.08)' : 'var(--wiz-bg-input)',
+                  color: 'var(--wiz-text-hi)',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {r === 'fsn1' ? 'fsn1 — Falkenstein' : r === 'nbg1' ? 'nbg1 — Nuremberg' : 'hel1 — Helsinki'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Access key */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+            S3 access key (operator-issued — 16+ chars)
+          </span>
+          <input
+            type="text"
+            value={accessKey}
+            onChange={e => handleAccessChange(e.target.value)}
+            placeholder="Paste the access key half…"
+            style={{
+              width: '100%', height: 38, borderRadius: 7,
+              border: '1.5px solid var(--wiz-border)',
+              background: 'var(--wiz-bg-input)',
+              color: 'var(--wiz-text-hi)', fontSize: 13, padding: '0 10px',
+              outline: 'none', fontFamily: 'Inter, monospace',
+            }}
+          />
+        </div>
+
+        {/* Secret key */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--wiz-text-sub)' }}>
+            S3 secret key (32+ chars · shown by Hetzner exactly once at issue time)
+          </span>
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showSecret ? 'text' : 'password'}
+              value={secretKey}
+              onChange={e => handleSecretChange(e.target.value)}
+              placeholder="Paste the secret key half…"
+              style={{
+                width: '100%', height: 38, borderRadius: 7,
+                border: '1.5px solid var(--wiz-border)',
+                background: 'var(--wiz-bg-input)',
+                color: 'var(--wiz-text-hi)', fontSize: 13, paddingLeft: 10, paddingRight: 38,
+                outline: 'none', fontFamily: 'Inter, monospace',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowSecret(!showSecret)}
+              style={{
+                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: 'var(--wiz-text-sub)', cursor: 'pointer', padding: 4,
+              }}
+            >
+              {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Validate button */}
+        <button
+          type="button"
+          onClick={validate}
+          disabled={!canValidate}
+          style={{
+            alignSelf: 'flex-start',
+            padding: '8px 16px',
+            borderRadius: 7,
+            border: 'none',
+            background: state === 'valid'
+              ? 'rgba(74,222,128,0.15)'
+              : canValidate ? 'var(--wiz-accent)' : 'var(--wiz-bg-input)',
+            color: state === 'valid' ? '#4ADE80' : canValidate ? 'white' : 'var(--wiz-text-sub)',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: canValidate ? 'pointer' : 'not-allowed',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          {state === 'validating' ? (
+            <>
+              <Loader2 size={14} className="animate-spin" /> Validating…
+            </>
+          ) : state === 'valid' ? (
+            <>
+              <CheckCircle2 size={14} /> S3 access confirmed
+            </>
+          ) : (
+            'Validate'
+          )}
+        </button>
+
+        {failure && (
+          <div style={{
+            borderRadius: 8,
+            border: '1px solid rgba(248,113,113,0.4)',
+            background: 'rgba(248,113,113,0.04)',
+            padding: '10px 12px',
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+          }}>
+            <AlertCircle size={14} style={{ color: '#F87171', flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, fontSize: 12 }}>
+              <div style={{ fontWeight: 600, color: '#FCA5A5', marginBottom: 4 }}>{failure.summary}</div>
+              <div style={{ color: 'var(--wiz-text-sub)' }}>{failure.hint}</div>
+              {failure.rawMessage && (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--wiz-text-sub)', fontFamily: 'JetBrains Mono, monospace' }}>
+                  Backend: {failure.rawMessage}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {state !== 'valid' && (
+          <p style={{ fontSize: 11, color: 'var(--wiz-text-sub)', margin: 0, lineHeight: 1.5 }}>
+            Issue keys at <a href="https://console.hetzner.cloud" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--wiz-accent)' }}>Hetzner Console</a> → Object Storage → Manage Credentials.
+            Hetzner shows the secret half exactly once; if you lose it, issue a fresh pair.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function StepCredentials() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
@@ -380,7 +696,14 @@ export function StepCredentials() {
   // gate the wizard's Next button on the same regex so the user can't reach
   // StepReview with a payload the backend will refuse.
   const sshKeyOk = isValidSSHPublicKey(store.sshPublicKey)
-  const canProceed = allValidated && sshKeyOk
+  // Hetzner Object Storage gate (issue #371) — only enforced when the
+  // operator selected hetzner as a provider (Phase 0b is hetzner-only as
+  // of 2026-04). Hetzner exposes no API to mint S3 credentials, so the
+  // wizard collects them and the catalyst-api validates them via S3
+  // ListBuckets BEFORE the deployment payload reaches Validate().
+  const objectStorageRequired = providers.includes('hetzner')
+  const objectStorageOk = !objectStorageRequired || store.objectStorageValidated
+  const canProceed = allValidated && sshKeyOk && objectStorageOk
 
   const regionIndicesFor = (p: CloudProvider) =>
     Object.entries(store.regionProviders)
@@ -414,6 +737,13 @@ export function StepCredentials() {
       {/* SSH keypair — required for hcloud_ssh_key + sovereign-admin
           break-glass access. Closes #160. */}
       <SSHKeySection />
+
+      {/* Hetzner Object Storage — Phase 0b (issue #371). Operator-issued
+          S3 credentials feed Harbor (#383) + Velero (#384). Only rendered
+          when hetzner is among the chosen providers; the section is
+          a no-op for AWS/Azure/OCI/Huawei (each cloud has its own
+          backing-store path that lands in their respective bp-* charts). */}
+      {objectStorageRequired && <ObjectStorageSection />}
 
       {/* How-to for Hetzner */}
       {providers.includes('hetzner') && !allValidated && (

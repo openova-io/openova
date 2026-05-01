@@ -81,6 +81,15 @@ func main() {
 	r.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
 	r.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
 	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
+	// Hetzner Object Storage credential validator (issue #371). The wizard's
+	// StepCredentials Object-Storage section POSTs here BEFORE allowing the
+	// operator to advance to StepReview, so a typo'd access/secret pair
+	// surfaces as a wizard-step error card rather than 5 minutes into
+	// `tofu apply`. Hetzner exposes no API for credential issuance — the
+	// operator generates them once in the Hetzner Console; this endpoint
+	// confirms the operator-supplied keys can authenticate against the
+	// chosen region's S3 endpoint via ListBuckets.
+	r.Post("/api/v1/credentials/object-storage/validate", h.ValidateObjectStorageCredentials)
 	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
 	// SSH keypair generator — wizard's "auto-generate" Mode A path
 	// (issue #160). Returns publicKey + privateKey + fingerprint; the

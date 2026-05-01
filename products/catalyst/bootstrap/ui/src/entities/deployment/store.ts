@@ -103,6 +103,12 @@ interface WizardActions {
   setHetznerProjectId: (projectId: string) => void
   setCredentialValidated: (validated: boolean) => void
 
+  // Step 4 — Hetzner Object Storage credentials (issue #371)
+  setObjectStorageRegion: (region: 'fsn1' | 'nbg1' | 'hel1' | '') => void
+  setObjectStorageAccessKey: (key: string) => void
+  setObjectStorageSecretKey: (key: string) => void
+  setObjectStorageValidated: (validated: boolean) => void
+
   // Step 4 — SSH keypair (Mode A: auto-generate / Mode B: paste existing)
   setSshPublicKey: (key: string) => void
   /** Mode A — captures a freshly generated keypair returned by
@@ -400,6 +406,22 @@ export const useWizardStore = create<WizardStore>()(
           set({ hetznerProjectId: hetznerProjectId.trim() }, false, 'wizard/setHetznerProjectId'),
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
+
+        // Hetzner Object Storage (issue #371). Each setter clears
+        // objectStorageValidated so a region/key change forces a fresh
+        // ListBuckets probe before Next is enabled — same pattern as the
+        // Hetzner Cloud token credentialValidated flag.
+        setObjectStorageRegion: (objectStorageRegion) =>
+          set({ objectStorageRegion, objectStorageValidated: false }, false,
+            'wizard/setObjectStorageRegion'),
+        setObjectStorageAccessKey: (objectStorageAccessKey) =>
+          set({ objectStorageAccessKey, objectStorageValidated: false }, false,
+            'wizard/setObjectStorageAccessKey'),
+        setObjectStorageSecretKey: (objectStorageSecretKey) =>
+          set({ objectStorageSecretKey, objectStorageValidated: false }, false,
+            'wizard/setObjectStorageSecretKey'),
+        setObjectStorageValidated: (objectStorageValidated) =>
+          set({ objectStorageValidated }, false, 'wizard/setObjectStorageValidated'),
 
         setSshPublicKey: (sshPublicKey) =>
           set(
@@ -720,6 +742,13 @@ export const useWizardStore = create<WizardStore>()(
           // legacy persisted payload.
           if (typeof p.sshPublicKey !== 'string') p.sshPublicKey = ''
           if (typeof p.sshFingerprint !== 'string') p.sshFingerprint = ''
+          // Hetzner Object Storage fields added in #371 — coerce missing
+          // values on a legacy persisted payload so the StepCredentials
+          // ObjectStorageSection renders without throwing on undefined.
+          if (typeof p.objectStorageRegion !== 'string') p.objectStorageRegion = ''
+          if (typeof p.objectStorageAccessKey !== 'string') p.objectStorageAccessKey = ''
+          if (typeof p.objectStorageSecretKey !== 'string') p.objectStorageSecretKey = ''
+          if (typeof p.objectStorageValidated !== 'boolean') p.objectStorageValidated = false
           // Always start a session with no private blob and no "generated
           // this session" flag — partialize() omits them on save, this
           // double-protects an older persist payload that may have

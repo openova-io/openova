@@ -128,6 +128,15 @@ locals {
   # Cloud-init for the control-plane node — installs k3s, then Flux, then
   # writes the Flux GitRepository + Kustomization that points at
   # clusters/<sovereign-fqdn>/ in the public OpenOva monorepo.
+  # ── Hetzner Object Storage S3 endpoint (Phase 0b — issue #371) ──────────
+  # Composed once here from the chosen region so the cloud-init template
+  # and the Object Storage K8s Secret it writes both reference the same
+  # canonical URL. Hetzner's public docs pin the format to
+  # `https://<region>.your-objectstorage.com`. Per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 the URL is composed from the
+  # operator's region choice, never hardcoded in cloudinit-control-plane.tftpl.
+  object_storage_endpoint = "https://${var.object_storage_region}.your-objectstorage.com"
+
   control_plane_cloud_init = templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     sovereign_subdomain        = var.sovereign_subdomain
@@ -145,6 +154,18 @@ locals {
     ghcr_pull_username         = local.ghcr_pull_username
     ghcr_pull_token            = var.ghcr_pull_token
     ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
+
+    # Object Storage credentials — interpolated into the Sovereign's
+    # `hetzner-object-storage` K8s Secret at cloud-init time so Harbor
+    # (#383) and Velero (#384) HelmReleases find the credentials in the
+    # cluster from Phase 1 onwards. Same pattern as ghcr_pull_token: never
+    # in git, only in the encrypted per-deployment OpenTofu workdir + the
+    # Sovereign's user_data, wiped on `tofu destroy`.
+    object_storage_endpoint    = local.object_storage_endpoint
+    object_storage_region      = var.object_storage_region
+    object_storage_bucket_name = var.object_storage_bucket_name
+    object_storage_access_key  = var.object_storage_access_key
+    object_storage_secret_key  = var.object_storage_secret_key
 
     # Cloud-init kubeconfig postback (issue #183, Option D). When
     # all three are non-empty, the template renders a runcmd that
@@ -295,3 +316,45 @@ resource "hcloud_load_balancer_service" "https" {
 #
 # BYO Sovereigns continue to own their own DNS — the customer points their
 # CNAME at the LB IP shown on the success screen.
+
+# ── Hetzner Object Storage bucket (Phase 0b — issue #371) ─────────────────
+#
+# This is the Sovereign's S3 bucket for Velero (cluster-state backup) and
+# Harbor (container-image registry storage). Both Blueprints consume the
+# `hetzner-object-storage` K8s Secret cloud-init writes into the Sovereign;
+# the bucket itself MUST exist before those Blueprints reconcile their first
+# HelmRelease, otherwise their startup probes fail with NoSuchBucket and
+# Phase 1 stalls.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3, day-2 cloud resource mutation is
+# Crossplane's job. THIS resource is Phase 0 — created exactly once at
+# Sovereign provisioning time, never mutated afterwards. If a Sovereign
+# operator wants to add a second bucket post-handover (for an analytics
+# product, for example), that is a Crossplane-managed XR/XRC, not a
+# rerun of this OpenTofu module.
+#
+# The aminueza/minio provider's `minio_s3_bucket` resource is idempotent:
+# applying twice against the same name returns the existing bucket without
+# error. This is critical because:
+#   - re-running `tofu apply` (e.g. operator changed worker count) must
+#     not bounce off the bucket with AlreadyExists
+#   - the wipe + re-provision flow (issue #318) destroys the Sovereign
+#     servers but does NOT destroy the bucket — Velero backup data must
+#     survive a control-plane reinstall
+#
+# We deliberately do NOT set `force_destroy = true`: a `tofu destroy` of
+# this module must NOT take the Velero archive with it. The operator
+# performs explicit bucket deletion via the Hetzner Console as a
+# separate, auditable step when a Sovereign is decommissioned.
+resource "minio_s3_bucket" "main" {
+  bucket = var.object_storage_bucket_name
+  acl    = "private"
+
+  # No `force_destroy` — see comment block above.
+
+  # Object lock disabled: Velero relies on standard S3 versioning + the
+  # operator's retention policy, not on WORM semantics. Harbor stores
+  # immutable image layers but doesn't require object lock — the layer
+  # content-addressed digest IS the immutability guarantee.
+  object_locking = false
+}

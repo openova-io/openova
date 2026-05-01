@@ -46,6 +46,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,19 +81,22 @@ func newLoadTestServer(t *testing.T) (*httptest.Server, *Handler) {
 // concurrent runs.
 func validRequest(idx int) map[string]any {
 	return map[string]any{
-		"orgName":             fmt.Sprintf("Load Test Org %d", idx),
-		"orgEmail":            fmt.Sprintf("load+%d@openova.io", idx),
-		"sovereignFQDN":       fmt.Sprintf("loadtest-%d.openova.io", idx),
-		"sovereignDomainMode": "byo",
-		"sovereignSubdomain":  fmt.Sprintf("loadtest-%d", idx),
-		"hetznerToken":        "TEST-TOKEN-NOT-REAL", // fails at tofu apply, that's fine
-		"hetznerProjectID":    "test-project",
-		"region":              "fsn1",
-		"controlPlaneSize":    "cx22",
-		"workerSize":          "cx22",
-		"workerCount":         1,
-		"haEnabled":           false,
-		"sshPublicKey":        "ssh-ed25519 AAAA load-test-not-a-real-key",
+		"orgName":                fmt.Sprintf("Load Test Org %d", idx),
+		"orgEmail":               fmt.Sprintf("load+%d@openova.io", idx),
+		"sovereignFQDN":          fmt.Sprintf("loadtest-%d.openova.io", idx),
+		"sovereignDomainMode":    "byo",
+		"sovereignSubdomain":     fmt.Sprintf("loadtest-%d", idx),
+		"hetznerToken":           "TEST-TOKEN-NOT-REAL", // fails at tofu apply, that's fine
+		"hetznerProjectID":       "test-project",
+		"region":                 "fsn1",
+		"controlPlaneSize":       "cx22",
+		"workerSize":             "cx22",
+		"workerCount":            1,
+		"haEnabled":              false,
+		"sshPublicKey":           "ssh-ed25519 AAAA load-test-not-a-real-key",
+		"objectStorageRegion":    "fsn1",
+		"objectStorageAccessKey": "TESTACCESSKEY1234567",
+		"objectStorageSecretKey": "TESTSECRETKEY1234567890123456789012345678",
 	}
 }
 
@@ -357,14 +361,21 @@ func TestLoad_RejectsInvalidInputUnderConcurrency(t *testing.T) {
 func TestLoad_DeploymentValidationContractKeepsLoadTestFromHangingForever(t *testing.T) {
 	body := validRequest(0)
 	r := provisioner.Request{
-		OrgName:             body["orgName"].(string),
-		OrgEmail:            body["orgEmail"].(string),
-		SovereignFQDN:       body["sovereignFQDN"].(string),
-		SovereignDomainMode: body["sovereignDomainMode"].(string),
-		HetznerToken:        body["hetznerToken"].(string),
-		HetznerProjectID:    body["hetznerProjectID"].(string),
-		Region:              body["region"].(string),
-		SSHPublicKey:        body["sshPublicKey"].(string),
+		OrgName:                body["orgName"].(string),
+		OrgEmail:               body["orgEmail"].(string),
+		SovereignFQDN:          body["sovereignFQDN"].(string),
+		SovereignDomainMode:    body["sovereignDomainMode"].(string),
+		HetznerToken:           body["hetznerToken"].(string),
+		HetznerProjectID:       body["hetznerProjectID"].(string),
+		Region:                 body["region"].(string),
+		SSHPublicKey:           body["sshPublicKey"].(string),
+		ObjectStorageRegion:    body["objectStorageRegion"].(string),
+		ObjectStorageAccessKey: body["objectStorageAccessKey"].(string),
+		ObjectStorageSecretKey: body["objectStorageSecretKey"].(string),
+		// Bucket is derived by the handler from FQDN; mirror that here so
+		// the meta-check exercises the SAME validation contract the live
+		// CreateDeployment path runs.
+		ObjectStorageBucket: "catalyst-" + strings.ReplaceAll(body["sovereignFQDN"].(string), ".", "-"),
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatalf("validRequest() builds an invalid payload — load test would silently measure the 400 path: %v", err)
