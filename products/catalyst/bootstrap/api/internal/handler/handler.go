@@ -14,6 +14,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -123,6 +124,25 @@ type Handler struct {
 	// of catalyst-api which sets X-Forwarded-User. Tests inject
 	// directly via this field.
 	k8sUserHeader string
+
+	// openbao — KV-v2 client the handover-archive receiver endpoint
+	// (issue #317) uses to seal `secret/catalyst/tofu-phase0-archive`
+	// on a Sovereign cluster. Nil on Catalyst-Zero — the receiver
+	// then returns 503 ("not handover target"). Production main.go
+	// constructs this from CATALYST_OPENBAO_ADDR +
+	// CATALYST_OPENBAO_TOKEN; tests inject via SetOpenBao.
+	openbao *openbao.Client
+
+	// handoverTargetURL — override for the URL FinaliseHandover POSTs
+	// the Tofu archive to. Empty in production; the handler falls
+	// back to https://api.<sovereignFQDN>/api/v1/handover/tofu-archive.
+	// Tests set this to a httptest.Server URL.
+	handoverTargetURL string
+
+	// handoverHTTPClient — override for the HTTP client used by the
+	// finalise handler. Empty in production; falls back to a 60s-timeout
+	// http.Client. Tests inject a client that points at a test server.
+	handoverHTTPClient *http.Client
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate

@@ -323,6 +323,15 @@ type Watcher struct {
 	// Watch() has not yet started; readers must check.
 	informer cache.SharedIndexInformer
 
+	// cancel — context.CancelFunc the running Watch loop installs
+	// on entry and clears on return. Cancel() (handover finalisation
+	// per issue #317) reads this under w.mu and invokes it so the
+	// informer's WaitForCacheSync wakes and the main select loop
+	// drops into the `<-watchCtx.Done()` branch. Nil while Watch()
+	// has not yet started or has already returned — Cancel() is
+	// then a no-op.
+	cancel context.CancelFunc
+
 	// onSyncedOnce fires exactly once when WaitForCacheSync returns
 	// true. The handler subscribes to it via OnInitialListSynced so
 	// it can call jobs.Bridge.SeedJobsFromInformerList immediately
@@ -405,6 +414,16 @@ func NewWatcher(cfg Config, emit Emit) (*Watcher, error) {
 // Concurrency: Watch is single-shot. Calling it twice on the same
 // Watcher is a programmer error (the informer would double-register).
 //
+// Cancellation: callers can stop a long-running Watch by calling
+// Cancel() on the same Watcher (issue #317 handover finalisation).
+// Cancel triggers the same `<-watchCtx.Done()` path as a timeout —
+// the informer is torn down, a final synthetic warn event is emitted,
+// and Outcome() returns OutcomeTimeout (or OutcomeFluxNotReconciling
+// if no HelmRelease was ever observed). Internally Cancel saves the
+// `cancel` function under w.mu so the handover handler can stop the
+// watch atomically without forcing every caller to thread a context
+// through their layers.
+//
 // The state machine that maps HelmRelease.status.conditions →
 // State enum lives in deriveState, which is exported for tests.
 func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
@@ -418,6 +437,23 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	// (deployment delete, Pod shutdown) propagates.
 	watchCtx, cancel := context.WithTimeout(ctx, w.cfg.WatchTimeout)
 	defer cancel()
+
+	// Stash the cancel func so Watcher.Cancel() can interrupt a
+	// long-running watch from another goroutine — the handover
+	// finalisation handler (issue #317) calls this when
+	// bp-catalyst-platform.Ready=True so the informer stops watching
+	// the new Sovereign's apiserver.
+	w.mu.Lock()
+	w.cancel = cancel
+	w.mu.Unlock()
+	defer func() {
+		// Clear the cancel pointer on Watch return so a late
+		// Cancel() call on a finished Watcher is a no-op rather
+		// than dereferencing a defunct context.
+		w.mu.Lock()
+		w.cancel = nil
+		w.mu.Unlock()
+	}()
 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(
 		dyn,
@@ -654,6 +690,28 @@ func (w *Watcher) Outcome() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.outcome
+}
+
+// Cancel interrupts a running Watch loop by invoking the per-watch
+// context's cancel function. Issue #317's handover finalisation calls
+// this when bp-catalyst-platform.Ready=True on the new Sovereign so the
+// informer's connection to the new cluster's apiserver is torn down
+// (zero operational footprint on Catalyst-Zero post-handover).
+//
+// Cancel is safe to call from any goroutine and idempotent — calling it
+// before Watch starts, after Watch returns, or twice in succession is a
+// no-op. The Watch loop sees the cancellation through `<-watchCtx.Done()`
+// and exits via the standard timeout path: a single synthetic warn
+// event is emitted, the informer goroutine returns, and Outcome() ends
+// up OutcomeTimeout (or OutcomeFluxNotReconciling if no HelmRelease was
+// observed).
+func (w *Watcher) Cancel() {
+	w.mu.Lock()
+	cancel := w.cancel
+	w.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // processEvent maps an informer Add/Update event to a state-change Event.
