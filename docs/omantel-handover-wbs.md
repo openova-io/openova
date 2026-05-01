@@ -169,8 +169,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338,T370,T378,T387,T392 done
-    class T371,T373,T316,T375,T377 wip
+    class T316,T338,T370,T373,T375,T377,T378,T387,T392 done
+    class T371,T376,T379,T380,T381 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
