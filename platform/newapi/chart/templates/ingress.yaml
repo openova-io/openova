@@ -1,0 +1,97 @@
+{{- if and .Values.newapi.enabled .Values.ingress.enabled }}
+{{- $fullName := include "bp-newapi.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
+{{- $apiHost := required "ingress.host is required (customer-facing API hostname, e.g. api.<sovereign-fqdn>)" .Values.ingress.host -}}
+{{- $adminHost := required "ingress.adminHost is required (ops-staff admin UI hostname, e.g. admin.<sovereign-fqdn>)" .Values.ingress.adminHost -}}
+---
+# ─── Customer-facing API ingress ─────────────────────────────────────────
+# Locked-down: only the OpenAI-compatible API surface is reachable. The
+# upstream's React portal UI is denied — Catalyst is the customer
+# surface. Path allowlist is enforced via Traefik middleware.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $fullName }}-api-allowlist
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+spec:
+  # Block any path not on customerAPIAllowedPaths. The regex is built
+  # from the allowlist; a request that doesn't match returns 404.
+  errors:
+    status: ["404"]
+    service:
+      name: {{ $fullName }}
+      port: {{ $svcPort }}
+    query: "/notfound"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-api
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $apiHost }}
+      secretName: {{ .Values.ingress.tls.apiSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $apiHost }}
+      http:
+        paths:
+          {{- range .Values.ingress.customerAPIAllowedPaths }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- end }}
+---
+# ─── Ops-staff admin UI ingress ──────────────────────────────────────────
+# Separate virtual host. Full UI surface allowed (admin UI is the entire
+# upstream NewAPI portal — channels, users, credits, audit). IdP-gated:
+# in keycloak mode the OIDC middleware redirects unauthenticated requests
+# to Keycloak before reaching the pod.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-admin
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $adminHost }}
+      secretName: {{ .Values.ingress.tls.adminSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $adminHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
+{{- end }}

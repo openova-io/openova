@@ -1,0 +1,289 @@
+# Catalyst Blueprint scratch chart for NewAPI.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/bootstrap-kit/ may override any of these without
+# rebuilding the Blueprint OCI artifact. The Sovereign FQDN, Keycloak
+# issuer, channel endpoints, channel keys, and TLS issuer are all
+# operator-supplied at install time.
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      newapi: "ghcr.io/openova-io/openova/newapi-mirror"
+
+# ─── NewAPI application ──────────────────────────────────────────────────
+newapi:
+  enabled: true
+  # Solo-Sovereign minimum — single replica. Per-Sovereign overlays bump
+  # to 2+ once HA is needed (NewAPI is stateless once Postgres + Valkey
+  # carry the persistent state).
+  replicas: 1
+
+  # Pin upstream image — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md #4. The chart references a
+  # GHCR-mirrored image (operator's GHCR or OpenOva's mirror namespace)
+  # to avoid pulling from Docker Hub at runtime.
+  image:
+    repository: ghcr.io/openova-io/openova/newapi-mirror
+    tag: "v0.4.5"
+    pullPolicy: IfNotPresent
+
+  # NewAPI HTTP listener — port 3000 is the upstream default.
+  port: 3000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 2
+      memory: 1Gi
+
+  # SecurityContext — non-root.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness / readiness — NewAPI exposes /api/status (verified via
+  # upstream code path controller/misc.go:GetStatus).
+  probes:
+    liveness:
+      path: /api/status
+      port: 3000
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /api/status
+      port: 3000
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# ─── Postgres backend (bp-cnpg) ──────────────────────────────────────────
+# NewAPI persists users, credits, channels, tokens, audit log to
+# Postgres. Catalyst routes this to a managed Postgres provisioned via a
+# Crossplane PostgresqlInstance claim against bp-cnpg. The DSN is
+# operator-supplied via ExternalSecret; never hardcoded.
+database:
+  # ExternalSecret name carrying the full DSN. Required key: SQL_DSN
+  # (e.g. "postgres://user:pass@host:5432/newapi?sslmode=require").
+  existingSecret: ""              # operator-supplied (e.g. "newapi-db-dsn")
+  existingSecretKey: "SQL_DSN"
+
+# ─── Valkey cache (bp-valkey) ────────────────────────────────────────────
+# Session store and rate-limit counters. Optional but recommended
+# (NewAPI falls back to in-memory; in-memory loses state on restart).
+valkey:
+  enabled: true
+  url: "redis://valkey.valkey.svc.cluster.local:6379"
+  # If the operator's Valkey requires auth, supply via ExternalSecret.
+  # Required key: REDIS_CONN_STRING (full URL with credentials).
+  existingSecret: ""              # e.g. "newapi-valkey-conn"
+  existingSecretKey: "REDIS_CONN_STRING"
+
+# ─── App credentials (NewAPI-internal) ───────────────────────────────────
+# SESSION_SECRET (random 32+ bytes) and CRYPTO_SECRET (random 32+ bytes)
+# are NewAPI-internal cryptographic material. Generated out-of-band by
+# the operator (per docs/INVIOLABLE-PRINCIPLES.md #4 and the credential
+# hygiene rules in ~/.claude/CLAUDE.md), mounted via ExternalSecret.
+# Required keys: SESSION_SECRET, CRYPTO_SECRET.
+credentials:
+  existingSecret: ""              # operator-supplied (e.g. "newapi-app-creds")
+
+# ─── Auth: ops-staff admin UI ────────────────────────────────────────────
+# The admin UI at admin.<host> is gated by the operator's IdP. Default
+# mode is `keycloak` (OIDC against bp-keycloak). `masterKey` is allowed
+# only for bootstrap-time access before Keycloak realm is ready.
+auth:
+  adminUI:
+    mode: "keycloak"              # keycloak | masterKey
+    keycloak:
+      issuer: ""                  # operator-supplied (e.g. "https://keycloak.<sovereign>/realms/ops")
+      clientId: "newapi-admin"
+      callbackPath: "/oauth/callback"
+      # ExternalSecret carrying client_secret. Required key:
+      # OIDC_CLIENT_SECRET.
+      existingSecret: ""          # e.g. "newapi-oidc"
+    # Bootstrap-only master key. Set via ExternalSecret. Required key:
+    # MASTER_KEY. The blueprint's smoke test ASSERTS this is unset on
+    # production overlays.
+    masterKeySecret: ""
+
+  customerAPI:
+    # `catalyst` (DEFAULT): customer-facing portal UI is disabled at
+    # ingress. Catalyst issues per-user keys via NewAPI's admin API.
+    # `self-serve`: customer-facing portal is enabled (NOT recommended
+    # in Catalyst Sovereigns).
+    keyIssuer: "catalyst"
+
+# ─── Channels ────────────────────────────────────────────────────────────
+# Operator-defined LLM provider channels. Every channel MUST carry a
+# verifiable `attestation` block; render fails with a helpful error if
+# any enabled channel lacks attestation. See blueprint.yaml configSchema
+# and platform/newapi/README.md for the channel-tier model.
+#
+# Example (operator overrides this list in their per-Sovereign overlay):
+#
+# channels:
+#   - name: qwen
+#     type: vllm
+#     endpoint: http://vllm.vllm.svc.cluster.local:8000/v1
+#     models: ["Qwen/Qwen2.5-72B-Instruct"]
+#     attestation:
+#       kind: in-cluster
+#       owner: "<sovereign-operator>"
+#   - name: claude
+#     type: anthropic
+#     endpoint: https://api.anthropic.com
+#     existingSecret: "newapi-channel-anthropic"
+#     models: ["claude-sonnet-4-6", "claude-haiku-4-5"]
+#     attestation:
+#       kind: commercial-contract
+#       accountId: "<anthropic-account-id>"
+#       contractRef: "<internal-doc-link>"
+#   - name: byok
+#     type: byok-passthrough
+#     attestation:
+#       kind: byok
+channels: []
+
+# ─── Geographic AUP enforcement ──────────────────────────────────────────
+# Blocks requests from sanctioned regions on commercial-provider
+# channels. US/EU export-control baseline by default. Operator extends
+# per their jurisdiction's requirements. Reduction below baseline
+# requires `geo.sanctionedRegions.allowRelaxation: true` AND a recorded
+# justification reviewed by counsel.
+geo:
+  sanctionedRegions:
+    block:
+      - IR
+      - KP
+      - SY
+      - CU
+      - "RU-occupied-UA"
+    allowRelaxation: false
+
+# ─── Provider AUP enforcement ────────────────────────────────────────────
+aup:
+  enforcement: "provider-strictest"  # provider-strictest | per-channel | off
+
+# ─── Audit log ───────────────────────────────────────────────────────────
+audit:
+  enabled: true
+  retentionDays: 730
+  # Default false — metadata only. Operator may opt in per privacy
+  # posture; MUST be disclosed in customer ToS if enabled.
+  logPromptContent: false
+
+# ─── BYOK ────────────────────────────────────────────────────────────────
+byok:
+  scope: "request-scoped"          # request-scoped | never
+
+# ─── Reseller disclosure ─────────────────────────────────────────────────
+reseller:
+  disclosureRequired: true
+
+# ─── Catalyst integration ───────────────────────────────────────────────
+# When enabled, the chart provisions a Kubernetes secret
+# `catalyst-newapi-admin-token` consumed by Catalyst's signup hook to
+# issue per-user API keys against NewAPI's admin API.
+catalystIntegration:
+  enabled: true
+  # ExternalSecret name carrying the admin API token NewAPI generates at
+  # bootstrap. Required key: ADMIN_API_TOKEN. The token is rotated by
+  # the operator on a schedule documented in
+  # docs/CATALYST-CLI-AGENT.md.
+  existingSecret: ""              # e.g. "catalyst-newapi-admin-token"
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── Ingress + cert-manager TLS ──────────────────────────────────────────
+# Two virtual hosts:
+#   - `host`      : customer-facing OpenAI-compatible API at /v1/*
+#   - `adminHost` : ops-staff admin UI (IdP-gated)
+#
+# The upstream's customer portal UI is disabled at ingress: only /v1/*
+# and /api/* paths are exposed on `host`. Path-based deny rules block
+# the upstream's React portal routes.
+ingress:
+  enabled: true
+  className: "traefik"
+  host: ""                        # operator-supplied (e.g. api.<sovereign-fqdn>)
+  adminHost: ""                   # operator-supplied (e.g. admin.<sovereign-fqdn>)
+  tls:
+    enabled: true
+    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    apiSecretName: "newapi-api-tls"
+    adminSecretName: "newapi-admin-tls"
+  # Path allowlist for the customer-facing host. Anything not on this
+  # list returns 404. Locks down the upstream portal UI surface.
+  customerAPIAllowedPaths:
+    - "/v1/"
+    - "/api/v1/"
+    - "/api/status"
+  annotations: {}
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Default-allow ingress from the platform's gateway namespace; egress
+# to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-
+# configured commercial-provider endpoints (egress for those is
+# enforced by the cluster's egress gateway, not this NetworkPolicy).
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceLabels:
+      kubernetes.io/metadata.name: traefik
+  egress:
+    # bp-cnpg
+    - namespaceLabel: cnpg-system
+      port: 5432
+    # bp-valkey
+    - namespaceLabel: valkey
+      port: 6379
+    # bp-keycloak (OIDC discovery + token)
+    - namespaceLabel: keycloak
+      port: 8443
+    # bp-vllm (in-cluster cheap-tier channel)
+    - namespaceLabel: vllm
+      port: 8000
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+# toggles must default false). Operator opts in via per-cluster overlay
+# once kube-prometheus-stack reconciles.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+
+# ─── HorizontalPodAutoscaler ─────────────────────────────────────────────
+# Default false. Multi-tenant Sovereigns enable HPA via the per-cluster
+# overlay once kube-prometheus-stack + metrics-server reconcile.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

@@ -1,0 +1,41 @@
+apiVersion: v2
+name: bp-newapi
+version: 1.0.0
+appVersion: "0.4.5"
+description: |
+  Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
+  marketplace gateway.
+
+  No first-party Helm chart is published by the NewAPI upstream
+  (https://github.com/Calcium-Ion/new-api ships a docker-compose only).
+  This chart hand-wires the upstream container image as a
+  Deployment + Service + Ingress (split customer-API vs ops-admin) +
+  ConfigMap + ServiceAccount + NetworkPolicy + ExternalSecret consumers.
+
+  Connects to:
+    - bp-cnpg            (Postgres for users, credits, channels, audit log)
+    - bp-valkey          (session and rate-limit cache)
+    - bp-keycloak        (OIDC for ops-staff admin UI)
+    - bp-external-secrets (DB DSN, master key, per-channel provider keys)
+    - bp-vllm            (in-cluster cheap-tier inference channel; optional)
+
+  Customer surface is NOT this chart — Catalyst is the customer-facing
+  UI. This chart's customer surface is the OpenAI-compatible API at
+  `api.<host>/v1/*`. The upstream's portal UI is intentionally disabled
+  via the ingress configuration.
+
+  Pairs with bp-cnpg, bp-keycloak, bp-external-secrets, bp-valkey,
+  bp-vllm (depends.list in blueprint.yaml).
+type: application
+keywords: [catalyst, blueprint, newapi, llm, gateway, marketplace, multi-tenant, credits, byok, openai-compatible, reseller]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — see comments in bp-librechat/chart/Chart.yaml for the
+# rationale on the `common` library subchart dependency (issue #181
+# hollow-chart gate).
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

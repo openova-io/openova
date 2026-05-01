@@ -1,0 +1,74 @@
+{{- include "bp-newapi.assertChannelAttestation" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-newapi.configMapName" . }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.newapi.port | quote }}
+  GIN_MODE: "release"
+
+  # Catalyst-issued customer-key flow — disables the upstream's
+  # customer-facing portal UI when set to "catalyst".
+  CUSTOMER_KEY_ISSUER: {{ .Values.auth.customerAPI.keyIssuer | quote }}
+
+  # OIDC for ops-staff admin UI.
+  {{- if eq .Values.auth.adminUI.mode "keycloak" }}
+  OIDC_ENABLED: "true"
+  OIDC_ISSUER: {{ required "auth.adminUI.keycloak.issuer is required when auth.adminUI.mode=keycloak" .Values.auth.adminUI.keycloak.issuer | quote }}
+  OIDC_CLIENT_ID: {{ .Values.auth.adminUI.keycloak.clientId | quote }}
+  OIDC_CALLBACK_PATH: {{ .Values.auth.adminUI.keycloak.callbackPath | quote }}
+  {{- else }}
+  OIDC_ENABLED: "false"
+  {{- end }}
+
+  # Geographic AUP enforcement.
+  GEO_BLOCK_REGIONS: {{ join "," .Values.geo.sanctionedRegions.block | quote }}
+  GEO_ALLOW_RELAXATION: {{ .Values.geo.sanctionedRegions.allowRelaxation | quote }}
+
+  # Provider AUP enforcement mode.
+  AUP_ENFORCEMENT: {{ .Values.aup.enforcement | quote }}
+
+  # Audit log policy.
+  AUDIT_ENABLED: {{ .Values.audit.enabled | quote }}
+  AUDIT_RETENTION_DAYS: {{ .Values.audit.retentionDays | quote }}
+  AUDIT_LOG_PROMPT_CONTENT: {{ .Values.audit.logPromptContent | quote }}
+
+  # BYOK isolation policy.
+  BYOK_SCOPE: {{ .Values.byok.scope | quote }}
+
+  # Reseller disclosure assertion.
+  RESELLER_DISCLOSURE_REQUIRED: {{ .Values.reseller.disclosureRequired | quote }}
+
+  # Channel definitions (operator-supplied; full attestation enforced by
+  # the assertChannelAttestation helper). Loaded by NewAPI at boot via
+  # /etc/newapi/channels.yaml.
+  channels.yaml: |
+{{- range .Values.channels }}
+    - name: {{ .name | quote }}
+      type: {{ .type | quote }}
+      {{- if .endpoint }}
+      endpoint: {{ .endpoint | quote }}
+      {{- end }}
+      {{- if .existingSecret }}
+      keySecretRef: {{ .existingSecret | quote }}
+      {{- end }}
+      {{- if .models }}
+      models:
+        {{- range .models }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      attestation:
+        kind: {{ .attestation.kind | quote }}
+        {{- if .attestation.accountId }}
+        accountId: {{ .attestation.accountId | quote }}
+        {{- end }}
+        {{- if .attestation.contractRef }}
+        contractRef: {{ .attestation.contractRef | quote }}
+        {{- end }}
+        {{- if .attestation.owner }}
+        owner: {{ .attestation.owner | quote }}
+        {{- end }}
+{{- end }}
