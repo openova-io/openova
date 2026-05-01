@@ -63,7 +63,7 @@ keycloak:
         repository: bitnamilegacy/os-shell
         tag: 12-debian-12-r50
   ingress:
-    enabled: false  # Catalyst uses Cilium Gateway, not the chart ingress
+    enabled: false  # Catalyst uses Cilium Gateway API (see `gateway:` block below), not the upstream chart ingress
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 2Gi }
@@ -83,3 +83,21 @@ keycloak:
       enabled: false
     prometheusRule:
       enabled: false
+
+# ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
+# Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
+# Per-Sovereign overlay supplies `gateway.host` (e.g. auth.<sovereign-fqdn>).
+# parentRef defaults to cilium-gateway/kube-system, the per-Sovereign
+# Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
+gateway:
+  enabled: true
+  # host: auth.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  host: ""
+  path: "/"
+  # Backend Service — defaults to <release>-keycloak (bitnami subchart fullname)
+  backendService: ""
+  backendPort: 80
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: https

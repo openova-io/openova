@@ -1,0 +1,54 @@
+{{- /*
+Catalyst HTTPRoute for PowerDNS REST API — bp-powerdns (issue #387,
+Cilium Gateway API migration).
+
+This template renders ALONGSIDE templates/api-ingress.yaml, gated
+mutually exclusively:
+
+  - api.enabled=true, api.gateway.enabled=false  → Ingress only (contabo)
+  - api.enabled=true, api.gateway.enabled=true   → HTTPRoute (+ Ingress, harmless on Sovereigns without Traefik)
+  - api.enabled=false                            → neither
+
+The Ingress path remains the legacy default so contabo's deployment
+under clusters/contabo-mkt/* continues to work unchanged per ADR-0001
+§9.4. Sovereigns flip api.gateway.enabled=true via the bootstrap-kit
+slot (or the per-Sovereign overlay) to attach to the per-Sovereign
+cilium-gateway.
+
+Auth posture: when on the Gateway, basic-auth is provided by the
+upstream PowerDNS webserver (lookup-based via
+powerdns.powerdns.webserver.password from the same api-credentials
+Secret). The Traefik Middleware is irrelevant on Cilium and is not
+rendered by api-ingress.yaml when the Capabilities check fails.
+*/}}
+{{- if and .Values.api.enabled .Values.api.gateway .Values.api.gateway.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.api.gateway.name | default "powerdns-api" | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.api.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.api.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.api.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.api.host | quote }}
+  rules:
+    - matches:
+        - path:
+            # NOTE: Ingress's "Prefix" pathType maps to Gateway API's
+            # "PathPrefix" — the Gateway API CRD only accepts "Exact",
+            # "PathPrefix", or "RegularExpression". The legacy Ingress
+            # template (api-ingress.yaml) reads .Values.api.pathType
+            # directly; here we translate or default.
+            type: {{ if eq (.Values.api.pathType | default "Prefix") "Prefix" }}PathPrefix{{ else }}{{ .Values.api.pathType }}{{ end }}
+            value: {{ .Values.api.path | default "/api" | quote }}
+      backendRefs:
+        - name: {{ .Values.api.gateway.backendService | default "powerdns" | quote }}
+          port: {{ .Values.api.gateway.backendPort | default (.Values.powerdns.powerdns.webserver.bindPort | default 8081) }}
+{{- end }}

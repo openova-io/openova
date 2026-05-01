@@ -73,3 +73,80 @@ spec:
           enabled: false
         ui:
           enabled: false
+---
+# ─── Per-Sovereign Gateway API resources (issue #387) ────────────────────
+#
+# Cilium owns the GatewayClass (`cilium`) installed by the chart above
+# (gatewayAPI.enabled=true, envoy.enabled=true in platform/cilium/chart/
+# values.yaml). The single per-Sovereign Gateway listening on
+# *.${SOVEREIGN_FQDN}:443 lives here so it boots alongside the CNI
+# without needing a new bootstrap-kit slot — every Sovereign HTTP
+# blueprint (catalyst-platform, gitea, keycloak, harbor, grafana,
+# openbao, powerdns) attaches its HTTPRoute to this Gateway via
+# parentRefs.
+#
+# TLS material: a wildcard Certificate is requested from
+# letsencrypt-dns01-prod (cert-manager + bp-cert-manager-powerdns-webhook
+# from #373). The resulting Secret `sovereign-wildcard-tls` is
+# referenced by the Gateway listener.
+#
+# Cross-namespace HTTPRoute attachment: allowedRoutes.namespaces.from=All
+# permits every blueprint namespace (catalyst-system, gitea, keycloak,
+# harbor, grafana-system, openbao, powerdns-system) to bind without a
+# ReferenceGrant. This matches the Catalyst single-tenant Sovereign
+# model — cross-tenant isolation is enforced by per-tenant vClusters
+# (bp-vcluster), not by Gateway-level RBAC.
+#
+# Per ADR-0001 §9.4 and docs/INVIOLABLE-PRINCIPLES.md #4: this resource
+# only renders when ${SOVEREIGN_FQDN} is set by Flux envsubst at the
+# Sovereign apply time — contabo's bootstrap path does NOT include this
+# template, so Traefik continues to serve console.openova.io/nova
+# unchanged.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sovereign-wildcard-tls
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway
+spec:
+  secretName: sovereign-wildcard-tls
+  issuerRef:
+    name: letsencrypt-dns01-prod
+    kind: ClusterIssuer
+  commonName: "*.${SOVEREIGN_FQDN}"
+  dnsNames:
+    - "*.${SOVEREIGN_FQDN}"
+    - "${SOVEREIGN_FQDN}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: cilium-gateway
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.${SOVEREIGN_FQDN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: sovereign-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.${SOVEREIGN_FQDN}"
+      allowedRoutes:
+        namespaces:
+          from: All

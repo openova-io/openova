@@ -74,3 +74,25 @@ gitea:
   persistence:
     enabled: true
     size: 20Gi
+  # Upstream chart Ingress — DISABLED. Catalyst routes via Cilium Gateway
+  # API (see top-level `gateway:` block below). Issue #387.
+  ingress:
+    enabled: false
+
+# ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
+# Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
+# Per-Sovereign overlay supplies `gateway.host` (e.g. git.<sovereign-fqdn>).
+# parentRef defaults to cilium-gateway/kube-system, the per-Sovereign
+# Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
+gateway:
+  enabled: true
+  # host: git.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  host: ""
+  path: "/"
+  # Backend Service — defaults to <release>-gitea-http (gitea subchart Service)
+  backendService: ""
+  backendPort: 3000
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: https

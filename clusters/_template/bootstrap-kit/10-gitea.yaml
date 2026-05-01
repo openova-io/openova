@@ -59,11 +59,10 @@ spec:
   values:
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
-    # gitea hostname is gitea.${SOVEREIGN_FQDN}. The DNS A record
-    # was already published by the Phase-0 catalyst-dns helper.
-    ingress:
-      hosts:
-        - host: gitea.${SOVEREIGN_FQDN}
-          paths:
-            - path: /
-              pathType: Prefix
+    # Per-Sovereign overrides — issue #387:
+    # Cilium Gateway HTTPRoute exposes Gitea at gitea.${SOVEREIGN_FQDN}.
+    # Upstream chart's own Ingress is disabled (gitea.ingress.enabled=false
+    # in platform/gitea/chart/values.yaml) — Sovereigns ingress through
+    # cilium-gateway from clusters/_template/bootstrap-kit/01-cilium.yaml.
+    gateway:
+      host: gitea.${SOVEREIGN_FQDN}

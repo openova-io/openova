@@ -1,0 +1,84 @@
+{{- /*
+Sovereign HTTPRoute for Catalyst control plane — bp-catalyst-platform
+(issue #387, Cilium Gateway API migration).
+
+NOT excluded by .helmignore (unlike templates/ingress.yaml and
+templates/ingress-console-tls.yaml, which are contabo-only legacy
+demos under ADR-0001 §9.4). This template renders ON SOVEREIGNS
+ONLY when ingress.gateway.enabled=true (default) and the per-Sovereign
+overlay supplies hostnames.
+
+Two routes:
+  - console.<sov>  → catalyst-ui   (port 80 → pod 8080)
+  - api.<sov>      → catalyst-api  (port 8080)
+
+Hostnames flow from the bootstrap-kit slot
+(clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml):
+  ingress.hosts.console.host=console.${SOVEREIGN_FQDN}
+  ingress.hosts.api.host=api.${SOVEREIGN_FQDN}
+
+Per-Sovereign overlays may override gateway.parentRef to attach to a
+different Gateway (e.g. an internal-only Gateway when console exposure
+is gated behind a corporate VPN).
+*/}}
+{{- if and .Values.ingress .Values.ingress.gateway .Values.ingress.gateway.enabled -}}
+{{- $consoleHost := (((.Values.ingress.hosts).console).host) }}
+{{- $apiHost := (((.Values.ingress.hosts).api).host) }}
+{{- if not $consoleHost }}
+{{- fail "values.ingress.hosts.console.host is required (e.g. console.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
+{{- end }}
+{{- if not $apiHost }}
+{{- fail "values.ingress.hosts.api.host is required (e.g. api.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalyst-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: catalyst-ui
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $consoleHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: catalyst-ui
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalyst-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: catalyst-api
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $apiHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+{{- end }}

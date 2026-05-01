@@ -102,3 +102,15 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # Per-Sovereign overrides — issue #387:
+  # Flip the REST API exposure from legacy Traefik Ingress to Cilium
+  # Gateway HTTPRoute. The Ingress template still renders (gated by
+  # api.enabled=true) but is harmless on a Sovereign without Traefik
+  # — the apiserver accepts the Ingress object; nothing routes it.
+  # The HTTPRoute attaches to cilium-gateway/kube-system and is the
+  # active path on Sovereigns.
+  values:
+    api:
+      host: pdns.${SOVEREIGN_FQDN}
+      gateway:
+        enabled: true
