@@ -9,3 +9,5 @@ Organized by domain.
 | [helm-controller-rbac.md](helm-controller-rbac.md) | Flux helm-controller v1.1.0 RBAC + template-parse quirks |
 | [helm-controller-logs.md](helm-controller-logs.md) | Flux v2.4 helm-controller stdout uses nested-object JSON for HelmRelease, not flat strings |
 | [chi-router-quirks.md](chi-router-quirks.md) | go-chi does not decode `%3A` (and other path-safe specials) before route matching |
+| [helm-hooks-and-crd-ordering.md](helm-hooks-and-crd-ordering.md) | `before-hook-creation` deadlocks on first install when the CRD comes from the same chart's upstream subchart — architectural fix is chart-split + Flux dependsOn |
+| [catalyst-bootstrap-api.md](catalyst-bootstrap-api.md) | `tofu destroy` works against the on-disk workdir without re-prompting credentials — destructive endpoints split tofu vs Hetzner-direct paths cleanly |
