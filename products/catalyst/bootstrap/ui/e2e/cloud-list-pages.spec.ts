@@ -116,18 +116,19 @@ test.describe('Cloud list pages (#309 P3 — surfaces preserved by #350)', () =>
     })
   }
 
-  test('the consolidated list-view tile grid renders 12 tiles (was 3 category landings × 4)', async ({ page }) => {
+  test('the consolidated list-view chip strip renders 6 primary chips + a + More overflow (was 12-tile grid)', async ({ page }) => {
     // Issue #350 collapsed the three CloudComputePage / CloudNetworkPage /
-    // CloudStoragePage category landings into a single 12-tile grid
-    // inside CloudListView. The grid lives under the /cloud?view=list
-    // route and is asserted comprehensively in cloud-shell.spec.ts; the
-    // light check here keeps the count contract local to the list-page
-    // suite.
+    // CloudStoragePage category landings into a single CloudListView; the
+    // 12-tile card grid that originally sat above the list table was
+    // reduced to a compact chip strip in the toolbar by issue #366 item 1.
+    // 6 primary chips render inline; the remaining 6 overflow kinds live
+    // behind a `+ More` popover.
     await gotoProvision(page, 'cloud?view=list')
-    const grid = page.getByTestId('cloud-list-view-tile-grid')
-    await expect(grid).toBeVisible()
-    const tiles = grid.locator('button[data-kind]')
-    await expect(tiles).toHaveCount(12)
+    const chips = page.getByTestId('cloud-kind-chips')
+    await expect(chips).toBeVisible()
+    const primaryChips = chips.locator('button[data-kind]')
+    await expect(primaryChips).toHaveCount(6)
+    await expect(page.getByTestId('cloud-kind-chip-more')).toBeVisible()
   })
 
   test('every data-backed page exposes a + New CTA in the header (#349)', async ({ page }) => {

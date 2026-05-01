@@ -54,6 +54,13 @@ import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { Architecture } from './Architecture'
 import { CloudListView } from './cloud-list/CloudListView'
+import { CloudKindChips } from './cloud-list/CloudKindChips'
+import {
+  DEFAULT_KIND,
+  isValidKind,
+  readPersistedKind,
+  type CloudListKind,
+} from './cloud-list/kinds'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
@@ -340,6 +347,66 @@ export function CloudPage({
     })
   }
 
+  /* ── Resource-kind chip strip (issue #366 item 1) ──────────────── */
+  const activeKind: CloudListKind = useMemo(() => {
+    if (isValidKind(search.kind)) return search.kind
+    return readPersistedKind() ?? DEFAULT_KIND
+  }, [search.kind])
+
+  const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
+    const c: Record<CloudListKind, number | null> = {
+      'clusters': 0,
+      'vclusters': 0,
+      'node-pools': 0,
+      'worker-nodes': 0,
+      'load-balancers': 0,
+      'services': null,
+      'ingresses': null,
+      'dns-zones': null,
+      'pvcs': 0,
+      'buckets': 0,
+      'volumes': 0,
+      'storage-classes': null,
+    }
+    if (data) {
+      let clusters = 0
+      let vclusters = 0
+      let nodePools = 0
+      let workerNodes = 0
+      let lb = 0
+      for (const region of data.topology.regions ?? []) {
+        for (const cluster of region.clusters ?? []) {
+          clusters += 1
+          vclusters += cluster.vclusters?.length ?? 0
+          nodePools += cluster.nodePools?.length ?? 0
+          workerNodes += cluster.nodes?.length ?? 0
+          lb += cluster.loadBalancers?.length ?? 0
+        }
+      }
+      c['clusters'] = clusters
+      c['vclusters'] = vclusters
+      c['node-pools'] = nodePools
+      c['worker-nodes'] = workerNodes
+      c['load-balancers'] = lb
+      c['pvcs'] = data.storage?.pvcs?.length ?? 0
+      c['buckets'] = data.storage?.buckets?.length ?? 0
+      c['volumes'] = data.storage?.volumes?.length ?? 0
+    }
+    return c
+  }, [data])
+
+  const setKind = useCallback(
+    (next: CloudListKind) => {
+      navigate({
+        to: '/provision/$deploymentId/cloud' as never,
+        params: { deploymentId } as never,
+        search: { view: 'list', kind: next } as never,
+        replace: false,
+      })
+    },
+    [navigate, deploymentId],
+  )
+
   /* ── Fullscreen ─────────────────────────────────────────────── */
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -421,43 +488,38 @@ export function CloudPage({
   const outletSlot = <Outlet />
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Cloud"
+      headerSlotRight={
+        <select
+          data-testid="cloud-sovereign-switcher"
+          value={deploymentId}
+          onChange={(e) => handleSwitch(e.target.value)}
+          className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-xs text-[var(--color-text)]"
+        >
+          {switcherOptions.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.sovereignFQDN || d.id.slice(0, 8)}
+            </option>
+          ))}
+        </select>
+      }
+    >
       <style>{CLOUD_PAGE_CSS}</style>
 
       <div data-testid="cloud-page" className="mx-auto max-w-7xl">
-        <header className="mb-3 flex items-start justify-between gap-4">
-          <div>
-            <h1
-              className="text-2xl font-bold text-[var(--color-text-strong)]"
-              data-testid="cloud-title"
-            >
-              Cloud
-            </h1>
-            <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-              Sovereign cloud — regions, clusters, and resources for{' '}
-              {sovereignFQDN ?? `deployment ${deploymentId.slice(0, 8)}`}.
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <select
-              data-testid="cloud-sovereign-switcher"
-              value={deploymentId}
-              onChange={(e) => handleSwitch(e.target.value)}
-              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-xs text-[var(--color-text)]"
-            >
-              {switcherOptions.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.sovereignFQDN || d.id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
-            <div className="text-right text-xs text-[var(--color-text-dim)]">
-              <div className="font-mono">{deploymentId.slice(0, 8)}</div>
-            </div>
-          </div>
-        </header>
+        {/* The page title now lives in the PortalShell header centre
+         *  slot (issue #366 item 2). The body opens directly with the
+         *  toolbar. A hidden testid anchor preserves the legacy
+         *  cloud-title selector used by component tests. */}
+        <span data-testid="cloud-title" className="sr-only">
+          Cloud
+        </span>
 
-        {/* Toolbar: View toggle (left) + Fullscreen button (right). */}
+        {/* Toolbar: View toggle (left) + chip strip (centre, list view
+         *  only) + Fullscreen icon button (right). */}
         <div
           className="cloud-page-toolbar"
           data-testid="cloud-page-toolbar"
@@ -507,12 +569,23 @@ export function CloudPage({
             </button>
           </div>
 
+          {activeView === 'list' ? (
+            <CloudKindChips
+              activeKind={activeKind}
+              counts={kindCounts}
+              onChange={setKind}
+            />
+          ) : (
+            <span aria-hidden className="cloud-page-toolbar-spacer" />
+          )}
+
           <button
             type="button"
             data-testid="cloud-page-fullscreen-toggle"
             aria-pressed={isFullscreen}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            className="cloud-page-fs-toggle"
+            aria-label="Toggle fullscreen"
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            className="cloud-page-fs-toggle cloud-page-fs-toggle-icon"
             onClick={toggleFullscreen}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
@@ -532,7 +605,6 @@ export function CloudPage({
                 </>
               )}
             </svg>
-            <span>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</span>
           </button>
         </div>
 
@@ -545,13 +617,15 @@ export function CloudPage({
             data-fullscreen={isFullscreen ? 'true' : 'false'}
             data-view={activeView}
           >
-            {/* Floating exit button — only visible while fullscreen. */}
+            {/* Floating icon-only exit button — only visible while
+             *  fullscreen (issue #366 item 4). Aria-label kept for a11y. */}
             {isFullscreen && (
               <button
                 type="button"
                 data-testid="cloud-page-fullscreen-exit"
                 aria-label="Exit fullscreen"
-                className="cloud-page-fs-exit"
+                title="Exit fullscreen"
+                className="cloud-page-fs-exit cloud-page-fs-exit-icon"
                 onClick={exitFullscreen}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
@@ -560,7 +634,6 @@ export function CloudPage({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 20v-3a2 2 0 0 0 -2 -2h-3" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 20v-3a2 2 0 0 1 2 -2h3" />
                 </svg>
-                <span>Exit fullscreen</span>
               </button>
             )}
             {/* Body — outlet shows up first in case a child redirect
@@ -585,9 +658,16 @@ const CLOUD_PAGE_CSS = `
 .cloud-page-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+.cloud-page-toolbar-spacer { flex: 1; }
+.cloud-page-toolbar > [data-testid="cloud-kind-chips"] {
+  flex: 1;
+  overflow-x: auto;
+}
+.cloud-page-toolbar > [data-testid="cloud-page-fullscreen-toggle"] {
+  margin-left: auto;
 }
 .cloud-page-view-toggle {
   display: inline-flex;
@@ -595,6 +675,7 @@ const CLOUD_PAGE_CSS = `
   border-radius: 8px;
   overflow: hidden;
   background: var(--color-bg-2);
+  flex-shrink: 0;
 }
 .cloud-page-view-tab {
   display: inline-flex;
@@ -620,15 +701,20 @@ const CLOUD_PAGE_CSS = `
 .cloud-page-fs-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-2);
   color: var(--color-text-dim);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+  flex-shrink: 0;
+}
+.cloud-page-fs-toggle-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
 }
 .cloud-page-fs-toggle:hover { color: var(--color-text); background: var(--color-surface-hover); }
 .cloud-page-fs-toggle svg { width: 16px; height: 16px; }
@@ -644,23 +730,36 @@ const CLOUD_PAGE_CSS = `
   transition: transform 250ms ease, opacity 250ms ease, padding 250ms ease, background 250ms ease;
   transform-origin: top center;
 }
-.cloud-page-content-fullscreen {
-  background: var(--color-bg);
-  padding: 1.25rem;
-  /* The native fullscreenchange path applies the user-agent
-   * fullscreen styling; for the synthetic fallback we apply a fixed
-   * overlay so the operator still sees a maximised view. */
-}
-.cloud-page-content:fullscreen {
-  background: var(--color-bg);
-  padding: 1.25rem;
-  overflow: auto;
-}
-/* Some user agents emit -webkit-full-screen separately; mirror. */
+.cloud-page-content-fullscreen,
+.cloud-page-content:fullscreen,
 .cloud-page-content:-webkit-full-screen {
-  background: var(--color-bg);
+  /* Fullscreen 100% height (issue #366 item 4): override any inherited
+   * min-height / margin so the canvas reaches both top and bottom of
+   * the viewport. The body is a flex column where .cloud-page-body
+   * grabs flex: 1. */
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
   padding: 1.25rem;
-  overflow: auto;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cloud-page-content-fullscreen .cloud-page-body,
+.cloud-page-content:fullscreen .cloud-page-body,
+.cloud-page-content:-webkit-full-screen .cloud-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cloud-page-content-fullscreen .cloud-page-body > *,
+.cloud-page-content:fullscreen .cloud-page-body > *,
+.cloud-page-content:-webkit-full-screen .cloud-page-body > * {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .cloud-page-fs-exit {
@@ -669,15 +768,18 @@ const CLOUD_PAGE_CSS = `
   right: 0.75rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
+  justify-content: center;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-2);
   color: var(--color-text-dim);
   cursor: pointer;
   z-index: 5;
+}
+.cloud-page-fs-exit-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
 }
 .cloud-page-fs-exit:hover { color: var(--color-text); background: var(--color-surface-hover); }
 .cloud-page-fs-exit svg { width: 16px; height: 16px; }
