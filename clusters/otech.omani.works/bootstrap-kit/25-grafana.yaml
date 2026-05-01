@@ -73,3 +73,10 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # Per-Sovereign overrides — issue #387:
+  # Wire the per-Sovereign hostname into the HTTPRoute template
+  # (platform/grafana/chart/templates/httproute.yaml). The HTTPRoute
+  # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
+  values:
+    gateway:
+      host: grafana.otech.omani.works
