@@ -9,10 +9,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -25,6 +27,12 @@ import type {
   RegionSpec,
   TopologyStatus,
 } from '@/lib/infrastructure.types'
+import {
+  AddWorkerNodeModal,
+  EditWorkerNodeModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
+import type { CloudProvider } from '@/entities/deployment/model'
 
 interface NodeRow {
   id: string
@@ -103,6 +111,12 @@ export function WorkerNodesPage() {
   })
 
   const [openRow, setOpenRow] = useState<NodeRow | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<NodeRow | null>(null)
+  const [deleteRow, setDeleteRow] = useState<NodeRow | null>(null)
+
+  const firstRegion = data?.topology.regions?.[0]
+  const firstCluster = firstRegion?.clusters?.[0]
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -113,6 +127,8 @@ export function WorkerNodesPage() {
         tagline="Individual VMs / kubelets — one row per node across every cluster."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New worker node"
+        onNew={firstCluster ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -162,12 +178,13 @@ export function WorkerNodesPage() {
                   <SortableTH testId={`${TEST_ID}-th-kubeletVersion`} column="kubeletVersion" label="Kubelet" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-sku`} column="sku" label="SKU" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={7} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No worker nodes match the current filters.
                     </td>
                   </tr>
@@ -185,6 +202,13 @@ export function WorkerNodesPage() {
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.cluster.version}</td>
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.node.sku}</td>
                       <td className="cloud-list-cell"><StatusPill status={row.node.status} /></td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -209,6 +233,17 @@ export function WorkerNodesPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Hostname" value={openRow.node.name} mono />
             <DetailRow label="ID" value={openRow.node.id} mono />
             <DetailRow label="Role" value={openRow.node.role} />
@@ -222,6 +257,36 @@ export function WorkerNodesPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      {firstCluster && firstRegion && (
+        <AddWorkerNodeModal
+          open={addOpen}
+          deploymentId={deploymentId}
+          clusterId={firstCluster.id}
+          regionProvider={(firstRegion.provider as CloudProvider) ?? 'hetzner'}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editRow && (
+        <EditWorkerNodeModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          node={editRow.node}
+          regionProvider={(editRow.region.provider as CloudProvider) ?? 'hetzner'}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="nodes"
+          resourceId={deleteRow.node.id}
+          resourceLabel={deleteRow.node.name}
+          resourceKind="Worker node"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

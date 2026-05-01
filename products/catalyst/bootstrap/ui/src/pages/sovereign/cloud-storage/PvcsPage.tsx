@@ -9,10 +9,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -20,6 +22,11 @@ import { CLOUD_LIST_CSS } from '../cloud-list/cloudListCss'
 import { useCloudListState } from '../cloud-list/useCloudListState'
 import type { SortState } from '../cloud-list/sortState'
 import type { PVCItem, TopologyStatus } from '@/lib/infrastructure.types'
+import {
+  AddPVCModal,
+  EditPVCModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
 
 const STATUSES: readonly TopologyStatus[] = ['healthy', 'degraded', 'failed', 'unknown']
 const TEST_ID = 'cloud-pvcs'
@@ -75,6 +82,9 @@ export function PvcsPage() {
   })
 
   const [openRow, setOpenRow] = useState<PVCItem | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<PVCItem | null>(null)
+  const [deleteRow, setDeleteRow] = useState<PVCItem | null>(null)
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -85,6 +95,8 @@ export function PvcsPage() {
         tagline="Persistent volume claims across all namespaces and clusters."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New PVC"
+        onNew={() => setAddOpen(true)}
       />
 
       {isLoading ? (
@@ -133,12 +145,13 @@ export function PvcsPage() {
                   <SortableTH testId={`${TEST_ID}-th-capacity`} column="capacity" label="Capacity" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-storageClass`} column="storageClass" label="Storage class" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No PVCs match the current filters.
                     </td>
                   </tr>
@@ -155,6 +168,13 @@ export function PvcsPage() {
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.capacity}</td>
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.storageClass}</td>
                       <td className="cloud-list-cell"><StatusPill status={row.status} /></td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -179,6 +199,17 @@ export function PvcsPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Name" value={openRow.name} />
             <DetailRow label="ID" value={openRow.id} mono />
             <DetailRow label="Namespace" value={openRow.namespace} mono />
@@ -189,6 +220,32 @@ export function PvcsPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      <AddPVCModal
+        open={addOpen}
+        deploymentId={deploymentId}
+        storageClasses={classOptions}
+        onClose={() => setAddOpen(false)}
+      />
+      {editRow && (
+        <EditPVCModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          pvc={editRow}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="pvcs"
+          resourceId={deleteRow.id}
+          resourceLabel={`${deleteRow.namespace}/${deleteRow.name}`}
+          resourceKind="PVC"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

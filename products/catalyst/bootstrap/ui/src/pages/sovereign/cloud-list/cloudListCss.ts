@@ -305,4 +305,102 @@ export const CLOUD_LIST_CSS = `
   color: var(--color-text-dim);
   margin: 0;
 }
+
+/* Row actions kebab menu (#349). */
+.cloud-list-row-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.cloud-list-row-actions-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-dim);
+  width: 28px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cloud-list-row-actions-trigger:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+.cloud-list-row-actions-menu {
+  position: absolute;
+  right: 0;
+  top: 28px;
+  z-index: 30;
+  min-width: 140px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-2);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.cloud-list-row-actions-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cloud-list-row-actions-item:hover {
+  background: var(--color-bg);
+}
+.cloud-list-row-actions-item-danger {
+  color: var(--color-danger);
+}
+.cloud-list-row-actions-item-danger:hover {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+}
+
+/* Detail-drawer Edit/Delete bar. */
+.cloud-list-detail-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+.cloud-list-detail-actions-edit,
+.cloud-list-detail-actions-delete {
+  appearance: none;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+.cloud-list-detail-actions-edit {
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+}
+.cloud-list-detail-actions-edit:hover {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.cloud-list-detail-actions-delete {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 50%, var(--color-border));
+  background: transparent;
+  color: var(--color-danger);
+}
+.cloud-list-detail-actions-delete:hover {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+}
 `
