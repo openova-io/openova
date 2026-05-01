@@ -205,6 +205,35 @@ spec:
             # without code change.
             - name: CATALYST_API_PUBLIC_URL
               value: https://console.openova.io/sovereign
+            # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
+            # the k8scache.Factory reads kubeconfigs from at startup.
+            # The data-plane SharedInformerFactory opens one informer
+            # per kubeconfig file; the cloud-init postback handler
+            # (PUT /api/v1/deployments/{id}/kubeconfig) writes here on
+            # Phase-1 attach so a fresh Sovereign id is automatically
+            # picked up at next catalyst-api restart. The same PVC
+            # (catalyst-api-deployments) backs the existing
+            # deployments store; the data-plane reads the kubeconfigs/
+            # subdirectory directly.
+            - name: CATALYST_K8SCACHE_KUBECONFIGS_DIR
+              value: /var/lib/catalyst/kubeconfigs
+            # CATALYST_K8SCACHE_SNAPSHOT_DIR — issue #321 cold-start
+            # mitigation. Backed by a separate 5Gi PVC
+            # (catalyst-api-cache) so its size is independent of the
+            # deployments store. See api-cache-pvc.yaml for the sizing
+            # rationale + the cold-start latency contract.
+            - name: CATALYST_K8SCACHE_SNAPSHOT_DIR
+              value: /var/cache/sov-cache
+            # CATALYST_K8SCACHE_KINDS_CONFIGMAP — optional ConfigMap
+            # extending the built-in kinds registry. Per docs/
+            # INVIOLABLE-PRINCIPLES.md #4 a new watched GVR (e.g.
+            # HelmRelease, Kustomization) is a runtime configuration
+            # change, not a code change. Empty disables ConfigMap
+            # loading; built-in DefaultKinds is used.
+            - name: CATALYST_K8SCACHE_KINDS_CONFIGMAP
+              value: catalyst-k8scache-kinds
+            - name: CATALYST_K8SCACHE_KINDS_CONFIGMAP_NAMESPACE
+              value: catalyst
             # CATALYST_GHCR_PULL_TOKEN — long-lived GHCR pull token that
             # the provisioner stamps onto every Request and the OpenTofu
             # cloud-init template writes into the new Sovereign's
@@ -297,6 +326,13 @@ spec:
             # without a second volume claim or init container.
             - name: catalyst
               mountPath: /var/lib/catalyst
+            # k8scache disk-snapshot mount (issue #321). Separate PVC
+            # so cache size is independent of deployment-record
+            # storage. The k8scache loop writes one JSON per
+            # (cluster, kind) here, mode 0600. Pruned by the loop
+            # itself when a snapshot ages past 1h.
+            - name: sov-cache
+              mountPath: /var/cache/sov-cache
       volumes:
         - name: tmp
           emptyDir:
@@ -318,3 +354,8 @@ spec:
         - name: catalyst
           persistentVolumeClaim:
             claimName: catalyst-api-deployments
+        # k8scache disk-snapshot PVC (issue #321). 5Gi RWO; see
+        # api-cache-pvc.yaml for the sizing + cold-start contract.
+        - name: sov-cache
+          persistentVolumeClaim:
+            claimName: catalyst-api-cache
