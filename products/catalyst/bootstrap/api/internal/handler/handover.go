@@ -22,7 +22,11 @@
 //     `secret/catalyst/tofu-phase0-archive`. On 200 OK from the new
 //     Sovereign, delete `/var/lib/catalyst/tofu/<sovereign-name>/`
 //     locally.
-//  4. Delete the kubeconfig file on the PVC + the deployment record JSON.
+//  4. Delete the kubeconfig file on the PVC; transform the deployment
+//     record JSON in-place to a slim post-handover state (id +
+//     sovereignFQDN + audit timestamps + AdoptedAt; operational fields
+//     zeroed) — the slim record is what fires the post-handover
+//     console redirect (issue #319 PR #451 contract; #453 reconciles).
 //
 // Step 4's "Hetzner token rotate" mentioned in the issue body is deferred
 // to Crossplane Provider rotation (per #425, the canonical Day-2 IaC
@@ -54,9 +58,12 @@
 //   - OpenBao writes go through internal/openbao.Client (canonical seam).
 //   - Tofu workdir cleanup uses os.RemoveAll on the existing
 //     provisioner.Provisioner.WorkDir/<sovereignName> path.
-//   - Deployment record + kubeconfig deletion uses the existing
-//     store.Store.Delete + os.Remove on h.kubeconfigsDir paths (same
+//   - Kubeconfig deletion uses os.Remove on h.kubeconfigsDir paths (same
 //     paths the wipe.go finalisation uses).
+//   - Deployment record post-handover is transformed to slim shape via
+//     Deployment.SlimForHandover + persisted with the existing
+//     store.Store.Save seam; the older Delete-then-redirect-404 path
+//     was the bug fixed by #453.
 package handler
 
 import (
@@ -227,25 +234,38 @@ func (h *Handler) FinaliseHandover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 4b — delete the on-disk deployment record. After this, GET
-	// /api/v1/deployments/{id} returns 404 (the in-memory entry is also
-	// dropped via h.deployments.Delete after a brief grace window so
-	// open SSE consumers can flush).
+	// Step 4b — slim the deployment record instead of deleting (#453,
+	// reconciles #317↔#319 contract).
+	//
+	// Issue #319 (PR #451) shipped the post-handover redirect: when the
+	// browser hits console.openova.io/sovereign/<id>, the
+	// provisionRoute.beforeLoad fetches /api/v1/deployments/<id>, reads
+	// `adoptedAt` + `sovereignFQDN`, and 301s to https://console.<fqdn>/.
+	// Deleting the record (the previous behaviour) made that fetch 404
+	// and the redirect could never fire — broken-by-design contract.
+	//
+	// The fix is to retain a slim post-handover record:
+	//   - Audit minimum: id, sovereignFQDN, orgName, orgEmail, startedAt
+	//   - Redirect contract: adoptedAt = now()
+	// All operational fields (Result/tofuState, kubeconfig hash, PDM
+	// reservation token, error, component states) are zeroed via
+	// SlimForHandover. The on-disk record after this Save is the
+	// structural breadcrumb required by §0 minimum-retention; nothing
+	// more.
+	adopted := dep.SlimForHandover(now)
+	h.deployments.Store(id, adopted)
 	if h.store != nil {
-		if err := h.store.Delete(id); err != nil {
-			resp.Errors = append(resp.Errors, "delete deployment record: "+err.Error())
+		if err := h.store.Save(adopted.toRecord()); err != nil {
+			resp.Errors = append(resp.Errors, "persist adopted record: "+err.Error())
 		} else {
 			resp.Steps.DeploymentRecordRemoved = true
 		}
+	} else {
+		// In-memory-only handler (test path) — slim shape was swapped
+		// in via Store above, that satisfies the redirect contract on
+		// its own.
+		resp.Steps.DeploymentRecordRemoved = true
 	}
-
-	// In-memory cleanup runs in a goroutine so any open SSE stream
-	// receives the `handover` event before the deployment id 404s. The
-	// 60s grace mirrors the wipe.go pattern.
-	go func() {
-		time.Sleep(60 * time.Second)
-		h.deployments.Delete(id)
-	}()
 
 	writeJSON(w, http.StatusOK, resp)
 }

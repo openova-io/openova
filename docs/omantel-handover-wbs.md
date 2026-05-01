@@ -240,8 +240,7 @@ flowchart TB
     T456 --> DOD
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF phase
-    class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
-    class T453 wip
+    class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453 done
     class T454,T455,T456 blocked
 
     %% Clickable ticket numbers
@@ -285,7 +284,7 @@ flowchart TB
 **Honest read:**
 
 - Phases 0-7 are **green at chart-level** — code is shipped, individual blueprints smoke-installed on contabo. Reconcile-chain status across all 23 is **❓ unknown** (see §2 right column).
-- Phase 7 is **incomplete** — #453 (#317↔#319 contract reconciliation) is a known bug discovered during #319 implementation. The post-handover redirect is broken until #453 lands.
+- Phase 7 is **complete at chart-level** — #453 (#317↔#319 contract reconciliation) merged: handover-finalisation now preserves the slim record so the post-handover redirect from console.openova.io/sovereign/<id> → console.<sovereign-fqdn> fires correctly. Live verification still pending Phase 8b (#455).
 - Phase 8 is **the actual handover gate**. Three sub-tickets:
   - **#454 (8a)**: live provision dry run on `test.omani.works` — surfaces every reconcile-chain bug
   - **#455 (8b)**: handover + decommission cycle on `test.omani.works`
@@ -450,7 +449,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #323 | 🟢 done (epic #320 IAM — POST-OMANTEL scope; here for cross-reference only) | [#452](https://github.com/openova-io/openova/pull/452) merged `783f7713` | UserAccess REST + UI editor |
 | #324 | ⏸ parked (epic #320 IAM — POST-OMANTEL; agent stopped 2026-05-01 per scope rewrite) | — | — |
 | #325 | ⏸ parked (epic #320 IAM — POST-OMANTEL; agent stopped 2026-05-01 per scope rewrite) | — | — |
-| **#453** | 🟡 **in flight — Phase 7 cleanup; #317↔#319 contract reconciliation. #317's `FinaliseHandover` deletes the deployment record entirely, so #319's `AdoptedAt` field is dormant and the post-handover redirect at `console.openova.io/sovereign/<id>` is broken. Fix: preserve the slim record with `AdoptedAt`+`SovereignFQDN` populated; zero out operational fields. BLOCKS Phase 8b.** | (PR pending) | gates omantel handover loop |
+| **#453** | 🟢 done — handover-finalisation now preserves slim record (id, sovereignFQDN, createdAt, createdBy, AdoptedAt) instead of deleting it; operational fields (tofuState, kubeconfig, Result, error, credentials) zeroed; redirect contract from #319 PR #451 now actually fires post-handover. New `Deployment.SlimForHandover(adoptedAt)` seam swaps the in-memory + on-disk record from `status: ready` → `status: adopted`. Tests: `TestFinaliseHandover_PreservesRedirectContract` (drives FinaliseHandover then GET /api/v1/deployments/{id}, asserts adoptedAt + sovereignFQDN survive on JSON response and on disk via store.Load round-trip) + `TestSlimForHandover` (table-driven full-record/minimal-record transform; asserts audit fields kept, redirect field set, operational fields/credentials zeroed, channels closed) + `TestSlimForHandover_StoreRecordRoundTrip` (JSON encode/decode survives Pod restart). All `go test ./...` green; `bash scripts/check-vendor-coupling.sh` exit 0 (HARD-FAIL mode). | (this PR) | catalyst-api `internal/handler/{handover.go,deployments.go,handover_test.go}` |
 | **#454** | 🔒 **blocked — Phase 8a · live provision dry run on `test.omani.works`. Operator-driven (real Hetzner credit). Provisions a Sovereign via wizard; watches all 23 bp-* HelmReleases reach Ready=True; surfaces every reconcile-chain bug as a follow-up ticket. THIS is the integration-test gate for the chart-released → integration-tested → DoD-met progression.** | (depends on #453) | gates Phase 8b |
 | **#455** | 🔒 **blocked — Phase 8b · handover + decommission cycle on `test.omani.works`. Runs handover-finalisation, verifies redirect (post-#453), runs customer-side decommission, verifies wipe + re-provision idempotency.** | (depends on #454) | gates Phase 8c |
 | **#456** | 🔒 **blocked — Phase 8c · production `omantel.omani.works` run. DoD-met when this closes cleanly: omantel runs self-sufficient on Hetzner, killing contabo for 5 min has zero effect, customer admin kubectl works via Keycloak.** | (depends on #455) | THE DoD GATE |
@@ -461,7 +460,7 @@ These are bugs we already know exist but cannot fix until Phase 8a exposes them 
 
 | # | Gap | Likely surfaces in | Fix vector |
 |---|---|---|---|
-| R1 | **#317↔#319 contract bug** — handover-finalisation deletes the deployment record; redirect can never read `AdoptedAt` | Phase 8b (redirect 404s instead of 301-ing) | [#453](https://github.com/openova-io/openova/issues/453) — IN FLIGHT, blocks Phase 8b |
+| R1 | **#317↔#319 contract bug** — handover-finalisation deletes the deployment record; redirect can never read `AdoptedAt` | Phase 8b (redirect 404s instead of 301-ing) | [#453](https://github.com/openova-io/openova/issues/453) — DONE; live verification pending Phase 8b |
 | R2 | **Crossplane `provider-hcloud` Healthy=True never observed** | Phase 8a — Provider may fail to install if RBAC / image pull issues | Surfaces as a Phase 8a sub-bug; fix in same iteration |
 | R3 | **Cilium Gateway HTTPRoute admission untested** — bp-catalyst-platform smoke skipped HTTPRoute on contabo (no Gateway present) | Phase 8a (console.test.omani.works returns 404 / 502) | Likely a Gateway-class or sectionName mismatch; fix in same iteration |
 | R4 | **bootstrap-kit reconcile order under load** — never run all 23 HRs together with real `dependsOn` chain | Phase 8a (some HRs stuck in dependency-wait or InstallFailed) | Iterate on chart `dependsOn` + `disableWait` flags |
@@ -578,7 +577,7 @@ Per founder corrective 2026-05-01: **stop dispatching capacity-fill agents on po
 
 **The only work that matters between now and DoD:**
 
-1. **#453** (in flight) — fix #317↔#319 contract so the redirect works
+1. **#453** ✅ done — #317↔#319 contract reconciled; FinaliseHandover preserves slim record so the redirect works
 2. **#454** Phase 8a — operator runs the live test.omani.works provision (real Hetzner credit)
 3. **Iterate on whatever 8a surfaces** (expect 3-5 bugs from §9a Risk register)
 4. **#455** Phase 8b — handover + decommission cycle on test.omani.works
