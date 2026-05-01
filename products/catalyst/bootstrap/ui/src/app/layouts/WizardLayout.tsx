@@ -9,8 +9,9 @@ import { OOLogo } from '@/shared/ui/OOLogo'
 
 /**
  * Wizard step list — seven progress stops in dependency order. StepSuccess
- * is the terminal destination after StepReview launches provisioning; it
- * is not part of the visible progress, so it is not in this list.
+ * and StepNSDelegation are post-provisioning destinations after StepReview
+ * launches provisioning; they are not part of the visible progress, so
+ * they are not in this list.
  *
  * Order rationale:
  *   1. Organisation — who you are. Independent of every other choice.
@@ -31,6 +32,11 @@ import { OOLogo } from '@/shared/ui/OOLogo'
  * a per-region property, picked AFTER topology decides how many regions
  * exist. SKU choices belong INSIDE the provider step because every cloud
  * has its own instance-type vocabulary (see shared/constants/providerSizes.ts).
+ *
+ * After Review, the post-provisioning steps (StepSuccess, StepNSDelegation)
+ * run on the same wizard state machine but live OUTSIDE the visible
+ * progress indicator — they are operator-facing handover gates, not user
+ * inputs.
  */
 export const WIZARD_STEPS = [
   { id: 1, label: 'Organisation', desc: 'Industry, size, HQ, compliance'   },

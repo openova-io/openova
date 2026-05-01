@@ -9,6 +9,7 @@ import { StepCredentials } from './steps/StepCredentials'
 import { StepComponents }  from './steps/StepComponents'
 import { StepReview }      from './steps/StepReview'
 import { StepSuccess }     from './steps/StepSuccess'
+import { StepNSDelegation } from './steps/StepNSDelegation'
 
 // Step order (must match WIZARD_STEPS in WizardLayout.tsx exactly):
 //
@@ -25,7 +26,12 @@ import { StepSuccess }     from './steps/StepSuccess'
 //   5. StepComponents   — unified marketplace catalog.
 //   6. StepDomain       — pool subdomain or BYO domain + admin email.
 //   7. StepReview       — single source of truth for the POST body.
-//   8. StepSuccess      — provisioning result (terminal).
+//   8. StepSuccess      — provisioning result.
+//   9. StepNSDelegation — post-handover parent-zone NS delegation
+//                         (omantel.omani.works → Sovereign-owned PowerDNS).
+//                         Closes #374. Pure runbook-emitter by default;
+//                         "auto-apply" toggle gates a stub catalyst-api
+//                         endpoint that PDM will wire in Phase 8.
 const STEPS = [
   StepOrg,
   StepTopology,
@@ -35,6 +41,7 @@ const STEPS = [
   StepDomain,
   StepReview,
   StepSuccess,
+  StepNSDelegation,
 ]
 
 const variants = {

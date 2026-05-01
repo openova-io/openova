@@ -656,6 +656,198 @@ func TestAddSovereignRecords_AllUseAddDNSToCurrentSetting(t *testing.T) {
 	}
 }
 
+// ── #374: AddNSDelegation + BuildNSDelegationRunbook ─────────────────────
+
+// TestAddNSDelegation_HappyPath verifies the canonical delegation: 3 NS
+// records + 1 glue A record, all on the parent zone, all using
+// add_dns_to_current_setting=yes.
+func TestAddNSDelegation_HappyPath(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	ResetManagedDomains()
+
+	srv, fake := newDynadotFakeServer()
+	defer srv.Close()
+	c := newClientPointingAt(srv.URL, "k", "s")
+
+	if err := c.AddNSDelegation(context.Background(),
+		"omani.works",
+		"omantel.omani.works",
+		"203.0.113.42",
+		nil,
+	); err != nil {
+		t.Fatalf("AddNSDelegation: %v", err)
+	}
+
+	got := fake.recorded()
+	if len(got) != 4 {
+		t.Fatalf("expected 4 set_dns2 calls (3 NS + 1 glue A), got %d", len(got))
+	}
+
+	// Every call MUST hit the parent zone, never the child zone, with the
+	// record-preserving flag on.
+	for i, rr := range got {
+		if rr.Domain != "omani.works" {
+			t.Errorf("call %d: domain = %q, want omani.works", i, rr.Domain)
+		}
+		if rr.AddDNSToCurrentSetting != "yes" {
+			t.Errorf("call %d: add_dns_to_current_setting = %q, want yes", i, rr.AddDNSToCurrentSetting)
+		}
+		if rr.Command != "set_dns2" {
+			t.Errorf("call %d: command = %q, want set_dns2", i, rr.Command)
+		}
+	}
+
+	// First three calls are NS records on subdomain "omantel".
+	for i := 0; i < 3; i++ {
+		if got[i].Subdomain != "omantel" {
+			t.Errorf("NS call %d: subdomain = %q, want omantel", i, got[i].Subdomain)
+		}
+		if got[i].SubRecordType != "NS" {
+			t.Errorf("NS call %d: sub_record_type = %q, want NS", i, got[i].SubRecordType)
+		}
+	}
+	wantNS := []string{
+		"ns1.omantel.omani.works",
+		"ns2.omantel.omani.works",
+		"ns3.omantel.omani.works",
+	}
+	for i, want := range wantNS {
+		if got[i].SubRecord != want {
+			t.Errorf("NS call %d: sub_record = %q, want %q", i, got[i].SubRecord, want)
+		}
+	}
+
+	// Fourth call is the glue A record.
+	if got[3].Subdomain != "ns1.omantel" {
+		t.Errorf("glue A: subdomain = %q, want ns1.omantel", got[3].Subdomain)
+	}
+	if got[3].SubRecordType != "A" {
+		t.Errorf("glue A: sub_record_type = %q, want A", got[3].SubRecordType)
+	}
+	if got[3].SubRecord != "203.0.113.42" {
+		t.Errorf("glue A: sub_record = %q, want 203.0.113.42", got[3].SubRecord)
+	}
+}
+
+// TestAddNSDelegation_RefusesUnmanagedZone is the fail-closed guard. If the
+// parent zone isn't in DYNADOT_MANAGED_DOMAINS we MUST return an error
+// without making any HTTP calls — per docs/INVIOLABLE-PRINCIPLES.md #4 the
+// catalyst-api never speaks to a registrar for a zone it doesn't own.
+func TestAddNSDelegation_RefusesUnmanagedZone(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "openova.io")
+	ResetManagedDomains()
+
+	srv, fake := newDynadotFakeServer()
+	defer srv.Close()
+	c := newClientPointingAt(srv.URL, "k", "s")
+
+	err := c.AddNSDelegation(context.Background(),
+		"omani.works",
+		"omantel.omani.works",
+		"203.0.113.42",
+		nil,
+	)
+	if err == nil {
+		t.Fatalf("expected error for unmanaged zone, got nil")
+	}
+	if !strings.Contains(err.Error(), "DYNADOT_MANAGED_DOMAINS") {
+		t.Errorf("error %q should mention DYNADOT_MANAGED_DOMAINS", err.Error())
+	}
+	if n := len(fake.recorded()); n != 0 {
+		t.Errorf("expected 0 HTTP calls when refusing unmanaged zone, got %d", n)
+	}
+}
+
+// TestAddNSDelegation_TableDriven covers input-validation edge cases.
+func TestAddNSDelegation_TableDriven(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	ResetManagedDomains()
+
+	srv, _ := newDynadotFakeServer()
+	defer srv.Close()
+	c := newClientPointingAt(srv.URL, "k", "s")
+
+	cases := []struct {
+		name, parent, fqdn, ip, wantErr string
+	}{
+		{"empty parent", "", "x.omani.works", "1.2.3.4", "parentZone is required"},
+		{"empty fqdn", "omani.works", "", "1.2.3.4", "sovereignFQDN is required"},
+		{"empty ip", "omani.works", "x.omani.works", "", "loadBalancerIP is required"},
+		{"fqdn not under parent", "omani.works", "x.example.com", "1.2.3.4", "is not a child of"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := c.AddNSDelegation(context.Background(), tc.parent, tc.fqdn, tc.ip, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestAddNSDelegation_CustomNSHosts verifies the extraNS slot lets callers
+// override the default ns1/ns2/ns3.<fqdn> set (used when a Sovereign sits
+// behind a CDN with externally-minted NS hostnames).
+func TestAddNSDelegation_CustomNSHosts(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	ResetManagedDomains()
+
+	srv, fake := newDynadotFakeServer()
+	defer srv.Close()
+	c := newClientPointingAt(srv.URL, "k", "s")
+
+	custom := []string{"a.cdn.example", "b.cdn.example"}
+	if err := c.AddNSDelegation(context.Background(),
+		"omani.works", "omantel.omani.works", "203.0.113.7", custom,
+	); err != nil {
+		t.Fatalf("AddNSDelegation: %v", err)
+	}
+
+	// 2 custom NS + 1 glue A = 3 calls.
+	got := fake.recorded()
+	if len(got) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(got))
+	}
+	if got[0].SubRecord != "a.cdn.example" || got[1].SubRecord != "b.cdn.example" {
+		t.Errorf("custom NS hosts not honoured: got %q, %q", got[0].SubRecord, got[1].SubRecord)
+	}
+}
+
+// TestBuildNSDelegationRunbook covers the pure runbook string-building
+// helper. The wizard's StepNSDelegation has its own JSX-side helper that
+// must produce the same shape; if either drifts the operator-facing copy
+// in the wizard and the API's emitted runbook diverge.
+func TestBuildNSDelegationRunbook(t *testing.T) {
+	got := BuildNSDelegationRunbook("omani.works", "omantel.omani.works", "203.0.113.42")
+
+	// Required substrings — any of these missing breaks the runbook contract.
+	must := []string{
+		"https://api.dynadot.com/api3.json",
+		"command=set_dns2",
+		"add_dns_to_current_setting=yes",
+		"key=$DYNADOT_API_KEY",   // never embed the secret
+		"domain=omani.works",
+		"subdomain0=omantel",
+		"sub_record_type0=NS",
+		"sub_record0=ns1.omantel.omani.works",
+		"sub_record1=ns2.omantel.omani.works",
+		"sub_record2=ns3.omantel.omani.works",
+		"subdomain3=ns1.omantel",
+		"sub_record_type3=A",
+		"sub_record3=203.0.113.42",
+	}
+	for _, m := range must {
+		if !strings.Contains(got, m) {
+			t.Errorf("runbook missing substring %q\n--- runbook ---\n%s\n---", m, got)
+		}
+	}
+
+	// And no real-looking secret should ever leak in.
+	if strings.Contains(got, "secret=") {
+		t.Errorf("runbook leaks an api secret: %s", got)
+	}
+}
+
 // TestSplitDomainsList covers the parser edge cases.
 func TestSplitDomainsList(t *testing.T) {
 	cases := []struct {
