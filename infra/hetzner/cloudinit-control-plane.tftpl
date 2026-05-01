@@ -502,7 +502,22 @@ write_files:
           kind: GitRepository
           name: openova
         wait: true
-        timeout: 30m
+        # timeout: 5m (issue #492). Phase-8a iteration discipline: when
+        # the FIRST apply of bootstrap-kit is unhealthy (e.g. cilium
+        # crash-loop from issue #491), kustomize-controller holds the
+        # revision lock for the FULL timeout window and refuses to pick
+        # up new GitRepository revisions, even fixes that have already
+        # landed on main. The 30m default deadlocked otech8 deployment
+        # 1bfc46347564467b: fix `66ea39f0` was on main 1m after the bad
+        # SHA, but bootstrap-kit's `lastAttemptedRevision` stayed pinned
+        # to the old SHA waiting for HRs to become Ready (which they
+        # never would, because of #491). Operator wiped + reprovisioned.
+        # 5m matches the GitRepository poll interval — failed reconciles
+        # release the revision lock fast (~6m worst case) so a fresh fix
+        # gets applied on the next poll. We KEEP `wait: true` to preserve
+        # the consolidated "Kustomization Ready=True ⇒ every HR Ready"
+        # contract that downstream `dependsOn: bootstrap-kit` relies on.
+        timeout: 5m
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
@@ -528,7 +543,11 @@ write_files:
         dependsOn:
           - name: bootstrap-kit
         wait: true
-        timeout: 30m
+        # timeout: 5m (issue #492) — same rationale as bootstrap-kit.
+        # Releases the revision lock quickly so iterative fixes during
+        # Phase-8a get applied on the next GitRepository poll instead
+        # of stalling 30 minutes per failed apply.
+        timeout: 5m
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
@@ -549,7 +568,11 @@ write_files:
           - name: bootstrap-kit
           - name: sovereign-tls
         wait: true
-        timeout: 30m
+        # timeout: 5m (issue #492) — same rationale as bootstrap-kit.
+        # Releases the revision lock quickly so iterative fixes during
+        # Phase-8a get applied on the next GitRepository poll instead
+        # of stalling 30 minutes per failed apply.
+        timeout: 5m
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
