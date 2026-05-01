@@ -486,6 +486,72 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}, nil
 }
 
+// Destroy runs `tofu destroy -auto-approve` against the per-deployment
+// workdir for req.SovereignFQDN. Idempotent — re-running on a partially-
+// destroyed state cleans up whatever's left. Streams stdout/stderr as
+// Events to the wizard so the operator sees progress.
+//
+// On success the per-deployment workdir is REMOVED so the next
+// re-provision starts fresh. On failure the workdir is preserved so the
+// operator can inspect state — they MUST then run a force-purge against
+// the cloud account directly to remove orphans, since `tofu destroy`
+// failing partway leaves resources behind.
+func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Event) error {
+	if strings.TrimSpace(req.GHCRPullToken) == "" {
+		req.GHCRPullToken = p.GHCRPullToken
+	}
+
+	emit := func(phase, level, msg string) {
+		select {
+		case events <- Event{Time: time.Now().UTC().Format(time.RFC3339), Phase: phase, Level: level, Message: msg}:
+		default:
+		}
+	}
+
+	deployDir := filepath.Join(p.WorkDir, req.sovereignName())
+
+	// If the workdir doesn't exist, there's no tofu state to destroy —
+	// either the deployment never made it past CreateDeployment, or it
+	// was already cleaned up. Nothing to do; let the caller continue
+	// with the post-tofu cleanup steps (Hetzner orphan purge, PDM
+	// release, local state cleanup).
+	if _, err := os.Stat(deployDir); os.IsNotExist(err) {
+		emit("tofu-destroy", "info", "no tofu workdir for "+req.SovereignFQDN+" — nothing to destroy")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat tofu workdir: %w", err)
+	}
+
+	// Re-stage the module + tfvars so a partially-cleaned workdir still
+	// has what tofu needs to destroy.
+	if err := stageModule(p.ModulePath, deployDir); err != nil {
+		return fmt.Errorf("stage tofu module: %w", err)
+	}
+	if err := writeTfvars(deployDir, req); err != nil {
+		return fmt.Errorf("write tfvars: %w", err)
+	}
+
+	emit("tofu-init", "info", "Re-initialising OpenTofu working directory for destroy")
+	if err := p.runTofu(ctx, deployDir, []string{"init", "-input=false", "-no-color"}, emit); err != nil {
+		return fmt.Errorf("tofu init: %w", err)
+	}
+
+	emit("tofu-destroy", "info", "Destroying Hetzner resources for "+req.SovereignFQDN+" (network, firewall, ssh-key, server, lb)")
+	if err := p.runTofu(ctx, deployDir, []string{"destroy", "-input=false", "-no-color", "-auto-approve"}, emit); err != nil {
+		// Don't remove the workdir — operator may want to inspect.
+		return fmt.Errorf("tofu destroy: %w", err)
+	}
+
+	// Remove the workdir on success — next re-provision starts fresh.
+	if err := os.RemoveAll(deployDir); err != nil {
+		emit("tofu-destroy", "warn", "could not remove workdir "+deployDir+": "+err.Error())
+		// Non-fatal — destroy itself succeeded.
+	}
+
+	emit("tofu-destroy", "info", "Tofu destroy complete; workdir removed")
+	return nil
+}
+
 // runTofu executes `tofu <args>` in deployDir, streaming stdout/stderr lines
 // as Events to the wizard.
 func (p *Provisioner) runTofu(ctx context.Context, deployDir string, args []string, emit func(string, string, string)) error {

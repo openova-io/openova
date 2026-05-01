@@ -33,6 +33,7 @@ import {
   AddNodePoolModal,
   AddLBModal,
   DeleteCascadeConfirm,
+  WipeDeploymentModal,
 } from '@/components/CrudModals'
 import type { CloudProvider } from '@/entities/deployment/model'
 
@@ -59,6 +60,7 @@ interface ModalState {
     | 'add-nodepool'
     | 'add-lb'
     | 'delete'
+    | 'wipe-deployment'
 }
 
 export function InfrastructureTopology() {
@@ -110,6 +112,19 @@ export function InfrastructureTopology() {
         key: 'add-region',
         label: '+ Add region',
         onClick: () => setModal({ kind: 'add-region' }),
+      })
+      // Phase-0 deployment-level destructive op (issue #318). Distinct
+      // from the per-resource Crossplane DELETE (which targets XRCs in
+      // the day-2 path) — this triggers the catalyst-api's
+      // /deployments/:id/wipe endpoint that runs `tofu destroy` +
+      // Hetzner orphan force-purge + PDM release + local state cleanup.
+      // The right tool when the deployment failed before handover and
+      // no Crossplane XRCs were ever created.
+      actions.push({
+        key: 'wipe-deployment',
+        label: 'Cancel & Wipe deployment',
+        onClick: () => setModal({ kind: 'wipe-deployment' }),
+        danger: true,
       })
     }
     if (selectedNode.kind === 'region') {
@@ -443,10 +458,45 @@ export function InfrastructureTopology() {
               onClose={() => setModal({ kind: 'none' })}
             />
           )}
+
+          {/* Deployment-level Phase-0 wipe (issue #318). Reachable from
+              the cloud-node action menu when the operator needs to
+              cancel a failed pre-handover provisioning. Distinct from
+              the per-resource DeleteCascadeConfirm above which targets
+              Crossplane XRCs in the day-2 path. */}
+          <WipeDeploymentModal
+            open={modal.kind === 'wipe-deployment'}
+            deploymentId={deploymentId}
+            sovereignFQDN={inferSovereignFQDN(data)}
+            onClose={() => setModal({ kind: 'none' })}
+            onWiped={() => {
+              setModal({ kind: 'none' })
+              // After a wipe the operator typically wants to start a
+              // fresh provisioning. We surface that via the same
+              // /wizard navigation the AppsPage failure-card uses.
+              window.location.href = '/sovereign'
+            }}
+          />
         </>
       )}
     </div>
   )
+}
+
+/** inferSovereignFQDN — derive the deployment FQDN from the loaded
+ *  topology so the WipeDeploymentModal can show "type otech.omani.works
+ *  to confirm". The topology's root region or cluster carries the FQDN
+ *  in its label; falling back to null when the topology is empty. */
+function inferSovereignFQDN(data: ReturnType<typeof useInfrastructure>['data']): string | null {
+  if (!data || !data.topology || !data.topology.regions || data.topology.regions.length === 0) {
+    return null
+  }
+  // First cluster's name is conventionally the sovereign FQDN
+  // (mirrors `kubectl get cluster otech.omani.works`).
+  for (const r of data.topology.regions) {
+    if (r.clusters && r.clusters.length > 0) return r.clusters[0].name
+  }
+  return null
 }
 
 function truncate(s: string, max: number): string {

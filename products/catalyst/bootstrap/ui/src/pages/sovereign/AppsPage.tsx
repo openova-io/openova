@@ -37,6 +37,7 @@ import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
+import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
 
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -161,10 +162,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
       {isFailed ? (
         <FailureCard
           deploymentId={deploymentId}
+          sovereignFQDN={sovereignFQDN}
           status={streamStatus as 'failed' | 'unreachable'}
           message={failureMessage}
           onRetry={retry}
           onBack={() => router.navigate({ to: '/wizard' })}
+          onWiped={() => router.navigate({ to: '/wizard' })}
         />
       ) : null}
 
@@ -326,14 +329,17 @@ function AppCard({ app, status, deploymentId, isService }: AppCardProps) {
 
 interface FailureCardProps {
   deploymentId: string
+  sovereignFQDN: string | null
   status: 'failed' | 'unreachable'
   message: string | null
   onRetry: () => void
   onBack: () => void
+  onWiped: () => void
 }
 
-function FailureCard({ deploymentId, status, message, onRetry, onBack }: FailureCardProps) {
+function FailureCard({ deploymentId, sovereignFQDN, status, message, onRetry, onBack, onWiped }: FailureCardProps) {
   const isUnreachable = status === 'unreachable'
+  const [showWipeModal, setShowWipeModal] = useState(false)
   return (
     <div
       role="alert"
@@ -353,7 +359,7 @@ function FailureCard({ deploymentId, status, message, onRetry, onBack }: Failure
           {message}
         </pre>
       ) : null}
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex gap-2 flex-wrap">
         <button
           type="button"
           onClick={onRetry}
@@ -364,6 +370,14 @@ function FailureCard({ deploymentId, status, message, onRetry, onBack }: Failure
         </button>
         <button
           type="button"
+          onClick={() => setShowWipeModal(true)}
+          data-testid="sov-failure-wipe"
+          className="rounded-md border border-[var(--color-danger)] bg-[var(--color-danger)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+        >
+          Cancel &amp; Wipe
+        </button>
+        <button
+          type="button"
           onClick={onBack}
           data-testid="sov-failure-back"
           className="rounded-md border border-[var(--color-border)] bg-transparent px-3 py-1 text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
@@ -371,6 +385,15 @@ function FailureCard({ deploymentId, status, message, onRetry, onBack }: Failure
           Back to wizard
         </button>
       </div>
+      {showWipeModal ? (
+        <WipeDeploymentModal
+          open={showWipeModal}
+          deploymentId={deploymentId}
+          sovereignFQDN={sovereignFQDN}
+          onClose={() => setShowWipeModal(false)}
+          onWiped={() => { setShowWipeModal(false); onWiped() }}
+        />
+      ) : null}
     </div>
   )
 }

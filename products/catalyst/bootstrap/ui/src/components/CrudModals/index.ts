@@ -33,3 +33,6 @@ export type { NodeActionConfirmProps } from './NodeActionConfirm'
 
 export { DeleteCascadeConfirm } from './DeleteCascadeConfirm'
 export type { DeleteCascadeConfirmProps } from './DeleteCascadeConfirm'
+
+export { WipeDeploymentModal } from './WipeDeploymentModal'
+export type { WipeDeploymentModalProps, WipeReport } from './WipeDeploymentModal'

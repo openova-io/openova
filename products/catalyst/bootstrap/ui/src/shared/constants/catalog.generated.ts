@@ -49,6 +49,38 @@ export interface BlueprintCardEntry {
  */
 export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
+    "id": "bp-anthropic-adapter",
+    "slug": "anthropic-adapter",
+    "title": "Anthropic Adapter",
+    "summary": "|",
+    "icon": "anthropic-adapter.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-6-llm-serving",
+    "depends": [
+      "bp-external-secrets"
+    ]
+  },
+  {
+    "id": "bp-bge",
+    "slug": "bge",
+    "title": "BGE Embeddings + Reranker",
+    "summary": "BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.",
+    "icon": "bge.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-6-llm-serving",
+    "depends": [
+      "bp-cnpg"
+    ]
+  },
+  {
     "id": "bp-cert-manager",
     "slug": "cert-manager",
     "title": "cert-manager",
@@ -58,9 +90,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "section": "pts-3-3-security-and-policy",
     "depends": []
+  },
+  {
+    "id": "bp-cert-manager-dynadot-webhook",
+    "slug": "cert-manager-dynadot-webhook",
+    "title": "cert-manager-dynadot-webhook",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [
+      "bp-cert-manager"
+    ]
   },
   {
     "id": "bp-cilium",
@@ -72,15 +120,45 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": []
+  },
+  {
+    "id": "bp-cnpg",
+    "slug": "cnpg",
+    "title": "CloudNativePG",
+    "summary": "|",
+    "icon": "cnpg.svg",
+    "category": "data",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-4-1-data-services",
+    "depends": [
+      "bp-flux"
+    ]
   },
   {
     "id": "bp-crossplane",
     "slug": "crossplane",
     "title": "crossplane",
-    "summary": "Crossplane core + provider-hcloud. Catalyst Compositions live at compose.openova.io/v1alpha1 XRD group.",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.1.3",
+    "section": "pts-3-2-gitops-and-iac",
+    "depends": []
+  },
+  {
+    "id": "bp-crossplane-claims",
+    "slug": "crossplane-claims",
+    "title": "crossplane-claims",
+    "summary": "|",
     "icon": null,
     "category": null,
     "tagline": null,
@@ -88,7 +166,26 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-3-2-gitops-and-iac",
-    "depends": []
+    "depends": [
+      "bp-crossplane"
+    ]
+  },
+  {
+    "id": "bp-external-secrets",
+    "slug": "external-secrets",
+    "title": "External Secrets Operator",
+    "summary": "|",
+    "icon": "external-secrets.svg",
+    "category": "security",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [
+      "bp-openbao",
+      "bp-cert-manager"
+    ]
   },
   {
     "id": "bp-flux",
@@ -100,7 +197,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "section": "pts-3-2-gitops-and-iac",
     "depends": []
   },
@@ -114,7 +211,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -128,9 +225,117 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-knative",
+    "slug": "knative",
+    "title": "Knative",
+    "summary": "|",
+    "icon": "knative.svg",
+    "category": "ai-ml",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-4-6-ai-ml",
+    "depends": [
+      "bp-cilium",
+      "bp-cert-manager"
+    ]
+  },
+  {
+    "id": "bp-kserve",
+    "slug": "kserve",
+    "title": "KServe",
+    "summary": "|",
+    "icon": "kserve.svg",
+    "category": "ai-ml",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-4-6-ai-ml",
+    "depends": [
+      "bp-cilium",
+      "bp-cert-manager",
+      "bp-knative"
+    ]
+  },
+  {
+    "id": "bp-librechat",
+    "slug": "librechat",
+    "title": "LibreChat",
+    "summary": "|",
+    "icon": "librechat.svg",
+    "category": "application",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-7-application-tier-chat-ui",
+    "depends": [
+      "bp-llm-gateway",
+      "bp-vllm",
+      "bp-bge",
+      "bp-keycloak"
+    ]
+  },
+  {
+    "id": "bp-livekit",
+    "slug": "livekit",
+    "title": "LiveKit",
+    "summary": "|",
+    "icon": "livekit.svg",
+    "category": "application",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-5-communication",
+    "depends": [
+      "bp-stunner",
+      "bp-cert-manager",
+      "bp-valkey"
+    ]
+  },
+  {
+    "id": "bp-llm-gateway",
+    "slug": "llm-gateway",
+    "title": "LLM Gateway",
+    "summary": "|",
+    "icon": "llm-gateway.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-6-llm-serving",
+    "depends": [
+      "bp-cnpg",
+      "bp-keycloak",
+      "bp-external-secrets"
+    ]
+  },
+  {
+    "id": "bp-matrix",
+    "slug": "matrix",
+    "title": "Matrix (Synapse)",
+    "summary": "|",
+    "icon": "matrix.svg",
+    "category": "application",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-5-communication",
+    "depends": [
+      "bp-cnpg",
+      "bp-keycloak",
+      "bp-cert-manager"
+    ]
   },
   {
     "id": "bp-nats-jetstream",
@@ -142,9 +347,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-nemo-guardrails",
+    "slug": "nemo-guardrails",
+    "title": "NeMo Guardrails",
+    "summary": "Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.",
+    "icon": "nemo-guardrails.svg",
+    "category": "ai-safety",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-7-ai-safety",
+    "depends": [
+      "bp-vllm"
+    ]
   },
   {
     "id": "bp-openbao",
@@ -156,9 +377,27 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-openmeter",
+    "slug": "openmeter",
+    "title": "OpenMeter",
+    "summary": "|",
+    "icon": "openmeter.svg",
+    "category": "application",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-8-identity-and-metering",
+    "depends": [
+      "bp-cnpg",
+      "bp-nats-jetstream",
+      "bp-cert-manager"
+    ]
   },
   {
     "id": "bp-powerdns",
@@ -170,7 +409,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.3",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -186,7 +425,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "section": "pts-3-3-security-and-policy",
     "depends": []
   },
@@ -200,9 +439,75 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.4",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-stunner",
+    "slug": "stunner",
+    "title": "STUNner",
+    "summary": "|",
+    "icon": "stunner.svg",
+    "category": "communication",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-4-5-communication",
+    "depends": [
+      "bp-cilium",
+      "bp-cert-manager"
+    ]
+  },
+  {
+    "id": "bp-temporal",
+    "slug": "temporal",
+    "title": "Temporal",
+    "summary": "Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.",
+    "icon": "temporal.svg",
+    "category": "workflow",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-3-workflow-and-processing",
+    "depends": [
+      "bp-cnpg",
+      "bp-cert-manager"
+    ]
+  },
+  {
+    "id": "bp-valkey",
+    "slug": "valkey",
+    "title": "Valkey",
+    "summary": "|",
+    "icon": "valkey.svg",
+    "category": "data",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-4-1-data-services",
+    "depends": [
+      "bp-flux"
+    ]
+  },
+  {
+    "id": "bp-vllm",
+    "slug": "vllm",
+    "title": "vLLM",
+    "summary": "High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.",
+    "icon": "vllm.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-6-llm-serving",
+    "depends": [
+      "bp-kserve"
+    ]
   }
 ] as const
 
@@ -221,17 +526,35 @@ export const BLUEPRINT_BY_ID: Readonly<Record<string, BlueprintCardEntry>> = Obj
 
 /** Source files this catalog was built from (for diagnostics / CI logs). */
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
+  "platform/anthropic-adapter/blueprint.yaml",
+  "platform/bge/blueprint.yaml",
+  "platform/cert-manager-dynadot-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
+  "platform/cnpg/blueprint.yaml",
+  "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
+  "platform/external-secrets/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
+  "platform/knative/blueprint.yaml",
+  "platform/kserve/blueprint.yaml",
+  "platform/librechat/blueprint.yaml",
+  "platform/livekit/blueprint.yaml",
+  "platform/llm-gateway/blueprint.yaml",
+  "platform/matrix/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
+  "platform/nemo-guardrails/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
+  "platform/openmeter/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
-  "platform/spire/blueprint.yaml"
+  "platform/spire/blueprint.yaml",
+  "platform/stunner/blueprint.yaml",
+  "platform/temporal/blueprint.yaml",
+  "platform/valkey/blueprint.yaml",
+  "platform/vllm/blueprint.yaml"
 ] as const
 
 /**
@@ -326,10 +649,178 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 10
   },
   {
+    "id": "bp-powerdns",
+    "slug": "powerdns",
+    "label": "powerdns",
+    "file": "11-powerdns.yaml",
+    "order": 11
+  },
+  {
+    "id": "bp-external-dns",
+    "slug": "external-dns",
+    "label": "external-dns",
+    "file": "12-external-dns.yaml",
+    "order": 12
+  },
+  {
     "id": "bp-bp-catalyst-platform",
     "slug": "bp-catalyst-platform",
     "label": "bp-catalyst-platform",
-    "file": "11-bp-catalyst-platform.yaml",
-    "order": 11
+    "file": "13-bp-catalyst-platform.yaml",
+    "order": 13
+  },
+  {
+    "id": "bp-crossplane-claims",
+    "slug": "crossplane-claims",
+    "label": "crossplane-claims",
+    "file": "14-crossplane-claims.yaml",
+    "order": 14
+  },
+  {
+    "id": "bp-external-secrets",
+    "slug": "external-secrets",
+    "label": "external-secrets",
+    "file": "15-external-secrets.yaml",
+    "order": 15
+  },
+  {
+    "id": "bp-cnpg",
+    "slug": "cnpg",
+    "label": "cnpg",
+    "file": "16-cnpg.yaml",
+    "order": 16
+  },
+  {
+    "id": "bp-valkey",
+    "slug": "valkey",
+    "label": "valkey",
+    "file": "17-valkey.yaml",
+    "order": 17
+  },
+  {
+    "id": "bp-seaweedfs",
+    "slug": "seaweedfs",
+    "label": "seaweedfs",
+    "file": "18-seaweedfs.yaml",
+    "order": 18
+  },
+  {
+    "id": "bp-harbor",
+    "slug": "harbor",
+    "label": "harbor",
+    "file": "19-harbor.yaml",
+    "order": 19
+  },
+  {
+    "id": "bp-opentelemetry",
+    "slug": "opentelemetry",
+    "label": "opentelemetry",
+    "file": "20-opentelemetry.yaml",
+    "order": 20
+  },
+  {
+    "id": "bp-alloy",
+    "slug": "alloy",
+    "label": "alloy",
+    "file": "21-alloy.yaml",
+    "order": 21
+  },
+  {
+    "id": "bp-loki",
+    "slug": "loki",
+    "label": "loki",
+    "file": "22-loki.yaml",
+    "order": 22
+  },
+  {
+    "id": "bp-mimir",
+    "slug": "mimir",
+    "label": "mimir",
+    "file": "23-mimir.yaml",
+    "order": 23
+  },
+  {
+    "id": "bp-tempo",
+    "slug": "tempo",
+    "label": "tempo",
+    "file": "24-tempo.yaml",
+    "order": 24
+  },
+  {
+    "id": "bp-grafana",
+    "slug": "grafana",
+    "label": "grafana",
+    "file": "25-grafana.yaml",
+    "order": 25
+  },
+  {
+    "id": "bp-langfuse",
+    "slug": "langfuse",
+    "label": "langfuse",
+    "file": "26-langfuse.yaml",
+    "order": 26
+  },
+  {
+    "id": "bp-kyverno",
+    "slug": "kyverno",
+    "label": "kyverno",
+    "file": "27-kyverno.yaml",
+    "order": 27
+  },
+  {
+    "id": "bp-reloader",
+    "slug": "reloader",
+    "label": "reloader",
+    "file": "28-reloader.yaml",
+    "order": 28
+  },
+  {
+    "id": "bp-vpa",
+    "slug": "vpa",
+    "label": "vpa",
+    "file": "29-vpa.yaml",
+    "order": 29
+  },
+  {
+    "id": "bp-trivy",
+    "slug": "trivy",
+    "label": "trivy",
+    "file": "30-trivy.yaml",
+    "order": 30
+  },
+  {
+    "id": "bp-falco",
+    "slug": "falco",
+    "label": "falco",
+    "file": "31-falco.yaml",
+    "order": 31
+  },
+  {
+    "id": "bp-sigstore",
+    "slug": "sigstore",
+    "label": "sigstore",
+    "file": "32-sigstore.yaml",
+    "order": 32
+  },
+  {
+    "id": "bp-syft-grype",
+    "slug": "syft-grype",
+    "label": "syft-grype",
+    "file": "33-syft-grype.yaml",
+    "order": 33
+  },
+  {
+    "id": "bp-velero",
+    "slug": "velero",
+    "label": "velero",
+    "file": "34-velero.yaml",
+    "order": 34
+  },
+  {
+    "id": "bp-coraza",
+    "slug": "coraza",
+    "label": "coraza",
+    "file": "35-coraza.yaml",
+    "order": 35
   }
 ] as const
