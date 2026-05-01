@@ -142,7 +142,11 @@ export function JobDetail({
 
   if (!job) {
     return (
-      <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
+      <PortalShell
+        deploymentId={deploymentId}
+        sovereignFQDN={sovereignFQDN}
+        pageTitle="Job not found"
+      >
         <div className="mx-auto max-w-3xl py-8" data-testid="job-detail-not-found">
           <Link
             to="/provision/$deploymentId/jobs"
@@ -185,7 +189,11 @@ export function JobDetail({
   const logPaneStatus = (detailJobStatus as JobUiStatus | undefined) ?? logPaneJob.status
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle={titleLabel}
+    >
       <div
         className={`job-detail-page${paneOpen ? '' : ' is-pane-closed'}`}
         data-testid={`job-detail-${jobId}`}

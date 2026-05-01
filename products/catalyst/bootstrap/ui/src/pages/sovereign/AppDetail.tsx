@@ -122,17 +122,23 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
 
   if (!app) {
     return (
-      <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-        <style>{APP_DETAIL_CSS}</style>
-        <div className="detail-page">
+      <PortalShell
+        deploymentId={deploymentId}
+        sovereignFQDN={sovereignFQDN}
+        pageTitle="App not found"
+        headerSlotLeft={
           <Link
             to="/provision/$deploymentId"
             params={{ deploymentId }}
-            className="back-link"
+            className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             data-testid="sov-back-link"
           >
             &larr; Back to apps
           </Link>
+        }
+      >
+        <style>{APP_DETAIL_CSS}</style>
+        <div className="detail-page">
           <div className="not-found" data-testid="sov-app-not-found">
             <h1>App not found</h1>
             <p>The component {componentId} is not part of this deployment.</p>
@@ -143,18 +149,24 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   }
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <style>{APP_DETAIL_CSS}</style>
-
-      <div className="detail-page" data-testid={`sov-app-detail-${app.id}`}>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Applications"
+      headerSlotLeft={
         <Link
           to="/provision/$deploymentId"
           params={{ deploymentId }}
-          className="back-link"
+          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-back-link"
         >
           &larr; Back to apps
         </Link>
+      }
+    >
+      <style>{APP_DETAIL_CSS}</style>
+
+      <div className="detail-page" data-testid={`sov-app-detail-${app.id}`}>
 
         {/* 1. Hero */}
         <div className="hero" data-testid="sov-hero">

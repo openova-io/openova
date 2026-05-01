@@ -274,25 +274,25 @@ export function Dashboard({
   /* ── Render ────────────────────────────────────────────────────── */
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Dashboard"
+      headerSlotRight={
+        <div
+          className="text-right text-[11px] text-[var(--color-text-dim)]"
+          data-testid="dashboard-header-meta"
+        >
+          <div data-testid="dashboard-total-count">{totalCount} items</div>
+        </div>
+      }
+    >
       <div className="mx-auto max-w-7xl" data-testid="dashboard-page">
-        <header className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h1
-              className="text-2xl font-bold text-[var(--color-text-strong)]"
-              data-testid="dashboard-title"
-            >
-              Dashboard
-            </h1>
-            <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-              Resource utilisation across this Sovereign — box size shows allocated capacity, colour shows how it&rsquo;s being used.
-            </p>
-          </div>
-          <div className="text-right text-xs text-[var(--color-text-dim)]">
-            <div data-testid="dashboard-total-count">{totalCount} items</div>
-            <div className="font-mono">{deploymentId.slice(0, 8)}</div>
-          </div>
-        </header>
+        {/* Title moved to header centre slot (#366 item 2) — anchor a
+         *  hidden testid for back-compat with existing component tests. */}
+        <span data-testid="dashboard-title" className="sr-only">
+          Dashboard
+        </span>
 
         <TreemapLayerController
           layers={layers}

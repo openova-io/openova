@@ -123,19 +123,14 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const isProvisioning = streamStatus === 'connecting' || streamStatus === 'streaming'
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <style>{APPS_PAGE_CSS}</style>
-
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-strong)]">Applications</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-            Sovereign provisioning · {sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}
-          </p>
-        </div>
-        {isProvisioning ? (
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Applications"
+      headerSlotRight={
+        isProvisioning ? (
           <div
-            className="flex items-center gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-1.5 text-xs text-[var(--color-accent)]"
+            className="flex items-center gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-1 text-[11px] text-[var(--color-accent)]"
             data-testid="sov-provisioning-pill"
           >
             <div className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
@@ -143,7 +138,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             <Link
               to="/provision/$deploymentId/jobs"
               params={{ deploymentId }}
-              className="ml-2 underline text-[var(--color-accent)]"
+              className="ml-1 underline text-[var(--color-accent)]"
             >
               View jobs
             </Link>
@@ -152,12 +147,14 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           <Link
             to="/provision/$deploymentId/jobs"
             params={{ deploymentId }}
-            className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+            className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           >
             View install history
           </Link>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
+      <style>{APPS_PAGE_CSS}</style>
 
       {isFailed ? (
         <FailureCard

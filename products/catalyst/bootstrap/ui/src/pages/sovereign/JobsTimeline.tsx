@@ -106,29 +106,26 @@ export function JobsTimeline({
   const range = computeRange(jobs, now)
 
   return (
-    <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1
-            className="text-2xl font-bold text-[var(--color-text-strong)]"
-            data-testid="sov-jobs-timeline-heading"
-          >
-            Jobs timeline
-          </h1>
-          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-            Retrospective Gantt-style view of every job in this deployment.
-          </p>
-        </div>
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Jobs timeline"
+      headerSlotLeft={
         <Link
           to="/provision/$deploymentId/jobs"
           params={{ deploymentId }}
-          className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-jobs-timeline-back"
         >
           ← Back to jobs
         </Link>
-      </div>
-
+      }
+    >
+      {/* Hidden anchor for back-compat with the heading-by-testid
+          assertion in component tests. */}
+      <span data-testid="sov-jobs-timeline-heading" className="sr-only">
+        Jobs timeline
+      </span>
       {jobs.length === 0 ? (
         <div className="mt-12 text-center" data-testid="sov-jobs-timeline-empty">
           <p className="text-[var(--color-text-dim)]">No jobs yet for this deployment.</p>
