@@ -122,13 +122,19 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	dep.Status = "wiping"
 	dep.mu.Unlock()
 
-	// Re-open the events channel if the previous one is closed, so the
-	// wizard's banner can render purge progress on the same SSE stream
-	// it used for provisioning.
+	// Re-open the events channel for the wipe phase. The previous one
+	// (from provisioning) may have already been closed by the Phase-1
+	// watch goroutine on its terminal exit (deployments.go:575) — Go
+	// has no portable check-without-receive for `closed`, and a CLOSED
+	// channel is non-nil, so the prior `if dep.eventsCh == nil` guard
+	// silently kept a dead channel and the first emit() send panicked
+	// with "send on closed channel" (wipe.go:156).
+	//
+	// Always replace the channel here. Any stragglers reading from the
+	// old channel will see end-of-stream and exit naturally; the wipe
+	// emit goroutine writes to the fresh channel.
 	dep.mu.Lock()
-	if dep.eventsCh == nil {
-		dep.eventsCh = make(chan provisioner.Event, 256)
-	}
+	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.mu.Unlock()
 
 	// Note: any live Phase-1 watcher for this deployment will exit
