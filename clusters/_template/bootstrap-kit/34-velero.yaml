@@ -1,32 +1,36 @@
 # bp-velero — Catalyst bootstrap-kit Blueprint #34 (W2.K3, Tier 7 — Security/Policy).
 #
 # Per-host-cluster backup engine. Per ADR-0001 §13 (S3-aware app rule)
-# + docs/omantel-handover-wbs.md §3, on Hetzner Sovereigns Velero writes
-# its backups DIRECTLY to Hetzner Object Storage — NOT SeaweedFS, which
-# is reserved as a POSIX→S3 buffer for legacy POSIX-only writers and
-# is not in the minimal Sovereign set.
+# + docs/omantel-handover-wbs.md §3 + §3a, on Hetzner Sovereigns Velero
+# writes its backups DIRECTLY to Hetzner Object Storage — NOT SeaweedFS,
+# which is reserved as a POSIX→S3 buffer for legacy POSIX-only writers
+# and is not in the minimal Sovereign set.
 #
 # Wrapper chart: platform/velero/chart/ (umbrella over upstream
 # vmware-tanzu/velero chart, Catalyst-curated values under the `velero:`
-# key + a `veleroOverlay.hetzner.*` section that ships the
+# key + a vendor-AGNOSTIC `objectStorage.s3.*` section that ships the
 # velero-namespace credentials Secret in AWS-CLI INI format).
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 #
-# Hetzner Object Storage credential pattern (issue #371):
-#   - cloud-init writes flux-system/hetzner-object-storage Secret with
-#     5 keys: s3-endpoint / s3-region / s3-bucket / s3-access-key /
+# Object Storage credential pattern (issue #371, vendor-agnostic since
+# #425):
+#   - cloud-init writes flux-system/object-storage Secret with 5 keys:
+#     s3-endpoint / s3-region / s3-bucket / s3-access-key /
 #     s3-secret-key (operator-issued in the Hetzner Console; Hetzner
-#     exposes no Cloud API to mint S3 credentials).
+#     exposes no Cloud API to mint S3 credentials. Future AWS / Azure /
+#     GCP / OCI Sovereigns provision the same Secret name + same keys
+#     via their respective `infra/<provider>/` Tofu modules — the seam
+#     is vendor-agnostic by name).
 #   - This HelmRelease references that Secret via Flux `valuesFrom`,
 #     pulling each key into the appropriate Helm value path. The
-#     umbrella chart's templates/hetzner-credentials-secret.yaml then
+#     umbrella chart's templates/objectstorage-credentials.yaml then
 #     synthesises a velero-namespace Secret with a `cloud` key in the
 #     AWS-CLI INI format upstream Velero expects (mounted at
 #     /credentials/cloud).
 #
 # dependsOn: none — Velero is independent of all other minimal-set
 # blueprints. Earlier revisions of this slot dependsOn'd bp-seaweedfs;
-# that dependency is REMOVED per the Hetzner-direct architecture rule
+# that dependency is REMOVED per the cloud-direct architecture rule
 # (SeaweedFS is no longer a Velero prerequisite on Sovereigns).
 
 ---
@@ -61,7 +65,7 @@ spec:
   chart:
     spec:
       chart: bp-velero
-      version: 1.1.0
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-velero
@@ -79,12 +83,12 @@ spec:
     disableWait: true
     remediation:
       retries: 3
-  # ── Hetzner Object Storage backend wiring (issue #384, depends on #371) ──
+  # ── Vendor-agnostic Object Storage backend wiring (issue #425) ──────
   #
   # Each entry below pulls a single key from the canonical
-  # flux-system/hetzner-object-storage Secret (shipped by cloud-init in
-  # infra/hetzner/cloudinit-control-plane.tftpl) into the matching value
-  # path in the umbrella chart. Flux dereferences `valuesFrom` at
+  # flux-system/object-storage Secret (shipped by cloud-init in
+  # infra/<provider>/cloudinit-control-plane.tftpl) into the matching
+  # value path in the umbrella chart. Flux dereferences `valuesFrom` at
   # HelmRelease apply time, so plaintext credentials never appear in
   # this committed manifest.
   #
@@ -92,41 +96,40 @@ spec:
   # required by default (`optional: false` is the implicit default).
   valuesFrom:
     - kind: Secret
-      name: hetzner-object-storage
+      name: object-storage
       valuesKey: s3-bucket
       targetPath: velero.configuration.backupStorageLocation[0].bucket
     - kind: Secret
-      name: hetzner-object-storage
+      name: object-storage
       valuesKey: s3-region
       targetPath: velero.configuration.backupStorageLocation[0].config.region
     - kind: Secret
-      name: hetzner-object-storage
+      name: object-storage
       valuesKey: s3-endpoint
       targetPath: velero.configuration.backupStorageLocation[0].config.s3Url
     - kind: Secret
-      name: hetzner-object-storage
+      name: object-storage
       valuesKey: s3-access-key
-      targetPath: veleroOverlay.hetzner.s3.accessKey
+      targetPath: objectStorage.s3.accessKey
     - kind: Secret
-      name: hetzner-object-storage
+      name: object-storage
       valuesKey: s3-secret-key
-      targetPath: veleroOverlay.hetzner.s3.secretKey
+      targetPath: objectStorage.s3.secretKey
   # Baseline values supplied by the bootstrap-kit slot. Per-Sovereign
   # overlays in clusters/<sovereign>/bootstrap-kit/34-velero.yaml MAY
   # override any of these (e.g. a different bucket-name strategy, a
   # different credentials Secret name, or `deployNodeAgent: true` for
   # file-system backup) without changing this template.
   values:
-    veleroOverlay:
-      hetzner:
-        enabled: true
-        useExistingSecret: false
-        credentialsSecretName: velero-hetzner-credentials
+    objectStorage:
+      enabled: true
+      useExistingSecret: false
+      credentialsSecretName: velero-objectstorage-credentials
     velero:
       backupsEnabled: true
       credentials:
         useSecret: true
-        existingSecret: velero-hetzner-credentials
+        existingSecret: velero-objectstorage-credentials
       configuration:
         backupStorageLocation:
           - name: default
@@ -134,7 +137,7 @@ spec:
             default: true
             accessMode: ReadWrite
             credential:
-              name: velero-hetzner-credentials
+              name: velero-objectstorage-credentials
               key: cloud
             config:
               s3ForcePathStyle: "true"

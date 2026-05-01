@@ -375,8 +375,10 @@ function TokenSection({
  * (`<region>.your-objectstorage.com`), and hands them to the catalyst-
  * api in the deployment-create payload. The OpenTofu module then
  * creates the per-Sovereign bucket via the `aminueza/minio` provider
- * and writes the credentials into the new cluster's `flux-system/
- * hetzner-object-storage` Secret at cloud-init time.
+ * and writes the credentials into the new cluster's vendor-agnostic
+ * `flux-system/object-storage` Secret at cloud-init time. The seam is
+ * vendor-agnostic since #425 — a future AWS / Azure / GCP / OCI
+ * Sovereign uses the same Secret name + same key set.
  *
  * Region defaults to fsn1 (Falkenstein); the operator can pick nbg1
  * (Nuremberg) or hel1 (Helsinki) — Object Storage availability is

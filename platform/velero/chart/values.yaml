@@ -29,9 +29,10 @@ velero:
 
   # Plugin init containers — REQUIRED for Velero to talk to ANY backup
   # backend. The AWS plugin (S3-compatible) is the Catalyst standard
-  # because Hetzner Object Storage exposes an S3 API. Per-Sovereign
-  # overlays append additional plugin init containers if a CSI snapshotter
-  # / cloud-native plugin is also needed.
+  # because Hetzner Object Storage (and every other supported cloud's
+  # native object store) exposes an S3 API. Per-Sovereign overlays
+  # append additional plugin init containers if a CSI snapshotter /
+  # cloud-native plugin is also needed.
   initContainers:
     - name: velero-plugin-for-aws
       image: velero/velero-plugin-for-aws:v1.14.0
@@ -83,9 +84,10 @@ velero:
   # umbrella chart MUST render cleanly on contabo (which has no Hetzner
   # credentials). Per-Sovereign HelmRelease in
   # clusters/<sovereign>/bootstrap-kit/34-velero.yaml supplies real
-  # values via Flux `valuesFrom` against the flux-system/hetzner-object-
-  # storage Secret (issue #371). The corresponding `targetPath` entries
-  # are documented in clusters/_template/bootstrap-kit/34-velero.yaml.
+  # values via Flux `valuesFrom` against the flux-system/object-
+  # storage Secret (issue #371, vendor-agnostic since #425). The
+  # corresponding `targetPath` entries are documented in
+  # clusters/_template/bootstrap-kit/34-velero.yaml.
   #
   # `backupsEnabled: false` keeps the BackupStorageLocation CR out of
   # the manifest at default-render time (so empty bucket/provider doesn't
@@ -105,7 +107,8 @@ velero:
           # Hetzner Object Storage uses path-style URLs (per Hetzner docs
           # https://docs.hetzner.com/storage/object-storage/getting-started/
           # — virtual-hosted style is also supported but path-style is
-          # universally compatible with velero-plugin-for-aws).
+          # universally compatible with velero-plugin-for-aws). Other
+          # S3-compatible backends accept the same flag without harm.
           region: ""
           s3ForcePathStyle: "true"
           s3Url: ""
@@ -120,7 +123,7 @@ velero:
   # Whether to create backupstoragelocation/volumesnapshotlocation CRs.
   # Both flipped FALSE here so the chart renders with empty/placeholder
   # configuration above; per-Sovereign overlays flip these on after they
-  # supply real Hetzner Object Storage config via Flux valuesFrom.
+  # supply real Object Storage config via Flux valuesFrom.
   backupsEnabled: false
   snapshotsEnabled: false
 
@@ -134,18 +137,18 @@ velero:
   # The upstream chart's `existingSecret` field expects a Secret in the
   # velero namespace with a single key `cloud` in AWS-CLI INI format
   # (mounted into the pod at /credentials/cloud). The Catalyst umbrella
-  # ships templates/hetzner-credentials-secret.yaml that synthesises that
+  # ships templates/objectstorage-credentials.yaml that synthesises that
   # Secret from operator-supplied values in
-  # `.Values.veleroOverlay.hetzner.s3.accessKey` /
-  # `.Values.veleroOverlay.hetzner.s3.secretKey`, which Flux populates
-  # from the canonical flux-system/hetzner-object-storage Secret (issue
-  # #371) at HelmRelease apply time via valuesFrom.
+  # `.Values.objectStorage.s3.accessKey` /
+  # `.Values.objectStorage.s3.secretKey`, which Flux populates from the
+  # canonical flux-system/object-storage Secret (issue #371, vendor-
+  # agnostic since #425) at HelmRelease apply time via valuesFrom.
   #
-  # Default `useSecret: false` keeps the upstream chart from creating its
-  # own (empty) `velero` Secret — when veleroOverlay.hetzner.enabled is
+  # Default `useSecret: false` keeps the upstream chart from creating
+  # its own (empty) `velero` Secret — when objectStorage.enabled is
   # true, the umbrella's templated Secret takes over and the upstream
   # chart references it via existingSecret. Per-Sovereign overlay flips
-  # `useSecret: true` + sets `existingSecret: velero-hetzner-credentials`
+  # `useSecret: true` + sets `existingSecret: velero-objectstorage-credentials`
   # — see the bootstrap-kit slot for the wiring.
   credentials:
     useSecret: false
@@ -166,30 +169,34 @@ veleroOverlay:
   networkPolicy:
     enabled: false
 
-  # Hetzner Object Storage backend config.
-  #
-  # Per ADR-0001 §13 + docs/omantel-handover-wbs.md §3, Velero on a
-  # Hetzner Sovereign writes its backups directly to Hetzner Object
-  # Storage. The per-Sovereign HelmRelease populates these fields via
-  # Flux `valuesFrom` against the canonical flux-system/hetzner-object-
-  # storage Secret (issue #371). Default values below produce a clean
-  # render on contabo (no Hetzner credentials) — see the bootstrap-kit
-  # slot at clusters/_template/bootstrap-kit/34-velero.yaml for the
-  # canonical mapping.
-  hetzner:
-    # When false, no Hetzner-credentials Secret is rendered (contabo,
-    # local dev, etc.). Per-Sovereign overlay flips to true.
-    enabled: false
-    # When true, skip rendering the velero-namespace credentials Secret
-    # entirely — the operator has already created one out-of-band
-    # (sealed-secret / external-secret / cloud-init / etc.).
-    useExistingSecret: false
-    # Override the default secret name — must match the upstream chart's
-    # credentials.existingSecret reference.
-    credentialsSecretName: ""
-    s3:
-      # Operator-issued Hetzner Object Storage access/secret keys.
-      # Plaintext at runtime ONLY — Flux populates these via valuesFrom
-      # at HelmRelease apply time, never committed to git.
-      accessKey: ""
-      secretKey: ""
+# ─── Vendor-agnostic Object Storage backend config (issue #425) ──────────
+#
+# Per ADR-0001 §13 + docs/omantel-handover-wbs.md §3 + §3a, S3-aware
+# apps (Velero is one) write DIRECTLY to the cloud-provider's native S3
+# endpoint. The per-Sovereign HelmRelease populates these fields via
+# Flux `valuesFrom` against the canonical `flux-system/object-storage`
+# Secret. Per #425 the seam is vendor-agnostic — same Secret name +
+# same chart-values shape support a future AWS / Azure / GCP / OCI
+# Sovereign without renaming the seam.
+#
+# Default values below produce a clean render on contabo (no
+# credentials configured) — see the bootstrap-kit slot at
+# clusters/_template/bootstrap-kit/34-velero.yaml for the canonical
+# mapping.
+objectStorage:
+  # When false, no credentials Secret is rendered (contabo, local dev,
+  # etc.). Per-Sovereign overlay flips to true.
+  enabled: false
+  # When true, skip rendering the velero-namespace credentials Secret
+  # entirely — the operator has already created one out-of-band
+  # (sealed-secret / external-secret / cloud-init / etc.).
+  useExistingSecret: false
+  # Override the default secret name — must match the upstream chart's
+  # credentials.existingSecret reference.
+  credentialsSecretName: ""
+  s3:
+    # Operator-issued S3 access/secret keys. Plaintext at runtime ONLY
+    # — Flux populates these via valuesFrom at HelmRelease apply time,
+    # never committed to git.
+    accessKey: ""
+    secretKey: ""

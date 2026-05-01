@@ -161,7 +161,7 @@ write_files:
           }
         }))}
 
-  # ── flux-system/hetzner-object-storage Secret (issue #371) ───────────────
+  # ── flux-system/object-storage Secret (issue #371, vendor-agnostic since #425) ─
   #
   # The Sovereign's per-cluster S3 credentials, materialised as a stock
   # Kubernetes Secret in the `flux-system` namespace. Harbor (#383) and
@@ -173,7 +173,13 @@ write_files:
   #       imageChartStorage:
   #         type: s3
   #         s3:
-  #           existingSecret: hetzner-object-storage
+  #           existingSecret: object-storage
+  #
+  # Per #425 the Secret name is vendor-AGNOSTIC (`object-storage`, no
+  # `hetzner-` prefix). A future AWS / Azure / GCP / OCI Sovereign
+  # provisions the same Secret name with the same key set via its own
+  # `infra/<provider>/` Tofu module — every existing chart Just Works
+  # without renaming.
   #
   # The Secret is namespace-bound to flux-system so the helm-controller can
   # rewrite it into the workload namespaces at chart install time — that's
@@ -195,15 +201,16 @@ write_files:
   # exactly once at issue time. To rotate, the operator issues a fresh
   # credential pair in the Hetzner Console, updates the wizard payload
   # for the next provisioning, OR for an existing Sovereign uses a
-  # day-2 Crossplane Composition that updates this Secret (issue
-  # tracked at #371-rotation; out of scope for the initial bootstrap).
-  - path: /var/lib/catalyst/hetzner-object-storage-secret.yaml
+  # day-2 Crossplane XRC write (the Provider+ProviderConfig planted
+  # below makes this possible without a Tofu re-run; out of scope for
+  # the initial bootstrap).
+  - path: /var/lib/catalyst/object-storage-secret.yaml
     permissions: '0600'
     content: |
       apiVersion: v1
       kind: Secret
       metadata:
-        name: hetzner-object-storage
+        name: object-storage
         namespace: flux-system
       type: Opaque
       stringData:
@@ -223,6 +230,93 @@ write_files:
         # time and is irretrievable thereafter — losing it means rotating.
         s3-access-key: ${object_storage_access_key}
         s3-secret-key: ${object_storage_secret_key}
+
+  # ── flux-system/cloud-credentials Secret (issue #425, OpenTofu→Crossplane) ─
+  #
+  # Bootstrap of the Crossplane Hetzner Cloud provider (planted further
+  # below in this cloud-init). Carries the operator's hcloud API token —
+  # the same token Tofu used to provision Phase 0 — under a single key
+  # `hcloud-token`. Per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3,
+  # Day-2 cloud-resource changes (additional Floating IPs, additional
+  # buckets, scaling LoadBalancers, firewall rule edits, ...) flow
+  # through Crossplane XRC writes against this Provider — NEVER through
+  # bespoke Go cloud-API calls in catalyst-api, NEVER through manual
+  # Tofu re-runs.
+  #
+  # The Secret name is vendor-agnostic (`cloud-credentials`); the
+  # `hcloud-token` key name encodes the cloud-specific shape of the
+  # credential. A future AWS Sovereign would write
+  # `aws-access-key-id`/`aws-secret-access-key` keys into the same
+  # Secret name; the matching Crossplane Provider/ProviderConfig
+  # (added in the same Tofu module's cloud-init) reads them.
+  - path: /var/lib/catalyst/cloud-credentials-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cloud-credentials
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        hcloud-token: ${hcloud_token}
+
+  # ── Crossplane provider-hcloud + ProviderConfig (issue #425) ────────
+  #
+  # Phase 0→Day-2 handover. After Flux installs Crossplane core (via
+  # bp-crossplane in the bootstrap-kit), this Provider package + its
+  # ProviderConfig come up in the cluster and become the seam for ALL
+  # subsequent Hetzner Cloud mutations.
+  #
+  # Per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3:
+  #   - OpenTofu provisions Phase 0 EXACTLY ONCE per Sovereign.
+  #   - Crossplane is the only Day-2 cloud-API mutation seam.
+  #   - Flux is the only GitOps reconciler.
+  #   - Blueprints (`bp-<name>:<semver>` OCI) are the only install unit.
+  #   - NEVER bespoke Go cloud-API calls. NEVER `exec.Command("helm",
+  #     ...)`. NEVER direct `kubectl apply` of production manifests.
+  #
+  # Once `provider-hcloud` reaches `Healthy=True` (event the Catalyst
+  # control plane observes via the Crossplane status conditions), the
+  # catalyst-api's bespoke Hetzner-API calls for any RUNTIME-scaling
+  # concern (additional Floating IPs, additional buckets, scaling
+  # LoadBalancers, ...) MUST be retired in favour of XRC writes against
+  # this Provider. Provisioning Phase 0 (the very first server, network,
+  # firewall, LB, bucket) stays in this Tofu module by design — that's
+  # the bootstrap exception that lets the Provider exist in the first
+  # place.
+  #
+  # Package version pin: v0.4.0 of `crossplane-contrib/provider-hcloud`
+  # is the latest stable as of 2026-05. Per INVIOLABLE-PRINCIPLES #4
+  # (never hardcode), the version is operator-bumpable via PR; future
+  # rotations land here in the same commit that bumps the
+  # `bp-crossplane-claims` Composition referencing the new Provider
+  # types.
+  - path: /var/lib/catalyst/crossplane-provider-hcloud.yaml
+    permissions: '0644'
+    content: |
+      ---
+      apiVersion: pkg.crossplane.io/v1
+      kind: Provider
+      metadata:
+        name: provider-hcloud
+        labels:
+          catalyst.openova.io/sovereign: ${sovereign_fqdn}
+      spec:
+        package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+        packagePullPolicy: IfNotPresent
+      ---
+      apiVersion: hcloud.crossplane.io/v1beta1
+      kind: ProviderConfig
+      metadata:
+        name: default
+      spec:
+        credentials:
+          source: Secret
+          secretRef:
+            namespace: flux-system
+            name: cloud-credentials
+            key: hcloud-token
 
   # Flux GitRepository + Kustomizations that take over after k3s is up.
   #
@@ -579,11 +673,11 @@ runcmd:
       | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
     unset OPENBAO_SEED
 
-  # ── flux-system/hetzner-object-storage Secret (issue #371) ───────────────
+  # ── flux-system/object-storage Secret (issue #371, vendor-agnostic since #425) ─
   #
-  # Apply the operator-issued Hetzner Object Storage credentials so they're
-  # in the cluster BEFORE Flux reconciles bp-harbor (#383) and bp-velero
-  # (#384). Both Blueprints reference `secretRef: name: hetzner-object-storage`
+  # Apply the operator-issued Object Storage credentials so they're in
+  # the cluster BEFORE Flux reconciles bp-harbor (#383) and bp-velero
+  # (#384). Both Blueprints reference `secretRef: name: object-storage`
   # in their HelmRelease values; without this Secret the install reports
   # NoSuchKey at chart-install probe time and Phase 1 stalls.
   #
@@ -593,7 +687,26 @@ runcmd:
   # missing-bucket scenario is impossible by construction because main.tf's
   # minio_s3_bucket resource creates the bucket in the same `tofu apply`
   # run that renders this user_data.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/hetzner-object-storage-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
+
+  # ── flux-system/cloud-credentials Secret + Crossplane Provider (issue #425) ─
+  #
+  # Apply the Hetzner Cloud API token Secret + the Crossplane Provider
+  # package + ProviderConfig BEFORE Flux's bootstrap-kit lands
+  # bp-crossplane. The Provider package itself is installed by
+  # Crossplane core (which bp-crossplane brings up); applying the
+  # Provider CR here just registers the package install request — it
+  # transitions Healthy=True a few minutes later once the bootstrap-
+  # kit's Crossplane core controllers come online. The ProviderConfig
+  # sits in waiting state until the Provider's CRDs are registered, at
+  # which point it goes Ready=True and the Sovereign is ready to accept
+  # Day-2 XRC writes.
+  #
+  # Per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3 this is the OpenTofu
+  # → Crossplane handover seam. Tofu provisions Phase 0 exactly once;
+  # everything else flows through XRC writes against this Provider.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider-hcloud.yaml'
 
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
   # owns the cluster: pulls clusters/_template/ (with ${SOVEREIGN_FQDN}
