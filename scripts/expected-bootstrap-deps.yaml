@@ -111,7 +111,11 @@ slots:
     wave: W2.K1
   - slot: 19
     name: bp-harbor
-    depends_on: [bp-cnpg, bp-seaweedfs, bp-cert-manager]
+    # bp-seaweedfs dependency REMOVED per ADR-0001 §13 (cloud-direct).
+    # Harbor on Sovereigns writes blobs directly to cloud Object Storage
+    # (Hetzner / R2 / S3 / Azure / GCS), not via SeaweedFS. See
+    # clusters/_template/bootstrap-kit/19-harbor.yaml lines 35-37.
+    depends_on: [bp-cnpg, bp-cert-manager]
     wave: W2.K1
 
   # ---- Tier 6: observability (W2.K2, slots 20-26) ---------------------------
