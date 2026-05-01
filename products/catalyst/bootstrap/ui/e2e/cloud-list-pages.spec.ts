@@ -150,6 +150,51 @@ test.describe('Cloud list pages (#309 P3)', () => {
     }
   })
 
+  test('every data-backed page exposes a + New CTA in the header (#349)', async ({ page }) => {
+    // Subset of CASES that have CRUD wiring today (Phase A.2 of #347).
+    // Placeholder pages (Services / Ingresses / DNS Zones / Storage
+    // Classes) are gated on #321 and intentionally omit the CTA.
+    const dataBackedWithCtaSuffixes = [
+      { suffix: 'compute/clusters', testId: 'cloud-clusters' },
+      { suffix: 'compute/vclusters', testId: 'cloud-vclusters' },
+      { suffix: 'compute/node-pools', testId: 'cloud-node-pools' },
+      { suffix: 'compute/worker-nodes', testId: 'cloud-worker-nodes' },
+      { suffix: 'network/load-balancers', testId: 'cloud-load-balancers' },
+      { suffix: 'storage/pvcs', testId: 'cloud-pvcs' },
+      { suffix: 'storage/buckets', testId: 'cloud-buckets' },
+      { suffix: 'storage/volumes', testId: 'cloud-volumes' },
+    ] as const
+
+    for (const c of dataBackedWithCtaSuffixes) {
+      await gotoProvision(page, `cloud/${c.suffix}`)
+      const cta = page.getByTestId(`${c.testId}-new-btn`)
+      await expect(cta, `+ New CTA must be visible on ${c.suffix}`).toBeVisible()
+    }
+  })
+
+  test('every row exposes a kebab menu with Edit + Delete (#349)', async ({ page }) => {
+    const rowsWithActions = [
+      { suffix: 'compute/clusters', rowId: 'cloud-clusters-row-cluster-eu-central-primary' },
+      { suffix: 'compute/vclusters', rowId: 'cloud-vclusters-row-vc-eu-central-dmz' },
+      { suffix: 'compute/node-pools', rowId: 'cloud-node-pools-row-pool-eu-cp' },
+      { suffix: 'compute/worker-nodes', rowId: 'cloud-worker-nodes-row-node-eu-cp-0' },
+      { suffix: 'network/load-balancers', rowId: 'cloud-load-balancers-row-lb-eu-central-edge' },
+      { suffix: 'storage/pvcs', rowId: 'cloud-pvcs-row-pvc-postgres-data' },
+      { suffix: 'storage/buckets', rowId: 'cloud-buckets-row-bucket-backups' },
+      { suffix: 'storage/volumes', rowId: 'cloud-volumes-row-vol-postgres-eu' },
+    ] as const
+
+    for (const c of rowsWithActions) {
+      await gotoProvision(page, `cloud/${c.suffix}`)
+      const trigger = page.getByTestId(`${c.rowId}-actions-trigger`)
+      await expect(trigger, `kebab on ${c.suffix} → ${c.rowId}`).toBeVisible()
+      await trigger.click()
+      await expect(page.getByTestId(`${c.rowId}-actions-edit`)).toBeVisible()
+      await expect(page.getByTestId(`${c.rowId}-actions-delete`)).toBeVisible()
+      await page.keyboard.press('Escape')
+    }
+  })
+
   test('captures 1440×900 screenshots of every list page', async ({ page }) => {
     for (const c of CASES) {
       await gotoProvision(page, `cloud/${c.category}/${c.child}`)
