@@ -46,8 +46,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// pdmErrNotFound returns the sentinel value to compare against PDM Release
+// outcomes. Wrapped in a function so callers can use errors.Is without
+// importing the pdm package at every call site.
+func pdmErrNotFound() error { return pdm.ErrNotFound }
 
 // wipeRequest is the body of POST /api/v1/deployments/{id}/wipe.
 //
@@ -292,6 +298,184 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 // internal to the provisioner; the handler only needs this for cleanup.
 func deploymentSovereignName(fqdn string) string {
 	return strings.ReplaceAll(fqdn, ".", "-")
+}
+
+// releaseSubdomainResponse is the wire shape of DELETE
+// /api/v1/deployments/{id}/release-subdomain — a subdomain-only release
+// path that does NOT require the HetznerToken (issue #489). The full
+// Cancel & Wipe flow remains the canonical purge for live Hetzner
+// resources; this endpoint is the narrower fix for the case where a
+// failed-or-abandoned deployment locks a pool subdomain that an
+// operator wants to retry under the SAME name.
+type releaseSubdomainResponse struct {
+	DeploymentID string `json:"deploymentId"`
+	PoolDomain   string `json:"poolDomain"`
+	Subdomain    string `json:"subdomain"`
+	PDMReleased  bool   `json:"pdmReleased"`
+	NoOp         string `json:"noOp,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// ReleaseSubdomain handles DELETE /api/v1/deployments/{id}/release-subdomain.
+//
+// Issue #489 — each failed provision permanently consumed its subdomain
+// because the only release seams were (a) runProvisioning's post-Phase-0
+// failure path, dead after a Pod restart, and (b) the Cancel & Wipe flow
+// which requires the operator to re-enter the HetznerToken. For franchise
+// customers a retry of `acme.omani.works` after a failed `acme.omani.works`
+// must NOT need a new subdomain or a HetznerToken roundtrip — the slot
+// belongs to the customer, not to the failed attempt.
+//
+// This endpoint:
+//
+//   - Looks up the deployment by id.
+//   - Refuses to release a deployment that is still in-flight (operator
+//     must wait or wipe properly).
+//   - Refuses to release a deployment whose AdoptedAt is set — that's a
+//     production customer Sovereign, not an abandoned attempt.
+//   - Calls PDM Release for the deployment's pdmPoolDomain + pdmSubdomain.
+//   - Treats pdm.ErrNotFound as success (idempotent — a second call after
+//     PDM has already released the slot is a no-op).
+//   - Does NOT touch Hetzner (no destroy, no orphan purge), does NOT
+//     delete the on-disk record, does NOT mark the deployment "wiped".
+//     The operator can still inspect the failed deployment + run a
+//     proper Cancel & Wipe later. The only mutation is on PDM.
+//
+// Response codes:
+//
+//	200 — release succeeded (or was a no-op)
+//	404 — unknown deployment id
+//	409 — deployment is still in-flight; cannot release while running
+//	410 — deployment was already wiped
+//	422 — deployment has been adopted by a customer; protected
+//	502 — PDM call failed (operator can retry)
+func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		http.Error(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	dep := val.(*Deployment)
+
+	dep.mu.Lock()
+	status := dep.Status
+	poolDomain := dep.pdmPoolDomain
+	subdomain := dep.pdmSubdomain
+	adopted := dep.AdoptedAt != nil
+	dep.mu.Unlock()
+
+	// Adopted deployments are customer-owned Sovereigns — never strip a
+	// committed pool record from underneath an active customer.
+	if adopted {
+		writeJSON(w, http.StatusUnprocessableEntity, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			Error:        "deployment has been adopted by a customer; the pool record protects the live Sovereign and cannot be released via this endpoint",
+		})
+		return
+	}
+
+	// Refuse to release a deployment that is still in-flight — the
+	// runProvisioning goroutine may still call Commit. Operator must
+	// wait for terminal state, or run the full Cancel & Wipe flow.
+	if isInFlightStatus(status) {
+		writeJSON(w, http.StatusConflict, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			Error:        "deployment is still in-flight (status=" + status + ") — wait for terminal state or use POST /wipe",
+		})
+		return
+	}
+	if status == "wiped" {
+		writeJSON(w, http.StatusGone, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			Error:        "deployment already wiped",
+		})
+		return
+	}
+
+	// Fallback FQDN split for older records that committed without
+	// stamping pdmPoolDomain/pdmSubdomain (the wipe path uses the same
+	// fallback; keeping behaviour symmetric).
+	if poolDomain == "" || subdomain == "" {
+		if idx := strings.IndexByte(dep.Request.SovereignFQDN, '.'); idx > 0 {
+			subdomain = dep.Request.SovereignFQDN[:idx]
+			poolDomain = dep.Request.SovereignFQDN[idx+1:]
+		}
+	}
+
+	// BYO deployments don't have a PDM allocation to release. Surface
+	// that as a clean 200 no-op so wizard UI flows can call this
+	// unconditionally.
+	if dep.Request.SovereignDomainMode != "pool" || poolDomain == "" || subdomain == "" {
+		writeJSON(w, http.StatusOK, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			NoOp:         "no pool allocation to release (BYO or unresolvable pool)",
+		})
+		return
+	}
+
+	if h.pdm == nil {
+		writeJSON(w, http.StatusServiceUnavailable, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			Error:        "pool-domain-manager client is not configured",
+		})
+		return
+	}
+
+	releaseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	err := h.pdm.Release(releaseCtx, poolDomain, subdomain)
+	if err != nil && !errors.Is(err, pdmErrNotFound()) {
+		h.log.Warn("release-subdomain: pdm release failed",
+			"id", id,
+			"poolDomain", poolDomain,
+			"subdomain", subdomain,
+			"err", err,
+		)
+		writeJSON(w, http.StatusBadGateway, releaseSubdomainResponse{
+			DeploymentID: id,
+			PoolDomain:   poolDomain,
+			Subdomain:    subdomain,
+			Error:        "pdm release failed: " + err.Error(),
+		})
+		return
+	}
+
+	// Clear the cached PDM allocation pointers on the deployment so a
+	// follow-up Cancel & Wipe doesn't try to release a slot we just
+	// released (idempotent at PDM, but the cleared pointers also keep
+	// /events output truthful — "no PDM allocation to release").
+	dep.mu.Lock()
+	dep.pdmPoolDomain = ""
+	dep.pdmSubdomain = ""
+	dep.pdmReservationToken = ""
+	dep.mu.Unlock()
+	h.persistDeployment(dep)
+
+	h.log.Info("release-subdomain: pdm release complete",
+		"id", id,
+		"poolDomain", poolDomain,
+		"subdomain", subdomain,
+		"priorStatus", status,
+	)
+
+	writeJSON(w, http.StatusOK, releaseSubdomainResponse{
+		DeploymentID: id,
+		PoolDomain:   poolDomain,
+		Subdomain:    subdomain,
+		PDMReleased:  true,
+	})
 }
 
 // decodeJSONBody is a thin error-wrapping helper for request bodies. Other

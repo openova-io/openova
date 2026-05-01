@@ -468,6 +468,27 @@ func (h *Handler) restoreFromStore() {
 					"err", err,
 				)
 			}
+			// Pod-restart-orphan PDM release (issue #489). The previous
+			// catalyst-api Pod owned the runProvisioning goroutine that
+			// would have called pdm.Release on Phase-0 failure. The
+			// goroutine died with the Pod; the reservation is now
+			// orphaned in PDM, locking the subdomain forever. fromRecord
+			// rewrites the status to "failed" precisely BECAUSE the
+			// previous Pod was killed mid-apply — the same condition
+			// means we MUST release the PDM slot here, otherwise a
+			// retry under the same subdomain returns 409 conflict and
+			// the franchise customer is forced to pick `acmeN+1` for
+			// what should be a routine retry.
+			//
+			// Best-effort + asynchronous: a slow PDM at startup must
+			// NOT block the rest of the rehydration loop (other
+			// deployments need to land in sync.Map quickly so /events
+			// poll works).
+			if dep.Status == "failed" && rec.PDMReservationToken != "" &&
+				rec.PDMPoolDomain != "" && rec.PDMSubdomain != "" &&
+				dep.AdoptedAt == nil && h.pdm != nil {
+				go h.releaseOrphanedReservation(dep.ID, rec.PDMPoolDomain, rec.PDMSubdomain)
+			}
 		}
 
 		// Resume the Phase-1 helmwatch goroutine after a Pod restart
@@ -496,6 +517,49 @@ func (h *Handler) restoreFromStore() {
 		"resumed", resumed,
 		"dir", h.store.Dir(),
 	)
+}
+
+// releaseOrphanedReservation calls pdm.Release for a deployment whose
+// status was rewritten to "failed" because the catalyst-api Pod died
+// mid-provisioning (issue #489). Best-effort: any failure is logged
+// at warn but does not block other rehydration work. Idempotent — a
+// pdm.ErrNotFound response (the reservation already expired or was
+// previously released) is treated as success. The dep entry's PDM
+// pointers are cleared on success so a follow-up Cancel & Wipe doesn't
+// double-release.
+//
+// Run as a goroutine from restoreFromStore: the rehydration loop must
+// not block on PDM. A 30s timeout caps each call.
+func (h *Handler) releaseOrphanedReservation(deploymentID, poolDomain, subdomain string) {
+	if h.pdm == nil || poolDomain == "" || subdomain == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := h.pdm.Release(ctx, poolDomain, subdomain)
+	if err != nil && !errors.Is(err, pdm.ErrNotFound) {
+		h.log.Warn("orphan-release: pdm release failed; subdomain may stay locked until TTL",
+			"id", deploymentID,
+			"poolDomain", poolDomain,
+			"subdomain", subdomain,
+			"err", err,
+		)
+		return
+	}
+	h.log.Info("orphan-release: released PDM allocation for pod-restart-orphaned deployment",
+		"id", deploymentID,
+		"poolDomain", poolDomain,
+		"subdomain", subdomain,
+	)
+	if val, ok := h.deployments.Load(deploymentID); ok {
+		dep := val.(*Deployment)
+		dep.mu.Lock()
+		dep.pdmPoolDomain = ""
+		dep.pdmSubdomain = ""
+		dep.pdmReservationToken = ""
+		dep.mu.Unlock()
+		h.persistDeployment(dep)
+	}
 }
 
 // shouldResumePhase1 returns true when a rehydrated deployment is a

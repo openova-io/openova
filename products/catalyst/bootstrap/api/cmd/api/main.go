@@ -151,6 +151,15 @@ func main() {
 	// PurgeReport summary. The wizard's failed-state banner renders the
 	// operator confirmation modal that POSTs here.
 	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+	// Subdomain-only release endpoint (issue #489). Releases the PDM
+	// allocation row for a failed-or-abandoned deployment WITHOUT
+	// requiring the operator to re-enter their HetznerToken. Lets a
+	// franchise customer retry under the same pool subdomain after a
+	// botched provision instead of being forced to pick acmeN+1. Does
+	// NOT touch Hetzner — the Cancel & Wipe flow remains the canonical
+	// path for live cloud cleanup. Refuses on in-flight deployments
+	// (409), wiped deployments (410), or adopted Sovereigns (422).
+	r.Delete("/api/v1/deployments/{id}/release-subdomain", h.ReleaseSubdomain)
 	// Handover finalisation (issue #317). Catalyst-Zero side: stops the
 	// helmwatch informer, ships the OpenTofu state to the new Sovereign's
 	// catalyst-api, and purges every local trace once the new side
