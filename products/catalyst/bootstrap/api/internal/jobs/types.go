@@ -200,6 +200,15 @@ type Job struct {
 	// DERIVED at read time by Store.ListJobs / Store.GetJob; never
 	// persisted. Empty for leaf install jobs.
 	ChildIDs []string `json:"childIds,omitempty"`
+
+	// LegacyBatchID — read-only migration field. Pre-#351 indexes
+	// persisted the deprecated `batchId` denormalisation; loadIndex
+	// hoists any non-empty legacy value into ParentID
+	// (= JobID(deploymentID, batchID)) and deriveTreeView synthesizes
+	// the matching parent group Job in-memory when no on-disk row
+	// exists. Stripped from every persistIndex write so the on-disk
+	// record stays canonical (one source of truth: ParentID).
+	LegacyBatchID string `json:"batchId,omitempty"`
 }
 
 // Execution captures one attempt of a Job. The store appends a new

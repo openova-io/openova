@@ -44,17 +44,98 @@ func TestStore_UpsertJob_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(got))
+	// Persisted leaf + synthesized bootstrap-kit parent group
+	// (deriveTreeView synthesizes a group row in-memory whenever a
+	// leaf points at a ParentID with no on-disk peer — see the
+	// legacy migration path #351).
+	if len(got) != 2 {
+		t.Fatalf("expected 2 jobs (leaf + synthesized parent), got %d (%+v)", len(got), got)
 	}
-	if got[0].ID != JobID(depID, "install-cilium") {
-		t.Fatalf("ID mismatch: %q", got[0].ID)
+	var leaf, group *Job
+	for i := range got {
+		if got[i].ID == JobID(depID, "install-cilium") {
+			leaf = &got[i]
+		}
+		if got[i].ID == parentID {
+			group = &got[i]
+		}
 	}
-	if got[0].AppID != "cilium" || got[0].ParentID != parentID || got[0].Type != JobTypeInstall {
-		t.Fatalf("metadata mismatch: %+v", got[0])
+	if leaf == nil {
+		t.Fatalf("install-cilium leaf missing in %+v", got)
 	}
-	if len(got[0].DependsOn) != 1 || got[0].DependsOn[0] != "install-flux" {
-		t.Fatalf("dependsOn mismatch: %+v", got[0].DependsOn)
+	if leaf.AppID != "cilium" || leaf.ParentID != parentID || leaf.Type != JobTypeInstall {
+		t.Fatalf("leaf metadata mismatch: %+v", leaf)
+	}
+	if len(leaf.DependsOn) != 1 || leaf.DependsOn[0] != "install-flux" {
+		t.Fatalf("dependsOn mismatch: %+v", leaf.DependsOn)
+	}
+	if group == nil || group.Type != JobTypeGroup {
+		t.Fatalf("synthesized bootstrap-kit group missing: %+v", got)
+	}
+	if len(group.ChildIDs) != 1 || group.ChildIDs[0] != leaf.ID {
+		t.Fatalf("synthesized group ChildIDs: want [%s], got %v", leaf.ID, group.ChildIDs)
+	}
+}
+
+// TestStore_LegacyBatchID_HoistedToParentID locks in the #351 legacy
+// migration contract: pre-refactor indexes persisted the deprecated
+// `batchId` JSON field; on read, the store hoists any non-empty
+// legacy value into ParentID and synthesizes a parent group Job
+// in-memory so the recursive Job tree renders correctly even before
+// the next bridge write rewrites the on-disk record.
+func TestStore_LegacyBatchID_HoistedToParentID(t *testing.T) {
+	st := newTestStore(t)
+	depID := "dep-legacy"
+
+	depDir := filepath.Join(st.Dir(), depID)
+	if err := os.MkdirAll(depDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+	  "deploymentId": "dep-legacy",
+	  "jobs": [
+	    {"id":"dep-legacy:install-cilium","deploymentId":"dep-legacy","jobName":"install-cilium","appId":"cilium","batchId":"bootstrap-kit","dependsOn":[],"status":"succeeded"},
+	    {"id":"dep-legacy:install-cert-manager","deploymentId":"dep-legacy","jobName":"install-cert-manager","appId":"cert-manager","batchId":"bootstrap-kit","dependsOn":["install-cilium"],"status":"running"}
+	  ],
+	  "executions": []
+	}`
+	if err := os.WriteFile(filepath.Join(depDir, "index.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 jobs (2 leaves + 1 synthesized group), got %d (%+v)", len(got), got)
+	}
+	parentID := JobID(depID, GroupBootstrapKit)
+	for _, j := range got {
+		switch j.Type {
+		case JobTypeInstall:
+			if j.ParentID != parentID {
+				t.Errorf("leaf %s: ParentID hoist failed — want %q, got %q", j.JobName, parentID, j.ParentID)
+			}
+			if j.LegacyBatchID != "" {
+				t.Errorf("leaf %s: LegacyBatchID NOT cleared on read: %q", j.JobName, j.LegacyBatchID)
+			}
+		case JobTypeGroup:
+			if j.ID != parentID {
+				t.Errorf("synthesized group: id mismatch — want %q, got %q", parentID, j.ID)
+			}
+			if j.DisplayName != GroupBootstrapKitDisplay {
+				t.Errorf("synthesized group: DisplayName — want %q, got %q", GroupBootstrapKitDisplay, j.DisplayName)
+			}
+			if len(j.ChildIDs) != 2 {
+				t.Errorf("synthesized group: ChildIDs — want 2, got %d (%v)", len(j.ChildIDs), j.ChildIDs)
+			}
+			if j.Status != StatusRunning {
+				t.Errorf("synthesized group: rolled-up Status — want running, got %q", j.Status)
+			}
+		default:
+			t.Errorf("unexpected Type %q on %s", j.Type, j.JobName)
+		}
 	}
 }
 
