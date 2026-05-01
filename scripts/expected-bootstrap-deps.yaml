@@ -166,7 +166,13 @@ slots:
     wave: W2.K3
   - slot: 34
     name: bp-velero
-    depends_on: [bp-seaweedfs]
+    # No dependsOn — Velero on Hetzner Sovereigns writes DIRECTLY to
+    # Hetzner Object Storage per ADR-0001 §13 + WBS §3 (S3-aware app
+    # rule). The previous SeaweedFS dependency was retired in #384;
+    # Velero's BackupStorageLocation now consumes flux-system/hetzner-
+    # object-storage Secret (issue #371) via Flux valuesFrom, populated
+    # at HelmRelease apply time — no in-cluster prerequisite Blueprint.
+    depends_on: []
     wave: W2.K3
 
   # ---- Tier 8 + 9: edge + apps + AI runtime (W2.K4, slots 35-48) ------------
