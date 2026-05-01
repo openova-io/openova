@@ -475,7 +475,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #459 | 🟡 in flight — Phase-8a preflight A · bootstrap-kit reconcile dry-run on kind cluster. Surfaces Risk R4 (reconcile-chain order under load). Ships `.github/workflows/preflight-bootstrap-kit.yaml` (workflow_dispatch). | (PR pending) | de-risks #454 |
 | #460 | 🟡 in flight — Phase-8a preflight B · Crossplane provider-hcloud Healthy=True on kind. Surfaces Risk R2. Ships `.github/workflows/preflight-crossplane-hcloud.yaml`. | (PR pending) | de-risks #454 |
 | #461 | 🟡 in flight — Phase-8a preflight C · Cilium Gateway HTTPRoute admission for bp-catalyst-platform on kind. Surfaces Risk R3. Ships `.github/workflows/preflight-cilium-httproute.yaml`. | (PR pending) | de-risks #454 |
-| #462 | 🟡 in flight — Phase-8a preflight E · Keycloak realm-import + kubectl OIDC client render on kind. Surfaces Risk R6. Ships `.github/workflows/preflight-keycloak-realm.yaml`. | (PR pending) | de-risks #454 |
+| #462 | 🟢 done — Phase-8a preflight E · Keycloak realm-import + kubectl OIDC client render on kind. Ships `.github/workflows/preflight-keycloak-realm.yaml` (event-driven, kind v1.30.6, bp-keycloak 1.2.0, asserts sovereign realm + kubectl client + groups mapper via Admin REST API). Surfaces Risk R6. | (merged) | de-risks #454 |
 
 ## 9a. Risk register — known gaps that will surface in Phase 8a
 

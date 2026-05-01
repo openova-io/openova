@@ -1,0 +1,270 @@
+name: Phase-8a preflight E — Keycloak realm-import + kubectl OIDC client
+
+# Issue #462 — Phase-8a preflight E (Risk register R6 from
+# docs/omantel-handover-wbs.md §9a).
+#
+# bp-keycloak 1.2.0 ships a `sovereign` realm + a public `kubectl` OIDC
+# client via the upstream bitnami/keycloak chart's keycloakConfigCli
+# post-install Helm hook (issue #326). The hook is bootstrap-timing
+# sensitive: keycloak-config-cli boots a JVM, calls the Keycloak Admin
+# API, and reconciles the realm payload — all of which depends on the
+# StatefulSet being Ready first.
+#
+# This preflight installs bp-keycloak on a kind cluster and asserts:
+#   1. The keycloak StatefulSet reaches Ready.
+#   2. The keycloakConfigCli post-install Job completes successfully.
+#   3. The `sovereign` realm exists (Keycloak's discovery endpoint
+#      returns 200 for /realms/sovereign).
+#   4. The `kubectl` OIDC client is provisioned in the realm with the
+#      localhost:8000 redirect URI and the `groups` claim mapper that
+#      the per-Sovereign k3s api-server's --oidc-* flags depend on.
+#
+# Out of scope (deferred to live Phase-8a):
+#   - kubectl-oidc-login interactive browser flow
+#   - k3s api-server-side OIDC token validation (preflight A)
+#
+# Triggers — event-driven only per CLAUDE.md "every workflow MUST be
+# event-driven, NEVER scheduled" rule. workflow_dispatch is for ad-hoc
+# re-runs without a code change.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/preflight-keycloak-realm.yaml'
+
+jobs:
+  preflight:
+    name: Preflight Keycloak realm-import
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: keycloak-preflight
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Install bp-keycloak 1.2.0
+        # Release name `keycloak` matches the per-Sovereign bootstrap-kit
+        # slot (clusters/_template/bootstrap-kit/) so resource names here
+        # match what runs on a real Sovereign. Bitnami's chart de-duplicates
+        # `<release>-<chart>` when they're equal, so the StatefulSet,
+        # primary Service, and ServiceAccount are all named `keycloak`;
+        # the post-install Job is `keycloak-keycloak-config-cli`.
+        #
+        # `--wait=false` so we observe the rollout progressively in later
+        # steps and capture diagnostics on failure. Default postgresql
+        # subchart needs ~3-4 min on kind to provision its PVC + boot.
+        run: |
+          helm install keycloak oci://ghcr.io/openova-io/bp-keycloak \
+            --version 1.2.0 \
+            --namespace keycloak --create-namespace \
+            --wait=false
+
+      - name: Wait for keycloak StatefulSet Ready
+        # Bitnami keycloak uses `kubernetes.io/hostname` topology spread
+        # constraints by default — fine on a single-node kind cluster.
+        # Boot is dominated by JVM cold start; 10 min is generous.
+        run: |
+          kubectl rollout status sts/keycloak -n keycloak --timeout=15m
+
+      - name: Wait for keycloakConfigCli post-install Job to complete
+        # The Helm post-install hook Job is rendered with annotation
+        # helm.sh/hook-weight: "5" which means it runs AFTER the chart's
+        # primary resources are applied but BEFORE Helm reports success.
+        # Because we used --wait=false above, the Job may not exist yet
+        # when this step starts — poll for its appearance, then wait.
+        #
+        # Job name is deterministic: `<release>-<chart>-config-cli` =>
+        # `keycloak-keycloak-config-cli`. Bitnami still emits the label
+        # app.kubernetes.io/component=keycloak-config-cli; using the
+        # label selector keeps us robust to a future chart bump that
+        # tweaks the suffix.
+        run: |
+          for i in $(seq 1 60); do
+            JOB=$(kubectl get jobs -n keycloak \
+              -l app.kubernetes.io/component=keycloak-config-cli \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+            if [ -n "$JOB" ]; then
+              echo "Found realm-import Job: $JOB"
+              if kubectl wait --for=condition=Complete --timeout=10m \
+                  "job/$JOB" -n keycloak; then
+                echo "Realm-import Job completed successfully."
+                exit 0
+              fi
+              echo "Job did not complete within timeout — printing logs:"
+              kubectl logs -n keycloak "job/$JOB" --tail=200 || true
+              kubectl describe -n keycloak "job/$JOB" || true
+              exit 1
+            fi
+            echo "Realm-import Job not yet present (attempt $i/60); sleeping 10s…"
+            sleep 10
+          done
+          echo "Realm-import Job never appeared in 10 minutes."
+          kubectl get all -n keycloak
+          exit 1
+
+      - name: Read Keycloak admin password from secret
+        # The bitnami chart auto-generates a random admin password and
+        # stores it in secret `keycloak` under data key `admin-password`.
+        # Pipe-to-env hygiene per CLAUDE.md Rule 10: do NOT echo the
+        # plaintext, redirect through GITHUB_ENV (masked by Actions).
+        run: |
+          PASSWORD=$(kubectl get secret keycloak -n keycloak \
+            -o jsonpath='{.data.admin-password}' | base64 -d)
+          echo "::add-mask::${PASSWORD}"
+          echo "KC_ADMIN_PASSWORD=${PASSWORD}" >> $GITHUB_ENV
+
+      - name: Port-forward Keycloak service
+        # Primary Service `keycloak` listens on port 80 (forwarded to
+        # container port 8080). Port-forward in the background so the
+        # next step can curl localhost.
+        run: |
+          kubectl port-forward -n keycloak svc/keycloak 8080:80 \
+            > /tmp/pf.log 2>&1 &
+          echo $! > /tmp/pf.pid
+          # Wait until the port-forward accepts connections.
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:8080/realms/master; then
+              echo "Port-forward live after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Port-forward never came up — log follows:"
+          cat /tmp/pf.log || true
+          exit 1
+
+      - name: Verify sovereign realm exists
+        # The realm's discovery endpoint is unauthenticated for clients
+        # with publicClient=true (which `kubectl` is); a 200 here proves
+        # the realm-import Job actually wrote the realm into Keycloak's
+        # database, not just exited 0 with an empty no-op.
+        run: |
+          curl -sf http://localhost:8080/realms/sovereign | jq . \
+            || (echo "FAIL: sovereign realm not found"; exit 1)
+          echo "PASS: sovereign realm exists"
+
+      - name: Verify kubectl OIDC client is provisioned with redirect URI + groups mapper
+        # Use the master realm's admin-cli direct-access grant to mint an
+        # admin access-token, then call the Admin REST API to fetch the
+        # `kubectl` client by clientId. Asserts:
+        #   - client exists (length >= 1)
+        #   - publicClient: true (kubectl-oidc-login holds no secret)
+        #   - redirectUris contains http://localhost:8000 (kubectl-oidc-login default)
+        #   - the `groups` client scope is wired (id-token carries the
+        #     groups claim the api-server's --oidc-groups-claim flag depends on)
+        run: |
+          ADMIN_TOKEN=$(curl -sf -X POST \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -d 'grant_type=password' \
+            -d 'client_id=admin-cli' \
+            -d 'username=admin' \
+            -d "password=${KC_ADMIN_PASSWORD}" \
+            http://localhost:8080/realms/master/protocol/openid-connect/token \
+            | jq -r .access_token)
+          if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
+            echo "FAIL: could not obtain admin access-token from master realm"
+            exit 1
+          fi
+          echo "::add-mask::${ADMIN_TOKEN}"
+
+          CLIENTS=$(curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" \
+            'http://localhost:8080/admin/realms/sovereign/clients?clientId=kubectl')
+
+          COUNT=$(echo "$CLIENTS" | jq 'length')
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: kubectl OIDC client NOT found in sovereign realm"
+            echo "Admin API response: $CLIENTS"
+            exit 1
+          fi
+          echo "PASS: kubectl OIDC client exists ($COUNT match)"
+
+          # Print the relevant subset of the client config (no secrets —
+          # publicClient: true means there's nothing sensitive here).
+          echo "$CLIENTS" | jq '.[0] | {
+            clientId,
+            publicClient,
+            standardFlowEnabled,
+            redirectUris,
+            defaultClientScopes
+          }'
+
+          # Assert redirectUris contains localhost:8000 (kubectl-oidc-login default).
+          if ! echo "$CLIENTS" | jq -e '.[0].redirectUris | any(. == "http://localhost:8000")' >/dev/null; then
+            echo "FAIL: kubectl client redirectUris does not contain http://localhost:8000"
+            exit 1
+          fi
+          echo "PASS: kubectl client redirectUris contains http://localhost:8000"
+
+          # Assert publicClient: true.
+          if ! echo "$CLIENTS" | jq -e '.[0].publicClient == true' >/dev/null; then
+            echo "FAIL: kubectl client is not publicClient=true"
+            exit 1
+          fi
+          echo "PASS: kubectl client is publicClient=true"
+
+          # Assert the `groups` client scope is in defaultClientScopes
+          # (the realm-import wires it as a default scope so every
+          # id-token carries the `groups` claim without per-token opt-in).
+          if ! echo "$CLIENTS" | jq -e '.[0].defaultClientScopes | any(. == "groups")' >/dev/null; then
+            echo "FAIL: kubectl client does not include 'groups' in defaultClientScopes"
+            exit 1
+          fi
+          echo "PASS: kubectl client has 'groups' default client scope"
+
+          # Cross-check: the realm-level client scope `groups` carries
+          # the oidc-group-membership-mapper protocolMapper.
+          SCOPES=$(curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" \
+            'http://localhost:8080/admin/realms/sovereign/client-scopes')
+          MAPPER=$(echo "$SCOPES" | jq '
+            .[] | select(.name == "groups") |
+            .protocolMappers // [] |
+            map(select(.protocolMapper == "oidc-group-membership-mapper")) |
+            length
+          ')
+          if [ "$MAPPER" != "1" ]; then
+            echo "FAIL: groups client scope missing oidc-group-membership-mapper"
+            echo "$SCOPES" | jq '.[] | select(.name == "groups")'
+            exit 1
+          fi
+          echo "PASS: groups client scope has oidc-group-membership-mapper wired"
+
+      - name: Stop port-forward
+        if: always()
+        run: |
+          if [ -f /tmp/pf.pid ]; then
+            kill "$(cat /tmp/pf.pid)" 2>/dev/null || true
+          fi
+
+      - name: Summary
+        if: always()
+        # Capture cluster state + realm-import Job logs in the workflow
+        # summary so a failed run is debuggable without re-running.
+        # Per ticket acceptance: "if post-install Job fails, workflow log
+        # captures its full output".
+        run: |
+          {
+            echo '## Keycloak realm-import preflight — cluster state'
+            echo '```'
+            kubectl get jobs,statefulsets,pods,svc -n keycloak 2>&1 || true
+            echo '```'
+            echo
+            echo '## keycloak-config-cli Job logs (last 200 lines)'
+            echo '```'
+            kubectl logs -n keycloak \
+              -l app.kubernetes.io/component=keycloak-config-cli \
+              --tail=200 2>&1 || true
+            echo '```'
+            echo
+            echo '## keycloak StatefulSet pod logs (last 100 lines)'
+            echo '```'
+            kubectl logs -n keycloak sts/keycloak --tail=100 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
