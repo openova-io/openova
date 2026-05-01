@@ -6,7 +6,7 @@
  * onmessage / onerror events directly.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { useK8sStream, getMeta, type K8sEvent } from './useK8sStream'
 
@@ -28,6 +28,7 @@ class FakeEventSource implements FakeES {
   closed = false
   constructor(url: string) {
     this.url = url
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     activeES = this
   }
   close = () => {
