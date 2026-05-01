@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-cert-manager-powerdns-webhook.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-cert-manager-powerdns-webhook.selectorLabels" . | nindent 8 }}
+        {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 8 }}
+      {{- with .Values.webhook.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "bp-cert-manager-powerdns-webhook.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.webhook.podSecurityContext | nindent 8 }}
+      {{- with .Values.webhook.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.webhook.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.webhook.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webhook
+          image: "{{ .Values.webhook.image.repository }}:{{ include "bp-cert-manager-powerdns-webhook.imageTag" . }}"
+          imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
+          # The cert-manager webhook framework's RunWebhookServer uses the
+          # standard apiserver flag set — --secure-port, --tls-cert-file,
+          # --tls-private-key-file. Anything not specified takes default
+          # (loopback bind, /tmp temp files). We pin the secure port and
+          # the cert paths to predictable locations under /tls so the
+          # Service + APIService can address them.
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+            - --secure-port={{ .Values.webhook.securePort }}
+          env:
+            - name: GROUP_NAME
+              value: {{ .Values.webhook.groupName | quote }}
+            {{- with .Values.webhook.http_proxy }}
+            - name: HTTP_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.webhook.https_proxy }}
+            - name: HTTPS_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.webhook.no_proxy }}
+            - name: NO_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.webhook.securePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.webhook.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            # Serving cert injected by cert-manager via the `Certificate`
+            # resource templated in certificate.yaml. The resulting
+            # Secret materializes tls.crt + tls.key + ca.crt at this
+            # mount point.
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ include "bp-cert-manager-powerdns-webhook.servingCertificate" . }}

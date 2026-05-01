@@ -1,0 +1,117 @@
+{{- if .Values.rbac.create }}
+# ─── Aggregated apiserver RBAC ───────────────────────────────────────────
+# An aggregated apiserver (which is what a cert-manager external webhook
+# is) needs to delegate auth/authz back to the kube-apiserver. The
+# `extension-apiserver-authentication-reader` ClusterRole and the
+# `system:auth-delegator` ClusterRole are the standard pair documented in
+# https://kubernetes.io/docs/tasks/extend-kubernetes/configure-aggregation-layer/
+# — we bind both to the webhook's ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:auth-delegator
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-powerdns-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:auth-reader
+  namespace: kube-system
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-powerdns-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# ─── Webhook → Secret read access ────────────────────────────────────────
+# The upstream webhook reads its PowerDNS API-key Secret on demand via
+# the K8s clientset (NOT via Pod secretKeyRef — see upstream main.go
+# customDNSProviderConfig). The Secret may live in a different namespace
+# than the webhook Pod (e.g. the canonical `powerdns-api-credentials` in
+# `openova-system` per docs/PLATFORM-POWERDNS.md), so we grant `get` on
+# secrets cluster-wide. Scoped down via resourceNames in the upstream
+# pattern is impossible because the namespace is not known at chart-
+# render time (it's the operator's per-Sovereign override).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:secret-reader
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  # flowschemas + prioritylevelconfigurations watches are required for
+  # any aggregated apiserver running on Kubernetes ≥1.20 with
+  # APIPriorityAndFairness enabled (which is the default since 1.23).
+  # Without these the webhook spams the kube-apiserver with denied
+  # watch requests at startup. Mirrors upstream chart's RBAC.
+  - apiGroups: ["flowcontrol.apiserver.k8s.io"]
+    resources: ["flowschemas", "prioritylevelconfigurations"]
+    verbs: ["watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:secret-reader
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-cert-manager-powerdns-webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# ─── cert-manager → webhook authorization ────────────────────────────────
+# cert-manager creates a ChallengeRequest in the webhook's API group when
+# it needs to solve a DNS-01 challenge. The kube-apiserver checks that
+# cert-manager has `create` permission on the group's resources before
+# proxying through to this webhook. The upstream chart binds this to
+# cert-manager's ServiceAccount in the cert-manager namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:domain-solver
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - {{ .Values.webhook.groupName }}
+    resources:
+      - "*"
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:domain-solver
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-cert-manager-powerdns-webhook.fullname" . }}:domain-solver
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.certManager.serviceAccountName }}
+    namespace: {{ .Values.certManager.namespace }}
+{{- end }}

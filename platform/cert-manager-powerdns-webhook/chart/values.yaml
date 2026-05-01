@@ -1,0 +1,248 @@
+# Catalyst Blueprint values for bp-cert-manager-powerdns-webhook.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+#
+# Default-values render produces a runnable webhook + the paired
+# ClusterIssuer is gated behind `clusterIssuer.enabled` (default false)
+# so that `helm template` with no values renders cleanly without
+# requiring operator-supplied PowerDNS API host/secret. The bootstrap-kit
+# slot in clusters/_template/bootstrap-kit/<NN>-bp-cert-manager-powerdns-
+# webhook.yaml flips clusterIssuer.enabled=true and supplies the per-
+# Sovereign PowerDNS host + apiKeySecretRef.
+
+catalystBlueprint:
+  upstream:
+    chart: cert-manager-webhook-pdns
+    version: "3.2.5"
+    repo: "https://github.com/zachomedia/cert-manager-webhook-pdns"
+    images:
+      webhook: "zachomedia/cert-manager-webhook-pdns"
+
+# ─── Webhook protocol identity ───────────────────────────────────────────
+# The groupName + solverName tuple is how cert-manager's DNS-01
+# ClusterIssuer addresses this webhook. They MUST match the values
+# configured in the ClusterIssuer template (clusterissuer.yaml).
+webhook:
+  # API group registered as /apis/acme.powerdns.openova.io/v1alpha1.
+  # Distinct from the dynadot webhook's group so both can coexist on the
+  # same cluster during the onboarding overlap window.
+  groupName: acme.powerdns.openova.io
+  # Solver name — currently informational on the upstream binary (it
+  # registers a single solver bound to GROUP_NAME), but kept here so the
+  # ClusterIssuer template's solverName field can be overridden in
+  # lock-step with the binary if the upstream ever supports multi-solver.
+  solverName: powerdns
+
+  # Replica count. Single-replica works for one Sovereign; bump to 2 in
+  # an HA overlay so a node drain doesn't stall an in-flight challenge.
+  replicas: 1
+
+  # Upstream image — published to Docker Hub by the zachomedia repo. The
+  # Catalyst Sovereign's pull path is documented in
+  # docs/INVIOLABLE-PRINCIPLES.md #4a; operators that mirror to a
+  # private registry override `repository` here.
+  image:
+    repository: zachomedia/cert-manager-webhook-pdns
+    # Default tag tracks the chart's appVersion. Override per-Sovereign
+    # to pin a specific upstream tag without rebuilding this blueprint.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Listen port for the aggregated apiserver. The Service + APIService
+  # resources both reference this. Upstream binary defaults to 8443
+  # via --secure-port=8443 so we keep the same.
+  securePort: 8443
+
+  # Pod log level — debug surfaces every PowerDNS HTTP exchange.
+  logLevel: info
+
+  # Resource budget — small. The webhook does no caching, no informers;
+  # each Present/CleanUp is one (or two) HTTPS calls to the in-cluster
+  # PowerDNS service.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  # Pod-level securityContext — non-root + readOnlyRootFilesystem.
+  # Upstream image runs as UID 100 by default; we keep the same to avoid
+  # surprising operators familiar with the upstream chart.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    runAsGroup: 100
+    fsGroup: 100
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    runAsGroup: 100
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # HTTP proxy passthrough — operators behind an outbound proxy override
+  # these. Mirrors upstream chart behaviour. Empty = unset.
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
+
+  # Pod scheduling.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  priorityClassName: ""
+  imagePullSecrets: []
+
+# ─── PowerDNS API endpoint ───────────────────────────────────────────────
+# The webhook's per-ChallengeRequest config block (rendered into the
+# ClusterIssuer below) carries the PowerDNS API URL + API-key secret
+# reference. The webhook itself does NOT read these from env — it
+# decodes them out of the ChallengeRequest config supplied by the issuer.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL/zone is operator-
+# overridable; cluster overlays MUST set powerdns.host to the per-
+# Sovereign endpoint (e.g. http://powerdns.powerdns:8081 in-cluster, or
+# https://pdns.<sov-fqdn>:8081 if the operator chooses external routing).
+powerdns:
+  # Base URL of the PowerDNS REST API. Empty = the chart will NOT render
+  # the paired ClusterIssuer (the operator must supply this via cluster
+  # overlay). The default-values render path (CI smoke test) leaves this
+  # empty and skips ClusterIssuer rendering entirely — see
+  # templates/clusterissuer.yaml's skip-render guard.
+  host: ""
+  # PowerDNS server ID — virtually always "localhost" per the upstream
+  # API contract. Operators with a multi-tenant PowerDNS deployment
+  # override this per-Sovereign.
+  serverID: "localhost"
+  # Header name for API-key auth. PowerDNS canonicalises to X-API-Key.
+  apiKeyHeaderName: "X-API-Key"
+  # HTTP auth scheme — PowerDNS uses an X-API-Key header (no scheme).
+  apiKeyScheme: ""
+  # TTL of the inserted ACME challenge TXT records. PowerDNS chart
+  # default is 60s; cert-manager polls every 10s by default.
+  ttl: 60
+  # PEM-encoded CA bundle used to verify the PowerDNS API TLS cert when
+  # `host` points at an https endpoint with a private CA. Empty = use
+  # the system store. Cluster overlays inject the per-Sovereign root CA
+  # here.
+  caBundle: ""
+  # Additional headers (e.g. for an Envoy filter or per-tenant auth).
+  headers: {}
+
+  # API-key Secret reference. The webhook reads the key out of this
+  # Secret at challenge-time via the K8s clientset (NOT via Pod
+  # secretKeyRef — cert-manager's webhook contract reads the secret on
+  # demand from whatever namespace the ClusterIssuer points at).
+  apiKeySecretRef:
+    # Name of the K8s Secret holding the PowerDNS API key. Default
+    # matches the canonical secret produced by bp-powerdns
+    # (powerdns-api-credentials) — see docs/PLATFORM-POWERDNS.md
+    # "REST API" section.
+    name: powerdns-api-credentials
+    # Key inside the Secret. Default `api-key` matches bp-powerdns's
+    # secret schema.
+    key: api-key
+    # Namespace where the Secret lives. Defaults to the chart's release
+    # namespace (.Release.Namespace) when blank — set to
+    # `openova-system` if the operator runs the canonical secret in
+    # that namespace and grants the webhook RBAC to read it from
+    # there (see rbac.yaml).
+    namespace: ""
+
+# ─── ClusterIssuer (paired with the webhook) ─────────────────────────────
+# Rendered into a single ClusterIssuer named letsencrypt-dns01-prod-
+# powerdns. The Sovereign's per-cluster Certificate resources reference
+# this issuer via cert-manager.io/cluster-issuer annotation or
+# spec.issuerRef.
+#
+# Default `enabled: false` — the chart's default-values render in CI
+# (blueprint-release.yaml smoke test) does not require an operator to
+# supply powerdns.host. Cluster overlays flip this to true.
+clusterIssuer:
+  enabled: false
+  name: letsencrypt-dns01-prod-powerdns
+  # ACME account email used for renewal notifications.
+  email: ops@openova.io
+  # Production Let's Encrypt directory. Set to the staging URL during
+  # bring-up:
+  #   https://acme-staging-v02.api.letsencrypt.org/directory
+  acmeServer: https://acme-v02.api.letsencrypt.org/directory
+  # Name of the Secret cert-manager uses to store the ACME account key.
+  privateKeySecretRefName: letsencrypt-dns01-prod-powerdns-account-key
+  # Helm hook ordering — the ClusterIssuer is a cert-manager.io/v1 CRD
+  # that only exists after bp-cert-manager has installed its CRDs. Same
+  # post-install hook pattern as bp-cert-manager's own ClusterIssuers.
+  helmHookEnabled: true
+
+# ─── Service + APIService ────────────────────────────────────────────────
+service:
+  # ClusterIP — cert-manager calls the webhook via the kube-apiserver's
+  # aggregated-apiserver path; no external exposure required.
+  type: ClusterIP
+  port: 443
+
+# Skip the APIService registration if the operator has wired the webhook
+# in some other way (e.g. an external OIDC-fronted apiserver). Default
+# true — the chart owns the contract.
+apiService:
+  enabled: true
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+
+# ─── Serving certificate (issued by cert-manager itself) ─────────────────
+servingCert:
+  # Disable if the operator wires the cert from elsewhere (e.g. an
+  # external Vault PKI). Default true.
+  enabled: true
+  duration: 8760h    # 1y
+  renewBefore: 720h  # 30d
+  caDuration: 43800h # 5y
+
+# ─── ServiceAccount + RBAC ───────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+certManager:
+  # The cert-manager controller's ServiceAccount — used in the
+  # `domain-solver` ClusterRoleBinding so cert-manager can call this
+  # webhook's CRD group. Defaults match the canonical bp-cert-manager
+  # release.
+  namespace: cert-manager
+  serviceAccountName: cert-manager
+
+rbac:
+  # The webhook needs:
+  #   - get on flowcontrol.apiserver.k8s.io and authentication.k8s.io
+  #     (it's an aggregated apiserver, so the standard kube-apiserver
+  #     proxying RBAC applies)
+  #   - get on the PowerDNS API-key Secret, in whatever namespace the
+  #     operator chose to place it
+  create: true
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The
+# kube-prometheus-stack CRDs ship with a separate Application Blueprint;
+# enabling this on a fresh Sovereign that has not yet reconciled the
+# observability tier creates a circular dependency. Operator opts in
+# from the per-cluster overlay after observability lands.
+serviceMonitor:
+  enabled: false
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Egress to the PowerDNS API endpoint (TCP/8081 in-cluster, TCP/443 if
+# operator routes externally) is the only outbound the webhook needs.
+# Ingress is restricted to the kube-apiserver IP range.
+networkPolicy:
+  enabled: false

@@ -1,0 +1,90 @@
+{{/*
+ClusterIssuer paired with the PowerDNS webhook above.
+
+Skip-render pattern (lesson from #387 follow-up #402): when the operator
+has not supplied a PowerDNS host (default-values render, e.g. CI smoke
+test), this template emits NOTHING rather than `{{ fail }}`-ing the
+chart. The blueprint-release.yaml smoke-render gate (helm template with
+default values) therefore passes cleanly. Operators on real Sovereigns
+flip clusterIssuer.enabled=true AND set powerdns.host in the per-
+Sovereign overlay.
+
+Two gates:
+  1. clusterIssuer.enabled — operator opt-in (default false)
+  2. powerdns.host         — required config; empty = skip render
+
+Either being absent means "this Sovereign isn't ready to issue via
+PowerDNS yet" and the chart silently omits the resource. cert-manager's
+admission would reject the issuer at apply time anyway if we tried to
+emit it with an empty host, so failing soft here is strictly better.
+*/}}
+{{- if and .Values.clusterIssuer.enabled .Values.powerdns.host }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.clusterIssuer.name }}
+  {{- if .Values.clusterIssuer.helmHookEnabled }}
+  annotations:
+    # Helm post-install/post-upgrade hook: ClusterIssuer is a
+    # cert-manager.io/v1 CRD that only exists AFTER the cert-manager
+    # controllers + CRDs (installed by bp-cert-manager) are running.
+    # Without the hook, Helm renders this template in the same install
+    # pass as the cert-manager controllers and the apply fails with
+    # `no matches for kind "ClusterIssuer"`. Same pattern as
+    # bp-cert-manager's own letsencrypt-dns01-prod / -http01-prod.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  {{- end }}
+  labels:
+    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+    catalyst.openova.io/issuer-class: dns01
+    catalyst.openova.io/issuer-backend: powerdns
+spec:
+  acme:
+    server: {{ .Values.clusterIssuer.acmeServer | quote }}
+    email: {{ .Values.clusterIssuer.email | quote }}
+    privateKeySecretRef:
+      name: {{ .Values.clusterIssuer.privateKeySecretRefName }}
+    solvers:
+      - dns01:
+          webhook:
+            groupName: {{ .Values.webhook.groupName | quote }}
+            solverName: {{ .Values.webhook.solverName | quote }}
+            config:
+              # Base URL of the per-Sovereign PowerDNS REST API. Operator
+              # MUST set this in the cluster overlay; see chart values
+              # comment for the in-cluster vs external routing patterns.
+              host: {{ .Values.powerdns.host | quote }}
+              serverID: {{ .Values.powerdns.serverID | quote }}
+              {{- with .Values.powerdns.apiKeyHeaderName }}
+              apiKeyHeaderName: {{ . | quote }}
+              {{- end }}
+              {{- with .Values.powerdns.apiKeyScheme }}
+              apiKeyScheme: {{ . | quote }}
+              {{- end }}
+              ttl: {{ .Values.powerdns.ttl }}
+              {{- with .Values.powerdns.caBundle }}
+              # PEM bundle MUST be base64-encoded for the JSON wire
+              # format used by cert-manager's ChallengeRequest config
+              # decoder. Operators paste the raw PEM into values; we
+              # b64encode here so the cluster overlay never has to.
+              caBundle: {{ . | b64enc | quote }}
+              {{- end }}
+              {{- with .Values.powerdns.headers }}
+              headers:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              apiKeySecretRef:
+                name: {{ .Values.powerdns.apiKeySecretRef.name | quote }}
+                key: {{ .Values.powerdns.apiKeySecretRef.key | quote }}
+                {{- with .Values.powerdns.apiKeySecretRef.namespace }}
+                # Cluster-scoped namespace — only set if the operator
+                # places the API-key secret outside the cert-manager
+                # namespace. cert-manager's webhook framework uses
+                # this to route the lookup; the webhook's
+                # secret-reader ClusterRole (rbac.yaml) grants the
+                # required cross-namespace access.
+                namespace: {{ . | quote }}
+                {{- end }}
+{{- end }}
