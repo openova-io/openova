@@ -34,6 +34,12 @@ on:
     paths:
       - '.github/workflows/preflight-keycloak-realm.yaml'
 
+permissions:
+  contents: read
+  # bp-keycloak is a PRIVATE GHCR package; helm needs GHCR auth to pull.
+  # Mirrors .github/workflows/preflight-crossplane-hcloud.yaml.
+  packages: read
+
 jobs:
   preflight:
     name: Preflight Keycloak realm-import
@@ -49,6 +55,13 @@ jobs:
           cluster_name: keycloak-preflight
           version: v0.25.0
           node_image: kindest/node:v1.30.6
+
+      - name: Login to GHCR (helm registry)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io \
+                --username "${{ github.actor }}" \
+                --password-stdin
 
       - name: Install bp-keycloak 1.2.0
         # Release name `keycloak` matches the per-Sovereign bootstrap-kit

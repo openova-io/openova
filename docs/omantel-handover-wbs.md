@@ -255,7 +255,8 @@ flowchart TB
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
     class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453 done
-    class T459,T460,T461,T462 wip
+    class T459,T460,T462 done
+    class T461 wip
     class T454,T455,T456 blocked
 
     %% Clickable ticket numbers
