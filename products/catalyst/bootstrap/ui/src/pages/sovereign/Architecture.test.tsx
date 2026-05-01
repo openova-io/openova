@@ -32,7 +32,6 @@ import {
 } from '@tanstack/react-router'
 
 import { CloudPage } from './CloudPage'
-import { Architecture } from './Architecture'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useWizardStore } from '@/entities/deployment/store'
@@ -51,19 +50,29 @@ function renderArchitecturePage(data: HierarchicalInfrastructure) {
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/cloud',
     component: () => (
-      <CloudPage disableStream initialDataOverride={data} deploymentsOverride={[]} />
+      // CloudPage now owns the graph/list view dispatch internally —
+      // when view=graph (default), the body renders the Architecture
+      // surface directly. We don't pass contentOverride so the
+      // production dispatch path is exercised.
+      <CloudPage
+        disableStream
+        viewOverride="graph"
+        initialDataOverride={data}
+        deploymentsOverride={[]}
+      />
     ),
+    validateSearch: (raw: Record<string, unknown>) => {
+      const out: { view?: 'graph' | 'list'; kind?: string } = {}
+      if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
+      if (typeof raw.kind === 'string') out.kind = raw.kind
+      return out
+    },
   })
-  const architectureRoute = createRoute({
-    getParentRoute: () => cloudRoute,
-    path: '/architecture',
-    component: Architecture,
-  })
-  const tree = rootRoute.addChildren([cloudRoute.addChildren([architectureRoute])])
+  const tree = rootRoute.addChildren([cloudRoute])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
-      initialEntries: ['/provision/d-1/cloud/architecture'],
+      initialEntries: ['/provision/d-1/cloud?view=graph'],
     }),
   })
   const qc = new QueryClient({

@@ -1,13 +1,17 @@
 /**
  * CloudPage.test.tsx — shell wiring lock-in for the Sovereign Cloud
- * surface (issue #309 supersedes #227).
+ * surface (issue #350 — IA restructure).
  *
  * Coverage:
  *   1. Header renders with the canonical title ("Cloud").
- *   2. The in-page tab strip is gone (the sidebar accordion replaces
- *      it — see Sidebar.tsx and the e2e cloud-nav spec).
- *   3. The shell renders an <Outlet /> that hosts the active sub-page.
- *   4. PortalShell wires (sidebar present).
+ *   2. The shell renders the in-page View toggle (Graph | List) as a
+ *      single segmented control. The legacy in-page category tab strip
+ *      remains absent.
+ *   3. The shell exposes a Fullscreen toggle button.
+ *   4. The shell renders the dispatched body (graph or list) when no
+ *      contentOverride is supplied. With contentOverride, the override
+ *      wins (used by these tests to keep the heavyweight body out).
+ *   5. PortalShell wires (sidebar present).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -110,15 +114,32 @@ describe('CloudPage — shell', () => {
   })
 })
 
-describe('CloudPage — no in-page tab strip', () => {
-  it('does NOT render an in-page tablist (the sidebar accordion replaces it)', async () => {
+describe('CloudPage — view toggle and fullscreen', () => {
+  it('does NOT render the legacy infrastructure category tab strip', async () => {
     renderShell('d-1', 'architecture')
     await screen.findByTestId('cloud-title')
-    // The legacy tab strip lived under [data-testid=infrastructure-tabs];
-    // it is intentionally absent now — sub-page nav lives in the
-    // sidebar accordion (see Sidebar.tsx).
     expect(screen.queryByTestId('infrastructure-tabs')).toBeNull()
     expect(screen.queryByTestId('cloud-tabs')).toBeNull()
-    expect(screen.queryByRole('tablist')).toBeNull()
+  })
+
+  it('renders the Graph | List view toggle (segmented control)', async () => {
+    renderShell('d-1', 'architecture')
+    await screen.findByTestId('cloud-title')
+    const toggle = screen.getByTestId('cloud-page-view-toggle')
+    expect(toggle.getAttribute('role')).toBe('tablist')
+    const graph = screen.getByTestId('cloud-page-view-graph')
+    const list = screen.getByTestId('cloud-page-view-list')
+    expect(graph.tagName).toBe('BUTTON')
+    expect(list.tagName).toBe('BUTTON')
+    // Default = graph.
+    expect(graph.getAttribute('aria-selected')).toBe('true')
+    expect(list.getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('renders the Fullscreen toggle button with aria-pressed reflecting state', async () => {
+    renderShell('d-1', 'architecture')
+    const fs = await screen.findByTestId('cloud-page-fullscreen-toggle')
+    expect(fs.tagName).toBe('BUTTON')
+    expect(fs.getAttribute('aria-pressed')).toBe('false')
   })
 })
