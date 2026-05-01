@@ -15,6 +15,7 @@ on:
       - 'core/marketplace-api/**'
       - 'products/catalyst/bootstrap/**'
       - 'products/catalyst/chart/**'
+      - 'infra/hetzner/**'
       - '.github/workflows/catalyst-build.yaml'
   workflow_dispatch:
 
