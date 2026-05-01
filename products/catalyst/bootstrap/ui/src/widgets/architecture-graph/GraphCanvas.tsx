@@ -74,15 +74,20 @@ import {
 import {
   edgeNodeId,
   EDGE_DASHED,
+  EDGE_MARKER_END,
+  EDGE_MARKER_START,
   EDGE_STROKE,
   NODE_FILL,
   type ArchEdgeType,
   type ArchNodeType,
+  type EdgeMarker,
   type GraphEdge,
   type GraphNode,
   type LiveEdge,
   type LiveNode,
 } from './types'
+import { NODE_ICON } from './icons'
+import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
 
@@ -127,9 +132,27 @@ export interface GraphCanvasProps {
 /* ── Adaptive physics tiers ──────────────────────────────────────── */
 
 /**
+ * Floor radius for the node disc when an icon is rendered (#348 item
+ * 10 — icons need a minimum disc to read against the canvas). The
+ * actual radius is `max(NODE_R, radiusForDegree(node.degree))`.
+ */
+const NODE_R = 14
+
+/**
+ * Bound padding inside the canvas — the bounded-physics force never
+ * lets a node's centre come closer than r + BOUND_PADDING to any edge,
+ * where r is per-node from radiusForDegree() (#348 item 5).
+ */
+const BOUND_PADDING = 20
+
+/**
  * 5 tiers — node count → simulation params. Tuned so even ~5k node
  * graphs settle in <2s on commodity hardware while small graphs
  * (≤50) get a punchier collision radius for readability.
+ *
+ * Charge magnitudes lowered slightly from the pre-#348 values so the
+ * bounded-physics clamp doesn't fight strong repulsion at small canvas
+ * sizes.
  */
 function physicsFor(nodeCount: number): {
   charge: number
@@ -139,18 +162,18 @@ function physicsFor(nodeCount: number): {
   alphaDecay: number
 } {
   if (nodeCount <= 50) {
-    return { charge: -240, linkDistance: 80, linkStrength: 0.7, collide: 28, alphaDecay: 0.02 }
+    return { charge: -160, linkDistance: 80, linkStrength: 0.6, collide: 30, alphaDecay: 0.02 }
   }
   if (nodeCount <= 200) {
-    return { charge: -180, linkDistance: 60, linkStrength: 0.5, collide: 22, alphaDecay: 0.025 }
+    return { charge: -120, linkDistance: 60, linkStrength: 0.45, collide: 22, alphaDecay: 0.025 }
   }
   if (nodeCount <= 1000) {
-    return { charge: -90, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03 }
+    return { charge: -70, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03 }
   }
   if (nodeCount <= 5000) {
-    return { charge: -40, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04 }
+    return { charge: -32, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04 }
   }
-  return { charge: -20, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05 }
+  return { charge: -16, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05 }
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -169,6 +192,55 @@ function radiusForDegree(degree: number): number {
   // 6 + sqrt(degree) * 2.8, clamped 6..20 — locked by spec.
   const r = 6 + Math.sqrt(Math.max(0, degree)) * 2.8
   return Math.max(6, Math.min(20, r))
+}
+
+/**
+ * Bounded-physics: clamp each node's x/y (and any pinned fx/fy) inside
+ * a [r+pad, W-r-pad] × [r+pad, H-r-pad] box every tick (#348 item 5).
+ * Implemented as a d3-force "force" so it integrates naturally with
+ * the simulation's tick loop and runs after charge / collide /
+ * link forces have moved nodes for the frame.
+ */
+function makeForceBound(
+  width: number,
+  height: number,
+  padding = BOUND_PADDING,
+) {
+  let nodes: LiveNode[] = []
+  // d3-force calls force(alpha) every tick. We ignore alpha — the
+  // bound is a hard clamp that should NOT scale with cooling.
+  const force = () => {
+    for (const n of nodes) {
+      const r = radiusForDegree(n.degree)
+      const minX = r + padding
+      const minY = r + padding
+      const maxX = Math.max(minX, width - r - padding)
+      const maxY = Math.max(minY, height - r - padding)
+      if (n.x < minX) n.x = minX
+      else if (n.x > maxX) n.x = maxX
+      if (n.y < minY) n.y = minY
+      else if (n.y > maxY) n.y = maxY
+      // Also clamp pinned positions so a manual drag past the edge
+      // instantly snaps inside.
+      if (n.fx !== null) {
+        n.fx = Math.max(minX, Math.min(maxX, n.fx))
+      }
+      if (n.fy !== null) {
+        n.fy = Math.max(minY, Math.min(maxY, n.fy))
+      }
+    }
+  }
+  // d3-force calls `initialize(nodes)` when the force is added; we
+  // capture the live LiveNode array so subsequent ticks have a
+  // current handle even after sim.nodes() is reset.
+  ;(force as unknown as { initialize: (n: LiveNode[]) => void }).initialize = (
+    nextNodes,
+  ) => {
+    nodes = nextNodes
+  }
+  return force as (() => void) & {
+    initialize: (n: LiveNode[]) => void
+  }
 }
 
 interface ResizeBox {
@@ -203,6 +275,135 @@ function useContainerSize(): [React.RefObject<HTMLDivElement | null>, ResizeBox]
     return () => ro.disconnect()
   }, [])
   return [ref, size]
+}
+
+/* ── ArchiMate marker definitions ───────────────────────────────── */
+
+/**
+ * Renders the actual <marker> body for a (kind, stroke) pair. Marker
+ * geometry follows ArchiMate 3.x conventions: composition diamond
+ * 12×7, aggregation diamond 12×7 hollow, assignment dot r=3, triggering
+ * filled triangle 10×7, used-by open triangle 10×7, realization hollow
+ * triangle 10×7, attached small open circle r=4.
+ */
+function MarkerBody({ kind, stroke }: { kind: EdgeMarker; stroke: string }) {
+  if (!kind) return null
+  const common = {
+    markerUnits: 'strokeWidth' as const,
+    orient: 'auto' as const,
+  }
+  switch (kind) {
+    case 'composition':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={14}
+          markerHeight={10}
+          refX={11}
+          refY={5}
+          viewBox="0 0 14 10"
+        >
+          <polygon points="0,5 7,1 14,5 7,9" fill={stroke} stroke={stroke} strokeWidth={1} />
+        </marker>
+      )
+    case 'aggregation':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={14}
+          markerHeight={10}
+          refX={11}
+          refY={5}
+          viewBox="0 0 14 10"
+        >
+          <polygon
+            points="0,5 7,1 14,5 7,9"
+            fill="#0b0d12"
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+        </marker>
+      )
+    case 'assignment-dot':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={8}
+          markerHeight={8}
+          refX={4}
+          refY={4}
+          viewBox="0 0 8 8"
+        >
+          <circle cx={4} cy={4} r={3} fill={stroke} />
+        </marker>
+      )
+    case 'triggering':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polygon points="0,0 11,4.5 0,9" fill={stroke} />
+        </marker>
+      )
+    case 'used-by':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polyline points="0,0 11,4.5 0,9" fill="none" stroke={stroke} strokeWidth={1.4} />
+        </marker>
+      )
+    case 'realization':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={11}
+          markerHeight={9}
+          refX={10}
+          refY={4.5}
+          viewBox="0 0 11 9"
+        >
+          <polygon
+            points="0,0 11,4.5 0,9"
+            fill="#0b0d12"
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+        </marker>
+      )
+    case 'attached':
+      return (
+        <marker
+          id={markerId(kind, stroke)}
+          {...common}
+          markerWidth={9}
+          markerHeight={9}
+          refX={7}
+          refY={4.5}
+          viewBox="0 0 9 9"
+        >
+          <circle cx={4.5} cy={4.5} r={3} fill="#0b0d12" stroke={stroke} strokeWidth={1.2} />
+        </marker>
+      )
+    default:
+      return null
+  }
 }
 
 /* ── Component ───────────────────────────────────────────────────── */
@@ -367,6 +568,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     ;(sim.force('charge') as ReturnType<typeof forceManyBody>).strength(phys.charge)
     ;(sim.force('collide') as ReturnType<typeof forceCollide>).radius(phys.collide)
     ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
+
+    // Bounded-physics force — re-install every tick-tune so the box
+    // matches the current container size. d3-force's `force()` setter
+    // accepts a callable that exposes an `initialize(nodes)` hook;
+    // we capture the latest size by closure (#348 item 5).
+    sim.force('bound', makeForceBound(size.width, size.height, BOUND_PADDING))
+
     sim.alphaDecay(phys.alphaDecay).alphaTarget(0).alpha(0.7).restart()
   }, [visibleNodes, visibleEdges, size.width, size.height])
 
@@ -485,6 +693,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     simRef.current?.alphaTarget(0.3).restart()
   }
 
+  function clampToBounds(p: { x: number; y: number }, r: number) {
+    const minX = r + BOUND_PADDING
+    const minY = r + BOUND_PADDING
+    const maxX = Math.max(minX, size.width - r - BOUND_PADDING)
+    const maxY = Math.max(minY, size.height - r - BOUND_PADDING)
+    return {
+      x: Math.max(minX, Math.min(maxX, p.x)),
+      y: Math.max(minY, Math.min(maxY, p.y)),
+    }
+  }
+
   function onMouseMoveSvg(ev: React.MouseEvent) {
     const ds = dragState.current
     if (!ds.nodeId) return
@@ -511,9 +730,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       }
       ds.overId = over
     } else {
-      // Standard drag — pin the node to the cursor.
-      n.fx = p.x
-      n.fy = p.y
+      // Standard drag — pin the node to the cursor, clamped to canvas
+      // bounds (#348 item 5).
+      const r = radiusForDegree(n.degree)
+      const clamped = clampToBounds(p, r)
+      n.fx = clamped.x
+      n.fy = clamped.y
     }
   }
 
@@ -587,6 +809,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
   const ds = dragState.current
   const draggingNode = ds.nodeId ? liveNodesRef.current.get(ds.nodeId) ?? null : null
 
+  // Compute the unique marker defs the current edge set needs. We
+  // memoise off `visibleEdges` (the upstream React-stable input)
+  // rather than `liveEdgeArr` (a fresh array every animation frame) —
+  // the marker palette depends purely on edge type, not on positions,
+  // so this avoids re-allocating the same defs 60 times a second.
+  const markerDefs = useMemo(
+    () => uniqueMarkerDefs(visibleEdges),
+    [visibleEdges],
+  )
+
   return (
     <div
       ref={containerRef}
@@ -604,6 +836,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         onContextMenu={onContextMenuSvg}
         style={{ cursor: ds.nodeId ? 'grabbing' : 'default', userSelect: 'none' }}
       >
+        <defs data-testid={`${testIdPrefix}-marker-defs`}>
+          {markerDefs.map(({ kind, stroke }) => (
+            <MarkerBody key={`${kind}-${stroke}`} kind={kind} stroke={stroke} />
+          ))}
+        </defs>
+
         {/* Edges first so they render under nodes. */}
         <g data-testid={`${testIdPrefix}-edges`}>
           {liveEdgeArr.map((e) => {
@@ -614,6 +852,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
             if (!s || !t) return null
             const stroke = EDGE_STROKE[e.type as ArchEdgeType] ?? '#888'
             const dash = EDGE_DASHED[e.type as ArchEdgeType] ? '6,4' : undefined
+            const startKind = EDGE_MARKER_START[e.type as ArchEdgeType]
+            const endKind = EDGE_MARKER_END[e.type as ArchEdgeType]
+            const markerStart = startKind ? `url(#${markerId(startKind, stroke)})` : undefined
+            const markerEnd = endKind ? `url(#${markerId(endKind, stroke)})` : undefined
             return (
               <line
                 key={e.id}
@@ -625,8 +867,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                 y2={t.y}
                 stroke={stroke}
                 strokeWidth={1.5}
-                strokeOpacity={0.65}
+                strokeOpacity={0.75}
                 strokeDasharray={dash}
+                markerStart={markerStart}
+                markerEnd={markerEnd}
               />
             )
           })}
@@ -649,12 +893,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         {/* Nodes. */}
         <g data-testid={`${testIdPrefix}-nodes`}>
           {liveNodes.map((n) => {
-            const r = radiusForDegree(n.degree)
-            const fill = NODE_FILL[n.type] ?? '#888'
+            const r = Math.max(NODE_R, radiusForDegree(n.degree))
+            const ringColor = NODE_FILL[n.type] ?? '#888'
+            const Icon = NODE_ICON[n.type]
+            // Icon glyph size — 14..18px scaled to node radius so larger
+            // (high-degree) nodes carry a slightly bigger icon.
+            const iconSize = Math.round(Math.min(18, Math.max(14, r * 1.0)))
 
-            // Stroke priority: highlighted > focus > pinned > default
-            let stroke = '#fff'
-            let strokeWidth = 1.6
+            // Stroke priority: highlighted > focus > pinned > default.
+            // Default uses the type-color ring (#348 item 10).
+            let stroke = ringColor
+            let strokeWidth = 2
             let dash: string | undefined
             if (highlightedIds?.has(n.id)) {
               stroke = '#fcc419'
@@ -690,13 +939,28 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                   }
                 }}
               >
+                {/* Background plate so the icon sits on a coloured disc
+                    that reads against the dark canvas. */}
                 <circle
                   r={r}
-                  fill={fill}
+                  fill="var(--color-bg)"
                   stroke={stroke}
                   strokeWidth={strokeWidth}
                   strokeDasharray={dash}
                 />
+                {/* Tabler icon centred. We let the React component
+                    render its own SVG and translate it so its centre
+                    sits at (0,0). */}
+                {Icon && (
+                  <g transform={`translate(${-iconSize / 2}, ${-iconSize / 2})`}>
+                    <Icon
+                      size={iconSize}
+                      stroke={2}
+                      color={ringColor}
+                      data-testid={`${testIdPrefix}-node-icon-${n.type}`}
+                    />
+                  </g>
+                )}
                 <text
                   y={r + 12}
                   textAnchor="middle"
