@@ -55,10 +55,17 @@ spec:
       retries: 3
   values:
     cilium:
-      # Enable L7 proxy so Cilium's chart installs the
-      # ciliumenvoyconfigs / ciliumclusterwideenvoyconfigs CRDs that the
-      # cilium-agent waits for at startup. Without this, agent crash-loops
-      # forever and the node.cilium.io/agent-not-ready taint never lifts.
+      # Phase-8a bug #15 (otech8 deployment 1bfc46347564467b 2026-05-01):
+      # cilium-agent waits forever for the operator to register
+      # ciliumenvoyconfigs + ciliumclusterwideenvoyconfigs CRDs.
+      # Setting `envoy.enabled: true` (chart-level) runs Envoy as a separate
+      # daemonset but does NOT register those CRDs — that requires
+      # `envoyConfig.enabled: true`, a separate upstream chart toggle.
+      # Without it, the agent's node taint `node.cilium.io/agent-not-ready`
+      # never lifts and every other HelmRelease (37 of them) blocks on its
+      # dependsOn chain.
+      envoyConfig:
+        enabled: true
       l7Proxy: true
       prometheus:
         enabled: false
