@@ -35,7 +35,7 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 11 | `bp-vcluster` | Per-tenant vCluster operator | ✅ deployed (3 active tenants) |
 | 12 | `bp-powerdns` | Authoritative DNS for the Sovereign's delegated subdomain (PDM + dnsdist included) | ✅ deployed |
 | 13 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | ❌ not deployed ([#376](https://github.com/openova-io/openova/issues/376)) |
-| 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | ❌ not deployed ([#377](https://github.com/openova-io/openova/issues/377)) |
+| 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | 🟢 chart verified ([#377](https://github.com/openova-io/openova/issues/377)) — smoke-installed Ready, admin login OK; bootstrap-kit slot 09 wired |
 | 15 | `bp-spire` | Workload identity — service-to-service mTLS | ❌ not deployed ([#382](https://github.com/openova-io/openova/issues/382)) |
 | 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | ✅ chart-verified ([#378](https://github.com/openova-io/openova/issues/378) closed as duplicate; v1.1.3 published, smoke-installed clean, bootstrap-kit wiring already in `_template`) |
 | 17 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
@@ -342,10 +342,9 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #371 | 🟡 in-progress (Agent #371-RESUME) — Hetzner Object Storage credential pattern via Phase-0 OpenTofu | | |
 | #373 | 🟡 in-progress (Agent #373) — bp-cert-manager-powerdns-webhook authoring (mirrors bp-cert-manager-dynadot-webhook structure) | | |
 | #316 | 🟡 in-progress (Agent #316) — OpenBao auto-unseal flow | | |
-| #377 | 🟡 in-progress (Agent #377) — bp-keycloak install verification | | |
+| #377 | 🟢 chart-verified — `bp-keycloak:1.1.2` (digest `sha256:c284c3dc…`) published by blueprint-release run `25214143810` on commit `a1bd5502`. Smoke-installed in `keycloak-smoke` ns on contabo: both pods (smoke-keycloak-0, smoke-postgresql-0) reached Ready in ~2m39s, `/realms/master` returns 200, admin OIDC password-grant returned valid JWT. Bootstrap-kit slot 09 wired in `_template/`, `omantel.omani.works/`, and (this PR) `otech.omani.works/` — all pinned 1.1.2, `gateway.host` set, `disableWait: true`. Wizard catalog already lists keycloak under `layer: 'bootstrap-kit'` (mandatory, auto-installed). Sovereign-impact deferred to Phase 8. | (this PR) | bp-keycloak:1.1.2 published; smoke evidence captured |
 | #378 | ✅ chart-verified — bp-crossplane v1.1.3 already published; helm template renders 23 kinds clean; smoke install on contabo reached 2/2 Ready in 26s; `Provider.pkg.crossplane.io/v1` admitted; `provider-hcloud:v0.4.0` Provider CR admitted; smoke torn down clean; bootstrap-kit wiring already present in `_template` | (closed as duplicate) | smoke evidence in #378 thread |
 | #392 | ✅ DoD-met — code shipped (#397, `aa8ed4e7`), catalyst-api:aa8ed4e7 deployed, behavior-verified by fake-Hetzner E2E test (PR #399, `0904f54a`); regression sentinel pins label-key against future drift | #397 + #399 | catalyst-api:aa8ed4e7 + 2 e2e tests passing |
-| #373 | 🟡 in-progress (Agent #373) — bp-cert-manager-powerdns-webhook authoring (mirrors bp-cert-manager-dynadot-webhook structure) | | |
 | #374 | (parked, gates on #373) | | |
 | #375 | 🟡 in-progress (Agent #375) — bp-nats-jetstream install verification | | |
 | #376 | (parked) | | |
