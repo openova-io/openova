@@ -20,7 +20,9 @@ kubectl create clusterrolebinding flux-system-kustomize-controller-admin \
 
 **Rule**: When debugging a stuck Flux HelmRelease, before chasing chart issues, run `kubectl get clusterrolebinding -o json | jq '.items[] | select(.subjects[]?.namespace=="flux-system" and .subjects[]?.name=="helm-controller")'`. If the binding's `roleRef` is anything weaker than `cluster-admin` (or doesn't grant `secrets/{get,list,update,delete}` in flux-system), the controller cannot manage its own state.
 
-**Ref**: #338
+**Permanent fix (bp-flux 1.1.3)**: `platform/flux/chart/templates/catalyst-cluster-reconciler-rbac.yaml` ships a Catalyst-managed `catalyst-cluster-reconciler` ClusterRoleBinding that subjects helm-controller AND kustomize-controller in `.Values.catalyst.fluxNamespace` (default `flux-system`) to `cluster-admin`. This is independent of (and authoritative over) the upstream subchart's `cluster-reconciler` binding — if the upstream binding ever drifts again, the Catalyst overlay still holds the cluster correct.
+
+**Ref**: #338, PR fix/338-omantel
 
 ---
 
