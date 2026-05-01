@@ -8,6 +8,15 @@ platform/*/chart/Chart.lock
 products/*/chart/charts/
 products/*/chart/Chart.lock
 
+# Vendored upstream subcharts — exception to the above (issue #340).
+# bp-seaweedfs vendors seaweedfs/seaweedfs 4.22.0 with templates/shared/
+# security-configmap.yaml DELETED because it uses fromToml (Helm 3.13+)
+# which Flux helm-controller's bundled SDK doesn't have. The chart has
+# annotations.catalyst.openova.io/no-upstream=true to signal this to the
+# blueprint-release workflow's hollow-chart guard.
+!platform/seaweedfs/chart/charts/
+!platform/seaweedfs/chart/charts/**
+
 # Node + dev artifacts (untracked already, listed here for clarity).
 **/node_modules/
 **/dist/
