@@ -16,11 +16,16 @@ catalyst.openova.io/component: velero
 {{- end -}}
 
 {{/*
-Hetzner Object Storage credential secret name — the velero-namespace
-Secret that ships the operator-issued S3 keys to Velero's deployment in
-the AWS-CLI INI format that velero-plugin-for-aws expects at
+Object Storage credential secret name — the velero-namespace Secret
+that ships the operator-issued S3 keys to Velero's deployment in the
+AWS-CLI INI format that velero-plugin-for-aws expects at
 /credentials/cloud (AWS_SHARED_CREDENTIALS_FILE).
+
+Renamed from `hetznerCredentialsSecretName` in #425 — the chart is
+vendor-agnostic now; the override key `objectStorage
+.credentialsSecretName` carries any per-Sovereign customisation
+without leaking the cloud-provider name into the helper API.
 */}}
-{{- define "bp-velero.hetznerCredentialsSecretName" -}}
-{{- default "velero-hetzner-credentials" .Values.veleroOverlay.hetzner.credentialsSecretName -}}
+{{- define "bp-velero.objectStorageCredentialsSecretName" -}}
+{{- default "velero-objectstorage-credentials" .Values.objectStorage.credentialsSecretName -}}
 {{- end -}}

@@ -1,12 +1,13 @@
 // credentials_test.go — handler-level tests for the credential
-// validators (issue #371).
+// validators (issue #371, vendor-agnostic since #425).
 //
 // We exercise the input-validation branches end-to-end through the
 // HTTP handler — short-input rejection, region whitelist, body decode
-// errors. The Hetzner-Object-Storage live ListBuckets is an integration
+// errors. The Object Storage live ListBuckets is an integration
 // boundary covered by a real `tofu apply` against the staging tenant;
 // here we only ensure the validator gates the network call on the
-// inputs the wizard provides.
+// inputs the wizard provides AND that the Provider registry resolves
+// known/unknown vendors correctly.
 package handler
 
 import (
@@ -71,8 +72,33 @@ func TestValidateObjectStorageCredentials_InvalidRegion(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status=%d want 400, body=%s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "fsn1") {
-		t.Errorf("body must mention fsn1/nbg1/hel1 enumeration, got %s", w.Body.String())
+	// Default provider is "hetzner" (back-compat); us-east-1 is not in
+	// Hetzner's Object Storage region set — Provider.Endpoint returns
+	// "" and the handler surfaces "region not supported by the chosen
+	// object storage provider".
+	if !strings.Contains(w.Body.String(), "region not supported") {
+		t.Errorf("body must mention 'region not supported', got %s", w.Body.String())
+	}
+}
+
+func TestValidateObjectStorageCredentials_UnsupportedProvider(t *testing.T) {
+	h := newCredentialsHandler()
+	body, _ := json.Marshal(map[string]string{
+		"provider":  "made-up-cloud",
+		"region":    "fsn1",
+		"accessKey": "TESTACCESSKEY1234567",
+		"secretKey": "TESTSECRETKEY1234567890123456789012345678",
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost,
+		"/api/v1/credentials/object-storage/validate",
+		bytes.NewReader(body))
+	h.ValidateObjectStorageCredentials(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status=%d want 400, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported object storage provider") {
+		t.Errorf("body must mention unsupported provider, got %s", w.Body.String())
 	}
 }
 
@@ -95,6 +121,8 @@ func TestValidateObjectStorageCredentials_ShortAccessKey(t *testing.T) {
 		t.Errorf("body must mention access-key, got %s", w.Body.String())
 	}
 }
+
+
 
 func TestValidateObjectStorageCredentials_ShortSecretKey(t *testing.T) {
 	h := newCredentialsHandler()

@@ -156,16 +156,29 @@ locals {
     ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
 
     # Object Storage credentials — interpolated into the Sovereign's
-    # `hetzner-object-storage` K8s Secret at cloud-init time so Harbor
-    # (#383) and Velero (#384) HelmReleases find the credentials in the
-    # cluster from Phase 1 onwards. Same pattern as ghcr_pull_token: never
-    # in git, only in the encrypted per-deployment OpenTofu workdir + the
-    # Sovereign's user_data, wiped on `tofu destroy`.
+    # `object-storage` K8s Secret at cloud-init time so Harbor (#383)
+    # and Velero (#384) HelmReleases find the credentials in the cluster
+    # from Phase 1 onwards. Same pattern as ghcr_pull_token: never in
+    # git, only in the encrypted per-deployment OpenTofu workdir + the
+    # Sovereign's user_data, wiped on `tofu destroy`. Per #425 the K8s
+    # Secret name is vendor-agnostic (`flux-system/object-storage`) —
+    # no `hetzner-` prefix — so a future AWS / Azure / GCP / OCI
+    # Sovereign reuses every existing chart without rename.
     object_storage_endpoint    = local.object_storage_endpoint
     object_storage_region      = var.object_storage_region
     object_storage_bucket_name = var.object_storage_bucket_name
     object_storage_access_key  = var.object_storage_access_key
     object_storage_secret_key  = var.object_storage_secret_key
+
+    # OpenTofu→Crossplane handover (issue #425). The Hetzner Cloud API
+    # token is interpolated into both the `flux-system/cloud-credentials`
+    # K8s Secret AND the cloud-init's runcmd that applies the matching
+    # Crossplane Provider+ProviderConfig. Once Crossplane core comes up
+    # (via bp-crossplane) the Provider transitions Healthy=True and the
+    # Sovereign is ready to accept Day-2 XRC writes — at which point
+    # the catalyst-api's bespoke Hetzner-API hatching is retired in
+    # favour of XRC writes per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3.
+    hcloud_token               = var.hcloud_token
 
     # Cloud-init kubeconfig postback (issue #183, Option D). When
     # all three are non-empty, the template renders a runcmd that
@@ -321,7 +334,7 @@ resource "hcloud_load_balancer_service" "https" {
 #
 # This is the Sovereign's S3 bucket for Velero (cluster-state backup) and
 # Harbor (container-image registry storage). Both Blueprints consume the
-# `hetzner-object-storage` K8s Secret cloud-init writes into the Sovereign;
+# `flux-system/object-storage` K8s Secret cloud-init writes into the Sovereign
 # the bucket itself MUST exist before those Blueprints reconcile their first
 # HelmRelease, otherwise their startup probes fail with NoSuchBucket and
 # Phase 1 stalls.

@@ -407,7 +407,8 @@ variable "enable_fail2ban" {
 #      both halves; the catalyst-api validates them via S3 ListBuckets;
 #      this module receives them as variables and uses them for both
 #      bucket creation AND interpolation into the Sovereign cloud-init's
-#      `hetzner-object-storage` Kubernetes Secret.
+#      `flux-system/object-storage` Kubernetes Secret (vendor-agnostic
+#      name since #425).
 #   3. Object Storage is available only in fsn1/nbg1/hel1 today. For
 #      ash/hil compute Sovereigns the operator picks a European Object
 #      Storage region — Velero/Harbor are latency-tolerant and the

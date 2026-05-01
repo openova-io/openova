@@ -14,16 +14,17 @@ description: |
   SeaweedFS. SeaweedFS is reserved as a POSIX→S3 buffer for legacy
   POSIX-only writers and is not in the minimal Sovereign set.
 
-  Per-Sovereign overlays wire the BackupStorageLocation via Flux
-  `valuesFrom` against the canonical flux-system/hetzner-object-storage
-  Secret shipped by issue #371 (cloud-init writes that Secret with the
-  operator-supplied access/secret keys + the per-Sovereign bucket name
-  provisioned by OpenTofu's aminueza/minio resource). The umbrella's
-  templates/hetzner-credentials-secret.yaml synthesises a velero-
+  Per #425 the chart is vendor-AGNOSTIC: per-Sovereign overlays wire
+  the BackupStorageLocation via Flux `valuesFrom` against the canonical
+  `flux-system/object-storage` Secret — the Sealed Secret name no
+  longer leaks the cloud-provider name. The umbrella's
+  templates/objectstorage-credentials.yaml synthesises a velero-
   namespace Secret with the AWS-CLI INI `cloud` key the upstream chart
-  expects via existingSecret.
+  expects via existingSecret. Adding a future AWS / Azure / GCP / OCI
+  Sovereign requires only a sibling `infra/<provider>/` Tofu module —
+  this chart Just Works.
 type: application
-version: 1.1.0
+version: 1.2.0
 appVersion: "1.18.0"
 keywords: [catalyst, blueprint, velero, backup, disaster-recovery]
 maintainers:

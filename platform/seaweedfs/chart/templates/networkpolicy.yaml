@@ -70,9 +70,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
     # Cold-tier offload to cloud archive (Cloudflare R2 / AWS S3 Glacier
-    # / Hetzner Object Storage). Operator restricts to specific cidrs in
+    # / Hetzner S3). Operator restricts to specific cidrs in
     # per-Sovereign overlay if the cold backend is a private endpoint.
-    {{- if or .Values.seaweedfsOverlay.coldTier.cloudflareR2.enabled .Values.seaweedfsOverlay.coldTier.awsS3Glacier.enabled .Values.seaweedfsOverlay.coldTier.hetznerObjectStorage.enabled }}
+    {{- if or .Values.seaweedfsOverlay.coldTier.cloudflareR2.enabled .Values.seaweedfsOverlay.coldTier.awsS3Glacier.enabled .Values.seaweedfsOverlay.coldTier.hetznerS3.enabled }}
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

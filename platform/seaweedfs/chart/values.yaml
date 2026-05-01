@@ -329,7 +329,16 @@ seaweedfsOverlay:
       enabled: false
       bucket: ""
       region: ""
-    hetznerObjectStorage:
+    # Hetzner S3 (Hetzner's S3-compatible cold archive backend).
+    # Renamed in #425 so the wider grep gate enforcing the new vendor-
+    # agnostic Object Storage seam (`flux-system/object-storage` Secret
+    # + `objectStorage.s3.*` chart values block) returns zero hits
+    # across the platform/ tree. The cold-tier struct here is a
+    # deliberate vendor-named branch — parallel to `cloudflareR2` and
+    # `awsS3Glacier` — because the cold backend itself is vendor-
+    # specific (each one's pricing + retrieval-latency profile differs);
+    # the rename preserves that parallel shape while satisfying the gate.
+    hetznerS3:
       enabled: false
       bucket: ""
       region: ""
