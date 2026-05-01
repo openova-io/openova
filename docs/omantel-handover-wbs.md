@@ -67,38 +67,115 @@ For minimal omantel, neither Guacamole nor any POSIX-only writer is selected. **
 Phases run sequentially; tickets within a phase parallelize except where a same-phase dependency is noted.
 
 ```mermaid
-flowchart TB
-    P0a[Phase 0a · #370<br/>Hetzner mock-data purge] --> P8
-    P0b[Phase 0b · #371<br/>Hetzner Object Storage<br/>credential pattern]
-    P1a[Phase 1a · #387<br/>Gateway API migration<br/>audit across blueprints]
-    P1b[Phase 1 · #338<br/>bp-flux helm-controller<br/>SA cluster-admin] --> Phase2
-    P2a[Phase 2a · #373<br/>cert-manager-powerdns<br/>-webhook] --> P2b
-    P2b[Phase 2b · #374<br/>NS delegation<br/>.omani.works → omantel] --> P6
-    P1a --> Phase2[Phase 2 — Infrastructure]
-    Phase2 --> P3[Phase 3 — Data + State]
-    P3 --> P3a[#375 nats-jetstream]
-    P3 --> P3b[#376 gitea]
-    P3 --> P3c[#377 keycloak]
-    P3 --> P316[#316 OpenBao auto-unseal]
-    P3 --> P331[#331 ESO ClusterSecretStore split]
-    Phase2 --> P4[Phase 4 — Registry + IaC + Backup]
-    P4 --> P4a[#378 bp-crossplane]
-    P4 --> P327[#327 crossplane-claims]
-    P4 --> P4b[#383 bp-harbor S3 rework]
-    P4 --> P4c[#384 bp-velero S3]
-    P0b --> P4b
-    P0b --> P4c
-    P3 --> P5[Phase 5 — Security + Observability]
-    P5 --> P5a[#379 kyverno]
-    P5 --> P5b[#380 trivy]
-    P5 --> P5c[#381 grafana stack]
-    P5 --> P5d[#382 spire]
-    P4 --> P6[Phase 6 · #385<br/>bp-catalyst-platform<br/>single-blueprint verify]
-    P5 --> P6
-    P6 --> P7a[Phase 7a · #317<br/>handover finalisation]
-    P7a --> P7b[Phase 7b · #319<br/>self-decommission + redirect]
-    P7b --> P8[Phase 8<br/>End-to-end omantel run<br/>+ DoD verification]
+flowchart LR
+    classDef phase fill:#1f2937,stroke:#94a3b8,color:#f1f5f9,stroke-width:1px
+    classDef done fill:#064e3b,stroke:#10b981,color:#d1fae5
+    classDef gate fill:#7c2d12,stroke:#f97316,color:#ffedd5,stroke-width:2px
+
+    subgraph PH0[Phase 0 · Pre-flight]
+        direction TB
+        T370["#370<br/>Hetzner purge"]
+        T371["#371<br/>Hetzner OS<br/>credentials"]
+    end
+
+    subgraph PH1[Phase 1 · Foundational]
+        direction TB
+        T338["#338<br/>bp-flux RBAC"]
+        T387["#387<br/>Gateway API<br/>audit"]
+    end
+
+    subgraph PH2[Phase 2 · Infrastructure]
+        direction TB
+        T373["#373<br/>cert-mgr<br/>powerdns-webhook"] --> T374["#374<br/>NS delegation"]
+    end
+
+    subgraph PH3[Phase 3 · Data + State]
+        direction TB
+        T375["#375<br/>NATS JetStream"]
+        T376["#376<br/>Gitea"]
+        T377["#377<br/>Keycloak"]
+        T316["#316<br/>OpenBao<br/>auto-unseal"] --> T331["#331<br/>ESO<br/>ClusterSecretStore"]
+    end
+
+    subgraph PH4[Phase 4 · Registry + IaC + Backup]
+        direction TB
+        T378["#378<br/>Crossplane"] --> T327["#327<br/>Crossplane claims"]
+        T383["#383<br/>Harbor → S3"]
+        T384["#384<br/>Velero → S3"]
+    end
+
+    subgraph PH5[Phase 5 · Security + Observability]
+        direction TB
+        T379["#379<br/>Kyverno"]
+        T380["#380<br/>Trivy"]
+        T381["#381<br/>Grafana stack"]
+        T382["#382<br/>SPIRE"]
+    end
+
+    subgraph PH6[Phase 6 · Control plane]
+        direction TB
+        T385["#385<br/>bp-catalyst-platform<br/>single-blueprint verify"]
+    end
+
+    subgraph PH7[Phase 7 · Handover]
+        direction TB
+        T317["#317<br/>handover<br/>finalisation"] --> T319["#319<br/>self-decom<br/>+ redirect"]
+    end
+
+    P8([Phase 8<br/>omantel E2E run<br/>+ DoD verification]):::gate
+
+    %% Phase 1 → Phase 2
+    T338 --> T373
+    T387 --> T373
+
+    %% Phase 1 → Phase 3 (every blueprint install needs the Flux RBAC fix)
+    T338 --> T375
+    T338 --> T376
+    T338 --> T377
+    T338 --> T316
+
+    %% Phase 1 + 2 → Phase 4
+    T338 --> T378
+    T338 --> T383
+    T338 --> T384
+    T371 --> T383
+    T371 --> T384
+
+    %% Phase 1 → Phase 5
+    T338 --> T379
+    T338 --> T380
+    T338 --> T381
+    T338 --> T382
+
+    %% Phase 3 + 4 + 5 → Phase 6
+    T327 --> T385
+    T376 --> T385
+    T377 --> T385
+    T383 --> T385
+    T381 --> T385
+    T373 --> T385
+    T387 --> T385
+
+    %% Phase 6 → Phase 7
+    T385 --> T317
+
+    %% Phase 7 + DNS delegation → Phase 8
+    T319 --> P8
+    T374 --> T319
+    T370 --> P8
+
+    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
 ```
+
+**Reading the DAG (left to right):**
+
+- **Phase 0** runs first — both tickets are independent.
+- **Phase 1** (#338 bp-flux RBAC + #387 Gateway API audit) is the foundational fix; **every Phase 3/4/5 blueprint install depends on #338**.
+- **Phase 2** (#373 cert-mgr-powerdns-webhook → #374 NS delegation) sets up the post-handover DNS + TLS chain.
+- **Phase 3/4/5** can run in parallel once Phase 1 is green; #371 (Hetzner OS credentials) gates Harbor + Velero specifically.
+- **Phase 6** (#385 bp-catalyst-platform) is the convergence point — pulls from Phase 3 (Gitea + Keycloak), Phase 4 (Crossplane claims + Harbor), Phase 5 (Grafana), and Phase 2 (TLS via webhook).
+- **Phase 7** is sequential: #317 handover finalisation → #319 self-decom + redirect.
+- **Phase 8** is the execution gate — needs #319 + #374 (DNS delegation must resolve before redirect makes sense) + #370 (clean Hetzner) all done.
 
 ## 5. Phase-by-phase detail
 
