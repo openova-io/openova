@@ -72,35 +72,17 @@ if grep -q "monitoring.coreos.com" "$TMP/off.yaml"; then
 fi
 echo "  PASS"
 
-# ── Case 4: default ClusterSecretStore present, opt-out works ────────────
-echo "[observability-toggle] Case 4: default render includes vault-region1 ClusterSecretStore (post-install hook)"
-# The Catalyst-curated wrapper must ship a default ClusterSecretStore CR
-# wired to bp-openbao — distinct from the upstream chart's ClusterSecretStore
-# CRD definition. Match the CR's name field at the metadata indent level.
-if ! grep -qE "^kind: ClusterSecretStore$" "$TMP/default.yaml"; then
-  echo "FAIL: default render of bp-external-secrets is missing the vault-region1 ClusterSecretStore CR." >&2
-  echo "      The Catalyst-curated wrapper must ship a default ClusterSecretStore wired to bp-openbao." >&2
-  exit 1
-fi
-if ! grep -q "name: \"vault-region1\"" "$TMP/default.yaml"; then
-  echo "FAIL: default render of bp-external-secrets is missing the vault-region1 name." >&2
-  exit 1
-fi
-echo "  PASS"
-
-echo "[observability-toggle] Case 5: clusterSecretStore.enabled=false omits the default ClusterSecretStore"
-if ! helm template smoke-eso . \
-    --set "clusterSecretStore.enabled=false" \
-    > "$TMP/css-off.yaml" 2> "$TMP/css-off.err"; then
-  echo "FAIL: clusterSecretStore.enabled=false render failed:" >&2
-  cat "$TMP/css-off.err" >&2
-  exit 1
-fi
-if grep -qE "^kind: ClusterSecretStore$" "$TMP/css-off.yaml"; then
-  # Note: an `^kind: ClusterSecretStore$` line at column 0 is a CR; the
-  # upstream chart's CRD definition mentions ClusterSecretStore inside
-  # the `kind:` field of the CRD spec but at non-zero indentation.
-  echo "FAIL: clusterSecretStore.enabled=false still renders a ClusterSecretStore CR — the toggle is broken." >&2
+# ── Case 4: ClusterSecretStore CR is NOT in the controller chart (issue #331) ──
+echo "[observability-toggle] Case 4: controller chart renders ZERO ClusterSecretStore CRs (split into bp-external-secrets-stores per #331)"
+# As of bp-external-secrets@1.1.0 the default ClusterSecretStore CR moved
+# into the sister chart bp-external-secrets-stores (see Chart.yaml). The
+# controller chart must NOT render any ClusterSecretStore CR — only the
+# upstream subchart's CRD definition (which appears as `kind: ClusterSecretStore`
+# inside the CRD's `spec.names.kind:` field at non-zero indent — that is
+# a CRD definition, not a CR).
+if grep -qE "^kind: ClusterSecretStore$" "$TMP/default.yaml"; then
+  echo "FAIL: controller chart still renders a ClusterSecretStore CR (top-level kind:)." >&2
+  echo "      The CR must live in platform/external-secrets-stores/chart/ per #331." >&2
   exit 1
 fi
 echo "  PASS"
