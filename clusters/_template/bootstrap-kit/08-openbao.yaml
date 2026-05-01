@@ -38,16 +38,18 @@ spec:
   chart:
     spec:
       chart: bp-openbao
-      version: 1.1.1
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
         namespace: flux-system
-  # Event-driven install: OpenBao 3-node Raft cluster requires manual
-  # unseal via `bao operator init` — pods stay sealed (Ready=False) until
-  # an operator runs the unseal flow. Blocking Helm install on Ready=True
-  # is structurally wrong for a sealed-by-default secret backend.
-  # Replaces PR #221 spec.timeout: 15m.
+  # Event-driven install: OpenBao 3-node Raft cluster goes through a
+  # post-install init Job (issue #316) — `bao operator init` runs at
+  # Helm hook weight 5 and the Kubernetes-auth bootstrap Job at weight
+  # 10. The StatefulSet pods stay sealed for ~30s while the init Job
+  # runs, so we keep `disableWait: true` (Helm Ready ≠ OpenBao
+  # initialised — the init hook drives that out-of-band). Replaces
+  # PR #221 spec.timeout: 15m.
   install:
     disableWait: true
     remediation:
@@ -56,10 +58,19 @@ spec:
     disableWait: true
     remediation:
       retries: 3
-  # Per-Sovereign overrides — issue #387:
-  # Wire the per-Sovereign hostname into the HTTPRoute template
-  # (platform/openbao/chart/templates/httproute.yaml). The HTTPRoute
-  # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
+  # Per-Sovereign overrides:
+  # - gateway.host (issue #387): wires the per-Sovereign hostname into
+  #   the HTTPRoute template (platform/openbao/chart/templates/httproute.yaml).
+  #   The HTTPRoute attaches to cilium-gateway/kube-system installed by
+  #   01-cilium.yaml.
+  # - autoUnseal.enabled (issue #316): activates the post-install init
+  #   Job + Kubernetes-auth bootstrap Job in the chart. Cloud-init
+  #   (infra/hetzner/cloudinit-control-plane.tftpl) writes the seed
+  #   Secret `openbao-recovery-seed` in the openbao namespace BEFORE
+  #   Flux applies this HelmRelease, so the init Job has the seed it
+  #   needs on first reconcile.
   values:
     gateway:
       host: bao.${SOVEREIGN_FQDN}
+    autoUnseal:
+      enabled: true

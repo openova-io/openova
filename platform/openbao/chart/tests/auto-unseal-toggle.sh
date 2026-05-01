@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# bp-openbao auto-unseal-toggle integration test (issue #316).
+#
+# Verifies the post-install init Job + Kubernetes-auth bootstrap Job
+# render path:
+#   Case 1 — default render (autoUnseal.enabled=false): no Job, no
+#            auto-unseal RBAC, no token-reviewer ClusterRoleBinding
+#            emitted. Per #402 lesson: skip-render, never `{{ fail }}`.
+#   Case 2 — autoUnseal.enabled=true: both Jobs rendered with the
+#            correct Helm hook annotations + weights (5 then 10).
+#   Case 3 — autoUnseal.enabled=true + kubernetesAuth.enabled=false:
+#            init Job rendered, auth-bootstrap Job NOT rendered, no
+#            token-reviewer ClusterRoleBinding.
+#   Case 4 — Idempotency markers: rendered Jobs carry hook-delete-policy
+#            `before-hook-creation,hook-succeeded` so a second helm
+#            install/upgrade doesn't accumulate stale Job objects.
+#
+# Usage: bash tests/auto-unseal-toggle.sh [CHART_DIR]
+
+set -euo pipefail
+
+CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+cd "$CHART_DIR"
+if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
+  helm dependency build >/dev/null
+fi
+
+echo "[auto-unseal-toggle] Case 1: default render produces no auto-unseal artefacts"
+helm template smoke-bao . > "$TMP/default.yaml"
+if grep -qE "name: openbao-init$|name: openbao-auth-bootstrap$" "$TMP/default.yaml"; then
+  echo "FAIL: default render contains an auto-unseal Job — skip-render is broken." >&2
+  grep -nE "name: openbao-init$|name: openbao-auth-bootstrap$" "$TMP/default.yaml" >&2
+  exit 1
+fi
+if grep -qE "name: openbao-auto-unseal$" "$TMP/default.yaml"; then
+  echo "FAIL: default render contains the auto-unseal ServiceAccount/Role — skip-render is broken." >&2
+  exit 1
+fi
+if grep -qE "name: \".*-openbao-auth-delegator\"" "$TMP/default.yaml"; then
+  echo "FAIL: default render contains the token-reviewer ClusterRoleBinding — skip-render is broken." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[auto-unseal-toggle] Case 2: autoUnseal.enabled=true emits both Jobs + RBAC"
+helm template smoke-bao . \
+  --set autoUnseal.enabled=true \
+  --set gateway.host=bao.test.example.com \
+  > "$TMP/autounseal.yaml" 2> "$TMP/autounseal.err" || {
+    echo "FAIL: autoUnseal.enabled=true render failed:" >&2
+    cat "$TMP/autounseal.err" >&2
+    exit 1
+  }
+INIT_COUNT=$(grep -cE "^  name: openbao-init$" "$TMP/autounseal.yaml" || true)
+AUTH_COUNT=$(grep -cE "^  name: openbao-auth-bootstrap$" "$TMP/autounseal.yaml" || true)
+if [ "$INIT_COUNT" -lt 1 ]; then
+  echo "FAIL: openbao-init Job not rendered when autoUnseal.enabled=true." >&2
+  exit 1
+fi
+if [ "$AUTH_COUNT" -lt 1 ]; then
+  echo "FAIL: openbao-auth-bootstrap Job not rendered when kubernetesAuth.enabled=true." >&2
+  exit 1
+fi
+# Verify Helm hook weights: init weight=5, auth-bootstrap weight=10.
+if ! grep -qE '"helm.sh/hook-weight": "5"' "$TMP/autounseal.yaml"; then
+  echo "FAIL: init Job missing hook-weight=5 annotation." >&2
+  exit 1
+fi
+if ! grep -qE '"helm.sh/hook-weight": "10"' "$TMP/autounseal.yaml"; then
+  echo "FAIL: auth-bootstrap Job missing hook-weight=10 annotation." >&2
+  exit 1
+fi
+# Verify the token-reviewer ClusterRoleBinding is emitted (kubernetesAuth.enabled defaults true).
+if ! grep -qE "smoke-bao-openbao-auth-delegator" "$TMP/autounseal.yaml"; then
+  echo "FAIL: token-reviewer ClusterRoleBinding not rendered." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[auto-unseal-toggle] Case 3: autoUnseal.enabled=true + kubernetesAuth.enabled=false → init only"
+helm template smoke-bao . \
+  --set autoUnseal.enabled=true \
+  --set autoUnseal.kubernetesAuth.enabled=false \
+  --set gateway.host=bao.test.example.com \
+  > "$TMP/initonly.yaml" 2> "$TMP/initonly.err" || {
+    echo "FAIL: autoUnseal+kubernetesAuth=false render failed:" >&2
+    cat "$TMP/initonly.err" >&2
+    exit 1
+  }
+if ! grep -qE "^  name: openbao-init$" "$TMP/initonly.yaml"; then
+  echo "FAIL: openbao-init Job not rendered when autoUnseal.enabled=true." >&2
+  exit 1
+fi
+if grep -qE "^  name: openbao-auth-bootstrap$" "$TMP/initonly.yaml"; then
+  echo "FAIL: openbao-auth-bootstrap Job rendered despite kubernetesAuth.enabled=false." >&2
+  exit 1
+fi
+if grep -qE "smoke-bao-openbao-auth-delegator" "$TMP/initonly.yaml"; then
+  echo "FAIL: token-reviewer ClusterRoleBinding rendered despite kubernetesAuth.enabled=false." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[auto-unseal-toggle] Case 4: idempotency — hook-delete-policy includes before-hook-creation"
+# The init Job + auth-bootstrap Job + auto-unseal RBAC must declare
+# `before-hook-creation,hook-succeeded` so Helm cleans up stale objects
+# from a prior install and the seed Secret is removed on success.
+JOB_BEFORE_HOOK=$(grep -cE '"helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded' "$TMP/autounseal.yaml" || true)
+if [ "$JOB_BEFORE_HOOK" -lt 5 ]; then
+  echo "FAIL: expected ≥5 before-hook-creation,hook-succeeded annotations (SA+Role+RoleBinding+2 Jobs); found $JOB_BEFORE_HOOK." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[auto-unseal-toggle] All bp-openbao auto-unseal-toggle gates green."
