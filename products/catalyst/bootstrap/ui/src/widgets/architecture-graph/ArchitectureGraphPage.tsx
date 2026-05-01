@@ -55,6 +55,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from './types'
+import { NODE_ICON } from './icons'
 import { markerId } from './markers'
 
 /* ── Constants ───────────────────────────────────────────────────── */
@@ -1186,36 +1187,48 @@ function DetailPanel({
                   <span className="ml-auto text-[var(--color-text-dim)]">{entries.length}</span>
                 </h4>
                 <ul>
-                  {entries.map((entry) => (
-                    <li key={`${entry.relation}:${entry.node.id}`}>
-                      <button
-                        type="button"
-                        data-testid={`arch-detail-panel-neighbor-${entry.relation}-${entry.node.id}`}
-                        data-direction={entry.direction}
-                        onClick={() => onPickNeighbor(entry.node.id)}
-                        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-[var(--color-bg)]"
-                      >
+                  {entries.map((entry) => {
+                    const Icon = NODE_ICON[entry.node.type]
+                    return (
+                      <li key={`${entry.relation}:${entry.node.id}`}>
+                        <button
+                          type="button"
+                          data-testid={`arch-detail-panel-neighbor-${entry.relation}-${entry.node.id}`}
+                          data-direction={entry.direction}
+                          onClick={() => onPickNeighbor(entry.node.id)}
+                          className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-[var(--color-bg)]"
+                        >
+                          {Icon ? (
+                            <Icon
+                              size={14}
+                              stroke={2}
+                              color={NODE_FILL[entry.node.type]}
+                              aria-hidden
+                            />
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className="h-2 w-2 rounded-full"
+                              style={{ background: NODE_FILL[entry.node.type] }}
+                            />
+                          )}
+                          <span className="truncate text-[var(--color-text)]">
+                            {entry.node.label}
+                          </span>
+                          <span className="ml-auto text-[var(--color-text-dim)]">
+                            {entry.node.type}
+                          </span>
+                        </button>
+                        {/* Legacy testid kept for backwards-compat with existing
+                            #309 tests that key off neighbor-{nodeId}. */}
                         <span
+                          data-testid={`infrastructure-detail-panel-neighbor-${entry.node.id}`}
                           aria-hidden="true"
-                          className="h-2 w-2 rounded-full"
-                          style={{ background: NODE_FILL[entry.node.type] }}
+                          style={{ display: 'none' }}
                         />
-                        <span className="truncate text-[var(--color-text)]">
-                          {entry.node.label}
-                        </span>
-                        <span className="ml-auto text-[var(--color-text-dim)]">
-                          {entry.node.type}
-                        </span>
-                      </button>
-                      {/* Legacy testid kept for backwards-compat with existing
-                          #309 tests that key off neighbor-{nodeId}. */}
-                      <span
-                        data-testid={`infrastructure-detail-panel-neighbor-${entry.node.id}`}
-                        aria-hidden="true"
-                        style={{ display: 'none' }}
-                      />
-                    </li>
-                  ))}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ))

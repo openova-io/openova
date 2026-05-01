@@ -86,6 +86,7 @@ import {
   type LiveEdge,
   type LiveNode,
 } from './types'
+import { NODE_ICON } from './icons'
 import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
@@ -129,6 +130,13 @@ export interface GraphCanvasProps {
 }
 
 /* ── Adaptive physics tiers ──────────────────────────────────────── */
+
+/**
+ * Floor radius for the node disc when an icon is rendered (#348 item
+ * 10 — icons need a minimum disc to read against the canvas). The
+ * actual radius is `max(NODE_R, radiusForDegree(node.degree))`.
+ */
+const NODE_R = 14
 
 /**
  * Bound padding inside the canvas — the bounded-physics force never
@@ -885,12 +893,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         {/* Nodes. */}
         <g data-testid={`${testIdPrefix}-nodes`}>
           {liveNodes.map((n) => {
-            const r = radiusForDegree(n.degree)
-            const fill = NODE_FILL[n.type] ?? '#888'
+            const r = Math.max(NODE_R, radiusForDegree(n.degree))
+            const ringColor = NODE_FILL[n.type] ?? '#888'
+            const Icon = NODE_ICON[n.type]
+            // Icon glyph size — 14..18px scaled to node radius so larger
+            // (high-degree) nodes carry a slightly bigger icon.
+            const iconSize = Math.round(Math.min(18, Math.max(14, r * 1.0)))
 
-            // Stroke priority: highlighted > focus > pinned > default
-            let stroke = '#fff'
-            let strokeWidth = 1.6
+            // Stroke priority: highlighted > focus > pinned > default.
+            // Default uses the type-color ring (#348 item 10).
+            let stroke = ringColor
+            let strokeWidth = 2
             let dash: string | undefined
             if (highlightedIds?.has(n.id)) {
               stroke = '#fcc419'
@@ -926,13 +939,28 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                   }
                 }}
               >
+                {/* Background plate so the icon sits on a coloured disc
+                    that reads against the dark canvas. */}
                 <circle
                   r={r}
-                  fill={fill}
+                  fill="var(--color-bg)"
                   stroke={stroke}
                   strokeWidth={strokeWidth}
                   strokeDasharray={dash}
                 />
+                {/* Tabler icon centred. We let the React component
+                    render its own SVG and translate it so its centre
+                    sits at (0,0). */}
+                {Icon && (
+                  <g transform={`translate(${-iconSize / 2}, ${-iconSize / 2})`}>
+                    <Icon
+                      size={iconSize}
+                      stroke={2}
+                      color={ringColor}
+                      data-testid={`${testIdPrefix}-node-icon-${n.type}`}
+                    />
+                  </g>
+                )}
                 <text
                   y={r + 12}
                   textAnchor="middle"
