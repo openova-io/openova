@@ -272,7 +272,13 @@ done
 for name in "${EXPECTED_NAMES[@]}"; do
   if [[ -z "${ACTUAL_DEPS[${name}]+x}" ]]; then
     DEFERRED_COUNT=$((DEFERRED_COUNT + 1))
-    _warn "HR '${name}' (slot $(printf '%02d' "${EXPECTED_SLOT[${name}]}"), wave ${EXPECTED_WAVE[${name}]}) declared expected but not yet on disk — will be added by ${EXPECTED_WAVE[${name}]}"
+    _slot_raw="${EXPECTED_SLOT[${name}]}"
+    if [[ "${_slot_raw}" =~ ^[0-9]+$ ]]; then
+      _slot_fmt="$(printf '%02d' "${_slot_raw}")"
+    else
+      _slot_fmt="${_slot_raw}"
+    fi
+    _warn "HR '${name}' (slot ${_slot_fmt}, wave ${EXPECTED_WAVE[${name}]}) declared expected but not yet on disk — will be added by ${EXPECTED_WAVE[${name}]}"
   fi
 done
 
@@ -387,7 +393,16 @@ for wave in present W2.K1 W2.K2 W2.K3 W2.K4; do
     else
       marker="[.]"
     fi
-    slot="$(printf '%02d' "${EXPECTED_SLOT[${name}]}")"
+    raw_slot="${EXPECTED_SLOT[${name}]}"
+    # Slots are mostly numeric (01..35, 49) but may carry an alphabetic
+    # sub-slot suffix (e.g. 15a) when a chart is wedged between two
+    # already-numbered slots without renumbering downstream consumers
+    # — see PR #334 (issue #331) for slot 15a-external-secrets-stores.
+    if [[ "${raw_slot}" =~ ^[0-9]+$ ]]; then
+      slot="$(printf '%02d' "${raw_slot}")"
+    else
+      slot="${raw_slot}"
+    fi
     deps="${EXPECTED_DEPS[${name}]}"
     if [[ -z "${deps}" ]]; then
       printf '  %s slot %s  %-26s (root, no deps)\n' "${marker}" "${slot}" "${name}"

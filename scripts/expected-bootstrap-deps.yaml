@@ -88,6 +88,15 @@ slots:
     name: bp-external-secrets
     depends_on: [bp-openbao, bp-cert-manager]
     wave: W2.K1
+  - slot: 15a
+    name: bp-external-secrets-stores
+    # Default ClusterSecretStore CR(s). Split from bp-external-secrets@1.0.0
+    # at PR #334 (issue #331) to resolve CRD-ordering deadlock —
+    # ClusterSecretStore CR cannot live in the same Helm release as the ESO
+    # subchart that registers its CRD. Mirrors bp-crossplane ↔
+    # bp-crossplane-claims pattern.
+    depends_on: [bp-external-secrets, bp-openbao]
+    wave: W2.K1
   - slot: 16
     name: bp-cnpg
     depends_on: [bp-flux]
