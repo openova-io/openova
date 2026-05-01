@@ -59,3 +59,12 @@ export type { EditWorkerNodeModalProps } from './EditWorkerNodeModal'
 
 export { SimpleDeleteConfirm } from './SimpleDeleteConfirm'
 export type { SimpleDeleteConfirmProps } from './SimpleDeleteConfirm'
+
+export { EditLBModal } from './EditLBModal'
+export type { EditLBModalProps } from './EditLBModal'
+
+export { AddNetworkModal } from './AddNetworkModal'
+export type { AddNetworkModalProps } from './AddNetworkModal'
+
+export { EditNetworkModal } from './EditNetworkModal'
+export type { EditNetworkModalProps } from './EditNetworkModal'
