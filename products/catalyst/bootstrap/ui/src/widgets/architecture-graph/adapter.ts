@@ -3,17 +3,30 @@
  * (HierarchicalInfrastructure) into the neutral GraphNode/GraphEdge
  * shape consumed by GraphCanvas.
  *
+ * Per founder spec (#348 item 2): the adapter emits the FULL relation
+ * cache — every node type and every edge — regardless of which chips
+ * are active in the UI. Chip add/remove is a pure visibility filter
+ * applied downstream in ArchitectureGraphPage. This means a user can
+ * remove every chip except NodePool and PVC and still see the
+ * "runs-on" edges between NodePools and the (now-hidden) Cluster
+ * resolved into direct NodePool→PVC relationships? No — the contract
+ * is: edges whose endpoints are both visible are drawn. No synthetic
+ * transitive edges; we simply hold the full graph.
+ *
  * Per founder spec: containment is just one of several edge types.
  * The adapter emits:
- *   • `contains`   — Cloud→Region, Region→Cluster, Cluster→vCluster
- *                    (the founder verbatim said "show it as another
- *                     type of relation" — so it stays, but rendered
- *                     identically to the others)
- *   • `runs-on`    — Cluster ←runs-on— NodePool / WorkerNode
- *   • `routes-to`  — LoadBalancer→Cluster
- *   • `attached-to`— Network→Region (dashed)
- *   • `peers-with` — Network↔Network (peering edges, dashed)
- *   • `depends-on` — reserved for future cross-tree dependencies
+ *   • `contains`     — Cloud→Region, Region→Cluster, Cluster→vCluster
+ *                      (rendered with ArchiMate composition marker)
+ *   • `runs-on`      — NodePool→Cluster, WorkerNode→Cluster (assignment)
+ *   • `routes-to`    — LoadBalancer→Cluster, Service→WorkerNode (triggering)
+ *   • `attached-to`  — Network→Region (dashed), Volume→WorkerNode,
+ *                      PVC→Volume
+ *   • `peers-with`   — Network↔Network (peering edges)
+ *   • `member-of`    — vCluster→Cluster (aggregation, hollow diamond)
+ *   • `depends-on`   — Service→PVC (used-by, dashed)
+ *   • `used-by`      — Bucket→vCluster (dashed)
+ *   • `flows-to`     — Ingress→Service (dashed, flow notation)
+ *   • `realizes`     — reserved for service implementations
  *
  * Composite ids: ${type}:${elementId} so a Region with id "eu-central"
  * becomes "Region:eu-central" — no collision with cluster ids that
@@ -95,6 +108,11 @@ export function hierarchyToGraph(tree: HierarchicalInfrastructure | null): Adapt
       }
     }
   }
+
+  // 4. Storage block — PVCs, Buckets, Volumes. Live in tree.storage,
+  //    not nested under regions, so we emit them after the topology
+  //    walk. Volumes have an `attachedTo` node id; we wire that up.
+  addStorage(tree, nodes, edges)
 
   return { nodes, edges }
 }
@@ -186,7 +204,10 @@ function addCluster(
     type: 'contains',
   })
 
-  // vClusters.
+  // vClusters — emitted as `member-of` (aggregation) so the marker is
+  // hollow-diamond rather than the contains-style filled diamond.
+  // Multiple vClusters can co-tenant a Cluster but the relation is
+  // logical grouping, not strict containment.
   for (const vc of cluster.vclusters) {
     const vcId = compositeId('vCluster', vc.id)
     nodes.push({
@@ -198,10 +219,10 @@ function addCluster(
       metadata: { isolationMode: vc.isolationMode },
     })
     edges.push({
-      id: `e:${clusterId}->${vcId}`,
-      source: clusterId,
-      target: vcId,
-      type: 'contains',
+      id: `e:${vcId}->${clusterId}`,
+      source: vcId,
+      target: clusterId,
+      type: 'member-of',
     })
   }
 
@@ -264,4 +285,115 @@ function addCluster(
       type: 'routes-to',
     })
   }
+}
+
+/**
+ * Emit storage block — PVCs, Buckets, Volumes — and their relations
+ * to the rest of the topology. PVCs are namespaced K8s claims; they
+ * attach-to a Volume (when bound) and depend-on a Cluster. Buckets are
+ * cloud-side object storage; they used-by the cluster they back up.
+ * Volumes are cloud block devices that attach-to a WorkerNode.
+ *
+ * When the storage block is empty (typical fixture today) we still
+ * walk the structure so `tree.storage` shape changes (e.g. adding a
+ * Service / Ingress projection) are picked up automatically.
+ */
+function addStorage(
+  tree: HierarchicalInfrastructure,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): void {
+  // Anchor: the first cluster in topology — used as the default
+  // depends-on target for PVCs / Buckets when no explicit anchor.
+  const firstCluster = tree.topology.regions[0]?.clusters[0]
+  const firstClusterId = firstCluster ? compositeId('Cluster', firstCluster.id) : null
+  const firstVClusterId = firstCluster?.vclusters[0]
+    ? compositeId('vCluster', firstCluster.vclusters[0].id)
+    : null
+
+  // Volumes — block storage attached to a WorkerNode.
+  for (const v of tree.storage.volumes ?? []) {
+    const vId = compositeId('Volume', v.id)
+    nodes.push({
+      id: vId,
+      type: 'Volume',
+      label: v.name,
+      sublabel: v.capacity,
+      status: v.status,
+      metadata: {
+        capacity: v.capacity,
+        region: v.region,
+        attachedTo: v.attachedTo || '',
+      },
+    })
+    if (v.attachedTo) {
+      const wId = compositeId('WorkerNode', v.attachedTo)
+      edges.push({
+        id: `e:${vId}->${wId}`,
+        source: vId,
+        target: wId,
+        type: 'attached-to',
+      })
+    }
+  }
+
+  // PVCs — K8s claims; depend-on the cluster they live in.
+  for (const p of tree.storage.pvcs ?? []) {
+    const pId = compositeId('PVC', p.id)
+    nodes.push({
+      id: pId,
+      type: 'PVC',
+      label: p.name,
+      sublabel: `${p.namespace} · ${p.capacity}`,
+      status: p.status,
+      metadata: {
+        namespace: p.namespace,
+        capacity: p.capacity,
+        used: p.used,
+        storageClass: p.storageClass,
+      },
+    })
+    if (firstClusterId) {
+      edges.push({
+        id: `e:${pId}->${firstClusterId}`,
+        source: pId,
+        target: firstClusterId,
+        type: 'depends-on',
+      })
+    }
+  }
+
+  // Buckets — object storage; used-by the (first) vCluster they back.
+  for (const b of tree.storage.buckets ?? []) {
+    const bId = compositeId('Bucket', b.id)
+    nodes.push({
+      id: bId,
+      type: 'Bucket',
+      label: b.name,
+      sublabel: b.capacity,
+      status: 'healthy',
+      metadata: {
+        endpoint: b.endpoint,
+        capacity: b.capacity,
+        used: b.used,
+        retentionDays: b.retentionDays,
+      },
+    })
+    const target = firstVClusterId ?? firstClusterId
+    if (target) {
+      edges.push({
+        id: `e:${bId}->${target}`,
+        source: bId,
+        target,
+        type: 'used-by',
+      })
+    }
+  }
+
+  // Service / Ingress are not yet in HierarchicalInfrastructure (pending
+  // #321 informer cache). Adapter holds zero of them today; once the
+  // backend surfaces them, this is the single point that needs to grow
+  // (no other place hardcodes "Service is missing"). Per #348 item 2,
+  // chips for Service / Ingress are addable from the chip strip and
+  // simply render an empty visibility set until data arrives.
 }

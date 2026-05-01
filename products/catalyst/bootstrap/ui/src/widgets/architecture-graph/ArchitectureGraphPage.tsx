@@ -41,6 +41,8 @@ import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
 import { hierarchyToGraph } from './adapter'
 import {
+  ALL_EDGE_TYPES,
+  ALL_NODE_TYPES,
   EDGE_DASHED,
   EDGE_STROKE,
   NODE_FILL,
@@ -53,23 +55,26 @@ import {
 
 /* ── Constants ───────────────────────────────────────────────────── */
 
-/** Types that participate in the per-type density slider. */
-const TUNABLE_TYPES: ArchNodeType[] = ['WorkerNode', 'NodePool', 'LoadBalancer', 'Network']
-
-/** Types always rendered fully (small enough to not need a cap). */
-// const ALWAYS_FULL: ArchNodeType[] = ['Cloud', 'Region', 'Cluster', 'vCluster']
+/**
+ * Types that participate in the per-type density slider when their
+ * total exceeds SMALL_TYPE_THRESHOLD. Anything not in this list (or
+ * with total < threshold) renders fully and the popover only carries
+ * the visibility toggle.
+ */
+const TUNABLE_TYPES: ArchNodeType[] = [
+  'WorkerNode',
+  'NodePool',
+  'LoadBalancer',
+  'Network',
+  'PVC',
+  'Bucket',
+  'Volume',
+  'Service',
+  'Ingress',
+]
 
 const DEBOUNCE_MS = 400
 const DEFAULT_GLOBAL_PCT = 50
-
-const ALL_EDGE_TYPES: ArchEdgeType[] = [
-  'contains',
-  'runs-on',
-  'routes-to',
-  'attached-to',
-  'depends-on',
-  'peers-with',
-]
 
 /* ── Public props ────────────────────────────────────────────────── */
 
@@ -125,24 +130,74 @@ export function ArchitectureGraphPage({
     return m
   }, [allNodes])
 
-  /* ── 3. Density state ──────────────────────────────────────── */
+  /* ── 3. Active chip set + density state ──────────────────────
+   * The data layer (adapter) holds every node type and every relation
+   * regardless of which chips are active (#348 item 2). Chip add /
+   * remove is a pure visibility filter applied via `hiddenTypes`
+   * below — derived from the inverse of `activeTypes`. */
+  const [activeTypes, setActiveTypes] = useState<Set<ArchNodeType>>(
+    () => new Set<ArchNodeType>(ALL_NODE_TYPES),
+  )
+
+  // Whenever the data refreshes, ensure types newly seen become active
+  // (don't auto-activate a type the operator removed previously, but
+  // do show types that didn't exist on the previous render).
+  const seenTypesRef = useRef<Set<ArchNodeType>>(new Set())
+  useEffect(() => {
+    setActiveTypes((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const t of ALL_NODE_TYPES) {
+        const total = typeTotals.get(t) ?? 0
+        if (total > 0 && !seenTypesRef.current.has(t)) {
+          seenTypesRef.current.add(t)
+          if (!next.has(t)) {
+            next.add(t)
+            changed = true
+          }
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [typeTotals])
+
+  function removeChip(t: ArchNodeType) {
+    setActiveTypes((prev) => {
+      const n = new Set(prev)
+      n.delete(t)
+      return n
+    })
+  }
+  function addChip(t: ArchNodeType) {
+    setActiveTypes((prev) => {
+      const n = new Set(prev)
+      n.add(t)
+      return n
+    })
+  }
+
+  // The set of types HIDDEN from the canvas — every type NOT in the
+  // active chip set. This is what GraphCanvas's hiddenTypes prop
+  // expects (#348 item 2 — chip removal == visibility filter).
+  const hiddenTypes = useMemo(() => {
+    const h = new Set<ArchNodeType>()
+    for (const t of ALL_NODE_TYPES) {
+      if (!activeTypes.has(t)) h.add(t)
+    }
+    return h
+  }, [activeTypes])
+
   // Per-type explicit cap; null = "all" (no cap).
   const [typeCap, setTypeCap] = useState<Partial<Record<ArchNodeType, number | null>>>({})
-  const [hiddenTypes, setHiddenTypes] = useState<Set<ArchNodeType>>(new Set())
   const [globalPct, setGlobalPct] = useState<number>(DEFAULT_GLOBAL_PCT)
 
   // Debounce so repeatedly nudging a slider doesn't hammer the
   // simulation / refetch.
   const [debouncedCap, setDebouncedCap] = useState(typeCap)
-  const [debouncedHidden, setDebouncedHidden] = useState(hiddenTypes)
   useEffect(() => {
     const id = setTimeout(() => setDebouncedCap(typeCap), DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [typeCap])
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedHidden(hiddenTypes), DEBOUNCE_MS)
-    return () => clearTimeout(id)
-  }, [hiddenTypes])
 
   /**
    * Derive whether a type is "small" (auto-100%). Small types skip
@@ -345,38 +400,34 @@ export function ArchitectureGraphPage({
         </div>
       </div>
 
-      {/* Per-type badges with mini density controls. */}
+      {/* Per-type chips with mini density controls. */}
       <div
         data-testid="cloud-architecture-type-bar"
         className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2"
       >
-        {(['Cloud', 'Region', 'Cluster', 'vCluster', 'NodePool', 'WorkerNode', 'LoadBalancer', 'Network'] as ArchNodeType[]).map((t) => {
+        {ALL_NODE_TYPES.filter((t) => activeTypes.has(t)).map((t) => {
           const total = typeTotals.get(t) ?? 0
-          const hidden = hiddenTypes.has(t)
           const isTunable = TUNABLE_TYPES.includes(t)
           const cap = typeCap[t]
-          const small = total < SMALL_TYPE_THRESHOLD
+          const small = isSmallType(t)
           return (
             <TypeBadge
               key={t}
               type={t}
               total={total}
-              hidden={hidden}
               capped={typeof cap === 'number' ? cap : null}
               small={small}
               tunable={isTunable}
-              onToggleHidden={() => {
-                setHiddenTypes((prev) => {
-                  const n = new Set(prev)
-                  if (n.has(t)) n.delete(t)
-                  else n.add(t)
-                  return n
-                })
-              }}
+              onRemove={() => removeChip(t)}
               onSetCap={(v) => setTypeCap((prev) => ({ ...prev, [t]: v }))}
             />
           )
         })}
+        <AddChipPopover
+          inactiveTypes={ALL_NODE_TYPES.filter((t) => !activeTypes.has(t))}
+          typeTotals={typeTotals}
+          onAdd={addChip}
+        />
       </div>
 
       <div
@@ -436,7 +487,7 @@ export function ArchitectureGraphPage({
             edges={displayEdges}
             highlightedIds={searchMatches}
             focusNodeId={focusNodeId}
-            hiddenTypes={debouncedHidden}
+            hiddenTypes={hiddenTypes}
             typeLimits={effectiveTypeLimits}
             onNodeClick={(n) => setSelectedId(n.id)}
             onNodeDoubleClick={(n) => setFocusNodeId(n.id)}
@@ -667,60 +718,68 @@ function inferSovereignFQDNFromGraph(
 interface TypeBadgeProps {
   type: ArchNodeType
   total: number
-  hidden: boolean
   capped: number | null
   small: boolean
   tunable: boolean
-  onToggleHidden: () => void
+  onRemove: () => void
   onSetCap: (v: number | null) => void
 }
 
 function TypeBadge({
   type,
   total,
-  hidden,
   capped,
   small,
   tunable,
-  onToggleHidden,
+  onRemove,
   onSetCap,
 }: TypeBadgeProps) {
   const [open, setOpen] = useState(false)
   const dotColor = NODE_FILL[type]
-  const visibleCount = hidden ? 0 : capped ?? total
+  const visibleCount = capped ?? total
+
+  // Small types: chip click does nothing (visibility toggle off — the
+  // "×" handles removal). Tunable + non-small types: click opens the
+  // density popover.
+  const clickable = tunable && !small
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      <div
         data-testid={`cloud-architecture-type-badge-${type}`}
-        data-hidden={hidden ? 'true' : 'false'}
-        onClick={() => {
-          if (small || !tunable) {
-            // Small types just toggle visibility on click.
-            onToggleHidden()
-          } else {
-            setOpen((v) => !v)
-          }
-        }}
-        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-          hidden
-            ? 'border-[var(--color-border)] bg-transparent text-[var(--color-text-dim)] line-through'
-            : 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]'
-        }`}
+        data-small={small ? 'true' : 'false'}
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]"
       >
-        <span
-          aria-hidden="true"
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ background: dotColor }}
-        />
-        <span className="font-medium">{type}</span>
-        <span className="text-[var(--color-text-dim)]">
-          {visibleCount}/{total}
-        </span>
-      </button>
+        <button
+          type="button"
+          data-testid={`cloud-architecture-type-badge-${type}-label`}
+          onClick={() => clickable && setOpen((v) => !v)}
+          className={`flex items-center gap-1.5 rounded-l-md px-2 py-1 text-xs ${
+            clickable ? 'hover:bg-[var(--color-bg-2)]' : 'cursor-default'
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className="h-2.5 w-2.5 rounded-full"
+            style={{ background: dotColor }}
+          />
+          <span className="font-medium">{type}</span>
+          <span className="text-[var(--color-text-dim)]">
+            {visibleCount}/{total}
+          </span>
+        </button>
+        <button
+          type="button"
+          data-testid={`cloud-architecture-type-badge-${type}-remove`}
+          onClick={onRemove}
+          aria-label={`Remove ${type} chip`}
+          className="rounded-r-md px-1.5 py-1 text-xs text-[var(--color-text-dim)] hover:bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] hover:text-[var(--color-danger)]"
+        >
+          ×
+        </button>
+      </div>
 
-      {open && tunable && (
+      {open && tunable && !small && (
         <div
           data-testid={`cloud-architecture-type-popover-${type}`}
           className="absolute left-0 top-full z-30 mt-1 flex w-56 flex-col gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 shadow-xl"
@@ -764,8 +823,83 @@ function TypeBadge({
               onClick={() => onSetCap(Math.round(total * 0.5))}
             />
             <PresetButton type={type} preset="All" onClick={() => onSetCap(null)} />
-            <PresetButton type={type} preset="Hide" onClick={onToggleHidden} />
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Add chip popover ────────────────────────────────────────────── */
+
+interface AddChipPopoverProps {
+  inactiveTypes: ArchNodeType[]
+  typeTotals: Map<ArchNodeType, number>
+  onAdd: (t: ArchNodeType) => void
+}
+
+function AddChipPopover({ inactiveTypes, typeTotals, onAdd }: AddChipPopoverProps) {
+  const [open, setOpen] = useState(false)
+
+  // Click-outside dismissal.
+  useEffect(() => {
+    if (!open) return
+    function onDoc(ev: MouseEvent) {
+      const t = ev.target as HTMLElement | null
+      if (!t?.closest('[data-testid="cloud-architecture-add-chip-popover"]')) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const disabled = inactiveTypes.length === 0
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        data-testid="cloud-architecture-add-chip-button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Add type chip"
+        className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[var(--color-border)] px-2 py-1 text-xs ${
+          disabled
+            ? 'cursor-not-allowed text-[var(--color-text-dim)] opacity-50'
+            : 'text-[var(--color-text)] hover:bg-[var(--color-bg)]'
+        }`}
+      >
+        <span aria-hidden="true">+</span>
+        <span>Add</span>
+      </button>
+      {open && !disabled && (
+        <div
+          data-testid="cloud-architecture-add-chip-popover"
+          className="absolute left-0 top-full z-30 mt-1 flex w-56 flex-col gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-2 shadow-xl"
+        >
+          {inactiveTypes.map((t) => {
+            const total = typeTotals.get(t) ?? 0
+            return (
+              <button
+                key={t}
+                type="button"
+                data-testid={`cloud-architecture-add-chip-item-${t}`}
+                onClick={() => {
+                  onAdd(t)
+                  setOpen(false)
+                }}
+                className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-bg)]"
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ background: NODE_FILL[t] }}
+                />
+                <span className="font-medium">{t}</span>
+                <span className="ml-auto text-[var(--color-text-dim)]">{total}</span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

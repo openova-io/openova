@@ -17,8 +17,14 @@
 /**
  * Architecture node types — drawn from the hierarchical infrastructure
  * tree. Region / Cluster / vCluster come straight from the spec; the
- * other shapes (LoadBalancer, NodePool, WorkerNode, Network) surface
- * the leaves so the operator can see the whole picture in one canvas.
+ * other shapes (LoadBalancer, NodePool, WorkerNode, Network, PVC,
+ * Bucket, Volume, Service, Ingress) surface the leaves so the operator
+ * can see the whole picture in one canvas.
+ *
+ * Per #348 item 2: the underlying graph data layer holds every node
+ * type AND every relation regardless of which chips are active. The
+ * adapter emits a node for every type listed below; chip add/remove is
+ * pure visibility filtering on top of the full cache.
  */
 export type ArchNodeType =
   | 'Cloud'
@@ -29,6 +35,71 @@ export type ArchNodeType =
   | 'WorkerNode'
   | 'LoadBalancer'
   | 'Network'
+  | 'PVC'
+  | 'Bucket'
+  | 'Volume'
+  | 'Service'
+  | 'Ingress'
+
+/**
+ * Canonical ordered list of every type the data layer + chip strip
+ * knows about. Single source of truth — referenced by adapter,
+ * page-level orchestrator, legend, type-bar, tests. No hardcoded
+ * lists anywhere else.
+ */
+export const ALL_NODE_TYPES: ArchNodeType[] = [
+  'Cloud',
+  'Region',
+  'Cluster',
+  'vCluster',
+  'NodePool',
+  'WorkerNode',
+  'LoadBalancer',
+  'Network',
+  'PVC',
+  'Bucket',
+  'Volume',
+  'Service',
+  'Ingress',
+]
+
+/**
+ * Edge relationship types. Containment is just one of these — the
+ * founder spec verbatim: "forget about the containment, just show it
+ * as another type of relation."
+ *
+ * Per #348 item 4: each relation has an ArchiMate-derived rendering
+ * (composition, aggregation, assignment, triggering, flow, used-by,
+ * realization, association). See EDGE_MARKER_END / EDGE_DASHED below.
+ */
+export type ArchEdgeType =
+  | 'contains'
+  | 'member-of'
+  | 'runs-on'
+  | 'routes-to'
+  | 'triggers'
+  | 'flows-to'
+  | 'attached-to'
+  | 'depends-on'
+  | 'used-by'
+  | 'realizes'
+  | 'peers-with'
+  | 'associates'
+
+export const ALL_EDGE_TYPES: ArchEdgeType[] = [
+  'contains',
+  'member-of',
+  'runs-on',
+  'routes-to',
+  'triggers',
+  'flows-to',
+  'attached-to',
+  'depends-on',
+  'used-by',
+  'realizes',
+  'peers-with',
+  'associates',
+]
 
 /**
  * Auto-100% density threshold (#348 item 1). Any node type with
@@ -42,19 +113,6 @@ export type ArchNodeType =
  * orchestrator and the test suite.
  */
 export const SMALL_TYPE_THRESHOLD = 20
-
-/**
- * Edge relationship types. Containment is just one of these — the
- * founder spec verbatim: "forget about the containment, just show it
- * as another type of relation."
- */
-export type ArchEdgeType =
-  | 'contains'
-  | 'runs-on'
-  | 'routes-to'
-  | 'attached-to'
-  | 'depends-on'
-  | 'peers-with'
 
 export type ArchStatus = 'healthy' | 'degraded' | 'failed' | 'unknown'
 
@@ -143,23 +201,100 @@ export const NODE_FILL: Record<ArchNodeType, string> = {
   WorkerNode: '#fab005', // yellow
   LoadBalancer: '#e8590c', // orange
   Network: '#868e96', // grey
+  PVC: '#9775fa', // light violet — persistent volume claim
+  Bucket: '#5c7cfa', // indigo — object storage
+  Volume: '#22b8cf', // cyan — block storage
+  Service: '#20c997', // mint — k8s service
+  Ingress: '#e64980', // pink — k8s ingress
 }
 
 export const EDGE_STROKE: Record<ArchEdgeType, string> = {
   contains: '#4c6ef5', // solid blue
-  'runs-on': '#15aabf', // solid cyan
-  'routes-to': '#fa5252', // solid red
+  'member-of': '#7950f2', // solid violet — aggregation
+  'runs-on': '#15aabf', // solid cyan — assignment
+  'routes-to': '#fa5252', // solid red — triggering
+  triggers: '#fa5252', // solid red — triggering
+  'flows-to': '#fd7e14', // dashed orange — flow
   'attached-to': '#868e96', // dashed grey
-  'depends-on': '#fd7e14', // solid orange
-  'peers-with': '#7950f2', // dashed violet
+  'depends-on': '#fd7e14', // dashed orange — used-by
+  'used-by': '#fd7e14', // dashed orange — used-by
+  realizes: '#15aabf', // dashed cyan — realization
+  'peers-with': '#7950f2', // dashed violet — association
+  associates: '#868e96', // solid grey — association (plain)
 }
 
-/** Edges that render dashed instead of solid. */
+/**
+ * Edges that render dashed instead of solid (#348 item 4 — ArchiMate
+ * notation). Used-by, flow, realization and association-with-direction
+ * are rendered dashed; composition / aggregation / assignment /
+ * triggering are solid.
+ */
 export const EDGE_DASHED: Record<ArchEdgeType, boolean> = {
   contains: false,
+  'member-of': false,
   'runs-on': false,
   'routes-to': false,
+  triggers: false,
+  'flows-to': true,
   'attached-to': true,
-  'depends-on': false,
-  'peers-with': true,
+  'depends-on': true,
+  'used-by': true,
+  realizes: true,
+  'peers-with': false,
+  associates: false,
+}
+
+/**
+ * ArchiMate marker kinds. The renderer emits one SVG <marker> per
+ * value here; the per-edge mapping below picks which sits at each end.
+ *
+ * Mapping rules per #348 item 4:
+ *   • contains          → composition: filled diamond at PARENT (source) end
+ *   • member-of         → aggregation: hollow diamond at PARENT (target) end
+ *   • runs-on           → assignment: filled circles at BOTH ends
+ *   • routes-to/triggers→ triggering: filled triangle at TARGET
+ *   • flows-to          → flow: filled triangle at TARGET, dashed line
+ *   • depends-on/used-by→ used-by: open triangle at TARGET, dashed line
+ *   • realizes          → realization: hollow triangle at TARGET, dashed
+ *   • peers-with/associates → association: plain (no markers)
+ *   • attached-to       → association-attached: small open circle at TARGET, dashed
+ */
+export type EdgeMarker =
+  | 'composition'
+  | 'aggregation'
+  | 'assignment-dot'
+  | 'triggering'
+  | 'used-by'
+  | 'realization'
+  | 'attached'
+  | null
+
+export const EDGE_MARKER_START: Record<ArchEdgeType, EdgeMarker> = {
+  contains: 'composition', // filled diamond at parent (source) end
+  'member-of': null,
+  'runs-on': 'assignment-dot',
+  'routes-to': null,
+  triggers: null,
+  'flows-to': null,
+  'attached-to': null,
+  'depends-on': null,
+  'used-by': null,
+  realizes: null,
+  'peers-with': null,
+  associates: null,
+}
+
+export const EDGE_MARKER_END: Record<ArchEdgeType, EdgeMarker> = {
+  contains: null,
+  'member-of': 'aggregation', // hollow diamond at parent (target) end
+  'runs-on': 'assignment-dot',
+  'routes-to': 'triggering',
+  triggers: 'triggering',
+  'flows-to': 'triggering',
+  'attached-to': 'attached',
+  'depends-on': 'used-by',
+  'used-by': 'used-by',
+  realizes: 'realization',
+  'peers-with': null,
+  associates: null,
 }
