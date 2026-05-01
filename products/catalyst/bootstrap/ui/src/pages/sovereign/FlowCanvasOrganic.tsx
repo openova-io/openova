@@ -231,6 +231,69 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return m
   }, [layout.families])
 
+  /* ── Issue #493 — depth-bucket grid pre-pass ─────────────────────
+   *
+   * The real OpenOva provisioning graph has one parent ("Applications")
+   * with 50+ blueprint-install children at the same depth. Pre-fix the
+   * simulation anchored every sibling to a single depthX coordinate
+   * with Y clamp ±Y_SCATTER_PX*2 (±160). With 50 nodes × 92px collision
+   * pitch the cluster wanted to grow 4600px tall, but viewBox MAX_VBOX_H
+   * was clamped to 700; only ~15% of node centroids landed in view.
+   * Live screenshot evidence: .playwright-mcp/otech9-cluster-bootstrap-2026-05-01.png
+   *
+   * Fix: when a depth bucket exceeds the vertical capacity of the
+   * viewBox (~7 nodes at MAX_VBOX_H=700), lay siblings out in a
+   * sub-column grid (multiple sub-columns within the depth column).
+   * The simulation then anchors each node to its (subColX, subRowY)
+   * grid target instead of the shared depthX/regionYMid pair.
+   */
+  const gridTargets = useMemo(() => {
+    type GridCell = {
+      tx: number // target X in layout coordinates
+      ty: number // target Y RELATIVE to regionYMid
+      totalCols: number
+      totalRows: number
+    }
+    const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
+    const Y_BUDGET = MAX_VBOX_H - (NODE_RADIUS * 2 + 60)
+    const COL_CAPACITY = Math.max(1, Math.floor(Y_BUDGET / ROW_PITCH))
+    const buckets = new Map<number, OrganicNode[]>()
+    for (const n of layout.nodes) {
+      let bucket = buckets.get(n.depth)
+      if (!bucket) {
+        bucket = []
+        buckets.set(n.depth, bucket)
+      }
+      bucket.push(n)
+    }
+    const cells = new Map<string, GridCell>()
+    for (const [depth, bucket] of buckets) {
+      // Only apply grid layout when sibling count exceeds a single-
+      // column capacity. Sparse depths keep the original force-anchor
+      // behaviour (depthX + jittered Y inside region centroid).
+      if (bucket.length <= COL_CAPACITY) continue
+      const totalCols = Math.max(1, Math.ceil(bucket.length / COL_CAPACITY))
+      const totalRows = Math.ceil(bucket.length / totalCols)
+      const baseX = depth * PER_DEPTH_X
+      const SUB_COL_SPAN = PER_DEPTH_X * 0.8
+      const colStep = totalCols > 1 ? SUB_COL_SPAN / (totalCols - 1) : 0
+      const rowStep = ROW_PITCH
+      bucket.forEach((n, idx) => {
+        const subCol = idx % totalCols
+        const subRow = Math.floor(idx / totalCols)
+        const colOffset = (subCol - (totalCols - 1) / 2) * colStep
+        const rowOffset = (subRow - (totalRows - 1) / 2) * rowStep
+        cells.set(n.id, {
+          tx: baseX + colOffset,
+          ty: rowOffset,
+          totalCols,
+          totalRows,
+        })
+      })
+    }
+    return cells
+  }, [layout.nodes])
+
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
     const seen = new Set<string>()
@@ -248,6 +311,14 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         const baseX = depthToX(n.depth)
         const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
         const seed = hashSeed(n.id)
+        // Issue #493 — seed initial X/Y from the precomputed grid cell
+        // when one exists (high-fan-out depth buckets). Otherwise fall
+        // back to depth-anchor + jitter for sparse layouts.
+        const cell = gridTargets.get(n.id)
+        const initX = cell ? cell.tx : baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5
+        const initY = cell
+          ? baseY + cell.ty
+          : baseY + (seed.fy - 0.5) * Y_SCATTER_PX * 2
         const fresh: SimNode = {
           id: n.id,
           depth: n.depth,
@@ -255,12 +326,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           familyId: n.familyId,
           status: n.status,
           isGroup: n.isGroup,
-          // Bug #481 follow-up — initial seed inside the Y_SCATTER band
-          // around the depth anchor. X scatter scales with NODE_RADIUS
-          // so larger bubbles get proportionally more room before the
-          // collide force pushes them apart.
-          x: baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5,
-          y: baseY + (seed.fy - 0.5) * Y_SCATTER_PX * 2,
+          x: initX,
+          y: initY,
         }
         nodesRef.current.set(n.id, fresh)
         next.push(fresh)
@@ -270,7 +337,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       if (!seen.has(id)) nodesRef.current.delete(id)
     }
     return next
-  }, [layout.nodes, depthToX, regionYMid])
+  }, [layout.nodes, depthToX, regionYMid, gridTargets])
 
   useEffect(() => {
     if (simNodes.length === 0) {
@@ -298,7 +365,12 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       .force(
         'x',
         forceX<SimNode>()
-          .x((d) => depthToX(d.depth))
+          .x((d) => {
+            // Issue #493 — high-fan-out depth buckets have a sub-column
+            // X target. Sparse depths fall through to the depth anchor.
+            const cell = gridTargets.get(d.id)
+            return cell ? cell.tx : depthToX(d.depth)
+          })
           .strength(FORCE_X_STRENGTH),
       )
       .force(
@@ -306,6 +378,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         forceY<SimNode>()
           .y((d) => {
             const base = regionYMid.get(d.regionId) ?? VIEW_H / 2
+            // Issue #493 — high-fan-out depth buckets get a sub-row Y
+            // offset relative to regionYMid. Sparse depths still get
+            // the seeded jitter so they don't visually align in a row.
+            const cell = gridTargets.get(d.id)
+            if (cell) return base + cell.ty
             const seed = hashSeed(d.id)
             // Bug #481 — clamp the per-node Y target inside ±Y_SCATTER_PX
             // so the soft `forceY` cannot stretch the graph into a
@@ -327,29 +404,43 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           .strength(FORCE_LINK_STRENGTH),
       )
       .on('tick', () => {
-        // Bug #481 — post-tick bounding box clamp. d3-force has no
-        // built-in viewport awareness, so we clamp every node back into
-        // the MAX_VBOX rectangle around the depth-anchored centroid.
-        // Without this, weak link forces on sparse graphs let nodes
-        // drift hundreds of pixels off-screen between ticks.
+        // Bug #481 — post-tick bounding box clamp.
+        // Issue #493 — when a node has a grid cell, clamp around the
+        // (cell.tx, baseY+cell.ty) target instead of (depthX, regionYMid)
+        // so high-fan-out siblings stay in their assigned sub-row.
         for (const n of simNodes) {
+          const cell = gridTargets.get(n.id)
+          const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
+          if (cell) {
+            const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
+            const SUB_COL_SPAN = PER_DEPTH_X * 0.8
+            const colSlot = cell.totalCols > 1
+              ? SUB_COL_SPAN / (cell.totalCols - 1)
+              : PER_DEPTH_X
+            const targetY = baseY + cell.ty
+            const xMin = cell.tx - colSlot * 0.5
+            const xMax = cell.tx + colSlot * 0.5
+            const yMin = targetY - ROW_PITCH * 0.5
+            const yMax = targetY + ROW_PITCH * 0.5
+            if (typeof n.x === 'number') {
+              if (n.x < xMin) n.x = xMin
+              else if (n.x > xMax) n.x = xMax
+            }
+            if (typeof n.y === 'number') {
+              if (n.y < yMin) n.y = yMin
+              else if (n.y > yMax) n.y = yMax
+            }
+            continue
+          }
           const baseX = depthToX(n.depth)
-          // X clamp: stay within the depth column boundary. Tightened
-          // from ±1.5×PER_DEPTH_X to ±1.0× post-#483 — the looser
-          // clamp let nodes drift into adjacent columns and made the
-          // graph read as "stretching".
+          // Sparse-depth fallback — original ±PER_DEPTH_X / ±Y_SCATTER_PX*2
+          // clamp around (depthX, regionYMid). See Bug #481.
           const xMin = baseX - PER_DEPTH_X
           const xMax = baseX + PER_DEPTH_X
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
-          // Y clamp: keep the simulation inside Y_SCATTER_PX × 2 of the
-          // region centroid. Was MAX_VBOX_H/2 (450px) which let the
-          // soft forceY stretch the cluster into a tall column on
-          // multi-region graphs. The new bound matches Y_SCATTER_PX so
-          // siblings stay packed in a horizontal band per region.
-          const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
           const yMin = baseY - Y_SCATTER_PX * 2
           const yMax = baseY + Y_SCATTER_PX * 2
           if (typeof n.y === 'number') {
@@ -364,7 +455,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return () => {
       sim.stop()
     }
-  }, [simNodes, layout.edges, depthToX, regionYMid])
+  }, [simNodes, layout.edges, depthToX, regionYMid, gridTargets])
 
   const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {

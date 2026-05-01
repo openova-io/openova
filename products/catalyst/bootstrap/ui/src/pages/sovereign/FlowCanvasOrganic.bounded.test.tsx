@@ -258,4 +258,80 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
       unmount()
     }
   })
+
+  /* ── Issue #493 — high-sibling-count graphs (Phase-8a real shape) ── */
+
+  it.each([30, 50, 80])(
+    'fits %i siblings inside the viewBox via sub-column grid (issue #493)',
+    (count) => {
+      const layout = makeLayout(count)
+      const { container } = render(
+        <FlowCanvasOrganic
+          layout={layout}
+          openJobId={null}
+          hostJobId={null}
+          onJobClick={() => {}}
+          onJobDoubleClick={() => {}}
+          onCanvasBackgroundClick={() => {}}
+        />,
+      )
+      const svg = container.querySelector<SVGSVGElement>(
+        '[data-testid="flow-canvas-svg"]',
+      )!
+      const vb = svg.getAttribute('viewBox') ?? ''
+      const [vbX, vbY, vbW, vbH] = vb.split(/\s+/).map(Number)
+      const groups = container.querySelectorAll<SVGGElement>(
+        '[data-flow-draggable]',
+      )
+      expect(groups.length).toBeGreaterThanOrEqual(count)
+      let inside = 0
+      for (const g of Array.from(groups)) {
+        const t = g.getAttribute('transform') ?? ''
+        const m = t.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
+        if (!m) continue
+        const x = Number(m[1])
+        const y = Number(m[2])
+        if (x >= vbX && x <= vbX + vbW && y >= vbY && y <= vbY + vbH) {
+          inside++
+        }
+      }
+      // Acceptance: ≥95% of node centroids inside the viewBox at first
+      // paint. Pre-fix this was ~15% on a 50-node graph.
+      const ratio = inside / groups.length
+      expect(ratio).toBeGreaterThanOrEqual(0.95)
+    },
+  )
+
+  it('keeps every bubble visible (radius ≥40) and viewBox bounded for a 60-node graph', () => {
+    const layout = makeLayout(60)
+    const { container } = render(
+      <FlowCanvasOrganic
+        layout={layout}
+        openJobId={null}
+        hostJobId={null}
+        onJobClick={() => {}}
+        onJobDoubleClick={() => {}}
+        onCanvasBackgroundClick={() => {}}
+      />,
+    )
+    const svg = container.querySelector<SVGSVGElement>(
+      '[data-testid="flow-canvas-svg"]',
+    )!
+    const vb = svg.getAttribute('viewBox') ?? ''
+    const [, , vbW, vbH] = vb.split(/\s+/).map(Number)
+    expect(vbW).toBeLessThanOrEqual(1200)
+    expect(vbH).toBeLessThanOrEqual(700)
+    const groups = container.querySelectorAll<SVGGElement>(
+      '[data-flow-draggable]',
+    )
+    for (const g of Array.from(groups)) {
+      const circles = g.querySelectorAll('circle')
+      let maxR = 0
+      for (const c of Array.from(circles)) {
+        const r = Number(c.getAttribute('r') ?? '0')
+        if (r > maxR) maxR = r
+      }
+      expect(maxR).toBeGreaterThanOrEqual(40)
+    }
+  })
 })
