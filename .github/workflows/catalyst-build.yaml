@@ -1,9 +1,22 @@
 name: Build & Deploy Catalyst
 
+# Event-driven only. Cron is forbidden — the OpenOva architecture is
+# event-driven end to end (Flux dependsOn, NATS JetStream, SSE,
+# Helm post-install hooks). `push` on the relevant paths is the
+# canonical trigger; `workflow_dispatch` exists for ad-hoc re-runs
+# without a code change.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/console/**'
+      - 'core/admin/**'
+      - 'core/marketplace/**'
+      - 'core/marketplace-api/**'
+      - 'products/catalyst/bootstrap/**'
+      - 'products/catalyst/chart/**'
+      - '.github/workflows/catalyst-build.yaml'
   workflow_dispatch:
-  schedule:
-    - cron: '0 3 * * *'  # daily at 03:00 UTC — picks up public repo changes
 
 env:
   REGISTRY: ghcr.io
