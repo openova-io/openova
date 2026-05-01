@@ -17,7 +17,7 @@
 # unrecoverable in-place.
 #
 # Mitigations applied here:
-#   1. bp-flux:1.1.2 pins the `flux2` subchart at 2.14.1 (= appVersion
+#   1. bp-flux:1.1.3 pins the `flux2` subchart at 2.14.1 (= appVersion
 #      2.4.0) which matches cloud-init's v2.4.0 install.yaml.
 #   2. spec.upgrade.preserveValues: true — never silently overwrite
 #      operator overlays on upgrade.
@@ -59,7 +59,7 @@ spec:
   chart:
     spec:
       chart: bp-flux
-      version: 1.1.2
+      version: 1.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-flux

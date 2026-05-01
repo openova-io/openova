@@ -1,0 +1,101 @@
+{{- /*
+Catalyst overlay: canonical ClusterRoleBinding for the helm-controller and
+kustomize-controller ServiceAccounts in `flux-system`.
+
+WHY THIS EXISTS
+---------------
+On the first Sovereign (otech.omani.works, 2026-04-30) every HelmRelease that
+transitioned through `pending-install` / `pending-upgrade` got stuck because
+helm-controller could not UPDATE its own helm-storage Secrets
+(`sh.helm.release.v1.<name>.<n>`) in the `flux-system` namespace. Symptom:
+
+    secrets "sh.helm.release.v1.catalyst-platform.v1" is forbidden:
+    User "system:serviceaccount:flux-system:helm-controller" cannot
+    update resource "secrets" in API group "" in the namespace "flux-system"
+
+Root cause was a `cluster-reconciler` ClusterRoleBinding whose subjects ended
+up pointing at the wrong namespace (helm-controller actually runs in
+`flux-system`, but the binding subjected another namespace), so cluster-admin
+never reached the controller. See:
+- docs/lessons-learned/helm-controller-rbac.md
+- docs/RUNBOOK-PROVISIONING.md
+- issue #338
+
+The upstream `flux2` subchart's `cluster-reconciler` template uses
+`{{ .Release.Namespace }}` for subject namespaces, which is correct only when
+this HelmRelease is installed with `targetNamespace: flux-system` — the
+canonical Catalyst install path (see `clusters/_template/bootstrap-kit/03-flux.yaml`).
+But the failure mode on otech proves the binding can drift: subchart
+adoption ordering, leftover artifacts from a previous install, or operator
+mis-configuration can leave the cluster without a working binding. The
+helm-controller pod then cannot manage its own helm-storage Secrets and
+every subsequent blueprint install on the Sovereign is blocked.
+
+WHAT THIS DOES
+--------------
+Renders a Catalyst-managed ClusterRoleBinding (separate name from the
+upstream subchart's `cluster-reconciler`) that:
+- Binds `cluster-admin` (same role the upstream multitenancy.privileged=true
+  default binds — this matches the upstream Flux install.yaml; see
+  https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml).
+- Subjects helm-controller AND kustomize-controller in `flux-system`
+  (hardcoded — this is the canonical Flux install namespace per
+  docs/PLATFORM-TECH-STACK.md §3.2 and clusters/_template/bootstrap-kit/03-flux.yaml).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the namespace IS
+operator-overridable via `.Values.catalyst.fluxNamespace` — defaults to
+`flux-system` because that's the canonical install for every Catalyst
+Sovereign and changing it would require a parallel change to cloud-init's
+flux2 install.yaml URL. Bumping the version-pin invariant (Chart.yaml
+"CRITICAL VERSION-PIN INVARIANT" block) and this default must move together
+in the same PR if ever changed.
+
+WHY cluster-admin AND NOT A NARROWER ROLE
+-----------------------------------------
+helm-controller installs arbitrary user-supplied Helm charts, which can
+ship any K8s resource: CRDs, ClusterRoles, MutatingWebhookConfigurations,
+PSAs, namespaces, etc. There is no narrower role that satisfies the full
+install path. The Flux project's own bootstrap install.yaml binds
+cluster-admin for the same reason (upstream default
+`multitenancy.privileged=true`). Multi-tenancy lockdown
+(`multitenancy.enabled=true, privileged=false`) is a Sovereign Day-2
+hardening choice tracked separately — it requires per-namespace
+impersonation roles that are out of scope here.
+
+WHY NOT FIX THE UPSTREAM SUBCHART INSTEAD
+-----------------------------------------
+The upstream `cluster-reconciler` binding is generated and managed by the
+subchart's own template — its name is `cluster-reconciler`, not
+`catalyst-cluster-reconciler`, so the two coexist without ownership
+conflict. The Catalyst overlay is the authoritative one (Helm renders it
+under the umbrella release, so it's owned by the bp-flux HelmRelease and
+cannot be silently dropped by a subchart upgrade that changes the upstream
+template). If the upstream binding ever drifts again, this overlay still
+holds the cluster correct.
+*/}}
+{{- $fluxNs := default "flux-system" (index .Values "catalyst" "fluxNamespace") -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: catalyst-cluster-reconciler
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: flux-rbac-overlay
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+  annotations:
+    catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/338"
+    catalyst.openova.io/lesson: "docs/lessons-learned/helm-controller-rbac.md"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: helm-controller
+    namespace: {{ $fluxNs }}
+  - kind: ServiceAccount
+    name: kustomize-controller
+    namespace: {{ $fluxNs }}

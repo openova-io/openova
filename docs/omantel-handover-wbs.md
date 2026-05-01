@@ -167,12 +167,8 @@ flowchart LR
     T370 --> P8
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338 done
-    class T371,T387,T392 wip
-    class T370 blocked
+    class T338,T370,T371,T387 wip
 ```
-
-> **Lesson recorded 2026-05-01:** Agent #370's first attempt was a standalone bash script using `hcloud` CLI. Founder caught it: *"why are we relying on a hardcoded sh script for deleting the entire Hetzner, we should have already developed the wipe and delete capability, doesn't it work?"* The right answer is `wipe.go` (#318) + the orphan-cleanup endpoint in catalyst-api — not a shell script bypassing the architecture. PR #391 closed; #370 reframed; #392 filed as the underlying fix (label-filter mismatch in `purge.go` made the existing wipe silently no-op the Hetzner-API safety-net step).
 
 **Legend:** 🟡 yellow = in-progress agent · 🟢 green = done · 🔴 red = blocked · 🟧 orange = gate · default = parked.
 
@@ -308,15 +304,14 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 
 | Ticket | Status | PR(s) | Deployed-SHA evidence |
 |---|---|---|---|
-| #338 | 🟢 PR #393 OPEN — `catalyst-cluster-reconciler` ClusterRoleBinding overlay; awaiting founder review/merge | #393 | (post-merge deploy) |
+| #338 | 🟡 in-progress (Agent #338-bp-flux-rbac, fix/338-omantel) | TBD | bp-flux 1.1.3 + `catalyst-cluster-reconciler` overlay |
 | #316 | (pending) | | |
 | #317 | (pending) | | |
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
-| #370 | ⏸ parked — reframed; uses existing `wipe.go`, blocks on #392 | | |
-| #371 | 🟡 RESUMED (Agent #371-hetzner-os-credentials) — extending existing `infra/hetzner/` Tofu + catalyst-api `internal/handler/credentials.go` + new `objectstorage.go`; in-worktree state preserved across orchestrator restart | | |
-| #392 | 🟡 RESTARTED (Agent #392-purge-go-label-fix) — minimum-impact label-key fix in `purge.go` (was a refactor risk; now scoped to single-line fix) | | |
+| #370 | 🟡 in-progress (Agent #370-hetzner-purge-runbook) | | |
+| #371 | 🟡 in-progress (Agent #371-hetzner-os-credentials) | | |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
 | #375 | (parked) | | |
@@ -330,4 +325,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
-| #387 | 🟡 RESTARTED (Agent #387-gateway-api-audit) — scope tightened: edit existing chart Helm templates only, no new "bootstrap-kit slot" | | |
+| #387 | 🟡 in-progress (Agent #387-gateway-api-audit) | | |
