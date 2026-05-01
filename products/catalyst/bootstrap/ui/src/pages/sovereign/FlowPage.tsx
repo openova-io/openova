@@ -272,6 +272,13 @@ interface FlowPageProps {
    * shows the host's logs immediately.
    */
   hostJobId?: string | null
+  /**
+   * Notifies the parent (JobDetail) every time the canvas's selected
+   * job changes. The host stays put across single-click selections;
+   * the parent uses this hook to keep its LogPane in sync with the
+   * currently-clicked node.
+   */
+  onOpenJobChange?: (jobId: string | null) => void
   /** Override the global default fold depth (test seam). */
   initialDepth?: FoldDepth
 }
@@ -282,6 +289,7 @@ export function FlowPage({
   embedded = false,
   deploymentIdOverride,
   hostJobId = null,
+  onOpenJobChange,
   initialDepth,
 }: FlowPageProps = {}) {
   const looseParams = useParams({ strict: false }) as { deploymentId?: string }
@@ -425,7 +433,7 @@ export function FlowPage({
 
   /* ── Click semantics (single vs double, debounced 220ms) ────── */
 
-  const [openJobId, setOpenJobId] = useState<string | null>(hostJobId)
+  const [openJobId, setOpenJobIdState] = useState<string | null>(hostJobId)
   // Keep `openJobId` synced with `hostJobId` when the host changes
   // (e.g. operator navigated to a different /jobs/{id}). Only on
   // entry — once the operator clicks another job, we don't snap them
@@ -434,9 +442,17 @@ export function FlowPage({
   useEffect(() => {
     if (hostJobId !== prevHostRef.current) {
       prevHostRef.current = hostJobId
-      setOpenJobId(hostJobId)
+      setOpenJobIdState(hostJobId)
+      onOpenJobChange?.(hostJobId)
     }
-  }, [hostJobId])
+  }, [hostJobId, onOpenJobChange])
+  const setOpenJobId = useCallback(
+    (next: string | null) => {
+      setOpenJobIdState(next)
+      onOpenJobChange?.(next)
+    },
+    [onOpenJobChange],
+  )
 
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cancelPendingClick = useCallback(() => {

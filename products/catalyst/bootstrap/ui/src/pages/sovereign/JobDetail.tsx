@@ -123,9 +123,15 @@ export function JobDetail({
   const executionId = detail.latestExecutionId
   const detailJobStatus = detail.job?.status
 
-  const onCanvasJobSelect = useCallback((id: string) => {
-    setSelectedJobId(id)
-  }, [])
+  const onCanvasJobSelect = useCallback(
+    (id: string | null) => {
+      // Empty / null — operator clicked the canvas background; restore
+      // the host as the selected job so the LogPane never goes
+      // contextless.
+      setSelectedJobId(id ?? jobId)
+    },
+    [jobId],
+  )
 
   if (!job) {
     return (
@@ -219,6 +225,7 @@ export function JobDetail({
             embedded
             deploymentIdOverride={deploymentId}
             hostJobId={job.id}
+            onOpenJobChange={onCanvasJobSelect}
           />
         </div>
       </div>
@@ -231,7 +238,6 @@ export function JobDetail({
         jobTitle={logPaneJob.displayName ?? logPaneJob.jobName}
         jobStatus={logPaneStatus}
         onClose={() => setSelectedJobId(jobId)}
-        onSelectExternal={onCanvasJobSelect}
       />
     </PortalShell>
   )
@@ -250,8 +256,6 @@ interface CanvasLogBridgeProps {
   jobTitle: string
   jobStatus: string
   onClose: () => void
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onSelectExternal: (jobId: string) => void
 }
 
 function CanvasLogBridge({ executionId, jobTitle, jobStatus, onClose }: CanvasLogBridgeProps) {
