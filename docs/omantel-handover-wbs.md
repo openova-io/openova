@@ -310,7 +310,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
-| #370 | 🟡 in-progress (Agent #370-hetzner-purge-runbook) | | |
+| #370 | 🟡 runbook authored — awaiting founder authorisation to execute on live Hetzner | #391 | scripts/hetzner-purge.sh |
 | #371 | 🟡 in-progress (Agent #371-hetzner-os-credentials) | | |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
