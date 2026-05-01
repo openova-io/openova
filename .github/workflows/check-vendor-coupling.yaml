@@ -1,0 +1,55 @@
+name: Vendor-coupling guardrail
+
+# Structurally enforces the founder's 2026-05-01 vendor-agnostic rule:
+# vendor names (hetzner|aws|gcp|azure|oci) must not appear in places
+# where a capability name belongs (chart values, sealed-secret names,
+# wizard payload fields). The canonical-seam map is at
+# docs/omantel-handover-wbs.md §3a; the rule rationale lives in
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode).
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge + pull-request-on-touch. There is no
+# `schedule:` trigger; ad-hoc reruns go through workflow_dispatch.
+#
+# The script (scripts/check-vendor-coupling.sh) operates in two modes:
+#   - WARN-ONLY when the canonical seam directory (internal/objectstorage/)
+#     does not yet exist (pre-#425 work-in-progress). Existing vendor
+#     coupling is reported but does not fail the build, so unrelated PRs
+#     can still merge while the rename is in flight.
+#   - HARD-FAIL once internal/objectstorage/ lands. From that point any
+#     re-introduction of vendor coupling fails CI.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'clusters/**'
+      - 'products/catalyst/bootstrap/api/**'
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'scripts/check-vendor-coupling.sh'
+      - '.github/workflows/check-vendor-coupling.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'clusters/**'
+      - 'products/catalyst/bootstrap/api/**'
+      - 'products/catalyst/bootstrap/ui/**'
+      - 'scripts/check-vendor-coupling.sh'
+      - '.github/workflows/check-vendor-coupling.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Vendor-coupling guardrail
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run vendor-coupling check
+        run: bash scripts/check-vendor-coupling.sh
