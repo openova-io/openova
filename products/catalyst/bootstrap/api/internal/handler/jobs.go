@@ -1,22 +1,23 @@
 // Package handler — jobs.go: REST surface for the Jobs/Executions
-// data model the Sovereign Admin's table-view UX (epic #204) reads.
+// data model the Sovereign Admin's canvas + per-job detail pages read.
 //
-// Four endpoints, all read-only — every mutation flows through the
+// Three endpoints, all read-only — every mutation flows through the
 // helmwatch bridge in internal/jobs.Bridge, which the Phase-1 watch
-// goroutine wires up.
+// goroutine wires up. Batches are no longer a first-class concept;
+// see issue #351 for the recursive Job model that replaced them.
 //
 //   - GET /api/v1/deployments/{depId}/jobs               — list Jobs
+//     (each Job carries parentId + childIds; group jobs roll status
+//     up from descendants at read time)
 //   - GET /api/v1/deployments/{depId}/jobs/{jobId}       — one Job +
 //     executions
 //   - GET /api/v1/actions/executions/{execId}/logs       — paginated
 //     LogLines
-//   - GET /api/v1/deployments/{depId}/jobs/batches       — per-batch
-//     progress
 //
 // Backwards compat: the existing `/api/v1/deployments/{id}/events`
 // SSE feed is not modified. Both feeds live in parallel; the wizard
-// reads SSE for live banner state and the new table-view UX reads
-// these endpoints.
+// reads SSE for live banner state and the canvas + per-job detail
+// pages read these endpoints.
 package handler
 
 import (
@@ -124,44 +125,6 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"job":        job,
 		"executions": execs,
-	})
-}
-
-// ListBatches handles GET /api/v1/deployments/{depId}/jobs/batches.
-//
-// Returns `{ "batches": [...] }` — one row per BatchID with progress
-// counts. Empty deployment → empty slice. The current implementation
-// always emits at most one batch ("bootstrap-kit") since Phase-1 is
-// the only Job source; future Day-2 batches will appear automatically
-// as the bridge writes them.
-func (h *Handler) ListBatches(w http.ResponseWriter, r *http.Request) {
-	st := h.jobsStore()
-	if st == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "jobs-store-unavailable",
-		})
-		return
-	}
-	depID := strings.TrimSpace(chi.URLParam(r, "depId"))
-	if depID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "missing-depId",
-		})
-		return
-	}
-	out, err := st.SummarizeBatches(depID)
-	if err != nil {
-		h.log.Error("ListBatches: summarize failed", "depId", depID, "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "store-read-failed",
-		})
-		return
-	}
-	if out == nil {
-		out = []jobs.BatchSummary{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"batches": out,
 	})
 }
 

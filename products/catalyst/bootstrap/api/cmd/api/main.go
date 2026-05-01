@@ -83,12 +83,13 @@ func main() {
 	// PurgeReport summary. The wizard's failed-state banner renders the
 	// operator confirmation modal that POSTs here.
 	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
-	// Jobs/Executions REST surface (issue #205, sub of epic #204) — the
-	// table-view UX reads this in parallel to the existing SSE events
-	// feed. The 4 endpoints are read-only; every mutation flows
-	// through the helmwatch bridge in internal/jobs.
+	// Jobs/Executions REST surface — the canvas + per-job detail
+	// pages read this in parallel to the existing SSE events feed.
+	// All endpoints are read-only; every mutation flows through the
+	// helmwatch bridge in internal/jobs. Each Job carries parentId +
+	// childIds so the FE can render the recursive Job tree without
+	// any batch-specific endpoint (issue #351).
 	r.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
-	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
 	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 	// Backfill endpoints — give the FE an explicit handshake to

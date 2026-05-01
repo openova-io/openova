@@ -131,14 +131,16 @@ func TestRefreshWatch_202OnSeededHappyPath(t *testing.T) {
 		t.Errorf("expected 3 components, got %d", len(body.Components))
 	}
 
-	// The bridge must have written one Job per HR via the seeder
-	// hook. List them from the store.
+	// The bridge must have written one leaf Job per HR via the seeder
+	// hook plus the synthesised bootstrap-kit parent group (4 total).
+	// All three leaves are HelmStateInstalled in the fake fixture so
+	// the rolled-up group status reaches succeeded as well.
 	got, err := js.ListJobs(dep.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
-		t.Errorf("expected 3 jobs after seed, got %d", len(got))
+	if len(got) != 4 {
+		t.Errorf("expected 4 jobs after seed (3 leaves + 1 group), got %d (%+v)", len(got), got)
 	}
 	for _, j := range got {
 		if j.Status != jobs.StatusSucceeded {

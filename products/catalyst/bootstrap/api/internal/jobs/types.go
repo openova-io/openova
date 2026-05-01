@@ -1,22 +1,28 @@
 // Package jobs implements the Jobs/Executions data model + persistence
-// the catalyst-api Sovereign Admin surfaces consume (issue #205, sub of
-// epic #204).
+// the catalyst-api Sovereign Admin surfaces consume.
 //
-// # Architecture
+// # Architecture (recursive Job model — issue #351)
 //
-// Each `bp-<chart>` HelmRelease the Phase-1 helmwatch observes maps 1:1
-// to a Job (jobName="install-<chart>", appId="<chart>",
-// batchId="bootstrap-kit"). Each watch attempt the helmwatch emits is
-// an Execution; LogLines append to the active Execution's NDJSON log
-// file as the helmwatch goroutine derives them from HelmRelease
-// status.conditions.
+// Every install action and every audit-trail mutation is a Job. A Job
+// can be a leaf ("install" — one HelmRelease watch attempt, one Day-2
+// mutation, etc.) or a parent ("group" — a synthesised Job whose
+// status, timing and child-ids are derived from its descendants). The
+// previous "batch" concept is gone: bootstrap-kit and day-2-mutations
+// are now parent group Jobs, not a parallel namespace.
+//
+// Each `bp-<chart>` HelmRelease the Phase-1 helmwatch observes maps
+// 1:1 to a leaf Job (jobName="install-<chart>", appId="<chart>",
+// parentId="<deploymentId>:bootstrap-kit"). The bootstrap-kit parent
+// is materialised lazily on the first child seed. Day-2 mutations
+// hang off the day-2-mutations parent in the same way.
 //
 // Two parallel feeds live for the same data:
 //
 //   - The existing `/api/v1/deployments/{id}/events` SSE feed — kept
 //     untouched, the wizard's live banner reads it.
-//   - The new Jobs/Executions REST surface — the table-view UX (issue
-//     #204) reads it.
+//   - The Jobs/Executions REST surface (`/jobs`, `/jobs/{jobId}`,
+//     `/actions/executions/{execId}/logs`) — the canvas, table view
+//     and per-job detail page read it.
 //
 // Persistence (per docs/INVIOLABLE-PRINCIPLES.md #4: every path is
 // runtime-configurable via CATALYST_EXECUTIONS_DIR; default lives on
@@ -48,7 +54,7 @@ import "time"
 
 // Status enums — kept in lockstep with helmwatch.State* via the
 // translation in helmwatch_bridge.go. The wire contract uses these
-// strings verbatim (frontend agents code against the spec in #205).
+// strings verbatim.
 const (
 	StatusPending   = "pending"
 	StatusRunning   = "running"
@@ -66,15 +72,34 @@ const (
 	LevelError = "ERROR"
 )
 
-// BatchID — the only batch the bootstrap-kit currently emits. Future
-// batches (Phase-2 component installs, Day-2 Crossplane reconciles)
-// will introduce additional batch ids; this constant is the canonical
-// "Phase-1 install" batch tag.
-const BatchBootstrapKit = "bootstrap-kit"
+// Job types — leaf jobs vs synthesised parent groups. The "group" type
+// is the load-bearing signal: status, timing and durationMs on a
+// group Job are derived from its descendants at read time, not from
+// persisted leaf-state. Persisted Status on a group is ignored on
+// read.
+const (
+	JobTypeInstall = "install"
+	JobTypeGroup   = "group"
+)
 
-// JobNamePrefix — every Phase-1 Job is named "install-<chart>". The
-// helmwatch bridge derives this from the HelmRelease metadata.name
-// ("bp-foo" → "install-foo").
+// Group slugs — used as the JobName for synthesised parent group
+// Jobs. The full Job ID is JobID(deploymentID, slug).
+const (
+	GroupBootstrapKit   = "bootstrap-kit"
+	GroupDay2Mutations  = "day-2-mutations"
+)
+
+// Group display names — user-visible labels for the synthesised
+// parent groups. The wire shape carries `displayName`; the UI falls
+// back to `jobName` when `displayName` is empty (leaf jobs).
+const (
+	GroupBootstrapKitDisplay   = "Bootstrap"
+	GroupDay2MutationsDisplay  = "Day-2 Mutations"
+)
+
+// JobNamePrefix — every Phase-1 leaf install Job is named
+// "install-<chart>". The helmwatch bridge derives this from the
+// HelmRelease metadata.name ("bp-foo" → "install-foo").
 const JobNamePrefix = "install-"
 
 // IsTerminal reports whether a status string represents a terminal
@@ -89,12 +114,16 @@ func IsTerminal(status string) bool {
 	return false
 }
 
-// Job is the wire-contract Job shape. The store materialises one Job
-// per `bp-<chart>` HelmRelease; the helmwatch bridge keeps its state
-// in sync as conditions transition.
+// Job is the wire-contract Job shape. The store materialises one
+// leaf Job per `bp-<chart>` HelmRelease; the helmwatch bridge keeps
+// its state in sync as conditions transition. Group Jobs (`Type =
+// JobTypeGroup`) are materialised lazily on first child seed; their
+// runtime status is derived at read time and overrides any persisted
+// value.
 //
-// Fields use omitempty for nullable timestamps so the JSON shape the
-// frontend sees matches the spec verbatim.
+// Fields use omitempty for nullable timestamps and for the derived
+// `childIds` so the JSON shape the frontend sees matches the spec
+// verbatim.
 type Job struct {
 	// ID is the stable identifier "<deploymentId>:<jobName>". It is
 	// the URL-safe id the GET /jobs/{jobId} endpoint accepts.
@@ -103,49 +132,80 @@ type Job struct {
 	// DeploymentID — the parent deployment the Job belongs to.
 	DeploymentID string `json:"deploymentId"`
 
-	// JobName — "install-<chart>", e.g. "install-cilium".
+	// JobName — slug used in URLs and as the persistence key. Leaf
+	// install jobs are "install-<chart>"; group jobs use their slug
+	// constant (e.g. "bootstrap-kit").
 	JobName string `json:"jobName"`
 
-	// AppID — the Sovereign component id, e.g. "cilium". Equals
-	// helmwatch.ComponentIDFromHelmRelease(HR.metadata.name).
-	AppID string `json:"appId"`
+	// DisplayName — optional user-visible label. Used by group jobs
+	// to surface a friendlier name (e.g. "Bootstrap" for the
+	// bootstrap-kit group). Empty for leaf install jobs — the FE
+	// renders JobName when DisplayName is absent.
+	DisplayName string `json:"displayName,omitempty"`
 
-	// BatchID — currently always BatchBootstrapKit; reserved for
-	// future Day-2 batches.
-	BatchID string `json:"batchId"`
+	// Type — JobTypeInstall (leaf) or JobTypeGroup (parent).
+	Type string `json:"type"`
 
-	// DependsOn — list of jobNames this Job depends on. Derived from
+	// AppID — the Sovereign component id (e.g. "cilium") for leaf
+	// install jobs. Empty for group jobs and Day-2 mutation jobs that
+	// are not 1:1 with a component.
+	AppID string `json:"appId,omitempty"`
+
+	// ParentID — full ID of the parent Job, or "" for top-level
+	// jobs. Replaces the old BatchID denormalisation: instead of a
+	// flat batch tag, jobs form a directed tree rooted at top-level
+	// group jobs. Cycles are forbidden by construction (the bridges
+	// only ever set ParentID to a known group's ID).
+	ParentID string `json:"parentId"`
+
+	// DependsOn — list of Job IDs this Job depends on. Derived from
 	// the HelmRelease's `spec.dependsOn[*].name` with the bp- prefix
-	// stripped and "install-" prepended (e.g. spec.dependsOn entry
-	// `name: bp-cilium` → DependsOn entry `install-cilium`).
+	// stripped, "install-" prepended, and the deployment-prefix
+	// applied (e.g. spec.dependsOn entry `name: bp-cilium` →
+	// DependsOn entry `<deploymentId>:install-cilium`). For dep
+	// arrows to render the canvas resolves these by exact ID match.
 	DependsOn []string `json:"dependsOn"`
 
-	// Status — pending|running|succeeded|failed. See package consts.
+	// Status — pending|running|succeeded|failed. For group jobs the
+	// persisted value is ignored on read; the runtime status is
+	// derived from descendants (failed > running > pending >
+	// succeeded).
 	Status string `json:"status"`
 
 	// StartedAt — UTC instant the Job first transitioned out of
-	// pending. nil while the Job is still pending.
+	// pending. nil while pending. For groups this is the earliest
+	// startedAt across all descendants.
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 
-	// FinishedAt — UTC instant the Job reached a terminal state. nil
-	// until the Job is succeeded or failed.
+	// FinishedAt — UTC instant the Job reached a terminal state.
+	// nil until succeeded/failed. For groups this is the latest
+	// finishedAt across all descendants, populated only when every
+	// descendant has terminated.
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 
 	// DurationMs — milliseconds between StartedAt and FinishedAt.
-	// Zero while either is nil.
+	// For groups: derived from the group's StartedAt/FinishedAt the
+	// store recomputes at read time. For leaf jobs running in flight,
+	// the bridge stamps the elapsed-so-far value.
 	DurationMs int64 `json:"durationMs"`
 
 	// LatestExecutionID — id of the most-recent Execution for this
 	// Job, empty until the first attempt starts. The frontend uses
 	// this to deep-link to the GitLab-style log viewer without
-	// having to load the full Execution list first.
+	// having to load the full Execution list first. Empty for group
+	// jobs (groups don't run Executions of their own).
 	LatestExecutionID string `json:"latestExecutionId,omitempty"`
+
+	// ChildIDs — full IDs of jobs whose ParentID == this Job's ID.
+	// DERIVED at read time by Store.ListJobs / Store.GetJob; never
+	// persisted. Empty for leaf install jobs.
+	ChildIDs []string `json:"childIds,omitempty"`
 }
 
 // Execution captures one attempt of a Job. The store appends a new
 // Execution every time the Job transitions back into running from a
 // terminal state (Day-2 retry flows; Phase-1 installs typically have
-// exactly one Execution per Job).
+// exactly one Execution per Job). Group jobs have no Executions.
 type Execution struct {
 	// ID — opaque identifier, hex-encoded random bytes. Globally
 	// unique within a deployment.
@@ -211,33 +271,6 @@ type Index struct {
 	// per-execution mutation only rewrites this slice once, not a
 	// nested per-Job list.
 	Executions []Execution `json:"executions"`
-}
-
-// BatchSummary is the wire-contract row for the
-// /api/v1/deployments/{depId}/jobs/batches endpoint. The handler
-// computes this on read by aggregating Job statuses keyed by BatchID.
-type BatchSummary struct {
-	// BatchID — e.g. "bootstrap-kit".
-	BatchID string `json:"batchId"`
-
-	// Total — number of Jobs in this batch.
-	Total int `json:"total"`
-
-	// Finished — number of Jobs in a terminal state (succeeded |
-	// failed). Equals Succeeded + Failed.
-	Finished int `json:"finished"`
-
-	// Succeeded — number of Jobs with Status=succeeded.
-	Succeeded int `json:"succeeded"`
-
-	// Failed — number of Jobs with Status=failed.
-	Failed int `json:"failed"`
-
-	// Running — number of Jobs with Status=running.
-	Running int `json:"running"`
-
-	// Pending — number of Jobs with Status=pending.
-	Pending int `json:"pending"`
 }
 
 // JobID — synthesises the stable per-deployment Job id. Exported so

@@ -10,7 +10,7 @@
 //
 // Per mutation, the bridge writes:
 //
-//   - One Job (jobName="mutation-<verb>-<kind>", batchId="day-2-mutations")
+//   - One Job (jobName="mutation-<verb>-<kind>", parentId="<dep>:day-2-mutations")
 //     with deterministic id JobID(deploymentID, jobName).
 //   - One Execution scoped to the same Job, in `running` state.
 //   - One INFO LogLine "[mutation-request] action=<action> diff=...".
@@ -23,12 +23,12 @@
 // VCluster Claims) or via per-claim status watchers (TBD by the
 // third-sibling chart's audit shape).
 //
-// # Why a separate batch
+// # Parent group
 //
-// The bootstrap-kit Phase-1 install Jobs go into batchId="bootstrap-kit".
-// Day-2 mutations go into batchId="day-2-mutations" so the FE Jobs
-// surface can render them as a separate column. The same Bridge
-// instance handles both via UpsertJob's batch field.
+// Day-2 mutations hang off the `day-2-mutations` parent group Job
+// (slug = GroupDay2Mutations). The bootstrap-kit Phase-1 install
+// Jobs hang off `bootstrap-kit`. Both are real on-disk rows
+// materialised lazily on the first child write — see ensureGroupJob.
 package jobs
 
 import (
@@ -37,10 +37,6 @@ import (
 	"strings"
 	"time"
 )
-
-// BatchDay2Mutations — every mutation Job lands in this batch so the
-// FE can group them separately from the Phase-1 install Jobs.
-const BatchDay2Mutations = "day-2-mutations"
 
 // MutationJobNamePrefix — every mutation Job's name starts with this.
 // JobName format: "mutation-<verb>-<kind>" (e.g.
@@ -133,6 +129,13 @@ func (b *Bridge) RegisterMutationJob(rec MutationRecord) (MutationResult, error)
 	jobName := mutationJobName(rec.Verb, rec.Kind, rec.Slug)
 	jobID := JobID(b.deploymentID, jobName)
 
+	// Materialise the day-2-mutations parent group lazily on first
+	// mutation. ensureGroupJob is idempotent so subsequent mutations
+	// merge harmlessly into the existing row.
+	if err := b.ensureGroupJob(GroupDay2Mutations, GroupDay2MutationsDisplay); err != nil {
+		return MutationResult{}, fmt.Errorf("jobs: ensure day-2 group: %w", err)
+	}
+
 	// Upsert the Job in `running` so the FE table renders the row
 	// with a spinner the moment the API returns 202. We don't enter
 	// `pending` here because the catalyst-api side has already
@@ -141,7 +144,8 @@ func (b *Bridge) RegisterMutationJob(rec MutationRecord) (MutationResult, error)
 		DeploymentID: b.deploymentID,
 		JobName:      jobName,
 		AppID:        rec.Kind,
-		BatchID:      BatchDay2Mutations,
+		Type:         JobTypeInstall,
+		ParentID:     JobID(b.deploymentID, GroupDay2Mutations),
 		DependsOn:    []string{},
 		Status:       StatusRunning,
 	}

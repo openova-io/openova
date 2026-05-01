@@ -26,11 +26,13 @@ func TestStore_UpsertJob_RoundTrip(t *testing.T) {
 	st := newTestStore(t)
 	depID := "dep-1"
 
+	parentID := JobID(depID, GroupBootstrapKit)
 	j := Job{
 		DeploymentID: depID,
 		JobName:      "install-cilium",
 		AppID:        "cilium",
-		BatchID:      BatchBootstrapKit,
+		Type:         JobTypeInstall,
+		ParentID:     parentID,
 		DependsOn:    []string{"install-flux"},
 		Status:       StatusPending,
 	}
@@ -48,7 +50,7 @@ func TestStore_UpsertJob_RoundTrip(t *testing.T) {
 	if got[0].ID != JobID(depID, "install-cilium") {
 		t.Fatalf("ID mismatch: %q", got[0].ID)
 	}
-	if got[0].AppID != "cilium" || got[0].BatchID != BatchBootstrapKit {
+	if got[0].AppID != "cilium" || got[0].ParentID != parentID || got[0].Type != JobTypeInstall {
 		t.Fatalf("metadata mismatch: %+v", got[0])
 	}
 	if len(got[0].DependsOn) != 1 || got[0].DependsOn[0] != "install-flux" {
@@ -91,7 +93,8 @@ func TestStore_StartAndFinishExecution(t *testing.T) {
 		DeploymentID: depID,
 		JobName:      "install-foo",
 		AppID:        "foo",
-		BatchID:      BatchBootstrapKit,
+		Type:         JobTypeInstall,
+		ParentID:     JobID(depID, GroupBootstrapKit),
 		Status:       StatusPending,
 	}); err != nil {
 		t.Fatal(err)
@@ -279,43 +282,131 @@ func TestStore_GetJob_NotFound(t *testing.T) {
 	}
 }
 
-func TestStore_SummarizeBatches(t *testing.T) {
+func TestStore_DeriveTreeView_RollsUpGroupStatus(t *testing.T) {
 	st := newTestStore(t)
-	depID := "dep-batch"
+	depID := "dep-tree"
+	parentID := JobID(depID, GroupBootstrapKit)
 
-	t0 := time.Now().UTC()
+	// Materialise the parent group + 5 leaves spanning every status
+	// bucket. The persisted group Status is StatusPending — the
+	// rolled-up value must reach the wire as StatusFailed (because at
+	// least one child failed).
+	if err := st.UpsertJob(Job{
+		DeploymentID: depID,
+		JobName:      GroupBootstrapKit,
+		DisplayName:  GroupBootstrapKitDisplay,
+		Type:         JobTypeGroup,
+		Status:       StatusPending,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t0 := time.Now().UTC().Truncate(time.Second)
+	tEnd := t0.Add(2 * time.Minute)
 	cases := []struct {
-		name   string
-		status string
-		start  *time.Time
+		name     string
+		status   string
+		start    *time.Time
+		finish   *time.Time
 	}{
-		{"install-a", StatusSucceeded, &t0},
-		{"install-b", StatusFailed, &t0},
-		{"install-c", StatusRunning, &t0},
-		{"install-d", StatusPending, nil},
-		{"install-e", StatusSucceeded, &t0},
+		{"install-a", StatusSucceeded, &t0, &tEnd},
+		{"install-b", StatusFailed, &t0, &tEnd},
+		{"install-c", StatusRunning, &t0, nil},
+		{"install-d", StatusPending, nil, nil},
+		{"install-e", StatusSucceeded, &t0, &tEnd},
 	}
 	for _, c := range cases {
 		if err := st.UpsertJob(Job{
 			DeploymentID: depID,
 			JobName:      c.name,
-			BatchID:      BatchBootstrapKit,
+			Type:         JobTypeInstall,
+			ParentID:     parentID,
 			Status:       c.status,
 			StartedAt:    c.start,
+			FinishedAt:   c.finish,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	out, err := st.SummarizeBatches(depID)
+	got, err := st.ListJobs(depID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 1 || out[0].BatchID != BatchBootstrapKit {
-		t.Fatalf("expected one batch, got %+v", out)
+	var group *Job
+	for i := range got {
+		if got[i].ID == parentID {
+			group = &got[i]
+			break
+		}
 	}
-	bs := out[0]
-	if bs.Total != 5 || bs.Succeeded != 2 || bs.Failed != 1 || bs.Running != 1 || bs.Pending != 1 || bs.Finished != 3 {
-		t.Errorf("counts: %+v", bs)
+	if group == nil {
+		t.Fatalf("parent group missing: %+v", got)
+	}
+	if group.Status != StatusFailed {
+		t.Errorf("rolled-up Status: want failed, got %q", group.Status)
+	}
+	if len(group.ChildIDs) != 5 {
+		t.Errorf("ChildIDs: want 5, got %d (%v)", len(group.ChildIDs), group.ChildIDs)
+	}
+	if group.StartedAt == nil || !group.StartedAt.Equal(t0) {
+		t.Errorf("StartedAt rollup: want %v, got %v", t0, group.StartedAt)
+	}
+	// Not all descendants are terminal (running + pending exist) so
+	// FinishedAt MUST stay nil.
+	if group.FinishedAt != nil {
+		t.Errorf("FinishedAt rollup: want nil while running, got %v", group.FinishedAt)
+	}
+}
+
+func TestStore_DeriveTreeView_AllSucceededRollsUp(t *testing.T) {
+	st := newTestStore(t)
+	depID := "dep-tree-done"
+	parentID := JobID(depID, GroupBootstrapKit)
+
+	if err := st.UpsertJob(Job{
+		DeploymentID: depID,
+		JobName:      GroupBootstrapKit,
+		DisplayName:  GroupBootstrapKitDisplay,
+		Type:         JobTypeGroup,
+		Status:       StatusPending,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t0 := time.Now().UTC().Truncate(time.Second)
+	t1 := t0.Add(time.Minute)
+	for _, n := range []string{"install-a", "install-b"} {
+		if err := st.UpsertJob(Job{
+			DeploymentID: depID,
+			JobName:      n,
+			Type:         JobTypeInstall,
+			ParentID:     parentID,
+			Status:       StatusSucceeded,
+			StartedAt:    &t0,
+			FinishedAt:   &t1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := st.ListJobs(depID)
+	var group *Job
+	for i := range got {
+		if got[i].ID == parentID {
+			group = &got[i]
+			break
+		}
+	}
+	if group == nil {
+		t.Fatalf("group missing")
+	}
+	if group.Status != StatusSucceeded {
+		t.Errorf("Status: want succeeded, got %q", group.Status)
+	}
+	if group.FinishedAt == nil || !group.FinishedAt.Equal(t1) {
+		t.Errorf("FinishedAt: want %v, got %v", t1, group.FinishedAt)
+	}
+	if group.DurationMs != 60_000 {
+		t.Errorf("DurationMs: want 60000, got %d", group.DurationMs)
 	}
 }
 

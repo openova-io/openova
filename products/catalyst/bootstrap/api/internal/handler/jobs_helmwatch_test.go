@@ -74,12 +74,24 @@ func TestEmitWatchEvent_PopulatesJobsStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(got))
+	// 1 leaf install + 1 synthesised bootstrap-kit parent group.
+	if len(got) != 2 {
+		t.Fatalf("expected 2 jobs (1 leaf + 1 group), got %d (%+v)", len(got), got)
 	}
-	job := got[0]
-	if job.JobName != "install-cilium" || job.AppID != "cilium" {
+	var job *jobs.Job
+	for i := range got {
+		if got[i].JobName == "install-cilium" {
+			job = &got[i]
+		}
+	}
+	if job == nil {
+		t.Fatalf("install-cilium leaf missing in %+v", got)
+	}
+	if job.AppID != "cilium" || job.Type != jobs.JobTypeInstall {
 		t.Errorf("job metadata: %+v", job)
+	}
+	if job.ParentID != jobs.JobID("dep-emit", jobs.GroupBootstrapKit) {
+		t.Errorf("ParentID: want %q, got %q", jobs.JobID("dep-emit", jobs.GroupBootstrapKit), job.ParentID)
 	}
 	if job.Status != jobs.StatusSucceeded {
 		t.Errorf("status: want succeeded, got %q", job.Status)
@@ -130,7 +142,6 @@ func TestRouter_AllFourEndpointsWired(t *testing.T) {
 	h := NewWithJobsStore(slog.New(slog.NewJSONHandler(io.Discard, nil)), js)
 	r := chi.NewRouter()
 	r.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
-	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
 	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 
@@ -140,7 +151,8 @@ func TestRouter_AllFourEndpointsWired(t *testing.T) {
 		DeploymentID: depID,
 		JobName:      "install-cilium",
 		AppID:        "cilium",
-		BatchID:      jobs.BatchBootstrapKit,
+		Type:         jobs.JobTypeInstall,
+		ParentID:     jobs.JobID(depID, jobs.GroupBootstrapKit),
 		DependsOn:    []string{},
 		Status:       jobs.StatusPending,
 	}); err != nil {
@@ -166,7 +178,6 @@ func TestRouter_AllFourEndpointsWired(t *testing.T) {
 	}{
 		{"list-jobs", "/api/v1/deployments/" + depID + "/jobs"},
 		{"get-job", "/api/v1/deployments/" + depID + "/jobs/" + jobs.JobID(depID, "install-cilium")},
-		{"batches", "/api/v1/deployments/" + depID + "/jobs/batches"},
 		{"logs", "/api/v1/actions/executions/" + exec.ID + "/logs?fromLine=1&limit=10"},
 	}
 	for _, c := range cases {

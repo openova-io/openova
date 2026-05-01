@@ -106,6 +106,28 @@ func NewBridge(store *Store, deploymentID string) *Bridge {
 	}
 }
 
+// ensureGroupJob idempotently materialises a synthesised parent group
+// Job. Called by every leaf-write path so the recursive Job tree is
+// always rooted in a real on-disk row — Store.GetJob(parentId) must
+// resolve. UpsertJob's merge is idempotent: a second call with the
+// same row preserves prior StartedAt/FinishedAt and is effectively a
+// no-op for an already-materialised group.
+//
+// Group jobs persist a placeholder Status (StatusPending); the runtime
+// status is derived from descendants by Store.deriveTreeView at read
+// time, so the persisted value never reaches the wire.
+func (b *Bridge) ensureGroupJob(slug, displayName string) error {
+	return b.store.UpsertJob(Job{
+		DeploymentID: b.deploymentID,
+		JobName:      slug,
+		DisplayName:  displayName,
+		Type:         JobTypeGroup,
+		ParentID:     "",
+		DependsOn:    []string{},
+		Status:       StatusPending,
+	})
+}
+
 // SeedJobs registers the supplied jobs against the deployment in a
 // pending state. Used by the catalyst-api at Phase-1 watch start to
 // pre-populate the table view with rows + dependsOn before any
@@ -117,12 +139,18 @@ func NewBridge(store *Store, deploymentID string) *Bridge {
 // install-<chart> convention.
 func (b *Bridge) SeedJobs(specs []SeedSpec) error {
 	now := time.Now().UTC()
+	if len(specs) > 0 {
+		if err := b.ensureGroupJob(GroupBootstrapKit, GroupBootstrapKitDisplay); err != nil {
+			return err
+		}
+	}
 	for _, sp := range specs {
 		j := Job{
 			DeploymentID: b.deploymentID,
 			JobName:      JobNamePrefix + sp.Chart,
 			AppID:        sp.Chart,
-			BatchID:      BatchBootstrapKit,
+			Type:         JobTypeInstall,
+			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 			DependsOn:    dependsOnFromCharts(sp.DependsOn),
 			Status:       StatusPending,
 		}
@@ -203,6 +231,12 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if len(seeds) > 0 {
+		if gErr := b.ensureGroupJob(GroupBootstrapKit, GroupBootstrapKitDisplay); gErr != nil {
+			return 0, 0, gErr
+		}
+	}
+
 	for _, s := range seeds {
 		comp := strings.TrimSpace(s.Component)
 		if comp == "" {
@@ -234,7 +268,8 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 			DeploymentID: b.deploymentID,
 			JobName:      jobName,
 			AppID:        comp,
-			BatchID:      BatchBootstrapKit,
+			Type:         JobTypeInstall,
+			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 			DependsOn:    deps,
 			Status:       nextStatus,
 		}); err != nil {
@@ -374,6 +409,13 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 	}
 	b.lastState[componentID] = state
 
+	// Ensure the bootstrap-kit parent group exists before any leaf is
+	// written underneath it (idempotent — UpsertJob's merge preserves
+	// any prior row).
+	if err := b.ensureGroupJob(GroupBootstrapKit, GroupBootstrapKitDisplay); err != nil {
+		return err
+	}
+
 	// Ensure the Job row exists. If SeedJobs was called this is a
 	// no-op merge; if it wasn't (e.g. the bootstrap-kit hot-shipped a
 	// new chart helmwatch wasn't seeded with) the bridge still
@@ -382,7 +424,8 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		DeploymentID: b.deploymentID,
 		JobName:      jobName,
 		AppID:        componentID,
-		BatchID:      BatchBootstrapKit,
+		Type:         JobTypeInstall,
+		ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 		DependsOn:    []string{},
 		Status:       jobStatusFromHelmState(state),
 	}); err != nil {
@@ -515,11 +558,15 @@ func (b *Bridge) OnRawComponentLog(componentID, level, message string, t time.Ti
 			// approximated as "running" since something is logging
 			// about it; the next OnHelmReleaseEvent fixes the canonical
 			// status.
+			if err := b.ensureGroupJob(GroupBootstrapKit, GroupBootstrapKitDisplay); err != nil {
+				return err
+			}
 			if err := b.store.UpsertJob(Job{
 				DeploymentID: b.deploymentID,
 				JobName:      jobName,
 				AppID:        componentID,
-				BatchID:      BatchBootstrapKit,
+				Type:         JobTypeInstall,
+			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 				DependsOn:    []string{},
 				Status:       StatusRunning,
 			}); err != nil {
@@ -552,7 +599,8 @@ func (b *Bridge) OnRawComponentLog(componentID, level, message string, t time.Ti
 				DeploymentID: b.deploymentID,
 				JobName:      jobName,
 				AppID:        componentID,
-				BatchID:      BatchBootstrapKit,
+				Type:         JobTypeInstall,
+			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 				DependsOn:    job.DependsOn,
 				Status:       StatusRunning,
 			}); err != nil {
