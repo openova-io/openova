@@ -1469,13 +1469,6 @@ function DetailPanel({
                             {entry.node.type}
                           </span>
                         </button>
-                        {/* Legacy testid kept for backwards-compat with existing
-                            #309 tests that key off neighbor-{nodeId}. */}
-                        <span
-                          data-testid={`infrastructure-detail-panel-neighbor-${entry.node.id}`}
-                          aria-hidden="true"
-                          style={{ display: 'none' }}
-                        />
                       </li>
                     )
                   })}
