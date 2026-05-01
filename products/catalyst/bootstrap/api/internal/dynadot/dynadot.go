@@ -297,3 +297,175 @@ func truncate(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
+
+// AddNSDelegation writes the parent-zone NS delegation for a child Sovereign
+// FQDN. Closes ticket #374 — the wizard's post-handover step calls this
+// (via PDM in Phase 8; via stub catalyst-api endpoint in Phase 7) so the
+// parent zone (e.g. omani.works) starts forwarding queries for the child
+// zone (e.g. omantel.omani.works) to the Sovereign's own PowerDNS replicas.
+//
+// Inputs (deliberately minimal — every parameter has a single source of
+// truth in the wizard state):
+//
+//   - parentZone:    the registered domain held in the Dynadot account,
+//                    e.g. "omani.works". MUST be one of the managed
+//                    domains (IsManagedDomain returns true) — otherwise
+//                    we refuse to call the API.
+//   - sovereignFQDN: the child zone, e.g. "omantel.omani.works". MUST end
+//                    with "." + parentZone.
+//   - lbIP:          the new Sovereign's public load-balancer IP, used as
+//                    the glue A-record value for ns1.<sovereignFQDN>. The
+//                    Sovereign's PowerDNS chart materialises ns1/ns2/ns3
+//                    behind that single IP via the anycast-endpoint
+//                    Service (see platform/powerdns/chart/values.yaml).
+//   - extraNS:       optional additional NS hostnames to bundle into the
+//                    delegation. Empty/nil means the canonical 3-record
+//                    set (ns1.<fqdn>, ns2.<fqdn>, ns3.<fqdn>). Callers
+//                    pass non-default values when a Sovereign is fronted
+//                    by a CDN that mints its own NS hostnames.
+//
+// Like AddSovereignRecords this method uses the package's
+// add_dns_to_current_setting=yes contract — it never replaces the parent
+// zone's existing record set. Re-running with identical inputs is safe
+// (Dynadot dedupes on (subdomain, type, value) per the legacy helper's
+// docstring).
+//
+// The API key/secret are read from the Client (set by the caller from the
+// dynadot-api-credentials K8s secret); per Inviolable-Principle #10 we
+// never log or echo them.
+func (c *Client) AddNSDelegation(
+	ctx context.Context,
+	parentZone string,
+	sovereignFQDN string,
+	lbIP string,
+	extraNS []string,
+) error {
+	parentZone = strings.ToLower(strings.TrimSpace(parentZone))
+	sovereignFQDN = strings.ToLower(strings.TrimSpace(sovereignFQDN))
+	lbIP = strings.TrimSpace(lbIP)
+
+	if parentZone == "" {
+		return fmt.Errorf("parentZone is required")
+	}
+	if sovereignFQDN == "" {
+		return fmt.Errorf("sovereignFQDN is required")
+	}
+	if lbIP == "" {
+		return fmt.Errorf("loadBalancerIP is required")
+	}
+	if !IsManagedDomain(parentZone) {
+		return fmt.Errorf(
+			"parent zone %q is not in DYNADOT_MANAGED_DOMAINS — refusing to call the API "+
+				"(per docs/INVIOLABLE-PRINCIPLES.md #4: fail closed on unmanaged domains)",
+			parentZone,
+		)
+	}
+	if !strings.HasSuffix(sovereignFQDN, "."+parentZone) {
+		return fmt.Errorf(
+			"sovereignFQDN %q is not a child of parentZone %q",
+			sovereignFQDN, parentZone,
+		)
+	}
+
+	// Sub-label below the parent zone (e.g. "omantel" or "eu.omantel").
+	sub := strings.TrimSuffix(sovereignFQDN, "."+parentZone)
+	if sub == "" {
+		return fmt.Errorf("derived empty sub-label from sovereignFQDN=%q parentZone=%q",
+			sovereignFQDN, parentZone)
+	}
+
+	// Build the NS hostname list: defaults to ns1/ns2/ns3.<fqdn> when the
+	// caller didn't override it. Lower-case for byte-equality with the
+	// child zone's PowerDNS records.
+	ns := extraNS
+	if len(ns) == 0 {
+		ns = []string{
+			"ns1." + sovereignFQDN,
+			"ns2." + sovereignFQDN,
+			"ns3." + sovereignFQDN,
+		}
+	}
+
+	// Each AddRecord is its own set_dns2 call. This is the same per-record
+	// pattern AddSovereignRecords uses for the wildcard + sub-component A
+	// records, so the rate-limit / failure-mode behaviour is consistent
+	// across the two helpers.
+	for _, host := range ns {
+		if err := c.AddRecord(ctx, parentZone, Record{
+			Subdomain: sub,
+			Type:      "NS",
+			Value:     host,
+			TTL:       300,
+		}); err != nil {
+			return fmt.Errorf("add NS record %s → %s: %w", sub, host, err)
+		}
+	}
+
+	// Glue A record so the parent zone's resolvers can find ns1.<sub>
+	// even before the child zone's PowerDNS answers authoritatively
+	// (RFC 1034 §4.2.1 in-bailiwick glue).
+	if err := c.AddRecord(ctx, parentZone, Record{
+		Subdomain: "ns1." + sub,
+		Type:      "A",
+		Value:     lbIP,
+		TTL:       300,
+	}); err != nil {
+		return fmt.Errorf("add glue A record ns1.%s → %s: %w", sub, lbIP, err)
+	}
+
+	return nil
+}
+
+// BuildNSDelegationRunbook returns the human-readable curl runbook the
+// wizard's StepNSDelegation renders (and the operator copy-pastes during
+// Phase 7 of the omantel handover, before the Phase 8 live-execution path
+// is wired through PDM). The function is pure — no API calls, no
+// credentials touched — so the wizard's runbook section can call it
+// without holding K8s secret material.
+//
+// The output mirrors the JSX-side helper buildDynadotRunbookCommand in
+// products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepNSDelegation.tsx
+// so the operator can re-derive the command from either side.
+func BuildNSDelegationRunbook(parentZone, sovereignFQDN, lbIP string) string {
+	parentZone = strings.ToLower(strings.TrimSpace(parentZone))
+	sovereignFQDN = strings.ToLower(strings.TrimSpace(sovereignFQDN))
+	lbIP = strings.TrimSpace(lbIP)
+
+	sub := sovereignFQDN
+	if strings.HasSuffix(sovereignFQDN, "."+parentZone) {
+		sub = strings.TrimSuffix(sovereignFQDN, "."+parentZone)
+	}
+
+	// nsLine builds one --data-urlencode flag with consistent escaping.
+	// Helpful so the runbook is greppable in the operator's terminal.
+	line := func(k, v string) string {
+		return fmt.Sprintf("  --data-urlencode %q \\", k+"="+v)
+	}
+
+	parts := []string{
+		fmt.Sprintf("# Delegate %s → Sovereign-owned PowerDNS", sovereignFQDN),
+		fmt.Sprintf("# (parent zone: %s, registrar: Dynadot)", parentZone),
+		"# Pre-req: export DYNADOT_API_KEY=<your-key>  # never embedded in this runbook",
+		"curl -sS https://api.dynadot.com/api3.json \\",
+		line("key", "$DYNADOT_API_KEY"),
+		line("command", "set_dns2"),
+		line("domain", parentZone),
+		line("add_dns_to_current_setting", "yes"),
+		line("subdomain0", sub),
+		line("sub_record_type0", "NS"),
+		line("sub_record0", "ns1."+sovereignFQDN),
+		line("subdomain1", sub),
+		line("sub_record_type1", "NS"),
+		line("sub_record1", "ns2."+sovereignFQDN),
+		line("subdomain2", sub),
+		line("sub_record_type2", "NS"),
+		line("sub_record2", "ns3."+sovereignFQDN),
+		line("subdomain3", "ns1."+sub),
+		line("sub_record_type3", "A"),
+		line("sub_record3", lbIP),
+	}
+	out := strings.Join(parts, "\n")
+	// Strip the trailing backslash on the last line so the curl command is
+	// well-formed when copy-pasted.
+	return strings.TrimSuffix(out, " \\")
+}
