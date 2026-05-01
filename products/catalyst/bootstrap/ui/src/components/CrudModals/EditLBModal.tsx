@@ -10,9 +10,9 @@ import { useState } from 'react'
 import { CrudFormModal } from './crudModalScaffold'
 import {
   LoadBalancerFormFields,
-  parseLBPorts,
   type LoadBalancerFormValues,
 } from './formFields'
+import { parseLBPorts } from './formFields/parseLBPorts'
 import { updateLB } from '@/lib/infrastructure-crud'
 import type { LoadBalancerSpec } from '@/lib/infrastructure.types'
 
