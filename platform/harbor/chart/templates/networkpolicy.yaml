@@ -3,9 +3,10 @@ NetworkPolicy — locks the Harbor pods (core / portal / registry /
 jobservice / trivy) down to the minimum egress / ingress required.
 
 Egress targets:
-  - Cluster DNS (kube-system) — service discovery for CNPG + SeaweedFS.
+  - Cluster DNS (kube-system) — service discovery for CNPG / Keycloak.
   - bp-cnpg cluster (registry metadata DB) on port 5432.
-  - bp-seaweedfs S3 endpoint on port 8333 (blob backend).
+  - Cloud-native S3 endpoint (Hetzner Object Storage / AWS S3 / etc.)
+    on HTTPS/443 — registry blob backend per ADR-0001 §13.
   - Keycloak (when ssoEnabled) on port 8080 — OIDC discovery.
   - HTTPS to upstream registries (when pullMirror.enabled) — replication
     pulls from ghcr.io / docker.io / quay.io etc.
@@ -93,17 +94,23 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
-    # SeaweedFS S3 endpoint — registry blob backend.
+    # Cloud-native S3 endpoint — registry blob backend per ADR-0001 §13.
+    # On Hetzner Sovereigns this resolves to https://<region>.your-
+    # objectstorage.com (external HTTPS); on AWS/GCP/Azure Sovereigns
+    # the equivalent native endpoint. The egress rule allows any
+    # external HTTPS so it doesn't need to be vendor-aware.
+    {{- if .Values.objectStorage.enabled }}
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.harborOverlay.networkPolicy.seaweedfsNamespace | default "seaweedfs" }}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: seaweedfs
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
       ports:
         - protocol: TCP
-          port: {{ .Values.harborOverlay.networkPolicy.seaweedfsS3Port | default 8333 }}
+          port: 443
+    {{- end }}
     # Keycloak OIDC discovery (when SSO enabled).
     {{- if .Values.harborOverlay.sso.enabled }}
     - to:

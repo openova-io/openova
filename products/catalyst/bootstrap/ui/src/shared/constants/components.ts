@@ -51,7 +51,7 @@ export const PLATFORM_COMPONENTS: PlatformComponent[] = [
   { id: 'external-dns', name: 'ExternalDNS', description: 'Sync Kubernetes services to DNS providers', category: 'dns', required: false, dependencies: [], version: 'v0.15.0' },
 
   // Optional — Registry
-  { id: 'harbor', name: 'Harbor', description: 'Container registry with scanning & signing', category: 'registry', required: false, dependencies: ['cnpg', 'seaweedfs', 'valkey'], version: 'v2.11.0' },
+  { id: 'harbor', name: 'Harbor', description: 'Container registry with scanning & signing', category: 'registry', required: false, dependencies: ['cnpg', 'valkey'], version: 'v2.11.0' },
 
   // Optional — Scaling
   { id: 'keda', name: 'KEDA', description: 'Event-driven autoscaler + scale-to-zero', category: 'scaling', required: false, dependencies: [], version: 'v2.15.0' },

@@ -5,11 +5,11 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
 spec:
-  version: 1.0.0
+  version: 1.1.0
   card:
     title: Harbor
     family: foundation
-    description: Per-Sovereign OCI registry. Mirrors Catalyst Blueprint OCI artefacts and container images so the Sovereign isn't dependent on ghcr.io for day-2 image pulls. Stores blobs in SeaweedFS (S3 driver), metadata in CNPG. SSO via Keycloak OIDC. Vulnerability scanning via Trivy (off by default; opt-in once bp-trivy reconciles).
+    description: Per-Sovereign OCI registry. Mirrors Catalyst Blueprint OCI artefacts and container images so the Sovereign isn't dependent on ghcr.io for day-2 image pulls. Stores blobs DIRECTLY in cloud-native Object Storage (Hetzner Object Storage / AWS S3 / etc., per ADR-0001 §13), metadata in CNPG. SSO via Keycloak OIDC. Vulnerability scanning via Trivy (off by default; opt-in once bp-trivy reconciles).
     docs: https://goharbor.io/docs/
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
@@ -58,9 +58,12 @@ spec:
   depends:
     - blueprint: bp-cnpg             # registry metadata DB (postgresql.cnpg.io/v1.Cluster)
       version: ^1
-    - blueprint: bp-seaweedfs        # registry blob backend (S3-compatible)
-      version: ^1
     - blueprint: bp-cert-manager     # registry endpoint TLS via ClusterIssuer
       version: ^1
+    # Note: bp-seaweedfs dependency REMOVED in 1.1.0 (issue #383). Per
+    # ADR-0001 §13 Harbor on Sovereigns writes blobs DIRECTLY to the
+    # cloud-provider's native S3 endpoint (Hetzner Object Storage / AWS
+    # S3 / etc.). SeaweedFS is reserved as a POSIX→S3 buffer for legacy
+    # POSIX-only writers and is not in the minimal Sovereign set.
   upgrades:
-    from: ["0.x"]
+    from: ["0.x", "1.0.x"]
