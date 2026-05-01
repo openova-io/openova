@@ -65,6 +65,11 @@ func (h *Handler) Routes() *chi.Mux {
 			// Flow B uses this before letting the customer hit Continue.
 			r.Post("/validate", h.Validate)
 		})
+		// Sovereign-side decommission (issue #319). FQDN-shaped wrappers
+		// around the canonical DELETE /pool/{domain}/release seam — see
+		// release.go header for the anti-duplication note.
+		r.Post("/release", h.SovereignRelease)
+		r.Post("/force-release", h.ForceRelease)
 	})
 	return r
 }
