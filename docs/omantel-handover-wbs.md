@@ -68,75 +68,76 @@ Phases run sequentially; tickets within a phase parallelize except where a same-
 
 ```mermaid
 flowchart LR
-    classDef phase fill:#1f2937,stroke:#94a3b8,color:#f1f5f9,stroke-width:1px
-    classDef done fill:#064e3b,stroke:#10b981,color:#d1fae5
-    classDef wip fill:#713f12,stroke:#eab308,color:#fef9c3,stroke-width:2px
-    classDef blocked fill:#7f1d1d,stroke:#ef4444,color:#fee2e2,stroke-width:2px
-    classDef gate fill:#7c2d12,stroke:#f97316,color:#ffedd5,stroke-width:2px
+    classDef phase fill:#f1f5f9,stroke:#64748b,color:#0f172a,stroke-width:1px
+    classDef done fill:#d1fae5,stroke:#10b981,color:#065f46,stroke-width:2px
+    classDef wip fill:#fef9c3,stroke:#eab308,color:#854d0e,stroke-width:2px
+    classDef blocked fill:#fee2e2,stroke:#ef4444,color:#991b1b,stroke-width:2px
+    classDef gate fill:#ffedd5,stroke:#f97316,color:#9a3412,stroke-width:2px
 
     subgraph PH0[Phase 0 · Pre-flight]
-        direction TB
-        T370["#370<br/>Hetzner purge"]
-        T371["#371<br/>Hetzner OS<br/>credentials"]
+        direction LR
+        T370["#370 Hetzner purge"]
+        T371["#371 OS credentials"]
     end
 
     subgraph PH1[Phase 1 · Foundational]
-        direction TB
-        T338["#338<br/>bp-flux RBAC"]
-        T387["#387<br/>Gateway API<br/>audit"]
+        direction LR
+        T338["#338 bp-flux RBAC"]
+        T387["#387 Gateway API audit"]
     end
 
     subgraph PH2[Phase 2 · Infrastructure]
-        direction TB
-        T373["#373<br/>cert-mgr<br/>powerdns-webhook"] --> T374["#374<br/>NS delegation"]
+        direction LR
+        T373["#373 powerdns-webhook"] --> T374["#374 NS delegation"]
     end
 
     subgraph PH3[Phase 3 · Data + State]
-        direction TB
-        T375["#375<br/>NATS JetStream"]
-        T376["#376<br/>Gitea"]
-        T377["#377<br/>Keycloak"]
-        T316["#316<br/>OpenBao<br/>auto-unseal"] --> T331["#331<br/>ESO<br/>ClusterSecretStore"]
+        direction LR
+        T375["#375 NATS"]
+        T376["#376 Gitea"]
+        T377["#377 Keycloak"]
+        T316["#316 OpenBao"] --> T331["#331 ESO"]
     end
 
-    subgraph PH4[Phase 4 · Registry + IaC + Backup]
-        direction TB
-        T378["#378<br/>Crossplane"] --> T327["#327<br/>Crossplane claims"]
-        T383["#383<br/>Harbor → S3"]
-        T384["#384<br/>Velero → S3"]
+    subgraph PH4[Phase 4 · Registry · IaC · Backup]
+        direction LR
+        T378["#378 Crossplane"] --> T327["#327 XR claims"]
+        T383["#383 Harbor S3"]
+        T384["#384 Velero S3"]
     end
 
-    subgraph PH5[Phase 5 · Security + Observability]
-        direction TB
-        T379["#379<br/>Kyverno"]
-        T380["#380<br/>Trivy"]
-        T381["#381<br/>Grafana stack"]
-        T382["#382<br/>SPIRE"]
+    subgraph PH5[Phase 5 · Security · Obs]
+        direction LR
+        T379["#379 Kyverno"]
+        T380["#380 Trivy"]
+        T381["#381 Grafana"]
+        T382["#382 SPIRE"]
     end
 
     subgraph PH6[Phase 6 · Control plane]
-        direction TB
-        T385["#385<br/>bp-catalyst-platform<br/>single-blueprint verify"]
+        direction LR
+        T385["#385 catalyst-platform"]
     end
 
     subgraph PH7[Phase 7 · Handover]
-        direction TB
-        T317["#317<br/>handover<br/>finalisation"] --> T319["#319<br/>self-decom<br/>+ redirect"]
+        direction LR
+        T317["#317 finalisation"] --> T319["#319 self-decom + redirect"]
     end
 
-    P8([Phase 8<br/>omantel E2E run<br/>+ DoD verification]):::gate
+    T392["#392 purge.go label fix"]
+    P8([Phase 8 · omantel E2E + DoD]):::gate
 
     %% Phase 1 → Phase 2
     T338 --> T373
     T387 --> T373
 
-    %% Phase 1 → Phase 3 (every blueprint install needs the Flux RBAC fix)
+    %% Phase 1 → Phase 3
     T338 --> T375
     T338 --> T376
     T338 --> T377
     T338 --> T316
 
-    %% Phase 1 + 2 → Phase 4
+    %% Phase 1 + 0b → Phase 4
     T338 --> T378
     T338 --> T383
     T338 --> T384
@@ -158,16 +159,45 @@ flowchart LR
     T373 --> T385
     T387 --> T385
 
-    %% Phase 6 → Phase 7
+    %% Phase 6 → Phase 7 → Phase 8
     T385 --> T317
-
-    %% Phase 7 + DNS delegation → Phase 8
     T319 --> P8
     T374 --> T319
     T370 --> P8
 
+    %% #392 unblocks #370
+    T392 --> T370
+
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338,T370,T371,T387 wip
+    class T338,T392 done
+    class T371,T387 wip
+    class T370 blocked
+
+    %% Clickable ticket numbers — open the GitHub issue in a new tab
+    click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
+    click T317 "https://github.com/openova-io/openova/issues/317" "Open #317" _blank
+    click T319 "https://github.com/openova-io/openova/issues/319" "Open #319" _blank
+    click T327 "https://github.com/openova-io/openova/issues/327" "Open #327" _blank
+    click T331 "https://github.com/openova-io/openova/issues/331" "Open #331" _blank
+    click T338 "https://github.com/openova-io/openova/issues/338" "Open #338" _blank
+    click T370 "https://github.com/openova-io/openova/issues/370" "Open #370" _blank
+    click T371 "https://github.com/openova-io/openova/issues/371" "Open #371" _blank
+    click T373 "https://github.com/openova-io/openova/issues/373" "Open #373" _blank
+    click T374 "https://github.com/openova-io/openova/issues/374" "Open #374" _blank
+    click T375 "https://github.com/openova-io/openova/issues/375" "Open #375" _blank
+    click T376 "https://github.com/openova-io/openova/issues/376" "Open #376" _blank
+    click T377 "https://github.com/openova-io/openova/issues/377" "Open #377" _blank
+    click T378 "https://github.com/openova-io/openova/issues/378" "Open #378" _blank
+    click T379 "https://github.com/openova-io/openova/issues/379" "Open #379" _blank
+    click T380 "https://github.com/openova-io/openova/issues/380" "Open #380" _blank
+    click T381 "https://github.com/openova-io/openova/issues/381" "Open #381" _blank
+    click T382 "https://github.com/openova-io/openova/issues/382" "Open #382" _blank
+    click T383 "https://github.com/openova-io/openova/issues/383" "Open #383" _blank
+    click T384 "https://github.com/openova-io/openova/issues/384" "Open #384" _blank
+    click T385 "https://github.com/openova-io/openova/issues/385" "Open #385" _blank
+    click T387 "https://github.com/openova-io/openova/issues/387" "Open #387" _blank
+    click T392 "https://github.com/openova-io/openova/issues/392" "Open #392" _blank
+    click P8 "https://github.com/openova-io/openova/issues/369" "Open epic #369" _blank
 ```
 
 **Legend:** 🟡 yellow = in-progress agent · 🟢 green = done · 🔴 red = blocked · 🟧 orange = gate · default = parked.
@@ -304,14 +334,15 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 
 | Ticket | Status | PR(s) | Deployed-SHA evidence |
 |---|---|---|---|
-| #338 | 🟡 in-progress (Agent #338-bp-flux-rbac, fix/338-omantel) | TBD | bp-flux 1.1.3 + `catalyst-cluster-reconciler` overlay |
+| #338 | 🟢 merged (`catalyst-cluster-reconciler` ClusterRoleBinding overlay) | #393 → `05cb39c0` | bp-flux 1.1.3 |
 | #316 | (pending) | | |
 | #317 | (pending) | | |
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
-| #370 | 🟡 in-progress (Agent #370-hetzner-purge-runbook) | | |
-| #371 | 🟡 in-progress (Agent #371-hetzner-os-credentials) | | |
+| #370 | 🔴 blocked (was reframed; gate cleared by #392 — re-dispatchable) | (PR #391 closed) | |
+| #371 | 🟡 in-progress (Agent #371-RESUME) | | |
+| #392 | 🟢 merged — `Purge` now filters by `catalyst.openova.io/sovereign=<fqdn>` matching Tofu emit | #397 → `aa8ed4e7` | catalyst-api built |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
 | #375 | (parked) | | |
@@ -325,5 +356,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
-| #387 | 🟡 in-progress (Agent #387-gateway-api-audit) | | |
-| #392 | 🟢 fix landed (Agent #392-purge-go-label-fix) — `Purge` filters by `catalyst.openova.io/sovereign=<fqdn>` matching Tofu emit | (PR pending self-merge) | |
+| #387 | 🟡 in-progress (Agent #387-RESTART, scope tightened) | | |
