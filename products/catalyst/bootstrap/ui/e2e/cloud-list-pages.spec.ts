@@ -72,35 +72,15 @@ async function clearLocalStorage(page: Page) {
   })
 }
 
-test.describe('Cloud list pages (#309 P3)', () => {
+test.describe('Cloud list pages (#309 P3 — surfaces preserved by #350)', () => {
   test.beforeEach(async ({ page }) => {
     await clearLocalStorage(page)
   })
 
-  test('sidebar second-level accordion exposes sub-sub items for Compute / Network / Storage', async ({ page }) => {
-    await gotoProvision(page)
-    // First-level Cloud accordion auto-collapses by default; expand it.
-    await page.getByTestId('sov-nav-cloud').click()
-
-    // Each category exposes a Link (landing page) + a toggle button.
-    for (const id of ['compute', 'network', 'storage'] as const) {
-      const row = page.getByTestId(`sov-nav-cloud-${id}-row`)
-      await expect(row).toBeVisible()
-      const toggle = page.getByTestId(`sov-nav-cloud-${id}-toggle`)
-      await expect(toggle).toBeVisible()
-      // Initially collapsed (no persisted state).
-      expect(await toggle.getAttribute('aria-expanded')).toBe('false')
-
-      await toggle.click()
-      expect(await toggle.getAttribute('aria-expanded')).toBe('true')
-    }
-
-    // Now sub-sub items must be visible.
-    for (const c of CASES) {
-      const item = page.getByTestId(`sov-nav-cloud-${c.category}-${c.child}`)
-      await expect(item).toBeVisible()
-    }
-  })
+  // The legacy /cloud/<category>/<resource> URLs are now 301
+  // redirects to the consolidated /cloud?view=list&kind=… shape (issue
+  // #350). The list-page components below are reused inside the new
+  // CloudListView, so the same testid contracts hold.
 
   for (const c of CASES) {
     test(`${c.category}/${c.child} renders + ${c.placeholder ? 'shows empty state' : 'opens drawer on row click'}`, async ({ page }) => {
@@ -136,18 +116,18 @@ test.describe('Cloud list pages (#309 P3)', () => {
     })
   }
 
-  test('category landing pages show 4 tiles each', async ({ page }) => {
-    for (const cat of ['compute', 'network', 'storage'] as const) {
-      await gotoProvision(page, `cloud/${cat}`)
-      await expect(page.getByTestId(`cloud-${cat}-page`)).toBeVisible()
-      // Each category landing renders a tile grid with at least 4
-      // tiles. The exact tile ids depend on the category; just count
-      // the grid children.
-      const grid = page.getByTestId(`cloud-${cat}-page-tiles`)
-      await expect(grid).toBeVisible()
-      const tiles = grid.locator('a')
-      await expect(tiles).toHaveCount(4)
-    }
+  test('the consolidated list-view tile grid renders 12 tiles (was 3 category landings × 4)', async ({ page }) => {
+    // Issue #350 collapsed the three CloudComputePage / CloudNetworkPage /
+    // CloudStoragePage category landings into a single 12-tile grid
+    // inside CloudListView. The grid lives under the /cloud?view=list
+    // route and is asserted comprehensively in cloud-shell.spec.ts; the
+    // light check here keeps the count contract local to the list-page
+    // suite.
+    await gotoProvision(page, 'cloud?view=list')
+    const grid = page.getByTestId('cloud-list-view-tile-grid')
+    await expect(grid).toBeVisible()
+    const tiles = grid.locator('button[data-kind]')
+    await expect(tiles).toHaveCount(12)
   })
 
   test('every data-backed page exposes a + New CTA in the header (#349)', async ({ page }) => {
@@ -196,9 +176,14 @@ test.describe('Cloud list pages (#309 P3)', () => {
   })
 
   test('captures 1440×900 screenshots of every list page', async ({ page }) => {
+    // 12 list pages × ~3s per navigation+redirect+settle blows past
+    // the default 30s test timeout. Bump explicitly so the screenshot
+    // sweep has headroom across all cases without relying on the
+    // global config.
+    test.setTimeout(120_000)
     for (const c of CASES) {
       await gotoProvision(page, `cloud/${c.category}/${c.child}`)
-      await page.waitForSelector(`[data-testid=${c.pageTestId}]`)
+      await page.waitForSelector(`[data-testid=${c.pageTestId}]`, { timeout: 10_000 })
       // Wait for the data-loaded surface so the screenshot captures
       // populated rows / drawer-ready state rather than the brief
       // "Loading…" placeholder. Falls back to either the seeded first

@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router'
+import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
 
 // Lazy page imports
@@ -24,25 +24,6 @@ import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
-import { Architecture } from '@/pages/sovereign/Architecture'
-// Cloud category landing pages (P3 of #309) — replace the previous
-// flat-dump CloudCompute / CloudNetwork / CloudStorage components.
-import { CloudComputePage } from '@/pages/sovereign/cloud-compute/CloudComputePage'
-import { CloudNetworkPage } from '@/pages/sovereign/cloud-network/CloudNetworkPage'
-import { CloudStoragePage } from '@/pages/sovereign/cloud-storage/CloudStoragePage'
-// Cloud per-resource list pages (P3 of #309).
-import { ClustersPage } from '@/pages/sovereign/cloud-compute/ClustersPage'
-import { VClustersPage } from '@/pages/sovereign/cloud-compute/VClustersPage'
-import { NodePoolsPage } from '@/pages/sovereign/cloud-compute/NodePoolsPage'
-import { WorkerNodesPage } from '@/pages/sovereign/cloud-compute/WorkerNodesPage'
-import { ServicesPage } from '@/pages/sovereign/cloud-network/ServicesPage'
-import { IngressesPage } from '@/pages/sovereign/cloud-network/IngressesPage'
-import { LoadBalancersPage } from '@/pages/sovereign/cloud-network/LoadBalancersPage'
-import { DnsZonesPage } from '@/pages/sovereign/cloud-network/DnsZonesPage'
-import { PvcsPage } from '@/pages/sovereign/cloud-storage/PvcsPage'
-import { StorageClassesPage } from '@/pages/sovereign/cloud-storage/StorageClassesPage'
-import { BucketsPage } from '@/pages/sovereign/cloud-storage/BucketsPage'
-import { VolumesPage } from '@/pages/sovereign/cloud-storage/VolumesPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -96,39 +77,23 @@ const provisionAppRoute = createRoute({
 
 // Global jobs list — table view (issue #204 founder spec). Each row is
 // a clickable link that navigates to the per-job detail page.
-//
-// v3 (PR feat/flow-canvas-polish-and-routing) — the previous
-// `?view=table|flow` Tab strip was removed. The Flow surface lives at
-// its own /flow route below. JobsPage now has a "Show as Flow" button
-// in the header that links to /flow?scope=all.
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
 })
 
-// NOTE: the standalone /provision/$deploymentId/flow route was removed
-// (operator directive 2026-04-30) — flows live only in context, not as
-// a generic page. The FlowPage component is embedded inside JobDetail.
-
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
 // registered BEFORE the dynamic $jobId route below so TanStack Router
 // resolves `/jobs/timeline` to this surface, not to JobDetail with
-// jobId="timeline". Stretch deliverable for epic openova-io/openova#204
-// item 11 (sub-ticket #206).
+// jobId="timeline".
 const provisionJobsTimelineRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs/timeline',
   component: JobsTimeline,
 })
 
-// Per-Job detail page (epic #204) — surfaces the GitLab-CI-runner-style
-// execution log viewer + Dependencies + Apps tabs. Reachable from the
-// JobsTable row link and from deep links shared in Slack / runbook /
-// failure email. The path lives under /provision/$deploymentId/jobs/
-// $jobId so it is namespaced by deployment, not the legacy /job/$jobId
-// pattern that the cosmetic guards still reject for the main JobsPage
-// row click.
+// Per-Job detail page (epic #204).
 const provisionJobDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs/$jobId',
@@ -136,161 +101,94 @@ const provisionJobDetailRoute = createRoute({
 })
 
 // Sovereign Dashboard — resource-utilisation treemap (founder spec).
-// Box area = allocated capacity, colour = utilisation/health/age. Lives
-// alongside the AppsPage / JobsPage Sovereign-portal surfaces under the
-// same /provision/$deploymentId namespace so the sidebar nav entry
-// resolves with the same tanstack-router params as its siblings.
 const provisionDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/dashboard',
   component: Dashboard,
 })
 
-// Sovereign Cloud surface (issue #309 supersedes #227/#228) — the
-// previous "Infrastructure" section is renamed to "Cloud" and its
-// in-page tab strip is replaced by an accordion in the left sidebar
-// (see Sidebar.tsx). The shell renders header + an <Outlet />; bare
-// /cloud redirects to the architecture sub-route so the URL shape is
-// always explicit.
-//
-// The legacy /infrastructure/* paths below are preserved as
-// redirect-only routes so deep links and bookmarks land on the
-// renamed surface without 404'ing.
+/* ── Cloud (issue #350) ─────────────────────────────────────────
+ *
+ * Single parent route. The graph/list dispatch is owned by
+ * CloudPage.tsx via the `view` query param; the resource kind for
+ * list view is the `kind` query param. The legacy P3 sub-routes
+ * `/cloud/<category>/<resource>` are preserved as 301 redirects so
+ * deep links and bookmarks keep working without rendering the
+ * renamed surface twice.
+ */
+
+interface CloudSearch {
+  view?: 'graph' | 'list'
+  kind?: string
+}
+
 const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/cloud',
   component: CloudPage,
-})
-
-const provisionCloudIndexRoute = createRoute({
-  getParentRoute: () => provisionCloudRoute,
-  path: '/',
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: '/provision/$deploymentId/cloud/architecture',
-      params,
-    })
+  validateSearch: (raw: Record<string, unknown>): CloudSearch => {
+    const out: CloudSearch = {}
+    if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    return out
   },
 })
 
-const provisionCloudArchitectureRoute = createRoute({
-  getParentRoute: () => provisionCloudRoute,
-  path: '/architecture',
-  component: Architecture,
-})
-
-// P3 of #309 — each category route is a thin <Outlet /> parent with
-// an index route hosting the landing page. This shape lets
-// /cloud/compute render the CloudComputePage tiles AND
-// /cloud/compute/clusters render ClustersPage inside the parent
-// outlet, all under the same accordion highlight.
-const CloudCategoryOutlet = () => <Outlet />
-
-const provisionCloudComputeRoute = createRoute({
-  getParentRoute: () => provisionCloudRoute,
-  path: '/compute',
-  component: CloudCategoryOutlet,
-})
-const provisionCloudComputeIndexRoute = createRoute({
-  getParentRoute: () => provisionCloudComputeRoute,
-  path: '/',
-  component: CloudComputePage,
-})
-
-const provisionCloudStorageRoute = createRoute({
-  getParentRoute: () => provisionCloudRoute,
-  path: '/storage',
-  component: CloudCategoryOutlet,
-})
-const provisionCloudStorageIndexRoute = createRoute({
-  getParentRoute: () => provisionCloudStorageRoute,
-  path: '/',
-  component: CloudStoragePage,
-})
-
-const provisionCloudNetworkRoute = createRoute({
-  getParentRoute: () => provisionCloudRoute,
-  path: '/network',
-  component: CloudCategoryOutlet,
-})
-const provisionCloudNetworkIndexRoute = createRoute({
-  getParentRoute: () => provisionCloudNetworkRoute,
-  path: '/',
-  component: CloudNetworkPage,
-})
-
-/* ── P3: per-resource list pages (under /cloud/<category>/<kind>) ── */
-
-const provisionCloudClustersRoute = createRoute({
-  getParentRoute: () => provisionCloudComputeRoute,
-  path: '/clusters',
-  component: ClustersPage,
-})
-const provisionCloudVClustersRoute = createRoute({
-  getParentRoute: () => provisionCloudComputeRoute,
-  path: '/vclusters',
-  component: VClustersPage,
-})
-const provisionCloudNodePoolsRoute = createRoute({
-  getParentRoute: () => provisionCloudComputeRoute,
-  path: '/node-pools',
-  component: NodePoolsPage,
-})
-const provisionCloudWorkerNodesRoute = createRoute({
-  getParentRoute: () => provisionCloudComputeRoute,
-  path: '/worker-nodes',
-  component: WorkerNodesPage,
-})
-
-const provisionCloudServicesRoute = createRoute({
-  getParentRoute: () => provisionCloudNetworkRoute,
-  path: '/services',
-  component: ServicesPage,
-})
-const provisionCloudIngressesRoute = createRoute({
-  getParentRoute: () => provisionCloudNetworkRoute,
-  path: '/ingresses',
-  component: IngressesPage,
-})
-const provisionCloudLBsRoute = createRoute({
-  getParentRoute: () => provisionCloudNetworkRoute,
-  path: '/load-balancers',
-  component: LoadBalancersPage,
-})
-const provisionCloudDnsZonesRoute = createRoute({
-  getParentRoute: () => provisionCloudNetworkRoute,
-  path: '/dns-zones',
-  component: DnsZonesPage,
-})
-
-const provisionCloudPvcsRoute = createRoute({
-  getParentRoute: () => provisionCloudStorageRoute,
-  path: '/pvcs',
-  component: PvcsPage,
-})
-const provisionCloudStorageClassesRoute = createRoute({
-  getParentRoute: () => provisionCloudStorageRoute,
-  path: '/storage-classes',
-  component: StorageClassesPage,
-})
-const provisionCloudBucketsRoute = createRoute({
-  getParentRoute: () => provisionCloudStorageRoute,
-  path: '/buckets',
-  component: BucketsPage,
-})
-const provisionCloudVolumesRoute = createRoute({
-  getParentRoute: () => provisionCloudStorageRoute,
-  path: '/volumes',
-  component: VolumesPage,
-})
-
-// Legacy /infrastructure/* — every legacy path now redirects to its
-// /cloud/* equivalent so deep links and bookmarks keep working
-// without rendering the renamed surface twice. The components are
-// no-op stubs because tanstack-router still needs a `component` for
-// the route node to resolve before `beforeLoad` fires.
+// 301 redirects for the legacy P3 sub-routes. Each one redirects to
+// the consolidated `/cloud?view=…&kind=…` shape and renders nothing
+// itself — tanstack-router runs `beforeLoad` before the component
+// resolves, so the throw happens before paint.
 const NoopRedirectComponent = () => null
 
+interface LegacyRedirect {
+  /** Path appended to /provision/$deploymentId/cloud. */
+  path: string
+  /** Search params to apply on the redirect target. */
+  search: CloudSearch
+}
+
+const LEGACY_CLOUD_REDIRECTS: readonly LegacyRedirect[] = [
+  // Architecture → graph view
+  { path: '/architecture', search: { view: 'graph' } },
+  // Compute landing + per-resource → list view with the right kind
+  { path: '/compute', search: { view: 'list', kind: 'clusters' } },
+  { path: '/compute/clusters', search: { view: 'list', kind: 'clusters' } },
+  { path: '/compute/vclusters', search: { view: 'list', kind: 'vclusters' } },
+  { path: '/compute/node-pools', search: { view: 'list', kind: 'node-pools' } },
+  { path: '/compute/worker-nodes', search: { view: 'list', kind: 'worker-nodes' } },
+  // Network landing + per-resource
+  { path: '/network', search: { view: 'list', kind: 'load-balancers' } },
+  { path: '/network/services', search: { view: 'list', kind: 'services' } },
+  { path: '/network/ingresses', search: { view: 'list', kind: 'ingresses' } },
+  { path: '/network/load-balancers', search: { view: 'list', kind: 'load-balancers' } },
+  { path: '/network/dns-zones', search: { view: 'list', kind: 'dns-zones' } },
+  // Storage landing + per-resource
+  { path: '/storage', search: { view: 'list', kind: 'pvcs' } },
+  { path: '/storage/pvcs', search: { view: 'list', kind: 'pvcs' } },
+  { path: '/storage/storage-classes', search: { view: 'list', kind: 'storage-classes' } },
+  { path: '/storage/buckets', search: { view: 'list', kind: 'buckets' } },
+  { path: '/storage/volumes', search: { view: 'list', kind: 'volumes' } },
+] as const
+
+const legacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
+  createRoute({
+    getParentRoute: () => provisionCloudRoute,
+    path: r.path,
+    component: NoopRedirectComponent,
+    beforeLoad: ({ params }) => {
+      throw redirect({
+        to: '/provision/$deploymentId/cloud' as never,
+        params: params as never,
+        search: r.search as never,
+        replace: true,
+      })
+    },
+  }),
+)
+
+// Legacy /infrastructure/* — every legacy path now redirects to the
+// /cloud query shape. Preserves back-compat with the original P1 of
+// #309 redirect set.
 const provisionInfrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/infrastructure',
@@ -302,65 +200,46 @@ const provisionInfrastructureIndexRoute = createRoute({
   path: '/',
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: '/provision/$deploymentId/cloud/architecture',
-      params,
+      to: '/provision/$deploymentId/cloud' as never,
+      params: params as never,
+      search: { view: 'graph' } as never,
+      replace: true,
     })
   },
   component: NoopRedirectComponent,
 })
 
-const provisionInfrastructureTopologyRoute = createRoute({
-  getParentRoute: () => provisionInfrastructureRoute,
-  path: '/topology',
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: '/provision/$deploymentId/cloud/architecture',
-      params,
-    })
-  },
-  component: NoopRedirectComponent,
-})
+interface InfraLegacyRedirect {
+  path: string
+  search: CloudSearch
+}
 
-const provisionInfrastructureComputeRoute = createRoute({
-  getParentRoute: () => provisionInfrastructureRoute,
-  path: '/compute',
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: '/provision/$deploymentId/cloud/compute',
-      params,
-    })
-  },
-  component: NoopRedirectComponent,
-})
+const INFRA_LEGACY_REDIRECTS: readonly InfraLegacyRedirect[] = [
+  { path: '/topology', search: { view: 'graph' } },
+  { path: '/compute', search: { view: 'list', kind: 'clusters' } },
+  { path: '/storage', search: { view: 'list', kind: 'pvcs' } },
+  { path: '/network', search: { view: 'list', kind: 'load-balancers' } },
+] as const
 
-const provisionInfrastructureStorageRoute = createRoute({
-  getParentRoute: () => provisionInfrastructureRoute,
-  path: '/storage',
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: '/provision/$deploymentId/cloud/storage',
-      params,
-    })
-  },
-  component: NoopRedirectComponent,
-})
-
-const provisionInfrastructureNetworkRoute = createRoute({
-  getParentRoute: () => provisionInfrastructureRoute,
-  path: '/network',
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: '/provision/$deploymentId/cloud/network',
-      params,
-    })
-  },
-  component: NoopRedirectComponent,
-})
+const infraLegacyRedirectRoutes = INFRA_LEGACY_REDIRECTS.map((r) =>
+  createRoute({
+    getParentRoute: () => provisionInfrastructureRoute,
+    path: r.path,
+    component: NoopRedirectComponent,
+    beforeLoad: ({ params }) => {
+      throw redirect({
+        to: '/provision/$deploymentId/cloud' as never,
+        params: params as never,
+        search: r.search as never,
+        replace: true,
+      })
+    },
+  }),
+)
 
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
-// don't 404 mid-rollout. Once the public smoke tests move to the new
-// /provision/$deploymentId surface, this route can be removed.
+// don't 404 mid-rollout.
 const legacyProvisionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/legacy/$deploymentId',
@@ -404,37 +283,10 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
-  provisionCloudRoute.addChildren([
-    provisionCloudIndexRoute,
-    provisionCloudArchitectureRoute,
-    provisionCloudComputeRoute.addChildren([
-      provisionCloudComputeIndexRoute,
-      provisionCloudClustersRoute,
-      provisionCloudVClustersRoute,
-      provisionCloudNodePoolsRoute,
-      provisionCloudWorkerNodesRoute,
-    ]),
-    provisionCloudStorageRoute.addChildren([
-      provisionCloudStorageIndexRoute,
-      provisionCloudPvcsRoute,
-      provisionCloudStorageClassesRoute,
-      provisionCloudBucketsRoute,
-      provisionCloudVolumesRoute,
-    ]),
-    provisionCloudNetworkRoute.addChildren([
-      provisionCloudNetworkIndexRoute,
-      provisionCloudServicesRoute,
-      provisionCloudIngressesRoute,
-      provisionCloudLBsRoute,
-      provisionCloudDnsZonesRoute,
-    ]),
-  ]),
+  provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
-    provisionInfrastructureTopologyRoute,
-    provisionInfrastructureComputeRoute,
-    provisionInfrastructureStorageRoute,
-    provisionInfrastructureNetworkRoute,
+    ...infraLegacyRedirectRoutes,
   ]),
   legacyProvisionRoute,
   designsRoute,
