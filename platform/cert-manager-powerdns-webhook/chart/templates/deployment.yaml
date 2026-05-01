@@ -13,7 +13,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bp-cert-manager-powerdns-webhook.selectorLabels" . | nindent 8 }}
+        # `labels` helper already contains the selectorLabels keys
+        # (app.kubernetes.io/name + app.kubernetes.io/instance), so we
+        # only emit it once. Duplicating both blocks produces invalid
+        # YAML ("mapping key already defined") which Helm v3 post-render
+        # rejects. See openova#506.
         {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 8 }}
       {{- with .Values.webhook.podAnnotations }}
       annotations:
