@@ -38,18 +38,35 @@ harbor:
       hosts:
         core: "harbor.example.local"
 
-  # ─── Image-chart storage (SeaweedFS S3) ────────────────────────────────
-  # Catalyst encapsulates ALL S3 traffic via SeaweedFS per
-  # docs/PLATFORM-TECH-STACK.md §3.5. Harbor's blob store is no exception.
-  # Per-Sovereign overlay supplies the access/secret keys via ESO from
-  # the SeaweedFS-managed Secret (or a per-Sovereign-issued IAM token).
+  # ─── Image-chart storage ───────────────────────────────────────────────
+  # Per ADR-0001 §13 + docs/omantel-handover-wbs.md §3 + §3a, S3-aware
+  # apps (Harbor is one) write DIRECTLY to the cloud-provider's native S3
+  # endpoint. On Hetzner Sovereigns that is Hetzner Object Storage
+  # (https://<region>.your-objectstorage.com), NOT SeaweedFS — SeaweedFS
+  # is reserved as a POSIX→S3 buffer for legacy POSIX-only writers and
+  # is not in the minimal Sovereign set.
+  #
+  # Defaults below leave bucket/region/regionendpoint EMPTY because the
+  # umbrella chart MUST render cleanly on contabo (which has no Hetzner
+  # credentials). Per-Sovereign HelmRelease in
+  # clusters/<sovereign>/bootstrap-kit/19-harbor.yaml supplies real
+  # values via Flux `valuesFrom` against the flux-system/object-storage
+  # Secret (issue #371, vendor-agnostic since #425).
+  #
+  # `type: filesystem` keeps the upstream chart on the local PVC path
+  # at default-render time (so an empty bucket/regionendpoint doesn't
+  # produce a half-broken S3 driver); the per-Sovereign overlay MUST
+  # flip type back to `s3` and set `existingSecret: harbor-objectstorage-credentials`
+  # once it supplies real config — see the bootstrap-kit slot for the
+  # wiring.
   persistence:
     enabled: true
     resourcePolicy: "keep"
     persistentVolumeClaim:
       registry:
-        # Even with S3 backend, the upstream chart still allocates a tiny
-        # PVC for cache. Per-Sovereign overlay MAY override storageClass.
+        # Used in `type: filesystem` mode (contabo dev/test) AND as a
+        # tiny cache when `type: s3` is engaged. Per-Sovereign overlay
+        # MAY override storageClass.
         existingClaim: ""
         storageClass: ""
         subPath: ""
@@ -85,20 +102,33 @@ harbor:
         size: 5Gi
     imageChartStorage:
       disableRedirect: false
-      type: s3
+      # Default `filesystem` so contabo dev/test renders cleanly with
+      # no S3 endpoint configured. Per-Sovereign overlay flips this to
+      # `s3` and supplies bucket/region/regionendpoint/existingSecret
+      # via Flux valuesFrom.
+      type: filesystem
+      filesystem:
+        rootdirectory: /storage
       s3:
-        # Per-Sovereign overlay populates these. The endpoint
-        # template assumes the canonical SeaweedFS S3 service per
-        # platform/seaweedfs/chart/values.yaml: seaweedfs-s3 in the
-        # seaweedfs namespace, port 8333.
-        region: "auto"
-        bucket: "harbor-data"
+        # Per-Sovereign overlay populates these via Flux `valuesFrom`
+        # against flux-system/object-storage Secret (#371, vendor-
+        # agnostic since #425). The corresponding `targetPath` entries
+        # are documented in clusters/_template/bootstrap-kit/19-harbor.yaml.
+        region: ""
+        bucket: ""
+        # Credentials flow through `existingSecret` (NOT inline
+        # accesskey/secretkey) so the umbrella's templated Secret
+        # carries them — see templates/objectstorage-credentials.yaml.
+        # Per-Sovereign overlay MUST set existingSecret to the value of
+        # `objectStorage.credentialsSecretName` (default
+        # `harbor-objectstorage-credentials`).
+        existingSecret: ""
         accesskey: ""
         secretkey: ""
-        regionendpoint: "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
+        regionendpoint: ""
         encrypt: false
         keyid: ""
-        secure: false
+        secure: true
         v4auth: true
         chunksize: ""
         rootdirectory: ""
@@ -303,8 +333,6 @@ harborOverlay:
   networkPolicy:
     enabled: false
     cnpgNamespace: "cnpg"
-    seaweedfsNamespace: "seaweedfs"
-    seaweedfsS3Port: 8333
     keycloakNamespace: "keycloak"
   serviceMonitor:
     enabled: false                # docs/BLUEPRINT-AUTHORING.md §11.2
@@ -342,3 +370,36 @@ gateway:
     name: cilium-gateway
     namespace: kube-system
     sectionName: https
+
+# ─── Vendor-agnostic Object Storage backend config (issue #383 / #425) ───
+#
+# Per ADR-0001 §13 + docs/omantel-handover-wbs.md §3 + §3a, S3-aware
+# apps (Harbor is one) write DIRECTLY to the cloud-provider's native S3
+# endpoint. The per-Sovereign HelmRelease populates these fields via
+# Flux `valuesFrom` against the canonical `flux-system/object-storage`
+# Secret. Per #425 the seam is vendor-agnostic — same Secret name +
+# same chart-values shape support a future AWS / Azure / GCP / OCI
+# Sovereign without renaming the seam.
+#
+# Default values below produce a clean render on contabo (no
+# credentials configured, type: filesystem) — see the bootstrap-kit
+# slot at clusters/_template/bootstrap-kit/19-harbor.yaml for the
+# canonical mapping.
+objectStorage:
+  # When false, no credentials Secret is rendered (contabo, local dev,
+  # etc.). Per-Sovereign overlay flips to true.
+  enabled: false
+  # When true, skip rendering the harbor-namespace credentials Secret
+  # entirely — the operator has already created one out-of-band
+  # (sealed-secret / external-secret / cloud-init / etc.).
+  useExistingSecret: false
+  # Override the default secret name — must match the value supplied to
+  # the upstream chart's persistence.imageChartStorage.s3.existingSecret
+  # field by the per-Sovereign overlay.
+  credentialsSecretName: ""
+  s3:
+    # Operator-issued S3 access/secret keys. Plaintext at runtime ONLY
+    # — Flux populates these via valuesFrom at HelmRelease apply time,
+    # never committed to git.
+    accessKey: ""
+    secretKey: ""

@@ -105,45 +105,48 @@ sequenceDiagram
 
 | Backend | Use Case | Notes |
 |---------|----------|-------|
-| PVC | Small deployments | Local storage |
-| S3 (SeaweedFS) | Production | Recommended - tiered archiving |
-| Cloud S3 | Managed | AWS S3 / GCS / Azure Blob |
+| PVC (`type: filesystem`) | Dev / contabo / single-node | Default render — no S3 wiring |
+| Cloud-native S3 | Production Sovereigns | Hetzner Object Storage / AWS S3 / GCP / Azure |
 
-### Recommended: S3 via SeaweedFS
+### Recommended: Cloud-native S3 (per ADR-0001 §13)
+
+S3-aware apps (Harbor is one) write DIRECTLY to the cloud-provider's
+native S3 endpoint. SeaweedFS is reserved as a POSIX→S3 buffer for
+legacy POSIX-only writers and is NOT in the minimal Sovereign set.
 
 ```mermaid
 flowchart LR
-    Harbor[Harbor] -->|"S3 API"| SeaweedFS[SeaweedFS]
-    SeaweedFS -->|"Tier cold data"| Archive[Archival S3]
+    Harbor[Harbor] -->|"S3 API (HTTPS)"| Hetzner[Hetzner Object Storage<br/>fsn1.your-objectstorage.com]
 ```
 
 ---
 
 ## Configuration
 
-### Helm Values
+### Helm Values (per-Sovereign overlay shape — issue #383 / #425)
 
 ```yaml
-expose:
-  type: ingress
-  ingress:
-    className: cilium
-    hosts:
-      core: harbor.<location-code>.<sovereign-domain>
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+gateway:
+  host: registry.<sovereign-fqdn>
 
-# S3 Storage (SeaweedFS)
-persistence:
-  imageChartStorage:
-    type: s3
-    s3:
-      region: us-east-1
-      bucket: harbor-registry
-      accesskey: ""  # From ESO secret
-      secretkey: ""  # From ESO secret
-      regionendpoint: http://seaweedfs.storage.svc:8333
-      v4auth: true
+# Vendor-agnostic Object Storage seam — populated via Flux valuesFrom
+# against the canonical flux-system/object-storage Sealed Secret.
+objectStorage:
+  enabled: true
+  credentialsSecretName: harbor-objectstorage-credentials
+  s3:
+    accessKey: ""   # populated by Flux valuesFrom
+    secretKey: ""   # populated by Flux valuesFrom
+
+harbor:
+  persistence:
+    imageChartStorage:
+      type: s3
+      s3:
+        # bucket / region / regionendpoint also populated by Flux valuesFrom
+        existingSecret: harbor-objectstorage-credentials
+        v4auth: true
+        secure: true
 
 trivy:
   enabled: true

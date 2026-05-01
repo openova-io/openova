@@ -10,13 +10,35 @@ description: |
   Harbor is the per-Sovereign OCI registry (per docs/PLATFORM-TECH-STACK.md
   §3.5 — every host cluster runs its own Harbor instance). It mirrors
   Catalyst Blueprint OCI artefacts and container images so day-2 pulls
-  don't depend on ghcr.io. Catalyst-curated defaults route Harbor's blob
-  store to SeaweedFS (S3 driver) and its metadata DB to CNPG, so this
-  Blueprint hard-depends on bp-seaweedfs + bp-cnpg + bp-cert-manager.
-  Per-Sovereign overlays wire the actual SeaweedFS endpoint, CNPG
-  Cluster reference, and a cert-manager ClusterIssuer.
+  don't depend on ghcr.io.
+
+  Per ADR-0001 §13 (S3-aware app architecture rule) + docs/omantel-
+  handover-wbs.md §3 + §3a, S3-aware apps (Harbor is one) write
+  DIRECTLY to the cloud-provider's native S3 endpoint — Hetzner Object
+  Storage on Hetzner Sovereigns; AWS S3 on AWS Sovereigns; etc.
+  SeaweedFS is reserved as a POSIX→S3 buffer for legacy POSIX-only
+  writers and is NOT in the minimal Sovereign set.
+
+  Per #383 / #425 the chart is vendor-AGNOSTIC: per-Sovereign overlays
+  wire bucket / region / endpoint / credentials via Flux `valuesFrom`
+  against the canonical `flux-system/object-storage` Secret. The
+  umbrella's templates/objectstorage-credentials.yaml synthesises a
+  harbor-namespace Secret with the upstream chart's expected
+  REGISTRY_STORAGE_S3_ACCESSKEY / REGISTRY_STORAGE_S3_SECRETKEY keys,
+  referenced via `persistence.imageChartStorage.s3.existingSecret`.
+  Adding a future AWS / Azure / GCP / OCI Sovereign requires only a
+  sibling `infra/<provider>/` Tofu module — this chart Just Works.
+
+  Default render (contabo / dev / no objectStorage overlay) emits NO
+  credentials Secret and NO s3 backend wiring; the upstream chart
+  falls back to filesystem PVC. Per-Sovereign overlays flip
+  `objectStorage.enabled: true` to engage the S3 backend.
+
+  Catalyst-curated defaults route Harbor's metadata DB to CNPG, so
+  this Blueprint hard-depends on bp-cnpg + bp-cert-manager. The
+  earlier dependency on bp-seaweedfs is REMOVED (cloud-direct S3 path).
 type: application
-version: 1.0.0
+version: 1.1.0
 appVersion: "2.14.3"
 keywords: [catalyst, blueprint, harbor, oci, registry, container]
 maintainers:

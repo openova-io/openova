@@ -3,15 +3,44 @@
 # container images so the Sovereign isn't dependent on ghcr.io for
 # day-2 image pulls; also hosts Org-private images per Application.
 #
+# Per ADR-0001 §13 (S3-aware app rule) + docs/omantel-handover-wbs.md
+# §3 + §3a, on Hetzner Sovereigns Harbor writes its blob backend
+# DIRECTLY to Hetzner Object Storage — NOT SeaweedFS, which is
+# reserved as a POSIX→S3 buffer for legacy POSIX-only writers and is
+# not in the minimal Sovereign set.
+#
+# Wrapper chart: platform/harbor/chart/ (umbrella over upstream
+# goharbor/harbor chart, Catalyst-curated values under the `harbor:`
+# key + a vendor-AGNOSTIC `objectStorage.s3.*` section that ships the
+# harbor-namespace credentials Secret in
+# REGISTRY_STORAGE_S3_{ACCESSKEY,SECRETKEY} envFrom shape).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Object Storage credential pattern (issue #371, vendor-agnostic since
+# #425, applied to bp-harbor in #383):
+#   - cloud-init writes flux-system/object-storage Secret with 5 keys:
+#     s3-endpoint / s3-region / s3-bucket / s3-access-key /
+#     s3-secret-key (operator-issued in the Hetzner Console; Hetzner
+#     exposes no Cloud API to mint S3 credentials. Future AWS / Azure /
+#     GCP / OCI Sovereigns provision the same Secret name + same keys
+#     via their respective `infra/<provider>/` Tofu modules — the seam
+#     is vendor-agnostic by name).
+#   - This HelmRelease references that Secret via Flux `valuesFrom`,
+#     pulling each key into the appropriate Helm value path. The
+#     umbrella chart's templates/objectstorage-credentials.yaml then
+#     synthesises a harbor-namespace Secret with
+#     REGISTRY_STORAGE_S3_ACCESSKEY / REGISTRY_STORAGE_S3_SECRETKEY
+#     keys, referenced via persistence.imageChartStorage.s3.existingSecret.
+#
+# dependsOn: bp-cnpg + bp-cert-manager. The earlier dependency on
+# bp-seaweedfs is REMOVED in 1.1.0 (cloud-direct architecture rule;
+# SeaweedFS is no longer a Harbor prerequisite on Sovereigns).
+#
 # Per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.7 — Harbor sits in the
 # storage cohort (W2.K1) rather than apps cohort because it is a
-# consumer of CNPG (registry metadata DB) and SeaweedFS (blob backend),
-# and its presence gates Cosign signing in bp-sigstore (slot 32) and
-# image pinning across all later HRs.
-#
-# Wrapper chart: platform/harbor/chart/
-# Catalyst-curated values: platform/harbor/chart/values.yaml
-# Reconciled by: Flux on the new Sovereign's k3s control plane.
+# consumer of CNPG (registry metadata DB), and its presence gates
+# Cosign signing in bp-sigstore (slot 32) and image pinning across
+# all later HRs.
 
 ---
 apiVersion: v1
@@ -19,7 +48,7 @@ kind: Namespace
 metadata:
   name: harbor
   labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
+    catalyst.openova.io/sovereign: omantel.omani.works
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -44,16 +73,15 @@ spec:
   targetNamespace: harbor
   # Harbor depends on:
   #   - bp-cnpg(16): registry metadata DB (postgresql.cnpg.io/v1.Cluster).
-  #   - bp-seaweedfs(18): registry blob backend (S3-compatible).
   #   - bp-cert-manager(02): registry endpoint TLS via ClusterIssuer.
+  # bp-seaweedfs dependency REMOVED per ADR-0001 §13 (cloud-direct).
   dependsOn:
     - name: bp-cnpg
-    - name: bp-seaweedfs
     - name: bp-cert-manager
   chart:
     spec:
       chart: bp-harbor
-      version: 1.0.0
+      version: 1.1.0
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -67,3 +95,59 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # ── Vendor-agnostic Object Storage backend wiring (issue #383 / #425) ──
+  #
+  # Each entry below pulls a single key from the canonical
+  # flux-system/object-storage Secret (shipped by cloud-init in
+  # infra/<provider>/cloudinit-control-plane.tftpl) into the matching
+  # value path in the umbrella chart. Flux dereferences `valuesFrom` at
+  # HelmRelease apply time, so plaintext credentials never appear in
+  # this committed manifest.
+  #
+  # NOTE: targetPath uses dot notation; keys are required by default
+  # (`optional: false` is the implicit default).
+  valuesFrom:
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-bucket
+      targetPath: harbor.persistence.imageChartStorage.s3.bucket
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-region
+      targetPath: harbor.persistence.imageChartStorage.s3.region
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-endpoint
+      targetPath: harbor.persistence.imageChartStorage.s3.regionendpoint
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-access-key
+      targetPath: objectStorage.s3.accessKey
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-secret-key
+      targetPath: objectStorage.s3.secretKey
+  # Per-Sovereign overrides — issue #387 + #383:
+  # - gateway.host wires the per-Sovereign hostname into the HTTPRoute.
+  # - objectStorage.enabled: true engages the cloud-direct S3 backend
+  #   (Hetzner Object Storage on Hetzner Sovereigns).
+  # - harbor.persistence.imageChartStorage.type: s3 flips upstream chart
+  #   off the default filesystem mode.
+  # - harbor.persistence.imageChartStorage.s3.existingSecret matches the
+  #   credentials Secret name templated by the umbrella chart.
+  values:
+    gateway:
+      host: registry.omantel.omani.works
+    objectStorage:
+      enabled: true
+      useExistingSecret: false
+      credentialsSecretName: harbor-objectstorage-credentials
+    harbor:
+      persistence:
+        imageChartStorage:
+          type: s3
+          s3:
+            existingSecret: harbor-objectstorage-credentials
+            v4auth: true
+            secure: true
+            storageclass: STANDARD
