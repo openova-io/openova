@@ -190,6 +190,20 @@ flowchart TB
         T430["#430 cron→event-driven sweep"]
     end
 
+    subgraph PRE[Phase-8a preflight · de-risk before live run]
+        direction LR
+        T459["#459 A · bootstrap-kit reconcile on kind"]
+        T460["#460 B · Crossplane provider-hcloud Healthy"]
+        T461["#461 C · Cilium HTTPRoute admission"]
+        T462["#462 E · Keycloak realm-import"]
+    end
+
+    %% Preflights gate Phase 8a (de-risk it before real Hetzner credit is burned)
+    T459 --> T454
+    T460 --> T454
+    T461 --> T454
+    T462 --> T454
+
     %% Phase 0 → Phase 4 cross-cut
     T392 --> T370
     T425 --> T383
@@ -239,8 +253,9 @@ flowchart TB
     %% Phase 8 → DoD
     T456 --> DOD
 
-    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF phase
+    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
     class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453 done
+    class T459,T460,T461,T462 wip
     class T454,T455,T456 blocked
 
     %% Clickable ticket numbers
@@ -272,6 +287,10 @@ flowchart TB
     click T429 "https://github.com/openova-io/openova/issues/429" "Open #429" _blank
     click T430 "https://github.com/openova-io/openova/issues/430" "Open #430" _blank
     click T438 "https://github.com/openova-io/openova/issues/438" "Open #438" _blank
+    click T459 "https://github.com/openova-io/openova/issues/459" "Open #459" _blank
+    click T460 "https://github.com/openova-io/openova/issues/460" "Open #460" _blank
+    click T461 "https://github.com/openova-io/openova/issues/461" "Open #461" _blank
+    click T462 "https://github.com/openova-io/openova/issues/462" "Open #462" _blank
     click T453 "https://github.com/openova-io/openova/issues/453" "Open #453" _blank
     click T454 "https://github.com/openova-io/openova/issues/454" "Open #454" _blank
     click T455 "https://github.com/openova-io/openova/issues/455" "Open #455" _blank
@@ -453,6 +472,10 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | **#454** | 🔒 **blocked — Phase 8a · live provision dry run on `test.omani.works`. Operator-driven (real Hetzner credit). Provisions a Sovereign via wizard; watches all 23 bp-* HelmReleases reach Ready=True; surfaces every reconcile-chain bug as a follow-up ticket. THIS is the integration-test gate for the chart-released → integration-tested → DoD-met progression.** | (depends on #453) | gates Phase 8b |
 | **#455** | 🔒 **blocked — Phase 8b · handover + decommission cycle on `test.omani.works`. Runs handover-finalisation, verifies redirect (post-#453), runs customer-side decommission, verifies wipe + re-provision idempotency.** | (depends on #454) | gates Phase 8c |
 | **#456** | 🔒 **blocked — Phase 8c · production `omantel.omani.works` run. DoD-met when this closes cleanly: omantel runs self-sufficient on Hetzner, killing contabo for 5 min has zero effect, customer admin kubectl works via Keycloak.** | (depends on #455) | THE DoD GATE |
+| #459 | 🟡 in flight — Phase-8a preflight A · bootstrap-kit reconcile dry-run on kind cluster. Surfaces Risk R4 (reconcile-chain order under load). Ships `.github/workflows/preflight-bootstrap-kit.yaml` (workflow_dispatch). | (PR pending) | de-risks #454 |
+| #460 | 🟡 in flight — Phase-8a preflight B · Crossplane provider-hcloud Healthy=True on kind. Surfaces Risk R2. Ships `.github/workflows/preflight-crossplane-hcloud.yaml`. | (PR pending) | de-risks #454 |
+| #461 | 🟡 in flight — Phase-8a preflight C · Cilium Gateway HTTPRoute admission for bp-catalyst-platform on kind. Surfaces Risk R3. Ships `.github/workflows/preflight-cilium-httproute.yaml`. | (PR pending) | de-risks #454 |
+| #462 | 🟡 in flight — Phase-8a preflight E · Keycloak realm-import + kubectl OIDC client render on kind. Surfaces Risk R6. Ships `.github/workflows/preflight-keycloak-realm.yaml`. | (PR pending) | de-risks #454 |
 
 ## 9a. Risk register — known gaps that will surface in Phase 8a
 
@@ -585,13 +608,21 @@ Per founder corrective 2026-05-01: **stop dispatching capacity-fill agents on po
 
 That's it. Five steps, three of them sequential operator-driven runs. No parallel agent-dispatch buys progress here.
 
-## 13. Agent-orchestration reset (2026-05-01)
+## 13. Agent-orchestration discipline (2026-05-01, twice-corrected)
 
-The 5-parallel rolling window was correct for chart-shape work (Phases 0-7). It is **wrong** for Phase 8. Phase 8 is operator-driven live execution against real cloud accounts, and adding parallel agents on out-of-scope work just creates merge conflicts and consumes runway on tickets that don't move the DoD.
+**First version of this section (15:38 UTC) wrote "max 1-2 agents on Phase 8 follow-ups." That was an over-correction.** Founder pushback at 15:55 UTC: the discipline rule is about SCOPE not COUNT.
 
-**Going forward:**
+**Correct rule:**
 
-- Max 1 agent in flight when the queue is "fix what 8a surfaces" or "implement #453"
-- Up to 2 agents in flight only if both are non-overlapping Phase-8 follow-ups
-- NO capacity-fill on post-omantel scope (#320, #264, #265, #340, #257) until #456 is closed
-- Every WBS tick records the scope discipline: ticket numbers must trace to one of the 5 steps in §12 above
+- The original "min 3, max 5 agents in flight" cap from `feedback_agent_orchestration_discipline.md` still holds
+- The actual discipline failure was dispatching **out-of-scope work** (epic #320 IAM tickets #324/#325) AS IF they were omantel handover. They aren't.
+- **The scope filter:** every dispatched agent must trace to one of:
+  - The 5 sequential steps to DoD-met in §12
+  - Phase-8a preflight de-risking (the kind-cluster preflights for Risk-register §9a items — see #459/#460/#461/#462)
+  - The #317↔#319 contract reconciliation (#453)
+  - Specific bugs surfaced by Phase 8a/8b/8c
+- **NOT** post-omantel scope (#320 IAM browser-shell #324/#325, #264/#265 AI/ML, #340 SeaweedFS, #257 cleanup chore) until #456 closes
+
+**Phase 8a/8b/8c themselves are operator-driven** — only the operator can run live cloud provisions with real credit. Agents cannot DoD-meet by themselves; they can only de-risk and fix bugs that Phase-8 surfaces.
+
+**WBS-tick discipline (durable):** every new ticket I file gets WBS DAG update + tick PR opened + merged in the **same response** before the next ticket can be dispatched. No more "ticket created, chart updated 30 min later." The tick chronology is on git: `docs(wbs): tick N — <summary>` for each state change.
