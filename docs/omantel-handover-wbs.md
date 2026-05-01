@@ -169,8 +169,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338,T387,T392 done
-    class T370,T371 wip
+    class T338,T370,T387,T392 done
+    class T371,T373,T316,T377,T378 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
@@ -340,6 +340,10 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
 | #371 | 🟡 in-progress (Agent #371-RESUME) — Hetzner Object Storage credential pattern via Phase-0 OpenTofu | | |
+| #373 | 🟡 in-progress (Agent #373) — bp-cert-manager-powerdns-webhook authoring (mirrors bp-cert-manager-dynadot-webhook structure) | | |
+| #316 | 🟡 in-progress (Agent #316) — OpenBao auto-unseal flow | | |
+| #377 | 🟡 in-progress (Agent #377) — bp-keycloak install verification | | |
+| #378 | 🟡 in-progress (Agent #378) — bp-crossplane install verification | | |
 | #392 | ✅ DoD-met — code shipped (#397, `aa8ed4e7`), catalyst-api:aa8ed4e7 deployed, behavior-verified by fake-Hetzner E2E test (PR #399, `0904f54a`); regression sentinel pins label-key against future drift | #397 + #399 | catalyst-api:aa8ed4e7 + 2 e2e tests passing |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
