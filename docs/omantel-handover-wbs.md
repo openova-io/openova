@@ -169,8 +169,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338,T370,T387,T392 done
-    class T371,T373,T316,T377,T378 wip
+    class T338,T370,T378,T387,T392 done
+    class T371,T373,T316,T375,T377 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
@@ -343,14 +343,12 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #373 | 🟡 in-progress (Agent #373) — bp-cert-manager-powerdns-webhook authoring (mirrors bp-cert-manager-dynadot-webhook structure) | | |
 | #316 | 🟡 in-progress (Agent #316) — OpenBao auto-unseal flow | | |
 | #377 | 🟡 in-progress (Agent #377) — bp-keycloak install verification | | |
-| #378 | 🟡 in-progress (Agent #378) — bp-crossplane install verification | | |
+| #378 | ✅ chart-verified — bp-crossplane v1.1.3 already published; helm template renders 23 kinds clean; smoke install on contabo reached 2/2 Ready in 26s; `Provider.pkg.crossplane.io/v1` admitted; `provider-hcloud:v0.4.0` Provider CR admitted; smoke torn down clean; bootstrap-kit wiring already present in `_template` | (closed as duplicate) | smoke evidence in #378 thread |
 | #392 | ✅ DoD-met — code shipped (#397, `aa8ed4e7`), catalyst-api:aa8ed4e7 deployed, behavior-verified by fake-Hetzner E2E test (PR #399, `0904f54a`); regression sentinel pins label-key against future drift | #397 + #399 | catalyst-api:aa8ed4e7 + 2 e2e tests passing |
-| #373 | (parked) | | |
-| #374 | (parked) | | |
-| #375 | (parked) | | |
+| #373 | 🟡 in-progress (Agent #373) — bp-cert-manager-powerdns-webhook authoring (mirrors bp-cert-manager-dynadot-webhook structure) | | |
+| #374 | (parked, gates on #373) | | |
+| #375 | 🟡 in-progress (Agent #375) — bp-nats-jetstream install verification | | |
 | #376 | (parked) | | |
-| #377 | (parked) | | |
-| #378 | ✅ chart-verified — bp-crossplane v1.1.3 already published; helm template renders 23 kinds clean; smoke install on contabo (`crossplane-smoke` ns) reached 2/2 Ready in 26s; `Provider.pkg.crossplane.io/v1` admitted; `provider-hcloud:v0.4.0` Provider CR admitted; smoke torn down clean; bootstrap-kit wiring already present in `_template` (04-crossplane.yaml + 14-crossplane-claims.yaml). No PR needed — closing as duplicate. | (no-PR) | smoke evidence in commit message |
 | #379 | (parked) | | |
 | #380 | (parked) | | |
 | #381 | (parked) | | |
