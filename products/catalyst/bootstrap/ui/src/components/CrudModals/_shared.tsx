@@ -319,3 +319,110 @@ export function NumberSlider({
     </div>
   )
 }
+
+/** Common select element styled to match TextInput. Used by every
+ *  FormFields component so Add and Edit modals look identical. */
+export function SelectInput({
+  id,
+  value,
+  onChange,
+  options,
+  testId,
+}: {
+  id?: string
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  testId?: string
+}) {
+  return (
+    <select
+      id={id}
+      value={value}
+      data-testid={testId}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-bg)',
+        color: 'var(--color-text)',
+        fontSize: '0.85rem',
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** Generic confirm-delete dialog shared by every per-resource Delete
+ *  flow that doesn't need cascade-preview semantics. The cascade
+ *  variant lives in DeleteCascadeConfirm.tsx; this one is the
+ *  K8s-native CR / standalone-resource path (PVC, Volume, Bucket,
+ *  WorkerNode, Network, LoadBalancer). */
+export interface DeleteConfirmShellProps {
+  open: boolean
+  /** Stable testid suffix — `infrastructure-modal-delete-<id>`. */
+  id: string
+  resourceLabel: string
+  resourceKind: string
+  /** Optional warning body; defaults to a sensible generic line. */
+  warning?: ReactNode
+  onClose: () => void
+  onConfirm: () => Promise<void> | void
+  loading?: boolean
+}
+
+export function DeleteConfirmShell({
+  open,
+  id,
+  resourceLabel,
+  resourceKind,
+  warning,
+  onClose,
+  onConfirm,
+  loading = false,
+}: DeleteConfirmShellProps) {
+  return (
+    <ModalShell
+      id={`delete-${id}`}
+      open={open}
+      title={`Delete ${resourceKind} — ${resourceLabel}`}
+      subtitle={`This action submits a deletion claim and cannot be undone.`}
+      onClose={onClose}
+      secondary={{ label: 'Cancel', onClick: onClose }}
+      primary={{
+        label: `Delete ${resourceKind}`,
+        onClick: () => {
+          void onConfirm()
+        },
+        loading,
+        danger: true,
+      }}
+    >
+      <div
+        data-testid={`infrastructure-modal-delete-${id}-body`}
+        style={{
+          border: '1px solid color-mix(in srgb, var(--color-danger) 50%, transparent)',
+          background: 'color-mix(in srgb, var(--color-danger) 6%, transparent)',
+          borderRadius: 8,
+          padding: 12,
+          fontSize: '0.85rem',
+          color: 'var(--color-text)',
+        }}
+      >
+        {warning ?? (
+          <>
+            Removing this {resourceKind.toLowerCase()} will trigger the
+            corresponding cloud-provider deletion. Workloads attached
+            to it may become unavailable.
+          </>
+        )}
+      </div>
+    </ModalShell>
+  )
+}
