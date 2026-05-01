@@ -302,10 +302,12 @@ test.describe('Cloud / Architecture polish (#348 P1)', () => {
     ).toBeVisible()
   })
 
-  test('edge legend shows ArchiMate-style symbol thumbnails for every relation type', async ({
+  test('edge legend popover shows ArchiMate-style symbol thumbnails for every relation type', async ({
     page,
   }) => {
     await gotoArchitecture(page)
+    // Issue #366 item 3: legend is a Popover, opens on click.
+    await page.getByTestId('cloud-architecture-edge-legend-trigger').click()
     const legend = page.getByTestId('cloud-architecture-edge-legend')
     await expect(legend).toBeVisible()
 
@@ -453,8 +455,11 @@ test.describe('Cloud / Architecture polish (#348 P1)', () => {
       fullPage: false,
     })
 
-    // ArchiMate legend close-up — scroll the legend into view + clip.
+    // ArchiMate legend close-up — open the popover (issue #366 item 3:
+    // legend is now a Popover, default closed).
     await page.getByTestId('cloud-architecture-clear-focus').click({ force: true }).catch(() => {})
+    await page.waitForTimeout(200)
+    await page.getByTestId('cloud-architecture-edge-legend-trigger').click()
     await page.waitForTimeout(200)
     const legend = page.getByTestId('cloud-architecture-edge-legend')
     await legend.scrollIntoViewIfNeeded()
