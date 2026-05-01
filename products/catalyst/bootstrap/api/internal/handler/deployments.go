@@ -164,6 +164,67 @@ type Deployment struct {
 	liveWatcher *helmwatch.Watcher
 }
 
+// SlimForHandover returns a copy of the receiver retaining ONLY the
+// fields a post-handover record needs:
+//
+//   - id, sovereignFQDN, createdAt (StartedAt), createdBy (Request.OrgEmail)
+//     for audit;
+//   - AdoptedAt (= adoptedAt) for the redirect contract consumed by
+//     UI/router.tsx::maybeRedirectToCustomerConsole (issue #319).
+//
+// All operational/runtime state (Result, TofuState, kubeconfig path on
+// Result.KubeconfigPath, PDM bearer hash, pdm reservation token,
+// component states, error string, finishedAt) is zeroed. The slim
+// shape is what is persisted by FinaliseHandover (issue #453) instead
+// of deleting the record entirely — deletion would 404 the redirect
+// fetch and the customer console would never be reached.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md §0 minimum-retention: Catalyst-Zero
+// keeps ONLY the structural breadcrumb required for the redirect to
+// fire; everything else lives on the Sovereign side post-handover.
+//
+// The returned Deployment carries closed eventsCh + done channels so
+// any leftover SSE consumer attempts on the slim record terminate
+// immediately (matching the fromRecord rehydration shape).
+func (d *Deployment) SlimForHandover(adoptedAt time.Time) *Deployment {
+	closedCh := make(chan provisioner.Event)
+	closedDone := make(chan struct{})
+	close(closedCh)
+	close(closedDone)
+
+	stamped := adoptedAt.UTC()
+
+	d.mu.Lock()
+	id := d.ID
+	startedAt := d.StartedAt
+	orgName := d.Request.OrgName
+	orgEmail := d.Request.OrgEmail
+	sovereignFQDN := d.Request.SovereignFQDN
+	d.mu.Unlock()
+
+	return &Deployment{
+		ID:     id,
+		Status: "adopted",
+		// Request retains ONLY the audit-minimum context (orgName,
+		// orgEmail, sovereignFQDN). All credentials + sizing + region
+		// detail are intentionally zeroed — they belong to the
+		// Sovereign side now.
+		Request: provisioner.Request{
+			OrgName:       orgName,
+			OrgEmail:      orgEmail,
+			SovereignFQDN: sovereignFQDN,
+		},
+		StartedAt: startedAt,
+		// FinishedAt is also "adoptedAt" semantically — set to the same
+		// stamp so the wizard's terminal-state surfaces show a coherent
+		// timeline.
+		FinishedAt: stamped,
+		AdoptedAt:  &stamped,
+		eventsCh:   closedCh,
+		done:       closedDone,
+	}
+}
+
 // recordEvent appends ev to the durable history under the mutex, evicting
 // the oldest entry when the buffer is at cap. Returns the event back so
 // callers can fluently send it down the live channel.

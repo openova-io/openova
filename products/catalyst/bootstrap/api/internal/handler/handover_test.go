@@ -14,11 +14,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
 // fakeReceiver simulates the new Sovereign's /api/v1/handover/tofu-archive
@@ -210,6 +212,39 @@ func TestFinaliseHandover_FullFlow(t *testing.T) {
 	}
 	if _, err := os.Stat(kcPath); !os.IsNotExist(err) {
 		t.Errorf("kubeconfig not cleaned: %v", err)
+	}
+
+	// Slim-record contract (#453): the deployment must NOT be deleted.
+	// Audit-minimum + redirect-essentials must remain on the in-memory
+	// row so a follow-up GET /api/v1/deployments/{id} hands the UI the
+	// `adoptedAt` + `sovereignFQDN` it needs to fire the redirect from
+	// console.openova.io/sovereign/<id> → console.<sovereign-fqdn>.
+	val, ok := h.deployments.Load("dep-full")
+	if !ok {
+		t.Fatalf("deployment record was deleted post-handover; #453 contract requires slim retention")
+	}
+	got := val.(*Deployment)
+	if got.AdoptedAt == nil {
+		t.Errorf("AdoptedAt nil after FinaliseHandover; redirect contract needs non-nil timestamp")
+	}
+	if got.Request.SovereignFQDN != "tenant-y.omani.works" {
+		t.Errorf("SovereignFQDN dropped from slim record: %q", got.Request.SovereignFQDN)
+	}
+	if got.ID != "dep-full" {
+		t.Errorf("ID drifted on slim record: %q", got.ID)
+	}
+	// Operational fields must be zeroed.
+	if got.Result != nil {
+		t.Errorf("Result not zeroed on slim record: %+v", got.Result)
+	}
+	if got.Error != "" {
+		t.Errorf("Error not zeroed on slim record: %q", got.Error)
+	}
+	if got.Request.HetznerToken != "" || got.Request.DynadotAPIKey != "" {
+		t.Errorf("credential fields leaked into slim record: %+v", got.Request)
+	}
+	if got.Status != "adopted" {
+		t.Errorf("Status not transitioned to adopted: %q", got.Status)
 	}
 }
 
@@ -426,6 +461,261 @@ func keysOf[K comparable, V any](m map[K]V) []K {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestFinaliseHandover_PreservesRedirectContract is the explicit guard
+// against the regression #453 fixed: handover-finalisation MUST leave a
+// reachable deployment row whose JSON shape carries `adoptedAt` +
+// `sovereignFQDN`, because that is what the UI router's beforeLoad
+// fetches to fire the post-handover redirect (issue #319 PR #451).
+//
+// We drive the same FinaliseHandover handler used in production, then
+// hit GET /api/v1/deployments/{id} (the canonical handler the UI
+// fetches) and assert the JSON response contains the redirect
+// contract. Anything else (404, missing adoptedAt, missing
+// sovereignFQDN) breaks the redirect.
+func TestFinaliseHandover_PreservesRedirectContract(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.New(dir)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	h := newTestHandler(t)
+	h.store = st
+
+	dep := seedDeployment(t, h, "dep-redir", "tenant-r.omani.works")
+	dep.Request.OrgEmail = "ops@tenant-r.example"
+	dep.Request.OrgName = "Tenant R"
+	// Seed an initial Save so on-disk state exists pre-handover.
+	h.persistDeployment(dep)
+
+	// Wire a fake receiver so the Tofu archive POST succeeds.
+	recvr := &fakeReceiver{}
+	srv := httptest.NewServer(recvr.handler())
+	defer srv.Close()
+	h.SetHandoverTargetURL(srv.URL)
+	h.SetHandoverHTTPClient(srv.Client())
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/handover/finalise/{id}", h.FinaliseHandover)
+	r.Get("/api/v1/deployments/{id}", h.GetDeployment)
+
+	// Drive the finalise.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/handover/finalise/dep-redir", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("finalise: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// GET /api/v1/deployments/{id} — the path the UI router beforeLoad
+	// fetches. Per #319 PR #451 it expects {adoptedAt, sovereignFQDN}.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-redir", nil)
+	getRec := httptest.NewRecorder()
+	r.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET deployment after handover: status=%d body=%s — record was deleted! redirect cannot fire", getRec.Code, getRec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(getRec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	adoptedAt, ok := body["adoptedAt"].(string)
+	if !ok || adoptedAt == "" {
+		t.Fatalf("adoptedAt missing/empty in GET response: %v", body)
+	}
+	if _, err := time.Parse(time.RFC3339, adoptedAt); err != nil {
+		t.Errorf("adoptedAt not RFC3339: %q (%v)", adoptedAt, err)
+	}
+	if got, _ := body["sovereignFQDN"].(string); got != "tenant-r.omani.works" {
+		t.Errorf("sovereignFQDN missing or wrong: %v", body)
+	}
+
+	// On-disk record must round-trip through the store with AdoptedAt set.
+	rec2, err := st.Load("dep-redir")
+	if err != nil {
+		t.Fatalf("store.Load post-handover: %v — on-disk record missing breaks redirect after Pod restart", err)
+	}
+	if rec2.AdoptedAt == nil {
+		t.Errorf("on-disk record AdoptedAt nil")
+	}
+	if rec2.Request.SovereignFQDN != "tenant-r.omani.works" {
+		t.Errorf("on-disk record SovereignFQDN: %q", rec2.Request.SovereignFQDN)
+	}
+	// Operational fields must be absent on disk.
+	if rec2.Result != nil {
+		t.Errorf("on-disk Result not zeroed: %+v", rec2.Result)
+	}
+	if rec2.Request.HetznerToken != "" {
+		t.Errorf("on-disk credentials leaked: %q", rec2.Request.HetznerToken)
+	}
+}
+
+// TestSlimForHandover is a unit-level cover for the in-memory record
+// transform invoked by FinaliseHandover. We assert all four classes of
+// behaviour: audit fields kept, redirect field set, operational fields
+// zeroed, channels closed.
+func TestSlimForHandover(t *testing.T) {
+	finished := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	earlier := time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name string
+		in   *Deployment
+	}{
+		{
+			name: "full-record",
+			in: &Deployment{
+				ID:        "dep-1",
+				Status:    "ready",
+				StartedAt: earlier,
+				Request: provisioner.Request{
+					OrgName:       "Acme",
+					OrgEmail:      "ops@acme.io",
+					SovereignFQDN: "k8s.acme.io",
+					HetznerToken:  "secret-do-not-leak",
+					DynadotAPIKey: "secret-too",
+				},
+				Result: &provisioner.Result{
+					LoadBalancerIP: "1.2.3.4",
+					KubeconfigPath: "/tmp/kc",
+				},
+				Error:                "",
+				kubeconfigBearerHash: "deadbeef",
+				pdmReservationToken:  "rt",
+				pdmPoolDomain:        "omani.works",
+				pdmSubdomain:         "acme",
+				eventsCh:             make(chan provisioner.Event, 4),
+				done:                 make(chan struct{}),
+			},
+		},
+		{
+			name: "minimal-record",
+			in: &Deployment{
+				ID:        "dep-2",
+				Status:    "phase1-watching",
+				StartedAt: earlier,
+				Request: provisioner.Request{
+					SovereignFQDN: "byo.example.com",
+				},
+				eventsCh: make(chan provisioner.Event, 1),
+				done:     make(chan struct{}),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := tc.in.SlimForHandover(finished)
+			if out == nil {
+				t.Fatal("SlimForHandover returned nil")
+			}
+			// Audit-minimum kept.
+			if out.ID != tc.in.ID {
+				t.Errorf("ID dropped: in=%q out=%q", tc.in.ID, out.ID)
+			}
+			if out.Request.SovereignFQDN != tc.in.Request.SovereignFQDN {
+				t.Errorf("SovereignFQDN dropped: in=%q out=%q", tc.in.Request.SovereignFQDN, out.Request.SovereignFQDN)
+			}
+			if !out.StartedAt.Equal(tc.in.StartedAt) {
+				t.Errorf("StartedAt dropped: in=%v out=%v", tc.in.StartedAt, out.StartedAt)
+			}
+			if out.Request.OrgName != tc.in.Request.OrgName {
+				t.Errorf("OrgName dropped: in=%q out=%q", tc.in.Request.OrgName, out.Request.OrgName)
+			}
+			if out.Request.OrgEmail != tc.in.Request.OrgEmail {
+				t.Errorf("OrgEmail (createdBy) dropped: in=%q out=%q", tc.in.Request.OrgEmail, out.Request.OrgEmail)
+			}
+			// Redirect contract.
+			if out.AdoptedAt == nil {
+				t.Errorf("AdoptedAt nil")
+			} else if !out.AdoptedAt.Equal(finished) {
+				t.Errorf("AdoptedAt: got=%v want=%v", *out.AdoptedAt, finished)
+			}
+			// Status transitioned.
+			if out.Status != "adopted" {
+				t.Errorf("Status: got=%q want=adopted", out.Status)
+			}
+			// Operational fields zeroed.
+			if out.Result != nil {
+				t.Errorf("Result not zeroed: %+v", out.Result)
+			}
+			if out.Error != "" {
+				t.Errorf("Error not zeroed: %q", out.Error)
+			}
+			if out.Request.HetznerToken != "" {
+				t.Errorf("HetznerToken leaked: %q", out.Request.HetznerToken)
+			}
+			if out.Request.DynadotAPIKey != "" {
+				t.Errorf("DynadotAPIKey leaked: %q", out.Request.DynadotAPIKey)
+			}
+			if out.kubeconfigBearerHash != "" {
+				t.Errorf("kubeconfigBearerHash leaked: %q", out.kubeconfigBearerHash)
+			}
+			if out.pdmReservationToken != "" {
+				t.Errorf("pdmReservationToken leaked: %q", out.pdmReservationToken)
+			}
+			// Channels closed (any consumer terminates immediately).
+			select {
+			case _, open := <-out.eventsCh:
+				if open {
+					t.Errorf("eventsCh not closed")
+				}
+			default:
+				t.Errorf("eventsCh blocked (should be closed)")
+			}
+			select {
+			case <-out.done:
+				// closed — good
+			default:
+				t.Errorf("done not closed")
+			}
+		})
+	}
+}
+
+// TestSlimForHandover_StoreRecordRoundTrip verifies the slim record
+// serialised through store.Record JSON and decoded back retains the
+// AdoptedAt + SovereignFQDN contract. This is the cross-restart guard:
+// after a Pod roll, the rehydrated row must still serve the redirect.
+func TestSlimForHandover_StoreRecordRoundTrip(t *testing.T) {
+	finished := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	original := &Deployment{
+		ID:        "dep-rt",
+		Status:    "ready",
+		StartedAt: time.Date(2026, 4, 28, 9, 0, 0, 0, time.UTC),
+		Request: provisioner.Request{
+			OrgName:       "Tenant",
+			OrgEmail:      "ops@tenant.io",
+			SovereignFQDN: "tenant.omani.works",
+			HetznerToken:  "secret-must-not-survive",
+		},
+	}
+	slim := original.SlimForHandover(finished)
+	rec := slim.toRecord()
+
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded store.Record
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.AdoptedAt == nil || !decoded.AdoptedAt.Equal(finished) {
+		t.Errorf("AdoptedAt did not round-trip: %v", decoded.AdoptedAt)
+	}
+	if decoded.Request.SovereignFQDN != "tenant.omani.works" {
+		t.Errorf("SovereignFQDN did not round-trip: %q", decoded.Request.SovereignFQDN)
+	}
+	// Credentials must be redacted on disk (existing Redact contract).
+	if decoded.Request.HetznerToken != "" {
+		// Slim record sets HetznerToken to "" before redaction; redaction
+		// only marks present fields. So an empty token must round-trip
+		// as empty (not <redacted>).
+		t.Errorf("HetznerToken not zero on slim record after round-trip: %q", decoded.Request.HetznerToken)
+	}
 }
 
 // Ensure the helmwatch.Watcher.Cancel hook compiles against the existing
