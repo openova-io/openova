@@ -19,3 +19,47 @@ The token IS however persisted into `<workdir>/tofu.auto.tfvars.json` on the cat
 **Air-gap caveat:** for installs that configure a remote OpenTofu backend (e.g. encrypted S3-style state), the on-disk tfvars approach above breaks — tofu reads state remotely. Such installs MUST configure the remote backend's auth in env vars at the catalyst-api Pod level, not in tfvars.
 
 **Ref:** #318
+
+## Renaming a persisted JSON field silently drops legacy data
+
+`encoding/json.Unmarshal` ignores any JSON object key that doesn't match a struct
+field tag. When you rename a tag — e.g. `Job.BatchID \`json:"batchId"\`` →
+`Job.ParentID \`json:"parentId"\`` — every existing on-disk record under the old
+tag becomes invisible on the next `Unmarshal`. No error, no warning. Tests miss
+this because every fixture is written with the new shape; only a deployment
+provisioned before the rename surfaces the problem, and only on a UI surface
+that depends on the renamed field. The pre-#351 deployment `ce476aaf80731a46`
+hit exactly this: every leaf came back with empty `ParentID`, the canvas
+rendered zero parent relationships, and there was no log line to chase.
+
+**Rule**: when renaming a persisted struct's JSON tag, add a read-tolerant
+sibling field with the **legacy** tag, hoist it to the new field in `loadIndex`
+(or equivalent), and strip it before the next persist so the on-disk record
+becomes canonical. Add a test that hand-writes the legacy JSON shape and
+asserts the migration. If the new wire shape promises derived data the old
+records can't supply (e.g. synthesized parent-group rows in a recursive
+model), synthesize that data at read time too — the migration must be
+invisible to consumers, not just to the unmarshaller.
+
+```go
+// types.go — read-only migration field
+type Job struct {
+    ParentID      string `json:"parentId"`
+    LegacyBatchID string `json:"batchId,omitempty"` // hoisted on read; stripped on write
+}
+
+// store.go — loadIndex hoist
+for i := range idx.Jobs {
+    if idx.Jobs[i].ParentID == "" && idx.Jobs[i].LegacyBatchID != "" {
+        idx.Jobs[i].ParentID = JobID(deploymentID, idx.Jobs[i].LegacyBatchID)
+    }
+    idx.Jobs[i].LegacyBatchID = ""
+}
+
+// store.go — persistIndex strip
+for i := range persisted.Jobs {
+    persisted.Jobs[i].LegacyBatchID = ""
+}
+```
+
+**Ref**: #351
