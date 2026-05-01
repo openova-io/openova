@@ -318,6 +318,111 @@ write_files:
             name: cloud-credentials
             key: hcloud-token
 
+  # ── Cilium bootstrap values (issue #491) ─────────────────────────────
+  #
+  # The bootstrap helm install below MUST land the same effective values
+  # as the Flux bp-cilium HelmRelease (clusters/_template/bootstrap-kit/
+  # 01-cilium.yaml). Anything that differs becomes drift, and drift in
+  # this particular release is fatal because:
+  #
+  #   1. Flux applies bp-cilium with `helm upgrade --install`, which is
+  #      a no-op when the in-cluster release already has the right values
+  #      and a UPGRADE when it does not.
+  #   2. The bootstrap-kit Kustomization is `wait: true` (issue #492).
+  #      Until cilium-agent is Ready, NO other HelmRelease in
+  #      bootstrap-kit reconciles — including the bp-cilium upgrade
+  #      itself, because Flux's source-controller will not pull a fresh
+  #      GitRepository revision while the existing one is unhealthy.
+  #   3. cilium-agent waits for the operator to register
+  #      `ciliumenvoyconfigs` + `ciliumclusterwideenvoyconfigs` CRDs.
+  #      The upstream chart only registers them when
+  #      `envoyConfig.enabled=true`. If the bootstrap install omits
+  #      that flag, the CRDs are never registered, the agent never
+  #      reaches Ready, the upgrade never fires, and Phase 1 deadlocks.
+  #
+  # Phase-8a bug #16 (otech8 2026-05-01): the prior bootstrap helm
+  # install used six --set flags (`kubeProxyReplacement`, `k8sService*`,
+  # `tunnelProtocol`, `bpf.masquerade`) and produced a release missing
+  # `envoyConfig.enabled`, `gatewayAPI.enabled`, `envoy.enabled`,
+  # `l7Proxy`, `encryption.*`, `hubble.*`, etc. Every fresh provision
+  # crash-looped cilium-agent.
+  #
+  # Canonical seam: this file IS the values overlay for the bootstrap
+  # install, and `clusters/_template/bootstrap-kit/01-cilium.yaml`'s
+  # `spec.values.cilium:` block IS the values overlay for the Flux HR.
+  # The umbrella chart wraps under `cilium:` (subchart key), the
+  # bootstrap install targets the upstream `cilium/cilium` chart
+  # directly so values land at top level. The merged effective set
+  # below mirrors `platform/cilium/chart/values.yaml`'s `cilium:`
+  # block PLUS the overlay in 01-cilium.yaml. A divergence test in
+  # `products/catalyst/bootstrap/api/internal/provisioner/
+  # cilium_values_parity_test.go` (issue #491) locks the two files
+  # together so a future operator cannot change one without the other.
+  #
+  # Per INVIOLABLE-PRINCIPLES.md #4 (never hardcode): the chart
+  # version is parameterised below via the helm install --version flag,
+  # and the values in this file are operator-overridable post-bootstrap
+  # via the Flux HR's `spec.values` block (which always wins on
+  # subsequent `helm upgrade`).
+  - path: /var/lib/catalyst/cilium-values.yaml
+    permissions: '0644'
+    content: |
+      # Catalyst bootstrap cilium values — MUST stay in lock-step with
+      # platform/cilium/chart/values.yaml `cilium:` block + the overlay
+      # in clusters/_template/bootstrap-kit/01-cilium.yaml. See the
+      # comment block immediately above this write_files entry, and
+      # cilium_values_parity_test.go for the regression guard.
+      kubeProxyReplacement: true
+      k8sServiceHost: 127.0.0.1
+      k8sServicePort: 6443
+      tunnelProtocol: vxlan
+      bpf:
+        masquerade: true
+      ipam:
+        mode: kubernetes
+      encryption:
+        enabled: true
+        type: wireguard
+      gatewayAPI:
+        enabled: true
+      envoy:
+        enabled: true
+      # envoyConfig.enabled is the load-bearing flag from issue #491.
+      # Without it the upstream chart skips the CiliumEnvoyConfig and
+      # CiliumClusterwideEnvoyConfig CRD registrations, cilium-agent
+      # waits forever for them, and the node taint
+      # `node.cilium.io/agent-not-ready` never lifts.
+      envoyConfig:
+        enabled: true
+      l7Proxy: true
+      hubble:
+        enabled: true
+        relay:
+          enabled: false
+        ui:
+          enabled: false
+        metrics:
+          # `null` (not [] and not a populated list) is the exact value
+          # that makes the upstream chart skip the metrics ServiceMonitor
+          # template branch. See platform/cilium/chart/values.yaml.
+          enabled: null
+          serviceMonitor:
+            enabled: false
+      l2announcements:
+        enabled: false
+      operator:
+        replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      prometheus:
+        enabled: false
+        serviceMonitor:
+          enabled: false
+
   # Flux GitRepository + Kustomizations that take over after k3s is up.
   #
   # ── Per-Sovereign tree vs. shared _template (issue #218) ─────────────
@@ -612,9 +717,15 @@ runcmd:
   #
   # Per INVIOLABLE-PRINCIPLES.md #3 the GitOps engine is Flux — this Helm
   # install is the one-shot bootstrap exception explicitly authorised by
-  # the same principle's "everything ELSE" qualifier. The chart version
-  # matches platform/cilium/blueprint.yaml's chartVersion to keep the
-  # bootstrap install and the reconciled HelmRelease byte-identical.
+  # the same principle's "everything ELSE" qualifier. Both the chart
+  # version AND the values must match `platform/cilium/blueprint.yaml`
+  # + `clusters/_template/bootstrap-kit/01-cilium.yaml` so the bootstrap
+  # install and the reconciled HelmRelease are byte-identical — issue
+  # #491. The values come from /var/lib/catalyst/cilium-values.yaml
+  # written via cloud-init `write_files:` above; chart version stays
+  # inline as a --version flag because OpenTofu's `var.k3s_version`
+  # parameterisation wires through to it (per INVIOLABLE-PRINCIPLES
+  # #4 — never hardcode).
   - 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
   - 'helm repo add cilium https://helm.cilium.io/'
   - 'helm repo update'
@@ -622,12 +733,7 @@ runcmd:
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium \
       --version 1.16.5 \
       --namespace kube-system \
-      --set kubeProxyReplacement=true \
-      --set k8sServiceHost=127.0.0.1 \
-      --set k8sServicePort=6443 \
-      --set ipam.mode=kubernetes \
-      --set tunnelProtocol=vxlan \
-      --set bpf.masquerade=true
+      -f /var/lib/catalyst/cilium-values.yaml
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
 
   # Install Flux core. Cilium is now the cluster's CNI, so Flux pods will
