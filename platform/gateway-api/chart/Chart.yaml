@@ -1,0 +1,48 @@
+apiVersion: v2
+name: bp-gateway-api
+version: 1.0.0
+description: |
+  Catalyst Blueprint installing the upstream Kubernetes Gateway API
+  CustomResourceDefinitions (Standard channel — gatewayclasses, gateways,
+  httproutes, grpcroutes, referencegrants).
+
+  Why a separate Blueprint instead of a knob on bp-cilium:
+
+    Cilium 1.16's chart `gatewayAPI.enabled=true` flag enables the
+    cilium gateway controller and creates the `cilium` GatewayClass —
+    but it does NOT install the gateway.networking.k8s.io CRDs
+    themselves. Without the CRDs registered, every chart that ships
+    HTTPRoute templates (bp-harbor, bp-openbao, bp-powerdns,
+    bp-keycloak, bp-gitea, bp-grafana, bp-catalyst-platform) fails
+    install with:
+
+      no matches for kind "HTTPRoute" in version "gateway.networking.k8s.io/v1"
+
+    Putting the CRD install on its own Blueprint with a clean Flux
+    `dependsOn` edge makes the dependency visible in the bootstrap-kit
+    DAG and keeps version-bumps of the Gateway API independent of
+    Cilium's release cadence — same shape as bp-crossplane-claims and
+    bp-external-secrets-stores (split CRD/CR ordering pattern locked
+    in by docs/INVIOLABLE-PRINCIPLES.md).
+
+  This chart legitimately ships NO upstream Helm subchart — the upstream
+  Gateway API project distributes CRDs as a single `standard-install.yaml`
+  manifest, not a Helm chart. The CRDs are vendored directly under
+  templates/ with `helm.sh/resource-policy: keep` so they survive uninstall
+  (Gateway API CRDs are cluster-scoped foundational infrastructure;
+  removing them on chart-uninstall would break every HTTPRoute on the
+  cluster).
+type: application
+keywords: [catalyst, blueprint, gateway-api, crds, networking, httproute]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream Gateway API release pinned here (operator-bumpable per
+# docs/INVIOLABLE-PRINCIPLES.md #4 — never hardcode in app/values, only in
+# the Blueprint version metadata + a single annotation that the templates
+# read via .Chart.Annotations). Cilium 1.16 supports Gateway API v1.2.x;
+# bumping requires a paired Cilium support-matrix check.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/upstream-gateway-api-version: "v1.2.0"

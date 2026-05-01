@@ -35,6 +35,12 @@ spec:
   targetNamespace: openbao
   dependsOn:
     - name: bp-spire
+    # bp-gateway-api (issue #503): chart ships an HTTPRoute template at
+    # platform/openbao/chart/templates/httproute.yaml; the
+    # gateway.networking.k8s.io/v1 CRDs MUST be registered before this
+    # HelmRelease applies or install fails with `no matches for kind
+    # HTTPRoute`.
+    - name: bp-gateway-api
   chart:
     spec:
       chart: bp-openbao
