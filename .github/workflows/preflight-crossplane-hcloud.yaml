@@ -1,0 +1,162 @@
+name: Phase-8a preflight B — Crossplane provider-hcloud Healthy
+
+# Issue #460 — Phase-8a preflight B (Risk register R2).
+# Surfaces R2 from docs/omantel-handover-wbs.md §9a:
+# "Crossplane provider-hcloud Healthy=True never observed". Phase 8a
+# fails at the Crossplane step if the Provider doesn't install cleanly,
+# so this preflight bakes the install + Healthy probe into CI.
+#
+# What it does:
+#   1. Spins up a kind cluster (matches the kind-action shape used by
+#      .github/workflows/test-bootstrap-kit.yaml — REUSE, no duplication).
+#   2. Installs the bp-crossplane chart from GHCR (oci://) at the same
+#      version pinned in the omantel handover WBS.
+#   3. Applies the EXACT Provider + ProviderConfig shape that
+#      infra/hetzner/cloudinit-control-plane.tftpl plants on a fresh
+#      Sovereign control plane (issue #425). Any drift between this
+#      preflight and that template means the live Sovereign would
+#      diverge from CI — so the YAML is copy-faithful.
+#   4. Waits up to 5 minutes for provider-hcloud to report
+#      Healthy=True. On miss, surfaces the exact blocking error via
+#      kubectl describe so the founder can act on a real failure mode
+#      rather than a vague timeout.
+#   5. Plants a fake (non-functional) hcloud-token Secret +
+#      ProviderConfig and asserts the ProviderConfig is accepted by
+#      the API server — install-time validation only. Real-credential
+#      validation belongs to Phase 8a, not this preflight.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# triggers are push-on-touch (this file only) + workflow_dispatch for
+# ad-hoc reruns. No `schedule:` cron.
+#
+# Out of scope: actually creating cloud resources via XRC; Hetzner-
+# specific Provider behaviour beyond install + Healthy check.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/preflight-crossplane-hcloud.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Preflight Crossplane provider-hcloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: preflight-crossplane-hcloud
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Install bp-crossplane core
+        run: |
+          helm install crossplane oci://ghcr.io/openova-io/bp-crossplane \
+            --version 1.1.3 \
+            --namespace crossplane-system --create-namespace \
+            --wait --timeout 5m
+
+      - name: Wait for Crossplane core Ready
+        run: |
+          kubectl wait --for=condition=Ready pod \
+            -l app=crossplane \
+            -n crossplane-system \
+            --timeout=5m
+
+      - name: Apply provider-hcloud Provider CR
+        run: |
+          # SHAPE MUST MATCH infra/hetzner/cloudinit-control-plane.tftpl from #425.
+          # Any drift here means the live Sovereign diverges from CI.
+          cat <<'EOF' | kubectl apply -f -
+          ---
+          apiVersion: pkg.crossplane.io/v1
+          kind: Provider
+          metadata:
+            name: provider-hcloud
+            labels:
+              catalyst.openova.io/sovereign: preflight-ci
+          spec:
+            package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+            packagePullPolicy: IfNotPresent
+          EOF
+
+      - name: Wait for provider-hcloud Healthy=True
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(kubectl get provider.pkg.crossplane.io provider-hcloud \
+              -o jsonpath='{.status.conditions[?(@.type=="Healthy")].status}' \
+              2>/dev/null || echo "")
+            if [ "$STATUS" = "True" ]; then
+              echo "OK provider-hcloud Healthy=True after $((i*10))s"
+              exit 0
+            fi
+            echo "[$i/30] Healthy=$STATUS — sleeping 10s"
+            sleep 10
+          done
+          echo "FAIL provider-hcloud did NOT reach Healthy=True in 5 min"
+          echo "--- kubectl describe provider provider-hcloud ---"
+          kubectl describe provider.pkg.crossplane.io provider-hcloud || true
+          echo "--- kubectl get pods -A ---"
+          kubectl get pods -A || true
+          echo "--- kubectl get providerrevisions -A ---"
+          kubectl get providerrevisions -A -o yaml || true
+          exit 1
+
+      - name: Plant fake cloud-credentials Secret + ProviderConfig
+        run: |
+          # ProviderConfig SHAPE MUST MATCH infra/hetzner/cloudinit-control-plane.tftpl
+          # from #425 — including the secretRef.namespace=flux-system reference.
+          # We create the flux-system namespace + fake Secret in the same place
+          # the canonical Tofu cloud-init plants the real one.
+          kubectl create namespace flux-system
+          kubectl create secret generic cloud-credentials \
+            --namespace flux-system \
+            --from-literal=hcloud-token=fake-readonly-token
+          cat <<'EOF' | kubectl apply -f -
+          ---
+          apiVersion: hcloud.crossplane.io/v1beta1
+          kind: ProviderConfig
+          metadata:
+            name: default
+          spec:
+            credentials:
+              source: Secret
+              secretRef:
+                namespace: flux-system
+                name: cloud-credentials
+                key: hcloud-token
+          EOF
+
+      - name: Validate ProviderConfig accepted
+        run: |
+          # The API server accepting the resource (returned by `kubectl get`
+          # against the hcloud.crossplane.io/v1beta1 ProviderConfig CRD) is
+          # the install-time validation. We deliberately do NOT exercise the
+          # token here — Phase 8a covers real-credential validation.
+          kubectl get providerconfig.hcloud.crossplane.io default -o yaml \
+            | grep -E '^apiVersion: hcloud\.crossplane\.io/v1beta1$' \
+            && echo "OK ProviderConfig accepted by API server"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo '## Crossplane provider-hcloud preflight' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Providers + ProviderConfigs' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          kubectl get providers.pkg.crossplane.io,providerconfigs.hcloud.crossplane.io -A >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Provider describe' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          kubectl describe provider.pkg.crossplane.io provider-hcloud >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
