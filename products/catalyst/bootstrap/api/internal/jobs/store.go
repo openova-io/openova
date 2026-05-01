@@ -152,6 +152,26 @@ func (s *Store) loadIndex(deploymentID string) (*Index, error) {
 		idx.Executions = []Execution{}
 	}
 	idx.DeploymentID = deploymentID
+
+	// Legacy migration (#351). Pre-refactor indexes persist `batchId`
+	// where the new shape uses `parentId`. Hoist non-empty legacy
+	// values into ParentID so deriveTreeView sees the relationship
+	// without a separate one-shot data migration. The legacy field is
+	// then cleared so persistIndex doesn't echo it on disk — next
+	// write produces a canonical record.
+	for i := range idx.Jobs {
+		if idx.Jobs[i].ParentID == "" && idx.Jobs[i].LegacyBatchID != "" {
+			idx.Jobs[i].ParentID = JobID(deploymentID, idx.Jobs[i].LegacyBatchID)
+		}
+		idx.Jobs[i].LegacyBatchID = ""
+		// Pre-refactor leaves also have empty Type — every persisted
+		// job before #351 was a leaf install. Default to install so
+		// the recursive Job model contracts (childIds derivation,
+		// status rollup) hold.
+		if idx.Jobs[i].Type == "" {
+			idx.Jobs[i].Type = JobTypeInstall
+		}
+	}
 	return &idx, nil
 }
 
@@ -174,7 +194,11 @@ func (s *Store) persistIndex(idx *Index) error {
 	persisted.Jobs = make([]Job, len(idx.Jobs))
 	copy(persisted.Jobs, idx.Jobs)
 	for i := range persisted.Jobs {
+		// ChildIDs is derived; LegacyBatchID is the legacy migration
+		// hook — both must be cleared so the on-disk record stays
+		// canonical (one source of truth: ParentID).
 		persisted.Jobs[i].ChildIDs = nil
+		persisted.Jobs[i].LegacyBatchID = ""
 	}
 
 	raw, err := json.MarshalIndent(&persisted, "", "  ")
@@ -461,7 +485,7 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	}
 	out := make([]Job, len(idx.Jobs))
 	copy(out, idx.Jobs)
-	deriveTreeView(out)
+	out = deriveTreeView(out)
 	sort.SliceStable(out, func(i, j int) bool {
 		// Pending (no StartedAt) sort last.
 		ai, bi := out[i].StartedAt, out[j].StartedAt
@@ -482,9 +506,10 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	return out, nil
 }
 
-// deriveTreeView mutates the supplied slice in place to populate
-// ChildIDs on every Job and to roll up Status / StartedAt /
-// FinishedAt / DurationMs on every group Job from its descendants.
+// deriveTreeView returns the supplied slice (possibly extended with
+// synthesized parent group rows) with ChildIDs populated on every Job
+// and Status / StartedAt / FinishedAt / DurationMs rolled up on every
+// group Job from its descendants.
 //
 // Rollup rules (group jobs only — leaf jobs are untouched):
 //
@@ -498,13 +523,62 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 //     failed).
 //   - DurationMs: FinishedAt - StartedAt when both are non-nil; else 0.
 //
+// Synthesis of missing parents (#351 legacy migration): every leaf
+// whose ParentID points at an id without a corresponding on-disk Job
+// row triggers an in-memory synthesized group Job — so old
+// deployments (whose pre-refactor index has no parent rows) still
+// render the parent relationship in the canvas + table without a
+// separate one-shot data migration.
+//
 // The walk is post-order via index lookup so a 3-level tree
 // (root group → mid group → leaf) rolls up correctly without
 // recursion.
-func deriveTreeView(jobs []Job) {
+func deriveTreeView(jobs []Job) []Job {
 	if len(jobs) == 0 {
-		return
+		return jobs
 	}
+
+	// Synthesize a group Job for every ParentID that doesn't already
+	// have an on-disk row. The synthesized rows append to the slice
+	// before the rollup pass so they participate in childIds /
+	// status / timing aggregation just like a real on-disk parent.
+	have := make(map[string]bool, len(jobs))
+	for i := range jobs {
+		have[jobs[i].ID] = true
+	}
+	for i := range jobs {
+		pid := jobs[i].ParentID
+		if pid == "" || have[pid] {
+			continue
+		}
+		// Derive the slug from the canonical "<deploymentId>:<slug>"
+		// id format. Falls back to the full pid when the format
+		// doesn't match (defence-in-depth — should never happen for
+		// helmwatch-bridge writes).
+		slug := pid
+		if c := strings.LastIndex(pid, ":"); c >= 0 && c+1 < len(pid) {
+			slug = pid[c+1:]
+		}
+		display := slug
+		switch slug {
+		case GroupBootstrapKit:
+			display = GroupBootstrapKitDisplay
+		case GroupDay2Mutations:
+			display = GroupDay2MutationsDisplay
+		}
+		jobs = append(jobs, Job{
+			ID:           pid,
+			DeploymentID: jobs[i].DeploymentID,
+			JobName:      slug,
+			DisplayName:  display,
+			Type:         JobTypeGroup,
+			ParentID:     "",
+			DependsOn:    []string{},
+			Status:       StatusPending,
+		})
+		have[pid] = true
+	}
+
 	idx := make(map[string]int, len(jobs))
 	for i := range jobs {
 		idx[jobs[i].ID] = i
@@ -635,6 +709,7 @@ func deriveTreeView(jobs []Job) {
 			jobs[i].DurationMs = 0
 		}
 	}
+	return jobs
 }
 
 // GetJob returns the Job + its Executions list. ErrNotFound if no Job
@@ -653,7 +728,7 @@ func (s *Store) GetJob(deploymentID, jobID string) (Job, []Execution, error) {
 	// returned Job reflects the same derived shape ListJobs emits.
 	view := make([]Job, len(idx.Jobs))
 	copy(view, idx.Jobs)
-	deriveTreeView(view)
+	view = deriveTreeView(view)
 
 	// Lookup accepts EITHER the full "<deploymentId>:<jobName>" id OR
 	// the bare jobName. The colon in the canonical id is path-safe per
