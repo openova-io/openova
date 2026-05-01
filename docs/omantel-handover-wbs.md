@@ -43,7 +43,7 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | ❌ not deployed; chart needs S3 endpoint rework ([#384](https://github.com/openova-io/openova/issues/384)) |
 | 20 | `bp-kyverno` | Admission policy | ❌ not deployed ([#379](https://github.com/openova-io/openova/issues/379)) |
 | 21 | `bp-trivy` | Image CVE scanning | ❌ not deployed ([#380](https://github.com/openova-io/openova/issues/380)) |
-| 22 | `bp-grafana` | Bundle: Alloy + Loki + Mimir + Tempo + Grafana dashboards | ❌ not deployed ([#381](https://github.com/openova-io/openova/issues/381)) |
+| 22 | `bp-grafana` | Grafana visualizer (Alloy/Loki/Mimir/Tempo are sibling slots 21-24) | ✅ chart-verified on contabo ([#381](https://github.com/openova-io/openova/issues/381)) |
 | 23 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | ✅ deployed; needs single-blueprint verification ([#385](https://github.com/openova-io/openova/issues/385)) |
 
 > **Correction note (2026-05-01):** earlier draft listed `bp-traefik` as #3. That was wrong — Traefik is contabo-only legacy demo infra. Sovereigns ingress through Cilium Gateway API + Envoy. #372 closed; replaced by [#387](https://github.com/openova-io/openova/issues/387) (Gateway API migration audit across all minimal-set blueprint charts).
@@ -349,7 +349,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #376 | (parked) | | |
 | #379 | (parked) | | |
 | #380 | (parked) | | |
-| #381 | (parked) | | |
+| #381 | ✅ chart-verified — `bp-grafana:1.0.0` published by blueprint-release run `25214143810` on commit `a1bd5502`. Helm template renders cleanly: defaults → 13 kinds (skip-render of HTTPRoute when `gateway.host` empty); with `gateway.host` set → 14 kinds (incl. HTTPRoute). Smoke install on contabo (`grafana-smoke` ns) reached 1/1 Ready in 65s, in-cluster `/login` returned HTTP 200, `/api/health` returned 200, image `docker.io/grafana/grafana:12.3.1` confirmed. Smoke torn down clean. Per-Sovereign overlay drift fixed: `gateway.host: grafana.<sovereign-fqdn>` now wired in `_template/`, `omantel.omani.works/`, and `otech.omani.works/` (parity with bp-keycloak). Wizard catalog already lists bp-grafana at slot 25. NOTE: scope reframed — bp-grafana is the Grafana visualizer only; Alloy/Loki/Mimir/Tempo are separate sibling Blueprints (slots 21-24). Sovereign-impact deferred to Phase 8. | (this PR) | bp-grafana:1.0.0 published; smoke evidence captured |
 | #382 | (parked) | | |
 | #383 | (parked) | | |
 | #384 | (parked) | | |
