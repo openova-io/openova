@@ -77,6 +77,12 @@ func main() {
 	// Phase 1 retries emit operator instructions per the architectural
 	// contract (Flux owns Phase 1 reconciliation).
 	r.Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
+	// Cancel & Wipe endpoint (issue #318). Operator-triggered purge of a
+	// failed or abandoned deployment: tofu destroy + Hetzner orphan purge
+	// + PDM release + local state cleanup. Idempotent. Returns 200 with a
+	// PurgeReport summary. The wizard's failed-state banner renders the
+	// operator confirmation modal that POSTs here.
+	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
 	// Jobs/Executions REST surface (issue #205, sub of epic #204) — the
 	// table-view UX reads this in parallel to the existing SSE events
 	// feed. The 4 endpoints are read-only; every mutation flows

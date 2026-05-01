@@ -34,6 +34,7 @@ import {
   AddRegionModal,
   AddVClusterModal,
   DeleteCascadeConfirm,
+  WipeDeploymentModal,
 } from '@/components/CrudModals'
 import type { CloudProvider } from '@/entities/deployment/model'
 import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
@@ -99,6 +100,7 @@ interface ModalState {
     | 'add-nodepool'
     | 'add-lb'
     | 'delete'
+    | 'wipe-deployment'
 }
 
 export function ArchitectureGraphPage({
@@ -485,7 +487,18 @@ export function ArchitectureGraphPage({
             else if (kind === 'Cluster') setModal({ kind: 'add-vcluster' })
             else if (kind === 'Cloud') setModal({ kind: 'add-region' })
           }}
-          onDelete={() => setModal({ kind: 'delete' })}
+          onDelete={() => {
+            // Cloud root → deployment-level wipe (Phase-0 orphan purge,
+            // tofu destroy + Hetzner orphan force-purge + PDM release +
+            // local cleanup). Per-resource Crossplane XRC delete is the
+            // right path for Region / Cluster / vCluster (day-2). See
+            // docs/INVIOLABLE-PRINCIPLES.md #3.
+            if (selectedNode.type === 'Cloud') {
+              setModal({ kind: 'wipe-deployment' })
+            } else {
+              setModal({ kind: 'delete' })
+            }
+          }}
           onPickNeighbor={(id) => setSelectedId(id)}
         />
       )}
@@ -515,7 +528,12 @@ export function ArchitectureGraphPage({
             closeCtxMenu()
           }}
           onDelete={() => {
-            setModal({ kind: 'delete' })
+            // Same Cloud-root → wipe rule as the detail panel.
+            if (ctxMenu.node?.type === 'Cloud') {
+              setModal({ kind: 'wipe-deployment' })
+            } else {
+              setModal({ kind: 'delete' })
+            }
             closeCtxMenu()
           }}
         />
@@ -590,8 +608,38 @@ export function ArchitectureGraphPage({
           />
         </>
       )}
+
+      {/* Deployment-level Phase-0 wipe (issue #318). Reachable from the
+          Cloud-root node's Delete action OR the canvas context menu's
+          Delete on a Cloud node. Distinct from DeleteCascadeConfirm
+          which targets Crossplane XRCs in the day-2 path. */}
+      <WipeDeploymentModal
+        open={modal.kind === 'wipe-deployment'}
+        deploymentId={deploymentId}
+        sovereignFQDN={inferSovereignFQDNFromGraph(data)}
+        onClose={() => setModal({ kind: 'none' })}
+        onWiped={() => {
+          setModal({ kind: 'none' })
+          // Hard-navigate to /sovereign so the wizard re-mounts fresh
+          // (no stale provisioning store state).
+          window.location.href = '/sovereign'
+        }}
+      />
     </div>
   )
+}
+
+/** Derive the sovereign FQDN from the Architecture data so the
+ *  WipeDeploymentModal confirm input matches what the operator sees on
+ *  the cluster row. First cluster's name is the FQDN by convention. */
+function inferSovereignFQDNFromGraph(
+  data: HierarchicalInfrastructure | null,
+): string | null {
+  if (!data || !data.topology || !data.topology.regions) return null
+  for (const r of data.topology.regions) {
+    if (r.clusters && r.clusters.length > 0) return r.clusters[0].name
+  }
+  return null
 }
 
 /* ── Sub-components ──────────────────────────────────────────────── */
