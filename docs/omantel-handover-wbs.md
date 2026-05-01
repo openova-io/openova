@@ -27,11 +27,11 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 3 | `bp-cert-manager` | TLS issuance | ✅ deployed |
 | 4 | `bp-cert-manager-powerdns-webhook` | DNS-01 against Sovereign's own PowerDNS post-handover | 🟢 chart-released ([#373](https://github.com/openova-io/openova/issues/373)) |
 | 5 | `bp-sealed-secrets` | Git-committed encrypted secrets | ✅ deployed |
-| 6 | `bp-openbao` | Dynamic secrets, rotation, audit log | ❌ not deployed — gates [#316](https://github.com/openova-io/openova/issues/316) auto-unseal |
+| 6 | `bp-openbao` | Dynamic secrets, rotation, audit log | 🟢 chart-released ([#316](https://github.com/openova-io/openova/issues/316)) — bp-openbao 1.2.0 with Shamir+cloud-init auto-unseal flow |
 | 7 | `bp-external-secrets` | OpenBao → K8s Secret materialiser | ⚠️ chart exists; [#331](https://github.com/openova-io/openova/issues/331) ClusterSecretStore split open |
 | 8 | `bp-cnpg` | Postgres operator | ✅ deployed |
 | 9 | `bp-valkey` | Redis-API cache | ✅ deployed |
-| 10 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | ❌ not deployed ([#375](https://github.com/openova-io/openova/issues/375)) |
+| 10 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | ✅ chart-verified ([#375](https://github.com/openova-io/openova/issues/375)) — bp-nats-jetstream 1.1.1 published, R=3 quorum smoke OK |
 | 11 | `bp-vcluster` | Per-tenant vCluster operator | ✅ deployed (3 active tenants) |
 | 12 | `bp-powerdns` | Authoritative DNS for the Sovereign's delegated subdomain (PDM + dnsdist included) | ✅ deployed |
 | 13 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | ❌ not deployed ([#376](https://github.com/openova-io/openova/issues/376)) |
