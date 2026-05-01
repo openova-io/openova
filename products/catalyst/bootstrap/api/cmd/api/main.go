@@ -224,6 +224,18 @@ func main() {
 	r.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
 	r.Delete("/api/v1/deployments/{depId}/infrastructure/{kind}/{id}", h.DeleteInfrastructureResource)
 
+	// Sovereign IAM — UserAccess CR editor (issue #323). The UI's
+	// /sovereign/users page calls these endpoints to list / create /
+	// update / delete UserAccess CRs against the Sovereign cluster.
+	// The CRD shape (`access.openova.io/v1alpha1`) is shipped by
+	// issue #322's chart; catalyst-api consumes it via dynamic
+	// client so there's no Go-type build dependency between the
+	// two PRs.
+	r.Get("/api/v1/deployments/{depId}/admin/user-access", h.ListUserAccess)
+	r.Post("/api/v1/deployments/{depId}/admin/user-access", h.CreateUserAccess)
+	r.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
+	r.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
+
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Error("server error", "err", err)
