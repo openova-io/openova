@@ -67,7 +67,7 @@ For minimal omantel, neither Guacamole nor any POSIX-only writer is selected. **
 Phases run sequentially; tickets within a phase parallelize except where a same-phase dependency is noted.
 
 ```mermaid
-flowchart LR
+flowchart TB
     classDef phase fill:#f1f5f9,stroke:#64748b,color:#0f172a,stroke-width:1px
     classDef done fill:#d1fae5,stroke:#10b981,color:#065f46,stroke-width:2px
     classDef wip fill:#fef9c3,stroke:#eab308,color:#854d0e,stroke-width:2px
