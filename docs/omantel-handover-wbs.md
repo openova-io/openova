@@ -326,3 +326,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #384 | (parked) | | |
 | #385 | (parked) | | |
 | #387 | 🟡 in-progress (Agent #387-gateway-api-audit) | | |
+| #392 | 🟢 fix landed (Agent #392-purge-go-label-fix) — `Purge` filters by `catalyst.openova.io/sovereign=<fqdn>` matching Tofu emit | (PR pending self-merge) | |
