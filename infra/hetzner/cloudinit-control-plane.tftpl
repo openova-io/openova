@@ -466,6 +466,56 @@ runcmd:
   # through here on the next cloud-init render.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
 
+  # ── OpenBao auto-unseal seed Secret (issue #316) ─────────────────────
+  #
+  # Generate a one-shot 32-byte recovery seed during cloud-init and
+  # write it to a K8s Secret `openbao-recovery-seed` in the `openbao`
+  # namespace. The bp-openbao chart (v1.2.0+) renders a post-install
+  # Job (templates/init-job.yaml, Helm hook weight 5) that:
+  #   1. Reads this seed Secret.
+  #   2. Calls `bao operator init -recovery-shares=1 -recovery-threshold=1`.
+  #   3. Persists the recovery key inside OpenBao's auto-unseal config
+  #      (so subsequent pod restarts unseal automatically).
+  #   4. Deletes this seed Secret on success.
+  #
+  # The seed is single-use — once consumed by the init Job, it never
+  # exists again. The recovery key + root token live ONLY inside
+  # OpenBao's Raft state (acceptance criterion #6 of issue #316).
+  #
+  # Why a fresh /dev/urandom value (NOT a value baked into Terraform):
+  # the recovery seed must NEVER be readable from outside the
+  # control-plane node, NEVER appear in tfstate, NEVER appear in any
+  # cloud-init render audit log. Generating it here at provision time
+  # means the only window of plaintext exposure is the few seconds
+  # between this Secret apply and the Helm post-install Job consuming
+  # it — bounded by the bootstrap-kit reconcile cadence (1m max).
+  #
+  # Why we create the namespace here: the bp-openbao HelmRelease in
+  # clusters/_template/bootstrap-kit/08-openbao.yaml ships a Namespace
+  # manifest, but Flux applies that Namespace + the HelmRelease
+  # together. The Helm post-install hook would race the seed Secret
+  # apply if we waited for Flux to create the namespace. Pre-creating
+  # the namespace at cloud-init time eliminates the race.
+  #
+  # Idempotency: `kubectl apply` of the namespace and `kubectl create
+  # secret --dry-run=client -o yaml | kubectl apply -f -` of the
+  # Secret are both safe to re-run. A re-provision (same Sovereign
+  # FQDN) regenerates a fresh seed and re-applies — at which point the
+  # init Job has either already consumed the previous seed (so the new
+  # one becomes a no-op the next time the Helm hook runs) OR sees
+  # OpenBao already initialised and exits idempotently without
+  # touching the new seed.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - |
+    OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n openbao create secret generic openbao-recovery-seed \
+      --from-literal=recovery-seed="$OPENBAO_SEED" \
+      --dry-run=client -o yaml \
+      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml annotate --local -f - \
+        openbao.openova.io/single-use=true -o yaml \
+      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
+    unset OPENBAO_SEED
+
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
   # owns the cluster: pulls clusters/_template/ (with ${SOVEREIGN_FQDN}
   # substituted to ${sovereign_fqdn} via postBuild), installs Cilium

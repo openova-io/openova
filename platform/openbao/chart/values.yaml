@@ -61,3 +61,78 @@ gateway:
     name: cilium-gateway
     namespace: kube-system
     sectionName: https
+
+# ─── Auto-unseal flow (issue #316) ─────────────────────────────────────────
+# Catalyst-curated post-install Job that runs `bao operator init` on a
+# fresh OpenBao cluster, consuming a single-use recovery seed Secret
+# created by cloud-init (see infra/hetzner/cloudinit-control-plane.tftpl
+# `openbao-recovery-seed` block). The Job is idempotent — on a second run
+# (e.g. helm upgrade) it sees `bao status` reporting Initialized=true and
+# exits 0 without touching state.
+#
+# Default disabled so:
+#   1. `helm template` with default values renders cleanly (no `fail` in
+#      templates per #402 lesson — the with-values render path is opt-in
+#      via `autoUnseal.enabled=true` rather than emit-and-fail).
+#   2. Operators provisioning OpenBao OUTSIDE the cloud-init seed pipeline
+#      (e.g. multi-region peer-transit unseal, air-gap operator-supplied
+#      shards) can author their own init flow without this Job racing
+#      them.
+#
+# Cluster overlay clusters/_template/bootstrap-kit/08-openbao.yaml flips
+# `autoUnseal.enabled: true` per-Sovereign, after cloud-init has written
+# the seed Secret.
+autoUnseal:
+  # Enable the post-install init Job. When false, NO init Job is rendered.
+  enabled: false
+  # K8s Secret created by cloud-init that carries the one-shot recovery
+  # seed. The seed itself is generated on the control-plane node during
+  # cloud-init (32 bytes from /dev/urandom) and written to this Secret in
+  # the openbao namespace, with annotation
+  # `openbao.openova.io/single-use: "true"`. The init Job reads it,
+  # passes the bytes to `bao operator init -recovery-pgp-keys=…`, then
+  # deletes the Secret on success.
+  seedSecret:
+    name: openbao-recovery-seed
+    # Key inside the Secret's data field that holds the base64-encoded
+    # recovery seed material.
+    key: recovery-seed
+  # Image used by the init Job — same upstream openbao image as the
+  # StatefulSet, so the `bao` CLI is available without an extra layer.
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) operator may
+  # bump this to match a custom image.
+  image:
+    repository: quay.io/openbao/openbao
+    # Version pinned to match the upstream chart's openbao image. Bumped
+    # together with catalystBlueprint.upstream.version.
+    tag: "2.1.0"
+    pullPolicy: IfNotPresent
+  # Active-instance Service that the Job targets. Defaults to the
+  # upstream chart's `<release>-openbao` Service (port 8200). Override
+  # for non-default releaseName setups.
+  baoAddress: ""
+  # Job-level timeouts (seconds) — bounded so a stuck OpenBao doesn't
+  # leave the Job pending indefinitely.
+  activeDeadlineSeconds: 600
+  backoffLimit: 6
+  # Enable Kubernetes auth method bootstrap as a second post-install Job.
+  # When true the Job waits for `bao operator init` to succeed, then
+  # `bao auth enable kubernetes` + `bao write auth/kubernetes/config …`,
+  # binding the `external-secrets` role to the ESO ServiceAccount per
+  # platform/external-secrets/chart/values.yaml `clusterSecretStore.kubernetesAuth`.
+  kubernetesAuth:
+    enabled: true
+    # Auth mount inside OpenBao for the Kubernetes auth method.
+    mountPath: kubernetes
+    # Role granted to the ESO ServiceAccount.
+    role: external-secrets
+    # ESO ServiceAccount + namespace that the role binds to. Must match
+    # platform/external-secrets/chart/values.yaml clusterSecretStore.kubernetesAuth.
+    serviceAccountName: external-secrets
+    serviceAccountNamespace: external-secrets-system
+    # KV mount that the role grants read access to (matches
+    # platform/external-secrets/chart/values.yaml clusterSecretStore.path).
+    kvMountPath: secret
+    # Token TTLs for ESO sessions.
+    tokenTTL: "1h"
+    tokenMaxTTL: "24h"

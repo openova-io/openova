@@ -334,7 +334,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | Ticket | Status | PR(s) | Deployed-SHA evidence |
 |---|---|---|---|
 | #338 | 🟢 chart-released (catalyst-cluster-reconciler ClusterRoleBinding overlay); Sovereign-impact deferred to first omantel run (bp-flux is cloud-init bootstrapped, not Flux-reconciled on contabo) | #393 → `05cb39c0` | bp-flux 1.1.3 published |
-| #316 | (pending) | | |
+| #316 | 🟢 chart-released — auto-unseal flow (Option A: cloud-init seed → post-install init Job → bao operator init → seed self-destruct; Kubernetes-auth bootstrap Job binds ESO role to external-secrets SA). bp-openbao 1.1.1 → 1.2.0; cluster overlay flipped `autoUnseal.enabled: true`. Sovereign-impact deferred to Phase 8 (next omantel run). | TBD-PR | TBD-SHA |
 | #317 | (pending) | | |
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |

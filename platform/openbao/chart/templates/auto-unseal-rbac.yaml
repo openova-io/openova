@@ -1,0 +1,122 @@
+{{- /*
+Catalyst auto-unseal RBAC — bp-openbao (issue #316).
+
+ServiceAccount + RoleBindings used by the post-install Jobs that run
+`bao operator init` and bootstrap the Kubernetes auth method.
+
+Permissions required (least-privilege):
+  - get/list/delete on the seed Secret in the openbao namespace
+    (init-job consumes the seed and deletes it on success).
+  - get on Pods in the openbao namespace (the Job polls the
+    StatefulSet readiness before calling `bao operator init`).
+  - tokenreviews.authentication.k8s.io: create — required by OpenBao's
+    Kubernetes auth method to validate ServiceAccount tokens. Bound at
+    cluster scope via the standard `system:auth-delegator` ClusterRole.
+    This binding is permanent (it's how OpenBao authenticates ESO at
+    runtime, not a one-shot init step) so it lives outside the Helm
+    hook lifecycle.
+
+Skip-render pattern (per #402 lesson, never use `{{ fail }}`): when
+`autoUnseal.enabled=false` this entire file emits nothing — `helm
+template` with default values stays clean.
+*/}}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- if $au.enabled -}}
+---
+# ServiceAccount used by the init + auth-bootstrap Jobs. Lives in the
+# openbao namespace alongside the StatefulSet.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-auto-unseal
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-auto-unseal
+---
+# Role: read+delete the seed Secret, get/list Pods to poll readiness.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-auto-unseal
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "delete"]
+    resourceNames:
+      - {{ (($au.seedSecret).name) | default "openbao-recovery-seed" | quote }}
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # The init Job persists root token + recovery-key INSIDE OpenBao itself
+  # (via `bao` CLI), but it ALSO needs to write a small bootstrap-marker
+  # Secret in the same namespace so that the auth-bootstrap Job (second
+  # hook) can detect that init has already completed and skip re-running.
+  # Marker contains no secret material — only a timestamp + checksum.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "patch", "update"]
+    resourceNames:
+      - openbao-init-marker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-auto-unseal
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-auto-unseal
+subjects:
+  - kind: ServiceAccount
+    name: openbao-auto-unseal
+    namespace: {{ .Release.Namespace | quote }}
+{{- if (($au.kubernetesAuth).enabled) }}
+---
+# ─── OpenBao runtime: token-reviewer ClusterRoleBinding ──────────────────
+# OpenBao's Kubernetes auth method validates incoming ServiceAccount JWTs
+# by calling tokenreviews.authentication.k8s.io. The OpenBao server pod
+# (NOT the init Job) needs system:auth-delegator at cluster scope.
+#
+# This binding is NOT a Helm hook — it's permanent infrastructure that
+# stays in place for the life of the OpenBao install. Hook lifecycle
+# would tear it down on upgrade and break ESO auth in the gap window.
+#
+# Subject: the upstream openbao chart's ServiceAccount, named
+# `<release>-openbao` per upstream convention (releaseName=openbao →
+# `openbao` SA).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-openbao-auth-delegator" .Release.Name | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-token-reviewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- end }}

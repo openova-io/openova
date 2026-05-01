@@ -1,0 +1,188 @@
+{{- /*
+Catalyst auth-bootstrap Job — bp-openbao (issue #316).
+
+Helm post-install/post-upgrade hook (weight 10, runs AFTER the init Job
+at weight 5). Idempotent on every run:
+
+  1. Wait for `bao status` to report Initialized=true (the init Job at
+     weight 5 has already run; this is a defensive check).
+  2. Use the K8s ServiceAccount mounted at /var/run/secrets/... to
+     enable + configure the Kubernetes auth method on OpenBao.
+  3. Bind the `external-secrets` role to the ESO ServiceAccount per
+     `.Values.autoUnseal.kubernetesAuth`. ESO's ClusterSecretStore
+     `vault-region1` (platform/external-secrets) authenticates via this
+     role on every secret read.
+  4. Mount the kv-v2 backend at `secret/` (matches
+     platform/external-secrets/chart/values.yaml clusterSecretStore.path).
+
+Why this is a SEPARATE Job from init-job.yaml:
+  - Init Job consumes the seed Secret and never persists the root
+    token — exit cleanly. Acceptance criterion #6 demands no root token
+    in K8s Secrets.
+  - Auth bootstrap requires a token to call `bao auth enable …`. The
+    upstream openbao chart exposes a transient init token via the
+    StatefulSet's emptyDir persistence. This Job uses `bao login -path`
+    against the auto-unseal recovery key — which is loaded from
+    OpenBao's internal Raft state, NOT from a K8s Secret.
+
+Skip-render pattern (per #402): renders ONLY when both
+`autoUnseal.enabled=true` AND `autoUnseal.kubernetesAuth.enabled=true`.
+*/}}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- if $au.enabled -}}
+{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- if $kAuth.enabled -}}
+{{- $img := $au.image | default dict -}}
+{{- $repo := $img.repository | default "quay.io/openbao/openbao" -}}
+{{- $tag := $img.tag | default "2.1.0" -}}
+{{- $pullPolicy := $img.pullPolicy | default "IfNotPresent" -}}
+{{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
+{{- $deadline := $au.activeDeadlineSeconds | default 600 -}}
+{{- $backoff := $au.backoffLimit | default 6 -}}
+{{- $mountPath := $kAuth.mountPath | default "kubernetes" -}}
+{{- $role := $kAuth.role | default "external-secrets" -}}
+{{- $saName := $kAuth.serviceAccountName | default "external-secrets" -}}
+{{- $saNs := $kAuth.serviceAccountNamespace | default "external-secrets-system" -}}
+{{- $kvMount := $kAuth.kvMountPath | default "secret" -}}
+{{- $tokenTTL := $kAuth.tokenTTL | default "1h" -}}
+{{- $tokenMaxTTL := $kAuth.tokenMaxTTL | default "24h" -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-auth-bootstrap
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-auth-bootstrap
+spec:
+  activeDeadlineSeconds: {{ $deadline }}
+  backoffLimit: {{ $backoff }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-openbao
+        catalyst.openova.io/component: openbao-auth-bootstrap
+    spec:
+      serviceAccountName: openbao-auto-unseal
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: auth-bootstrap
+          image: {{ printf "%s:%s" $repo $tag | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          env:
+            - name: BAO_ADDR
+              value: {{ $baoAddr | quote }}
+            - name: AUTH_MOUNT_PATH
+              value: {{ $mountPath | quote }}
+            - name: AUTH_ROLE
+              value: {{ $role | quote }}
+            - name: ESO_SA_NAME
+              value: {{ $saName | quote }}
+            - name: ESO_SA_NAMESPACE
+              value: {{ $saNs | quote }}
+            - name: KV_MOUNT_PATH
+              value: {{ $kvMount | quote }}
+            - name: TOKEN_TTL
+              value: {{ $tokenTTL | quote }}
+            - name: TOKEN_MAX_TTL
+              value: {{ $tokenMaxTTL | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[openbao-auth-bootstrap] target BAO_ADDR=$BAO_ADDR"
+              # ─── Wait for OpenBao initialised + unsealed ───────────────
+              ATTEMPTS=0
+              MAX_ATTEMPTS=60   # 5 minutes
+              until OUT=$(bao status -format=json 2>/dev/null) && \
+                    echo "$OUT" | grep -qE '"initialized"[[:space:]]*:[[:space:]]*true' && \
+                    echo "$OUT" | grep -qE '"sealed"[[:space:]]*:[[:space:]]*false'; do
+                ATTEMPTS=$((ATTEMPTS+1))
+                if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[openbao-auth-bootstrap] FATAL: OpenBao not initialised+unsealed after $MAX_ATTEMPTS attempts"
+                  echo "[openbao-auth-bootstrap] manual recovery: docs/RUNBOOK-PROVISIONING.md §openbao-auto-unseal"
+                  exit 1
+                fi
+                echo "[openbao-auth-bootstrap] waiting for openbao initialized=true sealed=false (attempt $ATTEMPTS/$MAX_ATTEMPTS)"
+                sleep 5
+              done
+
+              # ─── Idempotency: skip if auth method + role already exist ─
+              # `bao auth list` returns 200 and the JSON includes the mount
+              # path key (e.g. "kubernetes/") when the method is enabled.
+              # If the role exists we have nothing to do — this run is
+              # post-upgrade or a Job retry.
+              EXISTING_AUTH=$(bao auth list -format=json 2>/dev/null || echo "{}")
+              if echo "$EXISTING_AUTH" | grep -qE "\"$AUTH_MOUNT_PATH/\""; then
+                echo "[openbao-auth-bootstrap] auth method $AUTH_MOUNT_PATH/ already enabled"
+              else
+                echo "[openbao-auth-bootstrap] enabling Kubernetes auth at $AUTH_MOUNT_PATH/"
+                bao auth enable -path=$AUTH_MOUNT_PATH kubernetes
+              fi
+
+              # Configure the auth method against the in-cluster API
+              # server. K8s_HOST is the standard cluster-DNS endpoint;
+              # K8S_CA_CERT comes from the SA mount.
+              echo "[openbao-auth-bootstrap] writing auth/$AUTH_MOUNT_PATH/config"
+              KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+              bao write auth/$AUTH_MOUNT_PATH/config \
+                kubernetes_host="https://kubernetes.default.svc" \
+                kubernetes_ca_cert="$KUBE_CA" \
+                disable_iss_validation=true
+
+              # ─── Ensure kv-v2 backend at $KV_MOUNT_PATH/ ────────────────
+              EXISTING_MOUNTS=$(bao secrets list -format=json 2>/dev/null || echo "{}")
+              if echo "$EXISTING_MOUNTS" | grep -qE "\"$KV_MOUNT_PATH/\""; then
+                echo "[openbao-auth-bootstrap] kv backend $KV_MOUNT_PATH/ already mounted"
+              else
+                echo "[openbao-auth-bootstrap] mounting kv-v2 at $KV_MOUNT_PATH/"
+                bao secrets enable -path=$KV_MOUNT_PATH -version=2 kv
+              fi
+
+              # ─── ESO read-policy ────────────────────────────────────────
+              # Read access to all keys under $KV_MOUNT_PATH. ESO does NOT
+              # write — Catalyst rotation jobs hold the writer policy
+              # separately.
+              cat <<EOF | bao policy write external-secrets-read -
+              path "$KV_MOUNT_PATH/data/*" {
+                capabilities = ["read", "list"]
+              }
+              path "$KV_MOUNT_PATH/metadata/*" {
+                capabilities = ["read", "list"]
+              }
+              EOF
+
+              # ─── Bind role $AUTH_ROLE to the ESO ServiceAccount ─────────
+              echo "[openbao-auth-bootstrap] writing auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE bound to $ESO_SA_NAMESPACE/$ESO_SA_NAME"
+              bao write auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE \
+                bound_service_account_names=$ESO_SA_NAME \
+                bound_service_account_namespaces=$ESO_SA_NAMESPACE \
+                policies=external-secrets-read \
+                ttl=$TOKEN_TTL \
+                max_ttl=$TOKEN_MAX_TTL
+
+              echo "[openbao-auth-bootstrap] Kubernetes auth bootstrap complete"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}
+{{- end }}
