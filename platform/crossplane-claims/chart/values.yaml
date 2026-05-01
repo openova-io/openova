@@ -1,9 +1,18 @@
-# bp-crossplane-claims has no operator-tunable values — the XRDs and
-# Compositions it ships are static manifests with no Go-template
-# substitutions. This file exists so `helm template` and the CI smoke
-# render have an explicit defaults document; future per-Sovereign
-# overrides (e.g. defaultCompositionRef swaps for a non-Hetzner cloud)
-# would land here.
+# bp-crossplane-claims has no operator-tunable values for the
+# core compose.openova.io/v1alpha1 family — those XRDs and Compositions
+# are static manifests with no Go-template substitutions. This file
+# exists so `helm template` and the CI smoke render have an explicit
+# defaults document; future per-Sovereign overrides (e.g.
+# defaultCompositionRef swaps for a non-Hetzner cloud) would land here.
 
 catalystBlueprint:
   upstream: null
+
+# Sovereign IAM access plane (epic #320). Renders the
+# access.openova.io/v1alpha1 XUserAccess XRD, its Composition, and the
+# three canonical openova:application-{admin,editor,viewer} ClusterRoles
+# that the Composition's RoleBindings reference. Default-on; toggle-off
+# is reserved for the rare case where a Sovereign uses an external IAM
+# stack and does not consume the Catalyst access plane.
+userAccess:
+  enabled: true

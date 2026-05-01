@@ -1,0 +1,152 @@
+{{- if .Values.userAccess.enabled }}
+# Canonical Sovereign-IAM ClusterRoles — openova:application-{admin,editor,viewer}.
+#
+# Every Sovereign cluster receives these three ClusterRoles via
+# bp-crossplane-claims. The UserAccess Composition's RoleBinding roleRef
+# resolves to one of them.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  ClusterRoles are Helm-installed (Flux reconciles bp-crossplane-claims),
+#       never `kubectl apply`-ed directly.
+#   #4  Verb lists are explicit — no `*` on secrets even for admin
+#       (admin can manage Secrets, but the verb list spells out the verbs
+#       so the audit trail is grep-able).
+#
+# Role boundary contract:
+#   admin   — full namespace control + RBAC management within the namespace
+#             (create/get/list/watch/update/patch on roles + rolebindings).
+#             Can read/write Secrets — required for any team that ships
+#             Apps using imagePullSecrets, TLS, or DB creds.
+#   editor  — workloads + observability (pods, deployments, jobs, services,
+#             configmaps, ingresses, networkpolicies). Can exec/log into
+#             pods. CANNOT read/write Secrets — that gate is what separates
+#             editor from admin.
+#   viewer  — get/list/watch only across the same resource families as
+#             editor. CANNOT read Secrets.
+#
+# These are the three roles the UserAccess Composition can bind. Anything
+# narrower (e.g. read-only-of-one-deployment) is out of scope — the model
+# is intentionally coarse; finer slicing belongs to the Application's own
+# RBAC payload, not to Sovereign-wide IAM.
+
+# ── openova:application-admin ────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openova:application-admin
+  labels:
+    catalyst.openova.io/component: crossplane-claims
+    catalyst.openova.io/sovereign-iam-role: admin
+rules:
+  # Core workload + observability resources, full CRUD.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/exec
+      - pods/log
+      - pods/portforward
+      - services
+      - configmaps
+      - persistentvolumeclaims
+      - serviceaccounts
+      - events
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # Secrets — admin only. Editor + viewer roles deliberately omit secrets.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # apps/* — deployments, statefulsets, daemonsets, replicasets.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["get", "patch", "update"]
+  # batch/* — jobs, cronjobs.
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # networking — ingresses, networkpolicies.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # RBAC — admin can manage roles/rolebindings within the namespace
+  # (NOT clusterroles/clusterrolebindings — those stay platform-only).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+
+---
+# ── openova:application-editor ───────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openova:application-editor
+  labels:
+    catalyst.openova.io/component: crossplane-claims
+    catalyst.openova.io/sovereign-iam-role: editor
+rules:
+  # Core workload + observability — same as admin EXCEPT secrets.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/exec
+      - pods/log
+      - pods/portforward
+      - services
+      - configmaps
+      - persistentvolumeclaims
+      - serviceaccounts
+      - events
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # Secrets: explicitly omitted. Editors cannot read or write secrets.
+  # An editor that needs a credential must ask an admin to install it.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # RBAC: editors cannot manage RBAC. roles/rolebindings are admin-only.
+
+---
+# ── openova:application-viewer ───────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openova:application-viewer
+  labels:
+    catalyst.openova.io/component: crossplane-claims
+    catalyst.openova.io/sovereign-iam-role: viewer
+rules:
+  # Read-only across the same resource families as editor — minus secrets,
+  # minus exec/portforward (a viewer can read logs, but cannot exec into a
+  # pod or open a port-forward; both of those are write-equivalent verbs
+  # against the workload).
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - configmaps
+      - persistentvolumeclaims
+      - serviceaccounts
+      - events
+    verbs: ["get", "list", "watch"]
+  # Secrets: explicitly omitted. Viewers cannot read secrets.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

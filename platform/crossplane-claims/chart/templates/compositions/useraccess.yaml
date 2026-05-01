@@ -1,0 +1,176 @@
+{{- if .Values.userAccess.enabled }}
+# Composition: useraccess.compose.openova.io — default realization for
+# XUserAccess.
+#
+# Translates a UserAccess Claim into a single provider-kubernetes Object
+# whose embedded manifest is a RoleBinding referencing one of the three
+# canonical openova:application-{admin,editor,viewer} ClusterRoles. The
+# Object lands on the per-Sovereign target cluster selected by
+# `sovereign-<sovereignRef>` ProviderConfig.
+#
+# This Composition is intentionally narrow: it materialises ONE grant
+# per Claim — the (application, role) shape carried in
+# spec.applications[0]. Multi-app / multi-namespace grants are expanded
+# by catalyst-api into N UserAccess Claims (one per application ×
+# namespace × role) BEFORE writing them. That keeps the Composition
+# stateless and avoids the for-loop-in-Composition trap (Crossplane v1
+# Compositions cannot iterate over array fields without
+# composition-functions, which we deliberately do not introduce here per
+# the canonical-seam map).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  RoleBindings on Sovereign clusters are provider-kubernetes
+#       Objects, never raw kubectl apply.
+#   #4  Role-name suffix (admin/editor/viewer) is a schema enum; the
+#       canonical ClusterRole name is composed via fmt transform —
+#       never hardcoded.
+#
+# UPDATE flow:
+#   - patch spec.applications[0].role → ClusterRole reference rotates
+#     in place (provider-kubernetes patches the live RoleBinding).
+#   - patch spec.user.keycloakSubject → subject rewrites.
+#
+# DELETE flow:
+#   - delete the UserAccess → composite controller deletes the Object →
+#     provider-kubernetes deletes the RoleBinding on the Sovereign.
+#   - hand-edited RoleBinding gets reverted within Crossplane's poll
+#     interval (default 60s).
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: useraccess.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: iam
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: access.openova.io/v1alpha1
+    kind: XUserAccess
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. RoleBinding (provider-kubernetes Object) ───────────────────────
+    # The catalyst-api expands multi-app/multi-namespace UserAccess Claims
+    # into N single-app-single-namespace Claims before submitting; this
+    # resource block consumes spec.applications[0] only. The
+    # spec.applications[0].namespaces[0] field MUST be set by the api
+    # (the schema doesn't enforce it because the bare-Claim shape that
+    # an operator might author is also valid input — the api expands).
+    - name: rolebinding
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: RoleBinding
+              metadata:
+                labels:
+                  catalyst.openova.io/managed-by: crossplane
+                  catalyst.openova.io/composition-family: iam
+              roleRef:
+                apiGroup: rbac.authorization.k8s.io
+                kind: ClusterRole
+                name: ""
+              subjects: []
+          providerConfigRef:
+            name: ""
+          deletionPolicy: Delete
+      patches:
+        # Object name: <sovereign>-<app>-<role>-<subject-or-first-group>
+        - fromFieldPath: metadata.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "useraccess-%s"
+
+        # Inner RoleBinding name: same shape, prefix with useraccess-
+        - fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "useraccess-%s"
+
+        # Target namespace: the api MUST have expanded the Claim to a
+        # single-namespace shape before submitting. This patch reads
+        # applications[0].namespaces[0] verbatim.
+        - fromFieldPath: spec.applications[0].namespaces[0]
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+
+        # roleRef.name: rewrite role suffix to the canonical ClusterRole
+        # via fmt transform. spec.applications[0].role is enum
+        # {admin, editor, viewer}; output is openova:application-<role>.
+        - fromFieldPath: spec.applications[0].role
+          toFieldPath: spec.forProvider.manifest.roleRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "openova:application-%s"
+
+        # subjects[0]: User identity from spec.user.keycloakSubject.
+        # The User-vs-Group decision is encoded by the api at expansion
+        # time: a Claim authored against a Group is rewritten to populate
+        # spec.user.keycloakSubject="<group-marker>" — but the simpler
+        # contract for the v1alpha1 Composition is: keycloakSubject is
+        # always an OIDC `sub`, group-binding is a separate Claim shape
+        # with subjects[].kind=Group (not modelled in this Composition;
+        # tracked for v1alpha2 once group-mode usage is observed).
+        - fromFieldPath: spec.user.keycloakSubject
+          toFieldPath: spec.forProvider.manifest.subjects[0].kind
+          transforms:
+            - type: match
+              match:
+                patterns:
+                  - type: regexp
+                    regexp: '.+'
+                    result: 'User'
+                fallbackTo: Value
+                fallbackValue: 'User'
+        - fromFieldPath: spec.user.keycloakSubject
+          toFieldPath: spec.forProvider.manifest.subjects[0].apiGroup
+          transforms:
+            - type: match
+              match:
+                patterns:
+                  - type: regexp
+                    regexp: '.+'
+                    result: 'rbac.authorization.k8s.io'
+                fallbackTo: Value
+                fallbackValue: 'rbac.authorization.k8s.io'
+        - fromFieldPath: spec.user.keycloakSubject
+          toFieldPath: spec.forProvider.manifest.subjects[0].name
+          transforms:
+            - type: string
+              string:
+                fmt: "oidc:%s"
+
+        # ProviderConfig: per-Sovereign provider-kubernetes config named
+        # sovereign-<sovereignRef>. catalyst-api creates the
+        # ProviderConfig as part of Sovereign provisioning (#326).
+        - fromFieldPath: spec.sovereignRef
+          toFieldPath: spec.providerConfigRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "sovereign-%s"
+
+        # Sovereign label on the RoleBinding — for ops/audit queries.
+        - fromFieldPath: spec.sovereignRef
+          toFieldPath: spec.forProvider.manifest.metadata.labels[catalyst.openova.io/sovereign]
+
+        # Bubble grant-count to status (single grant per Composition pass;
+        # multi-grant Claims are expanded api-side before submission).
+        - type: ToCompositeFieldPath
+          fromFieldPath: spec.sovereignRef
+          toFieldPath: status.providerConfigRef
+          transforms:
+            - type: string
+              string:
+                fmt: "sovereign-%s"
+{{- end }}

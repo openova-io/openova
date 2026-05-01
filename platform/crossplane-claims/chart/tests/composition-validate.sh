@@ -3,9 +3,10 @@
 #
 # This is the chart-level lint+template+kubectl-dry-run pass that runs
 # against every render of bp-crossplane's templates/xrds + templates/compositions
-# directory tree. The 6 XRDs and 6 Compositions composed here back the
+# directory tree. The 7 XRDs and 7 Compositions composed here back the
 # catalyst-api Day-2 CRUD endpoints (RegionClaim, ClusterClaim,
-# NodePoolClaim, LoadBalancerClaim, PeeringClaim, NodeActionClaim).
+# NodePoolClaim, LoadBalancerClaim, PeeringClaim, NodeActionClaim) plus
+# the Sovereign IAM access plane (UserAccess — issue #322).
 #
 # Verifies, in order:
 #   1. `helm template` renders without error (no Go-template breakage).
@@ -53,22 +54,30 @@ helm template smoke-cp . > "$TMP/render.yaml" 2> "$TMP/render.err" || {
 }
 echo "  PASS"
 
-echo "[composition-validate] Case 2: render contains 6 XRDs"
+echo "[composition-validate] Case 2: render contains 7 XRDs"
 XRD_COUNT="$(grep -c '^kind: CompositeResourceDefinition$' "$TMP/render.yaml" || true)"
-if [ "$XRD_COUNT" -ne 6 ]; then
-  echo "FAIL: expected 6 XRDs, found $XRD_COUNT" >&2
+if [ "$XRD_COUNT" -ne 7 ]; then
+  echo "FAIL: expected 7 XRDs, found $XRD_COUNT" >&2
   grep -E '^(kind|  name): ' "$TMP/render.yaml" | head -40 >&2
   exit 1
 fi
 echo "  PASS ($XRD_COUNT XRDs)"
 
-echo "[composition-validate] Case 3: render contains ≥ 6 Compositions"
+echo "[composition-validate] Case 3: render contains ≥ 7 Compositions"
 COMPOSITION_COUNT="$(grep -c '^kind: Composition$' "$TMP/render.yaml" || true)"
-if [ "$COMPOSITION_COUNT" -lt 6 ]; then
-  echo "FAIL: expected ≥ 6 Compositions, found $COMPOSITION_COUNT" >&2
+if [ "$COMPOSITION_COUNT" -lt 7 ]; then
+  echo "FAIL: expected ≥ 7 Compositions, found $COMPOSITION_COUNT" >&2
   exit 1
 fi
 echo "  PASS ($COMPOSITION_COUNT Compositions)"
+
+echo "[composition-validate] Case 3b: render contains 3 ClusterRoles (Sovereign IAM)"
+CLUSTERROLE_COUNT="$(grep -c '^kind: ClusterRole$' "$TMP/render.yaml" || true)"
+if [ "$CLUSTERROLE_COUNT" -ne 3 ]; then
+  echo "FAIL: expected 3 ClusterRoles (openova:application-{admin,editor,viewer}), found $CLUSTERROLE_COUNT" >&2
+  exit 1
+fi
+echo "  PASS ($CLUSTERROLE_COUNT ClusterRoles)"
 
 echo "[composition-validate] Case 4: every expected claim kind is present"
 EXPECTED_KINDS=(
@@ -78,6 +87,7 @@ EXPECTED_KINDS=(
   LoadBalancerClaim
   PeeringClaim
   NodeActionClaim
+  UserAccess
 )
 for kind in "${EXPECTED_KINDS[@]}"; do
   if ! grep -q "kind: $kind$" "$TMP/render.yaml"; then
@@ -85,7 +95,7 @@ for kind in "${EXPECTED_KINDS[@]}"; do
     exit 1
   fi
 done
-echo "  PASS (all 6 claim kinds present)"
+echo "  PASS (all ${#EXPECTED_KINDS[@]} claim kinds present)"
 
 echo "[composition-validate] Case 5: every rendered document is valid YAML"
 # We can't run `kubectl apply --dry-run=client` without an API server

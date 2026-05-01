@@ -1,0 +1,18 @@
+# UserAccess sample fixture — single-grant shape (post catalyst-api expansion).
+# Multi-app / multi-namespace UserAccess Claims authored by the api are
+# expanded into N of these single-grant claims before submitting.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: alice-helmwatch-omantel-prod
+spec:
+  user:
+    keycloakSubject: alice
+    keycloakGroups:
+      - sovereign-ops
+  sovereignRef: omantel
+  applications:
+    - app: helmwatch
+      role: editor
+      namespaces:
+        - helmwatch-prod

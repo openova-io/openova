@@ -1,0 +1,181 @@
+{{- if .Values.userAccess.enabled }}
+# XRD: XUserAccess — Catalyst Sovereign IAM intent.
+#
+# A UserAccess Claim is the source-of-truth declaration of "user X
+# (identified by Keycloak subject or group) has role Y on Sovereign Z's
+# Application A in namespace(s) N". The Composition (useraccess.compose
+# .openova.io) materialises the intent into one K8s RoleBinding per
+# (application × namespace × role) tuple on the target Sovereign cluster
+# via provider-kubernetes.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  Crossplane is the day-2 IaC for IAM grants too — never let
+#       catalyst-api `kubectl apply` RoleBindings directly. catalyst-api
+#       writes the UserAccess Claim; Crossplane reconciles the RBAC.
+#   #4  Role names are the three canonical openova:application-* ClusterRoles
+#       (admin/editor/viewer); the role string in spec.applications[].role
+#       is one of {admin, editor, viewer} and the Composition rewrites it
+#       to the fully-qualified ClusterRole name.
+#
+# Cluster-scoped: a UserAccess spans namespaces by design (one user can
+# hold grants on many tenants), so the Claim itself is cluster-scoped.
+# Composed RoleBindings are namespaced per spec.applications[].namespaces.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xuseraccesses.access.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: iam
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: access.openova.io
+  names:
+    kind: XUserAccess
+    plural: xuseraccesses
+  claimNames:
+    kind: UserAccess
+    plural: useraccesses
+  defaultCompositionRef:
+    name: useraccess.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [user, sovereignRef, applications]
+              properties:
+                user:
+                  type: object
+                  description: |
+                    Identity of the principal receiving access. Either
+                    keycloakSubject (an OIDC `sub` claim, binding a single
+                    user) or keycloakGroups (a list of group names, binding
+                    every member of those groups) or both. The Composition
+                    emits one RoleBinding subject per identity.
+                  properties:
+                    keycloakSubject:
+                      type: string
+                      description: |
+                        OIDC `sub` claim — the Keycloak user's stable id.
+                        Renders as a RoleBinding subject of kind=User,
+                        name="oidc:<subject>" (matches the api-server
+                        --oidc-username-prefix convention).
+                    keycloakGroups:
+                      type: array
+                      items:
+                        type: string
+                      description: |
+                        Keycloak group names. Each renders as an additional
+                        RoleBinding subject of kind=Group,
+                        name="oidc:<group>" (matches --oidc-groups-prefix).
+                sovereignRef:
+                  type: string
+                  description: |
+                    Sovereign identifier — used to select the per-Sovereign
+                    provider-kubernetes ProviderConfig (named
+                    `sovereign-<sovereignRef>`) that the Composition writes
+                    RoleBindings against.
+                  pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
+                applications:
+                  type: array
+                  description: |
+                    One entry per (Application × role) grant. An entry may
+                    name explicit namespaces, vClusters (rendered as
+                    additional namespaces with the vCluster prefix), or
+                    omit both — in which case the catalyst-api expands the
+                    Claim against Application.k8s_namespaces before
+                    applying. The Composition itself only renders explicit
+                    namespaces; expansion is the api's job.
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [app, role]
+                    properties:
+                      app:
+                        type: string
+                        description: |
+                          Application slug as registered in catalyst-api
+                          (e.g. helmwatch, ai-inference).
+                        pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
+                      role:
+                        type: string
+                        description: |
+                          One of admin | editor | viewer. The Composition
+                          rewrites this to the canonical ClusterRole name
+                          openova:application-<role>.
+                        enum: [admin, editor, viewer]
+                      namespaces:
+                        type: array
+                        items:
+                          type: string
+                        description: |
+                          Explicit namespace list for this grant. When
+                          omitted, catalyst-api resolves it from the
+                          Application's k8s_namespaces field before writing
+                          the Claim. The Composition treats an empty list
+                          as "no RoleBindings for this application" (the
+                          api MUST expand before submitting).
+                      vClusters:
+                        type: array
+                        items:
+                          type: string
+                        description: |
+                          vCluster names — rendered as additional
+                          namespaces using the catalyst convention
+                          `vcluster-<name>`.
+                providerConfigRef:
+                  type: object
+                  description: |
+                    Override for the Composition's per-Sovereign
+                    provider-kubernetes ProviderConfig. Defaults to
+                    `sovereign-<sovereignRef>` (resolved via Composition
+                    patch). Most callers leave this unset.
+                  properties:
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                rolebindingsCreated:
+                  type: integer
+                  description: |
+                    Count of RoleBinding Objects this composite owns.
+                    Surfaced to the catalyst-api for the user-access editor
+                    UI's "<n> grants active" badge.
+                providerConfigRef:
+                  type: string
+                  description: |
+                    Resolved ProviderConfig name — useful for ops debugging
+                    when a grant fails to land.
+      additionalPrinterColumns:
+        - name: SOVEREIGN
+          type: string
+          jsonPath: .spec.sovereignRef
+        - name: USER
+          type: string
+          jsonPath: .spec.user.keycloakSubject
+        - name: GRANTS
+          type: integer
+          jsonPath: .status.rolebindingsCreated
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp
+{{- end }}
