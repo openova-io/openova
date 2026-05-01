@@ -1,25 +1,24 @@
 /**
- * JobsTable — table view replacing the legacy expand-in-place JobCard
- * accordion (issue #204 founder spec, items 1/2/4/6/7/8a/10).
+ * JobsTable — table view of the recursive Job tree.
  *
  * Layout, top-down:
- *   • BatchProgress strip — one progress bar per batch (item #4).
  *   • Toolbar:
  *       - search input that filters across jobName / appId / dependsOn /
- *         status (item #8a)
- *       - filter dropdowns per column for status / app / batch
+ *         status / parent
+ *       - filter dropdowns per column for status / app / parent
  *   • <table data-testid="jobs-table"> with columns:
- *       name, app, deps, batch, status, started, duration  (items #6/#7)
+ *       name (with child-count badge on parents), app, deps, parent,
+ *       status, started, duration
  *
- * Rows are CLICKABLE LINKS, not expandable accordions (item #1: "NEVER
- * use accordions"). Clicking a row navigates to
- *   /sovereign/provision/$deploymentId/jobs/$jobId
- * which is owned by the JobDetail sibling agent on issue #TBD.
+ * Rows are CLICKABLE LINKS, not expandable accordions. Clicking a
+ * leaf navigates to its own JobDetail page; clicking a parent
+ * navigates to that parent's JobDetail (which renders the canvas
+ * scoped to the page's host job).
  *
  * Default sort: status priority (running > pending > succeeded > failed)
- * then startedAt DESC (item #10). When a job's status transitions from
- * pending to running, the comparator naturally re-sorts it to the top
- * because `running` outranks `pending`.
+ * then startedAt DESC. When a job's status transitions from pending
+ * to running, the comparator naturally re-sorts it to the top because
+ * `running` outranks `pending`.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every label,
  * column id, status value, and CSS token comes from a typed input or
@@ -78,15 +77,16 @@ export function compareJobs(a: Job, b: Job): number {
 
 /**
  * Search predicate — matches across jobName / appId / dependsOn /
- * status / batchId. Case-insensitive substring match. Exported so
+ * status / parentId. Case-insensitive substring match. Exported so
  * unit tests cover edge cases (empty query, query in deps, etc.).
  */
 export function matchJob(job: Job, query: string): boolean {
   if (!query.trim()) return true
   const q = query.toLowerCase()
   if (job.jobName.toLowerCase().includes(q)) return true
+  if (job.displayName && job.displayName.toLowerCase().includes(q)) return true
   if (job.appId.toLowerCase().includes(q)) return true
-  if (job.batchId.toLowerCase().includes(q)) return true
+  if (job.parentId.toLowerCase().includes(q)) return true
   if (job.status.toLowerCase().includes(q)) return true
   for (const d of job.dependsOn) {
     if (d.toLowerCase().includes(q)) return true
@@ -147,54 +147,74 @@ interface JobsTableProps {
   deploymentId: string
   /**
    * Optional pre-filter applied BEFORE search/filter dropdowns. Used
-   * by AppDetail's Jobs tab to narrow the list to a single appId
-   * (item #8b: AppDetail → Jobs tab filtered to that app's jobs only).
+   * by AppDetail's Jobs tab to narrow the list to a single appId.
    */
   appIdFilter?: string
   /**
-   * Optional pre-filter pinned to a single batchId. Used by the
-   * BatchDetail page (epic #204 item #4) to surface only the rows
-   * that belong to the batch the operator drilled into. The Batch
-   * filter dropdown is hidden when this is set, mirroring how
-   * `appIdFilter` hides the App dropdown.
+   * Optional pre-filter pinned to a single parent group. Used by
+   * AppDetail / per-group surfaces to surface only the rows that
+   * belong to one parent group. The Parent filter dropdown is hidden
+   * when this is set, mirroring how `appIdFilter` hides the App
+   * dropdown.
    */
-  initialBatchFilter?: string
+  initialParentFilter?: string
 }
 
 const STATUS_VALUES: readonly JobStatus[] = ['running', 'pending', 'succeeded', 'failed']
 
-export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter }: JobsTableProps) {
+export function JobsTable({ jobs, deploymentId, appIdFilter, initialParentFilter }: JobsTableProps) {
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
   const [appFilter, setAppFilter] = useState<string>('')
-  const [batchFilter, setBatchFilter] = useState<string>('')
+  const [parentFilter, setParentFilter] = useState<string>('')
 
-  // Distinct app/batch lists for the filter dropdowns. Recomputed when
-  // jobs change; cheap because the row count is bounded.
+  // Resolve parent display labels — used in the Parent column + filter.
+  const parentLabelById = useMemo<Map<string, string>>(() => {
+    const m = new Map<string, string>()
+    for (const j of jobs) {
+      if (j.type === 'group') {
+        m.set(j.id, j.displayName ?? j.jobName)
+      }
+    }
+    return m
+  }, [jobs])
+
   const appOptions = useMemo<string[]>(() => {
     const set = new Set<string>()
-    for (const j of jobs) set.add(j.appId)
+    for (const j of jobs) {
+      if (j.appId) set.add(j.appId)
+    }
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [jobs])
-  const batchOptions = useMemo<string[]>(() => {
-    const set = new Set<string>()
-    for (const j of jobs) set.add(j.batchId)
-    return [...set].sort((a, b) => a.localeCompare(b))
-  }, [jobs])
+  const parentOptions = useMemo<{ id: string; label: string }[]>(() => {
+    const seen = new Map<string, string>()
+    for (const j of jobs) {
+      if (j.parentId && !seen.has(j.parentId)) {
+        seen.set(j.parentId, parentLabelById.get(j.parentId) ?? j.parentId)
+      }
+    }
+    return [...seen.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [jobs, parentLabelById])
 
   const visibleJobs = useMemo<Job[]>(() => {
     const filtered = jobs.filter((j) => {
+      // Hide group rows by default — they appear in the canvas as
+      // collapsible parents but in the table they'd dominate the
+      // sort. Operators that want to drill into a group click its
+      // Parent chip on a leaf row.
+      if (j.type === 'group') return false
       if (appIdFilter && j.appId !== appIdFilter) return false
-      if (initialBatchFilter && j.batchId !== initialBatchFilter) return false
+      if (initialParentFilter && j.parentId !== initialParentFilter) return false
       if (statusFilter && j.status !== statusFilter) return false
       if (appFilter && j.appId !== appFilter) return false
-      if (batchFilter && j.batchId !== batchFilter) return false
+      if (parentFilter && j.parentId !== parentFilter) return false
       if (!matchJob(j, search)) return false
       return true
     })
-    // Spread to a mutable copy before sort — `jobs` is readonly.
     return [...filtered].sort(compareJobs)
-  }, [jobs, search, statusFilter, appFilter, batchFilter, appIdFilter, initialBatchFilter])
+  }, [jobs, search, statusFilter, appFilter, parentFilter, appIdFilter, initialParentFilter])
 
   return (
     <div className="jobs-table-wrap" data-testid="jobs-table-wrap">
@@ -256,20 +276,20 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter 
             </label>
           )}
 
-          {initialBatchFilter ? null : (
+          {initialParentFilter ? null : (
             <label className="jobs-filter-label">
-              <span className="jobs-filter-caption">Batch</span>
+              <span className="jobs-filter-caption">Parent</span>
               <select
-                value={batchFilter}
-                onChange={(e) => setBatchFilter(e.target.value)}
+                value={parentFilter}
+                onChange={(e) => setParentFilter(e.target.value)}
                 className="jobs-filter-select"
-                data-testid="jobs-filter-batch"
-                aria-label="Filter by batch"
+                data-testid="jobs-filter-parent"
+                aria-label="Filter by parent group"
               >
                 <option value="">All</option>
-                {batchOptions.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
+                {parentOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
                   </option>
                 ))}
               </select>
@@ -293,7 +313,7 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter 
               <th data-col="name">Name</th>
               <th data-col="app">App</th>
               <th data-col="deps">Deps</th>
-              <th data-col="batch">Batch</th>
+              <th data-col="parent">Parent</th>
               <th data-col="status">Status</th>
               <th data-col="started">Started</th>
               <th data-col="duration">Duration</th>
@@ -308,7 +328,12 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter 
               </tr>
             ) : (
               visibleJobs.map((j) => (
-                <JobRow key={j.id} job={j} deploymentId={deploymentId} />
+                <JobRow
+                  key={j.id}
+                  job={j}
+                  deploymentId={deploymentId}
+                  parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
+                />
               ))
             )}
           </tbody>
@@ -321,9 +346,10 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialBatchFilter 
 interface JobRowProps {
   job: Job
   deploymentId: string
+  parentLabel: string
 }
 
-function JobRow({ job, deploymentId }: JobRowProps) {
+function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   return (
     <tr
@@ -338,11 +364,15 @@ function JobRow({ job, deploymentId }: JobRowProps) {
           className="jobs-row-link"
           data-testid={`jobs-row-link-${job.id}`}
         >
-          {job.jobName}
+          {job.displayName ?? job.jobName}
         </Link>
       </td>
       <td className="jobs-cell jobs-cell-app">
-        <Chip text={job.appId} testid={`jobs-cell-app-${job.id}`} kind="app" />
+        {job.appId ? (
+          <Chip text={job.appId} testid={`jobs-cell-app-${job.id}`} kind="app" />
+        ) : (
+          <span className="jobs-empty-cell">—</span>
+        )}
       </td>
       <td className="jobs-cell jobs-cell-deps">
         {job.dependsOn.length === 0 ? (
@@ -355,20 +385,23 @@ function JobRow({ job, deploymentId }: JobRowProps) {
           </div>
         )}
       </td>
-      <td className="jobs-cell jobs-cell-batch">
-        {/* Batch chip → BatchDetail (per-batch detail page).
-            2026-04-30: standalone /flow route removed; batch chip now
-            points back to the canonical batch-detail page where the
-            embedded flow canvas is scoped to that batch. */}
-        <Link
-          to="/provision/$deploymentId/batches/$batchId"
-          params={{ deploymentId, batchId: job.batchId }}
-          className="jobs-chip jobs-chip-batch jobs-chip-link"
-          data-testid={`jobs-cell-batch-${job.id}`}
-          title={job.batchId}
-        >
-          {job.batchId}
-        </Link>
+      <td className="jobs-cell jobs-cell-parent">
+        {/* Parent chip — links to that parent group's home page,
+            which renders the same canvas + log pane scoped to the
+            group as its host job (issue #351). */}
+        {job.parentId ? (
+          <Link
+            to="/provision/$deploymentId/jobs/$jobId"
+            params={{ deploymentId, jobId: job.parentId }}
+            className="jobs-chip jobs-chip-parent jobs-chip-link"
+            data-testid={`jobs-cell-parent-${job.id}`}
+            title={parentLabel}
+          >
+            {parentLabel}
+          </Link>
+        ) : (
+          <span className="jobs-empty-cell">—</span>
+        )}
       </td>
       <td className="jobs-cell jobs-cell-status">
         <StatusBadge status={job.status} jobId={job.id} />
@@ -412,7 +445,7 @@ const STATUS_TONE: Record<JobStatus, { label: string }> = {
 interface ChipProps {
   text: string
   testid: string
-  kind: 'app' | 'dep' | 'batch'
+  kind: 'app' | 'dep' | 'parent'
 }
 
 function Chip({ text, testid, kind }: ChipProps) {
@@ -424,7 +457,7 @@ function Chip({ text, testid, kind }: ChipProps) {
 }
 
 /* ──────────────────────────────────────────────────────────────────
- * Styles — keep in lockstep with BatchProgress.tsx tokens.
+ * Styles — keep in lockstep with the canvas family-colour tokens.
  * ────────────────────────────────────────────────────────────────── */
 
 const JOBS_TABLE_CSS = `
@@ -583,9 +616,9 @@ const JOBS_TABLE_CSS = `
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.jobs-chip-app   { color: #38BDF8; border-color: rgba(56,189,248,0.25); }
-.jobs-chip-batch { color: #C084FC; border-color: rgba(192,132,252,0.25); }
-.jobs-chip-dep   { color: var(--color-text-dim); }
+.jobs-chip-app    { color: #38BDF8; border-color: rgba(56,189,248,0.25); }
+.jobs-chip-parent { color: #C084FC; border-color: rgba(192,132,252,0.25); }
+.jobs-chip-dep    { color: var(--color-text-dim); }
 .jobs-chip-link {
   text-decoration: none;
   cursor: pointer;

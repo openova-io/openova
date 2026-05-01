@@ -1,27 +1,13 @@
 /**
- * JobsPage — table-view replacement for the legacy expand-in-place
- * accordion (issue #204). The founder rejected the accordion pattern
- * verbatim ("NEVER use accordions"); every job is now a row in
- * <JobsTable />, and the row is a navigation link to JobDetail.
+ * JobsPage — table-view of the recursive Job tree.
  *
  * Layout, top-down:
  *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link + a
- *     "Show as Flow" button that navigates to /flow?scope=all.
- *   • <JobsTable /> — table view with search/sort/filter (items #2,
- *     #6, #7, #8a). Each batch chip is now a Link to /flow?scope=batch:
- *     <id> (per the v3 routing model — was previously a Link to the
- *     BatchDetail page).
- *
- * History note (PR #242 was rejected):
- *   The previous PR added a `?view=table|flow` Tab strip on this page.
- *   The founder rejected it; the Flow surface now lives at its own
- *   /flow route. The tab strip / setView / resolveJobsView helpers
- *   have been removed in this commit.
- *
- * Per founder feedback for epic #204 item #4 (verbatim):
- *   "On the jobs page the top 3 cards are not required, the progress
- *    bar needs to be shown only when I click a specific batch and it
- *    shows the batch page along with its batch progress at the top"
+ *     "Show as Flow" button that navigates to /flow.
+ *   • <JobsTable /> — table view with search/sort/filter. Each parent
+ *     chip in a row is a Link to that parent group's own home page
+ *     (/jobs/$parentId) — group jobs are first-class citizens of the
+ *     tree (issue #351), no separate BatchDetail page.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall — first paint is the
  * full list), every Job is rendered from mount, even pending ones with

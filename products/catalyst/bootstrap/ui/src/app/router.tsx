@@ -23,7 +23,6 @@ import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
-import { BatchDetail } from '@/pages/sovereign/BatchDetail'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { Architecture } from '@/pages/sovereign/Architecture'
 // Cloud category landing pages (P3 of #309) — replace the previous
@@ -110,8 +109,7 @@ const provisionJobsRoute = createRoute({
 
 // NOTE: the standalone /provision/$deploymentId/flow route was removed
 // (operator directive 2026-04-30) — flows live only in context, not as
-// a generic page. The FlowPage component remains imported for use as
-// the embedded Flow tab inside JobDetail and BatchDetail.
+// a generic page. The FlowPage component is embedded inside JobDetail.
 
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
 // registered BEFORE the dynamic $jobId route below so TanStack Router
@@ -359,19 +357,6 @@ const provisionInfrastructureNetworkRoute = createRoute({
   component: NoopRedirectComponent,
 })
 
-// Per-Batch detail page (epic #204 item #4) — surfaces a single batch
-// progress card at the top + a JobsTable filtered to that batch's
-// rows. Reachable from the batch chip in any JobsTable row (both
-// JobsPage and AppDetail's Jobs tab). Founder verbatim:
-//   "the progress bar needs to be shown only when I click a specific
-//    batch and it shows the batch page along with its batch progress
-//    at the top"
-const provisionBatchDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/provision/$deploymentId/batches/$batchId',
-  component: BatchDetail,
-})
-
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout. Once the public smoke tests move to the new
@@ -451,7 +436,6 @@ const routeTree = rootRoute.addChildren([
     provisionInfrastructureStorageRoute,
     provisionInfrastructureNetworkRoute,
   ]),
-  provisionBatchDetailRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,

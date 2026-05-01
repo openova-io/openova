@@ -6,7 +6,7 @@
  *   • compareJobs — status-priority sort with startedAt-DESC tiebreak
  *     and pending-jumps-to-top semantics (item #10).
  *   • matchJob — search predicate spans jobName / appId / dependsOn /
- *     status / batchId (item #8a).
+ *     status / parentId.
  *   • formatDuration — "12s" / "1m 24s" / "2h 5m" rendering.
  *
  * Component:
@@ -73,7 +73,9 @@ describe('JobsTable — compareJobs', () => {
       id: partial.id ?? 'j',
       jobName: partial.jobName ?? 'Job',
       appId: partial.appId ?? 'bp-x',
-      batchId: partial.batchId ?? 'b',
+      type: partial.type ?? 'install',
+      parentId: partial.parentId ?? 'applications',
+      childIds: partial.childIds ?? [],
       dependsOn: partial.dependsOn ?? [],
       status: partial.status ?? 'pending',
       startedAt: partial.startedAt ?? null,
@@ -144,8 +146,10 @@ describe('JobsTable — matchJob (search filter)', () => {
   const job: Job = {
     id: 'job-1',
     jobName: 'Install Cilium',
+    type: 'install',
     appId: 'bp-cilium',
-    batchId: 'batch-2',
+    parentId: 'applications',
+    childIds: [],
     dependsOn: ['job-flux-bootstrap'],
     status: 'succeeded',
     startedAt: '2026-04-29T10:00:00Z',
@@ -168,8 +172,8 @@ describe('JobsTable — matchJob (search filter)', () => {
     expect(matchJob(job, 'bp-cilium')).toBe(true)
   })
 
-  it('matches across batchId', () => {
-    expect(matchJob(job, 'batch-2')).toBe(true)
+  it('matches across parentId', () => {
+    expect(matchJob(job, 'applications')).toBe(true)
   })
 
   it('matches across status', () => {
@@ -207,11 +211,12 @@ describe('JobsTable — formatDuration', () => {
 })
 
 describe('JobsTable — render', () => {
-  it('renders all 8 fixture rows by default', async () => {
+  it('renders all leaf fixture rows by default (group rows hidden)', async () => {
     renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
     await screen.findByTestId('jobs-table')
     const rows = screen.getAllByTestId(/^jobs-table-row-/)
-    expect(rows.length).toBe(FIXTURE_JOBS.length)
+    const expectedLeafCount = FIXTURE_JOBS.filter((j) => j.type !== 'group').length
+    expect(rows.length).toBe(expectedLeafCount)
   })
 
   it('search input filters the visible row count', async () => {
@@ -253,7 +258,7 @@ describe('JobsTable — render', () => {
     const headers = screen
       .getAllByRole('columnheader')
       .map((h) => (h.textContent ?? '').toLowerCase().trim())
-    expect(headers).toEqual(['name', 'app', 'deps', 'batch', 'status', 'started', 'duration'])
+    expect(headers).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
   it('row link points at /provision/$deploymentId/jobs/$jobId', async () => {
@@ -270,33 +275,44 @@ describe('JobsTable — render', () => {
   // before passing the array to JobsTable; this test exercises the
   // table's render path with the merged input directly.
   it('renders all rows when fed exclusively from a backend-jobs API list (issue #232)', async () => {
+    const baseLeaf = {
+      type: 'install' as const,
+      parentId: 'applications',
+      childIds: [],
+      dependsOn: [],
+    }
     const liveOnly: Job[] = [
       {
+        ...baseLeaf,
         id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium',
-        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        status: 'succeeded',
         startedAt: '2026-04-29T10:00:00Z', finishedAt: '2026-04-29T10:01:00Z',
         durationMs: 60_000,
       },
       {
+        ...baseLeaf,
         id: 'bp-cert-manager', jobName: 'Install cert-manager', appId: 'bp-cert-manager',
-        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        status: 'succeeded',
         startedAt: '2026-04-29T10:01:00Z', finishedAt: '2026-04-29T10:02:00Z',
         durationMs: 60_000,
       },
       {
+        ...baseLeaf,
         id: 'bp-flux', jobName: 'Install Flux', appId: 'bp-flux',
-        batchId: 'applications', dependsOn: [], status: 'succeeded',
+        status: 'succeeded',
         startedAt: '2026-04-29T10:02:00Z', finishedAt: '2026-04-29T10:03:00Z',
         durationMs: 60_000,
       },
       {
+        ...baseLeaf,
         id: 'bp-crossplane', jobName: 'Install Crossplane', appId: 'bp-crossplane',
-        batchId: 'applications', dependsOn: [], status: 'running',
+        status: 'running',
         startedAt: '2026-04-29T10:03:00Z', finishedAt: null, durationMs: 0,
       },
       {
+        ...baseLeaf,
         id: 'bp-vault', jobName: 'Install Vault', appId: 'bp-vault',
-        batchId: 'applications', dependsOn: [], status: 'pending',
+        status: 'pending',
         startedAt: null, finishedAt: null, durationMs: 0,
       },
     ]

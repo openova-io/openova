@@ -1,15 +1,29 @@
 /**
- * FlowCanvasOrganic — organic canvas rendering for the Flow page.
+ * FlowCanvasOrganic — recursive Job-tree canvas with d3-force layout.
  *
- * REPLACES FlowCanvasV4. Differences:
- *   • NO grid / NO column divisions / NO "STAGE n" labels.
- *   • NO precomputed positions — d3-force lays out from scratch.
- *   • forceX = depth × horizontalSpan (full canvas width usage).
- *   • forceY = region midpoint + per-node deterministic jitter so
- *     siblings scatter naturally and don't form a vertical column.
- *   • Edges drawn each tick from live positions; arrowheads with
- *     status-tinted markers.
- *   • Bubbles draggable (d3-drag); release lets physics resettle.
+ * Two visual classes of node:
+ *
+ *   • Leaf install — circular bubble, family-coloured ring, status
+ *     glyph, label below.
+ *   • Group (parent) — same circular geometry but with a thicker
+ *     family ring + a child-count badge ("12 jobs"). Folded groups
+ *     show only the badge; unfolded groups still render alongside
+ *     their children with a "parent-child" edge. Double-click on a
+ *     group toggles its fold state via the consumer's onJobDoubleClick.
+ *
+ * Three highlight rings, in priority order (highest wins on the outer
+ * stroke):
+ *
+ *   1. amber  `#FBBF24` — `openJobId` (the job whose log pane is open
+ *                         right now)
+ *   2. teal   `#14B8A6` — `hostJobId` (the page's *home* job — the
+ *                         one in the URL; persistent across single-
+ *                         click selections of other jobs)
+ *   3. status — succeeded/running/failed/pending tone
+ *
+ * `openJobId` neighbours get a softer amber ring; everything else
+ * fades to 35% opacity when any node is open. The host's teal ring
+ * stays full opacity so the page's anchor is always findable.
  *
  * Pure presentation: receives nodes/edges from flowLayoutOrganic +
  * region/family palettes and click handlers. No data fetching.
@@ -87,16 +101,18 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
   },
 }
 
-const NODE_RADIUS = 22 // px — slimmed from 30 to allow tighter packing
-const COLLIDE_PADDING = 14 // increased so bubbles always have breathing room
-// MIN viewBox dimensions cap the apparent bubble size: when there are
-// only a few bubbles in batch view, the auto-fit would otherwise scale
-// the SVG up so much that one bubble fills the screen ("elephant"). This
-// floor pins the minimum coordinate space the SVG fits to.
+const NODE_RADIUS = 22
+const GROUP_RADIUS = 28
+const COLLIDE_PADDING = 14
 const MIN_VBOX_W = 1200
 const MIN_VBOX_H = 700
-// VIEW_H still used as a fallback for empty-region geometry.
 const VIEW_H = 1100
+
+/** Selection palette — distinct from any status colour AND distinct
+ *  from each other so the host-vs-open semantic is unambiguous. */
+const HOST_RING = '#14B8A6'        // teal — page owner
+const SELECTION_RING = '#FBBF24'   // amber — currently-clicked-for-logs
+const NEIGHBOR_RING = '#FCD34D'    // lighter amber — neighbour of selected
 
 /* Sim node shape. */
 type SimNode = SimulationNodeDatum & {
@@ -105,12 +121,15 @@ type SimNode = SimulationNodeDatum & {
   regionId: string
   familyId: string
   status: JobStatus
+  isGroup: boolean
 }
 
 export interface FlowCanvasOrganicProps {
   layout: OrganicLayoutResult
+  /** The job whose log pane is currently displayed (amber selection ring). */
   openJobId: string | null
-  highlightJobId: string | null
+  /** The page's "home" job — persistent teal ring across single-click selections. */
+  hostJobId: string | null
   embedded?: boolean
   onJobClick: (jobId: string, event: ReactMouseEvent<SVGGElement>) => void
   onJobDoubleClick: (jobId: string) => void
@@ -121,7 +140,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const {
     layout,
     openJobId,
-    highlightJobId,
+    hostJobId,
     onJobClick,
     onJobDoubleClick,
     onCanvasBackgroundClick,
@@ -134,10 +153,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const nodesRef = useRef<Map<string, SimNode>>(new Map())
   const [tick, setTick] = useState(0)
 
-  // Region midpoints — divide vertical band by region count.
-  // Constants in pixels of the simulation coord system; viewBox below
-  // auto-fits so these absolute numbers don't matter for canvas usage.
-  const REGION_BAND_H = NODE_RADIUS * 8 // 240px per region
+  const REGION_BAND_H = NODE_RADIUS * 8
   const regionYMid = useMemo(() => {
     const map = new Map<string, number>()
     const regions = layout.regions
@@ -148,27 +164,18 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return map
   }, [layout.regions, REGION_BAND_H])
 
-  // Depth-to-x mapping: each unit of depth advances by a fixed
-  // PER_DEPTH_X step. The auto-fit viewBox below scales the WHOLE
-  // canvas to whatever total span the simulation produced — so even
-  // 2 nodes at depth 0/1 won't fly to opposite edges (small bbox →
-  // tight zoom) and 35 nodes at depth 0..6 will fill (big bbox →
-  // wide zoom). This is the user's "smart fill" requirement.
-  const PER_DEPTH_X = NODE_RADIUS * 5 // 150px per depth step
+  const PER_DEPTH_X = NODE_RADIUS * 5
   const depthToX = useCallback(
     (depth: number) => depth * PER_DEPTH_X,
     [PER_DEPTH_X],
   )
 
-  // Family palette lookup.
   const familyById = useMemo(() => {
     const m = new Map<string, OrganicFamily>()
     for (const f of layout.families) m.set(f.id, f)
     return m
   }, [layout.families])
 
-  // Build / refresh sim nodes whenever layout changes. Preserve existing
-  // positions so a layout refresh (e.g. status change) doesn't snap.
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
     const seen = new Set<string>()
@@ -180,10 +187,9 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         existing.regionId = n.regionId
         existing.familyId = n.familyId
         existing.status = n.status
+        existing.isGroup = n.isGroup
         next.push(existing)
       } else {
-        // Seed with deterministic-but-spread initial position
-        // x = depth-mapped + small jitter, y = region midpoint + per-node jitter
         const baseX = depthToX(n.depth)
         const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
         const seed = hashSeed(n.id)
@@ -193,6 +199,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           regionId: n.regionId,
           familyId: n.familyId,
           status: n.status,
+          isGroup: n.isGroup,
           x: baseX + (seed.fx - 0.5) * 80,
           y: baseY + (seed.fy - 0.5) * 280,
         }
@@ -206,7 +213,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return next
   }, [layout.nodes, depthToX, regionYMid])
 
-  // Build / restart simulation when nodes or edges change.
   useEffect(() => {
     if (simNodes.length === 0) {
       simRef.current?.stop()
@@ -226,7 +232,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       .force(
         'collide',
         forceCollide<SimNode>()
-          .radius(NODE_RADIUS + COLLIDE_PADDING)
+          .radius((d) => (d.isGroup ? GROUP_RADIUS : NODE_RADIUS) + COLLIDE_PADDING)
           .strength(0.95)
           .iterations(2),
       )
@@ -234,9 +240,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'x',
         forceX<SimNode>()
           .x((d) => depthToX(d.depth))
-          // Strong attractor → nodes converge close to their depth
-          // column → pipeline-like structure, with vertical scatter
-          // still allowed by the weak forceY.
           .strength(0.55),
       )
       .force(
@@ -244,8 +247,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         forceY<SimNode>()
           .y((d) => {
             const base = regionYMid.get(d.regionId) ?? VIEW_H / 2
-            // Add a per-node deterministic vertical offset so siblings
-            // don't all converge on the region midline.
             const seed = hashSeed(d.id)
             return base + (seed.fy - 0.5) * 360
           })
@@ -255,8 +256,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
           .id((d) => d.id)
-          // Each link prefers ~120px (= NODE_RADIUS*4). Hard caps on x-attractor
-          // depthToX(maxDepth=N) keep total horizontal span bounded by node count.
           .distance(NODE_RADIUS * 4)
           .strength(0.08),
       )
@@ -268,7 +267,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }, [simNodes, layout.edges, depthToX, regionYMid])
 
-  // d3-drag binding — re-run only when the SET of node ids changes.
   const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {
     if (!svgRef.current) return
@@ -295,11 +293,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
       .on('end', function (event) {
         if (!event.active) sim.alphaTarget(0)
-        // PIN where the user dropped — operator wants drag to stick.
-        // event.x/y are the final cursor position (already applied to fx/fy
-        // during the last 'drag' event). Leaving fx/fy non-null pins the
-        // node permanently against the simulation's anchor pull.
-        // Operator can re-drag any time.
+        // Pin where dropped — operator wants drag to stick.
       })
 
     const sel = select(svgRef.current).selectAll<SVGGElement, unknown>(
@@ -309,7 +303,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     ;(sel as any).call(dragBehavior)
   }, [nodeIdsKey])
 
-  void tick // ensure re-render each frame
+  void tick
 
   if (layout.nodes.length === 0) {
     return (
@@ -322,7 +316,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     )
   }
 
-  // Live position lookup.
   const livePos = new Map<string, { x: number; y: number }>()
   for (const n of simNodes) {
     if (typeof n.x === 'number' && typeof n.y === 'number') {
@@ -330,10 +323,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
-  // When a bubble is open (single-clicked), compute its directly
-  // connected neighbors so we can highlight the connection paths.
-  // Operator: "selected job should have a unique color, neighbors and
-  // connected lines should change color too."
   const neighborIds = new Set<string>()
   if (openJobId) {
     for (const e of layout.edges) {
@@ -342,11 +331,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
-  // Auto-fit viewBox: compute the bounding box of all simulated nodes,
-  // add padding, but ENFORCE A MIN viewBox SIZE so single-bubble or
-  // few-bubble cases don't scale up to elephant-size. Operator: "the
-  // bubble should have max size" — capped here via the MIN_VBOX_W/H
-  // floor.
   let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity
   for (const p of livePos.values()) {
     if (p.x < bbMinX) bbMinX = p.x
@@ -356,12 +340,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   }
   const PAD_X = NODE_RADIUS + 30
   const PAD_Y_TOP = NODE_RADIUS + 12
-  const PAD_Y_BOTTOM = NODE_RADIUS + 40 // extra for the text label below
+  const PAD_Y_BOTTOM = NODE_RADIUS + 40
   const naturalW = (bbMaxX - bbMinX) + PAD_X * 2
   const naturalH = (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM
   const vbW = Math.max(MIN_VBOX_W, naturalW)
   const vbH = Math.max(MIN_VBOX_H, naturalH)
-  // Center bbox within the (possibly larger) viewBox.
   const cx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
   const cy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
   const vbX = cx - vbW / 2
@@ -407,35 +390,48 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           markerHeight="7"
           orient="auto-start-reverse"
         >
-          <path d="M0,1 L9,5 L0,9 Z" fill="#FBBF24" opacity="1" />
+          <path d="M0,1 L9,5 L0,9 Z" fill={SELECTION_RING} opacity="1" />
+        </marker>
+        <marker
+          id="flow-org-arrow-host"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0,1 L9,5 L0,9 Z" fill={HOST_RING} opacity="1" />
         </marker>
       </defs>
 
-      {/* Edges first so nodes sit on top */}
       {layout.edges.map((e) => {
         const s = livePos.get(e.fromId)
         const t = livePos.get(e.toId)
         if (!s || !t) return null
         const onSelectionPath =
-          openJobId !== null &&
-          (e.fromId === openJobId || e.toId === openJobId)
+          openJobId !== null && (e.fromId === openJobId || e.toId === openJobId)
+        const onHostPath =
+          hostJobId !== null && !onSelectionPath && (e.fromId === hostJobId || e.toId === hostJobId)
         return (
           <FlowEdge
-            key={`${e.fromId}-${e.toId}`}
+            key={`${e.fromId}-${e.toId}-${e.kind}`}
             from={s}
             to={t}
             status={e.fromStatus}
-            highlighted={onSelectionPath}
+            kind={e.kind}
+            highlighted={onSelectionPath ? 'selection' : onHostPath ? 'host' : 'none'}
           />
         )
       })}
 
-      {/* Nodes */}
       {layout.nodes.map((node) => {
         const pos = livePos.get(node.id)
         if (!pos) return null
         const family = familyById.get(node.familyId) ?? null
         const isNeighbor = neighborIds.has(node.id)
+        const isOpen = openJobId === node.id
+        const isHost = hostJobId === node.id
         return (
           <FlowNode
             key={node.id}
@@ -443,10 +439,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             x={pos.x}
             y={pos.y}
             family={family}
-            isOpen={openJobId === node.id}
-            isHighlighted={highlightJobId === node.id}
+            isOpen={isOpen}
+            isHost={isHost}
             isNeighbor={isNeighbor}
-            isDimmed={openJobId !== null && !isNeighbor && openJobId !== node.id}
+            isDimmed={openJobId !== null && !isNeighbor && !isOpen && !isHost}
             onClick={(e) => onJobClick(node.id, e)}
             onDoubleClick={() => onJobDoubleClick(node.id)}
           />
@@ -458,17 +454,15 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
 
 /* ── FlowEdge — straight line, rim-to-rim, with arrowhead ──────── */
 
-function FlowEdge({
-  from,
-  to,
-  status,
-  highlighted = false,
-}: {
+interface FlowEdgeProps {
   from: { x: number; y: number }
   to: { x: number; y: number }
   status: JobStatus
-  highlighted?: boolean
-}) {
+  kind: 'depends-on' | 'parent-child'
+  highlighted: 'none' | 'selection' | 'host'
+}
+
+function FlowEdge({ from, to, status, kind, highlighted }: FlowEdgeProps) {
   const tone = STATUS_TONE[status]
   const dx = to.x - from.x
   const dy = to.y - from.y
@@ -478,12 +472,19 @@ function FlowEdge({
   const fy = from.y + (dy / len) * NODE_RADIUS
   const tx = to.x - (dx / len) * trim
   const ty = to.y - (dy / len) * trim
-  // Highlight tone: amber-ish, distinct from any status colour, so the
-  // selection path stands out regardless of underlying job status.
-  const stroke = highlighted ? '#FBBF24' : tone.edge
-  const opacity = highlighted ? 1 : 0.7
-  const width = highlighted ? 2.6 : 1.4
-  const marker = highlighted ? 'flow-org-arrow-highlight' : `flow-org-arrow-${status}`
+
+  const stroke =
+    highlighted === 'selection' ? SELECTION_RING : highlighted === 'host' ? HOST_RING : tone.edge
+  const opacity = highlighted !== 'none' ? 1 : kind === 'parent-child' ? 0.4 : 0.7
+  const width = highlighted !== 'none' ? 2.6 : kind === 'parent-child' ? 1.0 : 1.4
+  const marker =
+    highlighted === 'selection'
+      ? 'flow-org-arrow-highlight'
+      : highlighted === 'host'
+        ? 'flow-org-arrow-host'
+        : `flow-org-arrow-${status}`
+  const dashArray = kind === 'parent-child' && highlighted === 'none' ? '4 3' : undefined
+
   return (
     <line
       x1={fx.toFixed(1)}
@@ -492,6 +493,7 @@ function FlowEdge({
       y2={ty.toFixed(1)}
       stroke={stroke}
       strokeWidth={width}
+      strokeDasharray={dashArray}
       markerEnd={`url(#${marker})`}
       opacity={opacity}
     />
@@ -506,17 +508,12 @@ interface FlowNodeProps {
   y: number
   family: OrganicFamily | null
   isOpen: boolean
-  isHighlighted: boolean
+  isHost: boolean
   isNeighbor: boolean
   isDimmed: boolean
   onClick: (e: ReactMouseEvent<SVGGElement>) => void
   onDoubleClick: () => void
 }
-
-// Selection palette — distinct from any status colour so the
-// selected/neighbor states always read clearly.
-const SELECTION_RING = '#FBBF24'      // amber
-const NEIGHBOR_RING = '#FCD34D'       // lighter amber
 
 function FlowNode({
   node,
@@ -524,18 +521,26 @@ function FlowNode({
   y,
   family,
   isOpen,
-  isHighlighted,
+  isHost,
   isNeighbor,
   isDimmed,
   onClick,
   onDoubleClick,
 }: FlowNodeProps) {
   const tone = STATUS_TONE[node.status]
-  // Override the outer status ring with the selection/neighbor tint.
-  const outerRing = isOpen ? SELECTION_RING : isNeighbor ? NEIGHBOR_RING : tone.ring
+  // Outer ring priority: selection (amber) > host (teal) > neighbour > status tone.
+  const outerRing = isOpen
+    ? SELECTION_RING
+    : isHost
+      ? HOST_RING
+      : isNeighbor
+        ? NEIGHBOR_RING
+        : tone.ring
   const familyColor = family?.color ?? 'rgba(148,163,184,0.55)'
+  const radius = node.isGroup ? GROUP_RADIUS : NODE_RADIUS
   const grpStyle: CSSProperties = { cursor: 'grab' }
   const groupOpacity = isDimmed ? 0.35 : 1
+  const ringWidth = isOpen ? 4 : isHost ? 3.5 : isNeighbor ? 3 : 2
 
   return (
     <g
@@ -545,8 +550,10 @@ function FlowNode({
       data-status={node.status}
       data-region={node.regionId}
       data-family={node.familyId}
+      data-kind={node.isGroup ? 'group' : 'leaf'}
+      data-folded={node.isFolded ? 'true' : 'false'}
       data-open={isOpen ? 'true' : 'false'}
-      data-highlighted={isHighlighted ? 'true' : 'false'}
+      data-host={isHost ? 'true' : 'false'}
       data-neighbor={isNeighbor ? 'true' : 'false'}
       data-dimmed={isDimmed ? 'true' : 'false'}
       onClick={onClick}
@@ -555,47 +562,71 @@ function FlowNode({
       transform={`translate(${x.toFixed(1)}, ${y.toFixed(1)})`}
       opacity={groupOpacity}
     >
-      <title>{`${node.label} — ${tone.label}${node.subLabel ? ` · ${node.subLabel}` : ''}`}</title>
-      {/* Glow underlay — strongest on selection */}
+      <title>
+        {`${node.label} — ${tone.label}${node.subLabel ? ` · ${node.subLabel}` : ''}`}
+      </title>
+
+      {/* Glow underlay — strongest on selection, then host. */}
       {isOpen ? (
-        <circle r={NODE_RADIUS + 10} fill="rgba(251,191,36,0.30)" />
+        <circle r={radius + 10} fill="rgba(251,191,36,0.30)" />
+      ) : isHost ? (
+        <circle r={radius + 10} fill="rgba(20,184,166,0.30)" />
       ) : isNeighbor ? (
-        <circle r={NODE_RADIUS + 8} fill="rgba(252,211,77,0.18)" />
-      ) : (node.status === 'running' || node.status === 'failed' || isHighlighted) ? (
-        <circle r={NODE_RADIUS + 8} fill={tone.glow} />
+        <circle r={radius + 8} fill="rgba(252,211,77,0.18)" />
+      ) : node.status === 'running' || node.status === 'failed' ? (
+        <circle r={radius + 8} fill={tone.glow} />
       ) : null}
+
       {/* Family-coloured ring (thin) */}
       <circle
-        r={NODE_RADIUS + 2}
+        r={radius + 2}
         fill="none"
         stroke={familyColor}
-        strokeWidth={isHighlighted ? 2.5 : 1}
+        strokeWidth={node.isGroup ? 2.5 : 1}
         opacity={0.55}
       />
-      {/* Status fill (kept) + selection/neighbor ring overlay */}
+
+      {/* Status fill + selection/host/neighbor ring overlay */}
       <circle
-        r={NODE_RADIUS}
+        r={radius}
         fill={tone.fill}
         stroke={outerRing}
-        strokeWidth={isOpen ? 4 : isNeighbor ? 3 : 2}
+        strokeWidth={ringWidth}
       />
-      {/* Status glyph */}
-      <text
-        x={0}
-        y={6}
-        textAnchor="middle"
-        fontSize={18}
-        fontWeight={700}
-        fill={tone.glyph}
-        fontFamily="ui-sans-serif, system-ui, sans-serif"
-        pointerEvents="none"
-      >
-        {glyphFor(node.status)}
-      </text>
+
+      {/* Status glyph or child-count badge */}
+      {node.isFolded ? (
+        <text
+          x={0}
+          y={6}
+          textAnchor="middle"
+          fontSize={node.childCount > 99 ? 14 : 18}
+          fontWeight={700}
+          fill={tone.glyph}
+          fontFamily="ui-sans-serif, system-ui, sans-serif"
+          pointerEvents="none"
+        >
+          {node.childCount}
+        </text>
+      ) : (
+        <text
+          x={0}
+          y={6}
+          textAnchor="middle"
+          fontSize={node.isGroup ? 16 : 18}
+          fontWeight={700}
+          fill={tone.glyph}
+          fontFamily="ui-sans-serif, system-ui, sans-serif"
+          pointerEvents="none"
+        >
+          {node.isGroup ? '◇' : glyphFor(node.status)}
+        </text>
+      )}
+
       {/* Label below bubble */}
       <text
         x={0}
-        y={NODE_RADIUS + 14}
+        y={radius + 14}
         textAnchor="middle"
         fontSize={10}
         fill="rgba(255,255,255,0.85)"
@@ -604,11 +635,12 @@ function FlowNode({
       >
         {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
       </text>
-      {/* Sub-label (duration) */}
+
+      {/* Sub-label (duration / "n jobs" for folded groups) */}
       {node.subLabel ? (
         <text
           x={0}
-          y={NODE_RADIUS + 26}
+          y={radius + 26}
           textAnchor="middle"
           fontSize={8}
           fill="rgba(255,255,255,0.45)"
@@ -636,7 +668,6 @@ function hashSeed(id: string): { fx: number; fy: number } {
     h ^= id.charCodeAt(i)
     h = Math.imul(h, 16777619)
   }
-  // Two independent floats from the hash
   const fx = ((h >>> 0) % 1000) / 1000
   let h2 = h
   h2 = Math.imul(h2 ^ (h2 >>> 13), 2654435761)

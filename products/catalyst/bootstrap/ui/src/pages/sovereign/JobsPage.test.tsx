@@ -172,12 +172,8 @@ describe('JobsPage — search', () => {
   })
 })
 
-describe('JobsPage — batches strip removed (epic #204 item #4)', () => {
+describe('JobsPage — batches concept removed (issue #351)', () => {
   it('does NOT render the per-batch progress strip', async () => {
-    // Founder verbatim: "On the jobs page the top 3 cards are not
-    // required, the progress bar needs to be shown only when I click
-    // a specific batch and it shows the batch page along with its
-    // batch progress at the top". This guard locks in the removal.
     renderJobs('d-1')
     await screen.findByTestId('jobs-table')
     expect(screen.queryByTestId('batch-progress')).toBeNull()
@@ -185,22 +181,20 @@ describe('JobsPage — batches strip removed (epic #204 item #4)', () => {
     expect(batchRows.length).toBe(0)
   })
 
-  it('batch chip in a row links to /flow?scope=batch:<id> (v3 routing)', async () => {
+  it('parent chip in a row links to that parent group\'s home page', async () => {
     renderJobs('d-1')
     await screen.findByTestId('jobs-table')
-    const chip = screen.getByTestId('jobs-cell-batch-bp-cilium') as HTMLAnchorElement
+    const chip = screen.getByTestId('jobs-cell-parent-bp-cilium') as HTMLAnchorElement
     expect(chip.tagName.toLowerCase()).toBe('a')
-    // v3 founder spec: batch chip → /flow?scope=batch:<batchId>.
+    // Issue #351: parent chip → /provision/$id/jobs/$parentId
+    // (the parent group is itself a Job and has its own home page).
     const href = chip.getAttribute('href') ?? ''
-    expect(href).toMatch(/^\/provision\/d-1\/flow/)
-    expect(href).toMatch(/scope=batch%3A|scope=batch:/)
+    expect(href).toMatch(/^\/provision\/d-1\/jobs\//)
   })
 })
 
 describe('JobsPage — v3 routing (no Tab strip, has Show-as-Flow button)', () => {
   it('does NOT render a jobs-view-tabs strip', async () => {
-    // PR #242 added a `?view=table|flow` Tab strip. The founder
-    // rejected that pattern; the Flow surface now lives at /flow.
     renderJobs('d-1')
     await screen.findByTestId('jobs-table')
     expect(screen.queryByTestId('jobs-view-tabs')).toBeNull()
@@ -208,12 +202,11 @@ describe('JobsPage — v3 routing (no Tab strip, has Show-as-Flow button)', () =
     expect(screen.queryByTestId('jobs-view-tab-flow')).toBeNull()
   })
 
-  it('exposes a "Show as Flow" button that navigates to /flow?scope=all', async () => {
+  it('exposes a "Show as Flow" button that navigates to /flow', async () => {
     renderJobs('d-1')
     const btn = await screen.findByTestId('sov-jobs-show-as-flow') as HTMLAnchorElement
     expect(btn.tagName.toLowerCase()).toBe('a')
     const href = btn.getAttribute('href') ?? ''
     expect(href).toMatch(/^\/provision\/d-1\/flow/)
-    expect(href).toMatch(/scope=all/)
   })
 })
