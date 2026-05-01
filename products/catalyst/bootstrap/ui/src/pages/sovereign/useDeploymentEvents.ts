@@ -37,7 +37,7 @@
  * does less than the other.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE } from '@/shared/config/urls'
 import {
   buildInitialState,
@@ -257,6 +257,13 @@ export function useDeploymentEvents(
     }
   }, [deploymentId, retryNonce, disableStream])
 
+  // Stable callback — referential identity matters because callers
+  // (e.g. AppsPage's notification effect) include `retry` in their
+  // useEffect dependency arrays. A new function every render would
+  // re-fire the effect on every state change and cause the toast push
+  // → re-render → toast push loop that triggered the test hang.
+  const retry = useCallback(() => setRetryNonce((n) => n + 1), [])
+
   return {
     state,
     snapshot,
@@ -264,6 +271,6 @@ export function useDeploymentEvents(
     streamError,
     startedAt,
     finishedAt,
-    retry: () => setRetryNonce((n) => n + 1),
+    retry,
   }
 }
