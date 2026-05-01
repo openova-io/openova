@@ -24,8 +24,10 @@ function makeJob(partial: Partial<Job>): Job {
   return {
     id: partial.id ?? 'job-1',
     jobName: partial.jobName ?? 'Job 1',
+    type: partial.type ?? 'install',
     appId: partial.appId ?? 'bp-cilium',
-    batchId: partial.batchId ?? 'applications',
+    parentId: partial.parentId ?? 'applications',
+    childIds: partial.childIds ?? [],
     dependsOn: partial.dependsOn ?? [],
     status: partial.status ?? 'pending',
     startedAt: partial.startedAt ?? null,

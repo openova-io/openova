@@ -1,43 +1,31 @@
 /**
- * FlowPage — deployment-wide (or per-batch) flow canvas at
- * `/sovereign/provision/$deploymentId/flow?scope=...&view=...`.
+ * FlowPage — recursive Job-tree canvas (issue #351).
  *
- * v4 redesign (issue #251 — supersedes the pill-card divergence shipped
- * in PR #245). Rendering layer rebuilt to MATCH the canonical mockup
- * `marketing/mockups/provision-mockup-v4.png`:
+ * The page renders a full-bleed canvas of the deployment's Job tree.
+ * The previous "jobs vs batches mode" toggle and `?scope=batch:<id>`
+ * filter are gone; "batches" are now parent-group Jobs in the same
+ * tree, surfaced via the {@link FoldControls} toolbar.
  *
- *   • Circular nodes with family-coloured rings + status arcs.
- *   • Multi-region grouping (top/bottom band per region).
- *   • Bezier curve edges; status-tinted arrow markers.
- *   • Persistent right-side log feed panel.
- *   • Static left-side deployment-progress tree (region → family →
- *     job, NO accordion per the operator's standing rule).
+ * Responsibilities:
+ *   • Source the recursive Job list (reducer + live API merge).
+ *   • Resolve fold state from URL (`?folded=id1,id2 + ?depth=1|2|3|all`)
+ *     overlaid on the per-node manual fold set.
+ *   • Hand a layout-ready bundle to {@link FlowCanvasOrganic}.
+ *   • Surface single-click → set `openJobId` (the consumer wires that
+ *     to the LogPane). Double-click on a leaf → navigate to its
+ *     `/jobs/$jobId` home; double-click on a parent → toggle its
+ *     fold state.
+ *   • Pass `hostJobId` straight through so the canvas paints the
+ *     teal host ring.
  *
- * The data adapter is preserved verbatim from PR #245+#249:
- *   • `useDeploymentEvents` — SSE replay of the deployment.
- *   • `useLiveJobsBackfill` — REST polling for the running jobs list.
- *   • `mergeJobs` — reconciles reducer + live sources (Agent E #249).
- *
- * Routing contract (unchanged):
- *   • `?scope=all`           → render every job in the deployment.
- *   • `?scope=batch:<id>`    → filter to a single batch.
- *   • `?view=jobs|batches`   → mode toggle (default = jobs).
- *
- * Mode contract (unchanged):
- *   • Jobs mode (default) — single-click opens the FloatingLogPane;
- *     double-click navigates to /jobs/$jobId.
- *   • Batches mode — single-click highlights; double-click drills into
- *     /flow?scope=batch:<id>.
- *
- * Embedded mode (`embedded` prop, used by JobDetail's Flow tab) drops
- * the PortalShell + StatusStrip chrome. `highlightJobId` pre-emphasises
- * the parent job on first paint.
+ * Embedded mode (`embedded` prop, used by JobDetail) drops the
+ * PortalShell + StatusStrip chrome — JobDetail owns those.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
- *   #1 (waterfall) — full target shape: circular nodes, multi-region,
- *      bezier, log feed, deployment tree all in this PR.
- *   #2 (no compromise) — rendering layer is the FlowCanvasV4 + log +
- *      tree triplet; no graph library, no canvas rendering.
+ *   #1 (waterfall) — full target shape: recursive tree, fold-aware
+ *      layout, host vs selection rings, log pane open by default.
+ *   #2 (no compromise) — d3-force layout layer is rebuilt as a single
+ *      recursive engine; no parallel batch-vs-job code paths remain.
  *   #4 (never hardcode) — region descriptors come from the wizard
  *      store; family palette comes from componentGroups.PRODUCTS;
  *      every dimension is a geometry knob.
@@ -61,75 +49,41 @@ import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 import {
   flowLayoutOrganic,
+  defaultFoldedAtDepth,
   FALLBACK_REGION_ID,
   type OrganicFamily,
   type OrganicRegion,
   type OrganicNodeHints,
 } from '@/lib/flowLayoutOrganic'
-import { DEFAULT_FAMILIES } from '@/lib/flowLayoutV4' // re-use existing palette only
+import { DEFAULT_FAMILIES } from '@/lib/flowFamilyPalette'
 import type { Job } from '@/lib/jobs.types'
-import { FloatingLogPane } from '@/components/FloatingLogPane'
 import {
   StatusStrip,
   type ProvisioningStatus,
 } from '@/components/StatusStrip'
 import { FlowCanvasOrganic } from './FlowCanvasOrganic'
-import { BatchSummaryPane } from './BatchSummaryPane'
+import { FoldControls, hasGroupJobs, resolveDepth, type FoldDepth } from './FoldControls'
 import { PRODUCTS } from '@/pages/wizard/steps/componentGroups'
 
 /* ──────────────────────────────────────────────────────────────────
- * Public types
+ * URL helpers
  * ────────────────────────────────────────────────────────────────── */
 
-export type FlowScope = { kind: 'all' } | { kind: 'batch'; batchId: string }
-export type FlowMode = 'jobs' | 'batches'
-
-/**
- * Resolve a free-form `?scope=...` query string into a typed scope.
- * Pure helper exported for unit-testing and for embedding callers
- * (JobDetail) that synthesise the scope from a parent batch id.
- */
-export function resolveScope(raw: unknown): FlowScope {
-  if (typeof raw !== 'string') return { kind: 'all' }
-  if (raw === 'all') return { kind: 'all' }
-  if (raw.startsWith('batch:')) {
-    const batchId = raw.slice('batch:'.length)
-    if (batchId.length > 0) return { kind: 'batch', batchId }
-  }
-  return { kind: 'all' }
-}
-
-export function resolveMode(raw: unknown): FlowMode {
-  return raw === 'batches' ? 'batches' : 'jobs'
-}
-
-interface FlowPageProps {
-  /** Test seam — disables the live SSE EventSource attach. */
-  disableStream?: boolean
-  /** Test seam — disables the live-jobs backfill polling. */
-  disableJobsBackfill?: boolean
-  /** Embedded variant: render without the PortalShell + StatusStrip chrome. */
-  embedded?: boolean
-  /** Override the URL-driven scope. */
-  scopeOverride?: FlowScope
-  /** Override the deploymentId param. */
-  deploymentIdOverride?: string
-  /** Highlight a single job (thicker accent border + glow). */
-  highlightJobId?: string
-  /** Force the initial mode (overrides ?view= for unit tests). */
-  initialMode?: FlowMode
+/** Parse `?folded=id1,id2,…` into a Set. */
+export function resolveFolded(raw: unknown): Set<string> {
+  if (typeof raw !== 'string' || raw.length === 0) return new Set()
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  )
 }
 
 /* ──────────────────────────────────────────────────────────────────
- * Helpers — family palette + per-job hints
+ * Family palette + per-job hints
  * ────────────────────────────────────────────────────────────────── */
 
-/**
- * Build the family palette from the public PRODUCTS taxonomy in
- * componentGroups.ts (so the canvas + tree always match the wizard
- * StepComponents page colour-coding). Falls back to the default palette
- * for entries the catalog hasn't taught us yet (catalyst, platform).
- */
 function useFamilyPalette(): OrganicFamily[] {
   return useMemo(() => {
     const fromCatalog = PRODUCTS.map((p) => {
@@ -140,7 +94,6 @@ function useFamilyPalette(): OrganicFamily[] {
         color: fallback?.color ?? '#94A3B8',
       } satisfies OrganicFamily
     })
-    // Append entries that exist in DEFAULT_FAMILIES but not in PRODUCTS.
     const seen = new Set(fromCatalog.map((f) => f.id))
     for (const f of DEFAULT_FAMILIES) {
       if (!seen.has(f.id)) fromCatalog.push(f)
@@ -149,70 +102,27 @@ function useFamilyPalette(): OrganicFamily[] {
   }, [])
 }
 
-/**
- * Build the per-job hint map (regionId / familyId / label / stage /
- * extraDepIds) from the deployment store + ApplicationDescriptors.
- *
- * Stage hint derivation:
- *   • Phase 0 (`infrastructure:*`) → stage 1 (always first).
- *   • Cluster bootstrap (`cluster-bootstrap`) → stage 2.
- *   • Per-component jobs → stage = 3 + componentDepthInGraph.
- *     Where componentDepthInGraph is the longest-path depth of this
- *     component in the ApplicationDescriptor.dependencies graph.
- *
- * This produces the canonical 10-stage left→right install ordering the
- * v4 mockup specifies even when Job.dependsOn is empty (which is the
- * default for the test catalog and any deployment that hasn't started
- * shipping individual `dependsOn` arrays from catalyst-api yet).
- *
- * extraDepIds — surfaces the component-graph dependency edges the
- * layout would otherwise miss. Resolves bare component ids (e.g.
- * "cnpg") to their canonical Job ids (`bp-cnpg`). Phase 0 + bootstrap
- * jobs get an implicit edge from infrastructure → cluster-bootstrap →
- * every component-job, so the canvas always reads stage-1 → stage-2 →
- * components.
- */
-/**
- * Canonical bootstrap-kit dependency graph from
- * docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 (slots 01–48).
- *
- * Live job objects backed by the catalyst-api don't carry their
- * upstream dependsOn array yet (the bridge surfaces flat status only),
- * so we inject the canonical graph here so the organic layout's depth
- * computation actually populates beyond zero.
- *
- * Keys + values use bare blueprint ids (no "install-" prefix, no
- * deploymentId prefix). Resolution to live Job ids happens in
- * useJobHints which scans `jobs` for matching jobName/appId/id suffix.
- */
 const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = {
-  // Tier 0 foundation
   cilium: [],
   'cert-manager': ['cilium'],
   flux: ['cert-manager'],
   crossplane: ['flux'],
   'sealed-secrets': ['cilium'],
   'crossplane-claims': ['crossplane'],
-  // Tier 1 identity
   spire: ['cert-manager'],
   openbao: ['spire'],
   keycloak: ['cert-manager', 'openbao'],
-  // Tier 2 git + bus
   gitea: ['keycloak'],
   'nats-jetstream': ['cert-manager'],
-  // Tier 3 DNS
   powerdns: ['cert-manager'],
   'external-dns': ['cert-manager', 'powerdns'],
-  // Tier 4 catalyst umbrella
   'catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
   'bp-catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
-  // Tier 5 storage / DB
   'external-secrets': ['openbao', 'cert-manager'],
   cnpg: ['flux'],
   valkey: ['flux'],
   seaweedfs: ['flux', 'cert-manager'],
   harbor: ['cnpg', 'seaweedfs', 'cert-manager'],
-  // Tier 6 observability
   opentelemetry: ['cert-manager'],
   alloy: ['opentelemetry'],
   loki: ['seaweedfs'],
@@ -220,7 +130,6 @@ const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = {
   tempo: ['seaweedfs'],
   grafana: ['cnpg', 'loki', 'mimir', 'tempo', 'keycloak'],
   langfuse: ['cnpg', 'keycloak', 'cert-manager'],
-  // Tier 7 security/policy
   kyverno: ['cilium'],
   reloader: [],
   vpa: [],
@@ -229,10 +138,8 @@ const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = {
   sigstore: ['cert-manager'],
   'syft-grype': ['cert-manager'],
   velero: ['seaweedfs'],
-  // Tier 8 edge
   coraza: ['cilium', 'cert-manager'],
   stunner: ['cilium', 'cert-manager'],
-  // Tier 9 apps + AI
   knative: ['cert-manager'],
   kserve: ['knative'],
   vllm: ['kserve'],
@@ -263,20 +170,16 @@ function useJobHints(args: {
     }
     const fallbackRegion = regions[0]?.id ?? FALLBACK_REGION_ID
 
-    // Build a bareName → liveJobId lookup so dep names resolve to
-    // whatever id the live backend uses (e.g. backend "<deploymentId>:install-cnpg").
     const liveIdByBare = new Map<string, string>()
     for (const j of jobs) {
-      // Try job.appId — it's the bare blueprint id ('bp-cnpg' or 'cnpg').
+      if (j.type === 'group') continue
       const bare = j.appId.startsWith('bp-') ? j.appId.slice(3) : j.appId
       if (!liveIdByBare.has(bare)) liveIdByBare.set(bare, j.id)
-      // Also check jobName — backend uses 'install-<bare>'.
       const m = j.jobName.match(/^install-(.+)$/)
       if (m) {
         const fromName = m[1]
         if (!liveIdByBare.has(fromName)) liveIdByBare.set(fromName, j.id)
       }
-      // Also check id suffix — some backends use 'install-<bare>::<region>'.
       const idMatch = j.id.match(/install-([a-z0-9-]+)/)
       if (idMatch) {
         const fromId = idMatch[1]
@@ -284,10 +187,7 @@ function useJobHints(args: {
       }
     }
 
-    // For depth derivation, infer a bare id for any job by stripping
-    // the "install-" prefix and the deployment-prefix.
     function bareIdOf(j: Job): string {
-      // Try jobName first
       const m = j.jobName.match(/^install-(.+)$/)
       if (m) return m[1]
       const m2 = j.id.match(/install-([a-z0-9-]+)/)
@@ -297,7 +197,6 @@ function useJobHints(args: {
     }
 
     function bootstrapDepsFor(bare: string): string[] {
-      // First try the canonical table; resolve each dep to a live job id.
       const canon = BOOTSTRAP_KIT_DEPS[bare] ?? []
       const ids: string[] = []
       for (const d of canon) {
@@ -307,14 +206,10 @@ function useJobHints(args: {
       return ids
     }
 
-    // Cluster-bootstrap + infrastructure ids if present.
-    const bootstrapJobId =
-      jobs.find((j) => j.appId === 'cluster-bootstrap')?.id ?? null
-    const phase0FinalJobId =
-      jobs.find((j) => j.id === 'infrastructure:tofu-output')?.id ?? null
+    const bootstrapJobId = jobs.find((j) => j.appId === 'cluster-bootstrap')?.id ?? null
+    const phase0FinalJobId = jobs.find((j) => j.id === 'infrastructure:tofu-output')?.id ?? null
 
     for (const j of jobs) {
-      // Region hint: respect a "::<regionId>" suffix on the job id.
       let regionId = fallbackRegion
       const sep = j.id.indexOf('::')
       if (sep > 0) {
@@ -325,7 +220,9 @@ function useJobHints(args: {
       let familyId: string
       const extraDepIds: string[] = []
 
-      if (j.appId === 'infrastructure') {
+      if (j.type === 'group') {
+        familyId = 'catalyst'
+      } else if (j.appId === 'infrastructure') {
         familyId = 'catalyst'
       } else if (j.appId === 'cluster-bootstrap') {
         familyId = 'catalyst'
@@ -333,7 +230,6 @@ function useJobHints(args: {
       } else {
         const app = appById.get(j.appId)
         familyId = app?.familyId ?? 'platform'
-        // First try app catalog dependencies.
         if (app) {
           for (const dep of app.dependencies ?? []) {
             const depApp = appByBareId.get(dep)
@@ -342,11 +238,8 @@ function useJobHints(args: {
             if (fromBare) extraDepIds.push(fromBare)
           }
         }
-        // Then inject canonical bootstrap-kit dependency graph.
         const bare = bareIdOf(j)
         for (const d of bootstrapDepsFor(bare)) extraDepIds.push(d)
-        // Anchor leaf jobs to cluster-bootstrap so even an isolated
-        // node still has SOME parent for depth ordering.
         if (extraDepIds.length === 0 && bootstrapJobId) {
           extraDepIds.push(bootstrapJobId)
         }
@@ -362,41 +255,44 @@ function useJobHints(args: {
  * Component
  * ────────────────────────────────────────────────────────────────── */
 
+interface FlowPageProps {
+  /** Test seam — disables the live SSE EventSource attach. */
+  disableStream?: boolean
+  /** Test seam — disables the live-jobs backfill polling. */
+  disableJobsBackfill?: boolean
+  /** Embedded variant: render without the PortalShell + StatusStrip chrome. */
+  embedded?: boolean
+  /** Override the deploymentId param. */
+  deploymentIdOverride?: string
+  /**
+   * Job id that "owns" this page — typically the JobDetail route's
+   * `$jobId`. The canvas paints a persistent teal ring on this node
+   * regardless of which job is currently single-clicked. The default
+   * `openJobId` is set to this id on first paint so the LogPane
+   * shows the host's logs immediately.
+   */
+  hostJobId?: string | null
+  /** Override the global default fold depth (test seam). */
+  initialDepth?: FoldDepth
+}
+
 export function FlowPage({
   disableStream = false,
   disableJobsBackfill = false,
   embedded = false,
-  scopeOverride,
   deploymentIdOverride,
-  highlightJobId,
-  initialMode,
+  hostJobId = null,
+  initialDepth,
 }: FlowPageProps = {}) {
   const looseParams = useParams({ strict: false }) as { deploymentId?: string }
   const deploymentId = deploymentIdOverride ?? looseParams.deploymentId ?? ''
   const store = useWizardStore()
 
-  const search = useSearch({ strict: false }) as { scope?: unknown; view?: unknown }
+  const search = useSearch({ strict: false }) as {
+    folded?: unknown
+    depth?: unknown
+  }
   const navigate = useNavigate()
-
-  const urlScope = useMemo<FlowScope>(() => resolveScope(search?.scope), [search?.scope])
-  const scope: FlowScope = scopeOverride ?? urlScope
-  const mode: FlowMode = initialMode ?? resolveMode(search?.view)
-
-  const setMode = useCallback(
-    (next: FlowMode) => {
-      if (scopeOverride) return
-      const nextSearch: Record<string, string> = {}
-      if (scope.kind === 'batch') nextSearch.scope = `batch:${scope.batchId}`
-      else nextSearch.scope = 'all'
-      if (next === 'batches') nextSearch.view = 'batches'
-      navigate({
-        to: '/provision/$deploymentId/flow' as never,
-        params: { deploymentId } as never,
-        search: nextSearch as never,
-      })
-    },
-    [navigate, deploymentId, scope, scopeOverride],
-  )
 
   /* ── Data adapter (preserved verbatim from PR #249) ──────────── */
 
@@ -426,106 +322,6 @@ export function FlowPage({
     [reducerJobs, liveJobs],
   )
 
-  const scopedJobs = useMemo<Job[]>(() => {
-    if (scope.kind === 'all') return [...allJobs]
-    return allJobs.filter((j) => j.batchId === scope.batchId)
-  }, [allJobs, scope])
-
-  /* ── Job/Batch view switching ────────────────────────────────────
-   * In `mode='batches'` we collapse the per-job bubbles into one
-   * meta-bubble per batchId. The meta-bubble's status is derived from
-   * the rollup of its child jobs (failed > running > pending > succeeded).
-   * Edges between batches are inferred from cross-batch dependsOn.
-   * ──────────────────────────────────────────────────────────────── */
-
-  const renderJobs = useMemo<Job[]>(() => {
-    if (mode !== 'batches') return scopedJobs
-    type Bucket = {
-      id: string
-      jobs: Job[]
-      depsBatches: Set<string>
-    }
-    const buckets = new Map<string, Bucket>()
-    for (const j of scopedJobs) {
-      const bid = j.batchId ?? 'misc'
-      let b = buckets.get(bid)
-      if (!b) {
-        b = { id: bid, jobs: [], depsBatches: new Set() }
-        buckets.set(bid, b)
-      }
-      b.jobs.push(j)
-    }
-    // For each batch, collect the set of OTHER batches that this batch's
-    // jobs depend on (cross-batch edges).
-    const jobToBatch = new Map<string, string>()
-    for (const j of scopedJobs) jobToBatch.set(j.id, j.batchId ?? 'misc')
-    for (const b of buckets.values()) {
-      for (const j of b.jobs) {
-        for (const depId of j.dependsOn ?? []) {
-          const depBatch = jobToBatch.get(depId)
-          if (depBatch && depBatch !== b.id) b.depsBatches.add(depBatch)
-        }
-      }
-    }
-    // Roll up status: failed > running > pending > succeeded.
-    function rollup(jobs: Job[]): Job['status'] {
-      if (jobs.some((j) => j.status === 'failed')) return 'failed'
-      if (jobs.some((j) => j.status === 'running')) return 'running'
-      if (jobs.some((j) => j.status === 'pending')) return 'pending'
-      return 'succeeded'
-    }
-    function earliest(jobs: Job[]): string | null {
-      let earliest: number | null = null
-      let earliestIso: string | null = null
-      for (const j of jobs) {
-        if (!j.startedAt) continue
-        const t = Date.parse(j.startedAt)
-        if (!Number.isFinite(t)) continue
-        if (earliest === null || t < earliest) {
-          earliest = t
-          earliestIso = j.startedAt
-        }
-      }
-      return earliestIso
-    }
-    function latest(jobs: Job[]): string | null {
-      let latest: number | null = null
-      let latestIso: string | null = null
-      for (const j of jobs) {
-        if (!j.finishedAt) continue
-        const t = Date.parse(j.finishedAt)
-        if (!Number.isFinite(t)) continue
-        if (latest === null || t > latest) {
-          latest = t
-          latestIso = j.finishedAt
-        }
-      }
-      return latestIso
-    }
-    const collapsed: Job[] = []
-    for (const b of buckets.values()) {
-      const status = rollup(b.jobs)
-      const startedAt = earliest(b.jobs)
-      const finishedAt = latest(b.jobs)
-      const dur =
-        startedAt && finishedAt
-          ? Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt))
-          : 0
-      collapsed.push({
-        id: b.id,
-        appId: b.id,
-        batchId: b.id,
-        jobName: `${b.id} (${b.jobs.length})`,
-        status,
-        startedAt: startedAt ?? '',
-        finishedAt: finishedAt ?? '',
-        durationMs: dur,
-        dependsOn: Array.from(b.depsBatches),
-      })
-    }
-    return collapsed
-  }, [scopedJobs, mode])
-
   /* ── Region descriptors (multi-region support) ───────────────── */
 
   const regions = useMemo<OrganicRegion[]>(() => {
@@ -548,22 +344,99 @@ export function FlowPage({
   /* ── Family palette + descriptions + per-job hints ──────────── */
 
   const families = useFamilyPalette()
-  const hints = useJobHints({ jobs: renderJobs, applications, regions })
+  const hints = useJobHints({ jobs: allJobs, applications, regions })
+
+  /* ── Fold state — URL (depth + folded) + per-node manual ─────── */
+
+  const urlDepth = resolveDepth(search?.depth)
+  const depth: FoldDepth = initialDepth ?? urlDepth
+  const urlFoldedSet = useMemo(() => resolveFolded(search?.folded), [search?.folded])
+
+  const foldedSet = useMemo(() => {
+    const baseline = depth === 'all' ? new Set<string>() : defaultFoldedAtDepth(allJobs, depth)
+    // Manual per-node overrides: an id present in `?folded=` forces folded
+    // (additive) — the UI's Expand-all sets `?folded=` to empty, so this
+    // composition reads cleanly.
+    for (const id of urlFoldedSet) baseline.add(id)
+    return baseline
+  }, [allJobs, depth, urlFoldedSet])
+
+  const setSearchPatch = useCallback(
+    (patch: { folded?: string | undefined; depth?: string | undefined }) => {
+      navigate({
+        to: '.',
+        search: (prev) => {
+          const next: Record<string, unknown> = { ...(prev ?? {}) }
+          if ('folded' in patch) {
+            if (patch.folded && patch.folded.length > 0) next.folded = patch.folded
+            else delete next.folded
+          }
+          if ('depth' in patch) {
+            if (patch.depth) next.depth = patch.depth
+            else delete next.depth
+          }
+          return next
+        },
+      })
+    },
+    [navigate],
+  )
+
+  const onDepthChange = useCallback(
+    (next: FoldDepth) => {
+      setSearchPatch({
+        depth: next === 2 ? undefined : String(next),
+        // Clear manual overrides — depth is the new global truth.
+        folded: undefined,
+      })
+    },
+    [setSearchPatch],
+  )
+
+  const onCollapseAll = useCallback(() => {
+    const allGroups = allJobs.filter((j) => j.type === 'group').map((j) => j.id)
+    setSearchPatch({ depth: '1', folded: allGroups.join(',') })
+  }, [allJobs, setSearchPatch])
+
+  const onExpandAll = useCallback(() => {
+    setSearchPatch({ depth: 'all', folded: undefined })
+  }, [setSearchPatch])
+
+  const toggleFold = useCallback(
+    (jobId: string) => {
+      const job = allJobs.find((j) => j.id === jobId)
+      if (!job || job.type !== 'group') return
+      const next = new Set(urlFoldedSet)
+      const isFolded = foldedSet.has(jobId)
+      if (isFolded) next.delete(jobId)
+      else next.add(jobId)
+      const arr = [...next].filter(Boolean)
+      setSearchPatch({ folded: arr.length > 0 ? arr.join(',') : undefined })
+    },
+    [allJobs, foldedSet, urlFoldedSet, setSearchPatch],
+  )
 
   /* ── Layout ───────────────────────────────────────────────────── */
 
   const layout = useMemo(
-    () => flowLayoutOrganic(renderJobs, { hints, regions, families }),
-    [renderJobs, hints, regions, families],
+    () => flowLayoutOrganic(allJobs, { hints, regions, families, folded: foldedSet }),
+    [allJobs, hints, regions, families, foldedSet],
   )
 
   /* ── Click semantics (single vs double, debounced 220ms) ────── */
 
-  const [openJobId, setOpenJobId] = useState<string | null>(null)
-  const openJob = useMemo<Job | null>(() => {
-    if (!openJobId) return null
-    return scopedJobs.find((j) => j.id === openJobId) ?? null
-  }, [openJobId, scopedJobs])
+  const [openJobId, setOpenJobId] = useState<string | null>(hostJobId)
+  // Keep `openJobId` synced with `hostJobId` when the host changes
+  // (e.g. operator navigated to a different /jobs/{id}). Only on
+  // entry — once the operator clicks another job, we don't snap them
+  // back.
+  const prevHostRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (hostJobId !== prevHostRef.current) {
+      prevHostRef.current = hostJobId
+      setOpenJobId(hostJobId)
+    }
+  }, [hostJobId])
 
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cancelPendingClick = useCallback(() => {
@@ -588,56 +461,50 @@ export function FlowPage({
   const handleJobDoubleClick = useCallback(
     (jobId: string) => {
       cancelPendingClick()
-      // Batch mode: double-click on a batch bubble drills into its
-      // children inline. Other batches stay rendered at the parent level
-      // (operator spec 2026-04-30) — implemented by setting scope=batch:<id>
-      // which the canvas reads to render only that batch's children, then
-      // we render sibling batch summaries beside it.
-      if (mode === 'batches') {
-        if (scopeOverride) return
-        navigate({
-          to: '/provision/$deploymentId/flow' as never,
-          params: { deploymentId } as never,
-          search: { scope: `batch:${jobId}`, view: 'jobs' } as never,
-        })
+      const job = allJobs.find((j) => j.id === jobId)
+      // Group: toggle fold in place (rest of the canvas keeps its
+      // current fold state — operator spec).
+      if (job?.type === 'group') {
+        toggleFold(jobId)
         return
       }
-      // Jobs mode: double-click navigates to the job-detail page.
+      // Leaf: navigate to its own home.
       navigate({
         to: '/provision/$deploymentId/jobs/$jobId' as never,
         params: { deploymentId, jobId } as never,
       })
     },
-    [navigate, deploymentId, cancelPendingClick, mode, scopeOverride],
+    [navigate, deploymentId, cancelPendingClick, allJobs, toggleFold],
   )
 
   const handleCanvasBackgroundClick = useCallback(() => {
     cancelPendingClick()
-    setOpenJobId(null)
-  }, [cancelPendingClick])
+    setOpenJobId(hostJobId)
+  }, [cancelPendingClick, hostJobId])
 
   /* ── StatusStrip rollup ──────────────────────────────────────── */
 
+  const leafJobs = useMemo(() => allJobs.filter((j) => j.type !== 'group'), [allJobs])
   const provisioningStatus: ProvisioningStatus = useMemo(() => {
-    if (scopedJobs.length === 0) return 'pending'
-    const buckets = new Set(scopedJobs.map((j) => j.status))
+    if (leafJobs.length === 0) return 'pending'
+    const buckets = new Set(leafJobs.map((j) => j.status))
     if (buckets.has('failed')) {
-      const allTerminal = scopedJobs.every((j) => j.status === 'succeeded' || j.status === 'failed')
+      const allTerminal = leafJobs.every((j) => j.status === 'succeeded' || j.status === 'failed')
       return allTerminal ? 'failed' : 'running'
     }
     if (buckets.has('running') || buckets.has('pending')) return 'running'
     return 'succeeded'
-  }, [scopedJobs])
+  }, [leafJobs])
 
   const finishedCount = useMemo(
-    () => scopedJobs.filter((j) => j.status === 'succeeded' || j.status === 'failed').length,
-    [scopedJobs],
+    () => leafJobs.filter((j) => j.status === 'succeeded' || j.status === 'failed').length,
+    [leafJobs],
   )
-  const totalCount = scopedJobs.length
+  const totalCount = leafJobs.length
 
   const earliestStarted = useMemo<number | null>(() => {
     let earliest: number | null = null
-    for (const j of scopedJobs) {
+    for (const j of leafJobs) {
       if (!j.startedAt) continue
       const t = Date.parse(j.startedAt)
       if (!Number.isFinite(t)) continue
@@ -645,7 +512,7 @@ export function FlowPage({
     }
     if (earliest !== null) return earliest
     return startedAt ?? null
-  }, [scopedJobs, startedAt])
+  }, [leafJobs, startedAt])
 
   const [now, setNow] = useState<number>(() => Date.now())
   useEffect(() => {
@@ -661,7 +528,7 @@ export function FlowPage({
     <FlowCanvasOrganic
       layout={layout}
       embedded={embedded}
-      highlightJobId={highlightJobId ?? null}
+      hostJobId={hostJobId}
       openJobId={openJobId}
       onJobClick={handleJobClick}
       onJobDoubleClick={handleJobDoubleClick}
@@ -669,9 +536,6 @@ export function FlowPage({
     />
   )
 
-  // SINGLE-PANE canvas. The left tree + right always-visible log feed
-  // were removed per operator directive (2026-04-30). The exec log
-  // appears as a FloatingLogPane only on single-click of a job bubble.
   const flowSurface = (
     <div className="flow-surface" data-testid="flow-surface">
       <div className="flow-canvas-host" data-testid="flow-canvas-host">
@@ -680,37 +544,10 @@ export function FlowPage({
     </div>
   )
 
-  // Single-click pane:
-  //   • In jobs mode → FloatingLogPane (live exec log of that job).
-  //   • In batches mode → BatchSummaryPane (started-at, finished-at OR
-  //     ETA, succeeded/running/pending/failed counts, total duration).
-  const logPane = useMemo(() => {
-    if (embedded || !openJob) return null
-    if (mode === 'batches') {
-      const childJobs = scopedJobs.filter((j) => (j.batchId ?? 'misc') === openJob.id)
-      return (
-        <BatchSummaryPane
-          batchId={openJob.id}
-          jobs={childJobs}
-          onClose={() => setOpenJobId(null)}
-        />
-      )
-    }
-    return (
-      <FloatingLogPane
-        executionId={openJob.startedAt ? `${openJob.id}:latest` : null}
-        jobTitle={openJob.jobName}
-        statusLabel={openJob.status}
-        statusTone={openJob.status}
-        onClose={() => setOpenJobId(null)}
-      />
-    )
-  }, [embedded, openJob, mode, scopedJobs])
-
   if (embedded) {
     return (
       <div className="flow-page-embedded" data-testid="flow-page-embedded">
-        <style>{FLOW_PAGE_CSS_V4}</style>
+        <style>{FLOW_PAGE_CSS}</style>
         {flowSurface}
       </div>
     )
@@ -718,16 +555,12 @@ export function FlowPage({
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <style>{FLOW_PAGE_CSS_V4}</style>
+      <style>{FLOW_PAGE_CSS}</style>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-strong)]">
-            {scope.kind === 'all' ? 'Flow' : `Flow · ${scope.batchId}`}
-          </h1>
+          <h1 className="text-2xl font-bold text-[var(--color-text-strong)]">Flow</h1>
           <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-            {scope.kind === 'all'
-              ? 'Deployment-wide dependency graph for '
-              : 'Batch-scoped dependency graph for '}
+            Deployment-wide job tree for{' '}
             <span className="font-mono">
               {sovereignFQDN || `deployment ${deploymentId.slice(0, 8)}`}
             </span>
@@ -753,22 +586,25 @@ export function FlowPage({
           finished={finishedCount}
           total={totalCount}
           elapsedMs={elapsedMs}
-          modeToggle={{ mode, onChange: setMode }}
+          trailing={
+            <FoldControls
+              depth={depth}
+              onDepthChange={onDepthChange}
+              onCollapseAll={onCollapseAll}
+              onExpandAll={onExpandAll}
+              hasGroups={hasGroupJobs(allJobs)}
+            />
+          }
         />
       </div>
 
       <div className="mt-4">{flowSurface}</div>
-      {logPane}
     </PortalShell>
   )
 }
 
-/* ──────────────────────────────────────────────────────────────────
- * Inline CSS — kept co-located so canvas + log + tree stay in lockstep
- * ────────────────────────────────────────────────────────────────── */
-
-const FLOW_PAGE_CSS_V4 = `
-.flow-page-embedded { width: 100%; }
+const FLOW_PAGE_CSS = `
+.flow-page-embedded { width: 100%; height: 100%; }
 
 .flow-surface {
   display: block;
@@ -787,6 +623,8 @@ const FLOW_PAGE_CSS_V4 = `
   padding: 0;
   border: 0;
   background: transparent;
+  height: 100%;
+  max-height: none;
 }
 
 .flow-canvas-host {
@@ -804,257 +642,15 @@ const FLOW_PAGE_CSS_V4 = `
 
 .flow-page-embedded .flow-canvas-host {
   min-height: 0;
-  max-height: 50vh;
-  height: 50vh;
+  height: 100%;
+  max-height: none;
 }
 
-.flow-canvas-svg-v4 {
+.flow-canvas-svg-organic {
   display: block;
   width: 100%;
   max-width: 100%;
   height: 100%;
   max-height: 100%;
 }
-
-/* ── Deployment tree (left) ─────────────────────────────────────── */
-
-.flow-deployment-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 0;
-  height: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.05);
-  background: rgba(255,255,255,0.015);
-  padding: 10px 0 12px;
-  overflow: hidden;
-}
-.flow-tree-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.flow-tree-header-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.40);
-}
-.flow-tree-header-count {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-accent, #38BDF8);
-  font-variant-numeric: tabular-nums;
-}
-.flow-tree-progress-bar {
-  height: 2px;
-  background: rgba(255,255,255,0.06);
-  margin: 0 12px 4px;
-  border-radius: 1px;
-  overflow: hidden;
-}
-.flow-tree-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #38BDF8, #818CF8);
-  transition: width 0.4s ease;
-}
-.flow-tree-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 4px 0;
-  scrollbar-width: thin;
-}
-.flow-tree-empty {
-  padding: 16px 12px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.30);
-  text-align: center;
-}
-.flow-tree-group { margin-bottom: 4px; }
-.flow-tree-region-header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px 4px;
-  border-top: 1px solid rgba(255,255,255,0.04);
-}
-.flow-tree-region-header:first-child { border-top: 0; }
-.flow-tree-region-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--color-accent, #38BDF8);
-  box-shadow: 0 0 6px rgba(56,189,248,0.55);
-}
-.flow-tree-region-meta {
-  display: flex; flex-direction: column;
-  flex: 1; min-width: 0;
-}
-.flow-tree-region-name {
-  font-size: 11px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.9);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.flow-tree-region-sub {
-  font-size: 9px;
-  color: rgba(255,255,255,0.30);
-  margin-top: 1px;
-}
-.flow-tree-family-row {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 12px 4px 18px;
-}
-.flow-tree-family-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  flex-shrink: 0;
-}
-.flow-tree-family-name {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  min-width: 56px;
-}
-.flow-tree-family-desc {
-  flex: 1; min-width: 0;
-  font-size: 9px;
-  color: rgba(255,255,255,0.32);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.flow-tree-family-count {
-  font-size: 9px;
-  color: rgba(255,255,255,0.40);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-.flow-tree-job-row {
-  display: flex; align-items: center; gap: 6px;
-  width: 100%;
-  padding: 3px 12px 3px 30px;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.15s;
-}
-.flow-tree-job-row:hover { background: rgba(255,255,255,0.025); }
-.flow-tree-job-row.is-selected { background: rgba(56,189,248,0.10); }
-.flow-tree-job-dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  flex-shrink: 0;
-}
-.flow-tree-job-name {
-  flex: 1; min-width: 0;
-  font-size: 10px;
-  color: rgba(255,255,255,0.65);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.flow-tree-job-row.is-selected .flow-tree-job-name { color: rgba(255,255,255,0.95); }
-.flow-tree-job-duration {
-  font-size: 9px;
-  color: rgba(255,255,255,0.30);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Log feed (right) ───────────────────────────────────────────── */
-
-.flow-log-feed {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.05);
-  background: rgba(2,6,15,0.75);
-  overflow: hidden;
-}
-.flow-log-feed-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 11px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  flex-shrink: 0;
-}
-.flow-log-feed-label {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.32);
-}
-.flow-log-feed-chip {
-  font-size: 9px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 4px;
-  color: var(--color-accent, #38BDF8);
-  background: rgba(56,189,248,0.08);
-  border: 1px solid rgba(56,189,248,0.20);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 110px;
-}
-.flow-log-feed-status {
-  margin-left: auto;
-  font-size: 9px;
-  color: rgba(255,255,255,0.32);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.flow-log-feed-stream {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 8px 11px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  line-height: 1.85;
-  scrollbar-width: thin;
-}
-.flow-log-feed-empty {
-  padding: 16px 0;
-  font-size: 10px;
-  color: rgba(255,255,255,0.32);
-  text-align: center;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-.flow-log-feed-line {
-  display: flex;
-  gap: 8px;
-}
-.flow-log-feed-ts {
-  color: rgba(255,255,255,0.28);
-  font-size: 9px;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.flow-log-feed-msg {
-  flex: 1;
-  word-break: break-word;
-}
-.flow-log-feed-cursor {
-  display: inline-block;
-  width: 5px;
-  height: 10px;
-  background: var(--color-accent, #38BDF8);
-  margin-left: 3px;
-  vertical-align: text-bottom;
-  animation: flow-log-blink 1.1s step-end infinite;
-}
-@keyframes flow-log-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
 `

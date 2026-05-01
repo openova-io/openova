@@ -1,6 +1,6 @@
 // helmwatch_bridge_test.go — assert that helmwatch component events
-// translate into the Job + Execution + LogLine writes the table-view
-// UX renders.
+// translate into the Job + Execution + LogLine writes the canvas + per-
+// job detail page render.
 package jobs
 
 import (
@@ -21,6 +21,45 @@ func newBridgeFixture(t *testing.T) (*Store, *Bridge, string) {
 	return st, NewBridge(st, depID), depID
 }
 
+// leafJobs filters a Job slice to leaf install jobs only. Group jobs
+// (synthesised parents like bootstrap-kit) are excluded so tests can
+// reason about installs in isolation.
+func leafJobs(in []Job) []Job {
+	out := make([]Job, 0, len(in))
+	for _, j := range in {
+		if j.Type != JobTypeGroup {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// leafByName returns the leaf install Job with the given JobName, or
+// fails the test. Used by tests that previously relied on `got[0]`
+// when only one leaf existed — that index is now ambiguous because the
+// store also returns the synthesised parent group row.
+func leafByName(t *testing.T, in []Job, name string) Job {
+	t.Helper()
+	for _, j := range in {
+		if j.JobName == name {
+			return j
+		}
+	}
+	t.Fatalf("leaf %q not found in %+v", name, in)
+	return Job{}
+}
+
+// mustList wraps Store.ListJobs with a t.Fatal on error. Reduces the
+// boilerplate in the failure-paths above.
+func mustList(t *testing.T, st *Store, depID string) []Job {
+	t.Helper()
+	got, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	return got
+}
+
 func TestBridge_SeedJobs_StripsBpPrefix(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
 	if err := br.SeedJobs([]SeedSpec{
@@ -33,20 +72,34 @@ func TestBridge_SeedJobs_StripsBpPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(got))
+	// Two leaf jobs + the synthesised bootstrap-kit parent group.
+	if len(got) != 3 {
+		t.Fatalf("expected 2 leaf jobs + 1 group, got %d (%+v)", len(got), got)
 	}
-	var cm Job
+	var cm, group Job
 	for _, j := range got {
 		if j.JobName == "install-cert-manager" {
 			cm = j
+		}
+		if j.JobName == GroupBootstrapKit && j.Type == JobTypeGroup {
+			group = j
 		}
 	}
 	if cm.JobName == "" {
 		t.Fatal("no install-cert-manager job")
 	}
-	if cm.AppID != "cert-manager" || cm.BatchID != BatchBootstrapKit || cm.Status != StatusPending {
+	if group.JobName == "" {
+		t.Fatal("no bootstrap-kit group materialised on first seed")
+	}
+	wantParent := JobID(depID, GroupBootstrapKit)
+	if cm.AppID != "cert-manager" || cm.ParentID != wantParent || cm.Type != JobTypeInstall || cm.Status != StatusPending {
 		t.Errorf("seed metadata: %+v", cm)
+	}
+	if group.DisplayName != GroupBootstrapKitDisplay {
+		t.Errorf("group DisplayName: want %q, got %q", GroupBootstrapKitDisplay, group.DisplayName)
+	}
+	if len(group.ChildIDs) != 2 {
+		t.Errorf("group ChildIDs: want 2, got %d (%v)", len(group.ChildIDs), group.ChildIDs)
 	}
 	// dependsOn: bp- prefix must be stripped, then install- prepended.
 	want := []string{"install-cilium", "install-cilium"}
@@ -67,12 +120,12 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 	if err := br.OnHelmReleaseEvent("cilium", HelmStatePending, "info", "observed", t0); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := st.ListJobs(depID)
-	if len(got) != 1 || got[0].Status != StatusPending {
-		t.Fatalf("after pending: %+v", got)
+	leaves := leafJobs(mustList(t, st, depID))
+	if len(leaves) != 1 || leaves[0].Status != StatusPending {
+		t.Fatalf("after pending: %+v", leaves)
 	}
-	if got[0].LatestExecutionID != "" {
-		t.Fatalf("Pending must not allocate an execution: %+v", got[0])
+	if leaves[0].LatestExecutionID != "" {
+		t.Fatalf("Pending must not allocate an execution: %+v", leaves[0])
 	}
 
 	// Transition into installing — allocates an Execution.
@@ -80,15 +133,15 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalling, "info", "Helm install in progress", t1); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.ListJobs(depID)
-	if got[0].Status != StatusRunning {
-		t.Errorf("status: want running, got %q", got[0].Status)
+	leaves = leafJobs(mustList(t, st, depID))
+	if leaves[0].Status != StatusRunning {
+		t.Errorf("status: want running, got %q", leaves[0].Status)
 	}
-	if got[0].LatestExecutionID == "" {
+	if leaves[0].LatestExecutionID == "" {
 		t.Fatalf("execution not allocated")
 	}
-	if got[0].StartedAt == nil || !got[0].StartedAt.Equal(t1) {
-		t.Errorf("StartedAt: got %v want %v", got[0].StartedAt, t1)
+	if leaves[0].StartedAt == nil || !leaves[0].StartedAt.Equal(t1) {
+		t.Errorf("StartedAt: got %v want %v", leaves[0].StartedAt, t1)
 	}
 
 	// Terminal: installed.
@@ -184,7 +237,8 @@ func TestBridge_OnProvisionerEvent_FiltersPhase0(t *testing.T) {
 		t.Errorf("Phase-0 event must not create jobs, got %+v", got)
 	}
 
-	// Phase-1 component event creates a Job.
+	// Phase-1 component event creates a leaf Job (and lazily the
+	// bootstrap-kit parent group).
 	if err := br.OnProvisionerEvent(provisioner.Event{
 		Time:      time.Now().UTC().Format(time.RFC3339),
 		Phase:     "component",
@@ -195,10 +249,11 @@ func TestBridge_OnProvisionerEvent_FiltersPhase0(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.ListJobs(depID)
-	if len(got) != 1 || got[0].JobName != "install-cilium" {
-		t.Errorf("expected install-cilium job, got %+v", got)
+	leaves := leafJobs(mustList(t, st, depID))
+	if len(leaves) != 1 {
+		t.Fatalf("expected exactly 1 leaf, got %+v", leaves)
 	}
+	leafByName(t, leaves, "install-cilium")
 }
 
 func TestMapLevel(t *testing.T) {
@@ -268,12 +323,9 @@ func TestSeedJobsFromInformerList_idempotent(t *testing.T) {
 		t.Errorf("first seed executionsSeeded: want 4, got %d", execs1)
 	}
 
-	gotAfterFirst, err := st.ListJobs(depID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	gotAfterFirst := leafJobs(mustList(t, st, depID))
 	if len(gotAfterFirst) != 4 {
-		t.Fatalf("after first seed: want 4 jobs, got %d", len(gotAfterFirst))
+		t.Fatalf("after first seed: want 4 leaf jobs, got %d", len(gotAfterFirst))
 	}
 
 	// Snapshot per-Job content for the idempotency comparison.
@@ -298,12 +350,9 @@ func TestSeedJobsFromInformerList_idempotent(t *testing.T) {
 		t.Errorf("second seed executionsSeeded: want 0 (idempotent), got %d", execs2)
 	}
 
-	gotAfterSecond, err := st.ListJobs(depID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	gotAfterSecond := leafJobs(mustList(t, st, depID))
 	if len(gotAfterSecond) != 4 {
-		t.Fatalf("after second seed: want 4 jobs (no duplicates), got %d", len(gotAfterSecond))
+		t.Fatalf("after second seed: want 4 leaf jobs (no duplicates), got %d", len(gotAfterSecond))
 	}
 	for _, j := range gotAfterSecond {
 		prev, ok := beforeByName[j.JobName]
@@ -478,9 +527,9 @@ func TestSeedJobsFromInformerList_skipsEmptyComponent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	got, _ := st.ListJobs(depID)
-	if len(got) != 1 {
-		t.Errorf("expected 1 job (empty components skipped), got %d", len(got))
+	leaves := leafJobs(mustList(t, st, depID))
+	if len(leaves) != 1 {
+		t.Errorf("expected 1 leaf (empty components skipped), got %d (%+v)", len(leaves), leaves)
 	}
 }
 

@@ -166,7 +166,18 @@ func (s *Store) persistIndex(idx *Index) error {
 	}
 	final := filepath.Join(depDir, indexFileName)
 
-	raw, err := json.MarshalIndent(idx, "", "  ")
+	// Strip derived fields before serialising — ChildIDs is recomputed
+	// on read by deriveTreeView. Persisting it would waste disk space
+	// and risks the on-disk copy drifting from the live tree if a
+	// future writer forgets to recompute.
+	persisted := *idx
+	persisted.Jobs = make([]Job, len(idx.Jobs))
+	copy(persisted.Jobs, idx.Jobs)
+	for i := range persisted.Jobs {
+		persisted.Jobs[i].ChildIDs = nil
+	}
+
+	raw, err := json.MarshalIndent(&persisted, "", "  ")
 	if err != nil {
 		return fmt.Errorf("jobs: marshal index: %w", err)
 	}
@@ -266,7 +277,7 @@ func mergeJob(prev, next Job) Job {
 // stamps the Job's LatestExecutionID + StartedAt + Status=running. The
 // returned Execution.ID is the path-segment component the /logs
 // endpoint accepts. Caller is responsible for writing the matching
-// Job upsert with appId/batchId metadata BEFORE the first
+// Job upsert with appId/parentId metadata BEFORE the first
 // StartExecution — the store does not back-fill those fields.
 func (s *Store) StartExecution(deploymentID, jobName string, startedAt time.Time) (Execution, error) {
 	if strings.TrimSpace(deploymentID) == "" {
@@ -436,8 +447,10 @@ func (s *Store) AppendLogLines(deploymentID, execID string, lines []LogLine) err
 }
 
 // ListJobs returns every Job for the deployment, sorted started-at
-// DESC with pending Jobs (no StartedAt) bucketed last. The handler
-// returns the slice unchanged.
+// DESC with pending Jobs (no StartedAt) bucketed last. Group jobs
+// (Type == JobTypeGroup) get their Status / StartedAt / FinishedAt /
+// DurationMs derived from descendants at read time; ChildIDs is
+// always derived. The handler returns the slice unchanged.
 func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -448,6 +461,7 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	}
 	out := make([]Job, len(idx.Jobs))
 	copy(out, idx.Jobs)
+	deriveTreeView(out)
 	sort.SliceStable(out, func(i, j int) bool {
 		// Pending (no StartedAt) sort last.
 		ai, bi := out[i].StartedAt, out[j].StartedAt
@@ -468,8 +482,165 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	return out, nil
 }
 
+// deriveTreeView mutates the supplied slice in place to populate
+// ChildIDs on every Job and to roll up Status / StartedAt /
+// FinishedAt / DurationMs on every group Job from its descendants.
+//
+// Rollup rules (group jobs only — leaf jobs are untouched):
+//
+//   - Status: failed > running > pending > succeeded. A group with at
+//     least one failed descendant is failed; otherwise running if any
+//     descendant is running; otherwise pending if any descendant is
+//     pending; otherwise succeeded.
+//   - StartedAt: earliest non-nil StartedAt across all descendants.
+//   - FinishedAt: latest FinishedAt across all descendants — but only
+//     populated when every descendant has terminated (succeeded or
+//     failed).
+//   - DurationMs: FinishedAt - StartedAt when both are non-nil; else 0.
+//
+// The walk is post-order via index lookup so a 3-level tree
+// (root group → mid group → leaf) rolls up correctly without
+// recursion.
+func deriveTreeView(jobs []Job) {
+	if len(jobs) == 0 {
+		return
+	}
+	idx := make(map[string]int, len(jobs))
+	for i := range jobs {
+		idx[jobs[i].ID] = i
+		jobs[i].ChildIDs = nil
+	}
+	// Build adjacency: parent ID → list of child indexes (children of
+	// the indexed parent's ID).
+	children := make(map[int][]int, len(jobs))
+	for i := range jobs {
+		pid := jobs[i].ParentID
+		if pid == "" {
+			continue
+		}
+		pi, ok := idx[pid]
+		if !ok {
+			continue
+		}
+		children[pi] = append(children[pi], i)
+		jobs[pi].ChildIDs = append(jobs[pi].ChildIDs, jobs[i].ID)
+	}
+	// Topological-by-depth iteration: process jobs in order of
+	// ascending parent-chain length so descendants are settled
+	// before ancestors. Compute depth lazily via a memo.
+	depth := make([]int, len(jobs))
+	var computeDepth func(int) int
+	visiting := make([]bool, len(jobs))
+	computeDepth = func(i int) int {
+		if depth[i] > 0 {
+			return depth[i]
+		}
+		if visiting[i] {
+			// Cycle defence — should never happen since bridges only
+			// ever set ParentID to a known group's ID, but never let
+			// a malformed index crash the read path.
+			return 1
+		}
+		visiting[i] = true
+		pid := jobs[i].ParentID
+		if pid == "" {
+			depth[i] = 1
+			visiting[i] = false
+			return 1
+		}
+		pi, ok := idx[pid]
+		if !ok {
+			depth[i] = 1
+			visiting[i] = false
+			return 1
+		}
+		d := computeDepth(pi) + 1
+		depth[i] = d
+		visiting[i] = false
+		return d
+	}
+	for i := range jobs {
+		computeDepth(i)
+	}
+	// Process deepest first so a group sees its children's already-
+	// rolled-up status when it's its turn.
+	order := make([]int, len(jobs))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return depth[order[a]] > depth[order[b]]
+	})
+	for _, i := range order {
+		if jobs[i].Type != JobTypeGroup {
+			continue
+		}
+		kids := children[i]
+		if len(kids) == 0 {
+			// Empty group — show as pending so the operator can tell
+			// it's allocated but has no installs underneath.
+			jobs[i].Status = StatusPending
+			jobs[i].StartedAt = nil
+			jobs[i].FinishedAt = nil
+			jobs[i].DurationMs = 0
+			continue
+		}
+		var earliest, latest *time.Time
+		hasFailed, hasRunning, hasPending := false, false, false
+		allTerminal := true
+		for _, ki := range kids {
+			c := jobs[ki]
+			switch c.Status {
+			case StatusFailed:
+				hasFailed = true
+			case StatusRunning:
+				hasRunning = true
+				allTerminal = false
+			case StatusPending, "":
+				hasPending = true
+				allTerminal = false
+			}
+			if c.StartedAt != nil {
+				if earliest == nil || c.StartedAt.Before(*earliest) {
+					t := *c.StartedAt
+					earliest = &t
+				}
+			}
+			if c.FinishedAt != nil {
+				if latest == nil || c.FinishedAt.After(*latest) {
+					t := *c.FinishedAt
+					latest = &t
+				}
+			}
+		}
+		switch {
+		case hasFailed:
+			jobs[i].Status = StatusFailed
+		case hasRunning:
+			jobs[i].Status = StatusRunning
+		case hasPending:
+			jobs[i].Status = StatusPending
+		default:
+			jobs[i].Status = StatusSucceeded
+		}
+		jobs[i].StartedAt = earliest
+		if allTerminal {
+			jobs[i].FinishedAt = latest
+		} else {
+			jobs[i].FinishedAt = nil
+		}
+		if jobs[i].StartedAt != nil && jobs[i].FinishedAt != nil {
+			jobs[i].DurationMs = jobs[i].FinishedAt.Sub(*jobs[i].StartedAt).Milliseconds()
+		} else {
+			jobs[i].DurationMs = 0
+		}
+	}
+}
+
 // GetJob returns the Job + its Executions list. ErrNotFound if no Job
-// with the given id exists for the deployment.
+// with the given id exists for the deployment. The returned Job
+// carries derived ChildIDs (and, for group jobs, rolled-up status /
+// timing) — the same view ListJobs returns.
 func (s *Store) GetJob(deploymentID, jobID string) (Job, []Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -478,14 +649,20 @@ func (s *Store) GetJob(deploymentID, jobID string) (Job, []Execution, error) {
 	if err != nil {
 		return Job{}, nil, err
 	}
+	// Run the tree-view derivation across the full slice so the
+	// returned Job reflects the same derived shape ListJobs emits.
+	view := make([]Job, len(idx.Jobs))
+	copy(view, idx.Jobs)
+	deriveTreeView(view)
+
 	// Lookup accepts EITHER the full "<deploymentId>:<jobName>" id OR
 	// the bare jobName. The colon in the canonical id is path-safe per
 	// RFC 3986 §3.3 but Traefik (or some upstream proxy) was observed
 	// returning 404 on URL-encoded colons in the path segment, so the
 	// FE may send the bare jobName. (depID, jobName) is unique per
 	// deployment, so the bare-name lookup is always unambiguous.
-	for i := range idx.Jobs {
-		j := idx.Jobs[i]
+	for i := range view {
+		j := view[i]
 		if j.ID == jobID || j.JobName == jobID {
 			execs := []Execution{}
 			for _, e := range idx.Executions {
@@ -663,51 +840,6 @@ func stripNewline(b []byte) []byte {
 		b = b[:n-1]
 	}
 	return b
-}
-
-// SummarizeBatches groups Jobs by BatchID and returns a per-batch
-// progress row. Empty deployment → empty slice (not nil) so the JSON
-// shape matches the spec's `{batches: []}` exactly.
-func (s *Store) SummarizeBatches(deploymentID string) ([]BatchSummary, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	idx, err := s.loadIndex(deploymentID)
-	if err != nil {
-		return nil, err
-	}
-	byBatch := map[string]*BatchSummary{}
-	order := []string{}
-	for _, j := range idx.Jobs {
-		bid := j.BatchID
-		if bid == "" {
-			bid = "(unbatched)"
-		}
-		bs, ok := byBatch[bid]
-		if !ok {
-			bs = &BatchSummary{BatchID: bid}
-			byBatch[bid] = bs
-			order = append(order, bid)
-		}
-		bs.Total++
-		switch j.Status {
-		case StatusSucceeded:
-			bs.Succeeded++
-			bs.Finished++
-		case StatusFailed:
-			bs.Failed++
-			bs.Finished++
-		case StatusRunning:
-			bs.Running++
-		case StatusPending, "":
-			bs.Pending++
-		}
-	}
-	out := make([]BatchSummary, 0, len(order))
-	for _, bid := range order {
-		out = append(out, *byBatch[bid])
-	}
-	return out, nil
 }
 
 // newExecutionID returns a 16-byte hex string. Globally unique within

@@ -1,20 +1,17 @@
 /**
- * FlowPage.test.tsx — coverage for the new /flow route + the
- * embedded variant used inside JobDetail's Flow tab.
+ * FlowPage.test.tsx — coverage for the recursive Job-tree FlowPage
+ * (issue #351).
  *
  * Coverage:
- *   • resolveScope helper — `all`, `batch:<id>`, fallthrough.
- *   • Renders for ?scope=all (every job in the catalog).
- *   • Renders for ?scope=batch:<id> (filters to one batch).
- *   • Renders for ?scope=batch:<unknown> (empty placeholder).
- *   • Mode toggle (Jobs ↔ Batches) updates the URL ?view= param.
- *   • Single-click on a job bubble opens FloatingLogPane.
- *   • Click on empty canvas closes the floating pane.
+ *   • resolveFolded helper — empty / single id / comma list.
+ *   • resolveDepth helper — '1', '2', '3', 'all', fallthrough.
+ *   • Renders the canvas SVG with at least one job bubble.
+ *   • Renders the StatusStrip + FoldControls (no batches toggle).
  *   • Embedded variant: no PortalShell, no StatusStrip.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -24,7 +21,8 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { FlowPage, resolveScope, resolveMode } from './FlowPage'
+import { FlowPage, resolveFolded } from './FlowPage'
+import { resolveDepth } from './FoldControls'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
@@ -46,14 +44,12 @@ function renderFlow(initialEntry: string) {
     path: '/provision/$deploymentId/flow',
     component: () => <FlowPage disableStream disableJobsBackfill />,
     validateSearch: (raw: Record<string, unknown>): {
-      scope?: string
-      view?: 'jobs' | 'batches'
+      folded?: string
+      depth?: string
     } => {
-      const out: { scope?: string; view?: 'jobs' | 'batches' } = {}
-      const scope = raw?.scope
-      if (typeof scope === 'string' && scope.length > 0) out.scope = scope
-      const view = raw?.view
-      if (view === 'jobs' || view === 'batches') out.view = view
+      const out: { folded?: string; depth?: string } = {}
+      if (typeof raw?.folded === 'string') out.folded = raw.folded
+      if (typeof raw?.depth === 'string') out.depth = raw.depth
       return out
     },
   })
@@ -90,123 +86,59 @@ function renderFlow(initialEntry: string) {
   }
 }
 
-describe('resolveScope', () => {
-  it('returns kind=all for "all"', () => {
-    expect(resolveScope('all')).toEqual({ kind: 'all' })
+describe('resolveFolded', () => {
+  it('returns an empty Set for missing / non-string', () => {
+    expect(resolveFolded(undefined).size).toBe(0)
+    expect(resolveFolded(123).size).toBe(0)
   })
-  it('returns kind=batch with id for "batch:foo"', () => {
-    expect(resolveScope('batch:foo')).toEqual({ kind: 'batch', batchId: 'foo' })
+  it('parses a single id', () => {
+    const s = resolveFolded('bootstrap-kit')
+    expect(s.has('bootstrap-kit')).toBe(true)
+    expect(s.size).toBe(1)
   })
-  it('returns kind=all for unknown / falsy', () => {
-    expect(resolveScope(undefined)).toEqual({ kind: 'all' })
-    expect(resolveScope('')).toEqual({ kind: 'all' })
-    expect(resolveScope('garbage')).toEqual({ kind: 'all' })
-    expect(resolveScope('batch:')).toEqual({ kind: 'all' })
-  })
-})
-
-describe('resolveMode', () => {
-  it('returns "jobs" by default', () => {
-    expect(resolveMode(undefined)).toBe('jobs')
-    expect(resolveMode('')).toBe('jobs')
-    expect(resolveMode('garbage')).toBe('jobs')
-  })
-  it('returns "batches" when explicit', () => {
-    expect(resolveMode('batches')).toBe('batches')
+  it('parses a comma-separated list and trims whitespace', () => {
+    const s = resolveFolded('a,b , c')
+    expect([...s].sort()).toEqual(['a', 'b', 'c'])
   })
 })
 
-describe('FlowPage — scope=all', () => {
+describe('resolveDepth', () => {
+  it('defaults to 2', () => {
+    expect(resolveDepth(undefined)).toBe(2)
+    expect(resolveDepth('')).toBe(2)
+    expect(resolveDepth('garbage')).toBe(2)
+  })
+  it('parses 1 / 3 / all', () => {
+    expect(resolveDepth('1')).toBe(1)
+    expect(resolveDepth('3')).toBe(3)
+    expect(resolveDepth('all')).toBe('all')
+  })
+})
+
+describe('FlowPage — render', () => {
   it('renders the canvas SVG', async () => {
-    renderFlow('/provision/d-1/flow?scope=all')
+    renderFlow('/provision/d-1/flow')
     expect(await screen.findByTestId('flow-canvas-svg')).toBeTruthy()
   })
 
   it('renders at least one job bubble (default catalog)', async () => {
-    renderFlow('/provision/d-1/flow?scope=all')
+    renderFlow('/provision/d-1/flow')
     await screen.findByTestId('flow-canvas-svg')
     const bubbles = document.querySelectorAll('[data-testid^="flow-job-"]')
     expect(bubbles.length).toBeGreaterThan(0)
   })
 
-  it('renders the StatusStrip with mode toggle', async () => {
-    renderFlow('/provision/d-1/flow?scope=all')
+  it('renders the StatusStrip and FoldControls (no batches toggle)', async () => {
+    renderFlow('/provision/d-1/flow')
     expect(await screen.findByTestId('sov-status-strip')).toBeTruthy()
-    expect(await screen.findByTestId('sov-status-strip-mode-toggle')).toBeTruthy()
-  })
-})
-
-describe('FlowPage — scope=batch:applications', () => {
-  it('filters to applications batch only', async () => {
-    // The jobsAdapter buckets every per-Application Job into the
-    // 'applications' batch (see jobsAdapter.batchOf()). Phase 0 +
-    // cluster-bootstrap have their own batches, so a scope-filter
-    // to 'applications' must hide them.
-    renderFlow('/provision/d-1/flow?scope=batch:applications')
-    await screen.findByTestId('flow-canvas-svg')
-    expect(screen.queryByTestId('flow-job-infrastructure:tofu-init')).toBeNull()
-    expect(screen.queryByTestId('flow-job-cluster-bootstrap')).toBeNull()
-    // bp-cilium IS in the applications batch and must be present.
-    expect(screen.queryByTestId('flow-job-bp-cilium')).toBeTruthy()
-  })
-})
-
-describe('FlowPage — scope=batch:nonexistent', () => {
-  it('renders the empty-canvas placeholder', async () => {
-    renderFlow('/provision/d-1/flow?scope=batch:nonexistent')
-    expect(await screen.findByTestId('flow-canvas-empty')).toBeTruthy()
-  })
-})
-
-describe('FlowPage — single-click opens floating log pane', () => {
-  it('renders FloatingLogPane after a single-click on a bubble', async () => {
-    renderFlow('/provision/d-1/flow?scope=all')
-    await screen.findByTestId('flow-canvas-svg')
-    const bubbles = document.querySelectorAll('[data-testid^="flow-job-"]')
-    expect(bubbles.length).toBeGreaterThan(0)
-    const target = bubbles[0] as Element
-    // Single-click — debounced 220ms before the handler fires.
-    fireEvent.click(target)
-    // Wait past the 220ms debounce; testing-library's findBy* polls
-    // every ~50ms so 1500ms is plenty of headroom for the render.
-    const pane = await screen.findByTestId('floating-log-pane', undefined, {
-      timeout: 1500,
-    })
-    expect(pane).toBeTruthy()
-  })
-
-  it('clicking on empty canvas background closes the pane', async () => {
-    renderFlow('/provision/d-1/flow?scope=all')
-    const svg = await screen.findByTestId('flow-canvas-svg')
-    const bubbles = document.querySelectorAll('[data-testid^="flow-job-"]')
-    const target = bubbles[0] as Element
-    fireEvent.click(target)
-    await screen.findByTestId('floating-log-pane', undefined, { timeout: 1500 })
-    // Click directly on the SVG element (background, not a child).
-    fireEvent.click(svg, { target: svg })
-    // Pane unmounts synchronously when the background-click handler fires.
-    expect(screen.queryByTestId('floating-log-pane')).toBeNull()
-  })
-})
-
-describe('FlowPage — mode toggle', () => {
-  it('clicking Batches updates URL ?view=batches', async () => {
-    const { router } = renderFlow('/provision/d-1/flow?scope=all')
-    await screen.findByTestId('sov-status-strip-mode-toggle')
-    const batchesBtn = screen.getByTestId('sov-status-strip-mode-batches')
-    fireEvent.click(batchesBtn)
-    // Router state reflects the new search param.
-    const view = (router.state.location.search as { view?: string }).view
-    expect(view).toBe('batches')
+    expect(await screen.findByTestId('fold-controls')).toBeTruthy()
+    // The legacy jobs/batches mode toggle MUST NOT mount.
+    expect(screen.queryByTestId('sov-status-strip-mode-toggle')).toBeNull()
   })
 })
 
 describe('FlowPage — embedded variant', () => {
-  it('renders without StatusStrip when embedded prop is set', async () => {
-    // Embedded variant is always rendered by JobDetail with a
-    // scopeOverride; we simulate that here by mounting the component
-    // directly inside a route that supplies the same params via the
-    // `deploymentIdOverride` prop.
+  it('renders without StatusStrip / PortalShell when embedded', async () => {
     const rootRoute = createRootRoute({ component: () => <Outlet /> })
     const flowRoute = createRoute({
       getParentRoute: () => rootRoute,
@@ -217,8 +149,7 @@ describe('FlowPage — embedded variant', () => {
           disableJobsBackfill
           embedded
           deploymentIdOverride="d-1"
-          scopeOverride={{ kind: 'batch', batchId: 'applications' }}
-          highlightJobId="bp-cilium"
+          hostJobId="bp-cilium"
         />
       ),
       validateSearch: () => ({}),

@@ -1,5 +1,5 @@
-// jobs_test.go — httptest-driven handler tests for the 4 Jobs/
-// Executions endpoints. Each test seeds a fresh in-memory store via
+// jobs_test.go — httptest-driven handler tests for the Jobs/Executions
+// REST surface. Each test seeds a fresh in-memory store via
 // NewWithJobsStore(t.TempDir()), wires the chi router the production
 // main.go does, then asserts on the JSON shape end-to-end.
 package handler
@@ -31,7 +31,6 @@ func newJobsAPIRouter(t *testing.T) (*chi.Mux, *jobs.Store, *Handler) {
 	h := NewWithJobsStore(slog.New(slog.NewJSONHandler(io.Discard, nil)), js)
 	r := chi.NewRouter()
 	r.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
-	r.Get("/api/v1/deployments/{depId}/jobs/batches", h.ListBatches)
 	r.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	r.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 	return r, js, h
@@ -78,10 +77,14 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 	depID := "dep-populated"
 
 	t0 := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	parentID := jobs.JobID(depID, jobs.GroupBootstrapKit)
 	jobsToSeed := []jobs.Job{
-		{DeploymentID: depID, JobName: "install-cilium", AppID: "cilium", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(20 * time.Second))},
-		{DeploymentID: depID, JobName: "install-flux", AppID: "flux", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
-		{DeploymentID: depID, JobName: "install-keycloak", AppID: "keycloak", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusPending},
+		// Parent group materialised explicitly — exactly what the
+		// helmwatch bridge does on first seed.
+		{DeploymentID: depID, JobName: jobs.GroupBootstrapKit, DisplayName: jobs.GroupBootstrapKitDisplay, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "install-cilium", AppID: "cilium", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(20 * time.Second))},
+		{DeploymentID: depID, JobName: "install-flux", AppID: "flux", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
+		{DeploymentID: depID, JobName: "install-keycloak", AppID: "keycloak", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusPending},
 	}
 	for _, j := range jobsToSeed {
 		if err := st.UpsertJob(j); err != nil {
@@ -98,15 +101,32 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 		Jobs []jobs.Job `json:"jobs"`
 	}
 	decodeJSON(t, rec.Body, &resp)
-	if len(resp.Jobs) != 3 {
-		t.Fatalf("expected 3 jobs, got %d", len(resp.Jobs))
+	if len(resp.Jobs) != 4 {
+		t.Fatalf("expected 4 jobs (group + 3 leaves), got %d", len(resp.Jobs))
 	}
-	// Started DESC: install-flux (t0+1m) first, install-cilium (t0)
-	// second, install-keycloak (pending) last.
-	wantOrder := []string{"install-flux", "install-cilium", "install-keycloak"}
-	for i, w := range wantOrder {
-		if resp.Jobs[i].JobName != w {
-			t.Errorf("position %d: got %q want %q", i, resp.Jobs[i].JobName, w)
+	// Find the group job and assert its rolled-up status.
+	var group *jobs.Job
+	for i := range resp.Jobs {
+		if resp.Jobs[i].Type == jobs.JobTypeGroup {
+			group = &resp.Jobs[i]
+			break
+		}
+	}
+	if group == nil {
+		t.Fatalf("group job missing in response: %+v", resp.Jobs)
+	}
+	// Mixed children (succeeded + running + pending) → rolled-up
+	// status must be running (failed > running > pending > succeeded).
+	if group.Status != jobs.StatusRunning {
+		t.Errorf("group rolled-up Status: want running, got %q", group.Status)
+	}
+	if len(group.ChildIDs) != 3 {
+		t.Errorf("group ChildIDs: want 3, got %d (%v)", len(group.ChildIDs), group.ChildIDs)
+	}
+	// Verify all leaf jobs carry parentId.
+	for _, j := range resp.Jobs {
+		if j.Type == jobs.JobTypeInstall && j.ParentID != parentID {
+			t.Errorf("leaf %q parentId: want %q, got %q", j.JobName, parentID, j.ParentID)
 		}
 	}
 }
@@ -119,7 +139,8 @@ func TestHandler_GetJob_FoundAndNotFound(t *testing.T) {
 		DeploymentID: depID,
 		JobName:      "install-cilium",
 		AppID:        "cilium",
-		BatchID:      jobs.BatchBootstrapKit,
+		Type:         jobs.JobTypeInstall,
+		ParentID:     jobs.JobID(depID, jobs.GroupBootstrapKit),
 		Status:       jobs.StatusPending,
 		DependsOn:    []string{"install-flux"},
 	}); err != nil {
@@ -204,60 +225,6 @@ func TestHandler_GetExecutionLogs_NotFound(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/actions/executions/no-such/logs", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
-	}
-}
-
-func TestHandler_ListBatches(t *testing.T) {
-	r, st, _ := newJobsAPIRouter(t)
-	depID := "dep-batches"
-
-	now := time.Now().UTC()
-	seeds := []jobs.Job{
-		{DeploymentID: depID, JobName: "install-a", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusSucceeded, StartedAt: &now},
-		{DeploymentID: depID, JobName: "install-b", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusFailed, StartedAt: &now},
-		{DeploymentID: depID, JobName: "install-c", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusRunning, StartedAt: &now},
-		{DeploymentID: depID, JobName: "install-d", BatchID: jobs.BatchBootstrapKit, Status: jobs.StatusPending},
-	}
-	for _, j := range seeds {
-		if err := st.UpsertJob(j); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/"+depID+"/jobs/batches", nil))
-	if rec.Code != 200 {
-		t.Fatalf("code: %d", rec.Code)
-	}
-	var resp struct {
-		Batches []jobs.BatchSummary `json:"batches"`
-	}
-	decodeJSON(t, rec.Body, &resp)
-	if len(resp.Batches) != 1 {
-		t.Fatalf("batches: %+v", resp.Batches)
-	}
-	bs := resp.Batches[0]
-	if bs.BatchID != jobs.BatchBootstrapKit ||
-		bs.Total != 4 ||
-		bs.Succeeded != 1 ||
-		bs.Failed != 1 ||
-		bs.Running != 1 ||
-		bs.Pending != 1 ||
-		bs.Finished != 2 {
-		t.Errorf("batch summary: %+v", bs)
-	}
-}
-
-func TestHandler_ListBatches_EmptySliceNotNull(t *testing.T) {
-	r, _, _ := newJobsAPIRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-x/jobs/batches", nil))
-	if rec.Code != 200 {
-		t.Fatalf("code: %d", rec.Code)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, `"batches":[]`) {
-		t.Errorf("expected `\"batches\":[]`, got %s", body)
 	}
 }
 

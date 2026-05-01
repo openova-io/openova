@@ -556,8 +556,9 @@ func TestCreateRegion_AuditJobMaterialised(t *testing.T) {
 		t.Fatalf("expected at least one mutation Job committed; got none")
 	}
 	found := false
+	wantParent := jobs.JobID(dep.ID, jobs.GroupDay2Mutations)
 	for _, j := range jobsList {
-		if strings.HasPrefix(j.JobName, jobs.MutationJobNamePrefix) && j.BatchID == jobs.BatchDay2Mutations {
+		if strings.HasPrefix(j.JobName, jobs.MutationJobNamePrefix) && j.ParentID == wantParent {
 			found = true
 			if j.Status != jobs.StatusSucceeded {
 				t.Fatalf("mutation Job status: got %q want %q", j.Status, jobs.StatusSucceeded)
@@ -565,7 +566,7 @@ func TestCreateRegion_AuditJobMaterialised(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected a Job with name prefix %q and batch %q; got %+v", jobs.MutationJobNamePrefix, jobs.BatchDay2Mutations, jobsList)
+		t.Fatalf("expected a Job with name prefix %q and parent %q; got %+v", jobs.MutationJobNamePrefix, wantParent, jobsList)
 	}
 }
 

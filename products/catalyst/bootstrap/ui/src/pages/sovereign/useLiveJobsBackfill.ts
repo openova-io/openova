@@ -143,10 +143,10 @@ export function mergeJobs(
   // jobs use catalog ids ("bp-cilium") that don't match the backend's
   // "<deploymentId>:install-cilium" canonical id, so dedup-by-id
   // produces duplicates. Reducer-derived rows are also missing the
-  // appId/batchId shape the backend uses, and clicking them navigates
-  // to a route the backend can't resolve (→ 404 → "Failed to load
-  // log page"). Switch to backend-only the moment it returns ≥1 row;
-  // reducer-derived stays as the empty-state fallback.
+  // appId/parentId shape the backend uses, and clicking them
+  // navigates to a route the backend can't resolve (→ 404 → "Failed
+  // to load log page"). Switch to backend-only the moment it returns
+  // ≥1 row; reducer-derived stays as the empty-state fallback.
   if (liveJobs.length > 0) return [...liveJobs]
   return [...reducerJobs]
 }

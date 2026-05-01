@@ -1,17 +1,17 @@
 /**
  * StatusStrip — top contextual strip rendered below the PortalShell
- * header on /flow* and /jobs* routes only. Mirrors the canonical
+ * header on /jobs* routes (and inside JobDetail). Mirrors the canonical
  * provision-mockup.html topbar geometry (breadcrumb + provisioning
- * pill + progress bar + optional Jobs↔Batches mode toggle).
+ * pill + progress bar).
  *
  * Layout (left → right):
  *   [Sovereign / fqdn]  [● Provisioning · pulse]  [████░░ N/M · elapsed]
- *   [Jobs ↔ Batches toggle (only on /flow)]
+ *   [trailing slot — e.g. FoldControls]
  *
- * Per founder spec, the captions toggle (`Aa`) and log-panel toggle
- * (`⊞`) from the mock are explicitly DROPPED — the log is contextual
- * (FloatingLogPane on bubble click) and captions don't add enough
- * value to keep around.
+ * The legacy Jobs↔Batches mode toggle was removed in issue #351 with
+ * the recursive Job model; the canvas now exposes per-node fold +
+ * global depth controls in {@link FoldControls} which JobDetail mounts
+ * via the `trailing` slot.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
  *   #4 (never hardcode) — status, progress, elapsed are all props.
@@ -37,15 +37,8 @@ interface StatusStripProps {
   total: number
   /** Elapsed time in milliseconds since the earliest startedAt. */
   elapsedMs: number
-  /**
-   * When set, renders the Jobs↔Batches mode toggle. The toggle handler
-   * receives the next mode (consumer is responsible for URL updates).
-   */
-  modeToggle?: {
-    mode: 'jobs' | 'batches'
-    onChange: (next: 'jobs' | 'batches') => void
-  }
-  /** Optional extra slot rendered after the progress bar (e.g. test hooks). */
+  /** Optional extra slot rendered after the progress bar — used by
+   *  JobDetail to mount the FoldControls toolbar. */
   trailing?: ReactNode
 }
 
@@ -105,7 +98,6 @@ export function StatusStrip({
   finished,
   total,
   elapsedMs,
-  modeToggle,
   trailing,
 }: StatusStripProps) {
   const tone = STATUS_TONE[status]
@@ -159,35 +151,7 @@ export function StatusStrip({
         </span>
       </div>
 
-      {modeToggle ? (
-        <div
-          className="status-strip-mode-toggle"
-          role="tablist"
-          aria-label="Flow view mode"
-          data-testid="sov-status-strip-mode-toggle"
-        >
-          {(['jobs', 'batches'] as const).map((m) => {
-            const active = modeToggle.mode === m
-            return (
-              <button
-                key={m}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`status-strip-mode-btn${active ? ' active' : ''}`}
-                data-testid={`sov-status-strip-mode-${m}`}
-                onClick={() => {
-                  if (!active) modeToggle.onChange(m)
-                }}
-              >
-                {m === 'jobs' ? 'Jobs' : 'Batches'}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-
-      {trailing}
+      {trailing ? <div className="status-strip-trailing">{trailing}</div> : null}
     </div>
   )
 }
@@ -287,31 +251,10 @@ const STATUS_STRIP_CSS = `
   white-space: nowrap;
 }
 
-.status-strip-mode-toggle {
+.status-strip-trailing {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  overflow: hidden;
-  margin-left: auto;
-}
-.status-strip-mode-btn {
-  appearance: none;
-  background: transparent;
-  border: none;
-  padding: 0.3rem 0.85rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.status-strip-mode-btn:hover { color: var(--color-text); }
-.status-strip-mode-btn.active {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  gap: 0.5rem;
 }
 `

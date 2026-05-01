@@ -18,10 +18,11 @@ import type { CloudProvider } from '@/entities/deployment/model'
 import type { IsolationMode } from './infrastructure.types'
 
 /** Every mutation returns a JobRef so the operator can track it from
- *  the Jobs page. */
+ *  the Jobs page. `parentId` is the synthesised day-2-mutations group
+ *  Job id (issue #351 — replaces the old `batchId`). */
 export interface JobRef {
   jobId: string
-  batchId: string
+  parentId: string
   status: 'queued' | 'running' | 'succeeded' | 'failed'
 }
 

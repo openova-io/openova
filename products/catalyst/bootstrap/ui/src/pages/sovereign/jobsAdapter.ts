@@ -1,54 +1,81 @@
 /**
  * jobsAdapter.ts — bridge between the legacy reducer-derived Job model
  * (./jobs.ts — used by per-component status pills, deep-link banners,
- * and the canonical core/console event vocabulary) and the new flat
- * Job[] shape the JobsTable consumes (issue #204).
+ * and the canonical core/console event vocabulary) and the recursive
+ * Job tree the canvas / table consume (issue #351).
  *
  * Why a separate file?
  *   • ./jobs.ts owns RICH state (steps, app classification, noAppLink)
  *     that AdminPage / AppDetail still need for status pills and the
  *     dependencies viz.
- *   • lib/jobs.types.ts owns the FLAT row shape the founder asked for
- *     in the table (item #204): jobName, batchId, dependsOn, status,
- *     startedAt, finishedAt, durationMs.
- *   • Mixing the two would couple the table render to the reducer
+ *   • lib/jobs.types.ts owns the recursive tree shape (parentId +
+ *     childIds + type) the canvas + per-job detail page consume.
+ *   • Mixing the two would couple the canvas render to the reducer
  *     internals; instead, this adapter is the ONLY place where the
- *     mapping lives. When the catalyst-api jobs endpoint (#205) ships,
- *     the JobsPage swaps `adaptDerivedJobsToFlat()` for the API call
- *     and the JobsTable surface stays unchanged.
+ *     mapping lives. When the catalyst-api jobs endpoint takes over,
+ *     the canvas swaps `adaptDerivedJobsToFlat()` for the API call and
+ *     the canvas surface stays unchanged.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the batch
- * assignment is derived from the legacy job's `app` classification:
- *   • app === "infrastructure"        → batchId = "phase-0-infra"
- *   • app === "cluster-bootstrap"     → batchId = "cluster-bootstrap"
- *   • everything else (per-component) → batchId = "applications"
+ * Tree shape emitted:
  *
- * Three batches reflect the three rollups the operator already sees on
- * the AdminPage banners; the table groups identically so there's only
- * one mental model.
+ *     phase-0-infra (group, "Phase 0 — Infrastructure")
+ *         ├── install-tofu-init
+ *         ├── install-tofu-plan
+ *         ├── install-tofu-apply
+ *         └── install-tofu-output
+ *     cluster-bootstrap (group, "Cluster Bootstrap")
+ *         └── install-flux-bootstrap
+ *     applications (group, "Applications")
+ *         ├── install-cilium
+ *         ├── install-cert-manager
+ *         └── …
+ *
+ * The three group slugs reflect the three rollups the operator already
+ * sees on the AdminPage banners; the canvas + table group identically
+ * so there's only one mental model.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the group
+ * slugs and labels live in {@link GROUPS}; consumers reading the slug
+ * directly should reference that map.
  */
 
 import type { Job as DerivedJob } from './jobs'
-import type { Job, JobStatus } from '@/lib/jobs.types'
+import type { Job, JobStatus, JobType } from '@/lib/jobs.types'
+
+/* ──────────────────────────────────────────────────────────────────
+ * Group taxonomy — single source of truth
+ * ────────────────────────────────────────────────────────────────── */
+
+export const GROUP_PHASE_0 = 'phase-0-infra'
+export const GROUP_CLUSTER_BOOTSTRAP = 'cluster-bootstrap'
+export const GROUP_APPLICATIONS = 'applications'
+
+const GROUP_DISPLAY: Record<string, string> = {
+  [GROUP_PHASE_0]: 'Phase 0 — Infrastructure',
+  [GROUP_CLUSTER_BOOTSTRAP]: 'Cluster Bootstrap',
+  [GROUP_APPLICATIONS]: 'Applications',
+}
 
 /** Map the legacy JobUiStatus vocabulary to JobStatus 1:1. */
 function mapStatus(s: DerivedJob['status']): JobStatus {
-  // Legacy and new vocabularies are aligned today; the indirection
-  // exists so a future drift doesn't ripple to consumers.
   switch (s) {
-    case 'running':   return 'running'
-    case 'succeeded': return 'succeeded'
-    case 'failed':    return 'failed'
+    case 'running':
+      return 'running'
+    case 'succeeded':
+      return 'succeeded'
+    case 'failed':
+      return 'failed'
     case 'pending':
-    default:          return 'pending'
+    default:
+      return 'pending'
   }
 }
 
-/** Pick the batch label from the legacy `app` classification. */
-function batchOf(app: DerivedJob['app']): string {
-  if (app === 'infrastructure') return 'phase-0-infra'
-  if (app === 'cluster-bootstrap') return 'cluster-bootstrap'
-  return 'applications'
+/** Pick the parent group slug from the legacy `app` classification. */
+function groupOf(app: DerivedJob['app']): string {
+  if (app === 'infrastructure') return GROUP_PHASE_0
+  if (app === 'cluster-bootstrap') return GROUP_CLUSTER_BOOTSTRAP
+  return GROUP_APPLICATIONS
 }
 
 /**
@@ -76,8 +103,6 @@ function durationOf(job: DerivedJob): number {
     const end = Math.max(...times)
     return Math.max(0, end - start)
   }
-  // running: elapsed-so-far. The table refreshes when the reducer
-  // updates, so this is "good enough" without an interval timer.
   return Math.max(0, Date.now() - start)
 }
 
@@ -99,47 +124,157 @@ function finishedAtOf(job: DerivedJob): string | null {
   return last
 }
 
+/* ──────────────────────────────────────────────────────────────────
+ * Group rollup — mirrors the backend's deriveTreeView contract
+ * ────────────────────────────────────────────────────────────────── */
+
+interface Rollup {
+  status: JobStatus
+  startedAt: string | null
+  finishedAt: string | null
+  durationMs: number
+  childIds: string[]
+}
+
+function rollupGroup(children: readonly Job[]): Rollup {
+  if (children.length === 0) {
+    return { status: 'pending', startedAt: null, finishedAt: null, durationMs: 0, childIds: [] }
+  }
+  const childIds = children.map((c) => c.id)
+  let earliest: number | null = null
+  let earliestIso: string | null = null
+  let latest: number | null = null
+  let latestIso: string | null = null
+  let hasFailed = false
+  let hasRunning = false
+  let hasPending = false
+  let allTerminal = true
+  for (const c of children) {
+    switch (c.status) {
+      case 'failed':
+        hasFailed = true
+        break
+      case 'running':
+        hasRunning = true
+        allTerminal = false
+        break
+      case 'pending':
+        hasPending = true
+        allTerminal = false
+        break
+    }
+    if (c.startedAt) {
+      const t = Date.parse(c.startedAt)
+      if (Number.isFinite(t) && (earliest === null || t < earliest)) {
+        earliest = t
+        earliestIso = c.startedAt
+      }
+    }
+    if (c.finishedAt) {
+      const t = Date.parse(c.finishedAt)
+      if (Number.isFinite(t) && (latest === null || t > latest)) {
+        latest = t
+        latestIso = c.finishedAt
+      }
+    }
+  }
+  let status: JobStatus = 'succeeded'
+  if (hasFailed) status = 'failed'
+  else if (hasRunning) status = 'running'
+  else if (hasPending) status = 'pending'
+
+  const finishedIso = allTerminal ? latestIso : null
+  const durationMs =
+    earliest !== null && finishedIso !== null && latest !== null
+      ? Math.max(0, latest - earliest)
+      : 0
+
+  return {
+    status,
+    startedAt: earliestIso,
+    finishedAt: finishedIso,
+    durationMs,
+    childIds,
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * Public adapter
+ * ────────────────────────────────────────────────────────────────── */
+
 /**
- * Adapt a legacy DerivedJob[] (from ./jobs.ts deriveJobs) into the new
- * flat Job[] the JobsTable consumes.
+ * Adapt a legacy DerivedJob[] (from ./jobs.ts deriveJobs) into the
+ * recursive Job tree the canvas + table consume.
  *
- * Stable: re-running on the same input produces identical output. No
- * randomness, no cached state. The dependency graph is folded forward
- * by chaining each per-component job to the cluster-bootstrap job
- * (and that to the last tofu job) so the table's `deps` column is
- * non-empty for jobs the operator can act on.
+ * Output layout: every leaf job is followed by the synthesised parent
+ * group row that owns it (one row per non-empty group). Stable: re-
+ * running on the same input produces identical output. No randomness,
+ * no cached state.
+ *
+ * Dep chaining: each per-component job depends on the cluster-
+ * bootstrap leaf (and that on the last tofu leaf). Without this the
+ * canvas would render isolated forests for the three groups.
  */
 export function adaptDerivedJobsToFlat(derived: readonly DerivedJob[]): Job[] {
-  // Pre-compute id chain so `dependsOn` in the flat shape mirrors the
-  // implicit Phase 0 → cluster-bootstrap → application order. Without
-  // this the deps column reads as a wall of em-dashes.
   const tofuOrder = derived.filter((j) => j.app === 'infrastructure').map((j) => j.id)
   const lastTofuId = tofuOrder.length > 0 ? tofuOrder[tofuOrder.length - 1] : null
   const bootstrap = derived.find((j) => j.app === 'cluster-bootstrap')
 
-  return derived.map((j, idx) => {
+  // Build the leaves first — group parentId is computed below so the
+  // ids are stable and self-referential isn't possible.
+  const leaves: Job[] = derived.map((j) => {
+    const groupSlug = groupOf(j.app)
     let dependsOn: string[] = []
     if (j.app === 'infrastructure') {
-      // tofu-init has no deps; later phases depend on the previous tofu.
       const prev = tofuOrder.indexOf(j.id) - 1
       if (prev >= 0) dependsOn = [tofuOrder[prev]!]
     } else if (j.app === 'cluster-bootstrap') {
       if (lastTofuId) dependsOn = [lastTofuId]
     } else {
-      // per-component → depends on cluster-bootstrap.
       if (bootstrap) dependsOn = [bootstrap.id]
     }
-    void idx
     return {
       id: j.id,
       jobName: j.title,
+      type: 'install' as JobType,
       appId: j.app,
-      batchId: batchOf(j.app),
+      parentId: groupSlug,
       dependsOn,
+      childIds: [],
       status: mapStatus(j.status),
       startedAt: startedAtOf(j),
       finishedAt: finishedAtOf(j),
       durationMs: durationOf(j),
     }
   })
+
+  // Materialise each non-empty parent group with its rollup.
+  const byGroup = new Map<string, Job[]>()
+  for (const leaf of leaves) {
+    const arr = byGroup.get(leaf.parentId) ?? []
+    arr.push(leaf)
+    byGroup.set(leaf.parentId, arr)
+  }
+  const groups: Job[] = []
+  for (const slug of [GROUP_PHASE_0, GROUP_CLUSTER_BOOTSTRAP, GROUP_APPLICATIONS]) {
+    const kids = byGroup.get(slug)
+    if (!kids || kids.length === 0) continue
+    const rollup = rollupGroup(kids)
+    groups.push({
+      id: slug,
+      jobName: slug,
+      displayName: GROUP_DISPLAY[slug] ?? slug,
+      type: 'group',
+      appId: '',
+      parentId: '',
+      dependsOn: [],
+      childIds: rollup.childIds,
+      status: rollup.status,
+      startedAt: rollup.startedAt,
+      finishedAt: rollup.finishedAt,
+      durationMs: rollup.durationMs,
+    })
+  }
+
+  return [...groups, ...leaves]
 }

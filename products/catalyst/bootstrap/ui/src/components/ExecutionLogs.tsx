@@ -32,6 +32,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE } from '@/shared/config/urls'
+import { lineMatches, type LogFilter } from './LogSearch'
 
 /* ── Types ──────────────────────────────────────────────────────── */
 
@@ -156,6 +157,18 @@ export interface ExecutionLogsProps {
   height?: string
   /** Test seam — disables the React Query refetch interval. */
   disablePolling?: boolean
+  /** Optional active filter — when set, only matching lines render
+   *  and the {@link onMatchCountChange} callback fires with the
+   *  match count after each merge. Empty / undefined disables the
+   *  filtering layer entirely. */
+  filter?: LogFilter
+  /** Optional 1-based focused-match index — the viewer scrolls that
+   *  line into view + highlights it. 0 / undefined = no focus. */
+  matchIndex?: number
+  /** Emits the current match count after each line merge / filter
+   *  change. The wrapper LogPane uses this to drive the "<n> of <m>"
+   *  counter and to clamp matchIndex. */
+  onMatchCountChange?: (count: number) => void
 }
 
 export function ExecutionLogs({
@@ -163,6 +176,9 @@ export function ExecutionLogs({
   fetcher = defaultFetchLogs,
   height = '60vh',
   disablePolling = false,
+  filter,
+  matchIndex,
+  onMatchCountChange,
 }: ExecutionLogsProps) {
   /* All collected lines, merged across pages + polls. */
   const [allLines, setAllLines] = useState<LogLine[]>([])
@@ -246,14 +262,53 @@ export function ExecutionLogs({
     if (el) el.scrollTop = el.scrollHeight
   }
 
-  const lineCount = allLines.length
+  // Apply the active filter (if any) to derive the displayed line set
+  // + the highlight predicate. Pure derivation keeps the polling loop
+  // unchanged: `allLines` always holds the full buffer; the viewer
+  // simply renders a subset.
+  const filterActive =
+    filter !== undefined &&
+    (filter.query.trim().length > 0 || filter.levels.size > 0)
+  const displayedLines = useMemo(() => {
+    if (!filterActive || !filter) return allLines
+    const out: LogLine[] = []
+    for (const ll of allLines) {
+      if (filter.levels.size > 0 && !filter.levels.has(ll.level)) continue
+      if (!lineMatches(ll.message, filter)) continue
+      out.push(ll)
+    }
+    return out
+  }, [allLines, filter, filterActive])
+
+  // Emit the live match count up so LogSearch can render "<n> of <m>".
+  // This effect fires AFTER displayedLines settles, so the match count
+  // never leads the viewer.
+  useEffect(() => {
+    if (!onMatchCountChange) return
+    onMatchCountChange(filterActive ? displayedLines.length : 0)
+  }, [displayedLines, filterActive, onMatchCountChange])
+
+  // Scroll the focused match into view when matchIndex changes.
+  useEffect(() => {
+    if (!filterActive || !matchIndex || matchIndex <= 0) return
+    const el = viewportRef.current
+    if (!el) return
+    const target = el.querySelector<HTMLElement>(
+      `[data-match-position="${matchIndex}"]`,
+    )
+    if (target) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }, [matchIndex, filterActive])
+
+  const lineCount = displayedLines.length
   const lineNumWidth = useMemo(() => {
     // Right-align line numbers inside a column wide enough to fit the
     // largest one. Use ch units so it stays consistent with the
     // monospace font and doesn't reflow on every new line.
-    const digits = Math.max(3, String(allLines[allLines.length - 1]?.lineNumber ?? 0).length)
+    const digits = Math.max(3, String(displayedLines[displayedLines.length - 1]?.lineNumber ?? 0).length)
     return `${digits}ch`
-  }, [allLines])
+  }, [displayedLines])
 
   // Empty-state copy — see issue #232. The previous "Waiting for log
   // lines…" / "Connecting to log stream…" copy was indistinguishable
@@ -273,6 +328,7 @@ export function ExecutionLogs({
   // lines array" is NOT an error.
   function emptyCopy(): string {
     if (query.isLoading) return 'Connecting to log stream…'
+    if (filterActive) return 'No log lines match the active search.'
     if (query.data?.executionFinished) return 'Execution finished — no log lines were emitted.'
     return 'No logs captured yet for this job.'
   }
@@ -310,9 +366,19 @@ export function ExecutionLogs({
             {emptyCopy()}
           </div>
         ) : (
-          allLines.map((line) => (
-            <LogLineRow key={line.lineNumber} line={line} lineNumWidth={lineNumWidth} />
-          ))
+          displayedLines.map((line, idx) => {
+            const matchPosition = filterActive ? idx + 1 : 0
+            const isFocusedMatch = filterActive && matchIndex === matchPosition
+            return (
+              <LogLineRow
+                key={line.lineNumber}
+                line={line}
+                lineNumWidth={lineNumWidth}
+                matchPosition={matchPosition}
+                isFocusedMatch={isFocusedMatch}
+              />
+            )
+          })
         )}
       </div>
 
@@ -387,14 +453,22 @@ export function ExecutionLogs({
 interface LogLineRowProps {
   line: LogLine
   lineNumWidth: string
+  /** 1-based position among matched lines when a filter is active;
+   *  0 otherwise. Drives the `data-match-position` selector
+   *  ExecutionLogs uses to scroll a specific match into view. */
+  matchPosition: number
+  /** True when this row is the focused match (highlighted background). */
+  isFocusedMatch: boolean
 }
 
-function LogLineRow({ line, lineNumWidth }: LogLineRowProps) {
+function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLineRowProps) {
   const palette = LEVEL_BADGE[line.level] ?? LEVEL_BADGE.INFO
   return (
     <div
       data-testid={`execution-logs-line-${line.lineNumber}`}
       data-level={line.level}
+      data-match-position={matchPosition || undefined}
+      data-focused-match={isFocusedMatch ? 'true' : undefined}
       style={{
         display: 'flex',
         alignItems: 'flex-start',
@@ -405,6 +479,7 @@ function LogLineRow({ line, lineNumWidth }: LogLineRowProps) {
         color: '#c9d1d9',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
+        background: isFocusedMatch ? 'rgba(56, 139, 253, 0.18)' : 'transparent',
       }}
     >
       <span
