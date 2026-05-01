@@ -1,0 +1,32 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-gateway-api
+  labels:
+    catalyst.openova.io/category: per-host-cluster-infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  version: 1.0.0
+  card:
+    title: Gateway API
+    summary: |
+      Upstream Kubernetes Gateway API CRDs (Standard channel) — the
+      gateway.networking.k8s.io/v1 family that every HTTPRoute/Gateway/
+      GatewayClass-using Blueprint depends on. Cilium 1.16's `gatewayAPI.
+      enabled=true` flag wires up the cilium controller but does NOT
+      install these CRDs — that's why this Blueprint exists as an explicit,
+      auditable dependency edge in the bootstrap-kit DAG.
+    icon: kubernetes.svg
+    category: infrastructure
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties: {}
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # CRDs are cluster-scoped, install on every host cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # foundational — must precede every HTTPRoute-using Blueprint
+  upgrades:
+    from: ["0.x"]

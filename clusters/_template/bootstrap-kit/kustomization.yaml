@@ -6,6 +6,7 @@ kind: Kustomization
 # Phase 0 sequence per SOVEREIGN-PROVISIONING.md §3.
 resources:
   - 01-cilium.yaml
+  - 01a-gateway-api.yaml
   - 02-cert-manager.yaml
   - 03-flux.yaml
   - 04-crossplane.yaml

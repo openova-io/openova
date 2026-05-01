@@ -1,0 +1,12 @@
+# bp-gateway-api carries no operator-tunable values — its entire payload is
+# the upstream Kubernetes Gateway API Standard-channel CRDs vendored under
+# templates/. The upstream Gateway API release is pinned via the Chart.yaml
+# annotation `catalyst.openova.io/upstream-gateway-api-version` which the
+# vendored templates reference for provenance display; bumping the version
+# is a re-vendor + annotation bump (see tests/regenerate.sh).
+#
+# This file exists so `helm template` and the CI smoke render have an
+# explicit defaults document.
+
+catalystBlueprint:
+  upstream: null

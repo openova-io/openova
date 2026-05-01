@@ -1,0 +1,80 @@
+# bp-gateway-api — Catalyst bootstrap-kit Blueprint, slot 01a (between
+# bp-cilium and every chart that ships HTTPRoute templates). Installs the
+# upstream Kubernetes Gateway API CRDs (Standard channel — gatewayclasses,
+# gateways, httproutes, grpcroutes, referencegrants).
+#
+# Why this Blueprint exists (issue #503):
+#
+#   Cilium 1.16's chart `gatewayAPI.enabled=true` flag (set in
+#   platform/cilium/chart/values.yaml) wires up the cilium gateway
+#   controller and creates the `cilium` GatewayClass — but it does NOT
+#   install the gateway.networking.k8s.io CRDs themselves. Without those
+#   CRDs registered on the apiserver, every chart that references
+#   HTTPRoute / Gateway / GatewayClass resources fails install with:
+#
+#     no matches for kind "HTTPRoute" in version "gateway.networking.k8s.io/v1"
+#
+#   Phase-8a-preflight live deployment otech10 (e1a0cd6662872fcb,
+#   2026-05-01) hit exactly this: bp-harbor, bp-openbao, bp-powerdns
+#   reconciled to InstallFailed with the message above; the fix is to
+#   install the upstream Gateway API CRDs ahead of any chart that uses
+#   them. Same pattern as bp-crossplane-claims and
+#   bp-external-secrets-stores — split CRD install from CR application
+#   so Flux dependsOn can order them.
+#
+# Wrapper chart: platform/gateway-api/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn: bp-cilium — Cilium owns the GatewayClass that the upstream
+# Gateway resources reference; this Blueprint just installs the CRD
+# schema. Sequencing CRDs after the CNI also ensures the apiserver has
+# a working pod network when the CRD apply lands.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-gateway-api
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-gateway-api
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: gateway-api
+  # CRDs are cluster-scoped; targetNamespace is just where the Helm
+  # release marker Secret lives. Using flux-system keeps the marker
+  # next to every other bootstrap-kit release.
+  targetNamespace: flux-system
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-gateway-api
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-gateway-api
+        namespace: flux-system
+  # Event-driven install: 5 CRDs apply in a single pass; nothing to wait
+  # for beyond apiserver acceptance. Helm Ready is sufficient — every
+  # downstream HelmRelease that needs the CRDs declares
+  # `dependsOn: bp-gateway-api` so Flux gates them on this release's
+  # Ready condition.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
