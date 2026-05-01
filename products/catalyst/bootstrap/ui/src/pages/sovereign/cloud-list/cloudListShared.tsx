@@ -14,7 +14,7 @@
  * a CSS variable — there's no inlined provider name or hex colour.
  */
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { TopologyStatus } from '@/lib/infrastructure.types'
 import type { SortState } from './sortState'
@@ -40,7 +40,14 @@ export function CloudListHeader({
   count,
   deploymentId,
   testId,
-}: CloudListHeaderProps) {
+  onNew,
+  newLabel,
+}: CloudListHeaderProps & {
+  /** When provided, renders a "+ New" CTA in the header. */
+  onNew?: () => void
+  /** Override the default "+ New <singular>" label. */
+  newLabel?: string
+}) {
   return (
     <header
       className="mb-3 flex items-start justify-between gap-4"
@@ -61,14 +68,26 @@ export function CloudListHeader({
         </h1>
         <p className="mt-1 text-sm text-[var(--color-text-dim)]">{tagline}</p>
       </div>
-      <Link
-        to={'/provision/$deploymentId/cloud' as never}
-        params={{ deploymentId } as never}
-        className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-        data-testid={`${testId}-back`}
-      >
-        ← Back to Cloud
-      </Link>
+      <div className="flex items-center gap-3">
+        {onNew && (
+          <button
+            type="button"
+            onClick={onNew}
+            data-testid={`${testId}-new-btn`}
+            className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+          >
+            {newLabel ?? '+ New'}
+          </button>
+        )}
+        <Link
+          to={'/provision/$deploymentId/cloud' as never}
+          params={{ deploymentId } as never}
+          className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+          data-testid={`${testId}-back`}
+        >
+          ← Back to Cloud
+        </Link>
+      </div>
     </header>
   )
 }
@@ -332,6 +351,162 @@ export function DetailRow({ label, value, mono = false, testId }: DetailRowProps
       <span className={`cloud-list-detail-row-value ${mono ? 'cloud-list-detail-row-mono' : ''}`}>
         {value}
       </span>
+    </div>
+  )
+}
+
+/* ── Row actions menu (⋯ kebab) ──────────────────────────────────── */
+
+export interface RowActionsMenuProps {
+  /** Per-row testid prefix — e.g. `cloud-clusters-row-<id>`. */
+  testId: string
+  onEdit?: () => void
+  onDelete?: () => void
+  /** Optional extra action buttons; rendered between Edit and Delete. */
+  extraActions?: { key: string; label: string; onClick: () => void; danger?: boolean }[]
+}
+
+export function RowActionsMenu({
+  testId,
+  onEdit,
+  onDelete,
+  extraActions,
+}: RowActionsMenuProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(ev: MouseEvent) {
+      if (!ref.current) return
+      if (!ref.current.contains(ev.target as Node)) setOpen(false)
+    }
+    function onEsc(ev: KeyboardEvent) {
+      if (ev.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+
+  function stopAndClose(fn?: () => void) {
+    return (ev: React.MouseEvent) => {
+      ev.stopPropagation()
+      setOpen(false)
+      fn?.()
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="cloud-list-row-actions"
+      data-testid={`${testId}-actions`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        data-testid={`${testId}-actions-trigger`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+        className="cloud-list-row-actions-trigger"
+        aria-label="Row actions"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          role="menu"
+          data-testid={`${testId}-actions-menu`}
+          className="cloud-list-row-actions-menu"
+        >
+          {onEdit && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={stopAndClose(onEdit)}
+              data-testid={`${testId}-actions-edit`}
+              className="cloud-list-row-actions-item"
+            >
+              Edit
+            </button>
+          )}
+          {extraActions?.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              role="menuitem"
+              onClick={stopAndClose(a.onClick)}
+              data-testid={`${testId}-actions-${a.key}`}
+              className={`cloud-list-row-actions-item ${a.danger ? 'cloud-list-row-actions-item-danger' : ''}`}
+            >
+              {a.label}
+            </button>
+          ))}
+          {onDelete && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={stopAndClose(onDelete)}
+              data-testid={`${testId}-actions-delete`}
+              className="cloud-list-row-actions-item cloud-list-row-actions-item-danger"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Detail-drawer action bar (Edit / Delete) ────────────────────── */
+
+export interface DetailDrawerActionsProps {
+  testId: string
+  onEdit?: () => void
+  onDelete?: () => void
+  editLabel?: string
+  deleteLabel?: string
+}
+
+export function DetailDrawerActions({
+  testId,
+  onEdit,
+  onDelete,
+  editLabel = 'Edit',
+  deleteLabel = 'Delete',
+}: DetailDrawerActionsProps) {
+  if (!onEdit && !onDelete) return null
+  return (
+    <div className="cloud-list-detail-actions" data-testid={`${testId}-actions`}>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          data-testid={`${testId}-actions-edit`}
+          className="cloud-list-detail-actions-edit"
+        >
+          {editLabel}
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          data-testid={`${testId}-actions-delete`}
+          className="cloud-list-detail-actions-delete"
+        >
+          {deleteLabel}
+        </button>
+      )}
     </div>
   )
 }

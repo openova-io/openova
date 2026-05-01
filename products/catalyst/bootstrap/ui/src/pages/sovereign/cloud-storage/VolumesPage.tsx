@@ -9,10 +9,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -20,6 +22,11 @@ import { CLOUD_LIST_CSS } from '../cloud-list/cloudListCss'
 import { useCloudListState } from '../cloud-list/useCloudListState'
 import type { SortState } from '../cloud-list/sortState'
 import type { TopologyStatus, VolumeItem } from '@/lib/infrastructure.types'
+import {
+  AddVolumeModal,
+  EditVolumeModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
 
 const STATUSES: readonly TopologyStatus[] = ['healthy', 'degraded', 'failed', 'unknown']
 const TEST_ID = 'cloud-volumes'
@@ -75,6 +82,23 @@ export function VolumesPage() {
   })
 
   const [openRow, setOpenRow] = useState<VolumeItem | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<VolumeItem | null>(null)
+  const [deleteRow, setDeleteRow] = useState<VolumeItem | null>(null)
+
+  const regionIds = useMemo(
+    () => (data?.topology.regions ?? []).map((r) => r.id),
+    [data],
+  )
+  const allNodeIds = useMemo(() => {
+    const ids: string[] = []
+    for (const r of data?.topology.regions ?? []) {
+      for (const c of r.clusters ?? []) {
+        for (const n of c.nodes ?? []) ids.push(n.id)
+      }
+    }
+    return ids
+  }, [data])
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -85,6 +109,8 @@ export function VolumesPage() {
         tagline="Cloud block volumes attached to nodes."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New volume"
+        onNew={regionIds.length > 0 ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -133,12 +159,13 @@ export function VolumesPage() {
                   <SortableTH testId={`${TEST_ID}-th-attachedTo`} column="attachedTo" label="Attachment" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-capacity`} column="capacity" label="Capacity" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No volumes match the current filters.
                     </td>
                   </tr>
@@ -155,6 +182,13 @@ export function VolumesPage() {
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.attachedTo || 'detached'}</td>
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.capacity}</td>
                       <td className="cloud-list-cell"><StatusPill status={row.status} /></td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -179,6 +213,17 @@ export function VolumesPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Name" value={openRow.name} />
             <DetailRow label="ID" value={openRow.id} mono />
             <DetailRow label="Capacity" value={openRow.capacity} mono />
@@ -188,6 +233,36 @@ export function VolumesPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      {regionIds.length > 0 && (
+        <AddVolumeModal
+          open={addOpen}
+          deploymentId={deploymentId}
+          regionIds={regionIds}
+          nodeIds={allNodeIds}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editRow && (
+        <EditVolumeModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          volume={editRow}
+          nodeIds={allNodeIds}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="volumes"
+          resourceId={deleteRow.id}
+          resourceLabel={deleteRow.name}
+          resourceKind="Volume"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

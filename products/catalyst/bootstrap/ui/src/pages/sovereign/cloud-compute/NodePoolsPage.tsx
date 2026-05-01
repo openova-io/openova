@@ -9,10 +9,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -25,6 +27,12 @@ import type {
   RegionSpec,
   TopologyStatus,
 } from '@/lib/infrastructure.types'
+import {
+  AddNodePoolModal,
+  EditNodePoolModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
+import type { CloudProvider } from '@/entities/deployment/model'
 
 interface NodePoolRow {
   id: string
@@ -89,6 +97,12 @@ export function NodePoolsPage() {
   })
 
   const [openRow, setOpenRow] = useState<NodePoolRow | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<NodePoolRow | null>(null)
+  const [deleteRow, setDeleteRow] = useState<NodePoolRow | null>(null)
+
+  const firstRegion = data?.topology.regions?.[0]
+  const firstCluster = firstRegion?.clusters?.[0]
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -99,6 +113,8 @@ export function NodePoolsPage() {
         tagline="Worker pools grouped by SKU + role; one row per pool across all clusters."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New node pool"
+        onNew={firstCluster ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -138,12 +154,13 @@ export function NodePoolsPage() {
                   <SortableTH testId={`${TEST_ID}-th-sku`} column="sku" label="Machine type" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-replicas`} column="replicas" label="Replicas" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No node pools match the current filters.
                     </td>
                   </tr>
@@ -160,6 +177,13 @@ export function NodePoolsPage() {
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.pool.sku}</td>
                       <td className="cloud-list-cell">{row.pool.replicas}</td>
                       <td className="cloud-list-cell"><StatusPill status={row.pool.status} /></td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -184,6 +208,17 @@ export function NodePoolsPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Pool ID" value={openRow.pool.id} mono />
             <DetailRow label="Machine type" value={openRow.pool.sku} mono />
             <DetailRow label="Replicas" value={openRow.pool.replicas} />
@@ -195,6 +230,36 @@ export function NodePoolsPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      {firstCluster && firstRegion && (
+        <AddNodePoolModal
+          open={addOpen}
+          deploymentId={deploymentId}
+          clusterId={firstCluster.id}
+          regionProvider={(firstRegion.provider as CloudProvider) ?? 'hetzner'}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editRow && (
+        <EditNodePoolModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          pool={editRow.pool}
+          regionProvider={(editRow.region.provider as CloudProvider) ?? 'hetzner'}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="pools"
+          resourceId={deleteRow.pool.id}
+          resourceLabel={deleteRow.pool.id}
+          resourceKind="Node pool"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

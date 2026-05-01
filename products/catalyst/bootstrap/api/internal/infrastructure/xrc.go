@@ -68,6 +68,13 @@ const (
 	KindPeeringClaim      = "PeeringClaim"
 	KindFirewallRuleClaim = "FirewallRuleClaim"
 	KindNodeActionClaim   = "NodeActionClaim"
+	// Issue #349 — full CRUD on every Cloud resource type.
+	// WorkerNode here is the per-VM claim (vs NodeActionClaim, which
+	// is the cordon/drain/replace verb path against an existing node).
+	KindWorkerNodeClaim = "WorkerNodeClaim"
+	KindNetworkClaim    = "NetworkClaim"
+	KindBucketClaim     = "BucketClaim"
+	KindVolumeClaim     = "VolumeClaim"
 )
 
 // XRCNamespace — the namespace catalyst-api submits all claims into.
