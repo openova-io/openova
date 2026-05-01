@@ -26,6 +26,8 @@ import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
+import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
+import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -302,6 +304,29 @@ const infraLegacyRedirectRoutes = INFRA_LEGACY_REDIRECTS.map((r) =>
   }),
 )
 
+/* ── Sovereign IAM — User Access editor (issue #323) ─────────────
+ *
+ * Three routes under /provision/$deploymentId/users:
+ *   • list     → /users           (UserAccessListPage)
+ *   • new      → /users/new       (UserAccessEditPage with no name)
+ *   • edit     → /users/$name     (UserAccessEditPage with name)
+ */
+const provisionUsersListRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/users',
+  component: UserAccessListPage,
+})
+const provisionUsersNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/users/new',
+  component: UserAccessEditPage,
+})
+const provisionUsersEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/users/$name',
+  component: UserAccessEditPage,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout.
@@ -354,6 +379,9 @@ const routeTree = rootRoute.addChildren([
     provisionInfrastructureIndexRoute,
     ...infraLegacyRedirectRoutes,
   ]),
+  provisionUsersListRoute,
+  provisionUsersNewRoute,
+  provisionUsersEditRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,

@@ -45,13 +45,14 @@ interface SidebarProps {
 /* ── Top-level (flat) nav items ─────────────────────────────────── */
 
 interface FlatNavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'settings'
+  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
   label: string
   to:
     | '/provision/$deploymentId'
     | '/provision/$deploymentId/jobs'
     | '/provision/$deploymentId/dashboard'
     | '/provision/$deploymentId/cloud'
+    | '/provision/$deploymentId/users'
     | '/wizard'
   /** SVG path data — same `d` strings as core/console for visual parity. */
   icon: string
@@ -92,6 +93,13 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/provision/$deploymentId/cloud',
     icon: CLOUD_ICON,
   },
+  {
+    id: 'users',
+    label: 'Users',
+    to: '/provision/$deploymentId/users',
+    // Tabler IconUsers — verbatim path data, viewBox 24x24.
+    icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
+  },
 ]
 
 const SETTINGS_ITEM: FlatNavItem = {
@@ -103,7 +111,7 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 /* ── Active-state derivation ────────────────────────────────────── */
 
-type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'settings'
+type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
 
 // Cloud section is active when the path matches any of the
 // `/cloud[/...]` or legacy `/infrastructure[/...]` segments. We use a
@@ -116,6 +124,8 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (pathname.endsWith('/dashboard')) return 'dashboard'
   if (pathname.endsWith('/jobs')) return 'jobs'
+  // Users surface — list, /new, and /<name> all count.
+  if (/\/users(\/|$)/.test(pathname)) return 'users'
   if (pathname.startsWith('/sovereign/wizard') || pathname.startsWith('/wizard')) return 'settings'
   return 'apps'
 }
