@@ -284,6 +284,26 @@ Crossplane stays out of K8s-to-K8s composition.
 | **C6** | Update #324 + #325 briefs | Make Guacamole the canonical access protocol |
 | **C7** | Update #349 brief | Add XRC vs K8s-native CR write rule |
 
+### 9.4 Demo protection — the legacy SME stays running until cutover
+
+**Hard rule for every agent and operator: until the founder explicitly authorises cutover, the entire `sme/` namespace runs untouched.** The legacy SME at the URLs below is the working customer demo and must not regress while the new surface is being built:
+
+| URL | Backend (must keep working) |
+|---|---|
+| `https://console.openova.io/nova/*` | `sme/console` |
+| `https://marketplace.openova.io` | `sme/marketplace` |
+| `https://admin.openova.io` | `sme/admin` |
+
+The `/sovereign/*` path on `console.openova.io` is the **new** surface (catalyst-ui in `catalyst/` namespace) and is where every architecture-aligned change lands. The two paths share a hostname but are completely independent ingresses (`console-sovereign` in `catalyst/` vs `console-nova` in `sme/`).
+
+The B6–B11 service retirements in section 9.2 are **target-state** descriptions. The C2 epic in section 9.3 sequences the actual cutover with feature flags so:
+
+- The new Sovereign-API surface lights up alongside the legacy SME services.
+- Customer demos at the legacy URLs continue uninterrupted.
+- Legacy SME services tear down only after the founder confirms parity and authorises the cutover.
+
+Until that signal: **no SME service is stopped, no SME PVC is deleted, no SME DB is migrated, no SME ingress is repointed, no SME image is downgraded.** Anything that would break a live demo is out of bounds.
+
 ## 10. Sequencing
 
 1. **This ADR merges first.** Gates everything else.
