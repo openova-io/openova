@@ -37,7 +37,7 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 13 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | ❌ not deployed ([#376](https://github.com/openova-io/openova/issues/376)) |
 | 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | ❌ not deployed ([#377](https://github.com/openova-io/openova/issues/377)) |
 | 15 | `bp-spire` | Workload identity — service-to-service mTLS | ❌ not deployed ([#382](https://github.com/openova-io/openova/issues/382)) |
-| 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | ❌ not deployed ([#378](https://github.com/openova-io/openova/issues/378)) |
+| 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | ✅ chart-verified ([#378](https://github.com/openova-io/openova/issues/378) closed as duplicate; v1.1.3 published, smoke-installed clean, bootstrap-kit wiring already in `_template`) |
 | 17 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
 | 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | ❌ not deployed; **chart hardcodes SeaweedFS endpoint** ([#383](https://github.com/openova-io/openova/issues/383)) |
 | 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | ❌ not deployed; chart needs S3 endpoint rework ([#384](https://github.com/openova-io/openova/issues/384)) |
@@ -346,7 +346,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #375 | (parked) | | |
 | #376 | (parked) | | |
 | #377 | (parked) | | |
-| #378 | (parked) | | |
+| #378 | ✅ chart-verified — bp-crossplane v1.1.3 already published; helm template renders 23 kinds clean; smoke install on contabo (`crossplane-smoke` ns) reached 2/2 Ready in 26s; `Provider.pkg.crossplane.io/v1` admitted; `provider-hcloud:v0.4.0` Provider CR admitted; smoke torn down clean; bootstrap-kit wiring already present in `_template` (04-crossplane.yaml + 14-crossplane-claims.yaml). No PR needed — closing as duplicate. | (no-PR) | smoke evidence in commit message |
 | #379 | (parked) | | |
 | #380 | (parked) | | |
 | #381 | (parked) | | |
