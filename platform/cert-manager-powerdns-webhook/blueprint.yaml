@@ -1,0 +1,44 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager-powerdns-webhook
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: cert-manager-powerdns-webhook
+    summary: |
+      cert-manager DNS-01 external webhook for PowerDNS. Lets the
+      letsencrypt-dns01-prod-powerdns ClusterIssuer (shipped by this
+      blueprint) issue wildcard TLS certificates (e.g. *.<sovereign>)
+      by writing ACME challenge TXT records to the Sovereign's OWN
+      PowerDNS instance — no reachback to Dynadot at the openova
+      parent zone, so a handed-over Sovereign owns its full DNS+TLS
+      chain. Closes openova#373; gates #319 post-handover renewals.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends:
+    # bp-cert-manager registers the cert-manager.io CRDs and deploys the
+    # controllers; this webhook is meaningless without them. Per the
+    # waterfall locked in by docs/INVIOLABLE-PRINCIPLES.md (intra-chart
+    # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
+    # is Ready — Flux dependsOn enforces that at the HelmRelease level.
+    - bp-cert-manager
+    # bp-powerdns provides the in-cluster API endpoint the webhook talks
+    # to. Without bp-powerdns the webhook has no upstream to call. The
+    # bootstrap-kit slot ordering (02-cert-manager → 11-powerdns →
+    # cert-manager-powerdns-webhook) plus Flux dependsOn enforce this.
+    - bp-powerdns
+  outputs:
+    # Tells dependents (the per-Sovereign Gateway's wildcard Certificate
+    # in 01-cilium.yaml, etc.) which solverName the ClusterIssuer's
+    # solvers[].dns01.webhook block must reference. Defaults are baked
+    # into the chart values but exposing them here keeps the blueprint
+    # DAG's contract honest. Distinct from the dynadot pair to allow
+    # both webhooks to coexist on the same cluster (during the
+    # parent-zone-cert + Sovereign-zone-cert overlap window).
+    solverName: powerdns
+    groupName: acme.powerdns.openova.io
+    issuerName: letsencrypt-dns01-prod-powerdns

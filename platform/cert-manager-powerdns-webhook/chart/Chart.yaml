@@ -1,0 +1,58 @@
+apiVersion: v2
+name: bp-cert-manager-powerdns-webhook
+version: 1.0.0
+appVersion: "v2.5.5"
+description: |
+  Catalyst-authored Blueprint chart wrapping the upstream
+  zachomedia/cert-manager-webhook-pdns binary. Deploys a TLS-fronted
+  aggregated apiserver that cert-manager's DNS-01 ClusterIssuer
+  (letsencrypt-dns01-prod-powerdns, shipped by this chart) calls into
+  to provision ACME challenge TXT records on a per-Sovereign PowerDNS
+  zone via PowerDNS's REST API. Closes openova#373.
+
+  This blueprint is the post-handover companion to
+  bp-cert-manager-dynadot-webhook: the dynadot webhook solves DNS-01
+  against the openova parent zone (omani.works) during onboarding;
+  this powerdns webhook solves DNS-01 against the Sovereign's own
+  delegated subdomain post-handover, removing the last reachback to
+  Dynadot for cert renewals.
+
+  Upstream chart: zachomedia/cert-manager-webhook-pdns (v3.2.5,
+  appVersion v2.5.5). Vendored as a top-level wrapper rather than a
+  Helm subchart because the upstream chart is published only on
+  GitHub (not OCI) and the upstream pki.yaml + apiservice.yaml shapes
+  are simple enough to template directly. This keeps the artifact
+  fully Catalyst-owned (single OCI push to ghcr.io/openova-io)
+  while preserving upstream behaviour bit-for-bit.
+
+  The cert-manager webhook contract requires:
+
+    1. An APIService registration so the kube-apiserver routes
+       /apis/<groupName>/v1alpha1 calls to this Deployment's Service.
+    2. A Service on the cert-manager namespace exposing port 443.
+    3. A serving Certificate signed by cert-manager itself (selfsigned
+       Issuer → CA Certificate → leaf Certificate) with a CA bundle that
+       the APIService's caBundle references.
+    4. RBAC so the SA can read the PowerDNS API-key Secret referenced
+       by the ClusterIssuer's webhook.config.apiKeySecretRef.
+
+  All four are templated here, plus a paired ClusterIssuer
+  (letsencrypt-dns01-prod-powerdns) so a Sovereign installing this
+  blueprint gets a working DNS-01 solver in one HelmRelease.
+type: application
+keywords: [catalyst, blueprint, cert-manager, dns01, powerdns, webhook]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Hollow-chart guard (issue #181) — every umbrella MUST declare at least
+# one dependency so the blueprint-release.yaml CI gate passes. The
+# `sigstore/common` library subchart is a tiny library chart (helper
+# templates only, zero runtime resources) and contributes nothing to
+# the rendered manifests of bp-cert-manager-powerdns-webhook. Mirrors
+# bp-cert-manager-dynadot-webhook + bp-coraza which use the same pattern
+# for the same reason.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"
