@@ -758,7 +758,16 @@ function DetailPanel({
     return null
   }, [node.type])
 
-  const deletable = ['Region', 'Cluster', 'vCluster'].includes(node.type)
+  // Cloud-root carries a destructive action too — but with different
+  // semantics than Region/Cluster/vCluster. Per issue #318, the Cloud
+  // node's Delete is the deployment-level Cancel & Wipe (Phase-0 orphan
+  // purge: tofu destroy + Hetzner direct-API force-purge + PDM release).
+  // Region/Cluster/vCluster Delete goes through Crossplane XRC
+  // deletionPolicy (day-2 path, INVIOLABLE-PRINCIPLES.md #3). Both share
+  // the onDelete callback — the parent component branches on node.type
+  // to pick the right modal.
+  const deletable = ['Cloud', 'Region', 'Cluster', 'vCluster'].includes(node.type)
+  const deleteLabel = node.type === 'Cloud' ? 'Cancel & Wipe deployment' : `Delete ${node.type}`
 
   return (
     <aside
@@ -888,11 +897,15 @@ function DetailPanel({
         {deletable && (
           <button
             type="button"
-            data-testid={`infrastructure-detail-panel-action-delete-${node.type.toLowerCase()}`}
+            data-testid={
+              node.type === 'Cloud'
+                ? 'infrastructure-detail-panel-action-wipe-deployment'
+                : `infrastructure-detail-panel-action-delete-${node.type.toLowerCase()}`
+            }
             onClick={onDelete}
             className="rounded-md border border-[color-mix(in_srgb,var(--color-danger)_50%,var(--color-border))] px-3 py-1.5 text-left text-xs font-medium text-[var(--color-danger)] hover:bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)]"
           >
-            Delete {node.type}
+            {deleteLabel}
           </button>
         )}
       </section>
