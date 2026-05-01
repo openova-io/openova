@@ -14,36 +14,39 @@ Provision **omantel.omani.works** as the first fully self-sufficient Sovereign C
 
 The hard rule from ADR-0001 §9.4: the legacy SME demos (`console.openova.io/nova`, `marketplace.openova.io`, `admin.openova.io`) stay running and untouched throughout this work.
 
-## 2. Minimal Self-Sufficient Sovereign — 24 blueprints
+## 2. Minimal Self-Sufficient Sovereign — 23 blueprints
 
-A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert issuance, its own identity, its own secrets, its own registry, its own observability, its own Day-2 IaC, and its own multi-tenant isolation. The 24 blueprints below are the floor.
+A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert issuance, its own identity, its own secrets, its own registry, its own observability, its own Day-2 IaC, and its own multi-tenant isolation. The 23 blueprints below are the floor.
+
+**Ingress on Sovereigns:** Cilium + Envoy + Gateway API (`gateway.networking.k8s.io/v1`). **No Traefik** — Traefik stays only on contabo for legacy nova/website demos per ADR-0001 §9.4. Migration audit tracked under [#387](https://github.com/openova-io/openova/issues/387).
 
 | # | Blueprint | Role | Today on contabo |
 |---|---|---|---|
-| 1 | `bp-cilium` | CNI / eBPF | ✅ deployed |
+| 1 | `bp-cilium` | CNI / eBPF / **L7 ingress via Gateway API + Envoy** ([#387](https://github.com/openova-io/openova/issues/387) audit) | ✅ deployed (Gateway CRDs installed; Sovereign HTTPRoute migration pending) |
 | 2 | `bp-flux` | GitOps reconciler — pulls from Sovereign's own Gitea | ✅ deployed (gated on RBAC fix #338) |
-| 3 | `bp-traefik` | L7 Ingress | ⚠️ **blueprint missing — installed via cluster manifests** ([#372](https://github.com/openova-io/openova/issues/372)) |
-| 4 | `bp-cert-manager` | TLS issuance | ✅ deployed |
-| 5 | `bp-cert-manager-powerdns-webhook` | DNS-01 against Sovereign's own PowerDNS post-handover | ❌ **not authored** ([#373](https://github.com/openova-io/openova/issues/373)) |
-| 6 | `bp-sealed-secrets` | Git-committed encrypted secrets | ✅ deployed |
-| 7 | `bp-openbao` | Dynamic secrets, rotation, audit log | ❌ not deployed — gates [#316](https://github.com/openova-io/openova/issues/316) auto-unseal |
-| 8 | `bp-external-secrets` | OpenBao → K8s Secret materialiser | ⚠️ chart exists; [#331](https://github.com/openova-io/openova/issues/331) ClusterSecretStore split open |
-| 9 | `bp-cnpg` | Postgres operator | ✅ deployed |
-| 10 | `bp-valkey` | Redis-API cache | ✅ deployed |
-| 11 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | ❌ not deployed ([#375](https://github.com/openova-io/openova/issues/375)) |
-| 12 | `bp-vcluster` | Per-tenant vCluster operator | ✅ deployed (3 active tenants) |
-| 13 | `bp-powerdns` | Authoritative DNS for the Sovereign's delegated subdomain (PDM + dnsdist included) | ✅ deployed |
-| 14 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | ❌ not deployed ([#376](https://github.com/openova-io/openova/issues/376)) |
-| 15 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | ❌ not deployed ([#377](https://github.com/openova-io/openova/issues/377)) |
-| 16 | `bp-spire` | Workload identity — service-to-service mTLS | ❌ not deployed ([#382](https://github.com/openova-io/openova/issues/382)) |
-| 17 | `bp-crossplane` | Day-2 cloud-resource provisioning | ❌ not deployed ([#378](https://github.com/openova-io/openova/issues/378)) |
-| 18 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
-| 19 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | ❌ not deployed; **chart hardcodes SeaweedFS endpoint** ([#383](https://github.com/openova-io/openova/issues/383)) |
-| 20 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | ❌ not deployed; chart needs S3 endpoint rework ([#384](https://github.com/openova-io/openova/issues/384)) |
-| 21 | `bp-kyverno` | Admission policy | ❌ not deployed ([#379](https://github.com/openova-io/openova/issues/379)) |
-| 22 | `bp-trivy` | Image CVE scanning | ❌ not deployed ([#380](https://github.com/openova-io/openova/issues/380)) |
-| 23 | `bp-grafana` | Bundle: Alloy + Loki + Mimir + Tempo + Grafana dashboards | ❌ not deployed ([#381](https://github.com/openova-io/openova/issues/381)) |
-| 24 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | ✅ deployed; needs single-blueprint verification ([#385](https://github.com/openova-io/openova/issues/385)) |
+| 3 | `bp-cert-manager` | TLS issuance | ✅ deployed |
+| 4 | `bp-cert-manager-powerdns-webhook` | DNS-01 against Sovereign's own PowerDNS post-handover | ❌ **not authored** ([#373](https://github.com/openova-io/openova/issues/373)) |
+| 5 | `bp-sealed-secrets` | Git-committed encrypted secrets | ✅ deployed |
+| 6 | `bp-openbao` | Dynamic secrets, rotation, audit log | ❌ not deployed — gates [#316](https://github.com/openova-io/openova/issues/316) auto-unseal |
+| 7 | `bp-external-secrets` | OpenBao → K8s Secret materialiser | ⚠️ chart exists; [#331](https://github.com/openova-io/openova/issues/331) ClusterSecretStore split open |
+| 8 | `bp-cnpg` | Postgres operator | ✅ deployed |
+| 9 | `bp-valkey` | Redis-API cache | ✅ deployed |
+| 10 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | ❌ not deployed ([#375](https://github.com/openova-io/openova/issues/375)) |
+| 11 | `bp-vcluster` | Per-tenant vCluster operator | ✅ deployed (3 active tenants) |
+| 12 | `bp-powerdns` | Authoritative DNS for the Sovereign's delegated subdomain (PDM + dnsdist included) | ✅ deployed |
+| 13 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | ❌ not deployed ([#376](https://github.com/openova-io/openova/issues/376)) |
+| 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | ❌ not deployed ([#377](https://github.com/openova-io/openova/issues/377)) |
+| 15 | `bp-spire` | Workload identity — service-to-service mTLS | ❌ not deployed ([#382](https://github.com/openova-io/openova/issues/382)) |
+| 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | ❌ not deployed ([#378](https://github.com/openova-io/openova/issues/378)) |
+| 17 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
+| 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | ❌ not deployed; **chart hardcodes SeaweedFS endpoint** ([#383](https://github.com/openova-io/openova/issues/383)) |
+| 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | ❌ not deployed; chart needs S3 endpoint rework ([#384](https://github.com/openova-io/openova/issues/384)) |
+| 20 | `bp-kyverno` | Admission policy | ❌ not deployed ([#379](https://github.com/openova-io/openova/issues/379)) |
+| 21 | `bp-trivy` | Image CVE scanning | ❌ not deployed ([#380](https://github.com/openova-io/openova/issues/380)) |
+| 22 | `bp-grafana` | Bundle: Alloy + Loki + Mimir + Tempo + Grafana dashboards | ❌ not deployed ([#381](https://github.com/openova-io/openova/issues/381)) |
+| 23 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | ✅ deployed; needs single-blueprint verification ([#385](https://github.com/openova-io/openova/issues/385)) |
+
+> **Correction note (2026-05-01):** earlier draft listed `bp-traefik` as #3. That was wrong — Traefik is contabo-only legacy demo infra. Sovereigns ingress through Cilium Gateway API + Envoy. #372 closed; replaced by [#387](https://github.com/openova-io/openova/issues/387) (Gateway API migration audit across all minimal-set blueprint charts).
 
 ## 3. Architecture rule — S3 vs SeaweedFS
 
@@ -67,7 +70,7 @@ Phases run sequentially; tickets within a phase parallelize except where a same-
 flowchart TB
     P0a[Phase 0a · #370<br/>Hetzner mock-data purge] --> P8
     P0b[Phase 0b · #371<br/>Hetzner Object Storage<br/>credential pattern]
-    P1a[Phase 1a · #372<br/>bp-traefik<br/>blueprint authoring]
+    P1a[Phase 1a · #387<br/>Gateway API migration<br/>audit across blueprints]
     P1b[Phase 1 · #338<br/>bp-flux helm-controller<br/>SA cluster-admin] --> Phase2
     P2a[Phase 2a · #373<br/>cert-manager-powerdns<br/>-webhook] --> P2b
     P2b[Phase 2b · #374<br/>NS delegation<br/>.omani.works → omantel] --> P6
@@ -111,7 +114,7 @@ flowchart TB
 | Ticket | Title | Depends on | Gates |
 |---|---|---|---|
 | [#338](https://github.com/openova-io/openova/issues/338) | bp-flux helm-controller SA cluster-admin | nothing | every Helm install on omantel |
-| [#372](https://github.com/openova-io/openova/issues/372) | bp-traefik blueprint authoring | nothing | every Sovereign needing L7 ingress |
+| [#387](https://github.com/openova-io/openova/issues/387) | Gateway API migration audit (Cilium + Envoy + HTTPRoute on every minimal-set blueprint chart; replaces #372 bp-traefik) | nothing | every Sovereign HTTP surface |
 
 ### Phase 2 — Infrastructure layer (depends on Phase 1)
 
@@ -227,7 +230,6 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #331 | (pending) | | |
 | #370 | (parked) | | |
 | #371 | (parked) | | |
-| #372 | (parked) | | |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
 | #375 | (parked) | | |
@@ -241,3 +243,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
+| #387 | (parked) | | |
