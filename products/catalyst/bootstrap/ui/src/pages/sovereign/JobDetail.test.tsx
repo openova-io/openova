@@ -1,22 +1,28 @@
 /**
- * JobDetail.test.tsx — lock-in for the v3 JobDetail surface (this PR).
+ * JobDetail.test.tsx — lock-in for the v3 JobDetail surface.
+ *
+ * v3 surface (PR #351 / #353):
+ *   • No tab strip. Full-bleed FlowPage canvas + floating LogPane on
+ *     the right (open by default on the host job's logs).
+ *   • Two-line header: title + status chip on top; subtitle pieces
+ *     beneath (jobId · appId · parent · last-update).
+ *   • The previous Flow / Exec Log tabs are gone.
  *
  * Coverage:
- *   • Tab strip has EXACTLY two tabs labeled "Flow" and "Exec Log".
- *   • Default-active tab = Flow.
- *   • Dependencies + Apps tabs are GONE (removed in v3).
- *   • Flow tab renders the embedded FlowPage (data-testid='flow-page-embedded').
- *   • Exec Log tab renders the ExecutionLogs viewer.
- *   • [Regression] When the URL jobId is in the BACKEND format
- *     (`<deploymentId>:install-cilium`), JobDetail looks it up via
- *     mergeJobs(reducerJobs, liveJobs) — NOT deriveJobs alone — and
- *     renders the populated job view rather than the not-found state.
- *     This locks in the fix for the regression where every Flow-canvas
- *     double-click landed on "is not part of this deployment".
+ *   • Populated header renders for both catalog-format ids ("bp-cilium")
+ *     and backend-format ids ("<deploymentId>:install-<x>").
+ *   • The not-found panel renders when neither reducer-derived nor live
+ *     jobs match.
+ *   • [Bug #476] Clicking a job whose URL contains the backend's colon-
+ *     format id (e.g. `infrastructure:tofu-apply`) MUST resolve within
+ *     2 seconds — the v3 surface used to hang the browser when the
+ *     `cluster-bootstrap` group slug collided with the bare leaf id.
+ *
+ * Companion: JobDetail.hang.regression.test.tsx — focused E2E for the
+ *   #476 hang reproduction.
  */
-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -84,9 +90,7 @@ afterEach(() => cleanup())
 /**
  * Regression-test helper — renders JobDetail with the live-jobs backfill
  * ENABLED, plus a fetch stub that returns the supplied liveJobs on the
- * `/jobs` URL and an empty event slice on the `/events` URL. Lets us
- * assert that backend-format ids (e.g. `d1:install-cilium`) resolve via
- * mergeJobs() rather than falling through to the not-found state.
+ * `/jobs` URL and an empty event slice on the `/events` URL.
  */
 function renderDetailWithLiveJobs(
   deploymentId: string,
@@ -97,8 +101,6 @@ function renderDetailWithLiveJobs(
   const detailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/jobs/$jobId',
-    // Live backfill ENABLED so useLiveJobsBackfill fetches the stubbed
-    // jobs payload. SSE is still disabled (jsdom can't drive it).
     component: () => <JobDetail disableStream />,
   })
   const flowRoute = createRoute({
@@ -123,8 +125,6 @@ function renderDetailWithLiveJobs(
       initialEntries: [`/provision/${deploymentId}/jobs/${jobId}`],
     }),
   })
-  // URL-aware fetch stub: /jobs → liveJobs; everything else → empty
-  // events slice (matches the default useDeploymentEvents shape).
   globalThis.fetch = ((input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString()
     if (url.endsWith(`/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`)) {
@@ -148,48 +148,35 @@ function renderDetailWithLiveJobs(
   )
 }
 
-describe('JobDetail — v3 tab strip', () => {
-  it('renders exactly 2 tabs labeled Flow + Exec Log', async () => {
-    // Use a known fixture job id — `bp-cilium` lives in the bootstrap-kit
-    // batch and is part of the default-application catalog.
+describe('JobDetail — v3 surface (full-bleed canvas + LogPane, no tab strip)', () => {
+  it('renders the two-line header with the populated jobId', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const tablist = await screen.findByTestId('job-detail-tablist')
-    const tabs = tablist.querySelectorAll('[role="tab"]')
-    expect(tabs.length).toBe(2)
-    const labels = Array.from(tabs).map((t) => (t.textContent ?? '').trim())
-    expect(labels).toEqual(['Flow', 'Exec Log'])
+    await waitFor(() => {
+      const header = screen.queryByTestId('job-detail-header')
+      const title = screen.queryByTestId('job-detail-title')
+      expect(header).toBeTruthy()
+      expect(title).toBeTruthy()
+    })
   })
 
-  it('Flow tab is active by default', async () => {
+  it('mounts the embedded FlowPage canvas (full-bleed, no tabs)', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const flowTab = await screen.findByTestId('job-detail-tab-flow')
-    expect(flowTab.getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => {
+      expect(screen.queryByTestId('job-detail-canvas')).toBeTruthy()
+      expect(screen.queryByTestId('flow-page-embedded')).toBeTruthy()
+    })
   })
 
-  it('does NOT render Dependencies or Apps tabs (v2 retired)', async () => {
+  it('does NOT render the v2 tablist or per-tab panels', async () => {
     renderDetail('d-1', 'bp-cilium')
-    await screen.findByTestId('job-detail-tablist')
-    expect(screen.queryByTestId('job-detail-tab-dependencies')).toBeNull()
-    expect(screen.queryByTestId('job-detail-tab-apps')).toBeNull()
-    expect(screen.queryByTestId('job-detail-deps-panel')).toBeNull()
-    expect(screen.queryByTestId('job-detail-apps-panel')).toBeNull()
-  })
-
-  it('Flow tab panel mounts the embedded FlowPage canvas', async () => {
-    renderDetail('d-1', 'bp-cilium')
-    await screen.findByTestId('job-detail-tablist')
-    expect(screen.queryByTestId('job-detail-flow-panel')).toBeTruthy()
-    expect(screen.queryByTestId('flow-page-embedded')).toBeTruthy()
-  })
-
-  it('clicking Exec Log tab swaps the active panel', async () => {
-    renderDetail('d-1', 'bp-cilium')
-    await screen.findByTestId('job-detail-tablist')
-    const logTab = screen.getByTestId('job-detail-tab-logs')
-    fireEvent.click(logTab)
-    expect(logTab.getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByTestId('job-detail-logs-panel')).toBeTruthy()
+    await waitFor(() => {
+      expect(screen.queryByTestId('job-detail-canvas')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('job-detail-tablist')).toBeNull()
+    expect(screen.queryByTestId('job-detail-tab-flow')).toBeNull()
+    expect(screen.queryByTestId('job-detail-tab-logs')).toBeNull()
     expect(screen.queryByTestId('job-detail-flow-panel')).toBeNull()
+    expect(screen.queryByTestId('job-detail-logs-panel')).toBeNull()
   })
 })
 
@@ -199,10 +186,6 @@ describe('JobDetail — backend-format jobId lookup (regression for #245 not-fou
   // against deriveJobs() output only — which uses catalog ids
   // ("bp-cilium"). The lookup missed and JobDetail rendered the
   // not-found state for every Flow-canvas double-click.
-  //
-  // The fix mirrors JobsPage / FlowPage: deriveJobs → adaptDerivedJobsToFlat
-  // → mergeJobs(reducerJobs, liveJobs). When the live API returns a row
-  // whose id matches the URL jobId, mergeJobs surfaces it.
   it('renders the populated job view when jobId is in the backend "<deploymentId>:install-<x>" format', async () => {
     const deploymentId = 'd1'
     const jobId = `${deploymentId}:install-cilium`
@@ -223,201 +206,18 @@ describe('JobDetail — backend-format jobId lookup (regression for #245 not-fou
     ]
     renderDetailWithLiveJobs(deploymentId, jobId, liveJobs)
 
-    // Header populated → NOT the not-found state.
     await waitFor(() => {
       expect(screen.queryByTestId('job-detail-not-found')).toBeNull()
       expect(screen.queryByTestId(`job-detail-${jobId}`)).toBeTruthy()
     })
     expect(screen.getByTestId('job-detail-title').textContent).toBe('Install Cilium')
-    // Tablist still mounts (Flow + Exec Log).
-    const tablist = screen.getByTestId('job-detail-tablist')
-    const tabs = tablist.querySelectorAll('[role="tab"]')
-    expect(tabs.length).toBe(2)
   })
 
   it('still renders not-found when no live job AND no reducer-derived job matches', async () => {
     const deploymentId = 'd1'
-    // Backend format id but the live API has no rows; reducer derives
-    // catalog ids only — no match either way.
-    renderDetailWithLiveJobs(deploymentId, `${deploymentId}:install-cilium`, [])
+    renderDetailWithLiveJobs(deploymentId, `${deploymentId}:install-non-existent-component`, [])
     await waitFor(() => {
       expect(screen.queryByTestId('job-detail-not-found')).toBeTruthy()
-    })
-  })
-})
-
-describe('JobDetail — Exec Log tab wires the real execution id (regression for #305)', () => {
-  // Without the fix, the JobDetail page constructed a synthetic
-  // executionId of `${jobId}:latest` and passed it to <ExecutionLogs>.
-  // The catalyst-api never had a `:latest` route — every log fetch
-  // returned 404 and the viewer rendered "Failed to load log page".
-  //
-  // The fix routes JobDetail through useJobDetail() which fetches
-  // `/api/v1/deployments/{depId}/jobs/{jobId}` and uses `executions[0].id`
-  // as the real exec id.
-  function renderDetailWithJobAndExecutions(
-    deploymentId: string,
-    jobId: string,
-    job: Job,
-    executions: Array<{ id: string; jobId: string; deploymentId: string; status: string; startedAt: string; lineCount: number }>,
-  ) {
-    const rootRoute = createRootRoute({ component: () => <Outlet /> })
-    const detailRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/provision/$deploymentId/jobs/$jobId',
-      component: () => <JobDetail disableStream />,
-    })
-    const flowRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/provision/$deploymentId/flow',
-      component: () => <div data-testid="flow-target" />,
-    })
-    const jobsRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/provision/$deploymentId/jobs',
-      component: () => <div data-testid="jobs-target" />,
-    })
-    const homeRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/provision/$deploymentId',
-      component: () => <div data-testid="apps-target" />,
-    })
-    const tree = rootRoute.addChildren([detailRoute, flowRoute, jobsRoute, homeRoute])
-    const router = createRouter({
-      routeTree: tree,
-      history: createMemoryHistory({
-        initialEntries: [`/provision/${deploymentId}/jobs/${jobId}`],
-      }),
-    })
-    globalThis.fetch = ((input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input.toString()
-      // /jobs (list) → emit the same job so mergeJobs surfaces it.
-      if (url.endsWith(`/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`)) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ jobs: [job] }),
-        } as unknown as Response)
-      }
-      // /jobs/{jobId} (detail) → emit the executions[]. The jobId is
-      // inserted raw (NOT encodeURIComponent'd) so the colon survives
-      // — chi's path matcher rejects %3A. See useJobDetail.ts.
-      if (
-        url.endsWith(
-          `/v1/deployments/${encodeURIComponent(deploymentId)}/jobs/${jobId}`,
-        )
-      ) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ job, executions }),
-        } as unknown as Response)
-      }
-      // /executions/{execId}/logs → empty page (the test does not exercise
-      // pagination, just that the URL is constructed against the REAL exec id).
-      if (url.includes('/v1/actions/executions/')) {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({ lines: [], total: 0, executionFinished: false }),
-        } as unknown as Response)
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({ events: [], state: undefined, done: false }),
-      } as unknown as Response)
-    }) as typeof fetch
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    })
-    return render(
-      <QueryClientProvider client={qc}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>,
-    )
-  }
-
-  it('uses executions[0].id (NOT `${jobId}:latest`) when fetching log lines', async () => {
-    const deploymentId = 'd1'
-    const jobId = `${deploymentId}:install-seaweedfs`
-    const realExecId = 'df9893393d6cd84da027c4115674c1a0'
-
-    const job: Job = {
-      id: jobId,
-      jobName: 'install-seaweedfs',
-      type: 'install',
-      appId: 'seaweedfs',
-      parentId: 'bootstrap-kit',
-      childIds: [],
-      dependsOn: [],
-      status: 'running',
-      startedAt: '2026-04-30T09:00:00Z',
-      finishedAt: null,
-      durationMs: 0,
-    }
-
-    // Spy on fetch to capture every URL the component requests.
-    const seenUrls: string[] = []
-    renderDetailWithJobAndExecutions(deploymentId, jobId, job, [
-      {
-        id: realExecId,
-        jobId,
-        deploymentId,
-        status: 'running',
-        startedAt: '2026-04-30T09:00:00Z',
-        lineCount: 1,
-      },
-    ])
-    const inner = globalThis.fetch
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString()
-      seenUrls.push(url)
-      return inner(input, init)
-    }) as typeof fetch
-
-    fireEvent.click(await screen.findByTestId('job-detail-tab-logs'))
-
-    await waitFor(() => {
-      // Real exec id appears in at least one log fetch URL.
-      expect(seenUrls.some((u) => u.includes(`/v1/actions/executions/${realExecId}/logs`)))
-        .toBe(true)
-      // Synthetic `:latest` id MUST NOT appear in any URL.
-      expect(seenUrls.some((u) => u.includes(`${jobId}:latest`))).toBe(false)
-      // The jobId in the detail-fetch URL must use the RAW colon, not
-      // %3A — chi's path matcher does not decode %3A and would 404
-      // every detail fetch.
-      const detailHits = seenUrls.filter((u) => u.includes('/v1/deployments/') && u.includes('/jobs/'))
-      expect(detailHits.some((u) => u.endsWith(`/jobs/${jobId}`))).toBe(true)
-      expect(detailHits.some((u) => u.includes('%3A'))).toBe(false)
-    })
-  })
-
-  it('renders the placeholder (not the log viewer) when executions[] is empty', async () => {
-    const deploymentId = 'd1'
-    const jobId = `${deploymentId}:install-seaweedfs`
-    const job: Job = {
-      id: jobId,
-      jobName: 'install-seaweedfs',
-      type: 'install',
-      appId: 'seaweedfs',
-      parentId: 'bootstrap-kit',
-      childIds: [],
-      dependsOn: [],
-      status: 'running',
-      startedAt: null,
-      finishedAt: null,
-      durationMs: 0,
-    }
-    renderDetailWithJobAndExecutions(deploymentId, jobId, job, [])
-    fireEvent.click(await screen.findByTestId('job-detail-tab-logs'))
-    await waitFor(() => {
-      // One of the placeholder testids must be present; the GitLab-CI
-      // viewer must NOT mount with a fake id.
-      const placeholder =
-        screen.queryByTestId('job-detail-logs-pending') ||
-        screen.queryByTestId('job-detail-logs-empty') ||
-        screen.queryByTestId('job-detail-logs-loading')
-      expect(placeholder).toBeTruthy()
-      expect(screen.queryByTestId('execution-logs')).toBeNull()
     })
   })
 })

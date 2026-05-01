@@ -47,7 +47,14 @@ import type { Job, JobStatus, JobType } from '@/lib/jobs.types'
  * ────────────────────────────────────────────────────────────────── */
 
 export const GROUP_PHASE_0 = 'phase-0-infra'
-export const GROUP_CLUSTER_BOOTSTRAP = 'cluster-bootstrap'
+// Slug for the synthesised "Cluster Bootstrap" group. Distinct from the
+// per-leaf bootstrap job's id (which is the bare `cluster-bootstrap`)
+// — the two MUST NOT collide because byId.set(j.id, j) is last-wins.
+// Bug #476: when this slug equalled the leaf id, the leaf overwrote
+// the group in the byId map, leaving the leaf with `parentId === its
+// own id`. The layout's isVisible() walked that self-reference forever
+// and the browser hung the moment the operator clicked any job link.
+export const GROUP_CLUSTER_BOOTSTRAP = 'phase-1-bootstrap'
 export const GROUP_APPLICATIONS = 'applications'
 
 const GROUP_DISPLAY: Record<string, string> = {
