@@ -68,3 +68,21 @@ export type { AddNetworkModalProps } from './AddNetworkModal'
 
 export { EditNetworkModal } from './EditNetworkModal'
 export type { EditNetworkModalProps } from './EditNetworkModal'
+
+export { AddPVCModal } from './AddPVCModal'
+export type { AddPVCModalProps } from './AddPVCModal'
+
+export { EditPVCModal } from './EditPVCModal'
+export type { EditPVCModalProps } from './EditPVCModal'
+
+export { AddBucketModal } from './AddBucketModal'
+export type { AddBucketModalProps } from './AddBucketModal'
+
+export { EditBucketModal } from './EditBucketModal'
+export type { EditBucketModalProps } from './EditBucketModal'
+
+export { AddVolumeModal } from './AddVolumeModal'
+export type { AddVolumeModalProps } from './AddVolumeModal'
+
+export { EditVolumeModal } from './EditVolumeModal'
+export type { EditVolumeModalProps } from './EditVolumeModal'
