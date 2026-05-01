@@ -1,0 +1,830 @@
+// factory.go — owns one dynamic SharedInformerFactory per managed
+// Sovereign cluster.
+//
+// Architecture, per ADR-0001 §5:
+//
+//	Hetzner / cloud provider API
+//	        ▲
+//	        │ provider-hcloud reconciles every ~30s (Crossplane's job)
+//	        │
+//	[Crossplane managed-resource CRD]   ←── cloud state lands as a K8s object
+//	        │
+//	[K8s api-server (etcd + watch cache)]
+//	        │ watch stream — long-running HTTP/2, kube-apiserver pushes events
+//	        ▼ (sub-second latency, event-driven, no polling)
+//	[catalyst-api in-process Indexer (client-go SharedInformerFactory)]
+//	        │ event handler fires on every ADDED/MODIFIED/DELETED
+//	        ▼
+//	[SSE endpoint /api/v1/sovereigns/{id}/k8s/stream]
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//
+//	#1 (waterfall) — every kind from the registry is watched on every
+//	   managed Sovereign at process start. There is no "for now"
+//	   subset.
+//	#3 (event-driven) — the Factory uses client-go's dynamicinformer
+//	   (SharedInformerFactory equivalent for unstructured GVRs); no
+//	   time.Tick, no poll loops. Resync is set to 0 so the informer
+//	   never re-LISTs on a timer — only on watch reconnect.
+//	#4 (never hardcode) — kubeconfig directory, kinds ConfigMap name,
+//	   and snapshot directory are all env-overridable.
+//
+// Concurrency model: Factory.Start() spawns one SharedInformerFactory
+// per cluster. Each informer runs its own goroutine that pumps events
+// to the registered EventHandler — which delivers a typed Event onto
+// the Factory's events channel, fan-out to N SSE subscribers happens
+// in subscribers.go.
+package k8scache
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+// EventType mirrors cache.DeltaType / watch.EventType. Wire-compatible
+// with the SSE encoder.
+type EventType string
+
+const (
+	EventAdded    EventType = "ADDED"
+	EventModified EventType = "MODIFIED"
+	EventDeleted  EventType = "DELETED"
+)
+
+// Event is a single K8s state-change notification. Encoded directly
+// into the SSE frame — field names are part of the public wire
+// contract and must stay stable.
+type Event struct {
+	// Cluster — Sovereign id this event came from.
+	Cluster string `json:"cluster"`
+	// Kind — short canonical name from the Kind registry ("pod",
+	// "server.hcloud", …). NOT the GVR.
+	Kind string `json:"kind"`
+	// Type — ADDED / MODIFIED / DELETED.
+	Type EventType `json:"type"`
+	// Object — the unstructured K8s object (with sensitive fields
+	// redacted via redactObject).
+	Object *unstructured.Unstructured `json:"object"`
+	// At — server-side timestamp the event was recorded.
+	At time.Time `json:"at"`
+}
+
+// ClusterRef binds a Sovereign id to a kubeconfig source. Production
+// loads these from a directory of YAML files; tests inject directly
+// via NewFactoryWithClients.
+type ClusterRef struct {
+	// ID — short Sovereign identifier ("omantel", "primary"). Forms
+	// the URL segment in /api/v1/sovereigns/{id}/k8s/...
+	ID string
+
+	// KubeconfigPath — absolute path to the kubeconfig YAML on disk.
+	// Optional when DynamicClient is provided directly (tests).
+	KubeconfigPath string
+
+	// DynamicClient — pre-built dynamic.Interface. When non-nil the
+	// factory skips the kubeconfig parse step (used by tests with
+	// fake.NewSimpleDynamicClient and by the in-cluster mode where
+	// the catalyst-api watches its own cluster via in-cluster config).
+	DynamicClient dynamic.Interface
+
+	// CoreClient — typed kubernetes.Interface. Required for the
+	// SubjectAccessReview gating path (auth/v1).
+	CoreClient kubernetes.Interface
+}
+
+// Config — runtime configuration, mostly env-driven. See FactoryFromEnv
+// for the env wiring.
+type Config struct {
+	// Logger — required. Production passes the catalyst-api's slog.
+	Logger *slog.Logger
+
+	// Clusters — list of Sovereign clusters to watch. Empty in the
+	// "no clusters yet" cold-start case (factory still serves /healthz
+	// and the SSE endpoint, just with no events).
+	Clusters []ClusterRef
+
+	// Registry — kinds the factory watches on every cluster. Pass
+	// the result of LoadRegistry; defaults to DefaultKinds.
+	Registry *Registry
+
+	// SnapshotDir — base directory the disk-snapshot path writes to.
+	// Per-cluster files are named "{sovereign}-{kind}.json" inside
+	// this directory. Empty disables snapshot+hydrate (tests).
+	SnapshotDir string
+
+	// SnapshotInterval — how often each (cluster, kind) Indexer is
+	// serialised to disk. Defaults to 60s. Tests override to a
+	// smaller value for deterministic exercise.
+	SnapshotInterval time.Duration
+
+	// SnapshotMaxAge — snapshots older than this are dropped on
+	// startup (i.e. the factory does a full LIST instead of
+	// hydrating). Defaults to 1h per the issue spec.
+	SnapshotMaxAge time.Duration
+
+	// Resync — informer resync period. Defaults to 0 (event-driven
+	// only). The hydrate path explicitly seeds the Indexer before
+	// the watch starts, so a resync is unnecessary and would only
+	// add load. Tests may set a non-zero value to exercise resync
+	// metrics.
+	Resync time.Duration
+
+	// EventBufferSize — per-Factory event channel buffer. Defaults
+	// to 4096; on overrun the producer drops the oldest event and
+	// records `informer_event_drops_total`.
+	EventBufferSize int
+}
+
+// Factory owns the full data-plane: one dynamicinformer factory per
+// cluster, the Indexers behind each informer, the snapshot loop, the
+// metrics, and the SSE subscriber registry.
+type Factory struct {
+	cfg      Config
+	log      *slog.Logger
+	registry *Registry
+
+	// Per-cluster state. Keyed by ClusterRef.ID. Each entry has the
+	// dynamicinformer factory, a per-kind informer map, a per-kind
+	// Indexer reference (for List paths), and the synced bool the
+	// /healthz handler reads.
+	mu       sync.RWMutex
+	clusters map[string]*clusterState
+
+	// subscribers — fan-out registry for SSE clients. Keyed by an
+	// opaque subscriber id; value is a buffered channel the SSE
+	// handler reads. Mutated under subMu (separate from mu so a
+	// slow SSE client cannot block informer event delivery).
+	subMu       sync.Mutex
+	subscribers map[int64]*subscriber
+	nextSubID   int64
+
+	// stopped fires when Stop is called; the snapshot loop drains
+	// it.
+	stopOnce sync.Once
+	stop     chan struct{}
+}
+
+type clusterState struct {
+	id            string
+	factory       dynamicinformer.DynamicSharedInformerFactory
+	dyn           dynamic.Interface
+	core          kubernetes.Interface
+	informers     map[string]cache.SharedIndexInformer // keyed by Kind.Name
+	indexers      map[string]cache.Indexer             // keyed by Kind.Name
+	synced        map[string]bool                      // keyed by Kind.Name
+	lastEventAt   map[string]time.Time                 // keyed by Kind.Name
+	lastEventLock sync.RWMutex
+}
+
+// subscriber — one SSE consumer.
+type subscriber struct {
+	id    int64
+	kinds map[string]struct{} // canonical names; empty == all
+	user  string              // for SAR gating; empty == anonymous
+	ch    chan Event
+}
+
+// LoadRegistry consults the optional ConfigMap referenced by
+// CATALYST_K8SCACHE_KINDS_CONFIGMAP and merges it on top of
+// DefaultKinds. ConfigMap shape:
+//
+//	apiVersion: v1
+//	kind: ConfigMap
+//	metadata:
+//	  name: catalyst-k8scache-kinds
+//	data:
+//	  kinds.txt: |
+//	    # name,group,version,resource,namespaced[,sensitive]
+//	    helmrelease,helm.toolkit.fluxcd.io,v2,helmreleases,true
+//	    kustomization,kustomize.toolkit.fluxcd.io,v1,kustomizations,true
+//
+// Lines starting with '#' or empty are skipped. core means an empty
+// group field. namespaced is "true"/"false". The default registry is
+// always included; ConfigMap entries with the same name override the
+// default.
+//
+// When the ConfigMap is absent or unreadable, returns
+// NewRegistry().AddAll(DefaultKinds) — never an error. Operators see
+// the warning in catalyst-api logs at startup.
+func LoadRegistry(ctx context.Context, log *slog.Logger, core kubernetes.Interface) *Registry {
+	r := NewRegistry()
+	for _, k := range DefaultKinds {
+		_ = r.Add(k)
+	}
+
+	cmName := os.Getenv("CATALYST_K8SCACHE_KINDS_CONFIGMAP")
+	cmNamespace := os.Getenv("CATALYST_K8SCACHE_KINDS_CONFIGMAP_NAMESPACE")
+	if cmNamespace == "" {
+		cmNamespace = "catalyst"
+	}
+	if cmName == "" || core == nil {
+		return r
+	}
+
+	cm, err := core.CoreV1().ConfigMaps(cmNamespace).Get(ctx, cmName, metav1.GetOptions{})
+	if err != nil {
+		log.Warn("k8scache: kinds ConfigMap unreadable; using default registry only",
+			"name", cmName, "namespace", cmNamespace, "err", err)
+		return r
+	}
+	body := firstNonEmpty(cm.Data, "kinds.txt", "kinds")
+	if body == "" {
+		return r
+	}
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 5 {
+			log.Warn("k8scache: malformed kinds ConfigMap line", "line", line)
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		group := strings.TrimSpace(parts[1])
+		version := strings.TrimSpace(parts[2])
+		resource := strings.TrimSpace(parts[3])
+		namespaced := strings.EqualFold(strings.TrimSpace(parts[4]), "true")
+		sensitive := false
+		if len(parts) >= 6 {
+			sensitive = strings.EqualFold(strings.TrimSpace(parts[5]), "true")
+		}
+		k := Kind{
+			Name: name,
+			GVR: schema.GroupVersionResource{
+				Group:    group,
+				Version:  version,
+				Resource: resource,
+			},
+			Namespaced: namespaced,
+			Sensitive:  sensitive,
+		}
+		if err := r.Add(k); err != nil {
+			log.Warn("k8scache: skipping invalid kind", "line", line, "err", err)
+		}
+	}
+	return r
+}
+
+// LoadClustersFromDir walks `dir` for *.kubeconfig / *.yaml files and
+// constructs ClusterRef entries. Each filename's stem becomes the
+// Sovereign id ("omantel.kubeconfig" → "omantel"). Returns the
+// (possibly empty) list and a nil error on success; an unreadable
+// directory yields nil + the wrapped err.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the directory path is an env
+// var (CATALYST_K8SCACHE_KUBECONFIGS_DIR), not a hardcoded path.
+//
+// The function logs a warning per malformed file and skips it; one
+// bad kubeconfig must not prevent the rest from loading.
+func LoadClustersFromDir(log *slog.Logger, dir string) ([]ClusterRef, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("k8scache: read kubeconfigs dir %q: %w", dir, err)
+	}
+	out := make([]ClusterRef, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		// Accept .kubeconfig, .yaml, .yml — anything else is
+		// considered noise.
+		ext := filepath.Ext(name)
+		switch ext {
+		case ".kubeconfig", ".yaml", ".yml":
+		default:
+			continue
+		}
+		stem := strings.TrimSuffix(name, ext)
+		if stem == "" {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		// Validate the kubeconfig now so a malformed file fails
+		// loud at boot, not at first watch.
+		if _, err := clientcmd.LoadFromFile(path); err != nil {
+			log.Warn("k8scache: skipping unparseable kubeconfig",
+				"path", path, "err", err)
+			continue
+		}
+		out = append(out, ClusterRef{
+			ID:             stem,
+			KubeconfigPath: path,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// NewFactory constructs a Factory but does NOT start it.
+//
+// The two-step new-then-start sequence lets the caller register the
+// SSE handler, hydrate from disk, and only then begin the watch — so
+// the first event the SSE consumer sees corresponds to a real cluster
+// state change, not the seed ADD pass.
+func NewFactory(cfg Config) (*Factory, error) {
+	if cfg.Logger == nil {
+		return nil, errors.New("k8scache: Config.Logger is required")
+	}
+	if cfg.Registry == nil {
+		cfg.Registry = NewRegistry()
+		for _, k := range DefaultKinds {
+			_ = cfg.Registry.Add(k)
+		}
+	}
+	if cfg.SnapshotInterval <= 0 {
+		cfg.SnapshotInterval = 60 * time.Second
+	}
+	if cfg.SnapshotMaxAge <= 0 {
+		cfg.SnapshotMaxAge = 1 * time.Hour
+	}
+	if cfg.EventBufferSize <= 0 {
+		cfg.EventBufferSize = 4096
+	}
+
+	f := &Factory{
+		cfg:         cfg,
+		log:         cfg.Logger,
+		registry:    cfg.Registry,
+		clusters:    map[string]*clusterState{},
+		subscribers: map[int64]*subscriber{},
+		stop:        make(chan struct{}),
+	}
+	for _, c := range cfg.Clusters {
+		if err := f.AddCluster(c); err != nil {
+			f.log.Warn("k8scache: skipping cluster",
+				"id", c.ID, "err", err)
+			continue
+		}
+	}
+	return f, nil
+}
+
+// AddCluster registers a Sovereign + spawns its informer set. Safe to
+// call before or after Start. Idempotent — re-adding a cluster id
+// shadows the previous entry.
+func (f *Factory) AddCluster(c ClusterRef) error {
+	if c.ID == "" {
+		return errors.New("k8scache: ClusterRef.ID is required")
+	}
+
+	dyn := c.DynamicClient
+	core := c.CoreClient
+	if dyn == nil {
+		if c.KubeconfigPath == "" {
+			return errors.New("k8scache: ClusterRef requires either DynamicClient or KubeconfigPath")
+		}
+		raw, err := os.ReadFile(c.KubeconfigPath)
+		if err != nil {
+			return fmt.Errorf("read kubeconfig %q: %w", c.KubeconfigPath, err)
+		}
+		restCfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
+		if err != nil {
+			return fmt.Errorf("parse kubeconfig %q: %w", c.KubeconfigPath, err)
+		}
+		// Per ADR-0001 the watch is event-driven; client-go default
+		// QPS=5/Burst=10 starves on a multi-kind cold LIST. Bump to
+		// 50/100 so the per-cluster cold-start completes in seconds,
+		// not minutes.
+		restCfg.QPS = 50
+		restCfg.Burst = 100
+		dyn, err = dynamic.NewForConfig(restCfg)
+		if err != nil {
+			return fmt.Errorf("dynamic client: %w", err)
+		}
+		if core == nil {
+			core, err = kubernetes.NewForConfig(restCfg)
+			if err != nil {
+				return fmt.Errorf("typed client: %w", err)
+			}
+		}
+	}
+
+	cs := &clusterState{
+		id:          c.ID,
+		dyn:         dyn,
+		core:        core,
+		factory:     dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
+		informers:   map[string]cache.SharedIndexInformer{},
+		indexers:    map[string]cache.Indexer{},
+		synced:      map[string]bool{},
+		lastEventAt: map[string]time.Time{},
+	}
+	for _, k := range f.registry.All() {
+		inf := cs.factory.ForResource(k.GVR).Informer()
+		k := k // capture per-iteration
+		_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj any) {
+				f.dispatch(cs, k, EventAdded, obj)
+			},
+			UpdateFunc: func(_, obj any) {
+				f.dispatch(cs, k, EventModified, obj)
+			},
+			DeleteFunc: func(obj any) {
+				if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+					obj = d.Obj
+				}
+				f.dispatch(cs, k, EventDeleted, obj)
+			},
+		})
+		if err != nil {
+			f.log.Warn("k8scache: AddEventHandler failed",
+				"cluster", c.ID, "kind", k.Name, "err", err)
+			continue
+		}
+		cs.informers[k.Name] = inf
+		cs.indexers[k.Name] = inf.GetIndexer()
+	}
+
+	f.mu.Lock()
+	f.clusters[c.ID] = cs
+	f.mu.Unlock()
+	f.log.Info("k8scache: cluster registered",
+		"cluster", c.ID, "kinds", len(cs.informers))
+	return nil
+}
+
+// Start kicks off every informer + the snapshot loop. Safe to call
+// once; subsequent calls return nil immediately.
+//
+// Cold-start sequence:
+//  1. For each cluster × kind, attempt to hydrate the Indexer from
+//     disk if a fresh snapshot exists (see hydrate.go).
+//  2. Start every dynamicinformer factory — informers run their own
+//     goroutines, LIST + WATCH against the apiserver.
+//  3. Spawn the periodic snapshot goroutine.
+//  4. Spawn the per-cluster sync-watcher that flips synced[] true
+//     once each informer's cache has caught up.
+func (f *Factory) Start(ctx context.Context) error {
+	// Hydrate before factory.Start so the watch picks up at the
+	// stored resourceVersion (Indexer-seeded). Hydrate failures are
+	// logged but never block start — a cold LIST is the fallback.
+	if f.cfg.SnapshotDir != "" {
+		f.hydrateAll(ctx)
+	}
+
+	f.mu.RLock()
+	clusters := make([]*clusterState, 0, len(f.clusters))
+	for _, cs := range f.clusters {
+		clusters = append(clusters, cs)
+	}
+	f.mu.RUnlock()
+
+	for _, cs := range clusters {
+		cs.factory.Start(f.stop)
+	}
+
+	// Sync watcher per cluster.
+	for _, cs := range clusters {
+		cs := cs
+		go f.runSyncWatcher(ctx, cs)
+	}
+
+	if f.cfg.SnapshotDir != "" {
+		go f.runSnapshotLoop(ctx)
+	}
+
+	return nil
+}
+
+// Stop signals every informer + the snapshot loop to exit. Idempotent.
+func (f *Factory) Stop() {
+	f.stopOnce.Do(func() { close(f.stop) })
+}
+
+// Synced returns true when at least one informer per cluster has
+// completed its initial LIST. Used by /healthz.
+func (f *Factory) Synced() map[string]map[string]bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	out := map[string]map[string]bool{}
+	for id, cs := range f.clusters {
+		out[id] = map[string]bool{}
+		for k, v := range cs.synced {
+			out[id][k] = v
+		}
+	}
+	return out
+}
+
+// Clusters returns the currently registered Sovereign IDs (sorted).
+// The /healthz handler renders this so an operator sees the watch
+// surface.
+func (f *Factory) Clusters() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	out := make([]string, 0, len(f.clusters))
+	for id := range f.clusters {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Registry exposes the kinds registry so the REST handler can resolve
+// path-segment → Kind without re-loading.
+func (f *Factory) Registry() *Registry { return f.registry }
+
+// runSyncWatcher polls each informer's HasSynced under the stop
+// channel. This is event-driven from the informer's own
+// goroutine — we are NOT polling the apiserver here. The 250ms tick
+// is a per-process bookkeeping interval; once Synced flips true the
+// loop exits.
+//
+// Per ADR-0001: this is process-internal coordination, not data-plane
+// polling. The informer itself uses the apiserver's watch stream.
+func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState) {
+	for kind, inf := range cs.informers {
+		kind := kind
+		inf := inf
+		go func() {
+			// HasSynced flips true exactly once per cluster lifetime.
+			// We block on cache.WaitForCacheSync which itself is
+			// event-driven against the informer's controller.
+			synced := cache.WaitForCacheSync(ctx.Done(), inf.HasSynced)
+			f.mu.Lock()
+			cs.synced[kind] = synced
+			f.mu.Unlock()
+			if synced {
+				f.log.Info("k8scache: informer synced",
+					"cluster", cs.id, "kind", kind)
+			}
+		}()
+	}
+}
+
+// dispatch is invoked from the informer's event handler goroutine on
+// every ADD/UPDATE/DELETE. It records last-event metadata, redacts
+// sensitive fields, and fans out to every SSE subscriber.
+//
+// The subscriber send is non-blocking with a single-event drop
+// fallback so a slow SSE consumer never wedges the informer
+// goroutine. Metric `informer_event_drops_total` increments on drop.
+func (f *Factory) dispatch(cs *clusterState, k Kind, t EventType, obj any) {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		f.log.Warn("k8scache: dispatch received non-unstructured obj",
+			"cluster", cs.id, "kind", k.Name)
+		return
+	}
+	// Always redact before fan-out.
+	red := redactObject(k, u)
+
+	// Metric — last-event timestamp.
+	now := time.Now()
+	cs.lastEventLock.Lock()
+	cs.lastEventAt[k.Name] = now
+	cs.lastEventLock.Unlock()
+	metricLastEvent.WithLabelValues(cs.id, k.Name).Set(float64(now.Unix()))
+	metricEvents.WithLabelValues(cs.id, k.Name, string(t)).Inc()
+
+	ev := Event{
+		Cluster: cs.id,
+		Kind:    k.Name,
+		Type:    t,
+		Object:  red,
+		At:      now,
+	}
+	f.fanout(ev)
+}
+
+// fanout — non-blocking send to each subscriber. On full channel we
+// drop the OLDEST event (drain one then push) so the consumer
+// catches up automatically without the producer waiting.
+func (f *Factory) fanout(ev Event) {
+	f.subMu.Lock()
+	subs := make([]*subscriber, 0, len(f.subscribers))
+	for _, s := range f.subscribers {
+		// Filter on subscribed kinds. Empty kinds map == all kinds.
+		if len(s.kinds) == 0 {
+			subs = append(subs, s)
+			continue
+		}
+		if _, ok := s.kinds[ev.Kind]; ok {
+			subs = append(subs, s)
+		}
+	}
+	f.subMu.Unlock()
+
+	for _, s := range subs {
+		select {
+		case s.ch <- ev:
+		default:
+			// Drop oldest, push new.
+			select {
+			case <-s.ch:
+			default:
+			}
+			select {
+			case s.ch <- ev:
+			default:
+			}
+			metricSubDrops.WithLabelValues(ev.Cluster, ev.Kind).Inc()
+		}
+	}
+}
+
+// Subscribe registers an SSE consumer with optional kind filter +
+// user identity (for SAR gating in the SSE handler). Returns the
+// channel + an unsubscribe func.
+//
+// kinds is the canonicalised name set; empty means "all".
+func (f *Factory) Subscribe(user string, kinds map[string]struct{}) (<-chan Event, func()) {
+	ch := make(chan Event, f.cfg.EventBufferSize)
+	f.subMu.Lock()
+	f.nextSubID++
+	id := f.nextSubID
+	s := &subscriber{
+		id:    id,
+		kinds: kinds,
+		user:  user,
+		ch:    ch,
+	}
+	f.subscribers[id] = s
+	count := len(f.subscribers)
+	f.subMu.Unlock()
+	metricSubscribers.Set(float64(count))
+	f.log.Info("k8scache: SSE subscriber connected",
+		"id", id, "user", user, "kinds", len(kinds), "total", count)
+	return ch, func() {
+		f.subMu.Lock()
+		delete(f.subscribers, id)
+		count := len(f.subscribers)
+		f.subMu.Unlock()
+		metricSubscribers.Set(float64(count))
+		close(ch)
+		f.log.Info("k8scache: SSE subscriber disconnected",
+			"id", id, "total", count)
+	}
+}
+
+// List returns a slice of unstructured objects from the named
+// (cluster, kind)'s Indexer. The label/field selectors are applied
+// via cache.Indexer.ListByOptions equivalent — selectors are
+// in-memory filters, no apiserver hit.
+//
+// Returns the cache age (now - last event) so the handler can set
+// X-Cache-Stale-Seconds. age == 0 when the kind has never received
+// an event (cold informer); the handler treats that as "stale" and
+// hits apiserver directly only when no Indexer entries exist.
+func (f *Factory) List(clusterID, kindName string, sel labels.Selector) ([]*unstructured.Unstructured, time.Duration, error) {
+	f.mu.RLock()
+	cs, ok := f.clusters[clusterID]
+	f.mu.RUnlock()
+	if !ok {
+		return nil, 0, fmt.Errorf("k8scache: cluster %q not registered", clusterID)
+	}
+	idx, ok := cs.indexers[CanonicalKindName(kindName)]
+	if !ok {
+		return nil, 0, fmt.Errorf("k8scache: kind %q not registered", kindName)
+	}
+	out := make([]*unstructured.Unstructured, 0)
+	for _, item := range idx.List() {
+		u, ok := item.(*unstructured.Unstructured)
+		if !ok {
+			continue
+		}
+		if sel != nil && !sel.Matches(labels.Set(u.GetLabels())) {
+			continue
+		}
+		out = append(out, redactObject(mustKind(f.registry, kindName), u))
+	}
+	cs.lastEventLock.RLock()
+	last := cs.lastEventAt[CanonicalKindName(kindName)]
+	cs.lastEventLock.RUnlock()
+	var age time.Duration
+	if !last.IsZero() {
+		age = time.Since(last)
+	}
+	metricCacheSize.WithLabelValues(clusterID, kindName).Set(float64(len(out)))
+	return out, age, nil
+}
+
+func mustKind(r *Registry, name string) Kind {
+	k, ok := r.Get(name)
+	if !ok {
+		// Caller already validated via Get earlier; return a
+		// non-sensitive synthetic Kind so redactObject is a no-op.
+		return Kind{Name: CanonicalKindName(name)}
+	}
+	return k
+}
+
+// helpers ---------------------------------------------------------
+
+func firstNonEmpty(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// FactoryFromEnv loads runtime configuration from environment
+// variables and returns a started Factory. The catalyst-api `main.go`
+// calls this once at startup.
+//
+// Env contract (per docs/INVIOLABLE-PRINCIPLES.md #4):
+//
+//	CATALYST_K8SCACHE_KUBECONFIGS_DIR — directory of kubeconfigs to watch.
+//	  Default: /var/lib/catalyst/kubeconfigs (the same PVC the cloud-init
+//	  postback writes into; one file per Sovereign).
+//	CATALYST_K8SCACHE_SNAPSHOT_DIR — directory the snapshot loop writes to.
+//	  Default: /var/cache/sov-cache (mounted from a 5Gi PVC by the chart).
+//	CATALYST_K8SCACHE_KINDS_CONFIGMAP — name of the ConfigMap providing
+//	  additional Kinds to watch. Optional.
+//	CATALYST_K8SCACHE_KINDS_CONFIGMAP_NAMESPACE — namespace for the above.
+//	  Default: catalyst.
+func FactoryFromEnv(ctx context.Context, log *slog.Logger, core kubernetes.Interface) (*Factory, error) {
+	dir := os.Getenv("CATALYST_K8SCACHE_KUBECONFIGS_DIR")
+	if dir == "" {
+		dir = "/var/lib/catalyst/kubeconfigs"
+	}
+	snapDir := os.Getenv("CATALYST_K8SCACHE_SNAPSHOT_DIR")
+	if snapDir == "" {
+		snapDir = "/var/cache/sov-cache"
+	}
+	if err := os.MkdirAll(snapDir, 0o700); err != nil {
+		log.Warn("k8scache: snapshot dir create failed; running without disk snapshot",
+			"dir", snapDir, "err", err)
+		snapDir = ""
+	}
+	clusters, err := LoadClustersFromDir(log, dir)
+	if err != nil {
+		log.Warn("k8scache: kubeconfigs dir unreadable; starting with no clusters",
+			"dir", dir, "err", err)
+	}
+	registry := LoadRegistry(ctx, log, core)
+	cfg := Config{
+		Logger:      log,
+		Clusters:    clusters,
+		Registry:    registry,
+		SnapshotDir: snapDir,
+	}
+	return NewFactory(cfg)
+}
+
+// secretRedactionMarker is the literal value substituted into a
+// Secret's .data / .stringData when the redactor scrubs the body.
+// Tests assert exact equality on this so a regex change here surfaces
+// as a test diff, not a leak.
+const secretRedactionMarker = "<redacted>"
+
+// redactObject returns a deep-copy with sensitive fields stripped.
+// Per ADR-0001 + INVIOLABLE-PRINCIPLES this is the ONLY path through
+// which Secret/ConfigMap bytes ever leave the informer goroutine —
+// the SSE encoder and the snapshot writer both consume the redacted
+// pointer.
+func redactObject(k Kind, u *unstructured.Unstructured) *unstructured.Unstructured {
+	if u == nil {
+		return nil
+	}
+	if !k.Sensitive {
+		return u
+	}
+	clone := u.DeepCopy()
+	// Strip data + stringData on Secret / ConfigMap.
+	unstructuredDelete(clone, "data")
+	unstructuredDelete(clone, "stringData")
+	// Substitute a sentinel into a synthetic field so consumers can
+	// see "yes there was a body, here are its keys" without the
+	// values. The keys list is allocation-light; it's the union of
+	// .data and .stringData key names from the original object.
+	keys := unionKeys(u, "data", "stringData")
+	if len(keys) > 0 {
+		_ = setNested(clone.Object, keys, "redactedKeys")
+		_ = setNestedString(clone.Object, secretRedactionMarker, "redactedValue")
+	}
+	return clone
+}
+
