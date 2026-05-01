@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -572,6 +573,23 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// is `json:"-"` precisely so the wire format cannot inject it.
 	if tok := os.Getenv("CATALYST_GHCR_PULL_TOKEN"); tok != "" {
 		req.GHCRPullToken = tok
+	}
+
+	// Derive the per-Sovereign Object Storage bucket name (issue #371).
+	// Hetzner Object Storage bucket names share a global namespace across
+	// every tenant, so a deterministic per-FQDN slug minimises collision
+	// risk while keeping the resource name predictable for operators
+	// inspecting the Hetzner Console. The wizard never surfaces this as
+	// a free-form input — it's plumbing, not user-facing.
+	//
+	// Pattern: catalyst-<sovereign-fqdn-with-dots-replaced-by-dashes>.
+	// `catalyst-omantel-omani-works` for the reference deployment. The
+	// downstream Validate() re-checks the resulting string against the
+	// S3 bucket-naming RFC; if a future FQDN format breaks the rule the
+	// validator emits a clear error rather than letting tofu apply fail
+	// 5 minutes in.
+	if strings.TrimSpace(req.ObjectStorageBucket) == "" && strings.TrimSpace(req.SovereignFQDN) != "" {
+		req.ObjectStorageBucket = "catalyst-" + strings.ReplaceAll(req.SovereignFQDN, ".", "-")
 	}
 
 	if err := req.Validate(); err != nil {

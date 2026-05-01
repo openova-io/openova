@@ -161,6 +161,69 @@ write_files:
           }
         }))}
 
+  # ── flux-system/hetzner-object-storage Secret (issue #371) ───────────────
+  #
+  # The Sovereign's per-cluster S3 credentials, materialised as a stock
+  # Kubernetes Secret in the `flux-system` namespace. Harbor (#383) and
+  # Velero (#384) consume this Secret via the canonical `secretRef` field
+  # in their respective HelmRelease values blocks, e.g.
+  #
+  #   harbor:
+  #     persistence:
+  #       imageChartStorage:
+  #         type: s3
+  #         s3:
+  #           existingSecret: hetzner-object-storage
+  #
+  # The Secret is namespace-bound to flux-system so the helm-controller can
+  # rewrite it into the workload namespaces at chart install time — that's
+  # the same boundary `ghcr-pull` already uses, so the apply ordering in
+  # runcmd: below stays a single sequenced step.
+  #
+  # Why pre-populated by cloud-init rather than a SealedSecret committed to
+  # git: ADR-0001 §9.2 forbids bespoke cloud-API calls and Hetzner exposes
+  # NO Cloud API for S3 credential issuance — they're operator-issued in
+  # the Hetzner Console exactly once. Therefore catalyst-api receives the
+  # plaintext from the wizard, validates it, and forwards it to the new
+  # Sovereign via the same encrypted-PVC + cloud-init channel as the GHCR
+  # pull token. The credentials never land in git; the only durable copies
+  # are the per-deployment OpenTofu workdir (mode 0600, wiped on tofu
+  # destroy) and inside the new Sovereign's etcd (encrypted at rest by
+  # k3s default).
+  #
+  # Token rotation policy: per Hetzner's docs, the secret half is shown
+  # exactly once at issue time. To rotate, the operator issues a fresh
+  # credential pair in the Hetzner Console, updates the wizard payload
+  # for the next provisioning, OR for an existing Sovereign uses a
+  # day-2 Crossplane Composition that updates this Secret (issue
+  # tracked at #371-rotation; out of scope for the initial bootstrap).
+  - path: /var/lib/catalyst/hetzner-object-storage-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: hetzner-object-storage
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        # S3 endpoint URL — composed from object_storage_region in main.tf.
+        # Format: https://<region>.your-objectstorage.com per Hetzner docs.
+        s3-endpoint: ${object_storage_endpoint}
+        # S3 region — fsn1 / nbg1 / hel1 (Object Storage availability is
+        # European-only as of 2026-04). NOT the same as compute region.
+        s3-region: ${object_storage_region}
+        # Bucket name — deterministic per-Sovereign identifier composed by
+        # the catalyst-api from the Sovereign's FQDN slug. Created (or
+        # adopted if already present) by the minio_s3_bucket resource in
+        # main.tf earlier in this same `tofu apply`.
+        s3-bucket: ${object_storage_bucket_name}
+        # Operator-issued S3 access key + secret key. Hetzner's docs note
+        # the secret half is shown exactly once at credential creation
+        # time and is irretrievable thereafter — losing it means rotating.
+        s3-access-key: ${object_storage_access_key}
+        s3-secret-key: ${object_storage_secret_key}
+
   # Flux GitRepository + Kustomizations that take over after k3s is up.
   #
   # ── Per-Sovereign tree vs. shared _template (issue #218) ─────────────
@@ -515,6 +578,22 @@ runcmd:
         openbao.openova.io/single-use=true -o yaml \
       | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
     unset OPENBAO_SEED
+
+  # ── flux-system/hetzner-object-storage Secret (issue #371) ───────────────
+  #
+  # Apply the operator-issued Hetzner Object Storage credentials so they're
+  # in the cluster BEFORE Flux reconciles bp-harbor (#383) and bp-velero
+  # (#384). Both Blueprints reference `secretRef: name: hetzner-object-storage`
+  # in their HelmRelease values; without this Secret the install reports
+  # NoSuchKey at chart-install probe time and Phase 1 stalls.
+  #
+  # Same idempotency property as ghcr-pull above — re-running cloud-init
+  # against an existing Sovereign overwrites the manifest with the same
+  # bytes (or rotated bytes when the operator has issued fresh keys); a
+  # missing-bucket scenario is impossible by construction because main.tf's
+  # minio_s3_bucket resource creates the bucket in the same `tofu apply`
+  # run that renders this user_data.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/hetzner-object-storage-secret.yaml'
 
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
   # owns the cluster: pulls clusters/_template/ (with ${SOVEREIGN_FQDN}

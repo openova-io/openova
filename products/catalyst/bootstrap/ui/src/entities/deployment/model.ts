@@ -138,6 +138,31 @@ export interface WizardState {
   /** Hetzner project ID — captured at the credentials step alongside the API token. */
   hetznerProjectId: string
   credentialValidated: boolean
+
+  /**
+   * Hetzner Object Storage credentials (issue #371) — Phase 0b.
+   *
+   * Hetzner exposes NO Cloud API to mint Object Storage S3 keys; the
+   * operator issues them once in the Hetzner Console (Object Storage
+   * → Manage Credentials, secret half shown exactly once). The wizard
+   * captures both halves directly so the per-Sovereign bucket can be
+   * created at `tofu apply` time and Harbor (#383) + Velero (#384) find
+   * the credentials in the cluster from Phase 1 onwards.
+   *
+   * Region is one of fsn1 / nbg1 / hel1 — the European-only Object
+   * Storage availability zones. Independent of compute region; an
+   * ash/hil compute Sovereign picks a European Object Storage region
+   * (Velero/Harbor backup latency is acceptable for the use case).
+   *
+   * Bucket name is derived server-side from the Sovereign FQDN slug —
+   * the wizard does NOT surface a free-form input.
+   */
+  objectStorageRegion: 'fsn1' | 'nbg1' | 'hel1' | ''
+  objectStorageAccessKey: string
+  objectStorageSecretKey: string
+  /** UI-only — true once the catalyst-api validated the keys via
+   *  S3 ListBuckets. Gates the wizard's Next button. */
+  objectStorageValidated: boolean
   /**
    * SSH public key the OpenTofu module passes to the Hetzner API as the
    * `hcloud_ssh_key` resource attached to every server. Captured by the
@@ -390,6 +415,11 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   regionWorkerCounts: [],
   providerTokens: {}, providerValidated: {},
   provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
+  // Hetzner Object Storage (issue #371) — Phase 0b. Empty defaults; the
+  // wizard's StepCredentials Object Storage section populates them and
+  // POSTs to /api/v1/credentials/object-storage/validate before Next.
+  objectStorageRegion: '', objectStorageAccessKey: '', objectStorageSecretKey: '',
+  objectStorageValidated: false,
   sshPublicKey: '', sshKeyGeneratedThisSession: false, sshPrivateKeyOnce: '', sshFingerprint: '',
   componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
   componentsAppliedForProfile: null,

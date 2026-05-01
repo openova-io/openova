@@ -78,15 +78,18 @@ func TestPersistence_CreateDeploymentWritesRowImmediately(t *testing.T) {
 	h, dir := makeStoreHandler(t)
 
 	body, _ := json.Marshal(map[string]any{
-		"orgName":             "Acme",
-		"orgEmail":            "ops@acme.io",
-		"sovereignFQDN":       "k8s.acme.io",
-		"sovereignDomainMode": "byo",
-		"sovereignSubdomain":  "k8s",
-		"hetznerToken":        "hcloud-secret-token-DO-NOT-LEAK",
-		"hetznerProjectID":    "proj",
-		"region":              "fsn1",
-		"sshPublicKey":        "ssh-ed25519 AAAA test",
+		"orgName":                "Acme",
+		"orgEmail":               "ops@acme.io",
+		"sovereignFQDN":          "k8s.acme.io",
+		"sovereignDomainMode":    "byo",
+		"sovereignSubdomain":     "k8s",
+		"hetznerToken":           "hcloud-secret-token-DO-NOT-LEAK",
+		"hetznerProjectID":       "proj",
+		"region":                 "fsn1",
+		"sshPublicKey":           "ssh-ed25519 AAAA test",
+		"objectStorageRegion":    "fsn1",
+		"objectStorageAccessKey": "TESTACCESSKEY1234567",
+		"objectStorageSecretKey": "TESTSECRETKEY1234567890123456789012345678",
 	})
 
 	w := httptest.NewRecorder()
@@ -325,16 +328,19 @@ func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 	h.dynadotAPISecret = "DYNADOT-SECRET-DO-NOT-LEAK"
 
 	body, _ := json.Marshal(map[string]any{
-		"orgName":             "Omantel",
-		"orgEmail":            "ops@omantel.om",
-		"sovereignFQDN":       "omantel.omani.works",
-		"sovereignDomainMode": "pool",
-		"sovereignPoolDomain": "omani.works",
-		"sovereignSubdomain":  "omantel",
-		"hetznerToken":        "HCLOUD-TOKEN-DO-NOT-LEAK",
-		"hetznerProjectID":    "proj",
-		"region":              "fsn1",
-		"sshPublicKey":        "ssh-ed25519 AAAA test",
+		"orgName":                "Omantel",
+		"orgEmail":               "ops@omantel.om",
+		"sovereignFQDN":          "omantel.omani.works",
+		"sovereignDomainMode":    "pool",
+		"sovereignPoolDomain":    "omani.works",
+		"sovereignSubdomain":     "omantel",
+		"hetznerToken":           "HCLOUD-TOKEN-DO-NOT-LEAK",
+		"hetznerProjectID":       "proj",
+		"region":                 "fsn1",
+		"sshPublicKey":           "ssh-ed25519 AAAA test",
+		"objectStorageRegion":    "fsn1",
+		"objectStorageAccessKey": "OS-ACCESS-KEY-DO-NOT-LEAK-12345",
+		"objectStorageSecretKey": "OS-SECRET-KEY-DO-NOT-LEAK-1234567890123456",
 	})
 
 	w := httptest.NewRecorder()
@@ -369,6 +375,12 @@ func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 			// is `json:"-"`. A regression that drops the tag would leak
 			// here.
 			"ghp_TEST_REDACT_PLACEHOLDER_DO_NOT_LEAK",
+			// Hetzner Object Storage credentials (issue #371) — same
+			// redaction policy as HetznerToken; a regression that
+			// dropped the redact branch in store.Redact would leak
+			// these to the on-disk JSON.
+			"OS-ACCESS-KEY-DO-NOT-LEAK-12345",
+			"OS-SECRET-KEY-DO-NOT-LEAK-1234567890123456",
 		}
 		for _, s := range secrets {
 			if strings.Contains(string(raw), s) {
@@ -464,15 +476,18 @@ func TestPersistence_DockerStyleRoundTrip(t *testing.T) {
 	srv1 := httptest.NewServer(r1)
 
 	body, _ := json.Marshal(map[string]any{
-		"orgName":             "RestartTest",
-		"orgEmail":            "ops@example.io",
-		"sovereignFQDN":       "k8s.example.io",
-		"sovereignDomainMode": "byo",
-		"sovereignSubdomain":  "k8s",
-		"hetznerToken":        "tok",
-		"hetznerProjectID":    "proj",
-		"region":              "fsn1",
-		"sshPublicKey":        "ssh-ed25519 AAAA test",
+		"orgName":                "RestartTest",
+		"orgEmail":               "ops@example.io",
+		"sovereignFQDN":          "k8s.example.io",
+		"sovereignDomainMode":    "byo",
+		"sovereignSubdomain":     "k8s",
+		"hetznerToken":           "tok",
+		"hetznerProjectID":       "proj",
+		"region":                 "fsn1",
+		"sshPublicKey":           "ssh-ed25519 AAAA test",
+		"objectStorageRegion":    "fsn1",
+		"objectStorageAccessKey": "TESTACCESSKEY1234567",
+		"objectStorageSecretKey": "TESTSECRETKEY1234567890123456789012345678",
 	})
 	resp, err := http.Post(srv1.URL+"/api/v1/deployments", "application/json", bytes.NewReader(body))
 	if err != nil {

@@ -35,14 +35,24 @@ func jsonMarshal(v any) (string, error) {
 // exercise the GHCR-token gating path set DomainMode=pool explicitly so
 // the validator's pool-only branch fires. Tests for back-compat paths
 // keep DomainMode empty (treated as BYO for validation purposes).
+//
+// Object Storage fields (issue #371) are pre-populated with a valid
+// fsn1 bucket triple so non-Object-Storage validation paths don't trip
+// the new required-field checks. The handler derives the bucket name
+// from the FQDN at runtime; here we hardcode a matching slug so the
+// provisioner-layer tests don't depend on handler-layer logic.
 func validBase() Request {
 	return Request{
-		OrgName:          "ACME",
-		OrgEmail:         "ops@acme.io",
-		SovereignFQDN:    "acme.openova.io",
-		HetznerToken:     "TEST-TOKEN-NOT-REAL",
-		HetznerProjectID: "test-project",
-		SSHPublicKey:     "ssh-ed25519 AAAA test-not-a-real-key",
+		OrgName:                "ACME",
+		OrgEmail:               "ops@acme.io",
+		SovereignFQDN:          "acme.openova.io",
+		HetznerToken:           "TEST-TOKEN-NOT-REAL",
+		HetznerProjectID:       "test-project",
+		SSHPublicKey:           "ssh-ed25519 AAAA test-not-a-real-key",
+		ObjectStorageRegion:    "fsn1",
+		ObjectStorageAccessKey: "TESTACCESSKEY1234567",
+		ObjectStorageSecretKey: "TESTSECRETKEY1234567890123456789012345678",
+		ObjectStorageBucket:    "catalyst-acme-openova-io",
 	}
 }
 
@@ -288,5 +298,108 @@ func TestRequest_GHCRPullToken_NotSerialized(t *testing.T) {
 	}
 	if strings.Contains(raw, sentinel) {
 		t.Fatalf("Request.GHCRPullToken leaked through json.Marshal output:\n%s", raw)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Hetzner Object Storage credentials coverage (issue #371). All four
+// fields are required: a missing region / access / secret / bucket has
+// to surface as 400 at /api/v1/deployments POST time, not 5 minutes
+// into `tofu apply` against an unauthorised S3 endpoint.
+// ─────────────────────────────────────────────────────────────────────────
+
+func TestValidate_ObjectStorage_RejectsEmptyRegion(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageRegion = ""
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "object storage region") {
+		t.Fatalf("expected object storage region required, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_RejectsInvalidRegion(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageRegion = "us-east-1" // not a Hetzner OS region
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "fsn1") {
+		t.Fatalf("expected fsn1/nbg1/hel1 enumerated error, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_RejectsEmptyAccessKey(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageAccessKey = ""
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "access key") {
+		t.Fatalf("expected access key required, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_RejectsEmptySecretKey(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageSecretKey = ""
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "secret key") {
+		t.Fatalf("expected secret key required, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_RejectsEmptyBucket(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageBucket = ""
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "bucket") {
+		t.Fatalf("expected bucket required, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_RejectsBadBucketName(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.ObjectStorageBucket = "BAD_BUCKET_NAME" // uppercase + underscore — fails S3 RFC
+	err := r.Validate()
+	if err == nil || !strings.Contains(err.Error(), "bucket") {
+		t.Fatalf("expected bucket-name RFC violation, got %v", err)
+	}
+}
+
+func TestValidate_ObjectStorage_AcceptsAllValidRegions(t *testing.T) {
+	for _, region := range []string{"fsn1", "nbg1", "hel1"} {
+		r := validBase()
+		r.Region = "fsn1"
+		r.ControlPlaneSize = "cx42"
+		r.ObjectStorageRegion = region
+		if err := r.Validate(); err != nil {
+			t.Errorf("region %q should validate: %v", region, err)
+		}
+	}
+}
+
+// TestRequest_ObjectStorageSecretKey_Serialized proves the secret key
+// IS serialised in the wire format (it has json:"objectStorageSecretKey"
+// not json:"-"). The wizard's CreateDeployment POST carries it; the
+// store's Redact path is what scrubs it from on-disk records. This
+// test just guards against an accidental json:"-" change that would
+// silently drop the key from the wire and break provisioning.
+func TestRequest_ObjectStorageSecretKey_Serialized(t *testing.T) {
+	const sentinel = "test-secret-key-must-appear-in-wire"
+	r := Request{ObjectStorageSecretKey: sentinel}
+	raw, err := jsonMarshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(raw, sentinel) {
+		t.Fatalf("ObjectStorageSecretKey must serialise to wire (wizard payload depends on it):\n%s", raw)
 	}
 }

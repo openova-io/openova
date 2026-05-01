@@ -633,6 +633,16 @@ export function StepReview() {
           regions: regionsPayload,
           // SSH key
           sshPublicKey: store.sshPublicKey,
+          // Hetzner Object Storage credentials (issue #371) — Phase 0b.
+          // Captured in StepCredentials' ObjectStorageSection; the
+          // catalyst-api validates them via S3 ListBuckets BEFORE
+          // accepting the deployment, so by the time we POST here the
+          // keys are already proven against the chosen region's
+          // endpoint. The bucket name is derived server-side from the
+          // Sovereign FQDN — the wizard never sends it.
+          objectStorageRegion:    store.objectStorageRegion,
+          objectStorageAccessKey: store.objectStorageAccessKey,
+          objectStorageSecretKey: store.objectStorageSecretKey,
         }),
       })
       const data = await res.json()

@@ -38,9 +38,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// s3BucketNamePattern enforces RFC-compliant S3 bucket naming on
+// Request.ObjectStorageBucket per the rules at
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+// (Hetzner Object Storage applies the same lexical rules — they're a
+// superset of the original S3 spec). Used by Validate(); also documented
+// in infra/hetzner/variables.tf §object_storage_bucket_name's validation
+// block so the same rule applies whether OpenTofu rejects it client-side
+// or the catalyst-api does so server-side.
+var s3BucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 
 // RegionSpec is one entry in Request.Regions — the per-region sizing
 // payload the wizard's StepProvider produces. Each topology slot has its
@@ -166,6 +177,42 @@ type Request struct {
 	// json:"-" so even if a future logging line marshals the Request
 	// wholesale, the token does not leak.
 	KubeconfigBearerToken string `json:"-"`
+
+	// ── Hetzner Object Storage (Phase 0b — issue #371) ──────────────────
+	//
+	// Per-Sovereign S3 backing for Harbor (#383) and Velero (#384). The
+	// wizard's StepCredentials Object-Storage section captures these from
+	// the operator (one-time-issued in the Hetzner Console — there is no
+	// Cloud API to mint them; see infra/hetzner/variables.tf §Object
+	// Storage for the constraint analysis).
+	//
+	// Region: fsn1 / nbg1 / hel1 (Object Storage availability is
+	// European-only as of 2026-04). Independent of compute region;
+	// ash/hil compute Sovereigns pick a European Object Storage region.
+	//
+	// AccessKey + SecretKey: standard AWS-S3-style credentials. The
+	// catalyst-api validates them via S3 ListBuckets BEFORE
+	// CreateDeployment returns 201 so the operator sees a typo'd key at
+	// the wizard step, not 5 minutes into `tofu apply`.
+	//
+	// BucketName: deterministic per-Sovereign — the catalyst-api derives
+	// it from the FQDN slug. We compute and stamp this in
+	// CreateDeployment (writeTfvars never sees an empty bucket name);
+	// the wizard does not surface it as a free-form input. Hetzner bucket
+	// names share a global namespace across all Hetzner Object Storage
+	// tenants, so a deterministic per-FQDN slug minimises collision risk.
+	//
+	// All four fields carry `json:"objectStorage*"` because the wizard's
+	// browser ships them in the deployment-create POST body. The plaintext
+	// lives in the per-deployment OpenTofu workdir (encrypted PVC, mode
+	// 0600) until `tofu destroy` removes the workdir; the durable copy
+	// is the K8s Secret cloud-init writes into the new Sovereign's
+	// flux-system namespace. The catalyst-api's on-disk deployment
+	// record is redacted via store.Redact.
+	ObjectStorageRegion    string `json:"objectStorageRegion"`
+	ObjectStorageAccessKey string `json:"objectStorageAccessKey"`
+	ObjectStorageSecretKey string `json:"objectStorageSecretKey"`
+	ObjectStorageBucket    string `json:"objectStorageBucket"`
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
@@ -254,6 +301,46 @@ func (r *Request) Validate() error {
 	// of `tofu apply`.
 	if r.SovereignDomainMode == "pool" && strings.TrimSpace(r.GHCRPullToken) == "" {
 		return errors.New("GHCR pull token is required for managed-pool deployments (CATALYST_GHCR_PULL_TOKEN missing on catalyst-api — see docs/SECRET-ROTATION.md)")
+	}
+
+	// Hetzner Object Storage (issue #371) — Phase 0b. All four fields are
+	// required for any Hetzner-backed Sovereign: the bucket exists at
+	// `tofu apply` time (minio_s3_bucket in main.tf) so Harbor (#383) and
+	// Velero (#384) find their backing store ready when Phase 1
+	// reconciles their HelmReleases. The bucket name is computed by the
+	// handler from the Sovereign FQDN slug — wizards never surface it.
+	//
+	// Validation here is fail-fast at /api/v1/deployments POST time so a
+	// missing/typo'd credential pair surfaces as 400 with a clear pointer
+	// rather than 5 minutes into `tofu apply`. The catalyst-api's
+	// /api/v1/credentials/object-storage/validate endpoint is the wizard's
+	// upstream gate — by the time the deployment payload arrives here,
+	// the keys SHOULD already have been validated against ListBuckets.
+	if strings.TrimSpace(r.ObjectStorageRegion) == "" {
+		return errors.New("object storage region is required (Hetzner Object Storage region: fsn1 | nbg1 | hel1)")
+	}
+	switch r.ObjectStorageRegion {
+	case "fsn1", "nbg1", "hel1":
+		// OK — Hetzner Object Storage availability as of 2026-04.
+	default:
+		return fmt.Errorf("object storage region %q is not a valid Hetzner Object Storage region (must be fsn1, nbg1, or hel1)", r.ObjectStorageRegion)
+	}
+	if strings.TrimSpace(r.ObjectStorageAccessKey) == "" {
+		return errors.New("object storage access key is required (issued in Hetzner Console → Object Storage → Manage Credentials)")
+	}
+	if strings.TrimSpace(r.ObjectStorageSecretKey) == "" {
+		return errors.New("object storage secret key is required (paired with the access key; Hetzner shows the secret half exactly once at issue time)")
+	}
+	if strings.TrimSpace(r.ObjectStorageBucket) == "" {
+		return errors.New("object storage bucket name is required (catalyst-api derives this deterministically from the Sovereign FQDN; an empty value here is a wizard or handler bug)")
+	}
+	// Bucket name validity mirrors the S3 RFC: 3-63 chars, lowercase
+	// alphanumeric + hyphens, must start and end alphanumeric. The
+	// wizard derives it from the FQDN slug so the rule should always
+	// pass — but a hand-crafted POST (e.g. load test) could violate it,
+	// so we re-enforce here.
+	if !s3BucketNamePattern.MatchString(r.ObjectStorageBucket) {
+		return fmt.Errorf("object storage bucket name %q does not match S3 naming rules (3-63 chars, lowercase alphanumeric + hyphens, start/end alphanumeric)", r.ObjectStorageBucket)
 	}
 	return nil
 }
@@ -719,6 +806,25 @@ func writeTfvars(deployDir string, req Request) error {
 			"CATALYST_API_PUBLIC_URL",
 			"https://console.openova.io/sovereign",
 		),
+
+		// ── Hetzner Object Storage (issue #371) ─────────────────────────
+		// Per-Sovereign S3 backing for Harbor + Velero. variables.tf in
+		// infra/hetzner/ declares all four keys; main.tf creates the bucket
+		// idempotently via the aminueza/minio provider; cloudinit-control-
+		// plane.tftpl writes the credentials into a flux-system Secret on
+		// the new Sovereign so Phase 1 (Flux reconciling bp-harbor +
+		// bp-velero) finds them already present.
+		//
+		// Persistence boundary: the tofu.auto.tfvars.json file containing
+		// these values is mode 0600 on the catalyst-api Pod's encrypted
+		// PVC and is wiped by the Destroy() flow on `tofu destroy`. The
+		// in-cluster K8s Secret on the new Sovereign is the only durable
+		// destination. The credentials NEVER live in the public openova
+		// monorepo — that would violate docs/INVIOLABLE-PRINCIPLES.md #10.
+		"object_storage_region":      req.ObjectStorageRegion,
+		"object_storage_access_key":  req.ObjectStorageAccessKey,
+		"object_storage_secret_key":  req.ObjectStorageSecretKey,
+		"object_storage_bucket_name": req.ObjectStorageBucket,
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")

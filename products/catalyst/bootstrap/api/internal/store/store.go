@@ -137,6 +137,18 @@ type RedactedRequest struct {
 	// default to the Sovereign's NS records. Same redaction policy:
 	// presence yes, value no.
 	RegistrarToken string `json:"registrarToken,omitempty"`
+
+	// Hetzner Object Storage (issue #371). Region + bucket are NOT
+	// secret — preserved verbatim so the deployment record reads
+	// naturally on disk and the rehydrate path can reconstruct the
+	// non-secret context for the wizard's failure card. Access + secret
+	// keys ARE redacted with the marker; presence is preserved so a
+	// reader can distinguish "Sovereign was provisioned with Object
+	// Storage credentials" from "no credentials were ever attached".
+	ObjectStorageRegion    string `json:"objectStorageRegion,omitempty"`
+	ObjectStorageBucket    string `json:"objectStorageBucket,omitempty"`
+	ObjectStorageAccessKey string `json:"objectStorageAccessKey,omitempty"`
+	ObjectStorageSecretKey string `json:"objectStorageSecretKey,omitempty"`
 }
 
 // Redact returns a RedactedRequest derived from req with every
@@ -160,6 +172,11 @@ func Redact(req provisioner.Request) RedactedRequest {
 		HAEnabled:           req.HAEnabled,
 		Regions:             req.Regions,
 		SSHPublicKey:        req.SSHPublicKey,
+		// Object Storage non-secret context — region + bucket are public
+		// in the sense that they appear in tofu outputs and the cluster's
+		// Secret stringData on every reconciliation. Persisted verbatim.
+		ObjectStorageRegion: req.ObjectStorageRegion,
+		ObjectStorageBucket: req.ObjectStorageBucket,
 	}
 	// Credentials: present-and-non-empty → redactedMarker; empty → empty.
 	// This is the test-load-bearing branch for TestRedact_OmitsAllSecrets.
@@ -171,6 +188,14 @@ func Redact(req provisioner.Request) RedactedRequest {
 	}
 	if strings.TrimSpace(req.DynadotAPISecret) != "" {
 		out.DynadotAPISecret = redactedMarker
+	}
+	// Object Storage credentials (issue #371) — same policy: presence
+	// preserved as the redacted marker, plaintext NEVER on disk.
+	if strings.TrimSpace(req.ObjectStorageAccessKey) != "" {
+		out.ObjectStorageAccessKey = redactedMarker
+	}
+	if strings.TrimSpace(req.ObjectStorageSecretKey) != "" {
+		out.ObjectStorageSecretKey = redactedMarker
 	}
 	return out
 }
@@ -202,6 +227,15 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		SSHPublicKey:        r.SSHPublicKey,
 		DynadotAPIKey:       r.DynadotAPIKey,    // <redacted> or ""
 		DynadotAPISecret:    r.DynadotAPISecret, // <redacted> or ""
+		// Object Storage rehydrate (issue #371) — region + bucket are
+		// the verbatim values; access + secret come back as the redacted
+		// marker so a Pod restart can render the wizard's failure card
+		// with full context but cannot resume `tofu apply` (the keys
+		// would have to be re-supplied by the operator).
+		ObjectStorageRegion:    r.ObjectStorageRegion,
+		ObjectStorageBucket:    r.ObjectStorageBucket,
+		ObjectStorageAccessKey: r.ObjectStorageAccessKey,
+		ObjectStorageSecretKey: r.ObjectStorageSecretKey,
 	}
 }
 

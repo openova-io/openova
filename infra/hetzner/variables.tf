@@ -386,3 +386,119 @@ variable "enable_fail2ban" {
   description = "Install + enable fail2ban with the sshd jail. Default true; disable only when an upstream WAF/IDS already covers the same surface."
   default     = true
 }
+
+# ── Hetzner Object Storage (Phase 0b — issue #371) ────────────────────────
+#
+# Hetzner Object Storage is the canonical S3 backing for Harbor (#383) and
+# Velero (#384) on Hetzner Sovereigns per the omantel handover WBS §3 and
+# the ADR-0001-derived "S3 vs SeaweedFS" rule (S3-aware apps write to the
+# cloud-provider's native S3; only POSIX-only apps go through SeaweedFS as
+# a buffer). For Hetzner that native S3 is Object Storage.
+#
+# Constraints baked into the rest of this module:
+#   1. No native `hcloud_object_storage_*` Terraform resource exists today
+#      (see versions.tf for the upstream provider audit). Bucket creation
+#      is delegated to the `aminueza/minio` provider, which speaks the
+#      S3 bucket API against `<region>.your-objectstorage.com`.
+#   2. Hetzner does NOT expose a Cloud API to create S3 access keys
+#      programmatically — the operator issues them once in the Hetzner
+#      Console (Object Storage → Manage Credentials, secret half shown
+#      exactly once and irretrievable thereafter). The wizard collects
+#      both halves; the catalyst-api validates them via S3 ListBuckets;
+#      this module receives them as variables and uses them for both
+#      bucket creation AND interpolation into the Sovereign cloud-init's
+#      `hetzner-object-storage` Kubernetes Secret.
+#   3. Object Storage is available only in fsn1/nbg1/hel1 today. For
+#      ash/hil compute Sovereigns the operator picks a European Object
+#      Storage region — Velero/Harbor are latency-tolerant and the
+#      backup path is asynchronous.
+
+variable "object_storage_region" {
+  type        = string
+  description = <<-EOT
+    Hetzner Object Storage region — one of fsn1 / nbg1 / hel1 (the
+    European-only availability zones for Object Storage as of 2026-04).
+    The endpoint URL is derived as `<region>.your-objectstorage.com` per
+    https://docs.hetzner.com/storage/object-storage/getting-started/
+    using-s3-api-tools/. Per docs/INVIOLABLE-PRINCIPLES.md #4 this is a
+    runtime variable, never hardcoded — every Sovereign picks its own
+    Object Storage region in the wizard.
+  EOT
+  validation {
+    # Authoritative list of Hetzner Object Storage regions as of 2026-04-30.
+    # Update when Hetzner adds a new Object Storage region (NOT the same
+    # as Cloud regions — Cloud has ash/hil but Object Storage does not).
+    condition     = contains(["fsn1", "nbg1", "hel1"], var.object_storage_region)
+    error_message = "Object Storage region must be one of: fsn1 (Falkenstein), nbg1 (Nuremberg), hel1 (Helsinki). Object Storage is European-only as of 2026-04."
+  }
+}
+
+variable "object_storage_access_key" {
+  type        = string
+  description = <<-EOT
+    Hetzner Object Storage S3 access key — operator-issued once in the
+    Hetzner Console (Object Storage → Manage Credentials). The
+    catalyst-api validates this against the chosen region's S3 endpoint
+    via ListBuckets BEFORE `tofu apply` runs, so a typo'd key surfaces
+    at the wizard credential step, not 5 minutes into provisioning.
+    Sensitive — never logged. Lives only in the per-deployment OpenTofu
+    workdir (encrypted PVC, mode 0600) and in the Sovereign's cloud-init
+    user_data; wiped on `tofu destroy`.
+  EOT
+  sensitive   = true
+  validation {
+    # Hetzner S3 access keys are 20-character ASCII per the AWS S3 v4
+    # signing convention they emulate. We accept the broad shape rather
+    # than the precise length so future Hetzner format changes don't
+    # bounce off this validator with a stale literal.
+    condition     = length(var.object_storage_access_key) >= 16 && length(var.object_storage_access_key) <= 64
+    error_message = "Object Storage access key must be 16–64 characters."
+  }
+}
+
+variable "object_storage_secret_key" {
+  type        = string
+  description = <<-EOT
+    Hetzner Object Storage S3 secret key — operator-issued alongside the
+    access key in the Hetzner Console. Per Hetzner's docs the secret is
+    shown EXACTLY ONCE at issue time; if the operator loses it they must
+    rotate. Sensitive — never logged. Same persistence boundary as the
+    access key: per-deployment encrypted workdir + Sovereign cloud-init
+    only; wiped on `tofu destroy`.
+  EOT
+  sensitive   = true
+  validation {
+    # Hetzner S3 secret keys are typically 40 base64 characters (AWS-style)
+    # but the public spec does not pin a length and rotations may emit
+    # different lengths in the future. 32–128 is the resilient range.
+    condition     = length(var.object_storage_secret_key) >= 32 && length(var.object_storage_secret_key) <= 128
+    error_message = "Object Storage secret key must be 32–128 characters."
+  }
+}
+
+variable "object_storage_bucket_name" {
+  type        = string
+  description = <<-EOT
+    Hetzner Object Storage bucket name. Bucket names share a global
+    namespace across ALL Hetzner Object Storage tenants per
+    https://docs.hetzner.com/storage/object-storage/getting-started/
+    creating-a-bucket/, so we derive a deterministic per-Sovereign name
+    from the FQDN slug (catalyst-api computes this; the wizard never
+    surfaces a free-form bucket-name input to the operator). Pattern:
+    `catalyst-<sovereign-fqdn-with-dots-replaced-by-dashes>`.
+
+    The bucket is created idempotently via the `aminueza/minio` provider
+    in main.tf. Existing buckets with a matching name are adopted (the
+    minio_s3_bucket resource is idempotent on Create when the bucket
+    already exists in the same tenant — re-running `tofu apply` against
+    a previously-provisioned Sovereign is a no-op, never an error).
+  EOT
+  validation {
+    # S3 bucket naming rules:
+    #   - 3-63 chars
+    #   - lowercase letters, digits, hyphens
+    #   - must start and end with alphanumeric
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.object_storage_bucket_name))
+    error_message = "Object Storage bucket name must be 3-63 chars, lowercase alphanumeric + hyphens, starting and ending with alphanumeric (RFC-compliant S3 bucket naming)."
+  }
+}
