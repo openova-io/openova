@@ -149,9 +149,19 @@ export function flowLayoutOrganic(
   // Determine which jobs are visible: a job is visible when none of
   // its ancestors are folded. Walk parentId chain; bail to false on
   // any folded ancestor.
+  //
+  // Cycle-safe: if the input has duplicate ids — e.g. a leaf whose id
+  // collides with a synthesised group's slug, putting `parentId === id`
+  // after byId.set() last-wins — we must never hang in this loop. Any
+  // node we revisit during the walk is treated as a terminator, so the
+  // layout degrades gracefully (the offending node renders as a root)
+  // rather than freezing the browser. Bug #476.
   function isVisible(j: Job): boolean {
     let pid = j.parentId
+    const seen = new Set<string>([j.id])
     while (pid) {
+      if (seen.has(pid)) return true
+      seen.add(pid)
       if (folded.has(pid)) return false
       const parent = byId.get(pid)
       if (!parent) break
@@ -163,9 +173,16 @@ export function flowLayoutOrganic(
   // Resolve a referenced id (a `dependsOn` target) to its nearest
   // visible ancestor — the visible representative the canvas should
   // draw the edge to.
+  //
+  // Same cycle protection as isVisible(): track visited ids so a self-
+  // referential parent chain returns the first visible node rather
+  // than spinning forever. Bug #476.
   function visibleRepresentative(id: string): string | null {
     let node: Job | undefined = byId.get(id)
+    const seen = new Set<string>()
     while (node) {
+      if (seen.has(node.id)) return node.id
+      seen.add(node.id)
       if (isVisible(node) && (node.type !== 'group' || !folded.has(node.id))) {
         // For a group the folded check above is redundant with
         // isVisible (a folded group is itself visible — it's the
@@ -323,7 +340,11 @@ export function flowLayoutOrganic(
 /** Default fold state — groups deeper than `depth` are folded. The
  *  recursive tree has at most one level of grouping today (groups own
  *  leaves, no nested groups), so depth=2 unfolds the top-level groups
- *  AND their leaves; depth=1 keeps the top-level groups folded. */
+ *  AND their leaves; depth=1 keeps the top-level groups folded.
+ *
+ *  Cycle-safe: walks parentId until either the chain ends or a visited
+ *  id is revisited. Bug #476 — defends against malformed inputs where
+ *  a leaf id collides with a group slug, putting `parentId === id`. */
 export function defaultFoldedAtDepth(jobs: readonly Job[], depth: number): Set<string> {
   if (depth <= 0) return new Set(jobs.filter((j) => j.type === 'group').map((j) => j.id))
   // Walk parent chain to derive depth-from-root. depth 1 = root.
@@ -334,7 +355,10 @@ export function defaultFoldedAtDepth(jobs: readonly Job[], depth: number): Set<s
     if (j.type !== 'group') continue
     let d = 1
     let pid = j.parentId
+    const seen = new Set<string>([j.id])
     while (pid) {
+      if (seen.has(pid)) break
+      seen.add(pid)
       d++
       const parent = byId.get(pid)
       if (!parent) break
