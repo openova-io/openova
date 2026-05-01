@@ -15,6 +15,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
 
 func main() {
@@ -43,6 +44,23 @@ func main() {
 	}))
 
 	h := handler.New(log)
+
+	// OpenBao client — wired ONLY when CATALYST_OPENBAO_ADDR +
+	// CATALYST_OPENBAO_TOKEN are both set. Production catalyst-api Pods
+	// running on a Sovereign cluster set both (the new Sovereign IS the
+	// handover target — see issue #317). Catalyst-Zero leaves them
+	// unset and ReceiveTofuArchive returns 503 ("not handover target")
+	// for any misrouted POST.
+	if addr := os.Getenv("CATALYST_OPENBAO_ADDR"); addr != "" {
+		if token := os.Getenv("CATALYST_OPENBAO_TOKEN"); token != "" {
+			h.SetOpenBao(openbao.New(addr, token))
+			log.Info("openbao: handover-archive receiver enabled",
+				"addr", addr,
+			)
+		} else {
+			log.Warn("openbao: CATALYST_OPENBAO_ADDR set but CATALYST_OPENBAO_TOKEN missing; receiver disabled")
+		}
+	}
 
 	// K8s data-plane (issue #321) — informer cache + SSE + disk
 	// snapshot. Wired only when at least one kubeconfig is mountable;
@@ -133,6 +151,16 @@ func main() {
 	// PurgeReport summary. The wizard's failed-state banner renders the
 	// operator confirmation modal that POSTs here.
 	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+	// Handover finalisation (issue #317). Catalyst-Zero side: stops the
+	// helmwatch informer, ships the OpenTofu state to the new Sovereign's
+	// catalyst-api, and purges every local trace once the new side
+	// confirms the archive is sealed in its OpenBao. Sovereign side:
+	// receives the archive on /handover/tofu-archive and writes it to
+	// `secret/catalyst/tofu-phase0-archive`. The two endpoints live on
+	// the same binary; Catalyst-Zero leaves CATALYST_OPENBAO_ADDR unset,
+	// so a misrouted archive POST hits 503 instead of 200.
+	r.Post("/api/v1/handover/finalise/{id}", h.FinaliseHandover)
+	r.Post("/api/v1/handover/tofu-archive", h.ReceiveTofuArchive)
 	// Jobs/Executions REST surface — the canvas + per-job detail
 	// pages read this in parallel to the existing SSE events feed.
 	// All endpoints are read-only; every mutation flows through the
