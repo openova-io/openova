@@ -131,9 +131,20 @@ export interface GraphCanvasProps {
 /* ── Adaptive physics tiers ──────────────────────────────────────── */
 
 /**
+ * Bound padding inside the canvas — the bounded-physics force never
+ * lets a node's centre come closer than r + BOUND_PADDING to any edge,
+ * where r is per-node from radiusForDegree() (#348 item 5).
+ */
+const BOUND_PADDING = 20
+
+/**
  * 5 tiers — node count → simulation params. Tuned so even ~5k node
  * graphs settle in <2s on commodity hardware while small graphs
  * (≤50) get a punchier collision radius for readability.
+ *
+ * Charge magnitudes lowered slightly from the pre-#348 values so the
+ * bounded-physics clamp doesn't fight strong repulsion at small canvas
+ * sizes.
  */
 function physicsFor(nodeCount: number): {
   charge: number
@@ -143,18 +154,18 @@ function physicsFor(nodeCount: number): {
   alphaDecay: number
 } {
   if (nodeCount <= 50) {
-    return { charge: -240, linkDistance: 80, linkStrength: 0.7, collide: 28, alphaDecay: 0.02 }
+    return { charge: -160, linkDistance: 80, linkStrength: 0.6, collide: 30, alphaDecay: 0.02 }
   }
   if (nodeCount <= 200) {
-    return { charge: -180, linkDistance: 60, linkStrength: 0.5, collide: 22, alphaDecay: 0.025 }
+    return { charge: -120, linkDistance: 60, linkStrength: 0.45, collide: 22, alphaDecay: 0.025 }
   }
   if (nodeCount <= 1000) {
-    return { charge: -90, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03 }
+    return { charge: -70, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03 }
   }
   if (nodeCount <= 5000) {
-    return { charge: -40, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04 }
+    return { charge: -32, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04 }
   }
-  return { charge: -20, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05 }
+  return { charge: -16, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05 }
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -173,6 +184,55 @@ function radiusForDegree(degree: number): number {
   // 6 + sqrt(degree) * 2.8, clamped 6..20 — locked by spec.
   const r = 6 + Math.sqrt(Math.max(0, degree)) * 2.8
   return Math.max(6, Math.min(20, r))
+}
+
+/**
+ * Bounded-physics: clamp each node's x/y (and any pinned fx/fy) inside
+ * a [r+pad, W-r-pad] × [r+pad, H-r-pad] box every tick (#348 item 5).
+ * Implemented as a d3-force "force" so it integrates naturally with
+ * the simulation's tick loop and runs after charge / collide /
+ * link forces have moved nodes for the frame.
+ */
+function makeForceBound(
+  width: number,
+  height: number,
+  padding = BOUND_PADDING,
+) {
+  let nodes: LiveNode[] = []
+  // d3-force calls force(alpha) every tick. We ignore alpha — the
+  // bound is a hard clamp that should NOT scale with cooling.
+  const force = () => {
+    for (const n of nodes) {
+      const r = radiusForDegree(n.degree)
+      const minX = r + padding
+      const minY = r + padding
+      const maxX = Math.max(minX, width - r - padding)
+      const maxY = Math.max(minY, height - r - padding)
+      if (n.x < minX) n.x = minX
+      else if (n.x > maxX) n.x = maxX
+      if (n.y < minY) n.y = minY
+      else if (n.y > maxY) n.y = maxY
+      // Also clamp pinned positions so a manual drag past the edge
+      // instantly snaps inside.
+      if (n.fx !== null) {
+        n.fx = Math.max(minX, Math.min(maxX, n.fx))
+      }
+      if (n.fy !== null) {
+        n.fy = Math.max(minY, Math.min(maxY, n.fy))
+      }
+    }
+  }
+  // d3-force calls `initialize(nodes)` when the force is added; we
+  // capture the live LiveNode array so subsequent ticks have a
+  // current handle even after sim.nodes() is reset.
+  ;(force as unknown as { initialize: (n: LiveNode[]) => void }).initialize = (
+    nextNodes,
+  ) => {
+    nodes = nextNodes
+  }
+  return force as (() => void) & {
+    initialize: (n: LiveNode[]) => void
+  }
 }
 
 interface ResizeBox {
@@ -500,6 +560,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     ;(sim.force('charge') as ReturnType<typeof forceManyBody>).strength(phys.charge)
     ;(sim.force('collide') as ReturnType<typeof forceCollide>).radius(phys.collide)
     ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
+
+    // Bounded-physics force — re-install every tick-tune so the box
+    // matches the current container size. d3-force's `force()` setter
+    // accepts a callable that exposes an `initialize(nodes)` hook;
+    // we capture the latest size by closure (#348 item 5).
+    sim.force('bound', makeForceBound(size.width, size.height, BOUND_PADDING))
+
     sim.alphaDecay(phys.alphaDecay).alphaTarget(0).alpha(0.7).restart()
   }, [visibleNodes, visibleEdges, size.width, size.height])
 
@@ -618,6 +685,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     simRef.current?.alphaTarget(0.3).restart()
   }
 
+  function clampToBounds(p: { x: number; y: number }, r: number) {
+    const minX = r + BOUND_PADDING
+    const minY = r + BOUND_PADDING
+    const maxX = Math.max(minX, size.width - r - BOUND_PADDING)
+    const maxY = Math.max(minY, size.height - r - BOUND_PADDING)
+    return {
+      x: Math.max(minX, Math.min(maxX, p.x)),
+      y: Math.max(minY, Math.min(maxY, p.y)),
+    }
+  }
+
   function onMouseMoveSvg(ev: React.MouseEvent) {
     const ds = dragState.current
     if (!ds.nodeId) return
@@ -644,9 +722,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       }
       ds.overId = over
     } else {
-      // Standard drag — pin the node to the cursor.
-      n.fx = p.x
-      n.fy = p.y
+      // Standard drag — pin the node to the cursor, clamped to canvas
+      // bounds (#348 item 5).
+      const r = radiusForDegree(n.degree)
+      const clamped = clampToBounds(p, r)
+      n.fx = clamped.x
+      n.fy = clamped.y
     }
   }
 
