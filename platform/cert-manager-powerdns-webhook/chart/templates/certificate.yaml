@@ -32,7 +32,22 @@ spec:
   secretName: {{ include "bp-cert-manager-powerdns-webhook.rootCACertificate" . }}
   duration: {{ .Values.servingCert.caDuration }}
   isCA: true
-  commonName: "ca.{{ include "bp-cert-manager-powerdns-webhook.fullname" . }}.cert-manager"
+  # X.509 subject CN is capped at 64 bytes (RFC 5280 §4.1.2.4 + the
+  # ub-common-name-length=64 PKIX upper bound). The Helm `fullname`
+  # template prefixes the chart name with the release name, which —
+  # combined with the long `bp-cert-manager-powerdns-webhook` chart name
+  # and the `ca.` + `.cert-manager` decoration — overshoots 64 bytes
+  # whenever the operator gives this release any non-trivial name (e.g.
+  # the bootstrap-kit's `cert-manager-powerdns-webhook` releaseName
+  # produces a 78-char CN). cert-manager's webhook then rejects the
+  # Certificate at admission with `spec.commonName: Too long`. Closes #508.
+  #
+  # Use the chart `name` (always `bp-cert-manager-powerdns-webhook`,
+  # capped at 63 chars by the .name helper) instead of the release-name-
+  # prefixed `fullname`. The CA cert's CN is opaque identity only — no
+  # client validates by hostname against this CN — so collapsing on the
+  # chart name is safe and stable across releaseName variations.
+  commonName: "ca.{{ include "bp-cert-manager-powerdns-webhook.name" . }}.cert-manager"
   privateKey:
     rotationPolicy: Always
     algorithm: ECDSA
