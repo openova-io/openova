@@ -725,6 +725,669 @@ func (h *Handler) DeleteInfrastructureResource(w http.ResponseWriter, r *http.Re
 	writeJSON(w, httpStatus, resp)
 }
 
+/* ── Issue #349 — additional PATCH endpoints + new kinds ────────── */
+
+// PatchInfrastructureRegion — PATCH .../regions/{id}
+//
+// Body: { skuCp?, skuWorker?, workerCount? } — provider+providerRegion
+// are immutable cloud-side identity. Per ADR-0001 §9.2 row B3 every
+// Cloud-resource Update writes a Crossplane XRC patch.
+type patchRegionBody struct {
+	SkuCP       string `json:"skuCp,omitempty"`
+	SkuWorker   string `json:"skuWorker,omitempty"`
+	WorkerCount *int   `json:"workerCount,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureRegion(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	regionID := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchRegionBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.SkuCP) == "" && strings.TrimSpace(body.SkuWorker) == "" && body.WorkerCount == nil {
+		writeBadRequest(w, "no-fields", "PATCH must include skuCp, skuWorker, and/or workerCount")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "region", regionID)
+	spec := map[string]any{"region": regionID}
+	diff := ""
+	if body.SkuCP != "" {
+		spec["skuCP"] = body.SkuCP
+		diff += "~ skuCP: " + body.SkuCP + "\n"
+	}
+	if body.SkuWorker != "" {
+		spec["skuWorker"] = body.SkuWorker
+		diff += "~ skuWorker: " + body.SkuWorker + "\n"
+	}
+	if body.WorkerCount != nil {
+		spec["workerCount"] = *body.WorkerCount
+		diff += fmt.Sprintf("~ workerCount: %d\n", *body.WorkerCount)
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "region",
+		Slug:    regionID,
+		Action:  fmt.Sprintf("update-region id=%s", regionID),
+		Diff:    diff,
+		XRCKind: infrastructure.KindRegionClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// PatchInfrastructureCluster — PATCH .../clusters/{id}
+type patchClusterBody struct {
+	Name            string `json:"name,omitempty"`
+	Version         string `json:"version,omitempty"`
+	ControlPlaneSku string `json:"controlPlaneSku,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureCluster(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	clusterID := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchClusterBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Name == "" && body.Version == "" && body.ControlPlaneSku == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include name, version, and/or controlPlaneSku")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "cluster", clusterID)
+	spec := map[string]any{"id": clusterID}
+	diff := ""
+	if body.Name != "" {
+		spec["name"] = body.Name
+		diff += "~ name: " + body.Name + "\n"
+	}
+	if body.Version != "" {
+		spec["version"] = body.Version
+		diff += "~ version: " + body.Version + "\n"
+	}
+	if body.ControlPlaneSku != "" {
+		spec["controlPlaneSku"] = body.ControlPlaneSku
+		diff += "~ controlPlaneSku: " + body.ControlPlaneSku + "\n"
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "cluster",
+		Slug:    clusterID,
+		Action:  fmt.Sprintf("update-cluster id=%s", clusterID),
+		Diff:    diff,
+		XRCKind: infrastructure.KindClusterClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// PatchInfrastructureVCluster — PATCH .../vclusters/{id}
+//
+// vClusters are K8s-native (vcluster.io/v1alpha1/vclusters) per
+// ADR-0001 §9.2 row B3. catalyst-api still wraps the call through
+// the same submitMutation pipe, but the XRC kind it submits is the
+// VClusterClaim — the third-sibling Composition is the one that
+// translates the claim into a direct CR write on the Sovereign
+// cluster (Crossplane stays out of K8s-to-K8s composition; the
+// claim here is just an audit/intent record).
+type patchVClusterBody struct {
+	Name          string `json:"name,omitempty"`
+	IsolationMode string `json:"isolationMode,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureVCluster(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchVClusterBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Name == "" && body.IsolationMode == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include name and/or isolationMode")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "vcluster", id)
+	spec := map[string]any{"id": id}
+	diff := ""
+	if body.Name != "" {
+		spec["name"] = body.Name
+		diff += "~ name: " + body.Name + "\n"
+	}
+	if body.IsolationMode != "" {
+		spec["isolationMode"] = body.IsolationMode
+		diff += "~ isolationMode: " + body.IsolationMode + "\n"
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "vcluster",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-vcluster id=%s", id),
+		Diff:    diff,
+		XRCKind: infrastructure.KindVClusterClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// PatchInfrastructureLoadBalancer — PATCH .../loadbalancers/{id}
+type patchLBBody struct {
+	Name      string         `json:"name,omitempty"`
+	Listeners []listenerSpec `json:"listeners,omitempty"`
+}
+
+type listenerSpec struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
+func (h *Handler) PatchInfrastructureLoadBalancer(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchLBBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Name == "" && len(body.Listeners) == 0 {
+		writeBadRequest(w, "no-fields", "PATCH must include name and/or listeners")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "lb", id)
+	spec := map[string]any{"id": id}
+	diff := ""
+	if body.Name != "" {
+		spec["name"] = body.Name
+		diff += "~ name: " + body.Name + "\n"
+	}
+	if len(body.Listeners) > 0 {
+		listeners := make([]any, 0, len(body.Listeners))
+		for _, l := range body.Listeners {
+			listeners = append(listeners, map[string]any{"port": l.Port, "protocol": l.Protocol})
+		}
+		spec["listeners"] = listeners
+		diff += fmt.Sprintf("~ listeners: %d\n", len(body.Listeners))
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "lb",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-lb id=%s", id),
+		Diff:    diff,
+		XRCKind: infrastructure.KindLoadBalancerClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// CreateInfrastructureNetwork — POST .../networks
+type createNetworkBody struct {
+	RegionID string `json:"regionId"`
+	Name     string `json:"name"`
+	CIDR     string `json:"cidr"`
+}
+
+func (h *Handler) CreateInfrastructureNetwork(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body createNetworkBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.CIDR) == "" {
+		writeBadRequest(w, "name-cidr-required", "name and cidr are required")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "network", body.Name)
+	spec := map[string]any{
+		"region": body.RegionID,
+		"name":   body.Name,
+		"cidr":   body.CIDR,
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "add",
+		Kind:    "network",
+		Slug:    body.Name,
+		Action:  fmt.Sprintf("add-network name=%s region=%s cidr=%s", body.Name, body.RegionID, body.CIDR),
+		Diff:    fmt.Sprintf("+ network: %s\n+   cidr: %s", body.Name, body.CIDR),
+		XRCKind: infrastructure.KindNetworkClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+	})
+}
+
+// PatchInfrastructureNetwork — PATCH .../networks/{id}
+type patchNetworkBody struct {
+	Name string `json:"name,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureNetwork(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchNetworkBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Name == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include name")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "network", id)
+	spec := map[string]any{"id": id, "name": body.Name}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "network",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-network id=%s", id),
+		Diff:    "~ name: " + body.Name,
+		XRCKind: infrastructure.KindNetworkClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// CreateInfrastructureWorkerNode — POST .../clusters/{id}/nodes
+type createWorkerNodeBody struct {
+	Name string `json:"name"`
+	SKU  string `json:"sku"`
+	Role string `json:"role"`
+}
+
+func (h *Handler) CreateInfrastructureWorkerNode(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	clusterID := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body createWorkerNodeBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeBadRequest(w, "name-required", "node name is required")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "node", body.Name)
+	spec := map[string]any{
+		"cluster": clusterID,
+		"name":    body.Name,
+		"sku":     body.SKU,
+		"role":    body.Role,
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "add",
+		Kind:    "node",
+		Slug:    body.Name,
+		Action:  fmt.Sprintf("add-node name=%s cluster=%s sku=%s", body.Name, clusterID, body.SKU),
+		Diff:    fmt.Sprintf("+ node: %s\n+   sku: %s", body.Name, body.SKU),
+		XRCKind: infrastructure.KindWorkerNodeClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+	})
+}
+
+// PatchInfrastructureWorkerNode — PATCH .../nodes/{id}
+//
+// Distinct from CreateInfrastructureNodeAction (cordon/drain/replace)
+// which is verb-driven. This handler patches the persistent node
+// shape: machine-type resize, taints, labels.
+type patchWorkerNodeBody struct {
+	SKU    string `json:"sku,omitempty"`
+	Taints string `json:"taints,omitempty"`
+	Labels string `json:"labels,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureWorkerNode(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchWorkerNodeBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.SKU == "" && body.Taints == "" && body.Labels == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include sku, taints, and/or labels")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "node", id)
+	spec := map[string]any{"id": id}
+	diff := ""
+	if body.SKU != "" {
+		spec["sku"] = body.SKU
+		diff += "~ sku: " + body.SKU + "\n"
+	}
+	if body.Taints != "" {
+		spec["taints"] = body.Taints
+		diff += "~ taints: " + body.Taints + "\n"
+	}
+	if body.Labels != "" {
+		spec["labels"] = body.Labels
+		diff += "~ labels: " + body.Labels + "\n"
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "node",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-node id=%s", id),
+		Diff:    diff,
+		XRCKind: infrastructure.KindWorkerNodeClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// CreateInfrastructurePVC — POST .../pvcs
+//
+// PVC is K8s-native (core/v1/persistentvolumeclaims) per ADR-0001
+// §9.2 row B3 — the catalyst-api writes the CR directly via the
+// dynamic client. We still funnel through submitMutation with a
+// dedicated XRCKind so the audit trail captures the intent, and a
+// thin in-cluster controller (or the third-sibling Composition's
+// "K8s-passthrough" mode) materialises the CR. Today the path
+// behaves identically to the cloud kinds — that's why no special
+// case is needed here.
+type createPVCBody struct {
+	Name         string `json:"name"`
+	Namespace    string `json:"namespace"`
+	Capacity     string `json:"capacity"`
+	StorageClass string `json:"storageClass"`
+}
+
+func (h *Handler) CreateInfrastructurePVC(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body createPVCBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.Namespace) == "" {
+		writeBadRequest(w, "name-namespace-required", "name and namespace are required")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "pvc", body.Namespace+"-"+body.Name)
+	spec := map[string]any{
+		"name":         body.Name,
+		"namespace":    body.Namespace,
+		"capacity":     body.Capacity,
+		"storageClass": body.StorageClass,
+	}
+	// PVC uses the existing FirewallRuleClaim's K8s-native passthrough
+	// pattern — we reuse the LoadBalancerClaim seam pending its own
+	// XRD. For now the catalyst-api still routes the audit record
+	// through submitMutation; the Composition the third-sibling
+	// agent owns is responsible for direct dynamic-client write.
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "add",
+		Kind:    "pvc",
+		Slug:    body.Namespace + "-" + body.Name,
+		Action:  fmt.Sprintf("add-pvc ns=%s name=%s capacity=%s", body.Namespace, body.Name, body.Capacity),
+		Diff:    fmt.Sprintf("+ pvc: %s/%s\n+   capacity: %s", body.Namespace, body.Name, body.Capacity),
+		XRCKind: "PVCClaim",
+		XRCName: xrcName,
+		Spec:    spec,
+	})
+}
+
+// PatchInfrastructurePVC — PATCH .../pvcs/{id}
+//
+// Kubernetes PVCs only support expansion. This handler accepts a
+// `capacity` field and rejects anything else.
+type patchPVCBody struct {
+	Capacity string `json:"capacity,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructurePVC(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchPVCBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Capacity == "" {
+		writeBadRequest(w, "capacity-required", "PATCH must include capacity")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "pvc", id)
+	spec := map[string]any{"id": id, "capacity": body.Capacity}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "pvc",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-pvc id=%s capacity=%s", id, body.Capacity),
+		Diff:    "~ capacity: " + body.Capacity,
+		XRCKind: "PVCClaim",
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// CreateInfrastructureBucket — POST .../buckets
+type createBucketBody struct {
+	Name          string `json:"name"`
+	Capacity      string `json:"capacity"`
+	RetentionDays string `json:"retentionDays"`
+}
+
+func (h *Handler) CreateInfrastructureBucket(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body createBucketBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeBadRequest(w, "name-required", "bucket name is required")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "bucket", body.Name)
+	spec := map[string]any{
+		"name":          body.Name,
+		"capacity":      body.Capacity,
+		"retentionDays": body.RetentionDays,
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "add",
+		Kind:    "bucket",
+		Slug:    body.Name,
+		Action:  fmt.Sprintf("add-bucket name=%s capacity=%s", body.Name, body.Capacity),
+		Diff:    fmt.Sprintf("+ bucket: %s\n+   capacity: %s", body.Name, body.Capacity),
+		XRCKind: infrastructure.KindBucketClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+	})
+}
+
+// PatchInfrastructureBucket — PATCH .../buckets/{id}
+type patchBucketBody struct {
+	Capacity      string `json:"capacity,omitempty"`
+	RetentionDays string `json:"retentionDays,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureBucket(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchBucketBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Capacity == "" && body.RetentionDays == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include capacity and/or retentionDays")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "bucket", id)
+	spec := map[string]any{"id": id}
+	diff := ""
+	if body.Capacity != "" {
+		spec["capacity"] = body.Capacity
+		diff += "~ capacity: " + body.Capacity + "\n"
+	}
+	if body.RetentionDays != "" {
+		spec["retentionDays"] = body.RetentionDays
+		diff += "~ retentionDays: " + body.RetentionDays + "\n"
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "bucket",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-bucket id=%s", id),
+		Diff:    diff,
+		XRCKind: infrastructure.KindBucketClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
+// CreateInfrastructureVolume — POST .../volumes
+type createVolumeBody struct {
+	RegionID string `json:"regionId"`
+	Name     string `json:"name"`
+	Capacity string `json:"capacity"`
+}
+
+func (h *Handler) CreateInfrastructureVolume(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body createVolumeBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeBadRequest(w, "name-required", "volume name is required")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "volume", body.Name)
+	spec := map[string]any{
+		"region":   body.RegionID,
+		"name":     body.Name,
+		"capacity": body.Capacity,
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "add",
+		Kind:    "volume",
+		Slug:    body.Name,
+		Action:  fmt.Sprintf("add-volume name=%s region=%s capacity=%s", body.Name, body.RegionID, body.Capacity),
+		Diff:    fmt.Sprintf("+ volume: %s\n+   capacity: %s", body.Name, body.Capacity),
+		XRCKind: infrastructure.KindVolumeClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+	})
+}
+
+// PatchInfrastructureVolume — PATCH .../volumes/{id}
+type patchVolumeBody struct {
+	Capacity   string `json:"capacity,omitempty"`
+	AttachedTo string `json:"attachedTo,omitempty"`
+}
+
+func (h *Handler) PatchInfrastructureVolume(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "depId")
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	var body patchVolumeBody
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if body.Capacity == "" && body.AttachedTo == "" {
+		writeBadRequest(w, "no-fields", "PATCH must include capacity and/or attachedTo")
+		return
+	}
+	xrcName := infrastructure.XRCName(dep.ID, "volume", id)
+	spec := map[string]any{"id": id}
+	diff := ""
+	if body.Capacity != "" {
+		spec["capacity"] = body.Capacity
+		diff += "~ capacity: " + body.Capacity + "\n"
+	}
+	// AttachedTo intentionally compared by `body.AttachedTo != ""` —
+	// passing "" via the "no-fields" guard above ensures we only get
+	// here when the operator explicitly set a value (attach to a
+	// node id) or explicitly opted into a detach via a sentinel
+	// value. Today an empty string means "leave unchanged"; a
+	// dedicated detach uses the per-node /detach action endpoint.
+	if body.AttachedTo != "" {
+		spec["attachedTo"] = body.AttachedTo
+		diff += "~ attachedTo: " + body.AttachedTo + "\n"
+	}
+	h.submitMutation(w, r, dep, mutationInputs{
+		Verb:    "update",
+		Kind:    "volume",
+		Slug:    id,
+		Action:  fmt.Sprintf("update-volume id=%s", id),
+		Diff:    diff,
+		XRCKind: infrastructure.KindVolumeClaim,
+		XRCName: xrcName,
+		Spec:    spec,
+		Patch:   true,
+	})
+}
+
 /* ── Internal helpers ──────────────────────────────────────────── */
 
 // mutationInputs — common payload submitMutation handles. Pulled out
@@ -985,7 +1648,15 @@ func xrcKindForResourceKind(kind string) (string, bool) {
 	case "firewalls", "firewall", "firewallrules", "firewallrule":
 		return infrastructure.KindFirewallRuleClaim, true
 	case "nodes", "node":
-		return infrastructure.KindNodeActionClaim, true
+		return infrastructure.KindWorkerNodeClaim, true
+	case "networks", "network":
+		return infrastructure.KindNetworkClaim, true
+	case "buckets", "bucket":
+		return infrastructure.KindBucketClaim, true
+	case "volumes", "volume":
+		return infrastructure.KindVolumeClaim, true
+	case "pvcs", "pvc":
+		return "PVCClaim", true
 	}
 	return "", false
 }
