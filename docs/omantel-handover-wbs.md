@@ -149,6 +149,19 @@ flowchart TB
     T392["#392 purge.go label fix"]
     P8([Phase 8 · omantel E2E + DoD]):::gate
 
+    subgraph SCAF[Sustainment · scaffolding · cross-cutting]
+        direction LR
+        T425["#425 vendor-agnostic OS + Tofu→Crossplane"]
+        T428["#428 CI vendor-coupling guardrail"]
+        T429["#429 Playwright E2E scaffold"]
+        T430["#430 cron→event-driven sweep"]
+    end
+
+    %% Cross-cutting: #425 unblocks #383, #428 enforces it, #429 prepares Phase 8
+    T425 --> T383
+    T425 --> T428
+    T429 --> P8
+
     %% Phase 1 → Phase 2
     T338 --> T373
     T387 --> T373
@@ -190,9 +203,9 @@ flowchart TB
     %% #392 unblocks #370
     T392 --> T370
 
-    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T316,T327,T331,T338,T370,T371,T373,T375,T376,T377,T378,T379,T380,T381,T382,T384,T387,T392 done
-    class T374,T425 wip
+    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,SCAF phase
+    class T316,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T384,T387,T392,T428,T429,T430 done
+    class T425 wip
     class T383 blocked
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
@@ -219,6 +232,10 @@ flowchart TB
     click T385 "https://github.com/openova-io/openova/issues/385" "Open #385" _blank
     click T387 "https://github.com/openova-io/openova/issues/387" "Open #387" _blank
     click T392 "https://github.com/openova-io/openova/issues/392" "Open #392" _blank
+    click T425 "https://github.com/openova-io/openova/issues/425" "Open #425" _blank
+    click T428 "https://github.com/openova-io/openova/issues/428" "Open #428" _blank
+    click T429 "https://github.com/openova-io/openova/issues/429" "Open #429" _blank
+    click T430 "https://github.com/openova-io/openova/issues/430" "Open #430" _blank
     click P8 "https://github.com/openova-io/openova/issues/369" "Open epic #369" _blank
 ```
 
@@ -380,7 +397,9 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #385 | (parked) | | |
 | #387 | 🟢 chart-released — per-Sovereign Gateway + Certificate in 01-cilium.yaml; HTTPRoute templates for keycloak/gitea/openbao/grafana/harbor/powerdns/catalyst-platform. Initial blueprint-release failed on default-values render (`fail` in templates); follow-up #402 (`a1bd5502`) switched to `if host { emit }` pattern; blueprint-release re-ran SUCCESS on `a1bd5502`. Sovereign-impact deferred to Phase 8. | #401 + #402 | bp-* charts published; contabo legacy 200 verified |
 | #370 | 🟢 unblocked by #392; bp-flux RBAC fix in place; runbook scope superseded by `wipe.go` end-to-end working (proven via #399 e2e). Open as backlog if a "purge orphans not tied to a deployment" endpoint is later needed. | (PR #391 closed) | |
-| #429 | 🟢 scaffold-shipped — Phase 8 DoD spec authored at `tests/e2e/playwright/tests/omantel-handover.spec.ts` (mirrors canonical `sovereign-wizard.spec.ts` shape; reuses `_helpers.ts:reachable()`); 6 `test()` blocks 1:1 with §10 acceptance bullets (sovereign Ready+23/23, bp-* HRs Ready, catalyst-platform self-host, vendor-agnostic Object Storage Secret per #425, dig +trace ends at omantel NS, zero contabo dependency). Self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` unset. Workflow `.github/workflows/omantel-e2e-handover.yaml` is `workflow_dispatch:` only (no cron, per CLAUDE.md). Executes against live omantel only after Phase 4/6/7 land. | (this PR) | spec + workflow scaffold; live execution gated on Phase 4/6/7 |
+| #428 | 🟢 done — CI vendor-coupling guardrail. Mode-gate auto-flips warn-only → hard-fail when `internal/objectstorage/` directory lands (i.e. once #425 merges). Pre-#425: 49 WARN lines on existing hetzner-coupled refs, exit 0. Post-#425: any future re-introduction of vendor coupling fails CI on push or PR. | [#431](https://github.com/openova-io/openova/pull/431) merged `0fdd411e` | scripts/check-vendor-coupling.sh + .github/workflows/check-vendor-coupling.yaml |
+| #429 | 🟢 scaffold-shipped — Phase 8 DoD spec authored at `tests/e2e/playwright/tests/omantel-handover.spec.ts` (mirrors canonical `sovereign-wizard.spec.ts` shape; reuses `_helpers.ts:reachable()`); 6 `test()` blocks 1:1 with §10 acceptance bullets (sovereign Ready+23/23, bp-* HRs Ready, catalyst-platform self-host, vendor-agnostic Object Storage Secret per #425, dig +trace ends at omantel NS, zero contabo dependency). Self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` unset. Workflow `.github/workflows/omantel-e2e-handover.yaml` is `workflow_dispatch:` only (no cron, per CLAUDE.md). Executes against live omantel only after Phase 4/6/7 land. | [#432](https://github.com/openova-io/openova/pull/432) merged `1e7d1e67` | spec + workflow scaffold; live execution gated on Phase 4/6/7 |
+| #430 | 🟢 done (audit-only) — `.github/workflows/*.yaml` swept; 0 cron triggers found across 18 workflow files; already compliant. No PR needed. | (no PR — already-compliant audit) | audit-only verification |
 
 ## 10. Phase 8 acceptance criteria (executable DoD)
 
