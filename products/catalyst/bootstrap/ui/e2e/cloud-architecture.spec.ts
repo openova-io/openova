@@ -114,9 +114,11 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     )
     await expect(page.getByTestId('infrastructure-detail-panel-type')).toHaveText('Cluster')
 
-    // Neighbor list shows the parent region.
+    // Neighbor list shows the parent region. Post-#348 the panel
+    // groups by relation; the parent region is reachable via the
+    // `contains` group testid.
     await expect(
-      page.getByTestId('infrastructure-detail-panel-neighbor-Region:region-eu-central'),
+      page.getByTestId('arch-detail-panel-neighbor-contains-Region:region-eu-central'),
     ).toBeVisible()
   })
 
@@ -238,12 +240,16 @@ test.describe('Cloud / Architecture polish (#348 P1)', () => {
     // Wait one settle tick.
     await page.waitForTimeout(400)
 
-    // Visible nodes are exclusively NodePool / PVC.
-    const allNodes = page.locator('[data-testid^="arch-graph-node-"]')
+    // Visible nodes are exclusively NodePool / PVC. Filter on the
+    // explicit data-node-type attribute to avoid the icon glyphs
+    // (testid `arch-graph-node-icon-...`) which don't carry that
+    // attribute.
+    const allNodes = page.locator('g[data-node-type]')
     const count = await allNodes.count()
     expect(count, 'some NodePool / PVC nodes remain').toBeGreaterThan(0)
     for (let i = 0; i < count; i++) {
       const t = await allNodes.nth(i).getAttribute('data-node-type')
+      expect(t, `node #${i} has a type attribute`).not.toBeNull()
       expect(['NodePool', 'PVC']).toContain(t)
     }
   })
@@ -445,15 +451,25 @@ test.describe('Cloud / Architecture polish (#348 P1)', () => {
     await page.getByTestId('cloud-architecture-clear-focus').click({ force: true }).catch(() => {})
     await page.waitForTimeout(200)
     const legend = page.getByTestId('cloud-architecture-edge-legend')
+    await legend.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(200)
     const lbox = await legend.boundingBox()
-    if (lbox) {
+    if (lbox && lbox.width > 0 && lbox.height > 0) {
+      // Get viewport dimensions to ensure clip is within the visible area.
+      const viewport = page.viewportSize()
+      const vw = viewport?.width ?? 1440
+      const vh = viewport?.height ?? 900
+      const clipX = Math.max(0, Math.min(vw - 1, lbox.x - 4))
+      const clipY = Math.max(0, Math.min(vh - 1, lbox.y - 4))
+      const clipW = Math.max(1, Math.min(vw - clipX, lbox.width + 8))
+      const clipH = Math.max(1, Math.min(vh - clipY, lbox.height + 8))
       await page.screenshot({
         path: 'e2e/screenshots/p1-348-archimate-legend.png',
         clip: {
-          x: Math.max(0, lbox.x - 4),
-          y: Math.max(0, lbox.y - 4),
-          width: Math.min(1440, lbox.width + 8),
-          height: Math.min(900, lbox.height + 8),
+          x: clipX,
+          y: clipY,
+          width: clipW,
+          height: clipH,
         },
       })
     }

@@ -169,8 +169,10 @@ describe('Architecture — detail panel', () => {
     const neighbors = screen.getByTestId('infrastructure-detail-panel-neighbors')
     expect(neighbors).toBeTruthy()
     // At least the parent region and a vcluster should be neighbors.
+    // Post-#348 the panel groups by relation; the parent region is
+    // reachable via the `contains` group.
     expect(
-      screen.getByTestId('infrastructure-detail-panel-neighbor-Region:region-eu-central'),
+      screen.getByTestId('arch-detail-panel-neighbor-contains-Region:region-eu-central'),
     ).toBeTruthy()
   })
 
