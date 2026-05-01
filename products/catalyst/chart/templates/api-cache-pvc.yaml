@@ -1,0 +1,44 @@
+# PVC backing the catalyst-api k8scache disk-snapshot loop (issue #321).
+#
+# Per ADR-0001 §5.1 the catalyst-api Pod restarts up to 6 times in a
+# 30-minute provisioning run (image rolls, OOM, cluster maintenance).
+# Without this snapshot, every cold start re-LISTs every (cluster ×
+# kind) — on a tier-1 Sovereign with thousands of objects that's
+# 1–30s of dead UI per restart. The snapshot path closes that gap to
+# <1s.
+#
+# Sizing — 5Gi:
+#   • Per (cluster, kind) snapshot: 1–10MB typical (Pod, Deployment,
+#     ConfigMap-meta-only). Worst case a tier-1 with 10k Pods and
+#     1k Deployments yields ~80MB per snapshot pass.
+#   • One file per (cluster, kind), default registry has 14 kinds.
+#     A 10-Sovereign catalyst-api carries 140 files @ ~2MB median →
+#     280MB. Rotation drops files older than 1h via the snapshot
+#     loop's own purge pass.
+#   • 5Gi gives an order-of-magnitude headroom over the steady-state
+#     working set.
+#
+# RWO is correct because the catalyst-api Deployment is single-replica
+# with strategy=Recreate (see api-deployment.yaml). HA mode is a
+# separate work item: the Indexer itself is in-process, so each
+# replica would maintain its own snapshot — the disk artifact is
+# strictly a cold-start mitigation, not a shared cache.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: catalyst-api-cache
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: api
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName intentionally omitted — clusters that have a
+  # default StorageClass (Hetzner Cloud Volumes via hcloud-csi, k3s
+  # local-path-provisioner, OpenEBS, ...) bind via the default. Per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 the SC is a runtime parameter,
+  # not a hardcoded code value; operators with a non-default SC
+  # override via Kustomize patch in their cluster overlay.

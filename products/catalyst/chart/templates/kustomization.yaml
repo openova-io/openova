@@ -6,6 +6,7 @@ resources:
   - ui-service.yaml
   - api-deployment.yaml
   - api-deployments-pvc.yaml
+  - api-cache-pvc.yaml
   - api-service.yaml
   - ingress.yaml
   - ingress-console-tls.yaml
