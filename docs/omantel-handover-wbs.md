@@ -380,3 +380,18 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #385 | (parked) | | |
 | #387 | 🟢 chart-released — per-Sovereign Gateway + Certificate in 01-cilium.yaml; HTTPRoute templates for keycloak/gitea/openbao/grafana/harbor/powerdns/catalyst-platform. Initial blueprint-release failed on default-values render (`fail` in templates); follow-up #402 (`a1bd5502`) switched to `if host { emit }` pattern; blueprint-release re-ran SUCCESS on `a1bd5502`. Sovereign-impact deferred to Phase 8. | #401 + #402 | bp-* charts published; contabo legacy 200 verified |
 | #370 | 🟢 unblocked by #392; bp-flux RBAC fix in place; runbook scope superseded by `wipe.go` end-to-end working (proven via #399 e2e). Open as backlog if a "purge orphans not tied to a deployment" endpoint is later needed. | (PR #391 closed) | |
+| #429 | 🟢 scaffold-shipped — Phase 8 DoD spec authored at `tests/e2e/playwright/tests/omantel-handover.spec.ts` (mirrors canonical `sovereign-wizard.spec.ts` shape; reuses `_helpers.ts:reachable()`); 6 `test()` blocks 1:1 with §10 acceptance bullets (sovereign Ready+23/23, bp-* HRs Ready, catalyst-platform self-host, vendor-agnostic Object Storage Secret per #425, dig +trace ends at omantel NS, zero contabo dependency). Self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` unset. Workflow `.github/workflows/omantel-e2e-handover.yaml` is `workflow_dispatch:` only (no cron, per CLAUDE.md). Executes against live omantel only after Phase 4/6/7 land. | (this PR) | spec + workflow scaffold; live execution gated on Phase 4/6/7 |
+
+## 10. Phase 8 acceptance criteria (executable DoD)
+
+The Phase 8 acceptance bullets below are 1:1 with `tests/e2e/playwright/tests/omantel-handover.spec.ts` (#429 scaffold). When Phase 4/6/7 land and the first omantel.omani.works run completes, the operator dispatches `.github/workflows/omantel-e2e-handover.yaml` against omantel — every bullet here is then a discrete `test()` that must turn GREEN.
+
+1. **Sovereign Ready + 23/23 blueprints** — `GET /api/sovereigns/<id>` → 200, `state=Ready`, `bootstrapKitReady=true`, all 23 minimal-Sovereign blueprints (per §2) report Ready=true.
+2. **All bootstrap-kit HelmReleases Ready=True** — `flux-system` namespace HR list filtered to `bp-*` shows ≥23 entries, every one Ready=True (no Failed, no progressing past install timeout).
+3. **Catalyst-platform self-hosts on omantel** — omantel's `/api/healthz` → 200 AND console renders dashboard text "23 / 23 ready" (regex tolerant; copy may shift).
+4. **Vendor-agnostic Object Storage wired** — `flux-system/object-storage` Secret exists (NOT the deprecated `flux-system/hetzner-object-storage` — post-#425 canonical name), carries the 5 keys (`s3-endpoint`/`s3-region`/`s3-bucket`/`s3-access-key`/`s3-secret-key`), `s3-endpoint` value is non-empty + URL-shaped (Hetzner today: `https://fsn1.your-objectstorage.com`; AWS would be `s3.<region>.amazonaws.com`).
+5. **NS delegation reaches omantel PowerDNS** — `dig +trace omantel.omani.works NS` ends at an `*.omantel.omani.works.` authority (or `ns?.omantel.omani.works.`); MUST NOT terminate at `*.openova.io.` (contabo) or `catalyst.openova.io.`.
+6. **Zero contabo dependency** — over a 5-minute window with NO calls to contabo's catalyst-api, omantel's `/api/healthz` keeps returning 200 (every probe). Live Phase 8 run extends `FAULT_INJECT_PROBES=300` (5 min × 1Hz); scaffold uses 5 probes for fast feedback.
+
+The spec self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` env vars are unset, so it never breaks routine local Playwright runs on contabo. Live execution is on-demand via `workflow_dispatch` — no `schedule:` cron, per CLAUDE.md "every workflow MUST be event-driven".
+

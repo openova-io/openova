@@ -1,0 +1,83 @@
+name: omantel handover E2E (Phase 8 DoD)
+
+# Issue #429 — on-demand E2E that runs the Phase 8 Definition-of-Done suite
+# against a live omantel.omani.works Sovereign. Per the master WBS
+# (`docs/omantel-handover-wbs.md` §5 Phase 8) this is the final gate proving
+# omantel is fully self-sufficient and zero-contabo-dependent.
+#
+# Trigger model — workflow_dispatch ONLY:
+#   - This is a SIDE-EFFECT-FREE smoke against a live customer-side cluster;
+#     we do not want it firing on every push to main. The operator dispatches
+#     it manually (or another workflow dispatches it via `gh workflow run`)
+#     once Phase 4/6/7 land and the first omantel run completes.
+#   - Per CLAUDE.md "Coupled rule — EVERY workflow MUST be event-driven, NEVER
+#     scheduled": no `schedule:` cron trigger. workflow_dispatch is the
+#     ad-hoc handle for re-runs against the live target.
+#
+# What the spec needs (per tests/e2e/playwright/tests/omantel-handover.spec.ts):
+#   OMANTEL_BASE_URL  — console host
+#   OMANTEL_API_BASE  — catalyst-api host
+#   OPERATOR_BEARER   — bootstrap operator JWT (passed via repo secret)
+#
+# When all three are set the spec runs; when any is unset, the spec self-skips
+# (so `npx playwright test --list` works locally without omantel access).
+
+on:
+  workflow_dispatch:
+    inputs:
+      omantel_base_url:
+        description: 'Sovereign console URL'
+        required: false
+        default: 'https://omantel.omani.works'
+      omantel_api_base:
+        description: 'Sovereign catalyst-api URL'
+        required: false
+        default: 'https://api.omantel.omani.works'
+      omantel_sovereign_id:
+        description: 'Sovereign id (matches /api/sovereigns/<id>)'
+        required: false
+        default: 'omantel'
+      fault_inject_probes:
+        description: 'Number of /api/healthz probes for the zero-contabo-dependency test'
+        required: false
+        default: '5'
+
+jobs:
+  e2e:
+    name: omantel Phase 8 DoD
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Playwright dependencies
+        working-directory: tests/e2e/playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run omantel handover Phase 8 DoD
+        working-directory: tests/e2e/playwright
+        env:
+          OMANTEL_BASE_URL: ${{ inputs.omantel_base_url }}
+          OMANTEL_API_BASE: ${{ inputs.omantel_api_base }}
+          OMANTEL_SOVEREIGN_ID: ${{ inputs.omantel_sovereign_id }}
+          # OPERATOR_BEARER is a repo secret — populated by the operator on
+          # the omantel side (short-lived JWT). The spec self-skips if unset.
+          OPERATOR_BEARER: ${{ secrets.OPERATOR_BEARER }}
+          FAULT_INJECT_PROBES: ${{ inputs.fault_inject_probes }}
+        run: npx playwright test tests/omantel-handover.spec.ts --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omantel-handover-playwright-report
+          path: tests/e2e/playwright/playwright-report/
+          retention-days: 30
