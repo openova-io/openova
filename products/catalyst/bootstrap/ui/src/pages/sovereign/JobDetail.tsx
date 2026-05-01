@@ -110,6 +110,9 @@ export function JobDetail({
   // around; the host stays put.
   const [selectedJobId, setSelectedJobId] = useState<string>(jobId)
   const selectedJob: Job | null = jobsById[selectedJobId] ?? job ?? null
+  // Pane visibility — open by default. The X / Esc dismisses it;
+  // any explicit canvas-bubble click reopens it.
+  const [paneOpen, setPaneOpen] = useState<boolean>(true)
 
   // Resolve the REAL execution id by polling the per-job detail
   // endpoint. The selected job (NOT the host) drives this so the
@@ -127,8 +130,12 @@ export function JobDetail({
     (id: string | null) => {
       // Empty / null — operator clicked the canvas background; restore
       // the host as the selected job so the LogPane never goes
-      // contextless.
+      // contextless. (Background click does NOT dismiss the pane —
+      // only the explicit X button or Esc does that.)
       setSelectedJobId(id ?? jobId)
+      // Any explicit selection re-opens the pane if the operator had
+      // dismissed it earlier.
+      if (id) setPaneOpen(true)
     },
     [jobId],
   )
@@ -179,7 +186,10 @@ export function JobDetail({
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN}>
-      <div className="job-detail-page" data-testid={`job-detail-${jobId}`}>
+      <div
+        className={`job-detail-page${paneOpen ? '' : ' is-pane-closed'}`}
+        data-testid={`job-detail-${jobId}`}
+      >
         <style>{JOB_DETAIL_CSS}</style>
 
         {/* Two-line compact header with status chip top-right. */}
@@ -217,8 +227,14 @@ export function JobDetail({
 
         {/* Full-bleed canvas. The embedded FlowPage owns its own
             chrome-less surface; it streams hostJobId so the canvas
-            paints the teal home ring. */}
-        <div className="job-detail-canvas" data-testid="job-detail-canvas">
+            paints the teal home ring. The `paneOpen` flag widens the
+            canvas back out to the full viewport when the operator
+            dismisses the LogPane. */}
+        <div
+          className={`job-detail-canvas${paneOpen ? '' : ' is-pane-closed'}`}
+          data-testid="job-detail-canvas"
+          data-pane-open={paneOpen ? 'true' : 'false'}
+        >
           <FlowPage
             disableStream={disableStream}
             disableJobsBackfill={disableJobsBackfill || disableStream}
@@ -228,17 +244,42 @@ export function JobDetail({
             onOpenJobChange={onCanvasJobSelect}
           />
         </div>
+
+        {/* When the pane is closed, surface a small re-open button so
+            the operator can recover the log surface without having to
+            click a bubble. Stays out of the way (top-right of the
+            canvas area). */}
+        {!paneOpen ? (
+          <button
+            type="button"
+            className="job-detail-reopen-pane"
+            data-testid="job-detail-reopen-pane"
+            aria-label="Show log pane"
+            title="Show log pane"
+            onClick={() => setPaneOpen(true)}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+              <path d="M2 3 L12 3 M2 7 L12 7 M2 11 L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Logs
+          </button>
+        ) : null}
       </div>
 
       {/* Floating log pane — open by default on the host's logs.
-          Hidden when the operator dismisses it; clicking another
-          canvas job re-arms via onJobSelect inside FlowPage. */}
-      <CanvasLogBridge
-        executionId={executionId}
-        jobTitle={logPaneJob.displayName ?? logPaneJob.jobName}
-        jobStatus={logPaneStatus}
-        onClose={() => setSelectedJobId(jobId)}
-      />
+          The X button + Esc dismiss it; the canvas widens to fill
+          the full viewport. Single-click on any bubble re-opens it. */}
+      {paneOpen ? (
+        <CanvasLogBridge
+          executionId={executionId}
+          jobTitle={logPaneJob.displayName ?? logPaneJob.jobName}
+          jobStatus={logPaneStatus}
+          onClose={() => {
+            setPaneOpen(false)
+            setSelectedJobId(jobId)
+          }}
+        />
+      ) : null}
     </PortalShell>
   )
 }
@@ -276,6 +317,7 @@ function CanvasLogBridge({ executionId, jobTitle, jobStatus, onClose }: CanvasLo
 
 const JOB_DETAIL_CSS = `
 .job-detail-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: calc(100vh - 56px);
@@ -285,9 +327,40 @@ const JOB_DETAIL_CSS = `
   /* Reserve space for the floating LogPane on the right so the canvas
      centroid lands inside the visible area instead of being hidden
      behind the pane. The LogPane width is also bound to this var via
-     --log-pane-width, set on the root below. */
+     --log-pane-width, set on the root below. When the operator
+     dismisses the pane (paneOpen=false → .is-pane-closed) the canvas
+     reclaims the reserved space. */
   padding-right: calc(var(--log-pane-width, 30vw) + 1rem);
   min-width: 0;
+  transition: padding-right 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.job-detail-page.is-pane-closed {
+  padding-right: 1rem;
+}
+.job-detail-reopen-pane {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-dim);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  z-index: 50;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+.job-detail-reopen-pane:hover {
+  color: var(--color-text-strong);
+  border-color: var(--color-text-dim);
+  background: rgba(148, 163, 184, 0.08);
 }
 
 .job-detail-header {

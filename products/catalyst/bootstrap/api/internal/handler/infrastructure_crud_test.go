@@ -60,6 +60,12 @@ func xrcListKinds() map[schema.GroupVersionResource]string {
 		mk("peeringclaims"):      "PeeringClaimList",
 		mk("firewallruleclaims"): "FirewallRuleClaimList",
 		mk("nodeactionclaims"):   "NodeActionClaimList",
+		// Issue #349 — new kinds.
+		mk("workernodeclaims"): "WorkerNodeClaimList",
+		mk("networkclaims"):    "NetworkClaimList",
+		mk("bucketclaims"):     "BucketClaimList",
+		mk("volumeclaims"):     "VolumeClaimList",
+		mk("pvcclaims"):        "PVCClaimList",
 	}
 	// The DELETE handler calls infrastructure.Load to compute the
 	// cascade preview, which queries vcluster.io/v1alpha1/vclusters

@@ -36,3 +36,53 @@ export type { DeleteCascadeConfirmProps } from './DeleteCascadeConfirm'
 
 export { WipeDeploymentModal } from './WipeDeploymentModal'
 export type { WipeDeploymentModalProps, WipeReport } from './WipeDeploymentModal'
+
+/* ── #349 — Update / Delete on every resource type ───────────────── */
+
+export { EditRegionModal } from './EditRegionModal'
+export type { EditRegionModalProps } from './EditRegionModal'
+
+export { EditClusterModal } from './EditClusterModal'
+export type { EditClusterModalProps } from './EditClusterModal'
+
+export { EditVClusterModal } from './EditVClusterModal'
+export type { EditVClusterModalProps } from './EditVClusterModal'
+
+export { EditNodePoolModal } from './EditNodePoolModal'
+export type { EditNodePoolModalProps } from './EditNodePoolModal'
+
+export { AddWorkerNodeModal } from './AddWorkerNodeModal'
+export type { AddWorkerNodeModalProps } from './AddWorkerNodeModal'
+
+export { EditWorkerNodeModal } from './EditWorkerNodeModal'
+export type { EditWorkerNodeModalProps } from './EditWorkerNodeModal'
+
+export { SimpleDeleteConfirm } from './SimpleDeleteConfirm'
+export type { SimpleDeleteConfirmProps } from './SimpleDeleteConfirm'
+
+export { EditLBModal } from './EditLBModal'
+export type { EditLBModalProps } from './EditLBModal'
+
+export { AddNetworkModal } from './AddNetworkModal'
+export type { AddNetworkModalProps } from './AddNetworkModal'
+
+export { EditNetworkModal } from './EditNetworkModal'
+export type { EditNetworkModalProps } from './EditNetworkModal'
+
+export { AddPVCModal } from './AddPVCModal'
+export type { AddPVCModalProps } from './AddPVCModal'
+
+export { EditPVCModal } from './EditPVCModal'
+export type { EditPVCModalProps } from './EditPVCModal'
+
+export { AddBucketModal } from './AddBucketModal'
+export type { AddBucketModalProps } from './AddBucketModal'
+
+export { EditBucketModal } from './EditBucketModal'
+export type { EditBucketModalProps } from './EditBucketModal'
+
+export { AddVolumeModal } from './AddVolumeModal'
+export type { AddVolumeModalProps } from './AddVolumeModal'
+
+export { EditVolumeModal } from './EditVolumeModal'
+export type { EditVolumeModalProps } from './EditVolumeModal'

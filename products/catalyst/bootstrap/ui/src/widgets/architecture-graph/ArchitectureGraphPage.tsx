@@ -28,16 +28,41 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AddBucketModal,
   AddClusterModal,
   AddLBModal,
+  AddNetworkModal,
   AddNodePoolModal,
+  AddPVCModal,
   AddRegionModal,
   AddVClusterModal,
+  AddVolumeModal,
+  AddWorkerNodeModal,
   DeleteCascadeConfirm,
+  EditClusterModal,
+  EditLBModal,
+  EditNetworkModal,
+  EditNodePoolModal,
+  EditRegionModal,
+  EditVClusterModal,
+  EditWorkerNodeModal,
+  SimpleDeleteConfirm,
   WipeDeploymentModal,
 } from '@/components/CrudModals'
 import type { CloudProvider } from '@/entities/deployment/model'
-import type { HierarchicalInfrastructure } from '@/lib/infrastructure.types'
+import type {
+  BucketItem,
+  ClusterSpec,
+  HierarchicalInfrastructure,
+  LoadBalancerSpec,
+  NetworkSpec,
+  NodePoolSpec,
+  NodeSpec,
+  PVCItem,
+  RegionSpec,
+  VClusterSpec,
+  VolumeItem,
+} from '@/lib/infrastructure.types'
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
 import { hierarchyToGraph } from './adapter'
 import {
@@ -115,16 +140,37 @@ interface NeighborEntry {
   direction: 'out' | 'in'
 }
 
+type ModalKind =
+  | 'none'
+  // Add affordances ------------------------------------------------
+  | 'add-region'
+  | 'add-cluster'
+  | 'add-vcluster'
+  | 'add-nodepool'
+  | 'add-worker-node'
+  | 'add-lb'
+  | 'add-network'
+  | 'add-pvc'
+  | 'add-bucket'
+  | 'add-volume'
+  // Edit affordances -----------------------------------------------
+  | 'edit-region'
+  | 'edit-cluster'
+  | 'edit-vcluster'
+  | 'edit-nodepool'
+  | 'edit-worker-node'
+  | 'edit-lb'
+  | 'edit-network'
+  | 'edit-pvc'
+  | 'edit-bucket'
+  | 'edit-volume'
+  // Delete affordances ---------------------------------------------
+  | 'delete'
+  | 'delete-simple'
+  | 'wipe-deployment'
+
 interface ModalState {
-  kind:
-    | 'none'
-    | 'add-region'
-    | 'add-cluster'
-    | 'add-vcluster'
-    | 'add-nodepool'
-    | 'add-lb'
-    | 'delete'
-    | 'wipe-deployment'
+  kind: ModalKind
 }
 
 export function ArchitectureGraphPage({
@@ -574,16 +620,34 @@ export function ArchitectureGraphPage({
             else if (kind === 'Cluster') setModal({ kind: 'add-vcluster' })
             else if (kind === 'Cloud') setModal({ kind: 'add-region' })
           }}
+          onEdit={() => {
+            const k = selectedNode.type
+            if (k === 'Region') setModal({ kind: 'edit-region' })
+            else if (k === 'Cluster') setModal({ kind: 'edit-cluster' })
+            else if (k === 'vCluster') setModal({ kind: 'edit-vcluster' })
+            else if (k === 'NodePool') setModal({ kind: 'edit-nodepool' })
+            else if (k === 'WorkerNode') setModal({ kind: 'edit-worker-node' })
+            else if (k === 'LoadBalancer') setModal({ kind: 'edit-lb' })
+            else if (k === 'Network') setModal({ kind: 'edit-network' })
+          }}
           onDelete={() => {
             // Cloud root → deployment-level wipe (Phase-0 orphan purge,
             // tofu destroy + Hetzner orphan force-purge + PDM release +
             // local cleanup). Per-resource Crossplane XRC delete is the
-            // right path for Region / Cluster / vCluster (day-2). See
+            // right path for Region / Cluster / vCluster (day-2 cascade).
+            // Standalone resources (NodePool / WorkerNode / LoadBalancer /
+            // Network) go through the SimpleDeleteConfirm. See
             // docs/INVIOLABLE-PRINCIPLES.md #3.
             if (selectedNode.type === 'Cloud') {
               setModal({ kind: 'wipe-deployment' })
-            } else {
+            } else if (
+              selectedNode.type === 'Region' ||
+              selectedNode.type === 'Cluster' ||
+              selectedNode.type === 'vCluster'
+            ) {
               setModal({ kind: 'delete' })
+            } else {
+              setModal({ kind: 'delete-simple' })
             }
           }}
           onPickNeighbor={(id) => setSelectedId(id)}
@@ -610,91 +674,253 @@ export function ArchitectureGraphPage({
             setModal({ kind: 'add-nodepool' })
             closeCtxMenu()
           }}
+          onAddWorkerNode={() => {
+            setModal({ kind: 'add-worker-node' })
+            closeCtxMenu()
+          }}
           onAddLB={() => {
             setModal({ kind: 'add-lb' })
             closeCtxMenu()
           }}
+          onAddNetwork={() => {
+            setModal({ kind: 'add-network' })
+            closeCtxMenu()
+          }}
+          onAddPVC={() => {
+            setModal({ kind: 'add-pvc' })
+            closeCtxMenu()
+          }}
+          onAddBucket={() => {
+            setModal({ kind: 'add-bucket' })
+            closeCtxMenu()
+          }}
+          onAddVolume={() => {
+            setModal({ kind: 'add-volume' })
+            closeCtxMenu()
+          }}
+          onEdit={() => {
+            const k = ctxMenu.node?.type
+            if (k === 'Region') setModal({ kind: 'edit-region' })
+            else if (k === 'Cluster') setModal({ kind: 'edit-cluster' })
+            else if (k === 'vCluster') setModal({ kind: 'edit-vcluster' })
+            else if (k === 'NodePool') setModal({ kind: 'edit-nodepool' })
+            else if (k === 'WorkerNode') setModal({ kind: 'edit-worker-node' })
+            else if (k === 'LoadBalancer') setModal({ kind: 'edit-lb' })
+            else if (k === 'Network') setModal({ kind: 'edit-network' })
+            closeCtxMenu()
+          }}
           onDelete={() => {
             // Same Cloud-root → wipe rule as the detail panel.
-            if (ctxMenu.node?.type === 'Cloud') {
+            const k = ctxMenu.node?.type
+            if (k === 'Cloud') {
               setModal({ kind: 'wipe-deployment' })
-            } else {
+            } else if (k === 'Region' || k === 'Cluster' || k === 'vCluster') {
               setModal({ kind: 'delete' })
+            } else {
+              setModal({ kind: 'delete-simple' })
             }
             closeCtxMenu()
           }}
         />
       )}
 
-      {/* AddRegion is the only modal that can fire from an empty
-          canvas right-click — it doesn't need an anchor node. */}
+      {/* AddRegion + storage-class adds can fire from an empty canvas
+          right-click — they don't need a node anchor. */}
       {data && (
-        <AddRegionModal
-          open={modal.kind === 'add-region'}
-          deploymentId={deploymentId}
-          defaultProvider={inferDefaultProvider(data)}
-          onClose={() => setModal({ kind: 'none' })}
-        />
+        <>
+          <AddRegionModal
+            open={modal.kind === 'add-region'}
+            deploymentId={deploymentId}
+            defaultProvider={inferDefaultProvider(data)}
+            onClose={() => setModal({ kind: 'none' })}
+          />
+          <AddPVCModal
+            open={modal.kind === 'add-pvc'}
+            deploymentId={deploymentId}
+            storageClasses={inferStorageClasses(data)}
+            onClose={() => setModal({ kind: 'none' })}
+          />
+          <AddBucketModal
+            open={modal.kind === 'add-bucket'}
+            deploymentId={deploymentId}
+            onClose={() => setModal({ kind: 'none' })}
+          />
+          <AddVolumeModal
+            open={modal.kind === 'add-volume' && !modalAnchor}
+            deploymentId={deploymentId}
+            regionIds={allRegionIds(data)}
+            nodeIds={allNodeIds(data)}
+            onClose={() => setModal({ kind: 'none' })}
+          />
+          <AddNetworkModal
+            open={modal.kind === 'add-network' && !modalAnchor}
+            deploymentId={deploymentId}
+            regionIds={allRegionIds(data)}
+            onClose={() => setModal({ kind: 'none' })}
+          />
+        </>
       )}
 
       {/* All other CRUD modals require a node anchor — they're
           opened from the detail panel or a node-targeted context
           menu. */}
-      {data && modalAnchor && (
-        <>
-          {modalAnchor.type === 'Region' && (
-            <>
-              <AddClusterModal
-                open={modal.kind === 'add-cluster'}
-                deploymentId={deploymentId}
-                regionId={stripPrefix(modalAnchor.id, 'Region')}
-                regionProvider={
-                  (data.topology.regions.find(
-                    (r) => r.id === stripPrefix(modalAnchor.id, 'Region'),
-                  )?.provider as CloudProvider) ?? 'hetzner'
-                }
-                onClose={() => setModal({ kind: 'none' })}
-              />
-              <AddLBModal
-                open={modal.kind === 'add-lb'}
-                deploymentId={deploymentId}
-                regionId={stripPrefix(modalAnchor.id, 'Region')}
-                onClose={() => setModal({ kind: 'none' })}
-              />
-            </>
-          )}
-
-          {modalAnchor.type === 'Cluster' && (
-            <>
-              <AddVClusterModal
-                open={modal.kind === 'add-vcluster'}
-                deploymentId={deploymentId}
-                clusterId={stripPrefix(modalAnchor.id, 'Cluster')}
-                onClose={() => setModal({ kind: 'none' })}
-              />
-              <AddNodePoolModal
-                open={modal.kind === 'add-nodepool'}
-                deploymentId={deploymentId}
-                clusterId={stripPrefix(modalAnchor.id, 'Cluster')}
-                regionProvider={inferProviderForCluster(
-                  data,
-                  stripPrefix(modalAnchor.id, 'Cluster'),
+      {data && modalAnchor && (() => {
+        const lookup = lookupSpecForGraphNode(data, modalAnchor)
+        const closeModal = () => setModal({ kind: 'none' })
+        const stripped = stripPrefix(modalAnchor.id, modalAnchor.type)
+        return (
+          <>
+            {modalAnchor.type === 'Region' && (
+              <>
+                <AddClusterModal
+                  open={modal.kind === 'add-cluster'}
+                  deploymentId={deploymentId}
+                  regionId={stripped}
+                  regionProvider={lookup.provider}
+                  onClose={closeModal}
+                />
+                <AddLBModal
+                  open={modal.kind === 'add-lb'}
+                  deploymentId={deploymentId}
+                  regionId={stripped}
+                  onClose={closeModal}
+                />
+                <AddNetworkModal
+                  open={modal.kind === 'add-network'}
+                  deploymentId={deploymentId}
+                  regionIds={allRegionIds(data)}
+                  defaultRegionId={stripped}
+                  onClose={closeModal}
+                />
+                <AddVolumeModal
+                  open={modal.kind === 'add-volume'}
+                  deploymentId={deploymentId}
+                  regionIds={allRegionIds(data)}
+                  nodeIds={nodeIdsForRegion(lookup.parentRegion)}
+                  defaultRegionId={stripped}
+                  onClose={closeModal}
+                />
+                {lookup.region && (
+                  <EditRegionModal
+                    open={modal.kind === 'edit-region'}
+                    deploymentId={deploymentId}
+                    region={lookup.region}
+                    onClose={closeModal}
+                  />
                 )}
-                onClose={() => setModal({ kind: 'none' })}
-              />
-            </>
-          )}
+              </>
+            )}
 
-          <DeleteCascadeConfirm
-            open={modal.kind === 'delete'}
-            deploymentId={deploymentId}
-            resource={resourceForType(modalAnchor.type)}
-            resourceId={stripPrefix(modalAnchor.id, modalAnchor.type)}
-            resourceLabel={modalAnchor.label}
-            onClose={() => setModal({ kind: 'none' })}
-          />
-        </>
-      )}
+            {modalAnchor.type === 'Cluster' && (
+              <>
+                <AddVClusterModal
+                  open={modal.kind === 'add-vcluster'}
+                  deploymentId={deploymentId}
+                  clusterId={stripped}
+                  onClose={closeModal}
+                />
+                <AddNodePoolModal
+                  open={modal.kind === 'add-nodepool'}
+                  deploymentId={deploymentId}
+                  clusterId={stripped}
+                  regionProvider={inferProviderForCluster(data, stripped)}
+                  onClose={closeModal}
+                />
+                <AddWorkerNodeModal
+                  open={modal.kind === 'add-worker-node'}
+                  deploymentId={deploymentId}
+                  clusterId={stripped}
+                  regionProvider={inferProviderForCluster(data, stripped)}
+                  onClose={closeModal}
+                />
+                {lookup.cluster && (
+                  <EditClusterModal
+                    open={modal.kind === 'edit-cluster'}
+                    deploymentId={deploymentId}
+                    cluster={lookup.cluster}
+                    regionProvider={lookup.provider}
+                    onClose={closeModal}
+                  />
+                )}
+              </>
+            )}
+
+            {modalAnchor.type === 'vCluster' && lookup.vcluster && (
+              <EditVClusterModal
+                open={modal.kind === 'edit-vcluster'}
+                deploymentId={deploymentId}
+                vcluster={lookup.vcluster}
+                onClose={closeModal}
+              />
+            )}
+
+            {modalAnchor.type === 'NodePool' && lookup.pool && (
+              <EditNodePoolModal
+                open={modal.kind === 'edit-nodepool'}
+                deploymentId={deploymentId}
+                pool={lookup.pool}
+                regionProvider={lookup.provider}
+                onClose={closeModal}
+              />
+            )}
+
+            {modalAnchor.type === 'WorkerNode' && lookup.node && (
+              <EditWorkerNodeModal
+                open={modal.kind === 'edit-worker-node'}
+                deploymentId={deploymentId}
+                node={lookup.node}
+                regionProvider={lookup.provider}
+                onClose={closeModal}
+              />
+            )}
+
+            {modalAnchor.type === 'LoadBalancer' && lookup.lb && (
+              <EditLBModal
+                open={modal.kind === 'edit-lb'}
+                deploymentId={deploymentId}
+                lb={lookup.lb}
+                onClose={closeModal}
+              />
+            )}
+
+            {modalAnchor.type === 'Network' && lookup.network && (
+              <EditNetworkModal
+                open={modal.kind === 'edit-network'}
+                deploymentId={deploymentId}
+                network={lookup.network}
+                onClose={closeModal}
+              />
+            )}
+
+            {/* Cascade-aware delete (Region/Cluster/vCluster). */}
+            <DeleteCascadeConfirm
+              open={modal.kind === 'delete'}
+              deploymentId={deploymentId}
+              resource={resourceForType(modalAnchor.type)}
+              resourceId={stripped}
+              resourceLabel={modalAnchor.label}
+              onClose={closeModal}
+            />
+
+            {/* Standalone delete (NodePool / WorkerNode / LoadBalancer / Network). */}
+            {(() => {
+              const r = simpleDeleteResource(modalAnchor.type)
+              if (!r) return null
+              return (
+                <SimpleDeleteConfirm
+                  open={modal.kind === 'delete-simple'}
+                  deploymentId={deploymentId}
+                  resource={r}
+                  resourceId={stripped}
+                  resourceLabel={modalAnchor.label}
+                  resourceKind={modalAnchor.type}
+                  onClose={closeModal}
+                />
+              )
+            })()}
+          </>
+        )
+      })()}
 
       {/* Deployment-level Phase-0 wipe (issue #318). Reachable from the
           Cloud-root node's Delete action OR the canvas context menu's
@@ -1042,6 +1268,7 @@ interface DetailPanelProps {
   onClose: () => void
   onToggleFocus: () => void
   onAddChild: () => void
+  onEdit: () => void
   onDelete: () => void
   onPickNeighbor: (id: string) => void
 }
@@ -1053,6 +1280,7 @@ function DetailPanel({
   onClose,
   onToggleFocus,
   onAddChild,
+  onEdit,
   onDelete,
   onPickNeighbor,
 }: DetailPanelProps) {
@@ -1088,11 +1316,33 @@ function DetailPanel({
   // node's Delete is the deployment-level Cancel & Wipe (Phase-0 orphan
   // purge: tofu destroy + Hetzner direct-API force-purge + PDM release).
   // Region/Cluster/vCluster Delete goes through Crossplane XRC
-  // deletionPolicy (day-2 path, INVIOLABLE-PRINCIPLES.md #3). Both share
-  // the onDelete callback — the parent component branches on node.type
-  // to pick the right modal.
-  const deletable = ['Cloud', 'Region', 'Cluster', 'vCluster'].includes(node.type)
+  // deletionPolicy (day-2 cascade path, INVIOLABLE-PRINCIPLES.md #3).
+  // NodePool / WorkerNode / LoadBalancer / Network Delete goes through
+  // the SimpleDeleteConfirm path. Both share the onDelete callback —
+  // the parent component branches on node.type to pick the right modal.
+  const deletable = [
+    'Cloud',
+    'Region',
+    'Cluster',
+    'vCluster',
+    'NodePool',
+    'WorkerNode',
+    'LoadBalancer',
+    'Network',
+  ].includes(node.type)
   const deleteLabel = node.type === 'Cloud' ? 'Cancel & Wipe deployment' : `Delete ${node.type}`
+
+  // Edit affordance — every node type with a backing spec is editable.
+  // Cloud is excluded (no per-cloud config beyond the wipe action).
+  const editable = [
+    'Region',
+    'Cluster',
+    'vCluster',
+    'NodePool',
+    'WorkerNode',
+    'LoadBalancer',
+    'Network',
+  ].includes(node.type)
 
   return (
     <aside
@@ -1259,6 +1509,16 @@ function DetailPanel({
             {addChildLabel}
           </button>
         )}
+        {editable && (
+          <button
+            type="button"
+            data-testid={`infrastructure-detail-panel-action-edit-${node.type.toLowerCase()}`}
+            onClick={onEdit}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-left text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
+          >
+            {`Edit ${node.type}`}
+          </button>
+        )}
         {deletable && (
           <button
             type="button"
@@ -1284,7 +1544,13 @@ interface ContextMenuProps {
   onAddRegion: () => void
   onAddChild: () => void
   onAddNodePool: () => void
+  onAddWorkerNode: () => void
   onAddLB: () => void
+  onAddNetwork: () => void
+  onAddPVC: () => void
+  onAddBucket: () => void
+  onAddVolume: () => void
+  onEdit: () => void
   onDelete: () => void
 }
 
@@ -1294,7 +1560,13 @@ function ContextMenu({
   onAddRegion,
   onAddChild,
   onAddNodePool,
+  onAddWorkerNode,
   onAddLB,
+  onAddNetwork,
+  onAddPVC,
+  onAddBucket,
+  onAddVolume,
+  onEdit,
   onDelete,
 }: ContextMenuProps) {
   // Click-outside dismissal.
@@ -1322,22 +1594,45 @@ function ContextMenu({
   const items: { key: string; label: string; onClick: () => void; danger?: boolean }[] = []
   if (!state.node) {
     items.push({ key: 'add-region', label: '+ Add region', onClick: onAddRegion })
+    items.push({ key: 'add-pvc', label: '+ Add PVC', onClick: onAddPVC })
+    items.push({ key: 'add-bucket', label: '+ Add bucket', onClick: onAddBucket })
+    items.push({ key: 'add-volume', label: '+ Add volume', onClick: onAddVolume })
   } else {
-    if (state.node.type === 'Cloud') {
+    const t = state.node.type
+    if (t === 'Cloud') {
       items.push({ key: 'add-region', label: '+ Add region', onClick: onAddChild })
     }
-    if (state.node.type === 'Region') {
+    if (t === 'Region') {
       items.push({ key: 'add-cluster', label: '+ Add cluster', onClick: onAddChild })
       items.push({ key: 'add-lb', label: '+ Add load balancer', onClick: onAddLB })
+      items.push({ key: 'add-network', label: '+ Add network', onClick: onAddNetwork })
+      items.push({ key: 'add-volume', label: '+ Add volume', onClick: onAddVolume })
     }
-    if (state.node.type === 'Cluster') {
+    if (t === 'Cluster') {
       items.push({ key: 'add-vcluster', label: '+ Add vCluster', onClick: onAddChild })
       items.push({ key: 'add-nodepool', label: '+ Add node pool', onClick: onAddNodePool })
+      items.push({
+        key: 'add-worker-node',
+        label: '+ Add worker node',
+        onClick: onAddWorkerNode,
+      })
+      items.push({ key: 'add-pvc', label: '+ Add PVC', onClick: onAddPVC })
     }
-    if (['Region', 'Cluster', 'vCluster'].includes(state.node.type)) {
+    // Edit affordance — every node type with a backing spec is
+    // editable. Cloud has its own wipe-deployment flow.
+    if (['Region', 'Cluster', 'vCluster', 'NodePool', 'WorkerNode', 'LoadBalancer', 'Network'].includes(t)) {
+      items.push({
+        key: 'edit',
+        label: `Edit ${t}`,
+        onClick: onEdit,
+      })
+    }
+    // Delete affordance — every kind except Cloud (which becomes
+    // wipe-deployment in the parent).
+    if (t !== 'Cloud') {
       items.push({
         key: 'delete',
-        label: `Delete ${state.node.type}`,
+        label: `Delete ${t}`,
         onClick: onDelete,
         danger: true,
       })
@@ -1403,6 +1698,147 @@ function resourceForType(type: ArchNodeType): 'regions' | 'clusters' | 'vcluster
   if (type === 'Cluster') return 'clusters'
   if (type === 'vCluster') return 'vclusters'
   return 'regions'
+}
+
+/* ── Lookup helpers for Edit modals ──────────────────────────────── */
+
+interface SpecLookups {
+  region?: RegionSpec
+  cluster?: ClusterSpec
+  vcluster?: VClusterSpec
+  pool?: NodePoolSpec
+  node?: NodeSpec
+  lb?: LoadBalancerSpec
+  network?: NetworkSpec
+  pvc?: PVCItem
+  bucket?: BucketItem
+  volume?: VolumeItem
+  /** Provider used by the parent region — drives SKU pickers. */
+  provider: CloudProvider
+  /** Region of the matched element (when applicable). */
+  parentRegion?: RegionSpec
+}
+
+function lookupSpecForGraphNode(
+  data: HierarchicalInfrastructure,
+  node: GraphNode,
+): SpecLookups {
+  const id = stripPrefix(node.id, node.type)
+  const out: SpecLookups = { provider: 'hetzner' }
+  for (const region of data.topology.regions ?? []) {
+    if (node.type === 'Region' && region.id === id) {
+      out.region = region
+      out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+      out.parentRegion = region
+      return out
+    }
+    for (const cluster of region.clusters ?? []) {
+      if (node.type === 'Cluster' && cluster.id === id) {
+        out.cluster = cluster
+        out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+        out.parentRegion = region
+        return out
+      }
+      for (const vc of cluster.vclusters ?? []) {
+        if (node.type === 'vCluster' && vc.id === id) {
+          out.vcluster = vc
+          out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+          out.parentRegion = region
+          return out
+        }
+      }
+      for (const pool of cluster.nodePools ?? []) {
+        if (node.type === 'NodePool' && pool.id === id) {
+          out.pool = pool
+          out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+          out.parentRegion = region
+          return out
+        }
+      }
+      for (const wn of cluster.nodes ?? []) {
+        if (node.type === 'WorkerNode' && wn.id === id) {
+          out.node = wn
+          out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+          out.parentRegion = region
+          return out
+        }
+      }
+      for (const lb of cluster.loadBalancers ?? []) {
+        if (node.type === 'LoadBalancer' && lb.id === id) {
+          out.lb = lb
+          out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+          out.parentRegion = region
+          return out
+        }
+      }
+    }
+    for (const net of region.networks ?? []) {
+      if (node.type === 'Network' && net.id === id) {
+        out.network = net
+        out.provider = (region.provider as CloudProvider) ?? 'hetzner'
+        out.parentRegion = region
+        return out
+      }
+    }
+  }
+  return out
+}
+
+/** Map a graph node type to the DELETE resource segment. Used for the
+ *  SimpleDeleteConfirm path (non-cascade kinds). */
+function simpleDeleteResource(type: ArchNodeType):
+  | 'pools'
+  | 'nodes'
+  | 'loadbalancers'
+  | 'networks'
+  | null {
+  switch (type) {
+    case 'NodePool':
+      return 'pools'
+    case 'WorkerNode':
+      return 'nodes'
+    case 'LoadBalancer':
+      return 'loadbalancers'
+    case 'Network':
+      return 'networks'
+    default:
+      return null
+  }
+}
+
+/** Worker-node ids in the same parent region as a given lookup. */
+function nodeIdsForRegion(region: RegionSpec | undefined): string[] {
+  if (!region) return []
+  const ids: string[] = []
+  for (const c of region.clusters ?? []) {
+    for (const n of c.nodes ?? []) ids.push(n.id)
+  }
+  return ids
+}
+
+/** All region ids in the deployment. */
+function allRegionIds(data: HierarchicalInfrastructure): string[] {
+  return (data.topology.regions ?? []).map((r) => r.id)
+}
+
+/** Distinct storage classes seen in the topology — feeds the PVC
+ *  Add modal. Falls back to ["default"] when the topology hasn't
+ *  surfaced any. */
+function inferStorageClasses(data: HierarchicalInfrastructure): string[] {
+  const set = new Set<string>()
+  for (const pvc of data.storage?.pvcs ?? []) set.add(pvc.storageClass)
+  return set.size > 0 ? Array.from(set).sort() : ['default']
+}
+
+/** All worker-node ids (across all regions). */
+function allNodeIds(data: HierarchicalInfrastructure): string[] {
+  const ids: string[] = []
+  for (const r of data.topology.regions ?? []) {
+    for (const c of r.clusters ?? []) {
+      for (const n of c.nodes ?? []) ids.push(n.id)
+    }
+  }
+  return ids
 }
 
 /* ── Edge type re-exports for callers that want the legend palette. */

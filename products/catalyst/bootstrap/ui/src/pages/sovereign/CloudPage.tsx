@@ -31,6 +31,7 @@ import { Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-
 import { useQuery } from '@tanstack/react-query'
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
+import { useK8sStream, type K8sObject } from '@/lib/useK8sStream'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
@@ -70,12 +71,29 @@ function inferCloudFromTopology(topology?: TopologyTree): CloudSpec[] {
 
 /* ── Shared infrastructure query context ───────────────────────── */
 
+/**
+ * Per ADR-0001 §5: every Cloud sub-page reads off ONE Indexer-fed
+ * source. The legacy `getHierarchicalInfrastructure` REST call
+ * remains as the cold-start seed (so a deep-link renders without
+ * waiting for SSE), and the K8s stream provides live updates from
+ * the catalyst-api's in-process Indexer (issue #321).
+ *
+ * `liveItems` is the flat array of K8s objects, `liveByKind` the same
+ * data grouped by short kind name. Sub-pages that consume cluster-
+ * native objects (Pod, Deployment, Server.hcloud, vCluster) read off
+ * the live source; the hierarchical `data` shape continues to drive
+ * the Architecture graph base layout.
+ */
 export interface CloudContextValue {
   deploymentId: string
   data: HierarchicalInfrastructure | null
   isLoading: boolean
   isError: boolean
   refetch: () => void
+  liveItems: K8sObject[]
+  liveByKind: Record<string, K8sObject[]>
+  liveLastEventAt: Date | null
+  liveStreaming: boolean
 }
 
 const CloudContext = createContext<CloudContextValue | null>(null)
@@ -212,6 +230,32 @@ export function CloudPage({
     }
   }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
 
+  // Live K8s stream — issue #321 data plane. The Sovereign id at this
+  // surface is the deploymentId (catalyst-api uses the deployment id
+  // as the Sovereign key when there's no explicit alias). We watch
+  // the kinds the Cloud surface renders: Pod / Deployment / Service
+  // for compute, Crossplane provider-hcloud projections for cloud
+  // resources, vCluster for tenancy. The stream is a noop in
+  // disableStream mode so the existing CloudPage tests keep working.
+  const k8sStream = useK8sStream({
+    sovereignId: deploymentId,
+    kinds: [
+      'pod',
+      'deployment',
+      'statefulset',
+      'service',
+      'persistentvolumeclaim',
+      'node',
+      'server.hcloud',
+      'loadbalancer.hcloud',
+      'network.hcloud',
+      'volume.hcloud',
+      'vcluster',
+    ],
+    initialState: false, // REST seeds; SSE delivers diff
+    disableStream,
+  })
+
   const ctx: CloudContextValue = useMemo(
     () => ({
       deploymentId,
@@ -219,8 +263,12 @@ export function CloudPage({
       isLoading: !initialDataOverride && topologyQuery.isLoading && !data,
       isError: topologyQuery.isError && !initialDataOverride,
       refetch: () => topologyQuery.refetch(),
+      liveItems: k8sStream.items,
+      liveByKind: k8sStream.byKind,
+      liveLastEventAt: k8sStream.lastEventAt,
+      liveStreaming: !k8sStream.isLoading && !k8sStream.isError,
     }),
-    [deploymentId, data, initialDataOverride, topologyQuery],
+    [deploymentId, data, initialDataOverride, topologyQuery, k8sStream],
   )
 
   const deployments = deploymentsOverride ?? deploymentsQuery.data ?? []

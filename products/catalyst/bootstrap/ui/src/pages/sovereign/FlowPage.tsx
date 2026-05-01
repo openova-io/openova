@@ -538,6 +538,29 @@ export function FlowPage({
   }, [provisioningStatus])
   const elapsedMs = earliestStarted === null ? 0 : Math.max(0, now - earliestStarted)
 
+  /* ── Canvas full-screen ──────────────────────────────────────── */
+
+  const [canvasFullScreen, setCanvasFullScreen] = useState<boolean>(false)
+  const toggleCanvasFullScreen = useCallback(() => {
+    setCanvasFullScreen((v) => !v)
+  }, [])
+  // Esc exits canvas full-screen — only when no LogPane is mounted
+  // ahead of us in the keydown listener stack. (LogPane attaches its
+  // own Esc listener at document level; React handles dispatch in
+  // mount order, so the LogPane's first-Esc takes priority. When the
+  // pane is dismissed, the canvas's listener takes over.)
+  useEffect(() => {
+    if (!canvasFullScreen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setCanvasFullScreen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [canvasFullScreen])
+
   /* ── Render ──────────────────────────────────────────────────── */
 
   const canvas = (
@@ -552,10 +575,39 @@ export function FlowPage({
     />
   )
 
+  const fullScreenButton = (
+    <button
+      type="button"
+      className="flow-fullscreen-btn"
+      data-testid="flow-fullscreen-btn"
+      aria-label={canvasFullScreen ? 'Exit canvas full-screen' : 'Canvas full-screen'}
+      aria-pressed={canvasFullScreen}
+      title={canvasFullScreen ? 'Exit full-screen (Esc)' : 'Full-screen canvas'}
+      onClick={toggleCanvasFullScreen}
+    >
+      {canvasFullScreen ? (
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+          <path d="M5 1 L5 5 L1 5 M9 1 L9 5 L13 5 M5 13 L5 9 L1 9 M9 13 L9 9 L13 9"
+                stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+          <path d="M1 5 L1 1 L5 1 M9 1 L13 1 L13 5 M13 9 L13 13 L9 13 M5 13 L1 13 L1 9"
+                stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  )
+
   const flowSurface = (
-    <div className="flow-surface" data-testid="flow-surface">
+    <div
+      className={`flow-surface${canvasFullScreen ? ' is-fullscreen' : ''}`}
+      data-testid="flow-surface"
+      data-canvas-fullscreen={canvasFullScreen ? 'true' : 'false'}
+    >
       <div className="flow-canvas-host" data-testid="flow-canvas-host">
         {canvas}
+        {fullScreenButton}
       </div>
     </div>
   )
@@ -643,6 +695,31 @@ const FLOW_PAGE_CSS = `
   max-height: none;
 }
 
+/* Canvas full-screen mode — overlays the entire viewport above
+   everything except the LogPane (which has z-index 60 by default
+   and 80 in its own full-screen mode). The canvas occupies 100vw /
+   100vh; the LogPane stays docked on top of it so the operator can
+   still tail logs in the wider canvas. The Esc key exits — the
+   FlowPage's keydown listener handles that. */
+.flow-surface.is-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  /* Sits ABOVE the LogPane (z=60 docked / z=80 own full-screen) so
+     the operator gets a true full-viewport canvas without the pane
+     covering 30% of the right edge. */
+  z-index: 90;
+  border-radius: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(2, 6, 15, 0.98);
+}
+
 .flow-canvas-host {
   position: relative;
   min-width: 0;
@@ -654,6 +731,11 @@ const FLOW_PAGE_CSS = `
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.flow-surface.is-fullscreen .flow-canvas-host {
+  border-radius: 0;
+  border: 0;
 }
 
 .flow-page-embedded .flow-canvas-host {
@@ -668,5 +750,37 @@ const FLOW_PAGE_CSS = `
   max-width: 100%;
   height: 100%;
   max-height: 100%;
+}
+
+/* Full-screen toggle button — sits in the top-right of the canvas
+   host, mirroring the LogPane's full-screen toggle so the two
+   surfaces feel symmetric. */
+.flow-fullscreen-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 50;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+.flow-fullscreen-btn:hover {
+  color: var(--color-text-strong);
+  border-color: var(--color-text-dim);
+  background: rgba(148, 163, 184, 0.10);
+}
+.flow-fullscreen-btn[aria-pressed='true'] {
+  color: var(--color-accent, #38BDF8);
+  border-color: var(--color-accent, #38BDF8);
+  background: rgba(56, 189, 248, 0.12);
 }
 `

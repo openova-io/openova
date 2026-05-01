@@ -133,6 +133,8 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     await expect(menu).toHaveAttribute('data-context-target', 'Cluster')
     await expect(page.getByTestId('cloud-architecture-context-add-vcluster')).toBeVisible()
     await expect(page.getByTestId('cloud-architecture-context-add-nodepool')).toBeVisible()
+    // #349 — every node kind also exposes Edit + Delete.
+    await expect(page.getByTestId('cloud-architecture-context-edit')).toBeVisible()
     await expect(page.getByTestId('cloud-architecture-context-delete')).toBeVisible()
   })
 

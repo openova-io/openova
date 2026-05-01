@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -8,8 +9,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
 func main() {
@@ -38,7 +43,43 @@ func main() {
 	}))
 
 	h := handler.New(log)
+
+	// K8s data-plane (issue #321) — informer cache + SSE + disk
+	// snapshot. Wired only when at least one kubeconfig is mountable;
+	// in test/CI without a real cluster the catalyst-api still
+	// serves every other endpoint and /healthz returns plain "ok"
+	// per the legacy contract.
+	ctx := context.Background()
+	homeCore := mustHomeCoreClient(log)
+	k8sFactory, err := k8scache.FactoryFromEnv(ctx, log, homeCore)
+	if err != nil {
+		log.Warn("k8scache: factory init failed; data plane disabled",
+			"err", err,
+		)
+	} else if k8sFactory != nil {
+		if err := k8sFactory.Start(ctx); err != nil {
+			log.Warn("k8scache: factory start failed; data plane disabled",
+				"err", err,
+			)
+		} else {
+			sar := k8scache.NewSARCache()
+			h.SetK8sCache(k8sFactory, sar, env("CATALYST_K8SCACHE_USER_HEADER", "X-Forwarded-User"))
+			log.Info("k8scache: data plane started",
+				"sovereigns", len(k8sFactory.Clusters()),
+			)
+		}
+	}
+
 	r.Get("/healthz", h.Health)
+	r.Handle("/metrics", promhttp.Handler())
+
+	// K8s data-plane endpoints — list + SSE stream + sync map per
+	// Sovereign cluster (issue #321). Per ADR-0001 §5 the catalyst-api
+	// is the consolidator; reads flow off the in-process Indexer,
+	// never directly from the apiserver.
+	r.Get("/api/v1/sovereigns/{id}/k8s/{kind}", h.HandleK8sList)
+	r.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
+	r.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
 	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
 	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
 	// SSH keypair generator — wizard's "auto-generate" Mode A path
@@ -122,11 +163,25 @@ func main() {
 	// they land Crossplane sits the claim Pending and the catalyst-api
 	// surfaces "Awaiting Composition for <kind>" in the audit log.
 	r.Post("/api/v1/deployments/{depId}/infrastructure/regions", h.CreateInfrastructureRegion)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/regions/{id}", h.PatchInfrastructureRegion)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/regions/{id}/clusters", h.CreateInfrastructureCluster)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/clusters/{id}", h.PatchInfrastructureCluster)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/vclusters", h.CreateInfrastructureVCluster)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/vclusters/{id}", h.PatchInfrastructureVCluster)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/pools", h.CreateInfrastructurePool)
 	r.Patch("/api/v1/deployments/{depId}/infrastructure/pools/{id}", h.PatchInfrastructurePool)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/nodes", h.CreateInfrastructureWorkerNode)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/nodes/{id}", h.PatchInfrastructureWorkerNode)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/loadbalancers", h.CreateInfrastructureLoadBalancer)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/loadbalancers/{id}", h.PatchInfrastructureLoadBalancer)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/networks", h.CreateInfrastructureNetwork)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/networks/{id}", h.PatchInfrastructureNetwork)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/pvcs", h.CreateInfrastructurePVC)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/pvcs/{id}", h.PatchInfrastructurePVC)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/buckets", h.CreateInfrastructureBucket)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/buckets/{id}", h.PatchInfrastructureBucket)
+	r.Post("/api/v1/deployments/{depId}/infrastructure/volumes", h.CreateInfrastructureVolume)
+	r.Patch("/api/v1/deployments/{depId}/infrastructure/volumes/{id}", h.PatchInfrastructureVolume)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/peerings", h.CreateInfrastructurePeering)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/firewalls/{id}/rules", h.CreateInfrastructureFirewallRule)
 	r.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
@@ -144,4 +199,31 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// mustHomeCoreClient returns a typed kubernetes.Interface for the
+// catalyst-api's own (home) cluster. Used to read the optional
+// kinds-registry ConfigMap. A nil return value disables ConfigMap
+// loading — the default kinds registry is sufficient.
+//
+// In production the catalyst-api Pod runs with a ServiceAccount that
+// has `get` on ConfigMaps in the catalyst namespace; out-of-cluster
+// (CI, smoke test) the in-cluster config build fails and we return
+// nil + a warn log.
+func mustHomeCoreClient(log *slog.Logger) kubernetes.Interface {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Info("k8scache: in-cluster config unavailable; kinds ConfigMap loading disabled",
+			"err", err,
+		)
+		return nil
+	}
+	c, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("k8scache: home core client build failed",
+			"err", err,
+		)
+		return nil
+	}
+	return c
 }

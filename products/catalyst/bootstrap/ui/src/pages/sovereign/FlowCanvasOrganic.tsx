@@ -528,19 +528,24 @@ function FlowNode({
   onDoubleClick,
 }: FlowNodeProps) {
   const tone = STATUS_TONE[node.status]
-  // Outer ring priority: selection (amber) > host (teal) > neighbour > status tone.
-  const outerRing = isOpen
+  // Inner ring priority — drawn on the bubble itself:
+  //   selection (amber) > neighbour (lighter amber) > status tone
+  // The host's teal ring is rendered SEPARATELY as a thicker outer
+  // halo so the host stays distinguishable even when it's also the
+  // currently-selected job (the original bug: amber selection
+  // overrode the teal host ring on the page's home job).
+  const innerRing = isOpen
     ? SELECTION_RING
-    : isHost
-      ? HOST_RING
-      : isNeighbor
-        ? NEIGHBOR_RING
+    : isNeighbor
+      ? NEIGHBOR_RING
+      : isHost
+        ? HOST_RING
         : tone.ring
   const familyColor = family?.color ?? 'rgba(148,163,184,0.55)'
   const radius = node.isGroup ? GROUP_RADIUS : NODE_RADIUS
   const grpStyle: CSSProperties = { cursor: 'grab' }
   const groupOpacity = isDimmed ? 0.35 : 1
-  const ringWidth = isOpen ? 4 : isHost ? 3.5 : isNeighbor ? 3 : 2
+  const innerWidth = isOpen ? 4 : isNeighbor ? 3 : isHost ? 3.5 : 2
 
   return (
     <g
@@ -563,18 +568,34 @@ function FlowNode({
       opacity={groupOpacity}
     >
       <title>
-        {`${node.label} — ${tone.label}${node.subLabel ? ` · ${node.subLabel}` : ''}`}
+        {`${node.label} — ${tone.label}${isHost ? ' · home' : ''}${node.subLabel ? ` · ${node.subLabel}` : ''}`}
       </title>
 
-      {/* Glow underlay — strongest on selection, then host. */}
-      {isOpen ? (
+      {/* Glow underlay — host wins (teal) when also selected so the
+          home node always reads as the page anchor. Otherwise:
+          selection > neighbour > status. */}
+      {isHost ? (
+        <circle r={radius + 12} fill="rgba(20,184,166,0.30)" />
+      ) : isOpen ? (
         <circle r={radius + 10} fill="rgba(251,191,36,0.30)" />
-      ) : isHost ? (
-        <circle r={radius + 10} fill="rgba(20,184,166,0.30)" />
       ) : isNeighbor ? (
         <circle r={radius + 8} fill="rgba(252,211,77,0.18)" />
       ) : node.status === 'running' || node.status === 'failed' ? (
         <circle r={radius + 8} fill={tone.glow} />
+      ) : null}
+
+      {/* HOST halo — always rendered on the page's home job, sits
+          OUTSIDE the inner status/selection ring so it survives the
+          amber selection ring without being overdrawn. Extra-thick
+          stroke so it reads as a halo, not a regular ring. */}
+      {isHost ? (
+        <circle
+          r={radius + 6}
+          fill="none"
+          stroke={HOST_RING}
+          strokeWidth={3.5}
+          opacity={0.95}
+        />
       ) : null}
 
       {/* Family-coloured ring (thin) */}
@@ -586,12 +607,15 @@ function FlowNode({
         opacity={0.55}
       />
 
-      {/* Status fill + selection/host/neighbor ring overlay */}
+      {/* Status fill + selection / neighbour / status ring overlay
+          (the host's distinguishing teal ring is the halo above —
+          this inner ring keeps the operator informed about the
+          job's runtime status + currently-clicked state). */}
       <circle
         r={radius}
         fill={tone.fill}
-        stroke={outerRing}
-        strokeWidth={ringWidth}
+        stroke={innerRing}
+        strokeWidth={innerWidth}
       />
 
       {/* Status glyph or child-count badge */}

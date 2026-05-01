@@ -10,10 +10,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -26,6 +28,11 @@ import type {
   RegionSpec,
   TopologyStatus,
 } from '@/lib/infrastructure.types'
+import {
+  AddLBModal,
+  EditLBModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
 
 interface LBRow {
   id: string
@@ -95,6 +102,14 @@ export function LoadBalancersPage() {
   })
 
   const [openRow, setOpenRow] = useState<LBRow | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<LBRow | null>(null)
+  const [deleteRow, setDeleteRow] = useState<LBRow | null>(null)
+
+  const regionIds = useMemo(
+    () => (data?.topology.regions ?? []).map((r) => r.id),
+    [data],
+  )
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -105,6 +120,8 @@ export function LoadBalancersPage() {
         tagline="Cloud-provisioned LBs fronting clusters; one row per LB across all regions."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New load balancer"
+        onNew={regionIds.length > 0 ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -144,12 +161,13 @@ export function LoadBalancersPage() {
                   <SortableTH testId={`${TEST_ID}-th-listeners`} column="listeners" label="Listeners" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-targets`} column="targets" label="Targets" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No load balancers match the current filters.
                     </td>
                   </tr>
@@ -169,6 +187,13 @@ export function LoadBalancersPage() {
                         <td className="cloud-list-cell cloud-list-cell-mono">{formatListeners(row.lb)}</td>
                         <td className="cloud-list-cell">{`${healthy}/${total}`}</td>
                         <td className="cloud-list-cell"><StatusPill status={row.lb.status} /></td>
+                        <td className="cloud-list-cell">
+                          <RowActionsMenu
+                            testId={`${TEST_ID}-row-${row.id}`}
+                            onEdit={() => setEditRow(row)}
+                            onDelete={() => setDeleteRow(row)}
+                          />
+                        </td>
                       </tr>
                     )
                   })
@@ -194,6 +219,17 @@ export function LoadBalancersPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Name" value={openRow.lb.name} />
             <DetailRow label="ID" value={openRow.lb.id} mono />
             <DetailRow label="Public IP" value={openRow.lb.publicIP} mono />
@@ -209,6 +245,35 @@ export function LoadBalancersPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      {regionIds.length > 0 && (
+        <AddLBModal
+          open={addOpen}
+          deploymentId={deploymentId}
+          regionId={regionIds[0]!}
+          regionIdChoices={regionIds}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editRow && (
+        <EditLBModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          lb={editRow.lb}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="loadbalancers"
+          resourceId={deleteRow.lb.id}
+          resourceLabel={deleteRow.lb.name}
+          resourceKind="Load balancer"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }
