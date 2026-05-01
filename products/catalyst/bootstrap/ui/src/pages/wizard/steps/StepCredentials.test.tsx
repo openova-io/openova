@@ -250,6 +250,119 @@ describe('Mode B: paste existing public key', () => {
   })
 })
 
+/* ── ObjectStorage region auto-default (issue #473) ──────────────── */
+
+describe('ObjectStorageSection — auto-default region from Region 1 cloud-region', () => {
+  it('pre-selects fsn1 on first render when Region 1 cloud-region is fsn1 and objectStorageRegion is empty', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      regionCloudRegions: { 0: 'fsn1' },
+      // objectStorageRegion left empty — the auto-default must fill it
+      objectStorageRegion: '',
+      objectStorageAccessKey: '',
+      objectStorageSecretKey: '',
+      objectStorageValidated: false,
+    })
+
+    render(<StepCredentials />)
+
+    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
+    expect(screen.getByTestId('object-storage-region-fsn1').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('pre-selects nbg1 when Region 1 cloud-region is nbg1', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      regionCloudRegions: { 0: 'nbg1' },
+      objectStorageRegion: '',
+    })
+
+    render(<StepCredentials />)
+
+    expect(useWizardStore.getState().objectStorageRegion).toBe('nbg1')
+    expect(screen.getByTestId('object-storage-region-nbg1').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('pre-selects hel1 when Region 1 cloud-region is hel1', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      regionCloudRegions: { 0: 'hel1' },
+      objectStorageRegion: '',
+    })
+
+    render(<StepCredentials />)
+
+    expect(useWizardStore.getState().objectStorageRegion).toBe('hel1')
+    expect(screen.getByTestId('object-storage-region-hel1').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('falls back to fsn1 when Region 1 cloud-region is non-European (ash/hil) — Object Storage is EU-only', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      regionCloudRegions: { 0: 'ash' },
+      objectStorageRegion: '',
+    })
+
+    render(<StepCredentials />)
+
+    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
+  })
+
+  it('does NOT override a pre-existing objectStorageRegion value', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      // Region 1 says fsn1 but the operator had already committed to hel1.
+      // The auto-default must respect the existing choice and not clobber it.
+      regionCloudRegions: { 0: 'fsn1' },
+      objectStorageRegion: 'hel1',
+    })
+
+    render(<StepCredentials />)
+
+    expect(useWizardStore.getState().objectStorageRegion).toBe('hel1')
+    expect(screen.getByTestId('object-storage-region-hel1').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('lets the operator override the auto-default by clicking a different region button', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignPoolDomain: 'omani-works',
+      sovereignSubdomain: 'omantel',
+      regionProviders: { 0: 'hetzner' },
+      regionCloudRegions: { 0: 'fsn1' },
+      objectStorageRegion: '',
+    })
+
+    render(<StepCredentials />)
+    // After mount the auto-default has set fsn1.
+    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
+
+    fireEvent.click(screen.getByTestId('object-storage-region-nbg1'))
+    expect(useWizardStore.getState().objectStorageRegion).toBe('nbg1')
+  })
+})
+
 /* ── isValidSSHPublicKey unit ────────────────────────────────────── */
 
 describe('isValidSSHPublicKey', () => {
