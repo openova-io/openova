@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle, RotateCw, Copy, KeyRound, Download, Sparkles, ClipboardPaste, ShieldAlert } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import { resolveSovereignDomain, isValidSSHPublicKey, type CloudProvider } from '@/entities/deployment/model'
@@ -397,6 +397,37 @@ function ObjectStorageSection() {
   )
   const [failure, setFailure] = useState<FailureDetail | null>(null)
 
+  /**
+   * Auto-default the Object Storage region from Region 1's cloud-region
+   * (issue #473) — Phase-8a-preflight first live provision (deployment
+   * febeeb888debf477) caught the operator clicking 'Validate' before
+   * picking a region: the S3 ListBuckets call succeeded (regionless),
+   * but the deployment-create POST failed server-side with
+   * `object storage region is required`.
+   *
+   * Behaviour:
+   *   • Only sets when objectStorageRegion is empty (operator override
+   *     via the fsn1/nbg1/hel1 buttons is preserved — we never clobber
+   *     a value the user already picked).
+   *   • Mirrors the Region 1 cloud-region verbatim when it's one of
+   *     fsn1/nbg1/hel1 (the European-only S3 zones).
+   *   • Falls back to 'fsn1' when Region 1 is non-European (ash/hil) —
+   *     Object Storage is European-only as of 2026-04 and Velero/Harbor
+   *     are latency-tolerant on the async backup path (model.ts §160).
+   *   • Runs once on mount; the regionCloudRegions[0] read is intentional
+   *     (operators flip between Region 1 providers in StepProvider before
+   *     reaching StepCredentials, so we capture the value at section
+   *     mount time, not on every Region-1 change).
+   */
+  useEffect(() => {
+    if (store.objectStorageRegion) return
+    const region1 = store.regionCloudRegions[0]
+    const matched: 'fsn1' | 'nbg1' | 'hel1' =
+      region1 === 'nbg1' || region1 === 'hel1' ? region1 : 'fsn1'
+    store.setObjectStorageRegion(matched)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const region = store.objectStorageRegion || 'fsn1'
   const accessKey = store.objectStorageAccessKey
   const secretKey = store.objectStorageSecretKey
@@ -544,6 +575,8 @@ function ObjectStorageSection() {
               <button
                 key={r}
                 type="button"
+                data-testid={`object-storage-region-${r}`}
+                aria-pressed={region === r}
                 onClick={() => handleRegionChange(r)}
                 style={{
                   padding: '6px 12px',
