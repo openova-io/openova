@@ -169,9 +169,8 @@ flowchart TB
     T392 --> T370
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
-    class T338,T392 done
-    class T371,T387 wip
-    class T370 blocked
+    class T338,T387,T392 done
+    class T370,T371 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
@@ -334,15 +333,14 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 
 | Ticket | Status | PR(s) | Deployed-SHA evidence |
 |---|---|---|---|
-| #338 | 🟢 merged (`catalyst-cluster-reconciler` ClusterRoleBinding overlay) | #393 → `05cb39c0` | bp-flux 1.1.3 |
+| #338 | 🟢 chart-released (catalyst-cluster-reconciler ClusterRoleBinding overlay); Sovereign-impact deferred to first omantel run (bp-flux is cloud-init bootstrapped, not Flux-reconciled on contabo) | #393 → `05cb39c0` | bp-flux 1.1.3 published |
 | #316 | (pending) | | |
 | #317 | (pending) | | |
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
-| #370 | 🔴 blocked (was reframed; gate cleared by #392 — re-dispatchable) | (PR #391 closed) | |
-| #371 | 🟡 in-progress (Agent #371-RESUME) | | |
-| #392 | 🟢 merged — `Purge` now filters by `catalyst.openova.io/sovereign=<fqdn>` matching Tofu emit | #397 → `aa8ed4e7` | catalyst-api built |
+| #371 | 🟡 in-progress (Agent #371-RESUME) — Hetzner Object Storage credential pattern via Phase-0 OpenTofu | | |
+| #392 | ✅ DoD-met — code shipped (#397, `aa8ed4e7`), catalyst-api:aa8ed4e7 deployed, behavior-verified by fake-Hetzner E2E test (PR #399, `0904f54a`); regression sentinel pins label-key against future drift | #397 + #399 | catalyst-api:aa8ed4e7 + 2 e2e tests passing |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
 | #375 | (parked) | | |
@@ -356,4 +354,5 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
-| #387 | ✅ done (Agent #387-RESTART) — per-Sovereign Cilium Gateway + Certificate authored in 01-cilium.yaml; HTTPRoute templates + values overlays for bp-keycloak / bp-gitea / bp-openbao / bp-grafana / bp-harbor / bp-powerdns / bp-catalyst-platform; all server-side dry-run validated | | |
+| #387 | 🟢 chart-released — per-Sovereign Gateway + Certificate in 01-cilium.yaml; HTTPRoute templates for keycloak/gitea/openbao/grafana/harbor/powerdns/catalyst-platform. Initial blueprint-release failed on default-values render (`fail` in templates); follow-up #402 (`a1bd5502`) switched to `if host { emit }` pattern; blueprint-release re-ran SUCCESS on `a1bd5502`. Sovereign-impact deferred to Phase 8. | #401 + #402 | bp-* charts published; contabo legacy 200 verified |
+| #370 | 🟢 unblocked by #392; bp-flux RBAC fix in place; runbook scope superseded by `wipe.go` end-to-end working (proven via #399 e2e). Open as backlog if a "purge orphans not tied to a deployment" endpoint is later needed. | (PR #391 closed) | |
