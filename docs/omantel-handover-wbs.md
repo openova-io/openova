@@ -356,7 +356,7 @@ DoD execution checklist:
 
 These are real future work but **not in the minimal omantel handover**:
 
-- **#320 IAM family** (#322, #323, #324, #325, #326): Bastion + pod console + UserAccess editor. Sovereign owner uses static admin kubeconfig in the minimal. Adds Day-2 enrichment.
+- **#320 IAM family** (#322, #323, #324, #325): Bastion + pod console + UserAccess editor. Sovereign owner uses static admin kubeconfig in the minimal. Adds Day-2 enrichment. (#326 was carved out and shipped — k3s api-server OIDC validator + Keycloak `kubectl` realm — so customer admins authenticate kubectl directly against the per-Sovereign Keycloak from Phase 8 onwards. See §11.)
 - **#37**: Catalyst docs overhaul.
 - **#264, #265**: bp-knative, bp-kserve — W2.K4 batch.
 - **#109** (private): Cart-during-initial silent loss — SME-side legacy bug.
@@ -404,6 +404,7 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #428 | 🟢 done — CI vendor-coupling guardrail. Mode-gate auto-flips warn-only → hard-fail when `internal/objectstorage/` directory lands (i.e. once #425 merges). Pre-#425: 49 WARN lines on existing hetzner-coupled refs, exit 0. Post-#425: any future re-introduction of vendor coupling fails CI on push or PR. | [#431](https://github.com/openova-io/openova/pull/431) merged `0fdd411e` | scripts/check-vendor-coupling.sh + .github/workflows/check-vendor-coupling.yaml |
 | #429 | 🟢 scaffold-shipped — Phase 8 DoD spec authored at `tests/e2e/playwright/tests/omantel-handover.spec.ts` (mirrors canonical `sovereign-wizard.spec.ts` shape; reuses `_helpers.ts:reachable()`); 6 `test()` blocks 1:1 with §10 acceptance bullets (sovereign Ready+23/23, bp-* HRs Ready, catalyst-platform self-host, vendor-agnostic Object Storage Secret per #425, dig +trace ends at omantel NS, zero contabo dependency). Self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` unset. Workflow `.github/workflows/omantel-e2e-handover.yaml` is `workflow_dispatch:` only (no cron, per CLAUDE.md). Executes against live omantel only after Phase 4/6/7 land. | [#432](https://github.com/openova-io/openova/pull/432) merged `1e7d1e67` | spec + workflow scaffold; live execution gated on Phase 4/6/7 |
 | #430 | 🟢 done (audit-only) — `.github/workflows/*.yaml` swept; 0 cron triggers found across 18 workflow files; already compliant. No PR needed. | (no PR — already-compliant audit) | audit-only verification |
+| #326 | 🟢 chart + cloud-init shipped — k3s api-server now boots with 6 `--kube-apiserver-arg=oidc-*` flags pointing at `https://auth.${SOVEREIGN_FQDN}/realms/sovereign` (issuer composed from `sovereign_fqdn` per INVIOLABLE-PRINCIPLES #4); bp-keycloak chart bumped 1.1.2 → 1.2.0 with `keycloakConfigCli.enabled=true` + inline `sovereign-realm.json` carrying realm `sovereign`, default groups `sovereign-admins/-ops/-viewers`, `groups` claim mapper, and a public `kubectl` OIDC client with `http://localhost:8000` redirect URI (kubectl-oidc-login default). Realm import runs as the upstream chart's existing post-install/post-upgrade Helm hook Job (canonical seam — no bespoke kubectl-exec script). New chart test `tests/oidc-kubectl-client.sh` (4 cases) green; existing `tests/observability-toggle.sh` still green. Bootstrap-kit slot 09 bumped to `version: 1.2.0` in `_template/`, `omantel.omani.works/`, `otech.omani.works/`. Documentation: §11 "kubectl OIDC for customer admins" runbook section added. NO catalyst-api or UI code touched (those are #322/#323 territories). Live execution against omantel deferred to Phase 8. | (this PR) | bp-keycloak:1.2.0 chart-shipped; cloud-init flags rendered |
 
 ## 10. Phase 8 acceptance criteria (executable DoD)
 
@@ -417,4 +418,83 @@ The Phase 8 acceptance bullets below are 1:1 with `tests/e2e/playwright/tests/om
 6. **Zero contabo dependency** — over a 5-minute window with NO calls to contabo's catalyst-api, omantel's `/api/healthz` keeps returning 200 (every probe). Live Phase 8 run extends `FAULT_INJECT_PROBES=300` (5 min × 1Hz); scaffold uses 5 probes for fast feedback.
 
 The spec self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` env vars are unset, so it never breaks routine local Playwright runs on contabo. Live execution is on-demand via `workflow_dispatch` — no `schedule:` cron, per CLAUDE.md "every workflow MUST be event-driven".
+
+## 11. kubectl OIDC for customer admins (issue #326)
+
+Every Sovereign K8s api-server is wired to validate id-tokens issued by its own per-Sovereign Keycloak realm `sovereign`. Customer admins authenticate `kubectl` against Keycloak — no static admin kubeconfig handoff, no rotated bearer-token exchange.
+
+**Wiring:**
+
+| Surface | Source of truth |
+|---|---|
+| k3s api-server `--oidc-*` flags | `infra/hetzner/cloudinit-control-plane.tftpl` (rendered at provisioning time, baked into the systemd unit) |
+| Keycloak `sovereign` realm + `kubectl` OIDC client | `platform/keycloak/chart/values.yaml` `keycloak.keycloakConfigCli.configuration` (imported by the upstream `keycloak-config-cli` post-install Job) |
+
+The realm name is invariant per Sovereign (`sovereign`); only the issuer host differs (`https://auth.<sovereign-fqdn>/realms/sovereign`). Keycloak resolves the issuer claim from the request hostname automatically — no per-Sovereign realm rename is needed.
+
+**Customer-admin setup (one-time per workstation):**
+
+```bash
+# 1. Install kubectl-oidc-login plugin (required — k3s api-server only
+#    speaks OIDC, not Keycloak's password grant directly).
+kubectl krew install oidc-login
+
+# 2. Wire kubectl to the Sovereign + the Keycloak realm.
+kubectl config set-cluster <sovereign-id> \
+    --server=https://api.<sovereign-fqdn>:6443
+kubectl config set-credentials <user>@oidc \
+    --exec-api-version=client.authentication.k8s.io/v1beta1 \
+    --exec-command=kubectl \
+    --exec-arg=oidc-login \
+    --exec-arg=get-token \
+    --exec-arg=--oidc-issuer-url=https://auth.<sovereign-fqdn>/realms/sovereign \
+    --exec-arg=--oidc-client-id=kubectl
+kubectl config set-context <sovereign-id>-<user> \
+    --cluster=<sovereign-id> --user=<user>@oidc
+kubectl config use-context <sovereign-id>-<user>
+
+# 3. First call opens the browser, walks the Keycloak login page, and
+#    redirects to http://localhost:8000 with the auth-code. Subsequent
+#    calls reuse the cached id-token until expiry (15 min default,
+#    refresh good for 8h).
+kubectl get pods --all-namespaces
+```
+
+**Sovereign-admin setup (cluster-side RBAC, ONE-time per Sovereign):**
+
+The customer admin's first user lives in the realm's `sovereign-admins` group. Bind that group to a ClusterRole (`cluster-admin` for the bootstrap admin, scoped Roles thereafter):
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sovereign-admins-cluster-admin
+subjects:
+  - kind: Group
+    name: oidc:sovereign-admins   # `oidc:` prefix matches --oidc-groups-prefix
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+```
+
+For per-user binding, the subject is `oidc:<preferred_username>` (e.g. `oidc:alice@org`) — the api-server's `--oidc-username-prefix=oidc:` flag prepends that namespace so OIDC subjects never collide with local ServiceAccounts or x509 certificates.
+
+**Debugging "401 from api-server":**
+
+| Symptom | Likely root cause |
+|---|---|
+| `error: You must be logged in to the server (Unauthorized)` after a fresh login | Token not yet present in cache — re-run `kubectl` once; the auth-code grant only kicks off when no cached token exists |
+| `error: ...invalid bearer token, oidc: ID Token issued at...` | Issuer URL mismatch — confirm `--oidc-issuer-url` on the api-server matches `https://auth.<sovereign-fqdn>/realms/sovereign` exactly, character-for-character |
+| `error: ...verifier: invalid issuer (got https://..., expected https://...)` | Keycloak chart's hostname (`gateway.host`) is wrong; check `clusters/<sovereign-fqdn>/bootstrap-kit/09-keycloak.yaml` matches `auth.<sovereign-fqdn>` |
+| 200 from api-server but `Forbidden` on every resource | RBAC is missing — bind `oidc:sovereign-admins` (or the user's group) to a Role/ClusterRole as above |
+
+**What's NOT yet shipped (open for follow-up tickets, post-MVP):**
+
+- Per-Sovereign user provisioning UI (#322 / #323 territory) — for now, customer admins create users via the Keycloak admin console at `https://auth.<sovereign-fqdn>/admin/master/console/`.
+- Refresh-token revocation hook on RoleBinding deletion (#324).
+- `provider-kubernetes` Crossplane ProviderConfig per Sovereign (#321).
+
+These are post-handover enhancements; the api-server-side OIDC validator is sufficient for the omantel handover Phase 8 DoD.
 

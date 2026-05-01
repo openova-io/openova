@@ -38,11 +38,6 @@ keycloak:
     registry: docker.io
     repository: bitnamilegacy/keycloak
     tag: 26.3.3-debian-12-r0
-  keycloakConfigCli:
-    image:
-      registry: docker.io
-      repository: bitnamilegacy/keycloak-config-cli
-      tag: 6.4.0-debian-12-r11
   postgresql:
     enabled: true
     auth:
@@ -67,6 +62,136 @@ keycloak:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 2Gi }
+  # ─── keycloak-config-cli: Sovereign realm + kubectl OIDC client (issue #326) ──
+  #
+  # Bootstrap a `sovereign` realm with a public OIDC client `kubectl` so
+  # customer admins on the Sovereign can authenticate `kubectl` against
+  # the per-Sovereign K8s api-server (k3s --kube-apiserver-arg=oidc-* in
+  # infra/hetzner/cloudinit-control-plane.tftpl). The k3s api-server
+  # validates id-tokens issued by `https://auth.<sovereign-fqdn>/realms/
+  # sovereign`, so the realm name is invariant per Sovereign — only the
+  # issuer hostname differs (Keycloak resolves the issuer claim from the
+  # request hostname automatically; no per-Sovereign realm rename needed).
+  #
+  # Why this is the canonical seam:
+  #   The bitnami/keycloak chart ships a post-deploy Job
+  #   (templates/keycloak-config-cli-job.yaml) that consumes
+  #   `keycloakConfigCli.configuration` as a ConfigMap and runs upstream
+  #   `keycloak-config-cli` against the Keycloak Admin API to import the
+  #   realm. This is the upstream-supported, idempotent realm-import
+  #   mechanism — re-running the Helm install on the same release is a
+  #   no-op once the realm exists. Per anti-duplication rule + ADR-0001
+  #   §11.3 we MUST NOT replace this with a bespoke kubectl-exec script
+  #   or a custom Admin-API call from catalyst-api.
+  #
+  # `kubectl` client shape:
+  #   - publicClient: true (no client secret — kubectl runs locally)
+  #   - standardFlowEnabled: true (browser auth-code → localhost:8000)
+  #   - directAccessGrantsEnabled: true (allows resource-owner password
+  #     grant for non-interactive CI/CD use; customer admins can disable)
+  #   - redirectUris: ["http://localhost:8000/*", "urn:ietf:wg:oauth:2.0:oob"]
+  #     (kubectl-oidc-login default callback + out-of-band fallback)
+  #   - protocolMappers: include `groups` claim in id-token so api-server
+  #     can apply group-based RoleBindings (oidc:<group> prefix per
+  #     k3s --oidc-groups-prefix flag)
+  keycloakConfigCli:
+    enabled: true
+    # Run the realm-import Job as a Helm post-install hook so the realm
+    # is provisioned exactly once per fresh release. Re-run on upgrade
+    # is idempotent (config-cli reconciles the realm to spec).
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/keycloak-config-cli
+      tag: 6.4.0-debian-12-r11
+    configuration:
+      sovereign-realm.json: |
+        {
+          "realm": "sovereign",
+          "enabled": true,
+          "displayName": "Sovereign",
+          "sslRequired": "external",
+          "registrationAllowed": false,
+          "loginWithEmailAllowed": true,
+          "duplicateEmailsAllowed": false,
+          "resetPasswordAllowed": true,
+          "editUsernameAllowed": false,
+          "bruteForceProtected": true,
+          "accessTokenLifespan": 900,
+          "ssoSessionIdleTimeout": 1800,
+          "ssoSessionMaxLifespan": 28800,
+          "defaultGroups": [
+            "/sovereign-viewers"
+          ],
+          "groups": [
+            { "name": "sovereign-admins" },
+            { "name": "sovereign-ops" },
+            { "name": "sovereign-viewers" }
+          ],
+          "clientScopes": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "true"
+              },
+              "protocolMappers": [
+                {
+                  "name": "groups",
+                  "protocol": "openid-connect",
+                  "protocolMapper": "oidc-group-membership-mapper",
+                  "consentRequired": false,
+                  "config": {
+                    "full.path": "false",
+                    "id.token.claim": "true",
+                    "access.token.claim": "true",
+                    "claim.name": "groups",
+                    "userinfo.token.claim": "true"
+                  }
+                }
+              ]
+            }
+          ],
+          "clients": [
+            {
+              "clientId": "kubectl",
+              "name": "kubectl (per-Sovereign K8s api-server OIDC client)",
+              "description": "Public OIDC client used by customer admins to authenticate kubectl against the Sovereign's k3s api-server (issue #326).",
+              "enabled": true,
+              "publicClient": true,
+              "standardFlowEnabled": true,
+              "directAccessGrantsEnabled": true,
+              "implicitFlowEnabled": false,
+              "serviceAccountsEnabled": false,
+              "redirectUris": [
+                "http://localhost:8000",
+                "http://localhost:8000/*",
+                "urn:ietf:wg:oauth:2.0:oob"
+              ],
+              "webOrigins": [
+                "+"
+              ],
+              "defaultClientScopes": [
+                "web-origins",
+                "acr",
+                "profile",
+                "roles",
+                "email",
+                "groups"
+              ],
+              "optionalClientScopes": [
+                "address",
+                "phone",
+                "offline_access",
+                "microprofile-jwt"
+              ],
+              "attributes": {
+                "pkce.code.challenge.method": "S256",
+                "access.token.lifespan": "900"
+              }
+            }
+          ]
+        }
   # Metrics + ServiceMonitor + PrometheusRule — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
