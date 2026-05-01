@@ -137,7 +137,17 @@ locals {
   # operator's region choice, never hardcoded in cloudinit-control-plane.tftpl.
   object_storage_endpoint = "https://${var.object_storage_region}.your-objectstorage.com"
 
-  control_plane_cloud_init = templatefile("${path.module}/cloudinit-control-plane.tftpl", {
+  # Strip indent-0 and indent-2 YAML-block comment lines from the rendered
+  # cloud-init before passing it to Hetzner (32 KiB user_data limit per the
+  # hcloud API). The source template ships ~16 KB of documentation prose in
+  # comments — explanatory text for future readers, not operationally
+  # meaningful at boot. Indent-4+ comments live INSIDE heredoc `content: |`
+  # blocks (embedded shell scripts, kubeconfig fragments, etc.) and MUST
+  # be preserved. The RE2 regex below matches lines whose first 0-2 chars
+  # are spaces followed by `#` followed by anything-but-`!` (preserves
+  # shebangs in case they ever appear at indent 0-2). Phase-8a-preflight
+  # bug #5 surfaced the 32 KiB cap.
+  control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     sovereign_subdomain        = var.sovereign_subdomain
     org_name                   = var.org_name
@@ -199,16 +209,16 @@ locals {
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
     load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
-  })
+  }), "/(?m)^[ ]{0,2}#[^!].*\n/", "")
 
-  worker_cloud_init = templatefile("${path.module}/cloudinit-worker.tftpl", {
+  worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     k3s_version                = var.k3s_version
     k3s_token                  = local.k3s_token
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
-  })
+  }), "/(?m)^[ ]{0,2}#[^!].*\n/", "")
 }
 
 resource "hcloud_server" "control_plane" {
