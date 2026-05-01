@@ -31,6 +31,19 @@ export type ArchNodeType =
   | 'Network'
 
 /**
+ * Auto-100% density threshold (#348 item 1). Any node type with
+ * total < SMALL_TYPE_THRESHOLD is unaffected by the global density
+ * slider; always rendered fully unless its chip is explicitly
+ * disabled. Per-type density popover for small types is hidden — only
+ * the visibility toggle remains.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), this constant
+ * is the single source of truth referenced by both the page-level
+ * orchestrator and the test suite.
+ */
+export const SMALL_TYPE_THRESHOLD = 20
+
+/**
  * Edge relationship types. Containment is just one of these — the
  * founder spec verbatim: "forget about the containment, just show it
  * as another type of relation."

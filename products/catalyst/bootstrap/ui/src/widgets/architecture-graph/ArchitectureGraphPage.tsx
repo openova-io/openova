@@ -44,6 +44,7 @@ import {
   EDGE_DASHED,
   EDGE_STROKE,
   NODE_FILL,
+  SMALL_TYPE_THRESHOLD,
   type ArchEdgeType,
   type ArchNodeType,
   type GraphEdge,
@@ -59,7 +60,6 @@ const TUNABLE_TYPES: ArchNodeType[] = ['WorkerNode', 'NodePool', 'LoadBalancer',
 // const ALWAYS_FULL: ArchNodeType[] = ['Cloud', 'Region', 'Cluster', 'vCluster']
 
 const DEBOUNCE_MS = 400
-const SMALL_TYPE_THRESHOLD = 50
 const DEFAULT_GLOBAL_PCT = 50
 
 const ALL_EDGE_TYPES: ArchEdgeType[] = [
@@ -144,13 +144,31 @@ export function ArchitectureGraphPage({
     return () => clearTimeout(id)
   }, [hiddenTypes])
 
-  // Global slider — applies a percentage cap to every tunable type.
+  /**
+   * Derive whether a type is "small" (auto-100%). Small types skip
+   * the global slider entirely and render fully whenever their chip
+   * is active. The threshold (#348 item 1) is shared with the
+   * test suite via SMALL_TYPE_THRESHOLD.
+   */
+  function isSmallType(t: ArchNodeType): boolean {
+    const total = typeTotals.get(t) ?? 0
+    return total < SMALL_TYPE_THRESHOLD
+  }
+
+  // Global slider — applies a percentage cap to every tunable type
+  // with total >= SMALL_TYPE_THRESHOLD. Small types are always
+  // rendered at 100% (#348 item 1).
   function setGlobalDensity(pct: number) {
     setGlobalPct(pct)
     const next: Partial<Record<ArchNodeType, number | null>> = { ...typeCap }
     for (const t of TUNABLE_TYPES) {
       const total = typeTotals.get(t) ?? 0
       if (total === 0) continue
+      if (isSmallType(t)) {
+        // Small types: clear any cap so they render fully.
+        next[t] = null
+        continue
+      }
       next[t] = Math.max(0, Math.round((total * pct) / 100))
     }
     setTypeCap(next)
@@ -159,11 +177,13 @@ export function ArchitectureGraphPage({
   const effectiveTypeLimits = useMemo(() => {
     const out: Partial<Record<ArchNodeType, number>> = {}
     for (const t of TUNABLE_TYPES) {
+      if (isSmallType(t)) continue // small types always render at 100%
       const v = debouncedCap[t]
       if (typeof v === 'number') out[t] = v
     }
     return out
-  }, [debouncedCap])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedCap, typeTotals])
 
   /* ── 4. Search isolation ───────────────────────────────────── */
   const [search, setSearch] = useState('')
