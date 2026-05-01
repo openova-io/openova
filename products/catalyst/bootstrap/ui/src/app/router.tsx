@@ -1,5 +1,6 @@
 import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
+import { API_BASE } from '@/shared/config/urls'
 
 // Lazy page imports
 import { RootLayout } from './layouts/RootLayout'
@@ -24,6 +25,7 @@ import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
+import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -54,6 +56,54 @@ const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path:
 // Success (full-screen)
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
 
+/**
+ * Post-handover redirect (issue #319).
+ *
+ * After the handover finalisation flow (#317) stamps `adoptedAt` on the
+ * deployment record, the customer's Sovereign is operationally self-
+ * sufficient: they administer it through their own
+ * `console.<sovereign-fqdn>`, not through Catalyst-Zero anymore. The
+ * shell URL `console.openova.io/sovereign/<id>` therefore needs to
+ * redirect to the customer-side console once that flag is set.
+ *
+ * We only redirect on the bare `/provision/$deploymentId` URL — the
+ * deep-links (`/jobs`, `/cloud`, `/app/...`) keep rendering on
+ * Catalyst-Zero so the operator retains a post-mortem audit trail for
+ * the original provisioning run.
+ *
+ * Failure modes: a 404 from catalyst-api means the deployment was
+ * wiped — fall through to the page (which renders its own "deployment
+ * not found" surface). A network error means we render the page;
+ * better to surface stale info than block the operator.
+ */
+async function maybeRedirectToCustomerConsole(deploymentId: string): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}`, {
+      headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) return
+    const body = (await res.json()) as { adoptedAt?: string; sovereignFQDN?: string }
+    if (!body.adoptedAt || !body.sovereignFQDN) return
+    // Only redirect when both the finalisation flag AND a real FQDN are
+    // present. Per docs/INVIOLABLE-PRINCIPLES.md #4 the redirect target
+    // is derived from runtime data, never hardcoded.
+    const target = `https://console.${body.sovereignFQDN}/`
+    // Hard navigation — TanStack `redirect()` only handles in-app routes.
+    if (typeof window !== 'undefined') {
+      window.location.replace(target)
+      // Throw to abort the route resolution so AppsPage doesn't paint
+      // before the browser navigates.
+      throw new Error('redirecting to customer console')
+    }
+  } catch (err) {
+    // Re-throw the redirect-abort sentinel; swallow everything else
+    // (network errors fall through to render the local page).
+    if (err instanceof Error && err.message === 'redirecting to customer console') {
+      throw err
+    }
+  }
+}
+
 // Provision — Sovereign Admin landing surface, pixel-ported from
 // core/console/src/components/AppsPage.svelte (Deployments + Catalog
 // tabs + auto-fit card grid). Replaces the legacy DAG view + the
@@ -63,6 +113,9 @@ const provisionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId',
   component: AppsPage,
+  beforeLoad: async ({ params }) => {
+    await maybeRedirectToCustomerConsole(params.deploymentId)
+  },
 })
 
 // Per-Application detail page — pixel-ported from core/console
@@ -105,6 +158,18 @@ const provisionDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/dashboard',
   component: Dashboard,
+})
+
+// Sovereign self-decommission (issue #319). Reachable from the Sovereign
+// Admin Dashboard's Decommission link AND directly via deep-link from
+// the customer's own console.<sovereign-fqdn> after handover. POSTs to
+// the existing /api/v1/deployments/{id}/wipe endpoint with an optional
+// backup destination — the same canonical seam shared with the wizard's
+// pre-handover Cancel & Wipe flow.
+const provisionDecommissionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decommission/$deploymentId',
+  component: DecommissionPage,
 })
 
 /* ── Cloud (issue #350) ─────────────────────────────────────────
@@ -283,6 +348,7 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
+  provisionDecommissionRoute,
   provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,

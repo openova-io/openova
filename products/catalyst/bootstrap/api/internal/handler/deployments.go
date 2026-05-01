@@ -104,6 +104,20 @@ type Deployment struct {
 	pdmPoolDomain       string
 	pdmSubdomain        string
 
+	// AdoptedAt — set by the handover finalisation flow (issue #317) once
+	// the customer has accepted operational ownership of their Sovereign.
+	// Until set, console.openova.io/sovereign/<id> renders the normal
+	// Catalyst-Zero admin shell. Once set, the UI's beforeLoad redirect
+	// (issue #319) sends the operator to https://console.<sovereign-fqdn>
+	// instead — the customer's Sovereign is now self-sufficient and
+	// Catalyst-Zero retains only the minimum-retention surface (PDM
+	// allocation row + parent-zone NS delegation for pool subdomains).
+	//
+	// This field is the contract between #317 (writer) and #319
+	// (reader). #317's handover handler stamps it; #319's redirect +
+	// decommission UI consume it.
+	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
 	// kubeconfigBearerHash — hex-encoded SHA-256 of the 32-byte bearer
 	// token templated into the new Sovereign's cloud-init (issue #183).
 	// Persisted on the on-disk record so a Pod restart can still
@@ -216,6 +230,7 @@ func (d *Deployment) toRecord() store.Record {
 		PDMPoolDomain:        d.pdmPoolDomain,
 		PDMSubdomain:         d.pdmSubdomain,
 		KubeconfigBearerHash: d.kubeconfigBearerHash,
+		AdoptedAt:            d.AdoptedAt,
 	}
 }
 
@@ -258,6 +273,7 @@ func fromRecord(rec store.Record) *Deployment {
 		pdmPoolDomain:        rec.PDMPoolDomain,
 		pdmSubdomain:         rec.PDMSubdomain,
 		kubeconfigBearerHash: rec.KubeconfigBearerHash,
+		AdoptedAt:            rec.AdoptedAt,
 	}
 
 	// Kubeconfig file lost across restart → mark as failed. If the
@@ -541,6 +557,15 @@ func (d *Deployment) State() map[string]any {
 		if d.Result.Phase1FinishedAt != nil {
 			out["phase1FinishedAt"] = d.Result.Phase1FinishedAt.UTC().Format(time.RFC3339)
 		}
+	}
+	// adoptedAt — handover-finalisation flag (issue #317) lifted to the
+	// top level so the UI's beforeLoad redirect (issue #319) reads it
+	// without walking nested result fields. Nil until #317's handover
+	// handler stamps it; once set, the Sovereign is operationally
+	// self-sufficient and console.openova.io/sovereign/<id> redirects
+	// to console.<sovereign-fqdn>.
+	if d.AdoptedAt != nil {
+		out["adoptedAt"] = d.AdoptedAt.UTC().Format(time.RFC3339)
 	}
 	return out
 }

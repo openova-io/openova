@@ -90,6 +90,14 @@ type Record struct {
 	// the cloud-init runcmd is the only holder of the plaintext, and
 	// it is consumed in a single PUT then discarded.
 	KubeconfigBearerHash string `json:"kubeconfigBearerHash,omitempty"`
+
+	// AdoptedAt — handover-finalisation timestamp (issue #317 writes;
+	// issue #319 reads). Once set, the Sovereign is operationally self-
+	// sufficient; console.openova.io/sovereign/<id> redirects to the
+	// customer's own console.<sovereign-fqdn>. Persisted across Pod
+	// restarts so a redirect that should fire still fires after a
+	// catalyst-api roll.
+	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
 }
 
 // RedactedRequest is the on-disk projection of provisioner.Request with

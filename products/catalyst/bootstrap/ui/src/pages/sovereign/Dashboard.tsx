@@ -44,7 +44,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useRouter } from '@tanstack/react-router'
+import { useParams, useRouter, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ResponsiveContainer, Treemap } from 'recharts'
 
@@ -280,10 +280,23 @@ export function Dashboard({
       pageTitle="Dashboard"
       headerSlotRight={
         <div
-          className="text-right text-[11px] text-[var(--color-text-dim)]"
+          className="flex items-center gap-3 text-right text-[11px] text-[var(--color-text-dim)]"
           data-testid="dashboard-header-meta"
         >
           <div data-testid="dashboard-total-count">{totalCount} items</div>
+          {/* Decommission link (issue #319). Routes to the self-
+           *  decommission page; gated by typed-FQDN confirmation +
+           *  Hetzner-token re-prompt on the destination page. The link
+           *  is always visible — orphan-recovery and post-handover
+           *  decommission share the same surface. */}
+          <Link
+            to="/decommission/$deploymentId"
+            params={{ deploymentId }}
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-dim)] hover:border-rose-500 hover:text-rose-300 no-underline"
+            data-testid="dashboard-decommission-link"
+          >
+            Decommission
+          </Link>
         </div>
       }
     >
