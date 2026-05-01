@@ -82,7 +82,7 @@ spec:
   chart:
     spec:
       chart: bp-cert-manager-powerdns-webhook
-      version: 1.0.1
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager-powerdns-webhook

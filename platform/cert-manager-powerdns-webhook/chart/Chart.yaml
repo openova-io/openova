@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cert-manager-powerdns-webhook
-version: 1.0.1
+version: 1.0.2
 appVersion: "v2.5.5"
 description: |
   Catalyst-authored Blueprint chart wrapping the upstream
