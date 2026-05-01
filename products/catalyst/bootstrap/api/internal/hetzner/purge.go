@@ -2,8 +2,9 @@
 // path (issue #318). When `tofu destroy` either fails partway or has no
 // state to act against, the operator still needs a clean cloud account.
 // This file enumerates and force-deletes every Hetzner resource tagged
-// with the per-deployment label so the next provisioning round starts
-// from zero.
+// with the per-Sovereign label `catalyst.openova.io/sovereign=<fqdn>` so
+// the next provisioning round starts from zero. The label key is shared
+// with — and pinned by — the OpenTofu module at infra/hetzner/main.tf.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 (OpenTofu owns Phase 0): under
 // normal operation `tofu destroy` is the canonical purge path. This file
@@ -42,10 +43,26 @@ func (r PurgeReport) Total() int {
 	return len(r.Servers) + len(r.LoadBalancers) + len(r.Networks) + len(r.Firewalls) + len(r.SSHKeys)
 }
 
+// PurgeLabelKey is the canonical Hetzner-resource label that the OpenTofu
+// module at infra/hetzner/main.tf stamps on every resource it creates
+// (network, firewall, ssh-key, server, load-balancer). The value is the
+// Sovereign's fully-qualified domain (e.g. "omantel.omani.works"). This
+// constant exists so the filter is exercised by a regression test that
+// pins both sides of the contract — if either Tofu's emission OR purge.go
+// drifts, the test fails.
+const PurgeLabelKey = "catalyst.openova.io/sovereign"
+
+// FilterByLabel returns the Hetzner API `label_selector` query value for
+// the given key/value pair. Exposed so the regression test can pin the
+// exact wire format used against the Hetzner Cloud API.
+func FilterByLabel(key, value string) string {
+	return key + "=" + value
+}
+
 // Purge enumerates and deletes every Hetzner resource tagged with the
-// label `catalyst-deployment-id=<deploymentID>`. The OpenTofu module at
-// infra/hetzner/main.tf is responsible for setting this label on every
-// resource it creates; we filter on it here.
+// canonical label `catalyst.openova.io/sovereign=<sovereignFQDN>`. The
+// OpenTofu module at infra/hetzner/main.tf is responsible for setting
+// this label on every resource it creates; we filter on it here.
 //
 // progress is called for each successful delete with a human-readable
 // message ("deleted server otech-cp-1", "deleted lb otech-lb", …) so the
@@ -54,7 +71,7 @@ func (r PurgeReport) Total() int {
 // The purge is best-effort. A failure to delete one resource does not
 // abort the others; failures land in PurgeReport.Errors. The caller
 // decides whether non-zero errors are fatal.
-func Purge(ctx context.Context, token, deploymentID string, progress func(msg string)) (PurgeReport, error) {
+func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg string)) (PurgeReport, error) {
 	report := PurgeReport{}
 	if progress == nil {
 		progress = func(string) {}
@@ -62,11 +79,11 @@ func Purge(ctx context.Context, token, deploymentID string, progress func(msg st
 	if strings.TrimSpace(token) == "" {
 		return report, fmt.Errorf("hetzner token is empty")
 	}
-	if strings.TrimSpace(deploymentID) == "" {
-		return report, fmt.Errorf("deployment id is empty")
+	if strings.TrimSpace(sovereignFQDN) == "" {
+		return report, fmt.Errorf("sovereign fqdn is empty")
 	}
 
-	labelSelector := "catalyst-deployment-id=" + deploymentID
+	labelSelector := FilterByLabel(PurgeLabelKey, sovereignFQDN)
 
 	// Order matters: dependents first, then independents, so deletes succeed.
 	//   1. Servers reference networks + firewalls + ssh-keys → delete first.

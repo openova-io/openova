@@ -10,9 +10,9 @@
 //   2. Run `tofu destroy -auto-approve` against the per-deployment
 //      workdir. Idempotent — re-runs on partial state are safe.
 //   3. Run a Hetzner force-purge of any resources tagged with
-//      `catalyst-deployment-id=<id>` so anything tofu missed (or anything
-//      created out-of-band) is removed. Belt + braces; tofu destroy is
-//      the primary path, Hetzner API the safety net.
+//      `catalyst.openova.io/sovereign=<fqdn>` so anything tofu missed (or
+//      anything created out-of-band) is removed. Belt + braces; tofu
+//      destroy is the primary path, Hetzner API the safety net.
 //   4. Release the PDM allocation row (pool subdomain only). Best-effort:
 //      a PDM outage doesn't block local cleanup, the pool-domain-manager
 //      operator can force-release later via `pdm-cli` (#319).
@@ -180,7 +180,7 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	// when tofu destroy succeeded — catches resources tofu didn't track,
 	// e.g. a half-failed cloud-init that created a worker manually, or
 	// resources the operator created in the same project for testing).
-	purge, err := hetzner.Purge(tofuCtx, body.HetznerToken, id, func(msg string) {
+	purge, err := hetzner.Purge(tofuCtx, body.HetznerToken, dep.Request.SovereignFQDN, func(msg string) {
 		emit("wipe", "info", "hetzner: "+msg)
 	})
 	report.HetznerPurge = purge
