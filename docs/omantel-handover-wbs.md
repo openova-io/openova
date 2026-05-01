@@ -4,15 +4,34 @@
 |---|---|
 | **Parent epic** | [#369](https://github.com/openova-io/openova/issues/369) |
 | **Authoritative architecture** | [ADR-0001](adr/0001-catalyst-control-plane-architecture.md) |
-| **Definition of Done** | omantel.omani.works runs as a fully self-sufficient Sovereign Cloud on Hetzner with **zero contabo dependency** post-handover |
+| **Definition of Done** | omantel.omani.works runs as a fully self-sufficient Sovereign Cloud on Hetzner with **zero contabo dependency** post-handover, **proven by a live wipe → re-provision → handover → decommission cycle** |
 
 ---
 
+## 0. Truth-of-state — what "done" means here (READ FIRST)
+
+Per founder corrective 2026-05-01: **code-shipped is NOT done. Only behavior-verified on a deployed SHA against a real Hetzner Sovereign is done.**
+
+The labels used in §2 + §9 mean **exactly** this:
+
+| Label | Meaning | Counts as DoD-met? |
+|---|---|---|
+| 🟢 **chart-released** | OCI artifact published on GHCR; helm-template renders clean | ❌ NO |
+| 🟢 **chart-verified** | Above + smoke-installed individually in an isolated `<bp>-smoke` ns on contabo; reaches Ready=True | ❌ NO |
+| 🟢 **integration-tested** *(NEW — currently 0 blueprints qualify)* | Reconciled together with sibling blueprints in the bootstrap-kit chain on a fresh Sovereign | ❌ partial — gates DoD |
+| 🟢 **DoD-met** *(NEW — currently 0 tickets qualify)* | Behavior verified on a deployed SHA on `test.omani.works` or `omantel.omani.works`; the Phase-8 Playwright spec covering the relevant assertion passes live | ✅ YES |
+
+**Today, every "done" ticket in §9 is at chart-released or chart-verified level. Zero are integration-tested. Zero are DoD-met.** That is the gap between the current state and the omantel handover.
+
+The Phase-8 cycle (§5 Phase 8a / 8b / 8c) is what closes that gap. It cannot be parallelised across agents — it requires real Hetzner credit + operator action.
+
 ## 1. Goal
 
-Provision **omantel.omani.works** as the first fully self-sufficient Sovereign Cloud on Hetzner. Validate the wizard end-to-end. Complete the handover transition. Verify that killing catalyst-api on contabo for 5 minutes does not affect omantel.
+Provision **omantel.omani.works** as the first fully self-sufficient Sovereign Cloud on Hetzner. Validate the wizard end-to-end. Complete the handover transition. Verify that killing catalyst-api on contabo for 5 minutes does not affect omantel. **Prove the loop closes by wiping and re-provisioning the cluster smoothly.**
 
 The hard rule from ADR-0001 §9.4: the legacy SME demos (`console.openova.io/nova`, `marketplace.openova.io`, `admin.openova.io`) stay running and untouched throughout this work.
+
+**Out of this WBS (post-omantel scope):** epic [#320](https://github.com/openova-io/openova/issues/320) Sovereign IAM access plane (#322 UserAccess CRD ✅, #323 user-access editor ✅, #324 bastion provisioner ⏸ parked, #325 pod-exec console ⏸ parked, #326 kubectl OIDC ✅). Customer admins on omantel can use Keycloak credentials to log into the console after handover; #324/#325 are the heavy follow-on work for browser-shell convenience and are NOT a precondition for handover DoD.
 
 ## 2. Minimal Self-Sufficient Sovereign — 23 blueprints
 
@@ -20,31 +39,38 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 
 **Ingress on Sovereigns:** Cilium + Envoy + Gateway API (`gateway.networking.k8s.io/v1`). **No Traefik** — Traefik stays only on contabo for legacy nova/website demos per ADR-0001 §9.4. Migration audit tracked under [#387](https://github.com/openova-io/openova/issues/387).
 
-| # | Blueprint | Role | Today on contabo |
-|---|---|---|---|
-| 1 | `bp-cilium` | CNI / eBPF / **L7 ingress via Gateway API + Envoy** ([#387](https://github.com/openova-io/openova/issues/387) audit) | ✅ deployed (Gateway CRDs installed; Sovereign HTTPRoute migration pending) |
-| 2 | `bp-flux` | GitOps reconciler — pulls from Sovereign's own Gitea | ✅ deployed (gated on RBAC fix #338) |
-| 3 | `bp-cert-manager` | TLS issuance | ✅ deployed |
-| 4 | `bp-cert-manager-powerdns-webhook` | DNS-01 against Sovereign's own PowerDNS post-handover | 🟢 chart-released ([#373](https://github.com/openova-io/openova/issues/373)) |
-| 5 | `bp-sealed-secrets` | Git-committed encrypted secrets | ✅ deployed |
-| 6 | `bp-openbao` | Dynamic secrets, rotation, audit log | 🟢 chart-released ([#316](https://github.com/openova-io/openova/issues/316)) — bp-openbao 1.2.0 with Shamir+cloud-init auto-unseal flow |
-| 7 | `bp-external-secrets` | OpenBao → K8s Secret materialiser | 🟢 chart-released ([#331](https://github.com/openova-io/openova/issues/331)) — split into bp-external-secrets@1.1.0 (controller) + bp-external-secrets-stores@1.0.0 (CRs); resolves CRD-ordering install failure on otech |
-| 8 | `bp-cnpg` | Postgres operator | ✅ deployed |
-| 9 | `bp-valkey` | Redis-API cache | ✅ deployed |
-| 10 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | ✅ chart-verified ([#375](https://github.com/openova-io/openova/issues/375)) — bp-nats-jetstream 1.1.1 published, R=3 quorum smoke OK |
-| 11 | `bp-vcluster` | Per-tenant vCluster operator | ✅ deployed (3 active tenants) |
-| 12 | `bp-powerdns` | Authoritative DNS for the Sovereign's delegated subdomain (PDM + dnsdist included) | ✅ deployed |
-| 13 | `bp-gitea` | Sovereign-owned Git server — replaces github.com dependency | 🟢 chart verified ([#376](https://github.com/openova-io/openova/issues/376)) — smoke-installed Ready, HTTP /api/v1/version 200; bootstrap-kit slot 10 wired |
-| 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | 🟢 chart verified ([#377](https://github.com/openova-io/openova/issues/377)) — smoke-installed Ready, admin login OK; bootstrap-kit slot 09 wired |
-| 15 | `bp-spire` | Workload identity — service-to-service mTLS | ✅ chart-verified ([#382](https://github.com/openova-io/openova/issues/382)) — `bp-spire:1.1.4` published, smoke-installed Ready (server 2/2, agent 1/1, csi-driver 2/2), k8s_psat agent attestation confirmed; bootstrap-kit slot 06 wired |
-| 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | ✅ chart-verified ([#378](https://github.com/openova-io/openova/issues/378) closed as duplicate; v1.1.3 published, smoke-installed clean, bootstrap-kit wiring already in `_template`) |
-| 17 | `bp-crossplane-claims` | XRDs + Compositions for Sovereign-level claims | ⚠️ chart exists; [#327](https://github.com/openova-io/openova/issues/327) event-driven HR install in flight |
-| 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | 🟢 chart-released ([#383](https://github.com/openova-io/openova/issues/383)) |
-| 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | 🟢 chart-released v1.1.0 — Hetzner Object Storage backend wired to #371 secret via Flux `valuesFrom` ([#384](https://github.com/openova-io/openova/issues/384)); contabo install smoke-clean (pod Ready 48s); Hetzner-S3 E2E deferred to Phase 8 |
-| 20 | `bp-kyverno` | Admission policy | ✅ chart-verified ([#379](https://github.com/openova-io/openova/issues/379)) — `bp-kyverno:1.0.0` published; smoke-installed on contabo, all 4 controllers Ready in 81s; admission denial functionally verified (`nginx:latest` blocked, `nginx:1.27-alpine` admitted) |
-| 21 | `bp-trivy` | Image CVE scanning | ✅ chart-verified ([#380](https://github.com/openova-io/openova/issues/380); v1.0.0 published, smoke-installed clean on contabo, log4shell test pod yielded CVE-2021-44228 as CRITICAL — 386 vulns/15 critical, bootstrap-kit slot 30 wired in `_template/`, `omantel.omani.works/`, `otech.omani.works/`) |
-| 22 | `bp-grafana` | Grafana visualizer (Alloy/Loki/Mimir/Tempo are sibling slots 21-24) | ✅ chart-verified on contabo ([#381](https://github.com/openova-io/openova/issues/381)) |
-| 23 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | 🟢 chart-verified ([#385](https://github.com/openova-io/openova/issues/385)) |
+**Reading the columns honestly:**
+
+- **Chart status** — what's published + tested in isolation
+- **Reconcile-chain status** — has this blueprint been observed Ready=True alongside its siblings on a fresh Sovereign? **Currently UNKNOWN for all 23** (no Phase-8a dry run yet).
+
+| # | Blueprint | Role | Chart status | Reconcile-chain status |
+|---|---|---|---|---|
+| 1 | `bp-cilium` | CNI / eBPF / L7 ingress via Gateway API + Envoy ([#387](https://github.com/openova-io/openova/issues/387) audit) | 🟢 chart-released | ❓ unknown — never reconciled on a fresh Sovereign with HTTPRoute admission live |
+| 2 | `bp-flux` | GitOps reconciler — pulls from Sovereign's own Gitea | 🟢 chart-released ([#338](https://github.com/openova-io/openova/issues/338) RBAC fix on main) | ❓ unknown |
+| 3 | `bp-cert-manager` | TLS issuance | 🟢 chart-released | ❓ unknown — no live LE cert issued on a Sovereign |
+| 4 | `bp-cert-manager-powerdns-webhook` | DNS-01 against Sovereign's own PowerDNS post-handover | 🟢 chart-released ([#373](https://github.com/openova-io/openova/issues/373)) | ❓ unknown |
+| 5 | `bp-sealed-secrets` | Git-committed encrypted secrets | 🟢 chart-released | ❓ unknown |
+| 6 | `bp-openbao` | Dynamic secrets, rotation, audit log | 🟢 chart-released ([#316](https://github.com/openova-io/openova/issues/316)) — Shamir+cloud-init auto-unseal | ❓ unknown — auto-unseal flow never run on a fresh provision |
+| 7 | `bp-external-secrets` | OpenBao → K8s Secret materialiser | 🟢 chart-released ([#331](https://github.com/openova-io/openova/issues/331)) — split controller + stores | ❓ unknown |
+| 8 | `bp-cnpg` | Postgres operator | 🟢 chart-released | ❓ unknown |
+| 9 | `bp-valkey` | Redis-API cache | 🟢 chart-released | ❓ unknown |
+| 10 | `bp-nats-jetstream` | Event bus per ADR-0001 §9.2 B5 | 🟢 chart-verified — R=3 quorum smoke OK on contabo ([#375](https://github.com/openova-io/openova/issues/375)) | ❓ unknown |
+| 11 | `bp-vcluster` | Per-tenant vCluster operator | 🟢 chart-released | ❓ unknown |
+| 12 | `bp-powerdns` | Authoritative DNS + PDM + dnsdist | 🟢 chart-released | ❓ unknown — never observed serving a delegated subdomain on a Sovereign |
+| 13 | `bp-gitea` | Sovereign-owned Git server | 🟢 chart-verified — `bp-gitea:1.1.2` smoke OK ([#376](https://github.com/openova-io/openova/issues/376)) | ❓ unknown |
+| 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | 🟢 chart-verified — admin login OK + #326 kubectl OIDC client ([#377](https://github.com/openova-io/openova/issues/377), [#326](https://github.com/openova-io/openova/issues/326)) | ❓ unknown — kubectl OIDC flow never exercised live |
+| 15 | `bp-spire` | Workload identity — service-to-service mTLS | 🟢 chart-verified — k8s_psat attestation OK ([#382](https://github.com/openova-io/openova/issues/382)) | ❓ unknown |
+| 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | 🟢 chart-verified ([#378](https://github.com/openova-io/openova/issues/378)) | ❓ unknown — `provider-hcloud` Healthy=True never observed on a real Sovereign |
+| 17 | `bp-crossplane-claims` | XRDs + Compositions | 🟢 chart-released — event-driven HR fix ([#327](https://github.com/openova-io/openova/issues/327)) + UserAccess XRD ([#322](https://github.com/openova-io/openova/issues/322)) | ❓ unknown |
+| 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | 🟢 chart-released — vendor-agnostic Object Storage ([#383](https://github.com/openova-io/openova/issues/383)) | ❓ unknown — Hetzner-S3 backend signin never exercised live |
+| 19 | `bp-velero` | Cluster-state backup → Hetzner Object Storage | 🟢 chart-released v1.2.0 ([#384](https://github.com/openova-io/openova/issues/384) + [#425](https://github.com/openova-io/openova/issues/425) rename); contabo pod Ready in 48s | ❓ unknown — BSL never observed Available against Hetzner OS |
+| 20 | `bp-kyverno` | Admission policy | 🟢 chart-verified — `nginx:latest` admission denial verified ([#379](https://github.com/openova-io/openova/issues/379)) | ❓ unknown |
+| 21 | `bp-trivy` | Image CVE scanning | 🟢 chart-verified — log4shell scan returned 15 CRITICAL ([#380](https://github.com/openova-io/openova/issues/380)) | ❓ unknown |
+| 22 | `bp-grafana` | Grafana visualizer (Alloy/Loki/Mimir/Tempo are sibling slots) | 🟢 chart-verified ([#381](https://github.com/openova-io/openova/issues/381)) | ❓ unknown |
+| 23 | `bp-catalyst-platform` | catalyst-api + catalyst-ui + helmwatch (the self-sufficient console) | 🟢 chart-verified — `bp-catalyst-platform:1.1.8` smoke on contabo ([#385](https://github.com/openova-io/openova/issues/385)) | ❓ unknown — HTTPRoute admission deferred to Sovereign install (no Cilium Gateway on contabo) |
+
+> **The whole reconcile-chain column reads ❓ unknown today.** That is the truthful state. Phase 8a (#454) is the integration-test gate that converts these into ✅ or surfaces gaps as new tickets.
 
 > **Correction note (2026-05-01):** earlier draft listed `bp-traefik` as #3. That was wrong — Traefik is contabo-only legacy demo infra. Sovereigns ingress through Cilium Gateway API + Envoy. #372 closed; replaced by [#387](https://github.com/openova-io/openova/issues/387) (Gateway API migration audit across all minimal-set blueprint charts).
 
@@ -86,8 +112,6 @@ This is the rule that makes a future AWS / GCP / Azure / OCI Sovereign a tactica
 
 ## 4. Phase ordering (DAG)
 
-Phases run sequentially; tickets within a phase parallelize except where a same-phase dependency is noted.
-
 ```mermaid
 flowchart TB
     classDef phase fill:#f1f5f9,stroke:#64748b,color:#0f172a,stroke-width:1px
@@ -95,25 +119,27 @@ flowchart TB
     classDef wip fill:#fef9c3,stroke:#eab308,color:#854d0e,stroke-width:2px
     classDef blocked fill:#fee2e2,stroke:#ef4444,color:#991b1b,stroke-width:2px
     classDef gate fill:#ffedd5,stroke:#f97316,color:#9a3412,stroke-width:2px
+    classDef dod fill:#e0e7ff,stroke:#4f46e5,color:#312e81,stroke-width:3px
 
-    subgraph PH0[Phase 0 · Pre-flight]
+    subgraph PH0[Phase 0 · Pre-flight · CHART-LEVEL]
         direction LR
-        T370["#370 Hetzner purge"]
+        T370["#370 Hetzner purge runbook"]
         T371["#371 OS credentials"]
+        T392["#392 purge.go label fix"]
     end
 
-    subgraph PH1[Phase 1 · Foundational]
+    subgraph PH1[Phase 1 · Foundational charts]
         direction LR
         T338["#338 bp-flux RBAC"]
         T387["#387 Gateway API audit"]
     end
 
-    subgraph PH2[Phase 2 · Infrastructure]
+    subgraph PH2[Phase 2 · DNS + TLS charts]
         direction LR
         T373["#373 powerdns-webhook"] --> T374["#374 NS delegation"]
     end
 
-    subgraph PH3[Phase 3 · Data + State]
+    subgraph PH3[Phase 3 · Data + state charts]
         direction LR
         T375["#375 NATS"]
         T376["#376 Gitea"]
@@ -121,14 +147,15 @@ flowchart TB
         T316["#316 OpenBao"] --> T331["#331 ESO"]
     end
 
-    subgraph PH4[Phase 4 · Registry · IaC · Backup]
+    subgraph PH4[Phase 4 · Registry · IaC · Backup charts]
         direction LR
         T378["#378 Crossplane"] --> T327["#327 XR claims"]
         T383["#383 Harbor S3"]
         T384["#384 Velero S3"]
+        T425["#425 vendor-agnostic OS + Tofu→Crossplane"]
     end
 
-    subgraph PH5[Phase 5 · Security · Obs]
+    subgraph PH5[Phase 5 · Security · Obs charts]
         direction LR
         T379["#379 Kyverno"]
         T380["#380 Trivy"]
@@ -136,31 +163,37 @@ flowchart TB
         T382["#382 SPIRE"]
     end
 
-    subgraph PH6[Phase 6 · Control plane]
+    subgraph PH6[Phase 6 · Control-plane chart]
         direction LR
         T385["#385 catalyst-platform"]
     end
 
-    subgraph PH7[Phase 7 · Handover]
+    subgraph PH7[Phase 7 · Handover machinery]
         direction LR
-        T317["#317 finalisation"] --> T319["#319 self-decom + redirect"]
+        T317["#317 finalisation"] --> T453["#453 #317↔#319 contract reconciliation"]
+        T453 --> T319["#319 self-decom + redirect"]
     end
 
-    T392["#392 purge.go label fix"]
-    P8([Phase 8 · omantel E2E + DoD]):::gate
-
-    subgraph SCAF[Sustainment · scaffolding · cross-cutting]
+    subgraph PH8[Phase 8 · LIVE EXECUTION — converts ❓ → ✅]
         direction LR
-        T425["#425 vendor-agnostic OS + Tofu→Crossplane"]
-        T428["#428 CI vendor-coupling guardrail"]
-        T429["#429 Playwright E2E scaffold"]
+        T454["#454 8a · provision test.omani.works"] --> T455["#455 8b · handover + decommission cycle"]
+        T455 --> T456["#456 8c · production omantel run"]
+    end
+
+    DOD([🎯 DoD-met — omantel runs self-sufficient on Hetzner; killing contabo for 5 min has zero effect]):::dod
+
+    subgraph SCAF[CI guardrails · Phase-8 prep]
+        direction LR
+        T428["#428 vendor-coupling guardrail"]
+        T438["#438 guardrail path fix"]
+        T429["#429 Phase-8 Playwright spec"]
         T430["#430 cron→event-driven sweep"]
     end
 
-    %% Cross-cutting: #425 unblocks #383, #428 enforces it, #429 prepares Phase 8
+    %% Phase 0 → Phase 4 cross-cut
+    T392 --> T370
     T425 --> T383
     T425 --> T428
-    T429 --> P8
 
     %% Phase 1 → Phase 2
     T338 --> T373
@@ -194,20 +227,24 @@ flowchart TB
     T373 --> T385
     T387 --> T385
 
-    %% Phase 6 → Phase 7 → Phase 8
+    %% Phase 6 → Phase 7
     T385 --> T317
-    T319 --> P8
-    T374 --> T319
-    T370 --> P8
 
-    %% #392 unblocks #370
-    T392 --> T370
+    %% Phase 7 → Phase 8 (the integration gate)
+    T319 --> T454
+    T374 --> T455
+    T370 --> T454
+    T429 --> T454
 
-    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,SCAF phase
-    class T316,T317,T319,T322,T326,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
-    class T323,T324,T325 wip
+    %% Phase 8 → DoD
+    T456 --> DOD
 
-    %% Clickable ticket numbers — open the GitHub issue in a new tab
+    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF phase
+    class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
+    class T453 wip
+    class T454,T455,T456 blocked
+
+    %% Clickable ticket numbers
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
     click T317 "https://github.com/openova-io/openova/issues/317" "Open #317" _blank
     click T319 "https://github.com/openova-io/openova/issues/319" "Open #319" _blank
@@ -236,20 +273,24 @@ flowchart TB
     click T429 "https://github.com/openova-io/openova/issues/429" "Open #429" _blank
     click T430 "https://github.com/openova-io/openova/issues/430" "Open #430" _blank
     click T438 "https://github.com/openova-io/openova/issues/438" "Open #438" _blank
-    click P8 "https://github.com/openova-io/openova/issues/369" "Open epic #369" _blank
+    click T453 "https://github.com/openova-io/openova/issues/453" "Open #453" _blank
+    click T454 "https://github.com/openova-io/openova/issues/454" "Open #454" _blank
+    click T455 "https://github.com/openova-io/openova/issues/455" "Open #455" _blank
+    click T456 "https://github.com/openova-io/openova/issues/456" "Open #456" _blank
+    click DOD "https://github.com/openova-io/openova/issues/369" "Open epic #369" _blank
 ```
 
-**Legend:** 🟡 yellow = in-progress agent · 🟢 green = done · 🔴 red = blocked · 🟧 orange = gate · default = parked.
+**Legend:** 🟢 green = chart-released/chart-verified (Phases 0-7) · 🟡 yellow = in-flight · 🔴 red = blocked on prior phase · 🟧 orange = gate · 🎯 indigo = DoD-met (only Phase-8c production passes this).
 
-**Reading the DAG (left to right):**
+**Honest read:**
 
-- **Phase 0** runs first — both tickets are independent.
-- **Phase 1** (#338 bp-flux RBAC + #387 Gateway API audit) is the foundational fix; **every Phase 3/4/5 blueprint install depends on #338**.
-- **Phase 2** (#373 cert-mgr-powerdns-webhook → #374 NS delegation) sets up the post-handover DNS + TLS chain.
-- **Phase 3/4/5** can run in parallel once Phase 1 is green; #371 (Hetzner OS credentials) gates Harbor + Velero specifically.
-- **Phase 6** (#385 bp-catalyst-platform) is the convergence point — pulls from Phase 3 (Gitea + Keycloak), Phase 4 (Crossplane claims + Harbor), Phase 5 (Grafana), and Phase 2 (TLS via webhook).
-- **Phase 7** is sequential: #317 handover finalisation → #319 self-decom + redirect.
-- **Phase 8** is the execution gate — needs #319 + #374 (DNS delegation must resolve before redirect makes sense) + #370 (clean Hetzner) all done.
+- Phases 0-7 are **green at chart-level** — code is shipped, individual blueprints smoke-installed on contabo. Reconcile-chain status across all 23 is **❓ unknown** (see §2 right column).
+- Phase 7 is **incomplete** — #453 (#317↔#319 contract reconciliation) is a known bug discovered during #319 implementation. The post-handover redirect is broken until #453 lands.
+- Phase 8 is **the actual handover gate**. Three sub-tickets:
+  - **#454 (8a)**: live provision dry run on `test.omani.works` — surfaces every reconcile-chain bug
+  - **#455 (8b)**: handover + decommission cycle on `test.omani.works`
+  - **#456 (8c)**: production `omantel.omani.works` run
+- DoD = #456 closed cleanly. Until then, "we shipped 23 blueprints" is a chart-level claim, not a handover claim.
 
 ## 5. Phase-by-phase detail
 
@@ -405,8 +446,31 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #429 | 🟢 scaffold-shipped — Phase 8 DoD spec authored at `tests/e2e/playwright/tests/omantel-handover.spec.ts` (mirrors canonical `sovereign-wizard.spec.ts` shape; reuses `_helpers.ts:reachable()`); 6 `test()` blocks 1:1 with §10 acceptance bullets (sovereign Ready+23/23, bp-* HRs Ready, catalyst-platform self-host, vendor-agnostic Object Storage Secret per #425, dig +trace ends at omantel NS, zero contabo dependency). Self-skips when `OMANTEL_BASE_URL`/`OMANTEL_API_BASE`/`OPERATOR_BEARER` unset. Workflow `.github/workflows/omantel-e2e-handover.yaml` is `workflow_dispatch:` only (no cron, per CLAUDE.md). Executes against live omantel only after Phase 4/6/7 land. | [#432](https://github.com/openova-io/openova/pull/432) merged `1e7d1e67` | spec + workflow scaffold; live execution gated on Phase 4/6/7 |
 | #430 | 🟢 done (audit-only) — `.github/workflows/*.yaml` swept; 0 cron triggers found across 18 workflow files; already compliant. No PR needed. | (no PR — already-compliant audit) | audit-only verification |
 | #326 | 🟢 chart + cloud-init shipped — k3s api-server now boots with 6 `--kube-apiserver-arg=oidc-*` flags pointing at `https://auth.${SOVEREIGN_FQDN}/realms/sovereign` (issuer composed from `sovereign_fqdn` per INVIOLABLE-PRINCIPLES #4); bp-keycloak chart bumped 1.1.2 → 1.2.0 with `keycloakConfigCli.enabled=true` + inline `sovereign-realm.json` carrying realm `sovereign`, default groups `sovereign-admins/-ops/-viewers`, `groups` claim mapper, and a public `kubectl` OIDC client with `http://localhost:8000` redirect URI (kubectl-oidc-login default). Realm import runs as the upstream chart's existing post-install/post-upgrade Helm hook Job (canonical seam — no bespoke kubectl-exec script). New chart test `tests/oidc-kubectl-client.sh` (4 cases) green; existing `tests/observability-toggle.sh` still green. Bootstrap-kit slot 09 bumped to `version: 1.2.0` in `_template/`, `omantel.omani.works/`, `otech.omani.works/`. Documentation: §11 "kubectl OIDC for customer admins" runbook section added. NO catalyst-api or UI code touched (those are #322/#323 territories). Live execution against omantel deferred to Phase 8. | (this PR) | bp-keycloak:1.2.0 chart-shipped; cloud-init flags rendered |
-| #324 | 🟡 in flight (epic #320 IAM) — bastion pod provisioner: per-user `bastion-<keycloak-username>-<hash>` Pod with kubectl/k9s/helm + scoped kubeconfig (one context per UserAccess CR tuple); ttyd container exposes WebSocket TTY; xterm.js browser console at `console.<sov>/sovereign/<id>/bastion`. End-to-end OIDC, no proxy ServiceAccount. Worktree `.worktrees/omantel-324`, branch `fix/324-omantel`. | (PR pending) | depends on #322 (UserAccess CR shape) + #326 (Keycloak OIDC for kubeconfig user) |
-| #325 | 🟡 in flight (epic #320 IAM) — pod console: `pods/exec` WebSocket bridge in catalyst-api → K8s api-server `/exec`; xterm.js browser terminal accessible from architecture graph context-menu + pods list + pod detail; asciinema cast captured + uploaded to `flux-system/object-storage` bucket per #425 for audit replay. Worktree `.worktrees/omantel-325`, branch `fix/325-omantel`. | (PR pending) | depends on #425 (Object Storage seam) |
+| #322 | 🟢 chart-released (epic #320 IAM — POST-OMANTEL scope; here for cross-reference only) | #446 | bp-crossplane-claims 1.1.0 |
+| #323 | 🟢 done (epic #320 IAM — POST-OMANTEL scope; here for cross-reference only) | [#452](https://github.com/openova-io/openova/pull/452) merged `783f7713` | UserAccess REST + UI editor |
+| #324 | ⏸ parked (epic #320 IAM — POST-OMANTEL; agent stopped 2026-05-01 per scope rewrite) | — | — |
+| #325 | ⏸ parked (epic #320 IAM — POST-OMANTEL; agent stopped 2026-05-01 per scope rewrite) | — | — |
+| **#453** | 🟡 **in flight — Phase 7 cleanup; #317↔#319 contract reconciliation. #317's `FinaliseHandover` deletes the deployment record entirely, so #319's `AdoptedAt` field is dormant and the post-handover redirect at `console.openova.io/sovereign/<id>` is broken. Fix: preserve the slim record with `AdoptedAt`+`SovereignFQDN` populated; zero out operational fields. BLOCKS Phase 8b.** | (PR pending) | gates omantel handover loop |
+| **#454** | 🔒 **blocked — Phase 8a · live provision dry run on `test.omani.works`. Operator-driven (real Hetzner credit). Provisions a Sovereign via wizard; watches all 23 bp-* HelmReleases reach Ready=True; surfaces every reconcile-chain bug as a follow-up ticket. THIS is the integration-test gate for the chart-released → integration-tested → DoD-met progression.** | (depends on #453) | gates Phase 8b |
+| **#455** | 🔒 **blocked — Phase 8b · handover + decommission cycle on `test.omani.works`. Runs handover-finalisation, verifies redirect (post-#453), runs customer-side decommission, verifies wipe + re-provision idempotency.** | (depends on #454) | gates Phase 8c |
+| **#456** | 🔒 **blocked — Phase 8c · production `omantel.omani.works` run. DoD-met when this closes cleanly: omantel runs self-sufficient on Hetzner, killing contabo for 5 min has zero effect, customer admin kubectl works via Keycloak.** | (depends on #455) | THE DoD GATE |
+
+## 9a. Risk register — known gaps that will surface in Phase 8a
+
+These are bugs we already know exist but cannot fix until Phase 8a exposes them concretely. Listed honestly so they don't surprise us.
+
+| # | Gap | Likely surfaces in | Fix vector |
+|---|---|---|---|
+| R1 | **#317↔#319 contract bug** — handover-finalisation deletes the deployment record; redirect can never read `AdoptedAt` | Phase 8b (redirect 404s instead of 301-ing) | [#453](https://github.com/openova-io/openova/issues/453) — IN FLIGHT, blocks Phase 8b |
+| R2 | **Crossplane `provider-hcloud` Healthy=True never observed** | Phase 8a — Provider may fail to install if RBAC / image pull issues | Surfaces as a Phase 8a sub-bug; fix in same iteration |
+| R3 | **Cilium Gateway HTTPRoute admission untested** — bp-catalyst-platform smoke skipped HTTPRoute on contabo (no Gateway present) | Phase 8a (console.test.omani.works returns 404 / 502) | Likely a Gateway-class or sectionName mismatch; fix in same iteration |
+| R4 | **bootstrap-kit reconcile order under load** — never run all 23 HRs together with real `dependsOn` chain | Phase 8a (some HRs stuck in dependency-wait or InstallFailed) | Iterate on chart `dependsOn` + `disableWait` flags |
+| R5 | **Hetzner Object Storage credentials acceptance** — wizard captures keys, but we've never actually pushed bytes to a real bucket | Phase 8a (Velero BSL / Harbor registry signin failures) | Fix `existingSecret` wiring or key naming if it diverges |
+| R6 | **Keycloak realm-import config-CLI bootstrap** — kubectl OIDC client only renders if keycloakConfigCli post-install Job succeeds | Phase 8a (operator can't kubectl) | Probably a connect-back-to-realm timing issue |
+| R7 | **PowerDNS NS delegation flow** — never run end-to-end against Dynadot's parent zone | Phase 8b (cert-manager-powerdns-webhook can't issue) | Wizard NS-delegation step (#374) emits a runbook; operator runs `set_dns2` manually first run |
+| R8 | **Wipe + re-provision idempotency** — `wipe.go` proven on fake Hetzner only; never against real account | Phase 8b (re-run leaves orphaned IP / volume / network) | Iterate on `wipe.go` purge label-filter + add per-resource cleanup if missed |
+
+Phase 8a is expected to expose 3-5 of these. That's the value of Phase 8a — surface the bugs concretely so we can fix them. Anything that stays GREEN through Phase 8a is genuinely integration-tested.
 
 ## 10. Phase 8 acceptance criteria (executable DoD)
 
@@ -500,3 +564,35 @@ For per-user binding, the subject is `oidc:<preferred_username>` (e.g. `oidc:ali
 
 These are post-handover enhancements; the api-server-side OIDC validator is sufficient for the omantel handover Phase 8 DoD.
 
+
+## 12. What we are NOT doing now (scope discipline)
+
+Per founder corrective 2026-05-01: **stop dispatching capacity-fill agents on post-omantel scope.** The remaining work is gated on a small number of sequential, operator-driven steps. Parallelism here is a distraction.
+
+| Item | Why parked |
+|---|---|
+| Epic [#320](https://github.com/openova-io/openova/issues/320) Sovereign IAM access plane (#322 ✅, #323 ✅, #324 ⏸, #325 ⏸, #326 ✅) | Customer admins use Keycloak credentials post-handover via OIDC (#326). Browser-shell (#324/#325) is convenience, not handover-blocker. |
+| #264 bp-knative, #265 bp-kserve | AI/ML inference — not in the 23 minimal Sovereign blueprints |
+| #340 bp-seaweedfs vendor upstream | SeaweedFS not in minimal Sovereign set per ADR-0001 §13 |
+| #257 cluster-dir cleanup chore | Hygiene; unrelated to handover |
+
+**The only work that matters between now and DoD:**
+
+1. **#453** (in flight) — fix #317↔#319 contract so the redirect works
+2. **#454** Phase 8a — operator runs the live test.omani.works provision (real Hetzner credit)
+3. **Iterate on whatever 8a surfaces** (expect 3-5 bugs from §9a Risk register)
+4. **#455** Phase 8b — handover + decommission cycle on test.omani.works
+5. **#456** Phase 8c — production omantel.omani.works run = DoD-met
+
+That's it. Five steps, three of them sequential operator-driven runs. No parallel agent-dispatch buys progress here.
+
+## 13. Agent-orchestration reset (2026-05-01)
+
+The 5-parallel rolling window was correct for chart-shape work (Phases 0-7). It is **wrong** for Phase 8. Phase 8 is operator-driven live execution against real cloud accounts, and adding parallel agents on out-of-scope work just creates merge conflicts and consumes runway on tickets that don't move the DoD.
+
+**Going forward:**
+
+- Max 1 agent in flight when the queue is "fix what 8a surfaces" or "implement #453"
+- Up to 2 agents in flight only if both are non-overlapping Phase-8 follow-ups
+- NO capacity-fill on post-omantel scope (#320, #264, #265, #340, #257) until #456 is closed
+- Every WBS tick records the scope discipline: ticket numbers must trace to one of the 5 steps in §12 above
