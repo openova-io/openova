@@ -1,10 +1,10 @@
 apiVersion: v2
 name: bp-seaweedfs
 description: |
-  Catalyst Blueprint umbrella chart for SeaweedFS. Depends on the upstream
-  `seaweedfs` chart (seaweedfs/seaweedfs) as a Helm subchart so
-  `helm dependency build` pulls the upstream payload into this artifact.
-  Catalyst-curated values flow into the upstream subchart under the
+  Catalyst Blueprint umbrella chart for SeaweedFS. The upstream
+  `seaweedfs/seaweedfs` 4.22.0 chart is VENDORED (committed bytes under
+  `chart/charts/seaweedfs/`) rather than declared as a `dependencies:`
+  entry. Catalyst-curated values flow into the vendored subchart under the
   `seaweedfs:` key in values.yaml.
 
   SeaweedFS is the unified S3-compatible storage layer per
@@ -15,18 +15,42 @@ description: |
   hot→warm→cold and offloads cold objects to a cloud archival backend
   (Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage) configured at
   Sovereign provisioning time.
+
+  Why vendored (issue #340):
+    Upstream 4.22.0 ships templates/shared/security-configmap.yaml that
+    calls `fromToml` (Sprig function added in Helm 3.13). Flux v1.x
+    helm-controller bundles a Helm SDK older than 3.13 and PARSES every
+    template before any `{{- if .Values.global.seaweedfs.enableSecurity }}`
+    gate fires — so the chart fails install with `function "fromToml" not
+    defined` even though enableSecurity defaults to false. Vendoring the
+    chart and deleting the offending template removes the dependency on a
+    Helm runtime feature we don't control. The deleted file is only
+    referenced by other templates inside `{{- if enableSecurity }}` blocks,
+    so removing it is a no-op for our default deployment shape (Catalyst
+    SeaweedFS does not enable JWT/TLS — auth happens at the S3 layer via
+    IAM credentials sourced from External Secrets, not via the upstream
+    chart's TLS/JWT machinery).
 type: application
-version: 1.0.1
+version: 1.1.0
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Pinned to seaweedfs/seaweedfs 4.22.0 (appVersion 4.22) — current stable
-# on 2026-04-30. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
-# version is operator-bumpable via PR + Blueprint release.
-dependencies:
-  - name: seaweedfs
-    version: "4.22.0"
-    repository: "https://seaweedfs.github.io/seaweedfs/helm"
+# The vendored subchart at chart/charts/seaweedfs/ is not auto-pulled at
+# build time — it's committed bytes. The blueprint-release workflow's
+# hollow-chart guard (issue #181) requires either a `dependencies:` block
+# OR this annotation; we use the annotation because re-pulling at build
+# time would re-introduce the broken `security-configmap.yaml` (mutable
+# upstream Helm repo). To bump SeaweedFS:
+#   1. helm pull seaweedfs --version <X.Y.Z> --repo https://seaweedfs.github.io/seaweedfs/helm
+#   2. tar -xzf seaweedfs-<X.Y.Z>.tgz -C chart/charts/ (replacing seaweedfs/)
+#   3. rm chart/charts/seaweedfs/templates/shared/security-configmap.yaml
+#      (until upstream stops using fromToml or we move to Helm 3.13+ in
+#      helm-controller — track via fluxcd/helm-controller releases)
+#   4. Bump version: in this Chart.yaml + open PR
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/vendored-subchart: "seaweedfs@4.22.0"
+  catalyst.openova.io/vendored-reason: "issue #340 — upstream uses fromToml (Helm 3.13+)"
