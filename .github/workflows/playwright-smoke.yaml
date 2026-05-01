@@ -70,14 +70,14 @@ jobs:
           HOST: 0.0.0.0
         run: |
           # Vite dev server binds 4321 by default; we keep the default so the
-          # tests' BASE_URL fallback (http://localhost:4321) works.
+          # tests' BASE_URL fallback (http://localhost:5173) works.
           nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
           echo $! > /tmp/catalyst-ui.pid
 
       - name: Wait for Catalyst UI to be ready
         run: |
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:4321/sovereign/wizard; then
+            if curl -sf -o /dev/null http://localhost:5173/sovereign/wizard; then
               echo "UI ready after ${i}s"
               exit 0
             fi
@@ -90,7 +90,7 @@ jobs:
       - name: Run Playwright smoke
         working-directory: tests/e2e/playwright
         env:
-          BASE_URL: http://localhost:4321
+          BASE_URL: http://localhost:5173
           # ADMIN_BASE_URL / MARKETPLACE_BASE_URL not set — the admin and
           # marketplace specs self-skip when their respective apps aren't up,
           # which keeps this workflow lean. Booting all three apps requires
