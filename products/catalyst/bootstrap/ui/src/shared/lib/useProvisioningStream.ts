@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { apiUrl } from '@/shared/config/urls'
 import {
   ALL_PHASES,
   type BootstrapPhase,
@@ -201,7 +202,14 @@ export function useProvisioningStream(streamURL: string | null): ProvisioningStr
     }
 
     queueMicrotask(() => setConnection('connecting'))
-    const es = new EventSource(streamURL)
+    // Normalize streamURL through apiUrl. The catalyst-api emits a
+    // tier-naive `/api/v1/deployments/<id>/logs` (see
+    // api/internal/handler/deployments.go), but when the UI is mounted
+    // under `/sovereign/`, the browser must send `/sovereign/api/...`
+    // to hit Traefik's strip-sovereign middleware. apiUrl re-roots the
+    // path under the active BASE_URL while leaving cross-origin
+    // (http/https) URLs untouched. See issue #494.
+    const es = new EventSource(apiUrl(streamURL))
 
     es.onopen = () => setConnection('streaming')
 
