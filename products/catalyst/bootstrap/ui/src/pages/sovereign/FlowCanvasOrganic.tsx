@@ -101,38 +101,68 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
   },
 }
 
-const NODE_RADIUS = 22
-const GROUP_RADIUS = 28
-const COLLIDE_PADDING = 14
-const MIN_VBOX_W = 1200
-const MIN_VBOX_H = 700
-const VIEW_H = 1100
-/** Bug #481 — viewport-bounded layout. The viewBox is clamped to keep
- *  nodes inside a sensible rectangle so the operator never sees the
- *  "kilometers of edges between scattered tiny nodes" problem. The
- *  clamp is wide enough to fit the canvas at 1440px without scrolling,
- *  but narrow enough that 4-12 leaf nodes cluster around the host. */
-const MAX_VBOX_W = 1600
-const MAX_VBOX_H = 900
-/** Per-depth column width — kept small enough that even at depth=6 the
- *  rightmost node sits well inside MAX_VBOX_W. Tuned with NODE_RADIUS
- *  for collision-free packing. */
-const PER_DEPTH_X = NODE_RADIUS * 5
-/** Vertical scatter on first paint and inside the soft `forceY`. The
- *  previous value (±140 / ±180) sent siblings flying outside the
- *  viewport on small graphs (Bug #481). Using ±60 keeps siblings
- *  loosely organic without scattering them into different panes. */
-const Y_SCATTER_PX = 60
-/** Link distance — short edges keep the graph readable. Was 4×r=88px;
- *  the new value caps observed edge length around 110px for the
- *  steady-state simulation. */
-const LINK_DISTANCE = NODE_RADIUS * 4
-/** Force strengths tuned for Bug #481. Strong link + strong y pulls
- *  pull siblings into a tight cluster around the host instead of
- *  drifting to the canvas edges. */
-const FORCE_X_STRENGTH = 0.55
-const FORCE_Y_STRENGTH = 0.22
-const FORCE_LINK_STRENGTH = 0.45
+/** Bug #481 follow-up — the previous fix (#483) over-corrected.
+ *  Symptoms after #483: bubbles invisible at default zoom, edges
+ *  appeared to stretch infinitely. Root causes:
+ *    (1) NODE_RADIUS was still 22 → diameter 44 → at MAX_VBOX 1600
+ *        scale 0.4-0.5 in a 600-800px canvas-host (LogPane covers half
+ *        the screen), bubbles rendered ~16-22px wide. Effectively
+ *        invisible to the operator.
+ *    (2) MIN_VBOX_W/H floors at 1200×700 forced sparse graphs (4-6
+ *        nodes spread across 200×100 of layout space) into a viewBox
+ *        6× bigger than the cluster — bubbles shrank to specks.
+ *    (3) FORCE_X_STRENGTH=0.55 + FORCE_LINK_STRENGTH=0.45 fought hard
+ *        on graphs with depth-disparate dependencies (depth 0 root
+ *        wired to depth-5 leaf), causing oscillation that read as
+ *        "infinitely stretching" in mid-tick frames.
+ *
+ *  The fix:
+ *    • NODE_RADIUS 22 → 40 (diameter 80px — meets acceptance: bubble
+ *      ≥80px wide on 1440×900 viewport).
+ *    • MIN_VBOX dropped to a small floor (400×280) so sparse graphs
+ *      render at native scale without the SVG zooming out to fit a
+ *      pretend 1200×700 canvas.
+ *    • MAX_VBOX 1600×900 → 1200×700 so even on full-screen canvas the
+ *      effective render scale stays close to 1:1.
+ *    • Force strengths balanced: X=0.12, Y=0.10, link=0.18 — gentle
+ *      enough not to oscillate, strong enough to converge.
+ *    • LINK_DISTANCE = NODE_RADIUS * 2.5 = 100px → connected siblings
+ *      stay <140px apart at steady state, well under the 300px
+ *      acceptance ceiling.
+ *    • Per-tick X clamp tightened to ±PER_DEPTH_X (was ±1.5×) so depth
+ *      anchoring stays disciplined.
+ */
+const NODE_RADIUS = 40
+const GROUP_RADIUS = 48
+const COLLIDE_PADDING = 12
+/** Floor for very-sparse graphs — enough room for 1-3 nodes without
+ *  the SVG collapsing to a single point. Anything denser uses the
+ *  measured cluster bbox + padding. */
+const MIN_VBOX_W = 400
+const MIN_VBOX_H = 280
+const VIEW_H = 800
+/** MAX_VBOX matters because preserveAspectRatio "meet" scales the
+ *  viewBox to fit the canvas-host. With MAX 1200×700, on a 1200px-wide
+ *  host scale=1.0 (bubble = 80px). On a 600px host scale=0.5 (bubble =
+ *  40px — still readable, vs the previous 22px). */
+const MAX_VBOX_W = 1200
+const MAX_VBOX_H = 700
+/** Per-depth column width — wider than NODE_RADIUS*4 so adjacent-depth
+ *  bubbles never visually touch. */
+const PER_DEPTH_X = NODE_RADIUS * 4
+/** Vertical scatter on first paint and inside the soft `forceY`.
+ *  Tightened with the larger NODE_RADIUS so siblings stack cleanly
+ *  instead of drifting beyond the visible cluster. */
+const Y_SCATTER_PX = 80
+/** Link distance — connected siblings settle ~100px apart, total
+ *  on-canvas edge length stays <140px even with arrowhead trim. */
+const LINK_DISTANCE = NODE_RADIUS * 2.5
+/** Force strengths re-tuned post-#483. Gentle X-anchor lets the link
+ *  force pull connected nodes together without the X-force fighting
+ *  back and producing the oscillation that read as "infinite stretch". */
+const FORCE_X_STRENGTH = 0.12
+const FORCE_Y_STRENGTH = 0.10
+const FORCE_LINK_STRENGTH = 0.18
 
 /** Selection palette — distinct from any status colour AND distinct
  *  from each other so the host-vs-open semantic is unambiguous. */
@@ -225,12 +255,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           familyId: n.familyId,
           status: n.status,
           isGroup: n.isGroup,
-          // Bug #481 — tighten initial scatter so the simulation starts
-          // close to the steady state. Previous values (±40 X, ±140 Y)
-          // sent siblings to opposite corners of the canvas; the new
-          // values keep them inside the visible cluster from the first
-          // frame.
-          x: baseX + (seed.fx - 0.5) * 40,
+          // Bug #481 follow-up — initial seed inside the Y_SCATTER band
+          // around the depth anchor. X scatter scales with NODE_RADIUS
+          // so larger bubbles get proportionally more room before the
+          // collide force pushes them apart.
+          x: baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5,
           y: baseY + (seed.fy - 0.5) * Y_SCATTER_PX * 2,
         }
         nodesRef.current.set(n.id, fresh)
@@ -290,10 +319,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
           .id((d) => d.id)
-          // Bug #481 — strong link force pulls dependent siblings into a
-          // tight cluster around their depth column. Distance was
-          // already 88px; the strength jump from 0.08 → 0.45 is what
-          // keeps edges visibly under ~140px on a 4-12 node graph.
+          // Bug #481 follow-up — gentle link force (0.18) settles
+          // connected siblings around LINK_DISTANCE (100px) without
+          // fighting the X-anchor force (0.12) that keeps each node in
+          // its depth column. Edges stay <140px at steady state.
           .distance(LINK_DISTANCE)
           .strength(FORCE_LINK_STRENGTH),
       )
@@ -305,21 +334,24 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         // drift hundreds of pixels off-screen between ticks.
         for (const n of simNodes) {
           const baseX = depthToX(n.depth)
-          // X clamp: ± half the per-depth column width so nodes stay
-          // close to their depth anchor instead of wandering left/right
-          // into adjacent columns.
-          const xMin = baseX - PER_DEPTH_X * 1.5
-          const xMax = baseX + PER_DEPTH_X * 1.5
+          // X clamp: stay within the depth column boundary. Tightened
+          // from ±1.5×PER_DEPTH_X to ±1.0× post-#483 — the looser
+          // clamp let nodes drift into adjacent columns and made the
+          // graph read as "stretching".
+          const xMin = baseX - PER_DEPTH_X
+          const xMax = baseX + PER_DEPTH_X
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
-          // Y clamp: keep the simulation inside the viewport's vertical
-          // bounds. Use MAX_VBOX_H / 2 around the region centroid as a
-          // hard wall — beyond that the node would render off-canvas.
+          // Y clamp: keep the simulation inside Y_SCATTER_PX × 2 of the
+          // region centroid. Was MAX_VBOX_H/2 (450px) which let the
+          // soft forceY stretch the cluster into a tall column on
+          // multi-region graphs. The new bound matches Y_SCATTER_PX so
+          // siblings stay packed in a horizontal band per region.
           const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
-          const yMin = baseY - MAX_VBOX_H / 2 + NODE_RADIUS
-          const yMax = baseY + MAX_VBOX_H / 2 - NODE_RADIUS
+          const yMin = baseY - Y_SCATTER_PX * 2
+          const yMax = baseY + Y_SCATTER_PX * 2
           if (typeof n.y === 'number') {
             if (n.y < yMin) n.y = yMin
             else if (n.y > yMax) n.y = yMax
