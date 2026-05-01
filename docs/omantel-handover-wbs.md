@@ -205,6 +205,7 @@ flowchart TB
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,SCAF phase
     class T316,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438 done
+    class T317,T319 wip
 
     %% Clickable ticket numbers — open the GitHub issue in a new tab
     click T316 "https://github.com/openova-io/openova/issues/316" "Open #316" _blank
@@ -374,8 +375,8 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 |---|---|---|---|
 | #338 | 🟢 chart-released (catalyst-cluster-reconciler ClusterRoleBinding overlay); Sovereign-impact deferred to first omantel run (bp-flux is cloud-init bootstrapped, not Flux-reconciled on contabo) | #393 → `05cb39c0` | bp-flux 1.1.3 published |
 | #316 | 🟢 chart-released — auto-unseal flow (Option A: cloud-init seed → post-install init Job → `bao operator init` → seed self-destruct; Kubernetes-auth bootstrap Job binds ESO role to external-secrets SA). bp-openbao 1.1.1 → 1.2.0; cluster overlay flipped `autoUnseal.enabled: true`. Blueprint-release run [25214747925](https://github.com/openova-io/openova/actions/runs/25214747925) SUCCESS. Sovereign-impact deferred to Phase 8 (next omantel run). | #408 → `d2ada908` | bp-openbao:1.2.0 published |
-| #317 | (pending) | | |
-| #319 | (pending) | | |
+| #317 | 🟡 in flight — handover finalisation flow on catalyst-api: final SSE event, helmwatch informer cancel, Tofu state encrypted-POST to new Sovereign + sealed in OpenBao at `secret/catalyst/tofu-phase0-archive`, /tmp/catalyst/tofu/<sov>/ cleanup. Worktree `.worktrees/omantel-317`, branch `fix/317-omantel`. | (PR pending) | gates Phase 8 omantel E2E execution |
+| #319 | 🟡 in flight — Sovereign self-decommission UI + PDM release endpoint + console.openova.io redirect. Worktree `.worktrees/omantel-319`, branch `fix/319-omantel`. Non-overlapping with #317 (PDM + UI vs catalyst-api server-side). | (PR pending) | gates Phase 8 omantel E2E execution |
 | #327 | ✅ done — bp-crossplane-claims event-driven HR install (`disableWait: true` on install/upgrade; drop `spec.timeout: 15m` blanket band-aid; `dependsOn: bp-crossplane` already gates on upstream CRDs being live) | [#327](https://github.com/openova-io/openova/pull/327) merged `511e96de` | clusters/_template/bootstrap-kit/14-crossplane-claims.yaml |
 | #331 | 🟢 chart-released — bp-external-secrets@1.1.0 (controller-only, ESO subchart + CRDs) + bp-external-secrets-stores@1.0.0 (NEW, default ClusterSecretStore CR, `dependsOn: [bp-external-secrets, bp-openbao]`) published; helm-template acceptance OK (controller renders 0 ClusterSecretStore CRs, stores chart renders 1); both observability-toggle + new clustersecretstore-toggle tests green; bootstrap-kit slot 15a wired in `_template/`; `scripts/check-bootstrap-deps.sh` patched to accept alphanumeric sub-slot suffix; dependency-graph-audit PASSED. Sovereign-impact deferred to Phase 8. | #426 | bp-external-secrets@1.1.0 + bp-external-secrets-stores@1.0.0 |
 | #371 | ✅ done — hybrid Option A (wizard captures Hetzner-Console-issued S3 keys; Hetzner has no Cloud API to mint them) + Option B (Phase-0 OpenTofu auto-provisions per-Sovereign bucket via `aminueza/minio` provider; cloud-init writes `flux-system/hetzner-object-storage` Secret with canonical `s3-endpoint`/`s3-region`/`s3-bucket`/`s3-access-key`/`s3-secret-key` keys consumed by Harbor + Velero charts via `existingSecret`) | [#409](https://github.com/openova-io/openova/pull/409) | `Tofu` module + Validate endpoint + wizard StepCredentials Object Storage section |
