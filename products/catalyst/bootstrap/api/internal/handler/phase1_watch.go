@@ -115,8 +115,11 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 			Level:   "warn",
 			Message: "Phase-1 watch skipped: no kubeconfig is available on the catalyst-api side. The new Sovereign's cloud-init has not yet PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 is still in flight, or cloud-init failed to reach this endpoint. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment to observe per-component install state.",
 		})
-		// Short-circuit path — no watch ever ran, so outcome is empty.
-		h.markPhase1Done(dep, nil, "")
+		// Short-circuit path — no watch ever ran. Outcome MUST be
+		// OutcomeKubeconfigMissing (not empty) so markPhase1Done sets
+		// Status to a truthful failed state instead of falling through
+		// to the default "ready" branch — issue #488.
+		h.markPhase1Done(dep, nil, helmwatch.OutcomeKubeconfigMissing)
 		return
 	}
 
@@ -131,8 +134,10 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 			Level:   "error",
 			Message: fmt.Sprintf("Phase-1 watch could not start: %v — Sovereign cluster is up (Phase 0 succeeded) but per-component state will not stream from this catalyst-api. Operator may run `kubectl get helmrelease -n flux-system` against the new Sovereign for ad-hoc diagnostics.", err),
 		})
-		// Short-circuit path — no watch ever ran, so outcome is empty.
-		h.markPhase1Done(dep, nil, "")
+		// Short-circuit path — watcher never ran. OutcomeWatcherStartFailed
+		// (not empty) keeps markPhase1Done from defaulting to "ready"
+		// — issue #488.
+		h.markPhase1Done(dep, nil, helmwatch.OutcomeWatcherStartFailed)
 		return
 	}
 
@@ -269,6 +274,20 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 
 	dep.FinishedAt = time.Now()
 	switch {
+	case outcome == helmwatch.OutcomeKubeconfigMissing:
+		// Issue #488 (Phase-8a bug #8): the kubeconfig short-circuit
+		// previously called markPhase1Done with an empty outcome and
+		// fell through to the default "ready" branch — the wizard
+		// then lied to the operator that a Sovereign was Ready when
+		// catalyst-api had never even observed it. Flag it explicitly
+		// as failed so the UI tells the truth.
+		dep.Status = "failed"
+		dep.Error = "Phase 1 watch never ran: the new Sovereign cluster did not PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig. catalyst-api cannot observe per-HelmRelease state and will not flip status to ready. Operator: SSH to the control-plane and verify cloud-init completed (`cloud-init status`), inspect `/var/log/cloud-init-output.log` for the kubeconfig PUT step (see docs/RUNBOOK-PROVISIONING.md §\"Fetch kubeconfig via SSH\")."
+	case outcome == helmwatch.OutcomeWatcherStartFailed:
+		// Issue #488 (Phase-8a bug #8): same false-ready failure mode,
+		// different upstream cause — informer factory failed to start.
+		dep.Status = "failed"
+		dep.Error = "Phase 1 watch could not start (e.g. malformed kubeconfig or informer factory init failure). catalyst-api has not observed any HelmRelease state and will not flip status to ready. Operator: run `kubectl get helmrelease -n flux-system` directly against the new Sovereign for ad-hoc diagnostics."
 	case outcome == helmwatch.OutcomeFluxNotReconciling:
 		// Watch terminated because zero HelmReleases were ever
 		// observed on the new Sovereign — Flux on that cluster is
@@ -280,6 +299,13 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	case failed > 0:
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 finished with %d failed component(s); see ComponentStates for the per-component breakdown", failed)
+	case outcome == "" && len(finalStates) == 0:
+		// Defensive guard for any future caller that forgets to pass
+		// a non-empty outcome — better to surface as "failed" with a
+		// loud diagnostic than to silently flip to "ready".
+		// Issue #488 (Phase-8a bug #8).
+		dep.Status = "failed"
+		dep.Error = "Phase 1 watch terminated with no observed components and no terminal outcome — this is a programming error in catalyst-api. Please file an issue with the deployment ID and the catalyst-api logs from this run."
 	default:
 		dep.Status = "ready"
 	}

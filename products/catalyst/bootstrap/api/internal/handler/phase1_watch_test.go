@@ -261,7 +261,13 @@ func TestRunPhase1Watch_FailedComponentFlipsStatusToFailed(t *testing.T) {
 // TestRunPhase1Watch_EmptyKubeconfigShortCircuits proves that a
 // deployment with no captured kubeconfig surfaces a single warn
 // event and still calls markPhase1Done so Status leaves
-// "phase1-watching".
+// "phase1-watching" — AND, per issue #488 (Phase-8a bug #8), the
+// short-circuit must NOT report Status="ready". Before #488 was
+// fixed the short-circuit fell through to markPhase1Done's default
+// branch which set "ready" — the wizard then lied to the operator
+// that a Sovereign was Ready when catalyst-api had never observed
+// it. The truthful state is "failed" with a kubeconfig-missing
+// outcome and an operator-actionable error message.
 func TestRunPhase1Watch_EmptyKubeconfigShortCircuits(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	dep := makeDeploymentWithKubeconfig(t, h, "phase1-no-kubeconfig", "")
@@ -273,9 +279,33 @@ func TestRunPhase1Watch_EmptyKubeconfigShortCircuits(t *testing.T) {
 	if dep.Status == "phase1-watching" {
 		t.Errorf("Status stuck at phase1-watching after short-circuit")
 	}
+	// Issue #488: must be "failed", not "ready". Falling through to
+	// "ready" with no observed components means the UI lies about
+	// Sovereign state every single time a kubeconfig PUT is missed.
+	if dep.Status != "failed" {
+		t.Errorf("Status = %q, want %q (kubeconfig short-circuit must fail loudly, not flip ready — issue #488)", dep.Status, "failed")
+	}
+	if dep.Error == "" {
+		t.Errorf("Error must be populated with operator-actionable diagnostic, got empty")
+	}
+	if !strings.Contains(dep.Error, "kubeconfig") {
+		t.Errorf("Error must mention kubeconfig so the operator knows what to investigate; got: %q", dep.Error)
+	}
 	// Result.Phase1FinishedAt is set even though no watch ran.
 	if dep.Result == nil || dep.Result.Phase1FinishedAt == nil {
 		t.Errorf("Phase1FinishedAt should be set even on short-circuit; result=%+v", dep.Result)
+	}
+	// Phase1Outcome must be the explicit kubeconfig-missing string so
+	// the wizard banner can render the right operator-actionable
+	// diagnostic — not empty, which is what triggered the false-ready
+	// fall-through before the fix.
+	if dep.Result == nil || dep.Result.Phase1Outcome != helmwatch.OutcomeKubeconfigMissing {
+		t.Errorf("Phase1Outcome = %q, want %q (issue #488)", func() string {
+			if dep.Result == nil {
+				return "<nil result>"
+			}
+			return dep.Result.Phase1Outcome
+		}(), helmwatch.OutcomeKubeconfigMissing)
 	}
 	// Exactly one warn event in the buffer (the "skipped" message).
 	warns := 0

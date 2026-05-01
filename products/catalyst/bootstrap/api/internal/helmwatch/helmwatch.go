@@ -156,6 +156,22 @@ const (
 	// docs/RUNBOOK-PROVISIONING.md §"Phase 1 watch shows 0
 	// HelmReleases".
 	OutcomeFluxNotReconciling = "flux-not-reconciling"
+
+	// OutcomeKubeconfigMissing — Phase-1 watch never ran because no
+	// kubeconfig was available on the catalyst-api side. The new
+	// Sovereign's cloud-init has not yet PUT its kubeconfig to
+	// /api/v1/deployments/{id}/kubeconfig. catalyst-api cannot observe
+	// per-HelmRelease state and MUST NOT report Status=ready: the
+	// cluster's reconciliation could be at any state including total
+	// failure. Issue #488 — Phase-8a bug #8.
+	OutcomeKubeconfigMissing = "kubeconfig-missing"
+
+	// OutcomeWatcherStartFailed — helmwatch.NewWatcher returned an
+	// error before the informer ever ran (e.g. malformed kubeconfig,
+	// dynamic-factory init panic). Treated as a hard failure for the
+	// same reason as OutcomeKubeconfigMissing — without an informer,
+	// no per-component state can be observed.
+	OutcomeWatcherStartFailed = "watcher-start-failed"
 )
 
 // State enums — kept as constants so callers (handler, tests) compare
