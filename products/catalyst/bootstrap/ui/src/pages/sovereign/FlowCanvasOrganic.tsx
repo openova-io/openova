@@ -107,6 +107,32 @@ const COLLIDE_PADDING = 14
 const MIN_VBOX_W = 1200
 const MIN_VBOX_H = 700
 const VIEW_H = 1100
+/** Bug #481 — viewport-bounded layout. The viewBox is clamped to keep
+ *  nodes inside a sensible rectangle so the operator never sees the
+ *  "kilometers of edges between scattered tiny nodes" problem. The
+ *  clamp is wide enough to fit the canvas at 1440px without scrolling,
+ *  but narrow enough that 4-12 leaf nodes cluster around the host. */
+const MAX_VBOX_W = 1600
+const MAX_VBOX_H = 900
+/** Per-depth column width — kept small enough that even at depth=6 the
+ *  rightmost node sits well inside MAX_VBOX_W. Tuned with NODE_RADIUS
+ *  for collision-free packing. */
+const PER_DEPTH_X = NODE_RADIUS * 5
+/** Vertical scatter on first paint and inside the soft `forceY`. The
+ *  previous value (±140 / ±180) sent siblings flying outside the
+ *  viewport on small graphs (Bug #481). Using ±60 keeps siblings
+ *  loosely organic without scattering them into different panes. */
+const Y_SCATTER_PX = 60
+/** Link distance — short edges keep the graph readable. Was 4×r=88px;
+ *  the new value caps observed edge length around 110px for the
+ *  steady-state simulation. */
+const LINK_DISTANCE = NODE_RADIUS * 4
+/** Force strengths tuned for Bug #481. Strong link + strong y pulls
+ *  pull siblings into a tight cluster around the host instead of
+ *  drifting to the canvas edges. */
+const FORCE_X_STRENGTH = 0.55
+const FORCE_Y_STRENGTH = 0.22
+const FORCE_LINK_STRENGTH = 0.45
 
 /** Selection palette — distinct from any status colour AND distinct
  *  from each other so the host-vs-open semantic is unambiguous. */
@@ -164,10 +190,9 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return map
   }, [layout.regions, REGION_BAND_H])
 
-  const PER_DEPTH_X = NODE_RADIUS * 5
   const depthToX = useCallback(
     (depth: number) => depth * PER_DEPTH_X,
-    [PER_DEPTH_X],
+    [],
   )
 
   const familyById = useMemo(() => {
@@ -200,8 +225,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           familyId: n.familyId,
           status: n.status,
           isGroup: n.isGroup,
-          x: baseX + (seed.fx - 0.5) * 80,
-          y: baseY + (seed.fy - 0.5) * 280,
+          // Bug #481 — tighten initial scatter so the simulation starts
+          // close to the steady state. Previous values (±40 X, ±140 Y)
+          // sent siblings to opposite corners of the canvas; the new
+          // values keep them inside the visible cluster from the first
+          // frame.
+          x: baseX + (seed.fx - 0.5) * 40,
+          y: baseY + (seed.fy - 0.5) * Y_SCATTER_PX * 2,
         }
         nodesRef.current.set(n.id, fresh)
         next.push(fresh)
@@ -240,7 +270,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'x',
         forceX<SimNode>()
           .x((d) => depthToX(d.depth))
-          .strength(0.55),
+          .strength(FORCE_X_STRENGTH),
       )
       .force(
         'y',
@@ -248,18 +278,55 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           .y((d) => {
             const base = regionYMid.get(d.regionId) ?? VIEW_H / 2
             const seed = hashSeed(d.id)
-            return base + (seed.fy - 0.5) * 360
+            // Bug #481 — clamp the per-node Y target inside ±Y_SCATTER_PX
+            // so the soft `forceY` cannot stretch the graph into a
+            // kilometers-tall column. Previous value (±180) was the
+            // root of the "scattered between left + right panes" symptom.
+            return base + (seed.fy - 0.5) * Y_SCATTER_PX * 2
           })
-          .strength(0.05),
+          .strength(FORCE_Y_STRENGTH),
       )
       .force(
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
           .id((d) => d.id)
-          .distance(NODE_RADIUS * 4)
-          .strength(0.08),
+          // Bug #481 — strong link force pulls dependent siblings into a
+          // tight cluster around their depth column. Distance was
+          // already 88px; the strength jump from 0.08 → 0.45 is what
+          // keeps edges visibly under ~140px on a 4-12 node graph.
+          .distance(LINK_DISTANCE)
+          .strength(FORCE_LINK_STRENGTH),
       )
-      .on('tick', () => setTick((t) => t + 1))
+      .on('tick', () => {
+        // Bug #481 — post-tick bounding box clamp. d3-force has no
+        // built-in viewport awareness, so we clamp every node back into
+        // the MAX_VBOX rectangle around the depth-anchored centroid.
+        // Without this, weak link forces on sparse graphs let nodes
+        // drift hundreds of pixels off-screen between ticks.
+        for (const n of simNodes) {
+          const baseX = depthToX(n.depth)
+          // X clamp: ± half the per-depth column width so nodes stay
+          // close to their depth anchor instead of wandering left/right
+          // into adjacent columns.
+          const xMin = baseX - PER_DEPTH_X * 1.5
+          const xMax = baseX + PER_DEPTH_X * 1.5
+          if (typeof n.x === 'number') {
+            if (n.x < xMin) n.x = xMin
+            else if (n.x > xMax) n.x = xMax
+          }
+          // Y clamp: keep the simulation inside the viewport's vertical
+          // bounds. Use MAX_VBOX_H / 2 around the region centroid as a
+          // hard wall — beyond that the node would render off-canvas.
+          const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
+          const yMin = baseY - MAX_VBOX_H / 2 + NODE_RADIUS
+          const yMax = baseY + MAX_VBOX_H / 2 - NODE_RADIUS
+          if (typeof n.y === 'number') {
+            if (n.y < yMin) n.y = yMin
+            else if (n.y > yMax) n.y = yMax
+          }
+        }
+        setTick((t) => t + 1)
+      })
 
     simRef.current = sim
     return () => {
@@ -343,8 +410,17 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const PAD_Y_BOTTOM = NODE_RADIUS + 40
   const naturalW = (bbMaxX - bbMinX) + PAD_X * 2
   const naturalH = (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM
-  const vbW = Math.max(MIN_VBOX_W, naturalW)
-  const vbH = Math.max(MIN_VBOX_H, naturalH)
+  // Bug #481 — clamp the viewBox between MIN and MAX so:
+  //   • Tiny graphs (4-6 nodes) don't squeeze into a microscopic cluster
+  //     (MIN floor keeps them readable at ≥120px wide each).
+  //   • Pathological / runaway graphs don't force the SVG to scale
+  //     down so far the nodes turn into specks (MAX ceiling).
+  // The MAX ceiling is the operative half of this clamp for #481 — it
+  // is the structural answer to "kilometers of edges between tiny
+  // nodes": even if the simulation drifts, the visible area never
+  // exceeds MAX, so nodes always render at a usable size.
+  const vbW = Math.min(MAX_VBOX_W, Math.max(MIN_VBOX_W, naturalW))
+  const vbH = Math.min(MAX_VBOX_H, Math.max(MIN_VBOX_H, naturalH))
   const cx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
   const cy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
   const vbX = cx - vbW / 2

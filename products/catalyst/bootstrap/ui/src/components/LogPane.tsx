@@ -27,17 +27,29 @@
  *       tokens; only the slide-in keyframe owns motion-specific values.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { ExecutionLogs } from './ExecutionLogs'
-import { LogSearch, type LogFilter } from './LogSearch'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ExecutionLogs, type LogLine, LOG_VIEWER_BG, formatLogTimestamp } from './ExecutionLogs'
+import { LogSearch, lineMatches, type LogFilter } from './LogSearch'
 
 interface LogPaneProps {
   /**
    * Stable execution id used to fetch logs from the catalyst-api.
-   * When falsy / empty, the pane renders the "no execution recorded
-   * yet" empty state instead of mounting the polling viewer.
+   * When falsy / empty AND `fallbackLines` is also empty, the pane
+   * renders the "no execution recorded yet" empty state instead of
+   * mounting the polling viewer.
    */
   executionId: string | null | undefined
+  /**
+   * Bug #481 — inline fallback log lines for derived jobs that have no
+   * Bridge-allocated Execution row. Phase-0 jobs (`infrastructure:*`,
+   * `cluster-bootstrap`) live entirely in the SSE event reducer, so
+   * `useJobDetail` returns 404 and `executionId` is null, but the
+   * operator still expects to see the captured event log when they
+   * click the job. When this prop is non-empty AND `executionId` is
+   * null, the pane renders these lines through the same search /
+   * filter pipeline as the polling viewer.
+   */
+  fallbackLines?: readonly LogLine[]
   /** Display title — typically the host job's display name or jobName. */
   jobTitle: string
   /** Status text rendered as a small chip in the header strip. */
@@ -59,6 +71,7 @@ const EMPTY_FILTER: LogFilter = { query: '', regex: false, levels: new Set() }
 
 export function LogPane({
   executionId,
+  fallbackLines,
   jobTitle,
   statusLabel,
   statusTone = 'pending',
@@ -204,12 +217,172 @@ export function LogPane({
             />
           </div>
         </>
+      ) : fallbackLines && fallbackLines.length > 0 ? (
+        <>
+          <LogSearch
+            matchCount={matchCount}
+            matchIndex={matchIndex}
+            onPrev={goPrev}
+            onNext={goNext}
+            onFilterChange={setFilter}
+          />
+          <div className="log-pane-body" data-testid="log-pane-body">
+            <FallbackLogList
+              lines={fallbackLines}
+              filter={filter}
+              matchIndex={matchIndex}
+              onMatchCountChange={setMatchCount}
+            />
+          </div>
+        </>
       ) : (
         <div className="log-pane-empty" data-testid="log-pane-empty">
           No execution recorded yet.
         </div>
       )}
     </aside>
+  )
+}
+
+/* ── FallbackLogList — render synthetic LogLines without polling ─── */
+/**
+ * Bug #481 — used when the JobDetail page's selected job is a derived
+ * job (Phase-0 tofu, cluster-bootstrap) that has no Bridge-allocated
+ * Execution row. The DerivedJob.steps array IS the log content for
+ * those jobs; this component renders it through the same dark-theme,
+ * line-numbered presentation as ExecutionLogs without the polling /
+ * pagination machinery.
+ *
+ * Visual contract is intentionally identical to ExecutionLogs:
+ *   • Background `#0D1117`, monospace, line numbers on the left.
+ *   • Search filter applied via LogSearch (case / regex / level).
+ *   • Match-index scroll-into-view via `data-match-position`.
+ *
+ * Pure presentation, no data fetching. Inputs are static; the parent
+ * (JobDetail) re-renders this on every reducer update so the lines
+ * stream in live as the SSE replay catches up.
+ */
+interface FallbackLogListProps {
+  lines: readonly LogLine[]
+  filter: LogFilter
+  matchIndex: number
+  onMatchCountChange: (n: number) => void
+}
+
+function FallbackLogList({
+  lines,
+  filter,
+  matchIndex,
+  onMatchCountChange,
+}: FallbackLogListProps) {
+  const filterActive =
+    filter.query.trim().length > 0 || filter.levels.size > 0
+
+  const displayed = useMemo(() => {
+    if (!filterActive) return lines
+    const out: LogLine[] = []
+    for (const ll of lines) {
+      if (filter.levels.size > 0 && !filter.levels.has(ll.level)) continue
+      if (!lineMatches(ll.message, filter)) continue
+      out.push(ll)
+    }
+    return out
+  }, [lines, filter, filterActive])
+
+  useEffect(() => {
+    onMatchCountChange(filterActive ? displayed.length : 0)
+  }, [displayed, filterActive, onMatchCountChange])
+
+  const lineNumWidth = useMemo(() => {
+    const last = displayed[displayed.length - 1]
+    const digits = Math.max(3, String(last?.lineNumber ?? 0).length)
+    return `${digits}ch`
+  }, [displayed])
+
+  return (
+    <div
+      data-testid="fallback-log-list"
+      style={{
+        background: LOG_VIEWER_BG,
+        borderRadius: 6,
+        position: 'relative',
+        overflow: 'auto',
+        height: '100%',
+        fontFamily:
+          'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      }}
+    >
+      {displayed.length === 0 ? (
+        <div
+          data-testid="fallback-log-empty"
+          style={{
+            padding: '1rem',
+            color: 'rgba(201, 209, 217, 0.55)',
+            fontSize: '0.78rem',
+          }}
+        >
+          {filterActive
+            ? 'No log lines match the active search.'
+            : 'No logs captured yet for this job.'}
+        </div>
+      ) : (
+        displayed.map((line, idx) => {
+          const matchPosition = filterActive ? idx + 1 : 0
+          const isFocusedMatch = filterActive && matchIndex === matchPosition
+          return (
+            <div
+              key={line.lineNumber}
+              data-testid={`fallback-log-line-${line.lineNumber}`}
+              data-level={line.level}
+              data-match-position={matchPosition || undefined}
+              data-focused-match={isFocusedMatch ? 'true' : undefined}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.6rem',
+                padding: '0.1rem 0.85rem',
+                fontSize: '0.78rem',
+                lineHeight: 1.55,
+                color: '#c9d1d9',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                background: isFocusedMatch ? 'rgba(56, 139, 253, 0.18)' : 'transparent',
+              }}
+            >
+              <span
+                style={{
+                  width: lineNumWidth,
+                  flexShrink: 0,
+                  textAlign: 'right',
+                  color: 'rgba(139, 148, 158, 0.7)',
+                  fontVariantNumeric: 'tabular-nums',
+                  userSelect: 'none',
+                }}
+              >
+                {line.lineNumber}
+              </span>
+              <span
+                style={{
+                  flexShrink: 0,
+                  color: 'rgba(139, 148, 158, 0.85)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {formatLogTimestamp(line.timestamp)}
+              </span>
+              <span
+                style={{
+                  flex: '1 1 auto',
+                  minWidth: 0,
+                }}
+              >
+                {line.message}
+              </span>
+            </div>
+          )
+        })
+      )}
+    </div>
   )
 }
 
