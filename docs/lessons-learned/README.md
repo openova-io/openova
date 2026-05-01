@@ -7,3 +7,5 @@ Organized by domain.
 | Domain | What's in it |
 |---|---|
 | [helm-controller-rbac.md](helm-controller-rbac.md) | Flux helm-controller v1.1.0 RBAC + template-parse quirks |
+| [helm-controller-logs.md](helm-controller-logs.md) | Flux v2.4 helm-controller stdout uses nested-object JSON for HelmRelease, not flat strings |
+| [chi-router-quirks.md](chi-router-quirks.md) | go-chi does not decode `%3A` (and other path-safe specials) before route matching |
