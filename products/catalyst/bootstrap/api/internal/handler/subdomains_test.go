@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
@@ -30,7 +31,13 @@ import (
 
 // fakePDM is a stub pdmClient that records every call. We assert against the
 // recorded calls to prove the behaviour the architecture requires.
+//
+// mu guards the recorded-call slices because the orphan-release path
+// introduced by issue #489 fires pdm.Release in a goroutine spawned by
+// restoreFromStore. Without the mutex, -race flags the slice append in
+// Release racing the test's read.
 type fakePDM struct {
+	mu       sync.Mutex
 	checks   []checkCall
 	check    func(ctx context.Context, pool, sub string) (*pdm.CheckResult, error)
 	reserves []reserveCall
@@ -41,22 +48,40 @@ type fakePDM struct {
 	release  func(ctx context.Context, pool, sub string) error
 }
 
+// snapshotReleases returns a copy of the recorded Release calls under
+// the mutex. Tests that race goroutines against the recorder MUST use
+// this instead of reading `f.releases` directly, otherwise -race flags
+// the read.
+func (f *fakePDM) snapshotReleases() []releaseCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]releaseCall, len(f.releases))
+	copy(out, f.releases)
+	return out
+}
+
 type checkCall struct{ pool, sub string }
 type reserveCall struct{ pool, sub, by string }
 type releaseCall struct{ pool, sub string }
 
 func (f *fakePDM) Check(ctx context.Context, pool, sub string) (*pdm.CheckResult, error) {
+	f.mu.Lock()
 	f.checks = append(f.checks, checkCall{pool, sub})
-	if f.check != nil {
-		return f.check(ctx, pool, sub)
+	cb := f.check
+	f.mu.Unlock()
+	if cb != nil {
+		return cb(ctx, pool, sub)
 	}
 	return &pdm.CheckResult{Available: true, FQDN: sub + "." + pool}, nil
 }
 
 func (f *fakePDM) Reserve(ctx context.Context, pool, sub, by string) (*pdm.Reservation, error) {
+	f.mu.Lock()
 	f.reserves = append(f.reserves, reserveCall{pool, sub, by})
-	if f.reserve != nil {
-		return f.reserve(ctx, pool, sub, by)
+	cb := f.reserve
+	f.mu.Unlock()
+	if cb != nil {
+		return cb(ctx, pool, sub, by)
 	}
 	return &pdm.Reservation{
 		PoolDomain: pool, Subdomain: sub, State: "reserved",
@@ -65,17 +90,23 @@ func (f *fakePDM) Reserve(ctx context.Context, pool, sub, by string) (*pdm.Reser
 }
 
 func (f *fakePDM) Commit(ctx context.Context, pool string, in pdm.CommitInput) error {
+	f.mu.Lock()
 	f.commits = append(f.commits, in)
-	if f.commit != nil {
-		return f.commit(ctx, pool, in)
+	cb := f.commit
+	f.mu.Unlock()
+	if cb != nil {
+		return cb(ctx, pool, in)
 	}
 	return nil
 }
 
 func (f *fakePDM) Release(ctx context.Context, pool, sub string) error {
+	f.mu.Lock()
 	f.releases = append(f.releases, releaseCall{pool, sub})
-	if f.release != nil {
-		return f.release(ctx, pool, sub)
+	cb := f.release
+	f.mu.Unlock()
+	if cb != nil {
+		return cb(ctx, pool, sub)
 	}
 	return nil
 }

@@ -295,20 +295,25 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 	// fires releaseOrphanedReservation as a goroutine.
 	h := NewWithStore(silentLogger(), fpdm, st)
 
-	// Wait briefly for the async release to fire — capped at 2s.
+	// Wait briefly for the async release to fire — capped at 2s. Use
+	// the mutex-protected snapshot accessor; a direct read of
+	// fpdm.releases here races the goroutine's append (race detector
+	// flagged it on first CI run before the accessor was added).
 	deadline := time.Now().Add(2 * time.Second)
+	var releases []releaseCall
 	for time.Now().Before(deadline) {
-		if len(fpdm.releases) > 0 {
+		releases = fpdm.snapshotReleases()
+		if len(releases) > 0 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	if got := len(fpdm.releases); got != 1 {
-		t.Fatalf("expected 1 orphan PDM Release; got %d (%+v)", got, fpdm.releases)
+	if got := len(releases); got != 1 {
+		t.Fatalf("expected 1 orphan PDM Release; got %d (%+v)", got, releases)
 	}
-	if fpdm.releases[0].pool != "omani.works" || fpdm.releases[0].sub != "otech7" {
-		t.Errorf("orphan Release args = %+v, want omani.works/otech7", fpdm.releases[0])
+	if releases[0].pool != "omani.works" || releases[0].sub != "otech7" {
+		t.Errorf("orphan Release args = %+v, want omani.works/otech7", releases[0])
 	}
 
 	// Deployment landed in sync.Map with status rewritten to "failed".
@@ -377,8 +382,9 @@ func TestRestoreFromStore_TerminalRecordDoesNotReleasePDM(t *testing.T) {
 	// Allow a generous window for any spurious goroutine to fire.
 	time.Sleep(150 * time.Millisecond)
 
-	if got := len(fpdm.releases); got != 0 {
+	releases := fpdm.snapshotReleases()
+	if got := len(releases); got != 0 {
 		t.Errorf("expected 0 PDM Release calls for already-terminal record, got %d (%+v)",
-			got, fpdm.releases)
+			got, releases)
 	}
 }
