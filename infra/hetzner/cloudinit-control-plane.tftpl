@@ -447,6 +447,33 @@ runcmd:
   #   --disable-network-policy      Cilium handles NetworkPolicy.
   #   --tls-san=${sovereign_fqdn}   API server cert valid for the sovereign FQDN.
   #
+  # ── kube-apiserver OIDC flags (issue #326) ─────────────────────────────
+  #   --kube-apiserver-arg=oidc-issuer-url=https://auth.<sovereign_fqdn>/realms/sovereign
+  #   --kube-apiserver-arg=oidc-client-id=kubectl
+  #   --kube-apiserver-arg=oidc-username-claim=preferred_username
+  #   --kube-apiserver-arg=oidc-username-prefix=oidc:
+  #   --kube-apiserver-arg=oidc-groups-claim=groups
+  #   --kube-apiserver-arg=oidc-groups-prefix=oidc:
+  # Wire k3s api-server's OIDC validator to the per-Sovereign Keycloak
+  # realm (`sovereign`), shipped by bp-keycloak's keycloakConfigCli realm
+  # import (platform/keycloak/chart/values.yaml). After the Sovereign's
+  # bootstrap kit lands, customer admins authenticate kubectl against
+  # Keycloak (see docs/omantel-handover-wbs.md §11 "kubectl OIDC for
+  # customer admins"). The username/groups prefixes prefix every
+  # OIDC-issued subject with `oidc:` so RoleBindings reference them as
+  # e.g. `subjects[0].name=oidc:alice@org` — distinct from any local
+  # ServiceAccount or x509 subject. Per INVIOLABLE-PRINCIPLES #4 the
+  # issuer URL is composed from sovereign_fqdn — never hardcoded.
+  #
+  # Trust-chain note: the per-Sovereign Keycloak is exposed via the
+  # `cilium-gateway` Gateway (kube-system), whose serving Certificate is
+  # issued by Let's Encrypt via bp-cert-manager. k3s's kube-apiserver
+  # reaches the in-cluster Keycloak Service over plain HTTPS using the
+  # node's system trust store; LE roots are present by default on the
+  # Ubuntu 24.04 control-plane image, so no `--oidc-ca-file` is needed
+  # in this configuration. Air-gapped Sovereigns (deferred Phase 9+)
+  # add a CA-file flag here when their Keycloak fronts a private CA.
+  #
   # NOTE: --disable=local-storage is intentionally NOT passed. k3s ships a
   # built-in local-path-provisioner (Rancher) and registers a `local-path`
   # StorageClass. That is the canonical solo-Sovereign StorageClass:
@@ -467,7 +494,7 @@ runcmd:
   # provisioned hcloud-csi. Result on a fresh Sovereign: every PVC stuck
   # Pending forever, bootstrap-kit deadlocked. Keeping local-path solves
   # the circularity by giving the cluster a default StorageClass at boot.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
