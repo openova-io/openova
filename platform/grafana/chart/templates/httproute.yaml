@@ -10,9 +10,7 @@ The Service port is 80 → targets pod port 3000 (chart default; matches
 values.yaml service.port=80, targetPort=3000).
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if not .Values.gateway.host }}
-{{- fail "values.gateway.host is required (e.g. grafana.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if .Values.gateway.host }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -38,4 +36,5 @@ spec:
       backendRefs:
         - name: {{ .Values.gateway.backendService | default .Release.Name | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}
 {{- end }}

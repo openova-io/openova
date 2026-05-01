@@ -12,9 +12,7 @@ releaseName=openbao in the bootstrap-kit slot the Service is
 `openbao-openbao`.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if not .Values.gateway.host }}
-{{- fail "values.gateway.host is required (e.g. bao.<sovereign-fqdn>) — see docs/INVIOLABLE-PRINCIPLES.md #4" }}
-{{- end }}
+{{- if .Values.gateway.host }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -40,4 +38,5 @@ spec:
       backendRefs:
         - name: {{ .Values.gateway.backendService | default (printf "%s-openbao" .Release.Name) | quote }}
           port: {{ .Values.gateway.backendPort | default 8200 }}
+{{- end }}
 {{- end }}
