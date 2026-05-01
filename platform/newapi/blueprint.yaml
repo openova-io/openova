@@ -1,0 +1,258 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-newapi
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-6-llm-serving
+spec:
+  version: 1.0.0
+  card:
+    title: NewAPI
+    summary: |
+      Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI
+      (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits,
+      per-key budgets, channel routing, and BYOK as first-class primitives.
+      Deployed in **backend-only** mode: the OpenAI-compatible API at
+      `api.<host>/v1/*` is customer-facing; the upstream's portal UI is
+      disabled at ingress; Catalyst replaces it as the customer surface;
+      NewAPI's admin UI at `admin.<host>` is exposed only to ops staff
+      (IdP-gated). Compliance posture (channel attestation, geographic
+      AUP, BYOK isolation, reseller disclosure) enforced at the
+      blueprint layer. Use `bp-newapi` when the Sovereign operator's
+      business model is reselling LLM access to its own customers; use
+      `bp-llm-gateway` for self-consumption.
+    icon: newapi.svg
+    category: ai-runtime
+    tags: [llm, gateway, marketplace, multi-tenant, credits, byok, openai-compatible, reseller]
+    documentation: https://github.com/Calcium-Ion/new-api
+    license: MIT
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 16
+      ingress:
+        type: object
+        required: [host, adminHost]
+        properties:
+          host:
+            type: string
+            description: Customer-facing API hostname (operator-supplied, e.g. api.<sovereign-fqdn>).
+          adminHost:
+            type: string
+            description: Ops-staff admin UI hostname (operator-supplied, e.g. admin.<sovereign-fqdn>). IdP-gated.
+          tlsIssuer:
+            type: string
+            default: letsencrypt-prod
+            description: cert-manager ClusterIssuer name.
+      database:
+        type: object
+        required: [existingSecret]
+        properties:
+          existingSecret:
+            type: string
+            description: ExternalSecret name holding the Postgres DSN (key SQL_DSN). Provisioned via a Crossplane PostgresqlInstance claim against bp-cnpg.
+      valkey:
+        type: object
+        properties:
+          url:
+            type: string
+            default: redis://valkey.valkey.svc.cluster.local:6379
+            description: Valkey URL for session and rate-limit cache.
+      auth:
+        type: object
+        properties:
+          adminUI:
+            type: object
+            properties:
+              mode:
+                type: string
+                enum: [keycloak, masterKey]
+                default: keycloak
+                description: |
+                  `keycloak` = OIDC-only via bp-keycloak realm. `masterKey` = static master
+                  key (DEV/BOOTSTRAP ONLY — operators MUST migrate to keycloak before exposing
+                  admin.<host> on a public ingress).
+              keycloak:
+                type: object
+                properties:
+                  issuer:
+                    type: string
+                    description: Keycloak realm issuer URL (e.g. https://keycloak.<sovereign>/realms/<ops-realm>).
+                  clientId:
+                    type: string
+                    default: newapi-admin
+          customerAPI:
+            type: object
+            properties:
+              keyIssuer:
+                type: string
+                enum: [catalyst, self-serve]
+                default: catalyst
+                description: |
+                  `catalyst` (DEFAULT) = customer keys are issued by Catalyst's signup hook
+                  via NewAPI's admin API; the upstream's customer portal UI is disabled.
+                  `self-serve` = the upstream's customer portal UI is enabled (NOT
+                  recommended in Catalyst Sovereigns — Catalyst is the customer surface).
+      channels:
+        type: array
+        description: |
+          LLM provider channels exposed by this NewAPI instance. Every channel MUST carry
+          a verifiable `attestation` block; the blueprint refuses to render a Deployment
+          if any enabled channel lacks attestation.
+        items:
+          type: object
+          required: [name, type, attestation]
+          properties:
+            name:
+              type: string
+              description: Channel name (customer-visible model prefix, e.g. "qwen", "claude", "gpt").
+            type:
+              type: string
+              enum: [vllm, openai-compatible, anthropic, byok-passthrough]
+              description: |
+                `vllm` = in-cluster bp-vllm (cheap tier).
+                `openai-compatible` = commercial OpenAI/Together/Fireworks/etc.
+                `anthropic` = direct Anthropic API contract (operator's commercial account).
+                `byok-passthrough` = customer-supplied key, request-scoped, never aggregated.
+            endpoint:
+              type: string
+              description: Upstream endpoint URL (omit for byok-passthrough — taken from request).
+            existingSecret:
+              type: string
+              description: ExternalSecret name holding the upstream API key (omit for vllm and byok-passthrough).
+            models:
+              type: array
+              items:
+                type: string
+              description: Model identifiers exposed via this channel.
+            attestation:
+              type: object
+              required: [kind]
+              properties:
+                kind:
+                  type: string
+                  enum: [in-cluster, commercial-contract, byok]
+                  description: |
+                    `in-cluster` = operator owns the model weights and inference hardware.
+                    `commercial-contract` = operator holds a paid account at the upstream
+                    provider with reseller terms reviewed by counsel.
+                    `byok` = key is supplied per-request by the end customer.
+                accountId:
+                  type: string
+                  description: Provider-side account identifier (required for commercial-contract).
+                contractRef:
+                  type: string
+                  description: Internal document reference to the signed reseller terms (required for commercial-contract).
+      geo:
+        type: object
+        properties:
+          sanctionedRegions:
+            type: object
+            properties:
+              block:
+                type: array
+                items:
+                  type: string
+                default: ["IR", "KP", "SY", "CU", "RU-occupied-UA"]
+                description: ISO-3166-1 alpha-2 region codes blocked on commercial-provider channels (US/EU export-control baseline).
+              allowRelaxation:
+                type: boolean
+                default: false
+                description: Set true ONLY with a recorded justification reviewed by counsel.
+      aup:
+        type: object
+        properties:
+          enforcement:
+            type: string
+            enum: [provider-strictest, per-channel, off]
+            default: provider-strictest
+            description: |
+              `provider-strictest` = downstream requests must satisfy the strictest AUP
+              across all enabled commercial channels. `per-channel` = each channel's
+              requests must satisfy that channel's upstream AUP. `off` = no enforcement
+              (open-weight in-cluster channels only — never set in a Sovereign with
+              commercial channels enabled).
+      audit:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          retentionDays:
+            type: integer
+            default: 730
+            description: Audit log retention on the bp-cnpg Postgres (days).
+          logPromptContent:
+            type: boolean
+            default: false
+            description: |
+              Default false (metadata-only). Operator may opt in per their privacy posture
+              and customer ToS — DO NOT enable without explicit customer disclosure.
+      byok:
+        type: object
+        properties:
+          scope:
+            type: string
+            enum: [request-scoped, never]
+            default: request-scoped
+            description: |
+              `request-scoped` (DEFAULT) = BYOK keys are passed through per-request and
+              never persisted, cached, or shared. `never` = BYOK is disabled entirely.
+              Cross-customer BYOK aggregation is not a supported value.
+      reseller:
+        type: object
+        properties:
+          disclosureRequired:
+            type: boolean
+            default: true
+            description: |
+              The operator must publish a `/legal/llm-providers` page listing the
+              upstream providers they resell. The blueprint's compliance smoke test
+              asserts the page is reachable at install time.
+      catalystIntegration:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              When true, the blueprint provisions a Kubernetes secret
+              `catalyst-newapi-admin-token` consumed by Catalyst's signup hook to issue
+              per-user API keys against NewAPI. Disable only in Sovereigns where Catalyst
+              is not the customer surface (rare).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg
+      version: ^1.0
+      alias: db
+    - blueprint: bp-keycloak
+      version: ^1.0
+      alias: idp
+    - blueprint: bp-external-secrets
+      version: ^1.0
+      alias: eso
+    - blueprint: bp-valkey
+      version: ^1.0
+      alias: cache
+    - blueprint: bp-vllm
+      version: ^1.0
+      alias: vllm
+      optional: true
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

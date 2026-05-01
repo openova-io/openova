@@ -1,0 +1,120 @@
+{{- if .Values.newapi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-newapi.fullname" . }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.newapi.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-newapi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-newapi.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when channel/policy config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-newapi.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.newapi.securityContext | nindent 8 }}
+      containers:
+        - name: newapi
+          image: "{{ .Values.newapi.image.repository }}:{{ .Values.newapi.image.tag }}"
+          imagePullPolicy: {{ .Values.newapi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.newapi.port }}
+              protocol: TCP
+          env:
+            # ── Database (Postgres on bp-cnpg) ────────────────────────
+            - name: SQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey }}
+
+            # ── Valkey cache ──────────────────────────────────────────
+            {{- if .Values.valkey.enabled }}
+            {{- if .Values.valkey.existingSecret }}
+            - name: REDIS_CONN_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.valkey.existingSecret }}
+                  key: {{ .Values.valkey.existingSecretKey }}
+            {{- else }}
+            - name: REDIS_CONN_STRING
+              value: {{ .Values.valkey.url | quote }}
+            {{- end }}
+            {{- end }}
+
+            # ── App credentials (NewAPI-internal) ─────────────────────
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "credentials.existingSecret is required" .Values.credentials.existingSecret }}
+                  key: SESSION_SECRET
+            - name: CRYPTO_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentials.existingSecret }}
+                  key: CRYPTO_SECRET
+
+            # ── OIDC (admin UI) ───────────────────────────────────────
+            {{- if eq .Values.auth.adminUI.mode "keycloak" }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "auth.adminUI.keycloak.existingSecret is required when auth.adminUI.mode=keycloak" .Values.auth.adminUI.keycloak.existingSecret }}
+                  key: OIDC_CLIENT_SECRET
+            {{- end }}
+
+            # ── Bootstrap-only master key (DEV ONLY) ──────────────────
+            {{- if .Values.auth.adminUI.masterKeySecret }}
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.adminUI.masterKeySecret }}
+                  key: MASTER_KEY
+            {{- end }}
+
+          envFrom:
+            - configMapRef:
+                name: {{ include "bp-newapi.configMapName" . }}
+
+          volumeMounts:
+            - name: channels
+              mountPath: /etc/newapi
+              readOnly: true
+
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.newapi.probes.liveness.path }}
+              port: {{ .Values.newapi.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.newapi.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.newapi.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.newapi.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.newapi.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.newapi.probes.readiness.path }}
+              port: {{ .Values.newapi.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.newapi.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.newapi.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.newapi.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.newapi.probes.readiness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.newapi.resources | nindent 12 }}
+
+      volumes:
+        - name: channels
+          configMap:
+            name: {{ include "bp-newapi.configMapName" . }}
+            items:
+              - key: channels.yaml
+                path: channels.yaml
+{{- end }}
