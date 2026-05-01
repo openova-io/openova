@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -103,6 +104,25 @@ type Handler struct {
 	// (e.g. 200ms) to exercise the 504-on-seed-timeout path
 	// deterministically against a stuck fake informer.
 	refreshWatchSeedTimeout time.Duration
+
+	// k8sCache — catalyst-wide informer cache (issue #321). Owns one
+	// SharedInformerFactory per managed Sovereign cluster. The k8s
+	// REST + SSE handlers in k8s.go read its Indexer + Subscribe.
+	// Nil-tolerant: a nil k8sCache yields 503 from the k8s.go
+	// handlers so existing tests (NewWithPDM / Handler{}) keep
+	// working unchanged.
+	k8sCache *k8scache.Factory
+
+	// sarCache — per-process SubjectAccessReview decision cache that
+	// gates every K8s read. Decisions live for ~30s (configurable via
+	// CATALYST_K8SCACHE_SAR_TTL_SECONDS).
+	sarCache *k8scache.SARCache
+
+	// k8sUserHeader — request header that carries the authenticated
+	// user identity. Production deploys put an OIDC proxy in front
+	// of catalyst-api which sets X-Forwarded-User. Tests inject
+	// directly via this field.
+	k8sUserHeader string
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
@@ -276,6 +296,21 @@ func NewWithStoreAndKubeconfigsDir(log *slog.Logger, client pdmClient, st *store
 	}
 	return h
 }
+
+// SetK8sCache wires a started k8scache.Factory + a SAR cache into the
+// Handler. The catalyst-api `main.go` calls this once at startup,
+// AFTER the Factory's Start has been invoked. The k8sUserHeader is
+// the request header the SSE/REST handlers read for the authenticated
+// user identity (default X-Forwarded-User).
+func (h *Handler) SetK8sCache(f *k8scache.Factory, sar *k8scache.SARCache, userHeader string) {
+	h.k8sCache = f
+	h.sarCache = sar
+	h.k8sUserHeader = userHeader
+}
+
+// K8sCache exposes the wired Factory so /healthz can read its synced
+// map without reaching into private state.
+func (h *Handler) K8sCache() *k8scache.Factory { return h.k8sCache }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
