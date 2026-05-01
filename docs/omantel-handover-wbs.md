@@ -70,6 +70,8 @@ Phases run sequentially; tickets within a phase parallelize except where a same-
 flowchart LR
     classDef phase fill:#1f2937,stroke:#94a3b8,color:#f1f5f9,stroke-width:1px
     classDef done fill:#064e3b,stroke:#10b981,color:#d1fae5
+    classDef wip fill:#713f12,stroke:#eab308,color:#fef9c3,stroke-width:2px
+    classDef blocked fill:#7f1d1d,stroke:#ef4444,color:#fee2e2,stroke-width:2px
     classDef gate fill:#7c2d12,stroke:#f97316,color:#ffedd5,stroke-width:2px
 
     subgraph PH0[Phase 0 · Pre-flight]
@@ -165,7 +167,10 @@ flowchart LR
     T370 --> P8
 
     class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7 phase
+    class T338,T370,T371,T387 wip
 ```
+
+**Legend:** 🟡 yellow = in-progress agent · 🟢 green = done · 🔴 red = blocked · 🟧 orange = gate · default = parked.
 
 **Reading the DAG (left to right):**
 
@@ -299,14 +304,14 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 
 | Ticket | Status | PR(s) | Deployed-SHA evidence |
 |---|---|---|---|
-| #338 | (pending) | | |
+| #338 | 🟡 in-progress (Agent #338-bp-flux-rbac) | | |
 | #316 | (pending) | | |
 | #317 | (pending) | | |
 | #319 | (pending) | | |
 | #327 | (in flight, other session) | | |
 | #331 | (pending) | | |
-| #370 | (parked) | | |
-| #371 | (parked) | | |
+| #370 | 🟡 in-progress (Agent #370-hetzner-purge-runbook) | | |
+| #371 | 🟡 in-progress (Agent #371-hetzner-os-credentials) | | |
 | #373 | (parked) | | |
 | #374 | (parked) | | |
 | #375 | (parked) | | |
@@ -320,4 +325,4 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #383 | (parked) | | |
 | #384 | (parked) | | |
 | #385 | (parked) | | |
-| #387 | (parked) | | |
+| #387 | 🟡 in-progress (Agent #387-gateway-api-audit) | | |
