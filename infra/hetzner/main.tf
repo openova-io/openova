@@ -209,7 +209,7 @@ locals {
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
     load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
-  }), "/(?m)^[ ]{0,2}#[^!].*\n/", "")
+  }), "/(?m)^[ ]{0,2}# .*\n/", "")
 
   worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
@@ -218,7 +218,7 @@ locals {
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
-  }), "/(?m)^[ ]{0,2}#[^!].*\n/", "")
+  }), "/(?m)^[ ]{0,2}# .*\n/", "")
 }
 
 resource "hcloud_server" "control_plane" {
