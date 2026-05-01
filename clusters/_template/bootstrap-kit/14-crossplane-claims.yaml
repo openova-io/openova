@@ -30,7 +30,6 @@ metadata:
   namespace: flux-system
 spec:
   interval: 15m
-  timeout: 15m
   releaseName: crossplane-claims
   targetNamespace: crossplane-system
   # bp-crossplane installs the apiextensions.crossplane.io/v1 CRDs
@@ -50,9 +49,15 @@ spec:
         kind: HelmRepository
         name: bp-crossplane-claims
         namespace: flux-system
+  # Event-driven install: Helm completes when manifests apply, not when the
+  # XRD-backed CRs reach Ready. dependsOn on bp-crossplane already gates this
+  # HR on the upstream CRDs being live; disableWait replaces PR #221's
+  # blanket spec.timeout: 15m band-aid.
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     remediation:
       retries: 3
