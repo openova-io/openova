@@ -1,0 +1,246 @@
+name: Phase-8a preflight A — bootstrap-kit reconcile dry-run
+
+# Closes openova-io/openova#459 — surfaces Risk-register R4 (bootstrap-kit
+# reconcile-chain order untested under load) BEFORE Phase 8a burns Hetzner
+# credit on `test.omani.works`. Spins up a kind cluster, installs Cilium
+# with Gateway API CRDs + Flux, plants mock cloud creds (so the chain
+# doesn't immediately 401 on real Hetzner), applies the
+# `clusters/_template/bootstrap-kit/` kustomization, and watches every
+# `bp-*` HelmRelease in flux-system over a 15-min polling window.
+#
+# Goal is to surface ALL reconcile-chain failures, not stop at the first.
+# The summary step always runs (`if: always()`) and emits a Markdown table
+# of every HR's terminal Ready condition; failed HRs get a `kubectl
+# describe` block appended for triage.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-self-edit + workflow_dispatch only. There is
+# no `schedule:` trigger.
+#
+# Per the canonical-seam rule (docs/omantel-handover-wbs.md §3a), this
+# workflow REUSES existing seams:
+#   - kind setup pattern from .github/workflows/test-bootstrap-kit.yaml
+#   - Flux install via fluxcd/flux2/action@main (same as test-bootstrap-kit)
+#   - bootstrap-kit kustomization at clusters/_template/bootstrap-kit/
+#     (the same overlay that production Sovereigns consume)
+# It does NOT duplicate the Go test-bootstrap-kit harness — that test
+# stops at "Flux accepts our manifests"; this preflight goes further by
+# letting HelmRelease reconciliation actually attempt under mocked creds.
+#
+# Out of scope: real Hetzner cloud calls (mock creds only, that's the
+# point), live HTTPRoute admission (covered by sibling preflight #461),
+# Crossplane provider-hcloud Healthy probe (sibling preflight #460),
+# Keycloak realm-import (sibling preflight #462).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/preflight-bootstrap-kit.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Preflight bootstrap-kit reconcile
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: preflight-bootstrap-kit
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Install Gateway API CRDs (standard channel, v1.2.0)
+        run: |
+          # Cilium's Helm chart auto-installs Gateway API CRDs only when
+          # gatewayAPI=true is passed; the bp-cilium chart enables it,
+          # but a kind cluster has no chart pre-installed. We pre-plant
+          # the CRDs so the bootstrap-kit Gateway/HTTPRoute manifests
+          # parse against a live API server. (Cilium controller itself
+          # may still fail to install — that's exactly what we want to
+          # surface, not hide.)
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+
+      - name: Install Flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Install Flux controllers
+        run: |
+          # Full Flux install (source-controller, kustomize-controller,
+          # helm-controller, notification-controller). Mirrors what the
+          # cloud-init bootstrap installs on a real Sovereign.
+          flux install --network-policy=false
+
+      - name: Plant mock cloud creds
+        run: |
+          # The bootstrap-kit Helm valuesFrom blocks reference these
+          # Secrets. Mock values let HRs proceed past Secret-lookup and
+          # into actual chart install / dependency-wait, which is where
+          # the reconcile-chain bugs we're hunting actually live.
+          kubectl create secret generic object-storage \
+            --namespace flux-system \
+            --from-literal=s3-endpoint=https://fake.example.com \
+            --from-literal=s3-region=fake \
+            --from-literal=s3-bucket=preflight-bucket \
+            --from-literal=s3-access-key=AKIA-FAKE \
+            --from-literal=s3-secret-key=fake-secret-key
+          kubectl create secret generic cloud-credentials \
+            --namespace flux-system \
+            --from-literal=hcloud-token=fake-hcloud-token
+          # Stub GHCR pull credential — bp-* HelmRepositories reference
+          # secretRef:{name: ghcr-pull}. Without it, source-controller
+          # bails before chart pull, masking the deeper failures we're
+          # trying to surface. Using the canonical k8s dockerconfigjson
+          # shape with a fake credential — chart pulls will fail with
+          # 401, but every HR will at least hit the install attempt.
+          kubectl create secret docker-registry ghcr-pull \
+            --namespace flux-system \
+            --docker-server=ghcr.io \
+            --docker-username=fake-user \
+            --docker-password=fake-pat \
+            --docker-email=fake@example.com
+
+      - name: Render bootstrap-kit kustomization with placeholder substitution
+        run: |
+          # The _template tree carries TWO substitution shapes (legacy
+          # SOVEREIGN_FQDN_PLACEHOLDER literal + Flux envsubst-style
+          # ${SOVEREIGN_FQDN}). Production reconciles these via Flux
+          # Kustomization postBuild.substituteFrom; here we render once
+          # to a tempdir so plain `kubectl apply -k` works without
+          # introducing a wrapper Kustomization (which would itself add
+          # a layer of indirection that hides reconcile-chain failures).
+          mkdir -p /tmp/bootstrap-kit-rendered
+          cp -r clusters/_template/bootstrap-kit/* /tmp/bootstrap-kit-rendered/
+          # Substitute both shapes deterministically.
+          # Note: single quotes around the sed expressions are intentional —
+          # we want the LITERAL string `${SOVEREIGN_FQDN}` to be matched,
+          # not the (unset) shell variable. shellcheck SC2016 is a
+          # false-positive here.
+          # shellcheck disable=SC2016
+          find /tmp/bootstrap-kit-rendered -type f -name '*.yaml' -print0 \
+            | xargs -0 sed -i \
+                -e 's|SOVEREIGN_FQDN_PLACEHOLDER|test-sov.example.com|g' \
+                -e 's|${SOVEREIGN_FQDN}|test-sov.example.com|g'
+
+      - name: Apply bootstrap-kit
+        id: apply
+        run: |
+          # Apply ALL slots in one go. Flux respects HelmRelease
+          # spec.dependsOn at reconcile time, so the API server accepting
+          # all 36+ resources up-front matches the production path.
+          kubectl apply -k /tmp/bootstrap-kit-rendered/ || true
+          # Don't fail-fast: an apply error on one resource (e.g. a CRD
+          # missing on first pass) is itself a finding for the report.
+          # The watch step below records terminal state regardless.
+
+      - name: Watch HelmReleases (15 min poll)
+        run: |
+          # 30 polls × 30s = 15 min. We never break the loop — the goal
+          # is to capture the terminal state of every HR, not race the
+          # first one to Ready.
+          for i in $(seq 1 30); do
+            echo "=== poll ${i}/30 ($(date -u +%H:%M:%S) UTC) ==="
+            kubectl get hr -n flux-system -o wide 2>&1 || true
+            echo ""
+            sleep 30
+          done
+
+      - name: Summary report
+        if: always()
+        run: |
+          {
+            echo '## Phase-8a preflight A — bootstrap-kit reconcile dry-run'
+            echo ''
+            echo "Cluster: kind \`preflight-bootstrap-kit\`"
+            echo "Substitution: \`SOVEREIGN_FQDN=test-sov.example.com\`"
+            echo "Mock creds: \`flux-system/object-storage\`, \`flux-system/cloud-credentials\`, \`flux-system/ghcr-pull\`"
+            echo ''
+            echo '## bp-* HelmRelease final state'
+            echo ''
+            echo '| Name | Ready | Reason | Message (truncated) |'
+            echo '|---|---|---|---|'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if kubectl get hr -n flux-system -o json > /tmp/hrs.json 2>/dev/null; then
+            jq -r '.items[] |
+              . as $hr |
+              ($hr.status.conditions // [] | map(select(.type=="Ready")) | first) as $r |
+              "| \($hr.metadata.name) | \($r.status // "—") | \($r.reason // "—") | \(($r.message // "—") | .[0:120]) |"' \
+              /tmp/hrs.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '| (no HelmReleases found in flux-system) | — | — | — |' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo ''
+            echo '## Failed HRs — describe + last 30 events'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # List every HR not at Ready=True (False, Unknown, or absent).
+          if [ -f /tmp/hrs.json ]; then
+            mapfile -t failed < <(jq -r '.items[] |
+              select(((.status.conditions // []) | map(select(.type=="Ready")) | first | .status // "Unknown") != "True") |
+              .metadata.name' /tmp/hrs.json)
+
+            if [ "${#failed[@]}" -eq 0 ]; then
+              echo '_All HRs reached Ready=True. (Surprising — review the run log to confirm chart pulls succeeded under mock creds.)_' >> "$GITHUB_STEP_SUMMARY"
+            else
+              for hr in "${failed[@]}"; do
+                {
+                  echo "### ${hr}"
+                  echo ''
+                  echo '<details><summary>describe hr</summary>'
+                  echo ''
+                  echo '```'
+                  kubectl describe hr -n flux-system "${hr}" 2>&1 | tail -50
+                  echo '```'
+                  echo ''
+                  echo '</details>'
+                  echo ''
+                } >> "$GITHUB_STEP_SUMMARY"
+              done
+            fi
+          fi
+
+          {
+            echo ''
+            echo '## Pod terminal state (all namespaces)'
+            echo ''
+            echo '<details><summary>pods</summary>'
+            echo ''
+            echo '```'
+            kubectl get pods -A -o wide 2>&1 || echo '(none)'
+            echo '```'
+            echo ''
+            echo '</details>'
+            echo ''
+            echo '## Recent kustomize-controller events'
+            echo ''
+            echo '<details><summary>events</summary>'
+            echo ''
+            echo '```'
+            kubectl get events -n flux-system --sort-by=.lastTimestamp 2>&1 | tail -50 || echo '(none)'
+            echo '```'
+            echo ''
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-bootstrap-kit-artefacts
+          path: |
+            /tmp/hrs.json
+            /tmp/bootstrap-kit-rendered/
+          if-no-files-found: warn
+          retention-days: 14
