@@ -103,6 +103,12 @@ export function kubeconfigAPIPath(deploymentId: string | null): string | null {
   return `${API_BASE}/v1/deployments/${deploymentId}/kubeconfig`
 }
 
+/** Catalyst-API handover JWT mint endpoint (issue #605, Phase-8b). */
+export function mintHandoverTokenPath(deploymentId: string | null): string | null {
+  if (!deploymentId) return null
+  return `${API_BASE}/v1/deployments/${deploymentId}/mint-handover-token`
+}
+
 /* ── Small UI helpers ─────────────────────────────────────────────── */
 
 function CopyChip({ text, label = 'Copy' }: { text: string; label?: string }) {
@@ -312,13 +318,58 @@ export function StepSuccess({
   const [logExpanded, setLogExpanded] = useState(false)
   const tail = (finalLogTail ?? []).slice(-20)
 
+  /* ── Handover JWT redirect (issue #605, Phase-8b) ────────────────── */
+
+  // When the operator clicks "Open console" we mint a short-lived RS256
+  // handover JWT via the catalyst-api and redirect the browser to:
+  //   https://console.<fqdn>/auth/handover?token=<jwt>
+  // The Sovereign-side Agent-C validates the JWT and logs the operator in
+  // automatically, eliminating the "who is the first admin" UX gap.
+  //
+  // On failure (signer not configured, deployment not ready, network error)
+  // we fall back to the plain consoleURL so the operator is never stuck.
+  const [handoverError, setHandoverError] = useState<string | null>(null)
+  const [handoverPending, setHandoverPending] = useState(false)
+
   /* ── StepShell wiring ─────────────────────────────────────────────── */
 
-  // The success step's primary "Continue" button opens the new console.
-  // There is no further wizard step — clicking Continue navigates the
-  // browser to the Sovereign's console subdomain.
-  function onNext() {
-    if (consoleURL) window.location.href = consoleURL
+  // The success step's primary "Continue" button mints a handover JWT,
+  // then redirects the browser to the Sovereign's console via the
+  // /auth/handover endpoint for seamless single-identity sign-in.
+  async function onNext() {
+    if (!consoleURL) return
+
+    const mintPath = mintHandoverTokenPath(deploymentId)
+    if (!mintPath) {
+      // No deployment id — fall back to plain console URL.
+      window.location.replace(consoleURL)
+      return
+    }
+
+    setHandoverPending(true)
+    setHandoverError(null)
+    try {
+      const res = await fetch(mintPath, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const redirectURL: unknown = data?.redirectURL
+        if (typeof redirectURL === 'string' && redirectURL) {
+          window.location.replace(redirectURL)
+          return
+        }
+      }
+      // Signer not configured (503) or deployment not in handover-ready
+      // state (409): fall back silently to the plain console URL.
+      window.location.replace(consoleURL)
+    } catch {
+      // Network error — fall back to plain console URL.
+      window.location.replace(consoleURL)
+    } finally {
+      setHandoverPending(false)
+    }
   }
 
   return (
@@ -328,11 +379,11 @@ export function StepSuccess({
       onNext={onNext}
       nextLabel={
         <>
-          Open console
+          {handoverPending ? 'Redirecting…' : 'Open console'}
           <ExternalLink size={13} style={{ marginLeft: 5 }} />
         </>
       }
-      nextDisabled={!consoleURL}
+      nextDisabled={!consoleURL || handoverPending}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
@@ -360,6 +411,19 @@ export function StepSuccess({
             </span>
           </div>
         </div>
+
+        {/* ── Handover error (soft — operator never stuck; falls back to plain URL) ── */}
+        {handoverError && (
+          <div role="alert" data-testid="handover-error" style={{
+            fontSize: 10.5, color: '#FCA5A5',
+            background: 'rgba(248,113,113,0.05)',
+            border: '1px solid rgba(248,113,113,0.25)',
+            borderRadius: 6, padding: '7px 10px',
+            fontFamily: 'Inter, sans-serif',
+          }}>
+            {handoverError}
+          </div>
+        )}
 
         {/* ── Primary CTA — open the new console ── */}
         <Section title="Console — primary entrypoint">
