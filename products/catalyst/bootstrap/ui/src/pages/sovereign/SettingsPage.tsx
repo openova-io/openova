@@ -150,9 +150,17 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN} pageTitle="Settings">
       <div className="mx-auto max-w-7xl" data-testid="settings-page">
-        <div className="grid grid-cols-12 gap-6">
+        {/* #531 item 6: founder-mandated narrower left rail (~180px).
+            The previous col-span-3 grid carved out ~25% of the page
+            width for nine short labels; flex with a fixed-width aside
+            keeps the rail compact while letting the right pane consume
+            the remaining width. */}
+        <div className="flex flex-col gap-6 sm:flex-row">
           {/* ── In-page left rail ─────────────────────────────── */}
-          <aside className="col-span-3" data-testid="settings-toc">
+          <aside
+            className="w-full shrink-0 sm:w-[180px]"
+            data-testid="settings-toc"
+          >
             <nav className="sticky top-20 flex flex-col gap-1 text-sm">
               {SECTIONS.map((s) => (
                 <a
@@ -168,7 +176,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
           </aside>
 
           {/* ── Right pane — sections stacked ─────────────────── */}
-          <main className="col-span-9 flex flex-col gap-6">
+          <main className="flex min-w-0 flex-1 flex-col gap-6">
             {/* 1. Organization */}
             <SectionCard id="organization" title="Organization" description={SECTIONS[0]!.description}>
               <FieldGrid>

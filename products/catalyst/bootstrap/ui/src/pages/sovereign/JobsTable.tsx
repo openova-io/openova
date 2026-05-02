@@ -467,7 +467,12 @@ const JOBS_TABLE_CSS = `
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: center;
+  /* #531 item 3: align all controls (search input + filter dropdowns
+     + result count) on the same vertical baseline. Filter labels
+     stack the caption *above* the select; aligning to the bottom
+     keeps every interactive surface on one row regardless of which
+     children carry a caption. */
+  align-items: flex-end;
   margin-bottom: 0.75rem;
 }
 
@@ -488,12 +493,15 @@ const JOBS_TABLE_CSS = `
 }
 .jobs-search-input {
   width: 100%;
-  padding: 0.45rem 0.7rem 0.45rem 1.9rem;
+  /* Match the filter-select height (0.32rem padding + 0.82rem font ≈
+     1.46rem) so the search input and the dropdowns sit on the same
+     baseline once .jobs-toolbar aligns them to flex-end. */
+  padding: 0.32rem 0.7rem 0.32rem 1.9rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--color-text);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   outline: none;
   transition: border-color 0.15s ease;
 }
@@ -504,7 +512,7 @@ const JOBS_TABLE_CSS = `
 .jobs-filters {
   display: flex;
   gap: 0.6rem;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
 }
 .jobs-filter-label {
