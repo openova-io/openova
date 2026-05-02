@@ -32,7 +32,11 @@ seaweedfs:
     enableSecurity: false
     # Pin upstream image tag — DO NOT use floating tags per
     # docs/INVIOLABLE-PRINCIPLES.md #4.
-    registry: "chrislusf/"
+    # NOTE: registry must NOT have a trailing slash — the vendored chart's
+    # _helpers.tpl seaweedfs.image renders `printf "%s/%s:%s" registry name tag`.
+    # A trailing slash in registry produces a double slash: "chrislusf//seaweedfs:4.22"
+    # which is an invalid image reference (issue #568).
+    registry: "chrislusf"
     repository: ""
     imageName: seaweedfs
     imageTag: "4.22"
