@@ -16,7 +16,7 @@ spec:
       serviceAccountName: console
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: console
           image: ghcr.io/openova-io/openova/console:3c2f7e4

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.12
+version: 1.1.13
 appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -88,6 +88,13 @@ description: |
   dynadot-api-credentials Secret is absent, crashlooping catalyst-api
   on every new Sovereign. The fix mirrors the existing optional=true on
   DYNADOT_MANAGED_DOMAINS and DYNADOT_DOMAIN. Issue #547, 2026-05-02.
+  Bumped to 1.1.13 to rename all imagePullSecrets references from
+  ghcr-pull-secret to ghcr-pull (canonical name written by cloud-init at
+  /var/lib/catalyst/ghcr-pull-secret.yaml). The wrong name was causing
+  ImagePullBackOff on catalyst-api, catalyst-ui, marketplace-api and all
+  11 SME service deployments. Paired with new bp-reflector (slot 05a)
+  that auto-mirrors flux-system/ghcr-pull to every namespace via
+  reflector.v1.k8s.emberstack.com annotations. Issue #543, 2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

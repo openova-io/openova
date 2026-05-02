@@ -11,6 +11,7 @@ resources:
   - 03-flux.yaml
   - 04-crossplane.yaml
   - 05-sealed-secrets.yaml
+  - 05a-reflector.yaml
   - 06-spire.yaml
   - 07-nats-jetstream.yaml
   - 08-openbao.yaml

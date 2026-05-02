@@ -16,7 +16,7 @@ spec:
         app.kubernetes.io/name: marketplace-api
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: marketplace-api
           image: ghcr.io/openova-io/openova/marketplace-api:3c2f7e4

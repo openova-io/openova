@@ -1,0 +1,64 @@
+# bp-reflector — Catalyst bootstrap-kit Blueprint (slot 05a).
+# Installs emberstack/reflector — the canonical Kubernetes secret/configmap
+# mirror controller. By annotating flux-system/ghcr-pull with reflector
+# auto-enable, the pull secret propagates to every namespace automatically,
+# eliminating the ImagePullBackOff surface caused by cross-namespace secret
+# propagation gaps (issue #543).
+#
+# Slot ordering: after sealed-secrets (05), before spire (06).
+# dependsOn bp-cert-manager (02) — cert-manager CRDs must exist first.
+#
+# Wrapper chart: platform/reflector/chart/
+# Upstream: emberstack/reflector ~7.x
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reflector
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-reflector
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-reflector
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: reflector
+  targetNamespace: reflector
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-reflector
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-reflector
+        namespace: flux-system
+  # Event-driven install: single-replica controller; install completes
+  # when manifests apply. disableWait per architecture convention —
+  # replaces blanket spec.timeout band-aid.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
