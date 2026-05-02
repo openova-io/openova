@@ -128,10 +128,27 @@ flowchart TB
         T392["#392 purge.go label fix"]
     end
 
+    subgraph PH0b[Phase 0b · Image pull-through · INFRA-LEVEL · HANDOVER-BLOCKING]
+        direction LR
+        T557["#557 Central Harbor on contabo + registries.yaml in cloud-init"]
+        T557B["#557 PhaseB · Sovereign-local Harbor swap at handover"]
+        T557C["#557 charts global.imageRegistry templating"]
+        T557 --> T557B
+        T557C --> T557B
+    end
+
+    subgraph PH0c[Phase 0c · Cross-namespace secrets · INFRA-LEVEL]
+        direction LR
+        T543["#543 bp-reflector + ghcr-pull rename"]
+        T544["#544 powerdns-api-credentials reflect"]
+    end
+
     subgraph PH1[Phase 1 · Foundational charts]
         direction LR
         T338["#338 bp-flux RBAC"]
         T387["#387 Gateway API audit"]
+        T542["#542 kubeconfig CP IP not LB"]
+        T547["#547 helmwatch 38-HR threshold"]
     end
 
     subgraph PH2[Phase 2 · DNS + TLS charts]
@@ -209,9 +226,35 @@ flowchart TB
     T425 --> T383
     T425 --> T428
 
+    %% Phase 0b (image pull-through) GATES every workload pull from a public registry
+    %% — without it Sovereign hits DockerHub anonymous rate-limit on first provision.
+    %% Surfaces NATS / Gitea / Harbor / Grafana / Loki / Mimir / PowerDNS / Langfuse
+    %% / cert-manager-powerdns-webhook ImagePullBackOff cascade on otech22 (2026-05-02).
+    T557 --> T375
+    T557 --> T376
+    T557 --> T377
+    T557 --> T373
+    T557 --> T378
+    T557 --> T383
+    T557 --> T384
+    T557 --> T379
+    T557 --> T380
+    T557 --> T381
+    T557 --> T382
+    T557 --> T316
+    T557B --> T455
+
+    %% Phase 0c (cross-namespace secrets) — without Reflector, every workload
+    %% namespace is missing ghcr-pull / powerdns-api-credentials → ImagePullBackOff
+    %% or CreateContainerConfigError on a fresh Sovereign provision.
+    T543 --> T385
+    T544 --> T373
+
     %% Phase 1 → Phase 2
     T338 --> T373
     T387 --> T373
+    T542 --> T454
+    T547 --> T454
 
     %% Phase 1 → Phase 3
     T338 --> T375
@@ -253,8 +296,9 @@ flowchart TB
     %% Phase 8 → DoD
     T456 --> DOD
 
-    class PH0,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
-    class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453 done
+    class PH0,PH0b,PH0c,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
+    class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453,T542,T543,T544,T547 done
+    class T557,T557B,T557C wip
     class T459,T460,T462 done
     class T461 wip
     class T454,T455,T456 blocked
