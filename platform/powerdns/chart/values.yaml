@@ -23,6 +23,16 @@
 # image tags come from the upstream chart's `image.repository:appVersion`
 # default, never duplicated here.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). When non-empty, the
+  # dnsdist.yaml template prepends this value to dnsdist.image.repository.
+  # The upstream powerdns subchart exposes `powerdns.image.repository`
+  # for the PowerDNS Authoritative image. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream:
     chart: powerdns

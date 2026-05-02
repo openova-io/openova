@@ -8,6 +8,15 @@
 #      (umbrella-chart convention — the dependency name from Chart.yaml is
 #      the values namespace).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream nats subchart
+  # exposes `nats.container.image.repository` for registry override.
+  # Per-Sovereign overlays wire that alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: nats, version: "1.2.0", repo: "https://nats-io.github.io/k8s/helm/charts" }
 
