@@ -70,6 +70,17 @@ mimir-distributed:
   kafka:
     enabled: false
 
+  # Structured Mimir config — explicitly disable ingest_storage so the
+  # Mimir process does NOT require a Kafka address. The upstream
+  # mimir-distributed 6.0.6 chart may default ingest_storage.enabled to
+  # true in its bundled config; this override forces classic ingester mode
+  # (blocks-storage, no Kafka). Fixes CrashLoopBackOff on otech22 with
+  # "the Kafka address has not been configured" (issue #567).
+  mimir:
+    structuredConfig:
+      ingest_storage:
+        enabled: false
+
   # MetaMonitoring (ServiceMonitor + Grafana dashboards) — DEFAULT FALSE
   # per docs/BLUEPRINT-AUTHORING.md §11.2.
   metaMonitoring:
