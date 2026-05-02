@@ -48,11 +48,13 @@ external-dns:
   # ExternalDNS runs on a node that doesn't co-locate PowerDNS.
   #
   # The bp-powerdns chart creates the `powerdns` Service in the
-  # `openova-system` namespace exposing the webserver on port 8081.
+  # `powerdns` namespace exposing the webserver on port 8081.
   # ExternalDNS resolves that across-namespace via the FQDN.
+  # NOTE: --pdns-api-version is NOT a valid flag for external-dns v0.15.1
+  # native pdns provider — it causes `unknown long flag '--pdns-api-version'`
+  # fatal on start. The provider auto-negotiates the API version. Removed.
   extraArgs:
     - --pdns-server=http://powerdns.powerdns.svc.cluster.local:8081
-    - --pdns-api-version=v1
 
   # API key for the PowerDNS REST API — read from the `powerdns-api-
   # credentials` Secret rendered by bp-powerdns (templates/api-credentials-
