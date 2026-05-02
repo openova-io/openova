@@ -170,6 +170,33 @@ write_files:
           }
         }))}
 
+  # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────────
+  #
+  # The bp-cert-manager-dynadot-webhook Pod reads DYNADOT_API_KEY /
+  # DYNADOT_API_SECRET / DYNADOT_MANAGED_DOMAINS from this Secret at startup.
+  # The Secret MUST exist BEFORE the webhook Pod first starts — a missing
+  # secretKeyRef (required, not optional) causes CrashLoopBackOff.
+  #
+  # Namespace: cert-manager — the same namespace the HelmRelease targets
+  # (spec.targetNamespace: cert-manager in 49b-bp-cert-manager-dynadot-webhook.yaml).
+  #
+  # Why cloud-init and not a SealedSecret in git: the Dynadot credentials are
+  # operator-issued, forwarded from the provisioner API wizard payload, and must
+  # never land in a public git repository. Same rationale as ghcr-pull.
+  - path: /var/lib/catalyst/dynadot-api-credentials.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: dynadot-api-credentials
+        namespace: cert-manager
+      type: Opaque
+      data:
+        api-key: ${base64encode(dynadot_key)}
+        api-secret: ${base64encode(dynadot_secret)}
+        domains: ${base64encode(dynadot_managed_domains)}
+
   # ── flux-system/object-storage Secret (issue #371, vendor-agnostic since #425) ─
   #
   # The Sovereign's per-cluster S3 credentials, materialised as a stock
@@ -819,6 +846,18 @@ runcmd:
   # rewrites this with the same content; a token rotation propagates
   # through here on the next cloud-init render.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
+
+  # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────
+  #
+  # Apply the Dynadot credentials BEFORE Flux reconciles the bootstrap-kit:
+  # bp-cert-manager-dynadot-webhook (slot 49b) references this Secret via
+  # secretKeyRef (required). A missing Secret causes CrashLoopBackOff and
+  # stalls TLS issuance from Day 0.
+  #
+  # cert-manager namespace is created by bp-cert-manager via Flux — we
+  # pre-create it idempotently here so the Secret apply does not fail.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/dynadot-api-credentials.yaml'
 
   # ── OpenBao auto-unseal seed Secret (issue #316) ─────────────────────
   #

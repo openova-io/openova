@@ -156,7 +156,37 @@ rbac:
   #     (it's an aggregated apiserver, so the standard kube-apiserver
   #     proxying RBAC applies)
   #   - get on the Dynadot credentials Secret in openova-system
+  #   - domain-solver ClusterRole so cert-manager's SA can create
+  #     resources on the webhook's API group (resolves #550 "forbidden")
   create: true
+
+# ─── cert-manager identity (for domain-solver binding) ───────────────────
+# The domain-solver ClusterRoleBinding grants cert-manager's ServiceAccount
+# the right to CREATE on acme.dynadot.openova.io. Override only when the
+# cert-manager release uses a non-default SA name or namespace.
+certManager:
+  namespace: cert-manager
+  serviceAccountName: cert-manager
+
+# ─── Paired ClusterIssuer ────────────────────────────────────────────────
+# When enabled, the chart renders a `letsencrypt-dns01-prod` ClusterIssuer
+# wired to this webhook's solver. This is the PRE-handover issuer — active
+# while Dynadot is still authoritative for the Sovereign's parent zone
+# (omani.works). Set clusterIssuer.enabled=true in the bootstrap-kit
+# cluster overlay (see clusters/_template/bootstrap-kit/49b-bp-cert-manager-dynadot-webhook.yaml).
+clusterIssuer:
+  # Default false per BLUEPRINT-AUTHORING.md §skip-render pattern. The
+  # bootstrap-kit overlay flips this to true.
+  enabled: false
+  name: letsencrypt-dns01-prod
+  email: ""
+  acmeServer: "https://acme-v02.api.letsencrypt.org/directory"
+  # Name of the K8s Secret that cert-manager writes the ACME account
+  # private key into. Defaults to the well-known name cert-manager uses.
+  privateKeySecretRefName: letsencrypt-dns01-prod
+  # Post-install hook wiring — renders the ClusterIssuer via a Helm hook
+  # AFTER cert-manager CRDs land so kube-apiserver can admit it.
+  helmHookEnabled: true
 
 # ─── ServiceMonitor ──────────────────────────────────────────────────────
 # DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2. The

@@ -19,6 +19,10 @@ spec:
       serviceAccountName: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.webhook.podSecurityContext | nindent 8 }}
+      {{- with .Values.webhook.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: webhook
           image: "{{ .Values.webhook.image.repository }}:{{ .Values.webhook.image.tag }}"

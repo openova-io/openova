@@ -37,7 +37,7 @@ func TestAddRecord_AppendPath(t *testing.T) {
 	c, _ := stubServer(t, func(w http.ResponseWriter, r *http.Request) {
 		captured = r.URL.Query()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseHeader":{"ResponseCode":0,"Status":"success"}}}`))
 	})
 
 	err := c.AddRecord(context.Background(), "omani.works", Record{
@@ -68,7 +68,7 @@ func TestAddRecord_ApexPath(t *testing.T) {
 	c, _ := stubServer(t, func(w http.ResponseWriter, r *http.Request) {
 		captured = r.URL.Query()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseHeader":{"ResponseCode":0,"Status":"success"}}}`))
 	})
 
 	err := c.AddRecord(context.Background(), "omani.works", Record{
@@ -113,7 +113,7 @@ func TestRemoveSubRecord_PreservesOthers(t *testing.T) {
 		case "set_dns2":
 			setQuery = r.URL.Query()
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+			_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseHeader":{"ResponseCode":0,"Status":"success"}}}`))
 		default:
 			t.Fatalf("unexpected command %q", r.URL.Query().Get("command"))
 		}

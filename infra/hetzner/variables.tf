@@ -244,6 +244,12 @@ variable "dynadot_secret" {
   sensitive   = true
 }
 
+variable "dynadot_managed_domains" {
+  type        = string
+  description = "Comma-separated list of pool domains the Dynadot webhook is permitted to mutate. Defaults to the parent zone of sovereign_fqdn when blank (e.g. 'omani.works' for 'console.otech22.omani.works')."
+  default     = ""
+}
+
 # ── GHCR pull token ───────────────────────────────────────────────────────
 #
 # Long-lived GHCR token (GitHub PAT or fine-grained token, scope
