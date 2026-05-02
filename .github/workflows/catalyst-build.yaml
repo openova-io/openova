@@ -296,21 +296,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifests with new SHA tags
+      - name: Update SHA tags in values.yaml
+        # The catalyst-ui and catalyst-api images are referenced via Helm
+        # template expressions in ui-deployment.yaml / api-deployment.yaml
+        # (e.g. `image: .../catalyst-ui:{{ .Values.images.catalystUi.tag }}`).
+        # The canonical SHA update point is products/catalyst/chart/values.yaml
+        # where `images.catalystUi.tag` and `images.catalystApi.tag` live.
+        # Updating a Helm template file with sed would silently no-op because
+        # the sed pattern `image: ghcr.io/.../catalyst-ui:.*` never matches
+        # `{{ .Values.images.catalystUi.tag }}`. This step updates values.yaml
+        # directly so Flux picks up the new SHA on next reconcile.
         env:
           SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
         run: |
-          DEPLOY_DIR="products/catalyst/chart/templates"
+          VALUES="products/catalyst/chart/values.yaml"
 
-          sed -i "s|image: ${UI_IMAGE}:.*|image: ${UI_IMAGE}:${SHA_SHORT}|" \
-            "${DEPLOY_DIR}/ui-deployment.yaml"
+          sed -i "s|^\(\s*\)tag: \"[0-9a-f]\{7\}\" *# *catalystUi|\1tag: \"${SHA_SHORT}\" # catalystUi|" \
+            "${VALUES}" || true
 
-          sed -i "s|image: ${API_IMAGE}:.*|image: ${API_IMAGE}:${SHA_SHORT}|" \
-            "${DEPLOY_DIR}/api-deployment.yaml"
+          # Canonical sed: match the tag line immediately following `catalystUi:`
+          # and the tag line immediately following `catalystApi:`.
+          python3 - <<PYEOF
+import re, sys
 
-          echo "Updated manifests to SHA ${SHA_SHORT}:"
-          grep "image:" "${DEPLOY_DIR}/ui-deployment.yaml"
-          grep "image:" "${DEPLOY_DIR}/api-deployment.yaml"
+path = "${VALUES}"
+sha  = "${SHA_SHORT}"
+
+with open(path) as f:
+    text = f.read()
+
+# Replace the `tag:` line directly after catalystUi: and catalystApi:
+# Pattern: `  catalystUi:\n    tag: "old"\n` → `  catalystUi:\n    tag: "sha"\n`
+for key in ("catalystUi", "catalystApi"):
+    text = re.sub(
+        r'(' + key + r':\s*\n\s*tag:\s*")[^"]*(")',
+        r'\g<1>' + sha + r'\2',
+        text,
+    )
+
+with open(path, 'w') as f:
+    f.write(text)
+
+print(f"Updated {path} catalystUi.tag and catalystApi.tag to {sha}")
+PYEOF
+
+          echo "values.yaml after update:"
+          grep -A2 "catalystUi\|catalystApi" "${VALUES}" | head -10
 
       - name: Commit and push manifest updates
         env:
@@ -318,7 +349,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add products/
+          git add products/catalyst/chart/values.yaml
           git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "deploy: update catalyst images to ${SHA_SHORT}"
           git push
