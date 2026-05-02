@@ -10,11 +10,13 @@ Pattern from docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode):
                           (the per-Sovereign Gateway from bootstrap-kit
                           01-cilium.yaml)
 
-Backend reference: the upstream bitnami/keycloak chart's Service is
-named `<release>-keycloak`. With `releaseName: keycloak` set in the
-bootstrap-kit slot the Service is `keycloak-keycloak`. Operators can
-override via `gateway.backendService` if a non-default release name is
-used.
+Backend reference: the upstream bitnami/keycloak chart uses Helm's
+`fullname` template which TRIMS the chart-name suffix when the Release.Name
+already contains it. With releaseName=keycloak (bootstrap-kit default), the
+bitnami fullname returns "keycloak" (not "keycloak-keycloak"). The default
+backendService MUST use `.Release.Name` directly (issue #598).
+Operators can override via `gateway.backendService` for non-default
+release names.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
 {{- if .Values.gateway.host }}
@@ -41,7 +43,7 @@ spec:
             type: PathPrefix
             value: {{ .Values.gateway.path | default "/" | quote }}
       backendRefs:
-        - name: {{ .Values.gateway.backendService | default (printf "%s-keycloak" .Release.Name) | quote }}
+        - name: {{ .Values.gateway.backendService | default .Release.Name | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
 {{- end }}
 {{- end }}

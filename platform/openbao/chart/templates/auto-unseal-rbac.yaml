@@ -1,5 +1,5 @@
 {{- /*
-Catalyst auto-unseal RBAC — bp-openbao (issue #316).
+Catalyst auto-unseal RBAC — bp-openbao (issue #316, bug fix issue #598).
 
 ServiceAccount + RoleBindings used by the post-install Jobs that run
 `bao operator init` and bootstrap the Kubernetes auth method.
@@ -16,6 +16,17 @@ Permissions required (least-privilege):
     runtime, not a one-shot init step) so it lives outside the Helm
     hook lifecycle.
 
+RBAC resources are NOT Helm hooks (issue #598 root cause fix):
+  The SA/Role/RoleBinding must NOT have hook-delete-policy so they
+  persist for the Job container to use. Previously they had
+  `hook-delete-policy: before-hook-creation,hook-succeeded` — the
+  `hook-succeeded` clause caused Helm to delete the SA immediately
+  after the weight-0 hook "succeeded", before the weight-5 init Job
+  pod could start (Job pod needs the SA to exist for token mount).
+  Making them regular Helm-managed resources (no hook annotations)
+  ensures they exist for the full duration of the install/upgrade and
+  for idempotent re-runs.
+
 Skip-render pattern (per #402 lesson, never use `{{ fail }}`): when
 `autoUnseal.enabled=false` this entire file emits nothing — `helm
 template` with default values stays clean.
@@ -24,30 +35,24 @@ template` with default values stays clean.
 {{- if $au.enabled -}}
 ---
 # ServiceAccount used by the init + auth-bootstrap Jobs. Lives in the
-# openbao namespace alongside the StatefulSet.
+# openbao namespace alongside the StatefulSet. NOT a hook — must persist
+# for the Job container's SA token mount (issue #598).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: openbao-auto-unseal
   namespace: {{ .Release.Namespace | quote }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
   labels:
     catalyst.openova.io/blueprint: bp-openbao
     catalyst.openova.io/component: openbao-auto-unseal
 ---
 # Role: read+delete the seed Secret, get/list Pods to poll readiness.
+# NOT a hook — persists for life of the Helm release (issue #598).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: openbao-auto-unseal
   namespace: {{ .Release.Namespace | quote }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
   labels:
     catalyst.openova.io/blueprint: bp-openbao
 rules:
@@ -75,15 +80,12 @@ rules:
       # later retry when the vault is initialised but still sealed.
       - openbao-unseal-keys
 ---
+# RoleBinding — NOT a hook (issue #598).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: openbao-auto-unseal
   namespace: {{ .Release.Namespace | quote }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
   labels:
     catalyst.openova.io/blueprint: bp-openbao
 roleRef:
