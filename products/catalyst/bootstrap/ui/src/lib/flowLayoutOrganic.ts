@@ -66,6 +66,19 @@ export interface OrganicNode {
   id: string
   /** 0-based longest-path depth from any root in the FOLD-RESPECTING view. */
   depth: number
+  /** Issue #532 — global topological-sort rank. Lower depRank = earlier in
+   *  the dependency order; higher depRank = deeper in the chain. The canvas
+   *  uses this as the Y-coordinate target so the visual reading order
+   *  (top → bottom) matches the dependency order.
+   *
+   *  Rank is dense (0..N-1) and stable across same-depth siblings via id-
+   *  sort, so the layout is deterministic for tests and screenshots.
+   *
+   *  Optional for backwards compatibility with test fixtures that
+   *  build OrganicNode literals directly — when undefined, FlowCanvasOrganic
+   *  derives a rank from the layout.nodes order. Real flowLayoutOrganic()
+   *  output always sets it. */
+  depRank?: number
   regionId: string
   familyId: string
   /** Display label — Job.displayName (groups) or jobName less leading "install-" (leaves). */
@@ -463,6 +476,39 @@ export function flowLayoutOrganic(
     if (d > MAX_VISIBLE_DEPTH) depth.set(id, MAX_VISIBLE_DEPTH)
   }
 
+  // Issue #532 — global topological-sort rank for Y-axis positioning.
+  //
+  // Founder requirement (verbatim 2026-05-02):
+  //   "following the dependency order in the y axis they must
+  //    homogenously spread"
+  //
+  // The flow canvas wants Y to read as dependency order (top → bottom).
+  // We assign each visible node a dense rank in [0, N-1] using a
+  // stable Kahn-style topological sort with deterministic tie-breaking:
+  //
+  //   • Primary key: longest-path depth (already computed above).
+  //   • Secondary key: stable visibleJobs index — preserves the original
+  //     job-feed order for siblings at the same depth and ensures the
+  //     layout is reproducible across reloads / tests.
+  //
+  // The canvas reads `depRank` as the Y target. Combined with the
+  // homogeneous-spread pre-pass it places node[i] at
+  //   y = (depRank[i] / (N - 1)) * usableHeight
+  // so all visible nodes are evenly distributed top-to-bottom and the
+  // dependency order is the visual reading order.
+  const indexInVisible = new Map<string, number>()
+  visibleJobs.forEach((j, i) => indexInVisible.set(j.id, i))
+  const sortedByDep = visibleJobs
+    .slice()
+    .sort((a, b) => {
+      const da = depth.get(a.id) ?? 0
+      const db = depth.get(b.id) ?? 0
+      if (da !== db) return da - db
+      return (indexInVisible.get(a.id) ?? 0) - (indexInVisible.get(b.id) ?? 0)
+    })
+  const depRank = new Map<string, number>()
+  sortedByDep.forEach((j, i) => depRank.set(j.id, i))
+
   // Emit nodes.
   const nodes: OrganicNode[] = visibleJobs.map((j) => {
     const h = hints.get(j.id)
@@ -482,6 +528,7 @@ export function flowLayoutOrganic(
     return {
       id: j.id,
       depth: depth.get(j.id) ?? 0,
+      depRank: depRank.get(j.id) ?? 0,
       regionId,
       familyId,
       label,
