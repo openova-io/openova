@@ -6,6 +6,15 @@
 # meaningful value is configurable; cluster overlays in clusters/<sovereign>/
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream harbor subchart
+  # exposes per-component `harbor.<component>.image.repository` for override.
+  # Per-Sovereign overlays should wire those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream:
     chart: harbor
@@ -144,7 +153,7 @@ harbor:
   database:
     type: external
     external:
-      host: "harbor-postgres-rw.harbor.svc.cluster.local"
+      host: "harbor-pg-rw.harbor.svc.cluster.local"
       port: "5432"
       username: "harbor"
       password: ""
@@ -385,6 +394,27 @@ gateway:
 # credentials configured, type: filesystem) — see the bootstrap-kit
 # slot at clusters/_template/bootstrap-kit/19-harbor.yaml for the
 # canonical mapping.
+# ─── CNPG Postgres cluster for Harbor metadata DB ────────────────────────
+# These values are consumed by templates/cnpg-cluster.yaml (the Cluster CR)
+# and templates/database-secret.yaml (the harbor-database-secret Secret).
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), all operationally-
+# meaningful sizing/naming values are overridable via per-Sovereign overlays.
+postgres:
+  cluster:
+    name: harbor-pg
+    # Default to the chart's own targetNamespace. Override via per-Sovereign
+    # overlay if the CNPG cluster lives in a different namespace.
+    namespace: harbor
+    instances: 1                  # bump to 3 alongside HA overlay once beyond Phase-0
+    storageSize: 5Gi
+    storageClass: local-path      # Contabo k3s default; Hetzner Sovereign overlays → hcloud-volumes
+    pgVersion: "16"
+    database: harbor
+    owner: harbor
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+
 objectStorage:
   # When false, no credentials Secret is rendered (contabo, local dev,
   # etc.). Per-Sovereign overlay flips to true.

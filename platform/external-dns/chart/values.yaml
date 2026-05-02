@@ -51,7 +51,7 @@ external-dns:
   # `openova-system` namespace exposing the webserver on port 8081.
   # ExternalDNS resolves that across-namespace via the FQDN.
   extraArgs:
-    - --pdns-server=http://powerdns.openova-system.svc.cluster.local:8081
+    - --pdns-server=http://powerdns.powerdns.svc.cluster.local:8081
     - --pdns-api-version=v1
 
   # API key for the PowerDNS REST API — read from the `powerdns-api-
@@ -134,7 +134,9 @@ externalDns:
   networkPolicy:
     enabled: true
     # The egress allowlist resolves PowerDNS by namespace + Service name.
-    powerdnsNamespace: openova-system
+    # bp-powerdns deploys into the `powerdns` namespace (PR #556/#553).
+    # Was incorrectly defaulted to `openova-system` — fixes issue #569.
+    powerdnsNamespace: powerdns
     powerdnsServiceName: powerdns
     powerdnsApiPort: 8081
 
