@@ -296,14 +296,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update SHA tags in values.yaml
-        # The catalyst-ui and catalyst-api images are referenced via Helm
-        # template expressions (e.g. `{{ .Values.images.catalystUi.tag }}`).
-        # sed targeting the template YAML files silently no-ops because the
-        # pattern `image: ghcr.io/.../catalyst-ui:.*` never matches. The
-        # canonical update point is images.catalystUi.tag / images.catalystApi.tag
-        # in products/catalyst/chart/values.yaml. We use awk to replace the
-        # `tag:` line that immediately follows the catalystUi/catalystApi key.
+      - name: Update SHA tags in values.yaml and deployment manifests
+        # The catalyst-ui and catalyst-api images are referenced in two places:
+        #
+        # 1. products/catalyst/chart/values.yaml — used by the Helm chart path
+        #    (bp-catalyst-platform OCI chart on Sovereign clusters). Helm template
+        #    expressions ({{ .Values.images.catalystUi.tag }}) are rendered at
+        #    `helm install` time by Flux's helm-controller. We use awk to replace
+        #    the `tag:` line that immediately follows the catalystUi/catalystApi key.
+        #
+        # 2. products/catalyst/chart/templates/{api,ui}-deployment.yaml — used by
+        #    the Kustomize path (catalyst-platform Kustomization on contabo-mkt).
+        #    These files are applied as raw manifests by Flux kustomize-controller;
+        #    Helm template syntax is NOT rendered. A literal image ref is required.
+        #    Bug history: feat/global-imageRegistry (#580) converted the literal
+        #    image ref to a Helm template without updating this deploy step, causing
+        #    InvalidImageName on the contabo-mkt Kustomize path. Fixed here by also
+        #    sed-patching the literal image refs in those two deployment files.
         env:
           SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
         run: |
@@ -318,13 +327,26 @@ jobs:
           echo "values.yaml after update:"
           grep -A2 "catalystUi\|catalystApi" "${VALUES}" | head -10
 
+          # Also patch the literal image refs in the Kustomize-path deployment
+          # manifests so Flux kustomize-controller uses a valid image reference.
+          API_DEP="products/catalyst/chart/templates/api-deployment.yaml"
+          UI_DEP="products/catalyst/chart/templates/ui-deployment.yaml"
+          sed -i "s|ghcr\.io/openova-io/openova/catalyst-api:[a-z0-9]*\"|ghcr.io/openova-io/openova/catalyst-api:${SHA_SHORT}\"|" "${API_DEP}"
+          sed -i "s|ghcr\.io/openova-io/openova/catalyst-ui:[a-z0-9]*\"|ghcr.io/openova-io/openova/catalyst-ui:${SHA_SHORT}\"|" "${UI_DEP}"
+          echo "api-deployment.yaml image after update:"
+          grep "image:" "${API_DEP}"
+          echo "ui-deployment.yaml image after update:"
+          grep "image:" "${UI_DEP}"
+
       - name: Commit and push manifest updates
         env:
           SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add products/catalyst/chart/values.yaml
+          git add products/catalyst/chart/values.yaml \
+                  products/catalyst/chart/templates/api-deployment.yaml \
+                  products/catalyst/chart/templates/ui-deployment.yaml
           git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "deploy: update catalyst images to ${SHA_SHORT}"
           git push
