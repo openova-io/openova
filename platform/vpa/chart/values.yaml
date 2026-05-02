@@ -24,7 +24,13 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
-      repository: registry.k8s.io/autoscaling/vpa-recommender
+      # Upstream cowboysysop chart prepends `.image.registry` (default
+      # registry.k8s.io) to `.image.repository`, so we MUST NOT include
+      # the registry hostname in repository — the rendered image would
+      # be `registry.k8s.io/registry.k8s.io/autoscaling/...` (doubled
+      # prefix) and pulls fail with "image not found" (caught live on
+      # otech26).
+      repository: autoscaling/vpa-recommender
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
@@ -53,7 +59,7 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
-      repository: registry.k8s.io/autoscaling/vpa-updater
+      repository: autoscaling/vpa-updater
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
@@ -75,7 +81,7 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
-      repository: registry.k8s.io/autoscaling/vpa-admission-controller
+      repository: autoscaling/vpa-admission-controller
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
