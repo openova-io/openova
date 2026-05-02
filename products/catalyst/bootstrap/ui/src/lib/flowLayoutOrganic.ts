@@ -107,6 +107,18 @@ export interface OrganicLayoutResult {
 
 export const FALLBACK_REGION_ID = 'primary'
 
+/** Bug #481 round 2 — defence-in-depth depth cap.
+ *
+ *  After parent-elision, the longest visible chain in OpenOva's real
+ *  graph collapses from ~190 to ~5. This cap is the safety net: any
+ *  node that lands at depth > MAX_VISIBLE_DEPTH after elision is
+ *  clamped to MAX_VISIBLE_DEPTH so the natural bbox can never grow
+ *  past MAX_VISIBLE_DEPTH * PER_DEPTH_X (≈ 8 * 160 = 1280px), keeping
+ *  the canvas readable without relying on render-time compression.
+ *
+ *  Exported so the canvas + tests can read the same value. */
+export const MAX_VISIBLE_DEPTH = 8
+
 /**
  * Compute the layout-ready data from a recursive Job tree + fold
  * state. The contract:
@@ -171,29 +183,36 @@ export function flowLayoutOrganic(
   }
 
   // Resolve a referenced id (a `dependsOn` target) to its nearest
-  // visible ancestor — the visible representative the canvas should
-  // draw the edge to.
+  // visible-AND-not-elided ancestor — the visible representative the
+  // canvas should draw the edge to.
   //
   // Same cycle protection as isVisible(): track visited ids so a self-
   // referential parent chain returns the first visible node rather
   // than spinning forever. Bug #476.
+  //
+  // Bug #481 round 2 — `elided` (initialised below as `elidedIds`) is
+  // a closure-captured Set that becomes non-empty AFTER this function
+  // is defined. visibleRepresentative is only CALLED from edge-build
+  // code that runs after elidedIds is populated, so the closure read
+  // sees the final set. Both folded and elided groups are skipped
+  // here; elided groups are not visible representatives — their
+  // children are.
   function visibleRepresentative(id: string): string | null {
     let node: Job | undefined = byId.get(id)
     const seen = new Set<string>()
     while (node) {
       if (seen.has(node.id)) return node.id
       seen.add(node.id)
-      if (isVisible(node) && (node.type !== 'group' || !folded.has(node.id))) {
-        // For a group the folded check above is redundant with
-        // isVisible (a folded group is itself visible — it's the
-        // representative), but keep it explicit so the intent reads.
+      const nodeVisible = isVisible(node)
+      const nodeIsElided = elidedIds.has(node.id)
+      if (nodeVisible && !nodeIsElided && (node.type !== 'group' || !folded.has(node.id))) {
         return node.id
       }
-      // Stop walking up at the first ancestor that IS visible — the
-      // folded group itself is visible (just collapsed). isVisible
-      // returns true for the folded group when its own ancestors are
-      // unfolded.
-      if (isVisible(node)) return node.id
+      // Stop walking up at the first ancestor that IS visible AND not
+      // elided — folded groups still qualify (they're visible, just
+      // collapsed); elided groups do NOT (their children are the
+      // visible representatives).
+      if (nodeVisible && !nodeIsElided) return node.id
       if (!node.parentId) break
       node = byId.get(node.parentId)
     }
@@ -201,11 +220,114 @@ export function flowLayoutOrganic(
   }
 
   // Build the visible job list.
-  const visibleJobs: Job[] = []
+  const allVisibleJobs: Job[] = []
   for (const j of jobs) {
-    if (isVisible(j)) visibleJobs.push(j)
+    if (isVisible(j)) allVisibleJobs.push(j)
   }
+
+  // Bug #481 (round 2 — founder directive 2026-05-02): parent-elision.
+  //
+  // When a group is unfolded AND its children are visible, the group
+  // node becomes redundant clutter. The previous behaviour rendered
+  // BOTH the parent ("Applications") and all 50+ children as bubbles,
+  // plus structural parent→child edges. With long sibling chains and
+  // the natural-bbox depth math this drove the longest-path depth from
+  // ~5 to ~190 (each generation adds the parent at one depth and its
+  // children at depth+1; nested unfolded groups stack), which the
+  // viewBox compression then squashed into a single vertical column.
+  //
+  // Founder's exact directive (2026-05-02):
+  //   "if there is parent-child relation between tasks and when the
+  //    child is expanded disappear the parent process from the canvas
+  //    since all the children are visible, but it would require
+  //    rewiring of the children to other jobs and parent calling their
+  //    parents"
+  //
+  // Translation: an unfolded group with at least one visible child is
+  // elided from the rendered set. Its inbound deps are rewired to its
+  // children (so a "Foundation → Applications" edge becomes
+  // "Foundation → bp-cilium, bp-coredns, …"). Its outbound deps are
+  // lifted from its children (so any "Applications → Sentinel"
+  // dependency becomes "<some-child> → Sentinel"). The parent-child
+  // structural edges that previously connected (group → child) are
+  // dropped — the children are visible on their own merits.
+  //
+  // Defence-in-depth (founder's #4): a max-depth cap kicks in if any
+  // node still ends up at depth > MAX_VISIBLE_DEPTH after elision —
+  // those nodes get their depth clamped so the layout's natural width
+  // can never blow past MAX_VISIBLE_DEPTH * PER_DEPTH_X.
+  const elidedIds = new Set<string>()
+  for (const j of allVisibleJobs) {
+    if (j.type !== 'group') continue
+    if (folded.has(j.id)) continue
+    // Bug #476 cycle-safety: under id-collision (two jobs with the same
+    // id, the last write wins in byId), only elide when this Job is the
+    // canonical entry for its id. The shadow copy is ignored — eliding
+    // by id would otherwise drop *both* entries from visibleJobs.
+    if (byId.get(j.id) !== j) continue
+    // At least one direct child must itself be visible (children whose
+    // own ancestors are all unfolded — the recursion handles nested
+    // cases). If a group has zero children, or all children are hidden
+    // by some quirk, keep the group node so the operator still sees
+    // *something* for that scope.
+    //
+    // Self-reference / cycle guard: skip childIds that resolve back to
+    // this group's own id (the #476 shape where a leaf collides with
+    // the group's slug and points its parentId at the group). Counting
+    // such an "edge" would erroneously elide a group whose only
+    // visible "child" is itself.
+    const childIds = j.childIds ?? []
+    let visibleChildCount = 0
+    for (const childId of childIds) {
+      if (childId === j.id) continue
+      const child = byId.get(childId)
+      if (!child) continue
+      if (child === j) continue
+      if (isVisible(child)) visibleChildCount++
+    }
+    if (visibleChildCount > 0) elidedIds.add(j.id)
+  }
+
+  // The visible set rendered as bubbles excludes elided groups. Filter
+  // by reference + id together: if id-collision put a non-group entry
+  // alongside an elided group's id, keep the non-group entry — only
+  // the actual group reference is dropped.
+  const visibleJobs: Job[] = allVisibleJobs.filter((j) => {
+    if (!elidedIds.has(j.id)) return true
+    // The elided entry is the one byId returns; any other reference
+    // with the same id is a non-group shadow (#476 collision shape) —
+    // keep it so the layout still emits at least one node.
+    return byId.get(j.id) !== j
+  })
   const visibleIdSet = new Set(visibleJobs.map((j) => j.id))
+
+  // Resolve a chain of elided groups → the first non-elided ancestor's
+  // visible children. Used when an inbound edge targets a group whose
+  // children are themselves groups (some of which are also elided).
+  // Returns the set of leaf-most visible representatives the inbound
+  // edge should fan out to.
+  function fanOutVisibleChildren(jobId: string): string[] {
+    const job = byId.get(jobId)
+    if (!job) return []
+    if (!elidedIds.has(jobId)) return [jobId]
+    const out: string[] = []
+    const seen = new Set<string>([jobId])
+    const stack: string[] = [...(job.childIds ?? [])]
+    while (stack.length > 0) {
+      const cid = stack.pop()!
+      if (seen.has(cid)) continue
+      seen.add(cid)
+      const c = byId.get(cid)
+      if (!c) continue
+      if (!isVisible(c)) continue
+      if (elidedIds.has(cid)) {
+        for (const gc of c.childIds ?? []) stack.push(gc)
+      } else {
+        out.push(cid)
+      }
+    }
+    return out
+  }
 
   // Build edge set.
   const inEdges = new Map<string, Set<string>>()
@@ -227,9 +349,11 @@ export function flowLayoutOrganic(
       edgeKind.set(key, kind)
     }
   }
-  // Parent-child structural edges (one per visible parent → visible
-  // direct child). Folded groups have no visible children so this
-  // skips them naturally.
+  // Parent-child structural edges. Bug #481 round 2: elided groups do
+  // not render bubbles, so they emit no parent→child structural edges.
+  // Visible (non-elided) groups — folded groups, or groups that have
+  // zero visible children — still emit one parent→child edge per
+  // visible direct child.
   for (const j of visibleJobs) {
     if (j.type !== 'group') continue
     if (folded.has(j.id)) continue
@@ -238,8 +362,20 @@ export function flowLayoutOrganic(
       if (childRep) addEdge(j.id, childRep, 'parent-child')
     }
   }
-  // depends-on edges: each visible job's dependsOn lifted to the
-  // nearest visible ancestor when the target itself is hidden.
+  // depends-on edges. Bug #481 round 2 rewire rules:
+  //
+  //   • If the dep TARGET is an elided group, the edge fans out to
+  //     every visible (non-elided) child of that group — "Foundation →
+  //     Applications" becomes "Foundation → bp-cilium, …, bp-coredns".
+  //   • If the SOURCE itself is an elided group's child… wait, the
+  //     source is always a visible (non-elided) job — we iterate
+  //     visibleJobs. The case the founder called out — "parent calling
+  //     their parents" — applies when an elided group's `dependsOn`
+  //     pointed at another job: those deps must be honoured by EACH of
+  //     that group's visible children, so the children can take over
+  //     the parent's outbound edges. We handle that below by also
+  //     iterating elided groups' deps and fanning them out as edges
+  //     from each visible child of the elided group.
   for (const j of visibleJobs) {
     const fromRep = visibleRepresentative(j.id)
     if (!fromRep) continue
@@ -247,8 +383,48 @@ export function flowLayoutOrganic(
     const h = hints.get(j.id)
     for (const d of h?.extraDepIds ?? []) deps.add(d)
     for (const dep of deps) {
+      // Resolve the dep to one or more rendered representatives. For a
+      // non-elided dep this is the single visibleRepresentative result.
+      // For an elided group dep, we fan out to its visible children.
+      const depJob = byId.get(dep)
+      if (depJob && elidedIds.has(depJob.id)) {
+        for (const fanned of fanOutVisibleChildren(depJob.id)) {
+          if (fanned !== fromRep) addEdge(fanned, fromRep, 'depends-on')
+        }
+        continue
+      }
       const depRep = visibleRepresentative(dep)
-      if (depRep && depRep !== fromRep) addEdge(depRep, fromRep, 'depends-on')
+      if (!depRep) continue
+      if (depRep !== fromRep) addEdge(depRep, fromRep, 'depends-on')
+    }
+  }
+  // Bug #481 round 2: lift elided groups' OUTBOUND deps onto each of
+  // their visible children — "parent calling their parents". If the
+  // unfolded "Applications" group itself depended on "bp-foundation",
+  // every visible child of Applications now depends on bp-foundation
+  // (or whichever visible representative bp-foundation resolves to).
+  // The hints (extraDepIds) are forwarded the same way.
+  for (const elidedId of elidedIds) {
+    const elided = byId.get(elidedId)
+    if (!elided) continue
+    const deps = new Set<string>(elided.dependsOn ?? [])
+    const h = hints.get(elidedId)
+    for (const d of h?.extraDepIds ?? []) deps.add(d)
+    if (deps.size === 0) continue
+    const visibleChildrenOfElided = fanOutVisibleChildren(elidedId)
+    for (const childId of visibleChildrenOfElided) {
+      for (const dep of deps) {
+        const depJob = byId.get(dep)
+        if (depJob && elidedIds.has(depJob.id)) {
+          for (const fanned of fanOutVisibleChildren(depJob.id)) {
+            if (fanned !== childId) addEdge(fanned, childId, 'depends-on')
+          }
+          continue
+        }
+        const depRep = visibleRepresentative(dep)
+        if (!depRep) continue
+        if (depRep !== childId) addEdge(depRep, childId, 'depends-on')
+      }
     }
   }
 
@@ -273,6 +449,18 @@ export function flowLayoutOrganic(
         changed = true
       }
     }
+  }
+
+  // Bug #481 round 2 — defence-in-depth max-depth cap (founder
+  // directive #4: "ALSO add a max-depth cap as defence-in-depth"). Even
+  // after parent-elision, a malformed graph could still produce a
+  // longest-path > MAX_VISIBLE_DEPTH. Clamp every node's depth to
+  // MAX_VISIBLE_DEPTH so the natural-bbox horizontal span stays under
+  // MAX_VISIBLE_DEPTH * PER_DEPTH_X, ensuring the FlowCanvas viewBox
+  // never has to compress depth pathologically. This is structural
+  // protection against a future regression in upstream graph shape.
+  for (const [id, d] of depth) {
+    if (d > MAX_VISIBLE_DEPTH) depth.set(id, MAX_VISIBLE_DEPTH)
   }
 
   // Emit nodes.
