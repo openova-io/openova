@@ -137,7 +137,7 @@ spec:
             - name: PORT
               value: "8080"
             - name: CORS_ORIGIN
-              value: "https://catalyst.openova.io"
+              value: "https://console.openova.io"
             - name: DYNADOT_API_KEY
               valueFrom:
                 secretKeyRef:
