@@ -214,6 +214,11 @@ locals {
     # source IP the firewall accepts (any 0.0.0.0/0 → 443 outbound)
     # and arrive on a kubeconfig whose `server:` field is a
     # public-routable address.
+    # Harbor pull-through mirror token (issue #557, Option A).
+    # Passed into registries.yaml written at cloud-init time so containerd
+    # authenticates against harbor.openova.io proxy-cache projects.
+    harbor_robot_token      = var.harbor_robot_token
+
     deployment_id           = var.deployment_id
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url

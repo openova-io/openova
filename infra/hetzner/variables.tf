@@ -483,6 +483,32 @@ variable "object_storage_secret_key" {
   }
 }
 
+variable "harbor_robot_token" {
+  type        = string
+  description = <<-EOT
+    Harbor robot account token for `robot$openova-bot` on harbor.openova.io.
+    Written into the Sovereign's /etc/rancher/k3s/registries.yaml at
+    cloud-init time so containerd can authenticate against the central
+    Harbor proxy-cache projects (proxy-dockerhub, proxy-gcr, proxy-quay,
+    proxy-k8s, proxy-ghcr) when pulling images on fresh Hetzner IPs.
+
+    The token is issued on harbor.openova.io via Harbor's robot account API
+    after the central Harbor instance stands up (issue #557 Step 2). The
+    catalyst-api provisioner reads it from the `harbor-robot-token` K8s
+    Secret in the openova-harbor namespace on contabo and forwards it here
+    at provisioning time. Sensitive — never logged, never committed to git.
+
+    Default empty: existing test scripts and pre-#557 provisioner builds
+    that do not pass this variable still render a valid cloud-init (the
+    registries.yaml password field will be blank, causing containerd to
+    attempt anonymous pulls on harbor.openova.io which are allowed for
+    Public proxy projects). Non-empty is enforced by the provisioner for
+    production Sovereign deployments once harbor.openova.io is live.
+  EOT
+  sensitive = true
+  default   = ""
+}
+
 variable "object_storage_bucket_name" {
   type        = string
   description = <<-EOT
