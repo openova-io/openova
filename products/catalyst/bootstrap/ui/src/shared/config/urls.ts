@@ -1,27 +1,44 @@
 // Central URL configuration for the Catalyst UI.
 // Never inline URLs elsewhere — import from here.
 //
-// Everything is derived from Vite's `base` config (see vite.config.ts).
-// When the UI is served at https://console.openova.io/sovereign/, the
-// Traefik ingress strips /sovereign before reaching this container's nginx,
-// so fetch calls in components still need to be prefixed with /sovereign
-// so the browser sends /sovereign/api/... from the /sovereign/ page.
+// BASE is determined at module-init time from window.location (runtime),
+// NOT from Vite's BASE_URL (build-time). The reason: the same catalyst-ui
+// image is deployed in two topologies that share Vite base '/':
+//
+//   1. Sovereign clusters — served at console.<sov-fqdn>/ (BASE = '/')
+//   2. Catalyst-Zero on contabo — served at console.openova.io/sovereign/*
+//      with a Traefik strip-prefix middleware. The browser URL keeps the
+//      /sovereign prefix. Traefik routes /sovereign/* to catalyst-ui, which
+//      in turn proxies /api/* to catalyst-api. So browser fetch calls must
+//      go to /sovereign/api/... (BASE = '/sovereign/').
 //
 // Issue #494 (2026-05-01): the antipattern this file prevents is any
-// fetch / EventSource argument that begins with `/api/`. A bare
-// `/api/...` path looks absolute, but when the UI is mounted under
-// `/sovereign/` the browser still sends it as `https://console/.../api/...`
-// — which is NOT routed by Traefik (only `/sovereign/api/...` is). Worse,
-// a non-leading-slash path like `api/v1/...` resolves RELATIVE to the
-// current location → `/sovereign/provision/<id>/jobs/api/v1/...`. Both
-// shapes 404. The cure is the same: route every URL through API_BASE
-// (or the apiUrl helper), which derives the correct prefix from Vite's
-// BASE_URL at build time. A vitest regression guardrail in
+// fetch / EventSource argument that begins with a bare `/api/`. A bare
+// `/api/...` path looks absolute, but on contabo-mkt it bypasses the
+// /sovereign Traefik rule and hits the SME console instead. Always use
+// `API_BASE` (or `apiUrl()`) so the prefix is resolved once, here, at
+// module-init. A vitest regression guardrail in
 // src/test/no-hardcoded-api.test.ts fails CI if the antipattern returns.
+//
+// Issue #618 (2026-05-02): switched from build-time BASE_URL to runtime
+// window.location detection. Sovereign clusters retain basepath '/' so
+// their behavior is unchanged; contabo-mkt now correctly uses /sovereign/.
 
-/** Build-time base path from Vite, normalized to always end with '/'. */
-const _rawBase = import.meta.env.BASE_URL
-export const BASE: string = _rawBase.endsWith('/') ? _rawBase : `${_rawBase}/`
+/**
+ * Runtime base path, normalized to always end with '/'.
+ *
+ * On contabo-mkt (Catalyst-Zero): window.location.pathname starts with
+ * '/sovereign' → BASE = '/sovereign/'.
+ * On Sovereign clusters: BASE = '/'.
+ */
+export const BASE: string = (() => {
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/sovereign')) {
+    return '/sovereign/'
+  }
+  // Build-time fallback (SSR / jsdom / unit tests without window).
+  const _rawBase = import.meta.env.BASE_URL
+  return _rawBase.endsWith('/') ? _rawBase : `${_rawBase}/`
+})()
 
 /** API root, scoped under the tier base so Nova + Sovereign don't collide. */
 export const API_BASE: string = `${BASE}api`
