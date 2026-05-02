@@ -1,0 +1,477 @@
+package handler
+
+import (
+	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore"
+)
+
+// ─── test helpers ────────────────────────────────────────────────────────────
+
+// testHandoverSetup creates a Handler wired for AuthHandover tests.
+// Returns the handler, the raw RSA private key (for forging claims in negative
+// tests), and the path to the public JWK file.
+func testHandoverSetup(t *testing.T) (h *Handler, privKey *rsa.PrivateKey, keyPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	keyPath = filepath.Join(dir, "public.jwk")
+
+	privPEM, pubJWK, err := handoverjwt.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	if err := os.WriteFile(keyPath, pubJWK, 0o644); err != nil {
+		t.Fatalf("write pubJWK: %v", err)
+	}
+
+	privKey, err = jwt.ParseRSAPrivateKeyFromPEM(privPEM)
+	if err != nil {
+		t.Fatalf("ParseRSAPrivateKeyFromPEM: %v", err)
+	}
+
+	jtiSt := jtistore.New(filepath.Join(dir, "jti.log"))
+
+	h = &Handler{
+		log:                       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		handoverJWTPublicKeyPath:  keyPath,
+		authHandoverSovereignFQDN: "sov.test",
+		authHandoverRedirect:      "/console/dashboard",
+		jtiStore:                  jtiSt,
+		kc:                        &stubKeycloakClient{},
+	}
+	return h, privKey, keyPath
+}
+
+// mintValidToken signs a claims value that passes all handler checks for sov.test.
+func mintValidToken(t *testing.T, privKey *rsa.PrivateKey) string {
+	t.Helper()
+	return signClaims(t, privKey, validClaims("sov.test"))
+}
+
+// mintTokenForSov signs a claims value for a given FQDN.
+func mintTokenForSov(t *testing.T, privKey *rsa.PrivateKey, sov string) string {
+	t.Helper()
+	return signClaims(t, privKey, validClaims(sov))
+}
+
+// ─── stub implementations ────────────────────────────────────────────────────
+
+// stubKeycloakClient satisfies keycloakClient for tests.
+type stubKeycloakClient struct {
+	ensureUserErr      error
+	impersonateErr     error
+	ensureUserID       string
+	impersonateAccess  string
+	impersonateRefresh string
+	impersonateExpiry  int
+}
+
+func (s *stubKeycloakClient) EnsureUser(_ context.Context, _, _ string) (string, error) {
+	if s.ensureUserErr != nil {
+		return "", s.ensureUserErr
+	}
+	id := s.ensureUserID
+	if id == "" {
+		id = "user-uuid-001"
+	}
+	return id, nil
+}
+
+func (s *stubKeycloakClient) ImpersonateToken(_ context.Context, _, _ string) (string, string, int, error) {
+	if s.impersonateErr != nil {
+		return "", "", 0, s.impersonateErr
+	}
+	access := s.impersonateAccess
+	if access == "" {
+		access = "test-access-token"
+	}
+	refresh := s.impersonateRefresh
+	if refresh == "" {
+		refresh = "test-refresh-token"
+	}
+	expiry := s.impersonateExpiry
+	if expiry == 0 {
+		expiry = 3600
+	}
+	return access, refresh, expiry, nil
+}
+
+// ─── GET /auth/handover tests ─────────────────────────────────────────────────
+
+func TestAuthHandover_HappyPath(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	tok := mintValidToken(t, privKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status: got %d want 302", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/console/dashboard" {
+		t.Errorf("Location: got %q want /console/dashboard", loc)
+	}
+
+	cookies := resp.Cookies()
+	sessionCookie := findCookie(cookies, "catalyst_session")
+	if sessionCookie == nil {
+		t.Fatal("catalyst_session cookie not set")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Error("catalyst_session must be HttpOnly")
+	}
+	if sessionCookie.SameSite != http.SameSiteLaxMode {
+		t.Error("catalyst_session must be SameSite=Lax")
+	}
+	if sessionCookie.Value != "test-access-token" {
+		t.Errorf("catalyst_session value: got %q want test-access-token", sessionCookie.Value)
+	}
+
+	refreshCookie := findCookie(cookies, "catalyst_refresh")
+	if refreshCookie == nil {
+		t.Fatal("catalyst_refresh cookie not set")
+	}
+	if refreshCookie.Value != "test-refresh-token" {
+		t.Errorf("catalyst_refresh value: got %q", refreshCookie.Value)
+	}
+}
+
+func TestAuthHandover_MissingToken(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "missing token parameter")
+}
+
+func TestAuthHandover_MalformedToken(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token=not-a-jwt", nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "invalid token")
+}
+
+func TestAuthHandover_ExpiredToken(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+
+	c := validClaims("sov.test")
+	c.IssuedAt = jwt.NewNumericDate(time.Now().Add(-10 * time.Minute))
+	c.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-5 * time.Minute))
+	tok := signClaims(t, privKey, c)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "invalid token")
+}
+
+func TestAuthHandover_WrongAudience(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	// Mint a token for a different Sovereign — valid sig, wrong aud.
+	tok := mintTokenForSov(t, privKey, "other.sovereign.io")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "invalid audience")
+}
+
+func TestAuthHandover_WrongIssuer(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+
+	c := validClaims("sov.test")
+	c.Issuer = "https://evil.example.com"
+	tok := signClaims(t, privKey, c)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "invalid issuer")
+}
+
+func TestAuthHandover_WrongRole(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+
+	c := validClaims("sov.test")
+	c.Role = "viewer"
+	tok := signClaims(t, privKey, c)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "insufficient role")
+}
+
+func TestAuthHandover_EmailNotVerified(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+
+	c := validClaims("sov.test")
+	c.EmailVerified = false
+	tok := signClaims(t, privKey, c)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "email not verified")
+}
+
+func TestAuthHandover_ReplayedJTI(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	tok := mintValidToken(t, privKey)
+
+	// First use should succeed.
+	req1 := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w1 := httptest.NewRecorder()
+	h.AuthHandover(w1, req1)
+	if w1.Code != http.StatusFound {
+		t.Fatalf("first use: expected 302, got %d", w1.Code)
+	}
+
+	// Second use must fail.
+	req2 := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w2 := httptest.NewRecorder()
+	h.AuthHandover(w2, req2)
+	assertAuthError(t, w2, http.StatusUnauthorized, "token already used")
+}
+
+func TestAuthHandover_KCEnsureUserFailure(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	h.kc = &stubKeycloakClient{
+		ensureUserErr: fmt.Errorf("keycloak unreachable"),
+	}
+	tok := mintValidToken(t, privKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "keycloak error: ensure user")
+}
+
+func TestAuthHandover_KCImpersonateFailure(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	h.kc = &stubKeycloakClient{
+		impersonateErr: fmt.Errorf("token exchange denied"),
+	}
+	tok := mintValidToken(t, privKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "keycloak error: token exchange")
+}
+
+func TestAuthHandover_KCNotConfigured(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	h.kc = nil
+
+	tok := mintValidToken(t, privKey)
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "server misconfiguration: keycloak not configured")
+}
+
+// TestAuthHandover_WrongSigningKey verifies 401 when the token is signed with a
+// different private key (i.e. Catalyst-Zero keypair rotated).
+func TestAuthHandover_WrongSigningKey(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+
+	// Generate a DIFFERENT keypair and sign with it.
+	otherPrivPEM, _, _ := handoverjwt.GenerateKeypair()
+	otherKey, _ := jwt.ParseRSAPrivateKeyFromPEM(otherPrivPEM)
+	tok := mintTokenForSov(t, otherKey, "sov.test")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "invalid token")
+}
+
+// ─── JWK loader tests ─────────────────────────────────────────────────────────
+
+func TestLoadRSAPublicKey_JWK(t *testing.T) {
+	privPEM, pubJWK, _ := handoverjwt.GenerateKeypair()
+	privKey, _ := jwt.ParseRSAPrivateKeyFromPEM(privPEM)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "public.jwk")
+	if err := os.WriteFile(path, pubJWK, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	loaded, err := loadRSAPublicKey(path)
+	if err != nil {
+		t.Fatalf("loadRSAPublicKey: %v", err)
+	}
+	if loaded.N.Cmp(privKey.PublicKey.N) != 0 {
+		t.Error("N mismatch")
+	}
+	if loaded.E != privKey.PublicKey.E {
+		t.Errorf("E: got %d want %d", loaded.E, privKey.PublicKey.E)
+	}
+}
+
+func TestLoadRSAPublicKey_PEM(t *testing.T) {
+	privPEM, _, _ := handoverjwt.GenerateKeypair()
+	privKey, _ := jwt.ParseRSAPrivateKeyFromPEM(privPEM)
+
+	// Write as PKIX PEM ("PUBLIC KEY").
+	pubDER, _ := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "public.pem")
+	if err := os.WriteFile(path, pubPEM, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	loaded, err := loadRSAPublicKey(path)
+	if err != nil {
+		t.Fatalf("loadRSAPublicKey PEM: %v", err)
+	}
+	if loaded.N.Cmp(privKey.PublicKey.N) != 0 {
+		t.Error("N mismatch")
+	}
+}
+
+func TestRSAPublicKeyFromJWK_RoundTrip(t *testing.T) {
+	privPEM, pubJWK, _ := handoverjwt.GenerateKeypair()
+	privKey, _ := jwt.ParseRSAPrivateKeyFromPEM(privPEM)
+
+	loaded, err := rsaPublicKeyFromJWK(pubJWK)
+	if err != nil {
+		t.Fatalf("rsaPublicKeyFromJWK: %v", err)
+	}
+	if loaded.N.Cmp(privKey.PublicKey.N) != 0 {
+		t.Error("N mismatch")
+	}
+}
+
+func TestRSAPublicKeyFromJWK_InvalidJSON(t *testing.T) {
+	_, err := rsaPublicKeyFromJWK([]byte("not json"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestRSAPublicKeyFromJWK_WrongKty(t *testing.T) {
+	raw, _ := json.Marshal(map[string]string{"kty": "EC", "n": "aaa", "e": "AQAB"})
+	_, err := rsaPublicKeyFromJWK(raw)
+	if err == nil {
+		t.Fatal("expected error for non-RSA kty")
+	}
+}
+
+// ─── JTI store file persistence test ─────────────────────────────────────────
+
+func TestJTIStore_FileBackedReplay(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jti.log")
+
+	s1 := jtistore.New(path)
+	first, err := s1.Mark("jti-aaa")
+	if err != nil || !first {
+		t.Fatalf("first Mark: first=%v err=%v", first, err)
+	}
+
+	// New store instance (simulates restart) — must still reject the same jti.
+	s2 := jtistore.New(path)
+	second, err := s2.Mark("jti-aaa")
+	if err != nil {
+		t.Fatalf("second Mark error: %v", err)
+	}
+	if second {
+		t.Error("second Mark returned true (firstUse) — jti was not persisted")
+	}
+}
+
+// ─── helper utilities ─────────────────────────────────────────────────────────
+
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, c := range cookies {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+func assertAuthError(t *testing.T, w *httptest.ResponseRecorder, code int, msg string) {
+	t.Helper()
+	if w.Code != code {
+		t.Errorf("status: got %d want %d (body: %s)", w.Code, code, w.Body.String())
+	}
+	var body authHandoverError
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.Error != msg {
+		t.Errorf("error.message: got %q want %q", body.Error, msg)
+	}
+}
+
+// validClaims returns a claims struct that passes all handler validation for
+// sovereign FQDN `sov`. Each call produces a unique jti.
+func validClaims(sov string) handoverjwt.Claims {
+	return handoverjwt.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "https://console.openova.io",
+			Subject:   "sub-001",
+			Audience:  jwt.ClaimStrings{"https://console." + sov},
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			ID:        "jti-" + sov + "-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		},
+		Email:         "admin@" + sov,
+		EmailVerified: true,
+		SovereignFQDN: sov,
+		DeploymentID:  "dep-001",
+		Role:          "sovereign-admin",
+	}
+}
+
+// signClaims signs the claims with privKey and returns the token string.
+func signClaims(t *testing.T, privKey *rsa.PrivateKey, claims handoverjwt.Claims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(privKey)
+	if err != nil {
+		t.Fatalf("sign claims: %v", err)
+	}
+	return signed
+}
+
+// publicJWKBytesForKey encodes pub as a JWK JSON byte slice.
+// Used in a few tests to construct a JWK from a known key.
+func publicJWKBytesForKey(pub *rsa.PublicKey) []byte {
+	jwk := map[string]string{
+		"kty": "RSA",
+		"use": "sig",
+		"alg": "RS256",
+		"n":   base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
+		"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
+	}
+	raw, _ := json.Marshal(jwk)
+	return raw
+}
