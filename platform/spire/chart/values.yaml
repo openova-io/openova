@@ -10,6 +10,16 @@
 #      sub-subcharts spire-server/spire-agent/etc, which appear as
 #      second-level keys nested under `spire:`).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream spire chart
+  # (spiffe hardened) exposes `spire.global.spire.image.registry` for
+  # global override. Per-Sovereign overlays wire that alongside this value.
+  # Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: spire, version: "0.21.0", repo: "https://spiffe.github.io/helm-charts-hardened" }
 
@@ -58,7 +68,14 @@ spire:
           default:
             enabled: false
           oidc-discovery-provider:
-            enabled: false
+            # Re-enabled in bp-spire 1.1.6: the CRD-ordering problem that
+            # originally forced all ClusterSPIFFEIDs to disabled was fixed
+            # in 1.1.4 (spire-crds listed first as a Helm dependency).
+            # Without this identity the oidc-discovery-provider init
+            # container blocks with "PermissionDenied: no identity issued"
+            # because the spire-controller-manager never creates the
+            # registration entry. Fixes otech22 OIDC init stuck (issue #571).
+            enabled: true
           test-keys:
             enabled: false
           # child-servers already defaults false upstream
