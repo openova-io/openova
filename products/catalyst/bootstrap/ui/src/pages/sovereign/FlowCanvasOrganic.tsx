@@ -351,9 +351,18 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       const t = nodesRef.current.get(e.toId)
       if (s && t) links.push({ source: s, target: t })
     }
+    // Issue #481 round 3 (2026-05-02): the simulation must converge in ≤2s
+    // after page load and STOP dynamically rebuilding. With the default
+    // alphaDecay=0.025 the sim runs ~300 ticks to alphaMin=0.001 (≈5s of
+    // visible motion). alphaDecay=0.06 + alphaMin=0.01 brings it to ≈60
+    // ticks (~1s at 60fps), and a hard MAX_TICKS guard freezes positions
+    // even on slow devices that can't hit 60fps.
+    const MAX_TICKS = 120
+    let tickCount = 0
     const sim = forceSimulation<SimNode>(simNodes)
       .alpha(0.9)
-      .alphaDecay(0.025)
+      .alphaDecay(0.06)
+      .alphaMin(0.01)
       .velocityDecay(0.3)
       .force(
         'collide',
@@ -447,6 +456,15 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             if (n.y < yMin) n.y = yMin
             else if (n.y > yMax) n.y = yMax
           }
+        }
+        // Issue #481 round 3: hard MAX_TICKS cap. Even if alpha/velocity
+        // decay schedules don't drive alpha below alphaMin in time (slow
+        // device, many nodes), this stops the sim deterministically at
+        // ~2s and freezes positions — no more "infinitely dynamically
+        // trying" symptom the founder reported.
+        tickCount++
+        if (tickCount >= MAX_TICKS) {
+          sim.stop()
         }
         setTick((t) => t + 1)
       })
