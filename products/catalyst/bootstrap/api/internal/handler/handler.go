@@ -384,6 +384,11 @@ func (h *Handler) GetAuthConfig() *auth.Config { return h.authConfig }
 // SetAuthConfig wires an auth.Config into the Handler.
 func (h *Handler) SetAuthConfig(cfg *auth.Config) { h.authConfig = cfg }
 
+// GetHandoverSigner returns the wired handoverjwt.Signer (or nil if unset).
+// Used by main.go to wire the public key into auth.Config.LocalPublicKey
+// so the session middleware can validate self-signed session JWTs.
+func (h *Handler) GetHandoverSigner() *handoverjwt.Signer { return h.handoverSigner }
+
 // SetOpenovaKC wires the openova-realm Keycloak client (Option-B magic-link).
 // Called by main.go at startup when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
 func (h *Handler) SetOpenovaKC(kc keycloakClient) { h.openovaKC = kc }
