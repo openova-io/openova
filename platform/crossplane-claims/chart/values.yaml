@@ -5,6 +5,23 @@
 # defaults document; future per-Sovereign overrides (e.g.
 # defaultCompositionRef swaps for a non-Hetzner cloud) would land here.
 
+global:
+  # When set, ALL Docker image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the proxy_cache
+  # role from contabo's central Harbor. Empty = no rewrite. Tracked under #560.
+  #
+  # NOTE: Hetzner cloud server images (e.g. ubuntu-24.04 in Crossplane Server
+  # resources) are NOT Docker images and MUST NOT be registry-prefixed.
+  # Only the kubectl Job container image is affected by this knob.
+  imageRegistry: ""
+
+  # kubectl container image used in XNodeActionClaim Jobs.
+  # Repository and tag are separately configurable so post-handover per-Sovereign
+  # overlays can point at a Harbor-cached copy without rebuilding this Blueprint.
+  kubectlImage:
+    repository: bitnami/kubectl
+    tag: "1.31"
+
 catalystBlueprint:
   upstream: null
 

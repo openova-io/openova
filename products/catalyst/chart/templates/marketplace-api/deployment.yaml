@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: marketplace-api
-          image: ghcr.io/openova-io/openova/marketplace-api:3c2f7e4
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/marketplace-api:{{ .Values.images.marketplaceApi.tag }}"
           ports:
             - containerPort: 8080
               protocol: TCP

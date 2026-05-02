@@ -24,7 +24,7 @@ description: |
   Sovereign requires only a sibling `infra/<provider>/` Tofu module —
   this chart Just Works.
 type: application
-version: 1.2.0
+version: 1.2.1
 appVersion: "1.18.0"
 keywords: [catalyst, blueprint, velero, backup, disaster-recovery]
 maintainers:
