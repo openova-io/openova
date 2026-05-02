@@ -282,3 +282,10 @@ slots:
     name: bp-cert-manager-powerdns-webhook
     depends_on: [bp-cert-manager, bp-powerdns]
     wave: present
+  # PRE-handover DNS-01 solver. Slot 49b sits adjacent to 49 (powerdns).
+  # Active from Day 0 while Dynadot is authoritative for omani.works.
+  # Closes openova#550.
+  - slot: "49b"
+    name: bp-cert-manager-dynadot-webhook
+    depends_on: [bp-cert-manager]
+    wave: present

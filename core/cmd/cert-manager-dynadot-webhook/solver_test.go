@@ -82,7 +82,7 @@ func (f *fakeDynadot) handleSetDNS2(w http.ResponseWriter, q url.Values, domain 
 		setRec(zone, sub, typ, val)
 	}
 	f.state[domain] = zone
-	writeOK(w, "SetDns2Response")
+	writeOK(w, "SetDnsResponse")
 }
 
 func (f *fakeDynadot) handleDomainInfo(w http.ResponseWriter, domain string) {
@@ -137,7 +137,7 @@ func setRec(zone map[string]map[string]string, sub, typ, val string) {
 
 func writeOK(w http.ResponseWriter, env string) {
 	w.Header().Set("Content-Type", "application/json")
-	body := `{"` + env + `":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`
+	body := `{"` + env + `":{"ResponseHeader":{"ResponseCode":0,"Status":"success"}}}`
 	_, _ = w.Write([]byte(body))
 }
 
@@ -387,7 +387,7 @@ func TestSolver_DynadotErrorPropagation(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Invalid api key"}}}`))
+		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseHeader":{"ResponseCode":-1,"Status":"error","Error":"Invalid api key"}}}`))
 	}))
 	defer srv.Close()
 	s := solverWith(t, srv, "omani.works")
