@@ -520,22 +520,48 @@ write_files:
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0600'
     content: |
+      # Harbor proxy-cache projects use the URL form
+      #   https://harbor.openova.io/v2/<project>/<image>/manifests/<tag>
+      # NOT
+      #   https://harbor.openova.io/<project>/v2/<image>/manifests/<tag>
+      # which is what containerd would naively build from
+      # `endpoint: ["https://harbor.openova.io/<project>"]`.
+      # Harbor returns its UI HTML (status 200, content-type text/html)
+      # for the wrong-shape URL — containerd then surfaces:
+      #   "unexpected media type text/html for sha256:..."
+      # and cilium / coredns / pause-image pulls all fail forever.
+      #
+      # k3s registries.yaml supports a per-mirror `rewrite` map:
+      # containerd builds `<endpoint>/v2/<repo>/...` (host-only endpoint),
+      # then rewrite() transforms the repo path before the request goes out.
+      # Mapping `(.*)` → `proxy-<flavor>/$1` produces the correct
+      # Harbor-project-prefixed path. Diagnosed live during otech25.
       mirrors:
         "docker.io":
           endpoint:
-            - "https://harbor.openova.io/proxy-dockerhub"
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-dockerhub/$1"
         "quay.io":
           endpoint:
-            - "https://harbor.openova.io/proxy-quay"
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-quay/$1"
         "gcr.io":
           endpoint:
-            - "https://harbor.openova.io/proxy-gcr"
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-gcr/$1"
         "registry.k8s.io":
           endpoint:
-            - "https://harbor.openova.io/proxy-k8s"
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-k8s/$1"
         "ghcr.io":
           endpoint:
-            - "https://harbor.openova.io/proxy-ghcr"
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-ghcr/$1"
       configs:
         "harbor.openova.io":
           auth:
