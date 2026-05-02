@@ -91,3 +91,13 @@ spec:
       host: bao.${SOVEREIGN_FQDN}
     autoUnseal:
       enabled: true
+    # Issue #(filed inline 2026-05-02): openbao 3-replica StatefulSet uses
+    # required pod-anti-affinity by hostname. On single-node Phase-8a
+    # Sovereigns this leaves 2/3 pods Pending forever, the openbao-init
+    # Job's wait-for-Ready loop times out, and the entire HR fails post-
+    # install. Drop to 1 replica until the workerCount > 0 path is wired
+    # — the autoUnseal flow does not require a quorum to bootstrap.
+    server:
+      ha:
+        replicas: 1
+      affinity: ""
