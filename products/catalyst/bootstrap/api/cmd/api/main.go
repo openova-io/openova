@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
@@ -39,8 +41,13 @@ func main() {
 		// keeps the policy consistent for any future browser-side
 		// resume flow that re-uses the same endpoint.
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
-		MaxAge:         300,
+		// Cookie is required for SameSite=Strict session cookies to be
+		// forwarded across the Traefik ingress path (issue #608).
+		// X-User-Email + X-User-Sub are injected by the RequireSession
+		// middleware into downstream requests.
+		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization", "Cookie"},
+		AllowCredentials: true,
+		MaxAge:           300,
 	}))
 
 	h := handler.New(log)
@@ -59,6 +66,24 @@ func main() {
 			)
 		} else {
 			log.Warn("openbao: CATALYST_OPENBAO_ADDR set but CATALYST_OPENBAO_TOKEN missing; receiver disabled")
+		}
+	}
+
+	// Handover JWT signer (issue #605) — RSA-2048 keypair lifecycle.
+	// CATALYST_HANDOVER_KEY_PATH must point at a writable path on the PVC;
+	// if absent the signer is nil and MintHandoverToken returns 503.
+	// Sovereign clusters leave this env unset; Catalyst-Zero sets it.
+	if keyPath := os.Getenv("CATALYST_HANDOVER_KEY_PATH"); keyPath != "" {
+		pubKeyPath := env("CATALYST_HANDOVER_PUBKEY_PATH", keyPath+".pub.jwk")
+		issuer := env("CATALYST_HANDOVER_JWT_ISSUER", "https://console.openova.io")
+		signer, err := handoverjwt.LoadOrGenerate(keyPath, pubKeyPath, issuer, 5*time.Minute)
+		if err != nil {
+			log.Warn("handoverjwt: keypair init failed; MintHandoverToken will return 503",
+				"err", err,
+			)
+		} else {
+			h.SetHandoverSigner(signer)
+			log.Info("handoverjwt: signer ready", "issuer", issuer)
 		}
 	}
 
@@ -160,6 +185,18 @@ func main() {
 	// PurgeReport summary. The wizard's failed-state banner renders the
 	// operator confirmation modal that POSTs here.
 	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+	// Handover JWT — issue #605 (minting) + issue #606 (consumption).
+	// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
+	// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
+	// redirects the operator's browser to the Sovereign console URL.
+	// GetHandoverPublicKey: Sovereigns fetch the JWK at boot to seed
+	// their CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH (or via cloud-init).
+	// AuthHandover: Sovereign-side receiver — validates the JWT, creates
+	// the operator in Keycloak, exchanges for a session, sets cookies,
+	// and redirects to /console/dashboard.
+	r.Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
+	r.Get("/api/v1/handover/public-key", h.GetHandoverPublicKey)
+	r.Get("/auth/handover", h.AuthHandover)
 	// Subdomain-only release endpoint (issue #489). Releases the PDM
 	// allocation row for a failed-or-abandoned deployment WITHOUT
 	// requiring the operator to re-enter their HetznerToken. Lets a
