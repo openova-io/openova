@@ -119,14 +119,14 @@ func (c *Client) AddRecord(ctx context.Context, domain string, rec Record) error
 	}
 
 	var raw struct {
-		SetDNS2Response struct {
+		SetDNSResponse struct {
 			ResponseHeader respHeader `json:"ResponseHeader"`
-		} `json:"SetDns2Response"`
+		} `json:"SetDnsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse set_dns2: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	return classifyDynadotError(raw.SetDNS2Response.ResponseHeader)
+	return classifyDynadotError(raw.SetDNSResponse.ResponseHeader)
 }
 
 // DomainInfo is the parsed result of a `domain_info` call. Only the
@@ -255,14 +255,14 @@ func (c *Client) SetFullDNS(ctx context.Context, domain string, mains, subs []Re
 	}
 
 	var raw struct {
-		SetDNS2Response struct {
+		SetDNSResponse struct {
 			ResponseHeader respHeader `json:"ResponseHeader"`
-		} `json:"SetDns2Response"`
+		} `json:"SetDnsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse set_dns2: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	return classifyDynadotError(raw.SetDNS2Response.ResponseHeader)
+	return classifyDynadotError(raw.SetDNSResponse.ResponseHeader)
 }
 
 // RemoveSubRecord performs a safe read-modify-write that removes any
@@ -306,10 +306,15 @@ func (c *Client) RemoveSubRecord(ctx context.Context, domain string, match Recor
 // respHeader matches the Dynadot envelope's ResponseHeader on every
 // command. `ResponseCode` is 0 on success, non-zero on failure;
 // `Error` is human-readable.
+//
+// ResponseCode is typed as json.Number because the Dynadot api3.json
+// endpoint returns it as a JSON integer (e.g. `"ResponseCode":0`) rather
+// than a quoted string — using json.Number accepts both forms so the
+// client does not break if Dynadot ever changes its encoding.
 type respHeader struct {
-	ResponseCode string `json:"ResponseCode"`
-	Status       string `json:"Status"`
-	Error        string `json:"Error"`
+	ResponseCode json.Number `json:"ResponseCode"`
+	Status       string      `json:"Status"`
+	Error        string      `json:"Error"`
 }
 
 // classifyHTTP turns a transport-level outcome into a typed sentinel

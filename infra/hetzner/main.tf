@@ -190,6 +190,15 @@ locals {
     # favour of XRC writes per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3.
     hcloud_token               = var.hcloud_token
 
+    # Dynadot credentials — injected into cert-manager/dynadot-api-credentials
+    # K8s Secret at cloud-init time so the bp-cert-manager-dynadot-webhook Pod
+    # can start without a manual secret-creation step (issue #550 root-cause fix).
+    # dynadot_managed_domains defaults to the parent zone of sovereign_fqdn when
+    # the caller leaves it blank — e.g. "omani.works" for "console.otech22.omani.works".
+    dynadot_key             = var.dynadot_key
+    dynadot_secret          = var.dynadot_secret
+    dynadot_managed_domains = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
+
     # Cloud-init kubeconfig postback (issue #183, Option D). When
     # all three are non-empty, the template renders a runcmd that
     # rewrites k3s.yaml's 127.0.0.1:6443 to the LB's public IPv4

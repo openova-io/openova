@@ -1,0 +1,125 @@
+# bp-cert-manager-dynadot-webhook — Catalyst bootstrap-kit Blueprint #49b.
+#
+# Slot 49b sits adjacent to 49 (bp-cert-manager-powerdns-webhook). The
+# naming split reflects the two lifecycle phases:
+#   - 49b (this file) = PRE-handover DNS-01 solver. Dynadot IS
+#     authoritative for omani.works, so Let's Encrypt can validate
+#     challenges at public DNS resolution. Active from Day 0.
+#   - 49  (powerdns)  = POST-handover DNS-01 solver. Activates once the
+#     Sovereign owns its delegated subdomain and PowerDNS is the authority.
+#     Closes openova#373; gates #319.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Why this slot exists — Root cause of openova#550
+# ──────────────────────────────────────────────────────────────────────────
+# The bp-cert-manager chart ships a `letsencrypt-dns01-prod` ClusterIssuer
+# (in clusterissuer-letsencrypt-dns01.yaml) that points its DNS-01 solver
+# at the `acme.dynadot.openova.io` API group / solver `dynadot`. That
+# ClusterIssuer is ACTIVE on every new Sovereign (it is the pre-handover
+# issuer). The Certificate `kube-system/sovereign-wildcard-tls` references
+# it for the wildcard *.${SOVEREIGN_FQDN}.
+#
+# However, bootstrap-kit slot 49 installs bp-cert-manager-POWERDNS-webhook,
+# not the Dynadot webhook. Without the Dynadot webhook:
+#   1. No APIService for acme.dynadot.openova.io exists on the cluster.
+#   2. cert-manager's challenge controller gets:
+#      "dynadot.acme.dynadot.openova.io is forbidden: User
+#       system:serviceaccount:cert-manager:cert-manager cannot create
+#       resource dynadot in API group acme.dynadot.openova.io"
+#   3. The Certificate stays in state DoesNotExist/Issuing indefinitely.
+#   4. The Sovereign's HTTPS gateway has no TLS cert → SSL_ERROR_SYSCALL.
+#
+# Installing THIS blueprint (49b) before sovereign-tls is applied resolves
+# all four items above. The powerdns-webhook (slot 49) is still installed
+# so it is ready for post-handover without an additional bootstrap-kit edit.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Secret pre-requisite: cert-manager/dynadot-api-credentials
+# ──────────────────────────────────────────────────────────────────────────
+# The webhook Pod reads DYNADOT_API_KEY / DYNADOT_API_SECRET from a K8s
+# Secret named `dynadot-api-credentials` in the cert-manager namespace.
+# This Secret MUST exist before the Pod starts. cloud-init materializes it
+# at Sovereign boot time (infra/hetzner/cloudinit-control-plane.tftpl) from
+# the dynadot_key / dynadot_secret tfvars injected by the provisioner API.
+# If that Secret is absent, the Pod enters CrashLoopBackOff (secretKeyRef
+# required, not optional).
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Wiring
+# ──────────────────────────────────────────────────────────────────────────
+# Wrapper chart: platform/cert-manager-dynadot-webhook/chart/
+# Catalyst-curated values: platform/cert-manager-dynadot-webhook/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — provides the cert-manager.io CRDs + controllers.
+#                       Without this the ClusterIssuer (rendered by this
+#                       chart's clusterissuer.yaml) can't apply, and the
+#                       serving Certificate cert-manager generates for the
+#                       webhook itself can't be issued.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cert-manager-dynadot-webhook
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cert-manager-dynadot-webhook
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: cert-manager-dynadot-webhook
+  # Co-located with cert-manager so the webhook's serving Certificate
+  # (issued by the chart's selfSigned + CA Issuers) and APIService
+  # caBundle injection live in the same namespace cert-manager itself
+  # watches. Mirrors upstream chart convention.
+  targetNamespace: cert-manager
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-cert-manager-dynadot-webhook
+      version: 1.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cert-manager-dynadot-webhook
+        namespace: flux-system
+  # Event-driven install: the chart's ClusterIssuer template uses a
+  # Helm post-install hook that runs AFTER cert-manager's CRDs land,
+  # so blocking on Helm `--wait` for the leaf Certificate to reach
+  # Ready is unnecessary. Replaces blanket spec.timeout band-aids.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    # ─── Paired ClusterIssuer ───────────────────────────────────────────
+    # Enables `letsencrypt-dns01-prod` wired to the Dynadot webhook.
+    # This is the PRE-handover issuer; the wildcard Certificate in
+    # clusters/_template/sovereign-tls/cilium-gateway-cert.yaml
+    # references it via issuerRef.name: letsencrypt-dns01-prod.
+    clusterIssuer:
+      enabled: true
+      email: "ops@${SOVEREIGN_FQDN}"
+      acmeServer: "https://acme-v02.api.letsencrypt.org/directory"
+    webhook:
+      # ghcr-pull is reflected into cert-manager namespace by the bootstrap
+      # kit (bp-reflector or the Flux source-controller's pull-secret
+      # propagation). Without this the Pod enters ImagePullBackOff on fresh
+      # Sovereigns because ghcr.io/openova-io/openova/* is a private registry.
+      imagePullSecrets:
+        - name: ghcr-pull

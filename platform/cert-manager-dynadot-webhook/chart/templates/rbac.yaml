@@ -74,4 +74,46 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+---
+# ─── Domain-solver RBAC ──────────────────────────────────────────────────────
+# cert-manager's challenge controller needs to CREATE resources on the webhook's
+# API group so it can dispatch DNS-01 challenges. Without this ClusterRole +
+# ClusterRoleBinding the challenge controller gets:
+#
+#   dynadot.acme.dynadot.openova.io is forbidden: User
+#   system:serviceaccount:cert-manager:cert-manager cannot create resource
+#   dynadot in API group acme.dynadot.openova.io
+#
+# This is the pattern prescribed at
+# https://cert-manager.io/docs/configuration/acme/dns01/webhook/#preparing-rbac
+# — the ClusterRole grants create on `*` under the webhook's groupName, and
+# is bound to cert-manager's ServiceAccount in cert-manager's namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:domain-solver
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - {{ .Values.webhook.groupName }}
+    resources:
+      - "*"
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:domain-solver
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}:domain-solver
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.certManager.serviceAccountName }}
+    namespace: {{ .Values.certManager.namespace }}
 {{- end }}

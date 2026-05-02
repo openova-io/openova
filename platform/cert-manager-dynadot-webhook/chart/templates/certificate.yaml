@@ -33,7 +33,7 @@ spec:
   duration: {{ .Values.servingCert.duration }}
   renewBefore: {{ .Values.servingCert.renewBefore }}
   isCA: true
-  commonName: "ca.{{ include "bp-cert-manager-dynadot-webhook.fullname" . }}.cert-manager"
+  commonName: {{ printf "ca.%s" (include "bp-cert-manager-dynadot-webhook.fullname" .) | trunc 64 | trimSuffix "-" | quote }}
   privateKey:
     rotationPolicy: Always
     algorithm: ECDSA
