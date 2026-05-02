@@ -69,6 +69,11 @@ rules:
     verbs: ["create", "get", "patch", "update"]
     resourceNames:
       - openbao-init-marker
+      # openbao-unseal-keys: persisted unseal-key set used by the init
+      # Job's idempotent-resume path (issue #539). Required so the Job
+      # can both write the keys on fresh init and re-read them on a
+      # later retry when the vault is initialised but still sealed.
+      - openbao-unseal-keys
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
