@@ -6,6 +6,15 @@
 # meaningful value is configurable; cluster overlays in clusters/<sovereign>/
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream velero chart
+  # exposes `velero.image.repository` for override. Per-Sovereign overlays
+  # wire those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream:
     chart: velero

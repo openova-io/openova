@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: console
-          image: ghcr.io/openova-io/openova/console:3c2f7e4
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/console:{{ .Values.images.console.tag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

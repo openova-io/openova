@@ -8,6 +8,15 @@
 #      (umbrella-chart convention — the dependency name from Chart.yaml is
 #      the values namespace).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream flux2 chart
+  # exposes per-controller `flux2.<controller>.image.repository` knobs.
+  # Per-Sovereign overlays wire those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   # Pinned to flux2 2.14.1 (= upstream Flux appVersion 2.4.0). MUST match
   # `infra/hetzner/cloudinit-control-plane.tftpl`'s install.yaml URL

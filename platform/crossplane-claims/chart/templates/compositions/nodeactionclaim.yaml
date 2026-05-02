@@ -81,7 +81,7 @@ spec:
                     serviceAccountName: catalyst-node-action
                     containers:
                       - name: kubectl
-                        image: bitnami/kubectl:1.31
+                        image: {{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.global.kubectlImage.repository }}:{{ .Values.global.kubectlImage.tag }}
                         command: ["/bin/bash", "-c"]
                         args:
                           - "echo node-action placeholder; exit 1"

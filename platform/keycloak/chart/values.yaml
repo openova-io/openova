@@ -8,6 +8,16 @@
 #      (umbrella-chart convention — the dependency name from Chart.yaml is
 #      the values namespace).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream Bitnami keycloak
+  # chart exposes per-component `keycloak.image.registry`,
+  # `keycloak.postgresql.image.registry`, etc. for fine-grained override.
+  # Per-Sovereign overlays wire those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: keycloak, version: "25.2.0", repo: "https://charts.bitnami.com/bitnami" }
 

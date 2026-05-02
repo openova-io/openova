@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: tenant
-          image: ghcr.io/openova-io/openova/services-tenant:046e5eb
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.smeTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8083

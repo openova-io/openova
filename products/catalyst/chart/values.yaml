@@ -1,3 +1,31 @@
+global:
+  # When set, ALL Catalyst-authored container image pulls route through this
+  # registry. Post-handover: per-Sovereign overlays set this to
+  # harbor.<sovereign-fqdn> so every image pull hits the Sovereign's own Harbor
+  # proxy_cache rather than ghcr.io directly. Empty = no rewrite (image refs
+  # use `images.registry` / `images.organization` defaults below). Tracked
+  # under #560.
+  imageRegistry: ""
+
+# ─── Catalyst image coordinates ───────────────────────────────────────────────
+# Default registry + org point at ghcr.io/openova-io/openova. Per-Sovereign
+# overlays leave these untouched and set global.imageRegistry to the local
+# Harbor mirror instead.
+images:
+  registry: "ghcr.io"
+  organization: "openova-io/openova"
+  # SHA tags — bump these via CI when building new images.
+  catalystApi:
+    tag: "ccc3898"
+  catalystUi:
+    tag: "ccc3898"
+  marketplaceApi:
+    tag: "3c2f7e4"
+  console:
+    tag: "3c2f7e4"
+  # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
+  smeTag: "046e5eb"
+
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane
