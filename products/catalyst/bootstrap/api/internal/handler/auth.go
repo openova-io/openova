@@ -276,9 +276,10 @@ func ensureUser(cfg *auth.Config, adminToken, email string) (string, error) {
 		return users[0].ID, nil
 	}
 
-	// Create the user.
+	// Create the user. Keycloak 24+ requires "username" — use the email
+	// address as the username (standard for email-first/passwordless flows).
 	createURL := cfg.KeycloakAddr + "/admin/realms/" + cfg.Realm + "/users"
-	payload := fmt.Sprintf(`{"email":%q,"enabled":true,"emailVerified":false}`, email)
+	payload := fmt.Sprintf(`{"email":%q,"username":%q,"enabled":true,"emailVerified":false}`, email, email)
 	req2, _ := http.NewRequest(http.MethodPost, createURL, strings.NewReader(payload))
 	req2.Header.Set("Authorization", "Bearer "+adminToken)
 	req2.Header.Set("Content-Type", "application/json")
