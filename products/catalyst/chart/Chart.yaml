@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.15
+version: 1.1.16
 appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -108,6 +108,13 @@ description: |
   /assets/* as expected. Also fixes router.tsx basepath from '/sovereign' to
   '/' so TanStack Router Link/navigate calls emit correct paths. Issue #596,
   2026-05-02.
+
+  Bumped to 1.1.16 to bundle catalyst-ui image tag 59fb2b7 (Vite base:/
+  fix from #596) into the OCI chart values.yaml. Chart 1.1.15 was
+  published at commit 32c5e433 before the deploy job updated values.yaml
+  SHA tags to 59fb2b7, so Sovereigns pulling 1.1.15 got the old
+  ccc3898 image. 1.1.16 ships with catalystUi.tag + catalystApi.tag =
+  59fb2b7 baked in. Issue #596, 2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
