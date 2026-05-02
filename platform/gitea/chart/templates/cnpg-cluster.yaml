@@ -47,6 +47,12 @@ spec:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
       reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+      # See bp-harbor cnpg-cluster.yaml for the otech28-diagnosed
+      # Reflector retry-race rationale — without auto-enabled,
+      # Reflector misses the source-create event when the destination
+      # Secret is processed before CNPG provisions the password.
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
 
   postgresql:
     parameters:

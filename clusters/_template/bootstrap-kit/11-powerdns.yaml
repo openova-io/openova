@@ -80,10 +80,17 @@ spec:
     # bp-gateway-api (issue #503): chart ships an api-httproute.yaml
     # template; gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
+    # bp-cnpg — chart's templates/cnpg-cluster.yaml renders a
+    # postgresql.cnpg.io/v1.Cluster gated on Capabilities.APIVersions.
+    # Without this dependency Helm renders before the CRD is registered,
+    # the gate evaluates false, the Cluster CR is silently skipped,
+    # CNPG never creates pdns-pg-app, and powerdns Pods fail at boot
+    # with "secret pdns-pg-app not found" (caught live during otech28).
+    - name: bp-cnpg
   chart:
     spec:
       chart: bp-powerdns
-      version: 1.1.5
+      version: 1.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
