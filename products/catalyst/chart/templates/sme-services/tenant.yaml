@@ -16,7 +16,7 @@ spec:
       serviceAccountName: tenant
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: tenant
           image: ghcr.io/openova-io/openova/services-tenant:046e5eb

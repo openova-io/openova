@@ -14,6 +14,10 @@
 #     bp-powerdns Service and reads the `powerdns-api-credentials` Secret
 #     it renders. Without bp-powerdns the ExternalDNS pod CrashLoops
 #     trying to dial a non-existent DNS API.
+#   - bp-reflector — Reflector mirrors the `powerdns-api-credentials`
+#     Secret from the `powerdns` namespace to `external-dns` automatically
+#     (issue #544). bp-reflector must be running before bp-external-dns
+#     installs so the reflected Secret is present when the pod starts.
 
 ---
 apiVersion: v1
@@ -47,6 +51,7 @@ spec:
   dependsOn:
     - name: bp-cert-manager
     - name: bp-powerdns
+    - name: bp-reflector
   chart:
     spec:
       chart: bp-external-dns

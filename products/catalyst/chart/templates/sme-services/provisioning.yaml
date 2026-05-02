@@ -137,7 +137,7 @@ spec:
     spec:
       serviceAccountName: provisioning
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: provisioning
           image: ghcr.io/openova-io/openova/services-provisioning:046e5eb

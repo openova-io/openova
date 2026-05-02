@@ -16,7 +16,7 @@ spec:
       serviceAccountName: billing
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: billing
           image: ghcr.io/openova-io/openova/services-billing:046e5eb

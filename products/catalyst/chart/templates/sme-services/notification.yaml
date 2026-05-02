@@ -14,7 +14,7 @@ spec:
         app: sme-notification
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: notification
           image: ghcr.io/openova-io/openova/services-notification:046e5eb

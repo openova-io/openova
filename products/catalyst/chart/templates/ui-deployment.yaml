@@ -16,7 +16,7 @@ spec:
         app.kubernetes.io/name: catalyst-ui
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: catalyst-ui
           image: ghcr.io/openova-io/openova/catalyst-ui:5b55d65

@@ -95,26 +95,29 @@ const HelmControllerSelector = "app=helm-controller"
 // median is closer to 8 minutes.
 const DefaultWatchTimeout = 60 * time.Minute
 
-// MinComponentCount — the bootstrap-kit ships exactly 11 bp-* HelmReleases
-// (clusters/_template/bootstrap-kit/01-cilium → 11-bp-catalyst-platform).
+// MinComponentCount — the bootstrap-kit ships 38 bp-* HelmReleases
+// (clusters/_template/bootstrap-kit/01-cilium → 49-bp-cert-manager-powerdns-webhook).
 // The Watch terminates when all OBSERVED HelmReleases reach terminal
 // state, not when N have appeared, but tests assert this constant so
 // any future drift in the kit count surfaces here too.
-const MinComponentCount = 11
+const MinComponentCount = 38
 
 // DefaultMinBootstrapKitHRs — the lower bound on number of bp-*
 // HelmReleases that must have appeared in the informer cache before
-// the terminate-on-all-done check is even considered. This is the
-// bug-fix gate for omantel-class deployments where the watcher used
-// to exit "ready" one second after flux-bootstrap because zero HRs
-// were yet reconciled (Flux hadn't materialised the bootstrap-kit
-// Kustomization on the new cluster).
+// the terminate-on-all-done check is even considered. Issue #547:
+// previously 11 — informer alphabetical sync order meant the first
+// 12 HRs hit Ready=True before the remaining 26 even reached the
+// cache, watch exited Ready, SeedJobsFromInformerList ran with only
+// 12 components, wizard locked at 12/38 install rows visible.
+// Bumped to 38 to match the current bootstrap-kit cardinality. Watch
+// now waits until at least 38 HRs are observed AND all observed are
+// terminal — the 26 missing rows surface in the wizard.
 //
 // Operator override: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS. A future
 // bootstrap-kit that ships more or fewer components only needs this
 // env flipped on the catalyst-api Deployment — no code change
 // required.
-const DefaultMinBootstrapKitHRs = 11
+const DefaultMinBootstrapKitHRs = 38
 
 // DefaultFirstSeenTimeout — how long the Watcher waits for the FIRST
 // bp-* HelmRelease to appear in the informer cache after the watch

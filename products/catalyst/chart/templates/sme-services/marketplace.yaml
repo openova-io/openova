@@ -16,7 +16,7 @@ spec:
       serviceAccountName: marketplace
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: marketplace
           image: ghcr.io/openova-io/openova/marketplace:046e5eb
