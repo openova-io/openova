@@ -51,6 +51,12 @@ type Config struct {
 	CookieSecret string
 	// JWKSCache caches the realm's public keys.
 	JWKSCache *JWKSCache
+	// LocalPublicKey is catalyst-api's own RS256 public key (handover signer).
+	// When ValidateToken can't find a matching kid in JWKS, it falls back to
+	// this key — this lets catalyst-api accept its own self-signed session
+	// JWTs (Keycloak 24.7+ removed legacy token-exchange so we can't get
+	// a Keycloak-signed user token without a real user session).
+	LocalPublicKey *rsa.PublicKey
 }
 
 // tokenURL returns the Keycloak token endpoint for the configured realm.
@@ -136,27 +142,41 @@ func (c *Config) ValidateToken(ctx context.Context, rawToken string) (*Claims, e
 		return nil, fmt.Errorf("auth: unsupported alg %s (expected RS256)", header.Alg)
 	}
 
-	// Fetch JWKS and find matching key
-	keys, err := c.JWKSCache.Keys(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("auth: fetch JWKS: %w", err)
-	}
-
-	var matchedKey *jwksEntry
-	for i := range keys {
-		if keys[i].Kid == header.Kid {
-			matchedKey = &keys[i]
-			break
+	// First try our own self-signed session JWTs (no kid header).
+	// These are minted by handler/auth.go HandleMagicValidate after a
+	// successful magic-link click. Always try local first for low latency
+	// and to avoid an unnecessary JWKS fetch on the hot path.
+	var pubKey *rsa.PublicKey
+	if c.LocalPublicKey != nil && header.Kid == "" {
+		pubKey = c.LocalPublicKey
+	} else {
+		// Fall back to Keycloak JWKS (Sovereign-side / legacy KC tokens).
+		keys, err := c.JWKSCache.Keys(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("auth: fetch JWKS: %w", err)
 		}
-	}
-	if matchedKey == nil {
-		return nil, fmt.Errorf("auth: no JWKS key for kid %q", header.Kid)
-	}
 
-	// Build RSA public key from JWK n+e
-	pubKey, err := jwkToRSAPublicKey(matchedKey)
-	if err != nil {
-		return nil, fmt.Errorf("auth: build RSA key from JWK: %w", err)
+		var matchedKey *jwksEntry
+		for i := range keys {
+			if keys[i].Kid == header.Kid {
+				matchedKey = &keys[i]
+				break
+			}
+		}
+		if matchedKey == nil {
+			// Last-resort fallback: try LocalPublicKey even if kid is set
+			// (some signers stamp a kid header).
+			if c.LocalPublicKey != nil {
+				pubKey = c.LocalPublicKey
+			} else {
+				return nil, fmt.Errorf("auth: no JWKS key for kid %q", header.Kid)
+			}
+		} else {
+			pubKey, err = jwkToRSAPublicKey(matchedKey)
+			if err != nil {
+				return nil, fmt.Errorf("auth: build RSA key from JWK: %w", err)
+			}
+		}
 	}
 
 	// Verify signature

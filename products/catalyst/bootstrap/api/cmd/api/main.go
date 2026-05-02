@@ -107,6 +107,14 @@ func main() {
 			CookieSecret: cookieSecret,
 			JWKSCache:    auth.NewJWKSCache(jwksURL, 10*time.Minute),
 		}
+		// Wire the handover signer's public key as a fallback for self-signed
+		// session JWTs (KC 24.7+ removed legacy token-exchange).
+		if signer := h.GetHandoverSigner(); signer != nil {
+			if pub, err := signer.PublicRSAKey(); err == nil {
+				authCfg.LocalPublicKey = pub
+				log.Info("auth: local public key wired into session validator")
+			}
+		}
 		h.SetAuthConfig(authCfg)
 		log.Info("auth: Keycloak session gate enabled",
 			"addr", kcAddr,
