@@ -110,8 +110,16 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=cert-manager-dynadot-webhook
             org.opencontainers.image.description=cert-manager DNS-01 external webhook for Dynadot (closes openova#159)
-          provenance: true
-          sbom: true
+          # provenance=false: containerd 1.7.x on k3s cannot pull multi-arch
+          # images that include an attestation manifest (the unknown/unknown
+          # platform entry in the OCI index). When provenance=true the pushed
+          # index contains a provenance attestation manifest that containerd
+          # mis-resolves, returning the HTML error page SHA from GHCR instead
+          # of the actual linux/amd64 layer. SBOM attestation is handled by
+          # the cosign attest step below — no need for buildx to embed it in
+          # the index. See: https://github.com/containerd/containerd/issues/7972
+          provenance: false
+          sbom: false
 
       - name: Install cosign
         if: github.event_name != 'pull_request'
