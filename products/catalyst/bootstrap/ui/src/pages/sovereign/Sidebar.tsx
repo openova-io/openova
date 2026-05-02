@@ -13,7 +13,8 @@
  *       — jobs                    → /sovereign/provision/$deploymentId/jobs
  *       — dashboard               → /sovereign/provision/$deploymentId/dashboard
  *       — cloud                   → /sovereign/provision/$deploymentId/cloud
- *       — settings                → /wizard
+ *       — users                   → /sovereign/provision/$deploymentId/users
+ *       — settings                → /sovereign/provision/$deploymentId/settings
  *
  *     The Cloud entry is a single flat <Link> (no accordion, no
  *     chevron, no sub-items). The parent CloudPage owns the in-page
@@ -53,7 +54,7 @@ interface FlatNavItem {
     | '/provision/$deploymentId/dashboard'
     | '/provision/$deploymentId/cloud'
     | '/provision/$deploymentId/users'
-    | '/wizard'
+    | '/provision/$deploymentId/settings'
   /** SVG path data — same `d` strings as core/console for visual parity. */
   icon: string
 }
@@ -105,7 +106,7 @@ const FLAT_NAV: FlatNavItem[] = [
 const SETTINGS_ITEM: FlatNavItem = {
   id: 'settings',
   label: 'Settings',
-  to: '/wizard',
+  to: '/provision/$deploymentId/settings',
   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 
@@ -126,7 +127,9 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (pathname.endsWith('/jobs')) return 'jobs'
   // Users surface — list, /new, and /<name> all count.
   if (/\/users(\/|$)/.test(pathname)) return 'users'
-  if (pathname.startsWith('/sovereign/wizard') || pathname.startsWith('/wizard')) return 'settings'
+  // Settings — deployment-scoped settings page (issue #516). The
+  // legacy `/wizard` divert was the bug being fixed.
+  if (/\/settings(\/|$)/.test(pathname)) return 'settings'
   return 'apps'
 }
 
@@ -192,7 +195,7 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
             <Link
               key={item.id}
               to={item.to as never}
-              params={(item.id === 'settings' ? undefined : { deploymentId }) as never}
+              params={{ deploymentId } as never}
               activeOptions={item.id === 'cloud' ? undefined : { exact: true }}
               className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
               data-testid={`sov-nav-${item.id}`}
@@ -213,6 +216,7 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
           return (
             <Link
               to={SETTINGS_ITEM.to as never}
+              params={{ deploymentId } as never}
               activeOptions={{ exact: true }}
               className={`mx-2 mt-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
               data-testid={`sov-nav-${SETTINGS_ITEM.id}`}

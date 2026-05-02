@@ -28,6 +28,7 @@ import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
+import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -327,6 +328,18 @@ const provisionUsersEditRoute = createRoute({
   component: UserAccessEditPage,
 })
 
+/* ── Sovereign Settings (issue #516) ─────────────────────────────
+ *
+ * Deployment-scoped Settings surface. Replaces the legacy sidebar
+ * Settings link → /wizard divert; the Settings sidebar entry now
+ * targets this route instead.
+ */
+const provisionSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/settings',
+  component: SettingsPage,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout.
@@ -382,6 +395,7 @@ const routeTree = rootRoute.addChildren([
   provisionUsersListRoute,
   provisionUsersNewRoute,
   provisionUsersEditRoute,
+  provisionSettingsRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,

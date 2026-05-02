@@ -73,12 +73,18 @@ function renderSidebarAt(initialPath: string, sovereignFQDN?: string | null) {
     path: '/wizard',
     component: SidebarHost,
   })
+  const settingsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/settings',
+    component: SidebarHost,
+  })
   const tree = rootRoute.addChildren([
     provisionRoute,
     jobsRoute,
     dashboardRoute,
     cloudRoute.addChildren([cloudArchitectureRoute, cloudComputeClustersRoute]),
     wizardRoute,
+    settingsRoute,
   ])
   const router = createRouter({
     routeTree: tree,
@@ -152,6 +158,29 @@ describe('Sidebar — top-level navigation', () => {
     expect(jobs.getAttribute('aria-current')).toBe('page')
     const apps = screen.getByTestId('sov-nav-apps')
     expect(apps.getAttribute('aria-current')).toBeNull()
+  })
+})
+
+describe('Sidebar — Settings entry (issue #516: divert-to-wizard fix)', () => {
+  it('Settings link href targets /provision/$id/settings, NOT /wizard', async () => {
+    renderSidebarAt('/provision/d-test-1234')
+    const settings = (await screen.findByTestId('sov-nav-settings')) as HTMLAnchorElement
+    const href = settings.getAttribute('href') ?? ''
+    expect(href).toMatch(/\/provision\/d-test-1234\/settings$/)
+    // Regression guard — the original bug had Settings pointing at /wizard.
+    expect(href).not.toMatch(/\/wizard(\/|$)/)
+  })
+
+  it('Settings is highlighted on /provision/.../settings', async () => {
+    renderSidebarAt('/provision/d-test-1234/settings')
+    const settings = await screen.findByTestId('sov-nav-settings')
+    expect(settings.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('Settings is NOT highlighted on /wizard (post-fix: wizard ≠ settings)', async () => {
+    renderSidebarAt('/wizard')
+    const settings = await screen.findByTestId('sov-nav-settings')
+    expect(settings.getAttribute('aria-current')).toBeNull()
   })
 })
 
