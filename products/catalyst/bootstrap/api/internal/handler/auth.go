@@ -14,6 +14,32 @@ import (
 
 const pkceVerifierCookieName = "catalyst_pkce_verifier"
 
+// postAuthRedirect returns the URL the browser is sent to after a successful
+// magic-link callback. Defaults to "/wizard"; can be overridden via
+// CATALYST_POST_AUTH_REDIRECT for deployments where the UI lives under a
+// path prefix (e.g. /sovereign/wizard on Catalyst-Zero / contabo-mkt).
+func postAuthRedirect() string {
+	if v := os.Getenv("CATALYST_POST_AUTH_REDIRECT"); v != "" {
+		return v
+	}
+	return "/wizard"
+}
+
+// loginRedirect returns the URL the browser is sent to on auth failure.
+// Derived from postAuthRedirect: replaces the last path component with "login"
+// so the prefix stays consistent.
+func loginRedirect(reason string) string {
+	base := postAuthRedirect()
+	// Strip the trailing component (e.g. /sovereign/wizard → /sovereign)
+	// and append /login?error=<reason>.
+	idx := strings.LastIndex(base, "/")
+	if idx < 0 {
+		return "/login?error=" + url.QueryEscape(reason)
+	}
+	prefix := base[:idx] // e.g. "" or "/sovereign"
+	return prefix + "/login?error=" + url.QueryEscape(reason)
+}
+
 // HandleMagicLink handles POST /api/v1/auth/magic-link.
 //
 // It accepts {"email":"<addr>"}, ensures the user exists in the Keycloak
@@ -138,14 +164,14 @@ func (h *Handler) HandleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	accessToken, _, claims, err := cfg.ExchangeCode(r.Context(), code, verifier)
 	if err != nil {
 		h.log.Debug("auth callback: code exchange failed", "err", err)
-		http.Redirect(w, r, "/login?error=callback_failed", http.StatusSeeOther)
+		http.Redirect(w, r, loginRedirect("callback_failed"), http.StatusSeeOther)
 		return
 	}
 
 	cfg.IssueSessionCookie(w, accessToken)
 
 	_ = claims
-	http.Redirect(w, r, "/wizard", http.StatusSeeOther)
+	http.Redirect(w, r, postAuthRedirect(), http.StatusSeeOther)
 }
 
 // HandleAuthLogout handles DELETE /api/v1/auth/session.

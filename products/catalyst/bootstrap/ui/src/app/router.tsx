@@ -2,6 +2,39 @@ import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/
 import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
 
+/**
+ * Runtime basepath detection (issue #618).
+ *
+ * The same catalyst-ui image is deployed in two topologies:
+ *   1. Sovereign clusters — served at console.<sov-fqdn>/ (basepath '/')
+ *   2. Catalyst-Zero on contabo — served at console.openova.io/sovereign/*
+ *      with a Traefik strip-prefix middleware (browser URL keeps /sovereign/).
+ *
+ * Vite base is '/' so the nginx bundle is always rooted at '/'. But
+ * TanStack Router reads window.location.pathname, which still has the
+ * '/sovereign' prefix on contabo. We detect this at module-init time:
+ * if the current path starts with '/sovereign', tell the router the
+ * base is '/sovereign' so it strips the prefix before matching routes.
+ */
+const basepath =
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/sovereign')
+    ? '/sovereign'
+    : '/'
+
+/**
+ * isCatalystZero — true when the UI is running on Catalyst-Zero
+ * (console.openova.io/sovereign/*). Used by wizardAuthGuard to decide
+ * whether to enforce session-cookie auth.
+ *
+ * We detect by hostname rather than IS_SAAS / IS_SELFHOSTED because the
+ * same selfhosted build image runs on both Catalyst-Zero (contabo-mkt)
+ * and tenant Sovereign consoles (console.<sov-fqdn>). Only Catalyst-Zero
+ * has Keycloak + the session middleware wired up; Sovereign clusters
+ * manage their own auth separately.
+ */
+const isCatalystZero =
+  typeof window !== 'undefined' && window.location.hostname === 'console.openova.io'
+
 // Lazy page imports
 import { RootLayout } from './layouts/RootLayout'
 import { AppLayout } from './layouts/AppLayout'
@@ -64,17 +97,12 @@ const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/das
  * backend restart doesn't lock the operator out of the wizard UI
  * during a deployment run.
  *
- * The guard is a no-op when CATALYST_KC_ADDR is not configured
- * (RequireSession is a transparent passthrough on the server side),
- * because /whoami will return 401 from the session check but the
- * session check itself is skipped — wait, in that case the middleware
- * passes through so /whoami returns the claims from context which are
- * nil, so HandleWhoami returns 401 anyway. To handle this: the guard
- * checks IS_SAAS — in SaaS (catalyst-zero) mode it enforces the guard;
- * in selfhosted (Sovereign) mode it is a no-op.
+ * The guard only fires on Catalyst-Zero (console.openova.io). Sovereign
+ * clusters do not have the session middleware wired and handle auth
+ * through their own Keycloak realm — the guard is a no-op there.
  */
 async function wizardAuthGuard() {
-  if (!IS_SAAS) return // Sovereign clusters handle auth themselves
+  if (!isCatalystZero) return // Sovereign clusters manage their own auth
   try {
     const res = await fetch(`${API_BASE}/v1/whoami`, {
       method: 'GET',
@@ -458,10 +486,10 @@ const routeTree = rootRoute.addChildren([
   marketplaceProductRoute,
 ])
 
-// basepath: '/' — Vite base is now '/' (issue #596). Both Sovereigns
-// (console.<sov>/) and contabo (console.openova.io/sovereign/* with
-// Traefik strip-prefix) resolve to root, so router and Vite must agree.
-export const router = createRouter({ routeTree, basepath: '/' })
+// basepath is resolved at runtime (see top of file).
+// Catalyst-Zero (contabo): '/sovereign' — browser URL has /sovereign prefix.
+// Sovereign clusters: '/' — served at the domain root.
+export const router = createRouter({ routeTree, basepath })
 
 declare module '@tanstack/react-router' {
   interface Register {
