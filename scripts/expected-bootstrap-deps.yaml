@@ -63,6 +63,7 @@ slots:
     # Propagates ghcr-pull secret to every namespace so cross-namespace
     # ImagePullBackOff gaps are eliminated. Slot 5a: after sealed-secrets,
     # before spire. dependsOn bp-cert-manager (CRDs must exist).
+    # Used by bp-gitea + bp-harbor to propagate CNPG-generated pg-app Secrets.
     depends_on: [bp-cert-manager]
     wave: present
   - slot: 6
@@ -90,7 +91,9 @@ slots:
   - slot: 10
     name: bp-gitea
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
-    depends_on: [bp-keycloak, bp-gateway-api]
+    # bp-cnpg dep (issue #584): chart ships a CNPG Cluster CR; postgresql.cnpg.io/v1
+    # CRD must be registered before bp-gitea applies so Capabilities gate fires.
+    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 11
     name: bp-powerdns
@@ -100,8 +103,7 @@ slots:
   - slot: 12
     name: bp-external-dns
     # bp-reflector dep (issue #543): external-dns HTTPRoute uses reflector-mirrored
-    # ghcr-pull; reflector must be Ready before external-dns install to avoid
-    # ImagePullBackOff in the external-dns namespace.
+    # ghcr-pull secret; reflector must be Ready before external-dns deploys.
     depends_on: [bp-cert-manager, bp-powerdns, bp-reflector]
     wave: present
   - slot: 13
