@@ -421,6 +421,16 @@ write_files:
         type: wireguard
       gatewayAPI:
         enabled: true
+        gatewayClass:
+          # Force GatewayClass creation regardless of CRD presence at Helm
+          # render time. Default is "auto" which skips creation when the
+          # gateway.networking.k8s.io CRDs are not yet present — exactly
+          # what happens during bootstrap: the upstream Helm chart's
+          # Capabilities check fires BEFORE bp-gateway-api has run, so
+          # GatewayClass/cilium is never rendered into the release.
+          # Forcing "true" ensures the GatewayClass is always created.
+          # Fix for cilium-gateway-race (issue #503).
+          create: "true"
       envoy:
         enabled: true
       # envoyConfig.enabled is the load-bearing flag from issue #491.
@@ -847,6 +857,39 @@ runcmd:
   # inline as a --version flag because OpenTofu's `var.k3s_version`
   # parameterisation wires through to it (per INVIOLABLE-PRINCIPLES
   # #4 — never hardcode).
+  # ── Gateway API CRDs BEFORE Cilium ──────────────────────────────────────
+  #
+  # Cilium 1.16.x operator checks for gateway.networking.k8s.io CRDs at
+  # startup. If the CRDs are absent the operator disables its gateway
+  # controller entirely and never re-checks — a static decision made once
+  # at boot. This creates a race when Gateway API CRDs are installed AFTER
+  # k3s/Cilium, which is the normal Flux GitOps order (bp-gateway-api
+  # reconciles minutes after bp-cilium). Result: every fresh Sovereign has
+  # no GatewayClass/cilium, all HTTPRoutes are orphaned, no routing.
+  #
+  # Fix: pre-install the Gateway API experimental CRDs here, before the
+  # Cilium helm install below. The experimental channel is required because
+  # Cilium 1.16.x references tlsroutes.gateway.networking.k8s.io (v1alpha2)
+  # at startup; the standard channel does not ship TLSRoute.
+  #
+  # Version choice — v1.1.0 NOT v1.2.0:
+  #   Gateway API v1.2.0 changed status.supportedFeatures from an array of
+  #   strings to an array of objects ({name: string}). Cilium 1.16.5 still
+  #   writes the old string format; the v1.2.0 CRD rejects its status patch
+  #   with "must be of type object: string", leaving GatewayClass/cilium
+  #   permanently in status=Unknown/Pending. v1.1.0 retains the string
+  #   format and is fully compatible with Cilium 1.16.x.
+  #
+  # bp-gateway-api Flux blueprint becomes a no-op on first reconcile
+  # (CRDs already present, kubectl apply is idempotent); it is kept as the
+  # GitOps record and handles CRD upgrades when Cilium is bumped.
+  #
+  # Incident reference: otech22 2026-05-02 — all 8 HTTPRoutes orphaned,
+  # cilium-operator log: "Required GatewayAPI resources are not found …
+  # tlsroutes.gateway.networking.k8s.io not found". Fix: issue #503.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
+
   - 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
   - 'helm repo add cilium https://helm.cilium.io/'
   - 'helm repo update'
