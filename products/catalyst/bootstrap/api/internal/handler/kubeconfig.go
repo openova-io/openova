@@ -77,9 +77,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -271,6 +273,16 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 	// SovereignFQDN; the runProvisioning goroutine merges in
 	// ControlPlaneIP / LoadBalancerIP / ConsoleURL / GitOpsRepoURL
 	// when Phase 0 finishes.
+	//
+	// Issue #538 belt-and-braces: if a previous Phase-1 watch
+	// already terminated with OutcomeKubeconfigMissing (the
+	// pre-#538 short-circuit, or a #538 wait-loop that timed out
+	// before this PUT arrived), reset the terminal markers and
+	// the phase1Started guard so the goroutine kicked off below
+	// can actually run a fresh watch. Without this, the running
+	// catalyst-api would have a kubeconfig on disk + a terminal
+	// "failed" deployment record forever — exactly the live bug
+	// PutKubeconfig is supposed to defend against.
 	dep.mu.Lock()
 	if dep.Result == nil {
 		dep.Result = &provisioner.Result{
@@ -278,6 +290,30 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	dep.Result.KubeconfigPath = target
+	relaunchAfterTerminalKubeconfigMissing := false
+	if dep.Result.Phase1Outcome == helmwatch.OutcomeKubeconfigMissing {
+		// Clear the terminal markers so markPhase1Done writes the
+		// new outcome cleanly when the relaunched watch finishes,
+		// and clear phase1Started so the goroutine below isn't
+		// short-circuited by the at-most-once guard.
+		dep.Result.Phase1Outcome = ""
+		dep.Result.Phase1FinishedAt = nil
+		dep.Result.ComponentStates = nil
+		dep.Status = "phase1-watching"
+		dep.Error = ""
+		dep.FinishedAt = time.Time{}
+		dep.phase1Started = false
+		// The done/eventsCh channels were closed by runProvisioning
+		// when it called close(dep.eventsCh) / close(dep.done) at
+		// the end of the original run — see deployments.go after
+		// the runPhase1Watch invocation. Allocate fresh ones so the
+		// new watch's emits + SSE consumers + the close(...) in our
+		// goroutine below all see a live channel pair (mirrors
+		// resumePhase1Watch).
+		dep.eventsCh = make(chan provisioner.Event, 256)
+		dep.done = make(chan struct{})
+		relaunchAfterTerminalKubeconfigMissing = true
+	}
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
 
@@ -286,14 +322,36 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		"sovereignFQDN", dep.Request.SovereignFQDN,
 		"path", target,
 		"bytes", len(body),
+		"relaunchAfterKubeconfigMissing", relaunchAfterTerminalKubeconfigMissing,
 	)
 
 	// Launch the helmwatch goroutine in the background. The PUT
 	// returns immediately; per-component events flow via the SSE
 	// stream the wizard already has open. The phase1Started guard
 	// ensures runProvisioning's later (synchronous) call is a
-	// no-op so we don't run two informers.
-	go h.runPhase1Watch(dep)
+	// no-op so we don't run two informers — except in the
+	// relaunch-after-kubeconfig-missing case, where we cleared the
+	// guard above so this fresh watch can run and supersede the
+	// terminal-failed state. Issue #538.
+	go func() {
+		h.runPhase1Watch(dep)
+		// On the relaunch path we own the channels we just
+		// allocated under the lock above (the original
+		// runProvisioning's close()s ran long ago). Mirror
+		// resumePhase1Watch's close-on-terminate logic so any SSE
+		// consumer waiting on `event: done` is released.
+		if relaunchAfterTerminalKubeconfigMissing {
+			dep.mu.Lock()
+			select {
+			case <-dep.done:
+				// Already closed (defensive).
+			default:
+				close(dep.eventsCh)
+				close(dep.done)
+			}
+			dep.mu.Unlock()
+		}
+	}()
 
 	w.WriteHeader(http.StatusNoContent)
 }
