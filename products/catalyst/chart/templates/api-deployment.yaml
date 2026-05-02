@@ -128,7 +128,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: catalyst-api
-          image: ghcr.io/openova-io/openova/catalyst-api:7acd7d7
+          image: ghcr.io/openova-io/openova/catalyst-api:d28f8f7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
