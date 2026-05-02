@@ -222,14 +222,44 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// ReadSessionToken extracts and verifies the HMAC of the session cookie,
-// returning the raw access token. Returns "" if no valid cookie is present.
+// ReadSessionToken extracts the access token from the session cookie.
+//
+// Two cookie shapes are accepted:
+//
+//  1. HMAC-wrapped (Option A legacy): "<token>.<hmac>" — produced by
+//     IssueSessionCookie. The HMAC suffix is verified and stripped.
+//
+//  2. Raw Keycloak JWT (Option B magic-link): the cookie value is a
+//     compact JWT ("<header>.<payload>.<sig>"). Recognised by the absence
+//     of an additional "." after the third segment. When CookieSecret is
+//     empty, only this path is used so existing single-component deployments
+//     (Sovereign clusters) continue to work unchanged.
+//
+// Returns "" when no valid cookie is present.
 func (c *Config) ReadSessionToken(r *http.Request) string {
 	cookie, err := r.Cookie(SessionCookieName)
-	if err != nil {
+	if err != nil || cookie.Value == "" {
 		return ""
 	}
-	return c.verifyAndStrip(cookie.Value)
+
+	// Option A: HMAC-wrapped. Only attempt HMAC verification when a
+	// CookieSecret is configured — avoids mis-treating a raw JWT as a
+	// corrupt HMAC-wrapped value.
+	if c.CookieSecret != "" {
+		if stripped := c.verifyAndStrip(cookie.Value); stripped != "" {
+			return stripped
+		}
+	}
+
+	// Option B: raw Keycloak JWT. A compact JWT has exactly 3 base64url
+	// segments separated by '.'. Check that the value looks like a JWT
+	// (two dots minimum) and return it directly.
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) == 3 {
+		return cookie.Value
+	}
+
+	return ""
 }
 
 // signValue returns "<token>.<hmac>" where hmac is the HMAC-SHA256

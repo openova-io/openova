@@ -360,23 +360,81 @@ spec:
             # Per INVIOLABLE-PRINCIPLES #4: runtime configuration, not hardcoded.
             - name: CATALYST_POST_AUTH_REDIRECT
               value: /sovereign/wizard
-            # CATALYST_KC_ADMIN_USER / CATALYST_KC_ADMIN_PASS — Keycloak master
-            # realm admin credentials used by HandleMagicLink to call the Admin
-            # REST API (create user, execute-actions-email). On Catalyst-Zero the
-            # admin-cli password grant against the master realm is used.
-            # optional=true: Sovereign clusters don't call the Admin API.
-            - name: CATALYST_KC_ADMIN_USER
+            # ── Option-B magic-link: openova realm service account ───────────
+            # CATALYST_OPENOVA_KC_ADDR — Keycloak base URL for the openova realm.
+            # Defaults in code to keycloak-zero.keycloak-zero.svc (in-cluster
+            # on Catalyst-Zero). optional=true: Sovereign clusters don't run
+            # the openova realm.
+            - name: CATALYST_OPENOVA_KC_ADDR
               valueFrom:
                 secretKeyRef:
-                  name: catalyst-magic-link-credentials
-                  key: kc-admin-user
+                  name: catalyst-openova-kc-credentials
+                  key: kc-addr
                   optional: true
-            - name: CATALYST_KC_ADMIN_PASS
+            - name: CATALYST_OPENOVA_KC_REALM
               valueFrom:
                 secretKeyRef:
-                  name: catalyst-magic-link-credentials
-                  key: kc-admin-pass
+                  name: catalyst-openova-kc-credentials
+                  key: kc-realm
                   optional: true
+            - name: CATALYST_OPENOVA_KC_SA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: kc-sa-client-id
+                  optional: true
+            - name: CATALYST_OPENOVA_KC_SA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: kc-sa-client-secret
+                  optional: true
+            # CATALYST_OPENOVA_KC_AUDIENCE — OIDC audience for KC token-exchange.
+            # Defaults to "catalyst-zero-ui" in code. optional=true.
+            - name: CATALYST_OPENOVA_KC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: kc-audience
+                  optional: true
+            # CATALYST_SMTP_HOST / CATALYST_SMTP_PORT — Stalwart SMTP relay for
+            # magic-link email delivery. Defaults in code to
+            # stalwart-web.stalwart.svc.cluster.local:587. optional=true.
+            - name: CATALYST_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: smtp-host
+                  optional: true
+            - name: CATALYST_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: smtp-port
+                  optional: true
+            - name: CATALYST_SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: smtp-user
+                  optional: true
+            - name: CATALYST_SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: smtp-pass
+                  optional: true
+            - name: CATALYST_SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: smtp-from
+                  optional: true
+            # CATALYST_SESSION_COOKIE_DOMAIN — optional domain scoping for the
+            # catalyst_session + catalyst_refresh cookies. Set to console.openova.io
+            # so both /sovereign/wizard and /sovereign/auth/magic share the cookie jar.
+            - name: CATALYST_SESSION_COOKIE_DOMAIN
+              value: "console.openova.io"
           resources:
             requests:
               cpu: 50m

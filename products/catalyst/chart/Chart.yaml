@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.2.0
-appVersion: 1.2.0
+version: 1.2.1
+appVersion: 1.2.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -124,6 +124,17 @@ description: |
   Catalyst-Zero, validate the one-time RS256 JWT, create/update the operator in
   Keycloak (sovereign realm), exchange for a user session via token-exchange,
   set HttpOnly session cookies, and redirect to /console/dashboard. 2026-05-02.
+
+  Bumped to 1.2.1 — Option-B pure passwordless magic-link (issue #614,
+  Phase-8b). Replaces Agent A's Keycloak execute-actions-email (PKCE) flow with
+  a fully server-side path:
+  - catalyst-api mints its own RS256 JWT (same signer keypair as Agent B)
+  - Sends link via Stalwart SMTP (noreply@openova.io)
+  - GET /api/v1/auth/magic validates JWT, single-use jti, KC token-exchange,
+    sets HttpOnly cookies, redirects to /sovereign/wizard
+  - ZERO Keycloak UI exposure, ZERO browser PKCE round-trip
+  Adds CATALYST_OPENOVA_KC_* env refs from new catalyst-openova-kc-credentials
+  Secret + CATALYST_SESSION_COOKIE_DOMAIN. 2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

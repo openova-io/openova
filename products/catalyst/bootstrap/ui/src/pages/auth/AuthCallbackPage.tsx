@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useSearch, useRouter } from '@tanstack/react-router'
-import { API_BASE } from '@/shared/config/urls'
 
 /**
  * AuthCallbackPage — handles the OIDC / Keycloak authorization_code callback.
@@ -137,39 +136,26 @@ function SovereignCallbackPage() {
   )
 }
 
-// ── Catalyst-Zero magic-link callback component ───────────────────────────
-
+// ── Catalyst-Zero callback component (Option B) ───────────────────────────
+//
+// Option B replaces the PKCE flow entirely with a server-side token-exchange.
+// The browser never visits this component in the normal flow:
+//   User clicks email link → browser hits GET /api/v1/auth/magic?token=...
+//   → catalyst-api validates JWT, calls KC token-exchange, sets cookies,
+//   → redirects directly to /sovereign/wizard (no client-side callback needed).
+//
+// This component only exists as a safety net in case Keycloak still has
+// /sovereign/auth/callback in its allowed redirect list and sends the user
+// here. In that case redirect to login so the user sees a clean screen.
 function CatalystZeroCallbackPage() {
   const search = useSearch({ strict: false }) as Record<string, string>
 
   useEffect(() => {
-    const code = search['code']
-    const state = search['state']
-    const error = search['error']
-
-    if (error) {
-      // Keycloak denied or the magic-link expired — redirect to login with
-      // an error indicator so the UI can surface the right copy.
-      window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
-      return
-    }
-
-    if (!code) {
-      // No code and no error — unexpected. Redirect to login.
-      window.location.replace(uiBase() + '/login?error=no_code')
-      return
-    }
-
-    // Build the server-side callback URL. The PKCE verifier cookie was set
-    // by the server when the operator submitted their email. Because this
-    // is a same-origin redirect (console.openova.io → /sovereign/api/v1/...)
-    // the cookie is carried automatically by the browser.
-    const callbackURL = new URL(`${API_BASE}/v1/auth/callback`, window.location.href)
-    callbackURL.searchParams.set('code', code)
-    if (state) callbackURL.searchParams.set('state', state)
-
-    // Hard navigation — must NOT use TanStack router redirect here.
-    window.location.replace(callbackURL.toString())
+    // Option B: the /auth/magic endpoint handles everything server-side.
+    // If we land here, it means the user followed a stale Keycloak link or
+    // the flow_changed redirect happened. Send them to login.
+    const error = search['error'] ?? 'flow_changed'
+    window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
   }, [search])
 
   // Render nothing — we navigate away immediately.

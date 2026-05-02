@@ -269,6 +269,33 @@ func LoadOrGenerate(keyPath, pubKeyPath, issuer string, ttl time.Duration) (*Sig
 	return New(privPEM, issuer, ttl)
 }
 
+// SignCustomClaims signs an arbitrary jwt.Claims implementation using the
+// signer's RS256 private key. This is the extension point for the magic-link
+// Option-B flow (issue #614): the handler builds its own magicLinkClaims and
+// calls this method rather than MintToken (which is purpose-built for the
+// handover flow's fixed claim shape).
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the private key is never returned or
+// logged by this package; the caller receives only the compact JWT string.
+func (s *Signer) SignCustomClaims(claims jwt.Claims) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(s.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("handoverjwt: sign custom claims: %w", err)
+	}
+	return signed, nil
+}
+
+// PublicRSAKey returns the RSA public key for verifying tokens this Signer
+// has produced. Used by the magic-validate endpoint to verify the token without
+// requiring a separate public-key file read.
+func (s *Signer) PublicRSAKey() (*rsa.PublicKey, error) {
+	if s.privateKey == nil {
+		return nil, errors.New("handoverjwt: signer has no private key")
+	}
+	return &s.privateKey.PublicKey, nil
+}
+
 // dirOf returns the directory component of a file path.
 func dirOf(path string) string {
 	for i := len(path) - 1; i >= 0; i-- {

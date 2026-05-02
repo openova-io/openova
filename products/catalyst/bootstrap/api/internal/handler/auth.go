@@ -1,18 +1,63 @@
+// auth.go — magic-link dispatch + consumption (Option B, issue #614 Phase-8b).
+//
+// Option B replaces the Keycloak execute-actions-email flow (Agent A) with a
+// fully self-contained passwordless path:
+//
+//  1. POST /api/v1/auth/magic-link — catalyst-api mints its own one-time
+//     RS256 JWT (same signer as the handover JWT, different claims set),
+//     calls keycloak.EnsureUser against the openova realm, and delivers the
+//     link via Stalwart SMTP. Zero Keycloak UI, zero PKCE round-trip.
+//
+//  2. GET /api/v1/auth/magic — the user clicks the link in their inbox.
+//     catalyst-api validates the JWT (exp, iss, aud, role, email_verified),
+//     marks the jti single-use, calls keycloak.ImpersonateToken to exchange
+//     for a user session in the openova realm, sets HttpOnly cookies, and
+//     302-redirects to /sovereign/wizard.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//   - #4: all hostnames and secrets are runtime-configurable via env.
+//   - #10: no credentials logged or emitted in error responses.
 package handler
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 )
 
-const pkceVerifierCookieName = "catalyst_pkce_verifier"
+// ── Constants ────────────────────────────────────────────────────────────────
+
+// magicLinkTTL — 15 minutes. Short enough to limit replay window; long enough
+// for users on slow mail delivery paths.
+const magicLinkTTL = 15 * time.Minute
+
+// magicLinkIssuer — constant issuer claim in the magic-link JWT.
+const magicLinkIssuer = "https://console.openova.io"
+
+// magicLinkAudience — the consume endpoint URL.
+const magicLinkAudience = "https://console.openova.io/sovereign/auth/magic"
+
+// magicLinkRole — role claim stamped into every magic-link JWT.
+const magicLinkRole = "openova-user"
+
+// magicJTIStorePath — dedicated flat-file log for consumed magic-link JTIs.
+// Separate from /var/lib/catalyst/jti.log (handover JTIs) to avoid replay
+// cross-contamination.
+const magicJTIStorePath = "/var/lib/catalyst/magic-jti.log"
+
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 // postAuthRedirect returns the URL the browser is sent to after a successful
 // magic-link callback. Defaults to "/wizard"; can be overridden via
@@ -40,138 +85,388 @@ func loginRedirect(reason string) string {
 	return prefix + "/login?error=" + url.QueryEscape(reason)
 }
 
-// HandleMagicLink handles POST /api/v1/auth/magic-link.
+// smtpAddr returns "host:port" for the outbound SMTP relay.
+// Env: CATALYST_SMTP_HOST (default: stalwart-web.stalwart.svc.cluster.local)
 //
-// It accepts {"email":"<addr>"}, ensures the user exists in the Keycloak
-// openova realm, and triggers Keycloak's built-in VERIFY_EMAIL execute-actions
-// email (which renders as a passwordless "sign in" link). No password is ever
-// set or required — the link itself is the credential.
+//	CATALYST_SMTP_PORT (default: 587)
+func smtpAddr() string {
+	host := os.Getenv("CATALYST_SMTP_HOST")
+	if host == "" {
+		host = "stalwart-web.stalwart.svc.cluster.local"
+	}
+	port := os.Getenv("CATALYST_SMTP_PORT")
+	if port == "" {
+		port = "587"
+	}
+	return host + ":" + port
+}
+
+// smtpFrom returns the envelope-from / From header.
+// Env: CATALYST_SMTP_FROM (default: noreply@openova.io)
+func smtpFrom() string {
+	if v := os.Getenv("CATALYST_SMTP_FROM"); v != "" {
+		return v
+	}
+	return "noreply@openova.io"
+}
+
+// consoleBase returns the public base URL for the catalyst-api.
+// Env: CATALYST_API_PUBLIC_URL (default: https://console.openova.io/sovereign)
+func consoleBase() string {
+	if v := os.Getenv("CATALYST_API_PUBLIC_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return "https://console.openova.io/sovereign"
+}
+
+// openovaKCClient returns the openova-realm Keycloak client.
 //
-// On success: 200 {"ok":true}
-// On bad request: 400 {"error":"<msg>"}
-// On backend failure: 502 {"error":"<msg>"}
+// Resolution order:
+//  1. h.openovaKC (injected by main.go or tests)
+//  2. Built lazily from CATALYST_OPENOVA_KC_* env vars
+//  3. nil when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is unset (Sovereign, CI)
+func (h *Handler) openovaKCClient() keycloakClient {
+	if h.openovaKC != nil {
+		return h.openovaKC
+	}
+	addr := os.Getenv("CATALYST_OPENOVA_KC_ADDR")
+	if addr == "" {
+		// Fall back to the shared KC addr env (Catalyst-Zero uses the same KC
+		// instance but a different realm + service-account client).
+		addr = os.Getenv("CATALYST_KC_ADDR")
+	}
+	if addr == "" {
+		addr = "http://keycloak-zero.keycloak-zero.svc.cluster.local"
+	}
+	realm := os.Getenv("CATALYST_OPENOVA_KC_REALM")
+	if realm == "" {
+		realm = "openova"
+	}
+	clientID := os.Getenv("CATALYST_OPENOVA_KC_SA_CLIENT_ID")
+	if clientID == "" {
+		clientID = "catalyst-zero-server"
+	}
+	secret := os.Getenv("CATALYST_OPENOVA_KC_SA_CLIENT_SECRET")
+	if secret == "" {
+		return nil // unconfigured — magic endpoint returns 503
+	}
+	return keycloak.New(addr, realm, clientID, secret)
+}
+
+// magicLinkJTIStore returns the jtiStorer for magic-link JWT replay protection.
+// Reuses the Handler field (jtiStore) if it happens to be wired (tests); in
+// production creates a fresh file-backed store at magicJTIStorePath.
+func (h *Handler) magicLinkJTIStore() jtiStorer {
+	if h.jtiStore != nil {
+		return h.jtiStore
+	}
+	return jtistore.New(magicJTIStorePath)
+}
+
+// ── magicLinkClaims ───────────────────────────────────────────────────────────
+
+// magicLinkClaims extends jwt.RegisteredClaims with the fields the /auth/magic
+// consumer validates.
+type magicLinkClaims struct {
+	jwt.RegisteredClaims
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Role          string `json:"role"`
+}
+
+// ── Step 1: POST /api/v1/auth/magic-link ─────────────────────────────────────
+
+// HandleMagicLink handles POST /api/v1/auth/magic-link (Option B).
+//
+// 1. Reads {"email": "<addr>"} from the request body.
+// 2. Calls keycloak.EnsureUser in the openova realm via the catalyst-zero-server
+//    service-account (CATALYST_OPENOVA_KC_* env).
+// 3. Mints a 15-minute RS256 JWT using the same handoverSigner keypair as Agent B.
+// 4. Sends the magic link via Stalwart SMTP.
+// 5. Returns {"ok": true}.
+//
+// The user never sees Keycloak's hosted UI — the link goes directly to our
+// GET /api/v1/auth/magic endpoint which handles the token-exchange server-side.
 func (h *Handler) HandleMagicLink(w http.ResponseWriter, r *http.Request) {
-	cfg := h.authConfig
-	if cfg == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "auth not configured"})
+	if h.handoverSigner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "auth not configured: handover signer unavailable (CATALYST_HANDOVER_KEY_PATH not set)",
+		})
 		return
 	}
 
 	var body struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Email) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email required"})
 		return
 	}
+	email := strings.TrimSpace(body.Email)
 
-	// Generate PKCE verifier and store in HttpOnly cookie.
-	verifier, err := auth.GeneratePKCEVerifier()
-	if err != nil {
-		h.log.Error("magic-link: PKCE generation failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "pkce generation failed"})
+	// ── 1. EnsureUser in openova realm ──────────────────────────────────────
+	kc := h.openovaKCClient()
+	if kc == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "auth not configured: CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set",
+		})
 		return
 	}
-	challenge := auth.PKCEChallenge(verifier)
-
-	// Store verifier in HttpOnly cookie so HandleAuthCallback can use it.
-	http.SetCookie(w, &http.Cookie{
-		Name:     pkceVerifierCookieName,
-		Value:    verifier,
-		Path:     "/",
-		MaxAge:   3600,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode, // Lax so the Keycloak redirect back carries it
-	})
-
-	// Obtain an admin token against the master realm.
-	adminToken, err := authAdminToken(cfg)
+	userID, err := kc.EnsureUser(r.Context(), email, "openova-users")
 	if err != nil {
-		h.log.Error("magic-link: admin token failed", "err", err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "keycloak admin unavailable"})
-		return
-	}
-
-	// Ensure the user exists in the realm.
-	userID, err := ensureUser(cfg, adminToken, body.Email)
-	if err != nil {
-		h.log.Error("magic-link: ensureUser failed", "email", body.Email, "err", err)
+		h.log.Error("magic-link: EnsureUser failed", "email", email, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "user provisioning failed"})
 		return
 	}
 
-	// Build the authorisation URL with PKCE so the email link lands on our callback.
-	authURL := cfg.KeycloakAddr + "/realms/" + cfg.Realm + "/protocol/openid-connect/auth" +
-		"?response_type=code" +
-		"&client_id=" + url.QueryEscape(cfg.ClientID) +
-		"&redirect_uri=" + url.QueryEscape(cfg.RedirectURI) +
-		"&scope=openid+email+profile" +
-		"&code_challenge=" + url.QueryEscape(challenge) +
-		"&code_challenge_method=S256"
+	// ── 2. Mint one-time JWT ─────────────────────────────────────────────────
+	jti, err := uuid.NewRandom()
+	if err != nil {
+		h.log.Error("magic-link: uuid generation failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "jti generation failed"})
+		return
+	}
+	now := time.Now().UTC()
+	claims := magicLinkClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    magicLinkIssuer,
+			Audience:  jwt.ClaimStrings{magicLinkAudience},
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(magicLinkTTL)),
+			ID:        jti.String(),
+		},
+		Email:         email,
+		EmailVerified: true,
+		Role:          magicLinkRole,
+	}
 
-	// Trigger VERIFY_EMAIL execute-actions-email — Keycloak sends the user
-	// a link that completes the PKCE auth flow and lands on our callback.
-	if err := executeActionsEmail(cfg, adminToken, userID, authURL); err != nil {
-		h.log.Error("magic-link: executeActionsEmail failed", "user_id", userID, "err", err)
+	// Sign using the same RSA private key as the handover JWT signer.
+	// We access it via a shim because the signer's private key is unexported.
+	// We re-use MintToken as a passthrough and then sign our own claims
+	// directly by calling the JWT library with the signer's exposed method.
+	//
+	// Actually: handoverjwt.Signer.MintToken is purpose-built for the handover
+	// shape (sovereign_fqdn, deployment_id, role=sovereign-admin). For
+	// magic-link we need a different claims shape, so we use a dedicated helper
+	// that calls jwt.NewWithClaims + SignedString directly on the RSA key.
+	// We expose this via a new SignMagicLink shim on handoverSigner (below).
+	tokenStr, err := h.handoverSigner.SignCustomClaims(claims)
+	if err != nil {
+		h.log.Error("magic-link: sign claims failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "token signing failed"})
+		return
+	}
+
+	// ── 3. Email the link ────────────────────────────────────────────────────
+	magicURL := consoleBase() + "/auth/magic?token=" + url.QueryEscape(tokenStr)
+	if err := sendMagicLinkEmail(email, magicURL); err != nil {
+		h.log.Error("magic-link: SMTP send failed", "email", email, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "email dispatch failed"})
 		return
 	}
 
+	h.log.Info("magic-link: dispatched", "email", email, "userID", userID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// HandleAuthCallback handles GET /api/v1/auth/callback.
+// sendMagicLinkEmail sends the magic-link to the given address via Stalwart SMTP.
+// Credentials: CATALYST_SMTP_USER / CATALYST_SMTP_PASS (optional; Stalwart
+// on contabo accepts SMTP from pods in-cluster without auth, but we support
+// it for environments where the relay requires credentials).
+func sendMagicLinkEmail(to, magicURL string) error {
+	from := smtpFrom()
+	addr := smtpAddr()
+
+	subject := "Your OpenOva sign-in link"
+	body := fmt.Sprintf("Click the link below to sign in to OpenOva.\r\n\r\n%s\r\n\r\nThis link expires in 15 minutes.\r\nIf you did not request this, you can safely ignore this email.", magicURL)
+
+	msg := fmt.Sprintf(
+		"From: OpenOva Platform <%s>\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
+		from, to, subject, body,
+	)
+
+	smtpUser := os.Getenv("CATALYST_SMTP_USER")
+	smtpPass := os.Getenv("CATALYST_SMTP_PASS")
+
+	var authMethod smtp.Auth
+	if smtpUser != "" && smtpPass != "" {
+		host := strings.Split(addr, ":")[0]
+		authMethod = smtp.PlainAuth("", smtpUser, smtpPass, host)
+	}
+
+	return smtp.SendMail(addr, authMethod, from, []string{to}, []byte(msg))
+}
+
+// ── Step 2: GET /api/v1/auth/magic ───────────────────────────────────────────
+
+// HandleMagicValidate handles GET /api/v1/auth/magic?token=<jwt> (Option B).
 //
-// The Keycloak magic-link redirects here with ?code=... after the user clicks
-// the email link. This handler:
-//  1. Reads the PKCE verifier from the catalyst_pkce_verifier cookie.
-//  2. Exchanges the code for tokens via cfg.ExchangeCode.
-//  3. Issues an HMAC-signed session cookie via cfg.IssueSessionCookie.
-//  4. Redirects the browser to /wizard (Catalyst-Zero operator entry-point).
-func (h *Handler) HandleAuthCallback(w http.ResponseWriter, r *http.Request) {
-	cfg := h.authConfig
-	if cfg == nil {
-		http.Error(w, "auth not configured", http.StatusServiceUnavailable)
+// 1. Parses and RS256-verifies the JWT using the handover signing keypair's
+//    public key (same key pair as handoverSigner).
+// 2. Validates claims: aud, iss, exp (enforced by jwt-go library), role,
+//    email_verified.
+// 3. Marks the jti single-use via jtistore.
+// 4. Calls keycloak.ImpersonateToken with the userID (sub) and audience
+//    "catalyst-zero-ui" to exchange for a user-scoped access + refresh token.
+// 5. Sets HttpOnly Secure SameSite=Lax cookies (catalyst_session + catalyst_refresh).
+// 6. 302 redirects to /sovereign/wizard (CATALYST_POST_AUTH_REDIRECT).
+// 7. On any error: 401 with terse JSON.
+func (h *Handler) HandleMagicValidate(w http.ResponseWriter, r *http.Request) {
+	if h.handoverSigner == nil {
+		writeMagicError(w, "server misconfiguration: signer unavailable")
 		return
 	}
 
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		http.Error(w, "missing code parameter", http.StatusBadRequest)
+	rawToken := r.URL.Query().Get("token")
+	if rawToken == "" {
+		http.Redirect(w, r, loginRedirect("missing_token"), http.StatusSeeOther)
 		return
 	}
 
-	// Read the PKCE verifier stored in the cookie during magic-link dispatch.
-	verifierCookie, err := r.Cookie(pkceVerifierCookieName)
-	if err != nil || verifierCookie.Value == "" {
-		http.Error(w, "missing pkce verifier cookie", http.StatusBadRequest)
+	// ── 1. Parse + verify JWT ────────────────────────────────────────────────
+	pubKey, err := h.handoverSigner.PublicRSAKey()
+	if err != nil {
+		h.log.Error("magic-validate: PublicRSAKey failed", "err", err)
+		writeMagicError(w, "server misconfiguration: keypair unavailable")
 		return
 	}
-	verifier := verifierCookie.Value
 
-	// Clear the PKCE cookie — single use.
+	var claims magicLinkClaims
+	tok, err := jwt.ParseWithClaims(rawToken, &claims,
+		func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return pubKey, nil
+		},
+		jwt.WithValidMethods([]string{"RS256"}),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil || !tok.Valid {
+		h.log.Warn("magic-validate: JWT parse failed", "err", err)
+		http.Redirect(w, r, loginRedirect("invalid_token"), http.StatusSeeOther)
+		return
+	}
+
+	// ── 2. Validate claims ───────────────────────────────────────────────────
+	iss, _ := claims.GetIssuer()
+	if iss != magicLinkIssuer {
+		h.log.Warn("magic-validate: invalid issuer", "iss", iss)
+		http.Redirect(w, r, loginRedirect("invalid_issuer"), http.StatusSeeOther)
+		return
+	}
+
+	auds, _ := claims.GetAudience()
+	foundAud := false
+	for _, a := range auds {
+		if a == magicLinkAudience {
+			foundAud = true
+			break
+		}
+	}
+	if !foundAud {
+		h.log.Warn("magic-validate: invalid audience", "aud", auds)
+		http.Redirect(w, r, loginRedirect("invalid_audience"), http.StatusSeeOther)
+		return
+	}
+
+	if claims.Role != magicLinkRole {
+		h.log.Warn("magic-validate: invalid role", "role", claims.Role)
+		http.Redirect(w, r, loginRedirect("insufficient_role"), http.StatusSeeOther)
+		return
+	}
+	if !claims.EmailVerified {
+		writeMagicError(w, "email not verified")
+		return
+	}
+	if claims.Email == "" || claims.Subject == "" {
+		writeMagicError(w, "missing email or sub claim")
+		return
+	}
+
+	jti := claims.ID
+	if jti == "" {
+		writeMagicError(w, "missing jti")
+		return
+	}
+
+	// ── 3. Replay check ──────────────────────────────────────────────────────
+	store := h.magicLinkJTIStore()
+	firstUse, err := store.Mark(jti)
+	if err != nil {
+		h.log.Error("magic-validate: jtistore.Mark failed", "err", err)
+		writeMagicError(w, "internal error")
+		return
+	}
+	if !firstUse {
+		h.log.Warn("magic-validate: replayed jti", "jti", jti)
+		http.Redirect(w, r, loginRedirect("token_replayed"), http.StatusSeeOther)
+		return
+	}
+
+	// ── 4. Token-exchange with Keycloak ──────────────────────────────────────
+	kc := h.openovaKCClient()
+	if kc == nil {
+		writeMagicError(w, "server misconfiguration: keycloak not configured")
+		return
+	}
+
+	kcAudience := os.Getenv("CATALYST_OPENOVA_KC_AUDIENCE")
+	if kcAudience == "" {
+		kcAudience = "catalyst-zero-ui"
+	}
+
+	accessToken, refreshToken, expiresIn, err := kc.ImpersonateToken(r.Context(), claims.Subject, kcAudience)
+	if err != nil {
+		h.log.Error("magic-validate: ImpersonateToken failed",
+			"userID", claims.Subject,
+			"email", claims.Email,
+			"err", err,
+		)
+		writeMagicError(w, "keycloak error: token exchange")
+		return
+	}
+
+	// ── 5. Issue session cookies ─────────────────────────────────────────────
+	cookieMaxAge := expiresIn
+	if cookieMaxAge <= 0 {
+		cookieMaxAge = 3600
+	}
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN") // e.g. "console.openova.io"
+
 	http.SetCookie(w, &http.Cookie{
-		Name:     pkceVerifierCookieName,
-		Value:    "",
+		Name:     auth.SessionCookieName,
+		Value:    accessToken,
 		Path:     "/",
-		MaxAge:   -1,
+		Domain:   cookieDomain,
+		MaxAge:   cookieMaxAge,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-
-	accessToken, _, claims, err := cfg.ExchangeCode(r.Context(), code, verifier)
-	if err != nil {
-		h.log.Debug("auth callback: code exchange failed", "err", err)
-		http.Redirect(w, r, loginRedirect("callback_failed"), http.StatusSeeOther)
-		return
+	if refreshToken != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "catalyst_refresh",
+			Value:    refreshToken,
+			Path:     "/",
+			Domain:   cookieDomain,
+			MaxAge:   cookieMaxAge * 8,
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+		})
 	}
 
-	cfg.IssueSessionCookie(w, accessToken)
+	h.log.Info("magic-validate: session established",
+		"email", claims.Email,
+		"userID", claims.Subject,
+		"expires_in", expiresIn,
+	)
 
-	_ = claims
-	http.Redirect(w, r, postAuthRedirect(), http.StatusSeeOther)
+	// ── 6. Redirect to wizard ─────────────────────────────────────────────────
+	http.Redirect(w, r, postAuthRedirect(), http.StatusFound)
 }
 
 // HandleAuthLogout handles DELETE /api/v1/auth/session.
@@ -183,6 +478,25 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		cfg.ClearSessionCookie(w)
 	}
+	// Also clear the raw cookie set by Option-B path (no HMAC wrapping).
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "catalyst_refresh",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -206,128 +520,10 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ── Keycloak Admin REST helpers ───────────────────────────────────────────────
-
-// authAdminToken obtains a short-lived admin access token via the
-// Keycloak master realm password grant for the admin-cli client.
-// Credentials are read from CATALYST_KC_ADMIN_USER / CATALYST_KC_ADMIN_PASS.
-func authAdminToken(cfg *auth.Config) (string, error) {
-	adminUser := os.Getenv("CATALYST_KC_ADMIN_USER")
-	adminPass := os.Getenv("CATALYST_KC_ADMIN_PASS")
-	if adminUser == "" || adminPass == "" {
-		return "", fmt.Errorf("CATALYST_KC_ADMIN_USER or CATALYST_KC_ADMIN_PASS not set")
-	}
-
-	tokenURL := cfg.KeycloakAddr + "/realms/master/protocol/openid-connect/token"
-	resp, err := http.PostForm(tokenURL, url.Values{
-		"grant_type": {"password"},
-		"client_id":  {"admin-cli"},
-		"username":   {adminUser},
-		"password":   {adminPass},
-	})
-	if err != nil {
-		return "", fmt.Errorf("admin token request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("admin token: status %d body %s", resp.StatusCode, string(body))
-	}
-
-	var tr struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.Unmarshal(body, &tr); err != nil {
-		return "", fmt.Errorf("admin token decode: %w", err)
-	}
-	if tr.AccessToken == "" {
-		return "", fmt.Errorf("admin token: empty access_token in response")
-	}
-	return tr.AccessToken, nil
-}
-
-// ensureUser looks up a Keycloak user by exact email address in the realm.
-// If the user doesn't exist it creates them. Returns the Keycloak user ID.
-func ensureUser(cfg *auth.Config, adminToken, email string) (string, error) {
-	// Check if user exists.
-	lookupURL := cfg.KeycloakAddr + "/admin/realms/" + cfg.Realm + "/users?email=" + url.QueryEscape(email) + "&exact=true"
-	req, _ := http.NewRequest(http.MethodGet, lookupURL, nil)
-	req.Header.Set("Authorization", "Bearer "+adminToken)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("ensureUser lookup: %w", err)
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ensureUser lookup: status %d", resp.StatusCode)
-	}
-
-	var users []struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(raw, &users); err != nil {
-		return "", fmt.Errorf("ensureUser decode: %w", err)
-	}
-	if len(users) > 0 {
-		return users[0].ID, nil
-	}
-
-	// Create the user. Keycloak 24.7+ requires "username" — use the email
-	// as the username for email-only magic-link login UX.
-	createURL := cfg.KeycloakAddr + "/admin/realms/" + cfg.Realm + "/users"
-	payload := fmt.Sprintf(`{"username":%q,"email":%q,"enabled":true,"emailVerified":false}`, email, email)
-	req2, _ := http.NewRequest(http.MethodPost, createURL, strings.NewReader(payload))
-	req2.Header.Set("Authorization", "Bearer "+adminToken)
-	req2.Header.Set("Content-Type", "application/json")
-
-	resp2, err := http.DefaultClient.Do(req2)
-	if err != nil {
-		return "", fmt.Errorf("ensureUser create: %w", err)
-	}
-	defer resp2.Body.Close()
-
-	if resp2.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(resp2.Body)
-		return "", fmt.Errorf("ensureUser create: status %d body %s", resp2.StatusCode, string(b))
-	}
-
-	// The ID is in the Location header: .../users/<uuid>
-	location := resp2.Header.Get("Location")
-	parts := strings.Split(location, "/")
-	if len(parts) == 0 {
-		return "", fmt.Errorf("ensureUser create: empty Location header")
-	}
-	return parts[len(parts)-1], nil
-}
-
-// executeActionsEmail triggers Keycloak's VERIFY_EMAIL execute-actions email
-// for the given user. lifespan is 3600 seconds (1 hour). The redirectUri is
-// the PKCE-decorated authorisation URL so Keycloak renders the magic-link
-// as a one-click sign-in.
-func executeActionsEmail(cfg *auth.Config, adminToken, userID, redirectURI string) error {
-	u := cfg.KeycloakAddr + "/admin/realms/" + cfg.Realm + "/users/" + userID +
-		"/execute-actions-email" +
-		"?client_id=" + url.QueryEscape(cfg.ClientID) +
-		"&redirect_uri=" + url.QueryEscape(redirectURI) +
-		"&lifespan=3600"
-
-	req, _ := http.NewRequest(http.MethodPut, u, strings.NewReader(`["VERIFY_EMAIL"]`))
-	req.Header.Set("Authorization", "Bearer "+adminToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("executeActionsEmail: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("executeActionsEmail: status %d body %s", resp.StatusCode, string(b))
-	}
-	return nil
+// writeMagicError writes a 401 JSON error for the magic-validate flow.
+// Per INVIOLABLE-PRINCIPLES #10 — no credentials or internal state in the message.
+func writeMagicError(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
 }
