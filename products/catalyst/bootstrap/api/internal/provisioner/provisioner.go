@@ -147,6 +147,18 @@ type Request struct {
 	// 0o600.
 	GHCRPullToken string `json:"-"`
 
+	// HarborRobotToken — central Harbor proxy-cache robot account secret
+	// (issue #557). Stamped server-side from Provisioner.HarborRobotToken
+	// (env CATALYST_HARBOR_ROBOT_TOKEN). Interpolated by
+	// cloudinit-control-plane.tftpl into /etc/rancher/k3s/registries.yaml
+	// so containerd authenticates against harbor.openova.io's proxy
+	// projects (proxy-dockerhub, proxy-gcr, proxy-quay, proxy-k8s,
+	// proxy-ghcr) on every image pull. Without this, containerd falls
+	// through to the upstream registry on a fresh Hetzner IP — Docker Hub
+	// returns rate-limit HTML and pods stick at Init:0/6 (caught live
+	// during otech24). json:"-" — never accepted from the wizard payload.
+	HarborRobotToken string `json:"-"`
+
 	// DeploymentID — catalyst-api's per-deployment identifier (16-char
 	// hex). Stamped onto the Request by the handler before tfvars are
 	// emitted so the OpenTofu cloud-init template can render the URL
@@ -312,6 +324,20 @@ func (r *Request) Validate() error {
 	// of `tofu apply`.
 	if r.SovereignDomainMode == "pool" && strings.TrimSpace(r.GHCRPullToken) == "" {
 		return errors.New("GHCR pull token is required for managed-pool deployments (CATALYST_GHCR_PULL_TOKEN missing on catalyst-api — see docs/SECRET-ROTATION.md)")
+	}
+	// Harbor robot token (issue #557) — REQUIRED, no exceptions. The
+	// architecture mandate is that every Sovereign image pull goes
+	// through harbor.openova.io's proxy projects (proxy-dockerhub,
+	// proxy-gcr, proxy-quay, proxy-k8s, proxy-ghcr). An empty token
+	// means containerd will fail authentication against Harbor and
+	// fall through to upstream registries — Docker Hub then
+	// rate-limits a fresh Hetzner IP and pods stick at Init:0/6
+	// forever (caught live during otech24). Fail fast at /api/v1/
+	// deployments POST so a misconfigured catalyst-api Pod surfaces
+	// the missing CATALYST_HARBOR_ROBOT_TOKEN env immediately
+	// instead of after 5 min of tofu apply.
+	if strings.TrimSpace(r.HarborRobotToken) == "" {
+		return errors.New("Harbor robot token is required (CATALYST_HARBOR_ROBOT_TOKEN missing on catalyst-api — every Sovereign image pull MUST go through harbor.openova.io; falling through to docker.io is not allowed)")
 	}
 
 	// Hetzner Object Storage (issue #371) — Phase 0b. All four fields are
@@ -490,6 +516,20 @@ type Provisioner struct {
 	// error so the operator notices the misconfiguration before
 	// `tofu apply` runs.
 	GHCRPullToken string
+
+	// HarborRobotToken is the central Harbor proxy-cache robot account
+	// secret (`robot$openova-bot` on harbor.openova.io). Mounted from
+	// the Reflector-mirrored `harbor-robot-token` K8s Secret in the
+	// catalyst namespace as env CATALYST_HARBOR_ROBOT_TOKEN.
+	// cloudinit-control-plane.tftpl interpolates it into the new
+	// Sovereign's /etc/rancher/k3s/registries.yaml so containerd
+	// authenticates against harbor.openova.io's docker.io / gcr / quay /
+	// k8s / ghcr proxy projects on every image pull (issue #557).
+	// Empty falls through to anonymous Harbor pulls; if the proxy is
+	// configured for public access this still works, but rate-limited
+	// upstream (Docker Hub) pulls will fail when the proxy can't
+	// authenticate either. Stamped onto every Request before tfvars.
+	HarborRobotToken string
 }
 
 // New returns a Provisioner with paths read from environment.
@@ -503,9 +543,10 @@ type Provisioner struct {
 // with a clear pointer to docs/SECRET-ROTATION.md.
 func New() *Provisioner {
 	return &Provisioner{
-		ModulePath:    env("CATALYST_TOFU_MODULE_PATH", "/infra/hetzner"),
-		WorkDir:       env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
-		GHCRPullToken: os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
+		ModulePath:       env("CATALYST_TOFU_MODULE_PATH", "/infra/hetzner"),
+		WorkDir:          env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
+		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
+		HarborRobotToken: os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),
 	}
 }
 
@@ -520,6 +561,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// the deployment with a clear error when the env var is missing.
 	if strings.TrimSpace(req.GHCRPullToken) == "" {
 		req.GHCRPullToken = p.GHCRPullToken
+	}
+	if strings.TrimSpace(req.HarborRobotToken) == "" {
+		req.HarborRobotToken = p.HarborRobotToken
 	}
 
 	if err := req.Validate(); err != nil {
@@ -597,6 +641,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Event) error {
 	if strings.TrimSpace(req.GHCRPullToken) == "" {
 		req.GHCRPullToken = p.GHCRPullToken
+	}
+	if strings.TrimSpace(req.HarborRobotToken) == "" {
+		req.HarborRobotToken = p.HarborRobotToken
 	}
 
 	emit := func(phase, level, msg string) {
@@ -796,6 +843,13 @@ func writeTfvars(deployDir string, req Request) error {
 		// directory is purged. Per docs/SECRET-ROTATION.md the token
 		// rotates yearly and is stored in 1Password — never in git.
 		"ghcr_pull_token": req.GHCRPullToken,
+
+		// Harbor proxy-cache robot token (issue #557). Stamped server-
+		// side. cloudinit-control-plane.tftpl writes it into
+		// /etc/rancher/k3s/registries.yaml so containerd authenticates
+		// against harbor.openova.io's proxy projects. Empty falls
+		// through to anonymous Harbor pulls.
+		"harbor_robot_token": req.HarborRobotToken,
 
 		// Cloud-init kubeconfig postback (issue #183, Option D). The
 		// catalyst-api stamps deployment_id + kubeconfig_bearer_token

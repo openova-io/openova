@@ -287,6 +287,24 @@ spec:
                   name: catalyst-ghcr-pull-token
                   key: token
                   optional: true
+            # CATALYST_HARBOR_ROBOT_TOKEN — central Harbor proxy-cache
+            # robot account secret (issue #557). Reflector mirrors the
+            # `harbor-robot-token` Secret from openova-harbor namespace
+            # into catalyst namespace; the value is interpolated into
+            # the new Sovereign's /etc/rancher/k3s/registries.yaml at
+            # cloud-init time so containerd authenticates against
+            # harbor.openova.io's proxy projects (proxy-dockerhub etc).
+            #
+            # NOT optional — provisioner.Validate() rejects deployments
+            # with an empty token. The architecture mandate is that every
+            # Sovereign image pull goes through harbor.openova.io; falling
+            # through to docker.io is forbidden (rate-limit makes a fresh
+            # Hetzner IP unbootable within minutes).
+            - name: CATALYST_HARBOR_ROBOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-robot-token
+                  key: token
             # ── /auth/handover Keycloak service-account (issue #606) ──────────
             # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
             # service FQDN in code; override here for non-standard Sovereign
