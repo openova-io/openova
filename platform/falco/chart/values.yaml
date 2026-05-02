@@ -32,8 +32,12 @@ falco:
 
   # Falco rules — solo-Sovereign default uses the upstream stable rules.
   # Per-Sovereign overlays MAY append custom rules via `falco.rulesfile.customRules`.
+  # NOTE: `rules_files` (plural) is the canonical key since Falco 0.36+.
+  # Using the deprecated `rules_file` (singular) alongside the subchart's
+  # `rules_files` default causes Falco to abort with a config conflict.
+  # Fixes CrashLoopBackOff on otech22 (issue #570).
   falco:
-    rules_file:
+    rules_files:
       - /etc/falco/falco_rules.yaml
       - /etc/falco/falco_rules.local.yaml
       - /etc/falco/k8s_audit_rules.yaml

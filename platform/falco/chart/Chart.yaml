@@ -12,7 +12,7 @@ description: |
   (static scanning) and feeds the SIEM pipeline via Falcosidekick into
   bp-opensearch.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "0.43.1"
 keywords: [catalyst, blueprint, falco, security, runtime, ebpf, threat-detection]
 maintainers:
