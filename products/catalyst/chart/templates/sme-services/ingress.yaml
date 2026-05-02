@@ -135,6 +135,62 @@ spec:
         - marketplace.openova.io
       secretName: marketplace-tls
 ---
+# Omantel partner-branded vanity host. Same backend pods as marketplace.openova.io;
+# branding switches client-side based on window.location.hostname (see
+# core/marketplace/src/lib/tenant.ts and the inline bootstrap in Layout.astro).
+# Two ingresses (api priority 200 > app priority 100) mirror the marketplace pair.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: omantel-api
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "200"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: omantel.openova.io
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - omantel.openova.io
+      secretName: omantel-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: omantel
+  namespace: sme
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: omantel.openova.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: marketplace
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - omantel.openova.io
+      secretName: omantel-tls
+---
 # Console (Nova tier): path-routed on console.openova.io.
 # API rule has higher priority so /nova/api/* beats the app-serving /nova/* rule.
 apiVersion: networking.k8s.io/v1

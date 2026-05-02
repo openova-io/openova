@@ -103,19 +103,26 @@
 
 <header class="sticky top-0 z-50 border-b border-[var(--color-border)] bg-[var(--color-bg)]/95 backdrop-blur-sm">
   <div class="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-    <!-- Logo -->
+    <!-- Logo (tenant-aware: rendered unconditionally; CSS hides the inactive one
+         based on html[data-tenant=...] set by the pre-hydration script in Layout.astro,
+         so there's no swap flash on hydration). -->
     <a href="/" class="flex items-center gap-2 text-[var(--color-text-strong)] no-underline">
-      <svg viewBox="0 0 700 400" class="h-5 w-8" fill="none">
-        <defs>
-          <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#3B82F6"/>
-            <stop offset="100%" stop-color="#818CF8"/>
-          </linearGradient>
-        </defs>
-        <path d="M 300 88.1966 A 150 150 0 1 0 350 200 A 150 150 0 1 1 400 311.8034"
-              fill="none" stroke="url(#logo-grad)" stroke-width="100" stroke-linecap="butt"/>
-      </svg>
-      <span class="text-sm font-semibold">OpenOva</span>
+      <span class="brand-openova flex items-center gap-2">
+        <svg viewBox="0 0 700 400" class="h-5 w-8" fill="none">
+          <defs>
+            <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#3B82F6"/>
+              <stop offset="100%" stop-color="#818CF8"/>
+            </linearGradient>
+          </defs>
+          <path d="M 300 88.1966 A 150 150 0 1 0 350 200 A 150 150 0 1 1 400 311.8034"
+                fill="none" stroke="url(#logo-grad)" stroke-width="100" stroke-linecap="butt"/>
+        </svg>
+        <span class="text-sm font-semibold">OpenOva</span>
+      </span>
+      <span class="brand-omantel flex items-center">
+        <img src="/logos/omantel.svg" alt="Omantel Cloud" class="h-7 w-auto" />
+      </span>
     </a>
 
     <!-- Wizard Steps -->
