@@ -209,6 +209,7 @@ locals {
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
     load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
+    control_plane_ipv4      = hcloud_server.control_plane[0].ipv4_address
   }), "/(?m)^[ ]{0,2}# .*\n/", "")
 
   worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
