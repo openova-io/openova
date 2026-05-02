@@ -352,6 +352,14 @@ spec:
                   name: catalyst-magic-link-credentials
                   key: session-cookie-secret
                   optional: true
+            # CATALYST_POST_AUTH_REDIRECT — URL the browser is sent to after a
+            # successful magic-link callback. Defaults to /wizard in code; set
+            # to /sovereign/wizard here because Catalyst-Zero routes the UI
+            # under the /sovereign prefix and the Traefik strip-prefix middleware
+            # is transparent to the server-side Location header.
+            # Per INVIOLABLE-PRINCIPLES #4: runtime configuration, not hardcoded.
+            - name: CATALYST_POST_AUTH_REDIRECT
+              value: /sovereign/wizard
             # CATALYST_KC_ADMIN_USER / CATALYST_KC_ADMIN_PASS — Keycloak master
             # realm admin credentials used by HandleMagicLink to call the Admin
             # REST API (create user, execute-actions-email). On Catalyst-Zero the

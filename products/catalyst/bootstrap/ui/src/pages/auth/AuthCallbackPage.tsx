@@ -3,6 +3,22 @@ import { useSearch } from '@tanstack/react-router'
 import { API_BASE } from '@/shared/config/urls'
 
 /**
+ * Derive the path-only UI base prefix for hard-navigation fallback.
+ *
+ * On contabo-mkt the browser URL has a '/sovereign' prefix (Traefik
+ * routes /sovereign/* → catalyst-ui but does NOT rewrite the Location
+ * header on client-side navigations). Error redirects must therefore go
+ * to '/sovereign/login' not '/login'.
+ *
+ * On Sovereign clusters the UI is served at the domain root (basepath '/')
+ * so the prefix is empty.
+ */
+function uiBase(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
+}
+
+/**
  * AuthCallbackPage — handles the Keycloak PKCE callback for Catalyst-Zero.
  *
  * Keycloak redirects to console.openova.io/sovereign/auth/callback?code=...
@@ -13,7 +29,7 @@ import { API_BASE } from '@/shared/config/urls'
  *   1. Read the PKCE verifier cookie (same-origin, carried automatically)
  *   2. Exchange the code for tokens
  *   3. Issue the HMAC-signed session cookie
- *   4. Redirect the browser to /wizard
+ *   4. Redirect the browser to /sovereign/wizard (or /wizard on Sovereign clusters)
  *
  * A hard navigation (window.location.replace) is required so the
  * browser's cookie jar picks up the Set-Cookie header from the server's
@@ -32,13 +48,13 @@ export function AuthCallbackPage() {
     if (error) {
       // Keycloak denied or the magic-link expired — redirect to login with
       // an error indicator so the UI can surface the right copy.
-      window.location.replace('/login?error=' + encodeURIComponent(error))
+      window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
       return
     }
 
     if (!code) {
       // No code and no error — unexpected. Redirect to login.
-      window.location.replace('/login?error=no_code')
+      window.location.replace(uiBase() + '/login?error=no_code')
       return
     }
 
