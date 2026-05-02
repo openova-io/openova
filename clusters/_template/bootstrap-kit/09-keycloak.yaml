@@ -53,10 +53,12 @@ spec:
   # Replaces PR #221 spec.timeout: 15m.
   install:
     disableWait: true
+    timeout: 15m
     remediation:
       retries: 3
   upgrade:
     disableWait: true
+    timeout: 15m
     remediation:
       retries: 3
   # Per-Sovereign overrides — issue #387:
