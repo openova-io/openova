@@ -8,6 +8,15 @@
 #      (umbrella-chart convention — the dependency name from Chart.yaml is
 #      the values namespace).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). When non-empty, the
+  # init-job.yaml and auth-bootstrap-job.yaml templates prepend this value
+  # to autoUnseal.image.repository. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: openbao, version: "0.16.0", repo: "https://openbao.github.io/openbao-helm" }
 

@@ -12,6 +12,15 @@
 # meaningful value is configurable; cluster overlays in clusters/<sovereign>/
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream valkey subchart
+  # (Bitnami-style) exposes `valkey.image.registry` for registry override.
+  # Per-Sovereign overlays wire that alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: valkey, version: "5.5.1", repo: "https://charts.bitnami.com/bitnami" }
 

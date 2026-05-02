@@ -43,6 +43,8 @@ emits nothing.
 {{- if $au.enabled -}}
 {{- $img := $au.image | default dict -}}
 {{- $repo := $img.repository | default "quay.io/openbao/openbao" -}}
+{{- $registry := .Values.global.imageRegistry | default "" -}}
+{{- if $registry }}{{- $repo = printf "%s/%s" $registry $repo -}}{{- end -}}
 {{- $tag := $img.tag | default "2.1.0" -}}
 {{- $pullPolicy := $img.pullPolicy | default "IfNotPresent" -}}
 {{- $seedSecret := $au.seedSecret | default dict -}}

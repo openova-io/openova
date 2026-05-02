@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-valkey
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

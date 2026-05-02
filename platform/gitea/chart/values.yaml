@@ -9,6 +9,15 @@
 #      the values namespace; the upstream chart's own internal `gitea:`
 #      section appears as `gitea.gitea` here, which is correct).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream Gitea subchart
+  # exposes `gitea.image.registry` for registry override.
+  # Per-Sovereign overlays wire that alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: gitea, version: "10.5.0", repo: "https://dl.gitea.com/charts" }
 
