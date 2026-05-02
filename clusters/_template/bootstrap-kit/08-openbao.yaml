@@ -91,13 +91,24 @@ spec:
       host: bao.${SOVEREIGN_FQDN}
     autoUnseal:
       enabled: true
-    # Issue #(filed inline 2026-05-02): openbao 3-replica StatefulSet uses
-    # required pod-anti-affinity by hostname. On single-node Phase-8a
-    # Sovereigns this leaves 2/3 pods Pending forever, the openbao-init
-    # Job's wait-for-Ready loop times out, and the entire HR fails post-
-    # install. Drop to 1 replica until the workerCount > 0 path is wired
-    # — the autoUnseal flow does not require a quorum to bootstrap.
-    server:
-      ha:
-        replicas: 1
-      affinity: ""
+    # Issue #517 (Phase-8a single-node): openbao upstream chart's
+    # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
+    # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
+    # forever, the openbao-init Job's wait-for-Ready loop times out, and
+    # the entire HR fails post-install. Drop to 1 replica until the
+    # workerCount > 0 path is wired — the autoUnseal flow does not
+    # require a quorum to bootstrap (Raft is still enabled, just one
+    # voter).
+    #
+    # CRITICAL — schema nesting (issue #517 root cause): platform/openbao/
+    # chart/Chart.yaml declares the upstream openbao chart as a Helm
+    # SUBCHART under `dependencies:`. Helm umbrella-chart convention
+    # requires subchart values to be nested under the dependency name
+    # (`openbao:`). Putting `server.ha.replicas` / `server.affinity` at
+    # the top level here is SILENTLY IGNORED — the upstream subchart
+    # never sees them and renders 3-replica + pod-anti-affinity.
+    openbao:
+      server:
+        ha:
+          replicas: 1
+        affinity: ""
