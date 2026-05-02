@@ -409,7 +409,9 @@ postgres:
     storageSize: 5Gi
     storageClass: local-path      # Contabo k3s default; Hetzner Sovereign overlays → hcloud-volumes
     pgVersion: "16"
-    database: harbor
+    # MUST match harbor.database.external.coreDatabase. Harbor upstream
+    # defaults coreDatabase="registry" and connects to a DB named "registry".
+    database: registry
     owner: harbor
     resources:
       requests: { cpu: 50m, memory: 128Mi }

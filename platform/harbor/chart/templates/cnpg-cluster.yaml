@@ -40,7 +40,9 @@ spec:
 
   bootstrap:
     initdb:
-      database: {{ .Values.postgres.cluster.database | default "harbor" | quote }}
+      # Harbor connects to a DB named "registry" (upstream coreDatabase default).
+      # Keep in sync with harbor.database.external.coreDatabase in values.yaml.
+      database: {{ .Values.postgres.cluster.database | default "registry" | quote }}
       owner: {{ .Values.postgres.cluster.owner | default "harbor" | quote }}
 
   postgresql:
