@@ -1,15 +1,18 @@
 import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 // Lazy page imports
 import { RootLayout } from './layouts/RootLayout'
 import { AppLayout } from './layouts/AppLayout'
 import { WizardLayout } from './layouts/WizardLayout'
+import { SovereignConsoleLayout } from './layouts/SovereignConsoleLayout'
 
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
+import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
@@ -30,16 +33,36 @@ import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
+import { ConsoleDashboardPage } from '@/pages/sovereign/console/ConsoleDashboardPage'
+import { ConsoleAppsPage } from '@/pages/sovereign/console/ConsoleAppsPage'
+import { ConsoleJobsPage } from '@/pages/sovereign/console/ConsoleJobsPage'
+import { ConsoleCloudPage } from '@/pages/sovereign/console/ConsoleCloudPage'
+import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
+import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
 
-// Index redirect
+/**
+ * Index redirect — mode-aware.
+ *
+ * catalyst-zero (console.openova.io): redirect to /wizard (Provisioning Wizard)
+ * sovereign (console.<sov-fqdn>):     redirect to /console/dashboard (Sovereign Console)
+ *
+ * IS_SAAS is preserved as a higher-priority override for the Catalyst-Zero
+ * SaaS variant of the platform where local auth is used.
+ *
+ * Per INVIOLABLE-PRINCIPLES.md #4, mode detection is runtime-derived from
+ * the hostname via DETECTED_MODE — never hardcoded here.
+ *
+ * Related: GitHub issue #607
+ */
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
     if (IS_SAAS) throw redirect({ to: '/login' })
+    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/console/dashboard' as never })
     throw redirect({ to: '/wizard' })
   },
 })
@@ -48,6 +71,46 @@ const indexRoute = createRoute({
 const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login', component: LoginPage })
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage })
 const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgot', component: ForgotPage })
+
+/**
+ * OIDC authorization_code callback route (issue #607).
+ *
+ * Keycloak redirects here after the user authenticates:
+ *   GET /auth/callback?code=<code>&state=<state>
+ *
+ * AuthCallbackPage exchanges the code for tokens, then navigates to
+ * /console/dashboard. The route is intentionally outside the
+ * SovereignConsoleLayout so it runs before auth state is resolved.
+ */
+const authCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/callback',
+  component: AuthCallbackPage,
+})
+
+/**
+ * Handover-token reception route (issue #607).
+ *
+ * The server-side (Agent C / catalyst-api on the Sovereign) handles
+ * POST /auth/handover — it validates the JWT, creates a Keycloak session,
+ * and returns 302 with session cookies to /console/dashboard.
+ *
+ * The client does NOT intercept this URL at the fetch level. If the
+ * browser lands here (unlikely — the server redirect should carry the
+ * browser directly to /console/dashboard), redirect immediately.
+ *
+ * This route exists purely as a safety net to prevent a TanStack Router
+ * 404 in case the server 302 for some reason resolves to a client-side
+ * navigation rather than a full HTTP redirect.
+ */
+const authHandoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/handover',
+  beforeLoad: () => {
+    throw redirect({ to: '/console/dashboard' as never, replace: true })
+  },
+  component: () => null,
+})
 
 // App routes
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
@@ -381,11 +444,85 @@ const marketplaceProductRoute = createRoute({
   component: MarketplaceProductPage,
 })
 
+/* ── Sovereign Console routes (issue #607) ────────────────────────────
+ *
+ * Route tree for Sovereign mode (console.<sov-fqdn>):
+ *
+ *   /console                  → redirect to /console/dashboard
+ *   /console/dashboard        → ConsoleDashboardPage
+ *   /console/apps             → ConsoleAppsPage
+ *   /console/jobs             → ConsoleJobsPage
+ *   /console/cloud            → ConsoleCloudPage
+ *   /console/users            → ConsoleUsersPage
+ *   /console/settings         → ConsoleSettingsPage
+ *
+ * All /console/* routes are children of consoleLayoutRoute, which
+ * mounts the SovereignConsoleLayout (OIDC auth gate + sidebar + header).
+ *
+ * Auth routes (outside the layout — must be accessible before auth):
+ *   /auth/callback            → AuthCallbackPage (PKCE code exchange)
+ *   /auth/handover            → redirect to /console/dashboard (safety net)
+ */
+
+const consoleLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/console',
+  component: SovereignConsoleLayout,
+})
+
+// /console → redirect to /console/dashboard
+const consoleIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/console/dashboard' as never, replace: true })
+  },
+  component: () => null,
+})
+
+const consoleDashboardRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/dashboard',
+  component: ConsoleDashboardPage,
+})
+
+const consoleAppsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/apps',
+  component: ConsoleAppsPage,
+})
+
+const consoleJobsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/jobs',
+  component: ConsoleJobsPage,
+})
+
+const consoleCloudRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/cloud',
+  component: ConsoleCloudPage,
+})
+
+const consoleUsersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/users',
+  component: ConsoleUsersPage,
+})
+
+const consoleSettingsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/settings',
+  component: ConsoleSettingsPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   signupRoute,
   forgotRoute,
+  authCallbackRoute,
+  authHandoverRoute,
   appRoute.addChildren([dashboardRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
@@ -411,6 +548,15 @@ const routeTree = rootRoute.addChildren([
   designsJobsDepsVizRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,
+  consoleLayoutRoute.addChildren([
+    consoleIndexRoute,
+    consoleDashboardRoute,
+    consoleAppsRoute,
+    consoleJobsRoute,
+    consoleCloudRoute,
+    consoleUsersRoute,
+    consoleSettingsRoute,
+  ]),
 ])
 
 // basepath: '/' — Vite base is now '/' (issue #596). Both Sovereigns
