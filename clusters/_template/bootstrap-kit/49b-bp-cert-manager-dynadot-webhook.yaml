@@ -89,7 +89,7 @@ spec:
   chart:
     spec:
       chart: bp-cert-manager-dynadot-webhook
-      version: 1.1.0
+      version: 1.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager-dynadot-webhook

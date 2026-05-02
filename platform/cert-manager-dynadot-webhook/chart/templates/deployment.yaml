@@ -13,7 +13,6 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bp-cert-manager-dynadot-webhook.selectorLabels" . | nindent 8 }}
         {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "bp-cert-manager-dynadot-webhook.serviceAccountName" . }}
