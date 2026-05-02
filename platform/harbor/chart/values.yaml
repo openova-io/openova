@@ -417,6 +417,18 @@ postgres:
       requests: { cpu: 50m, memory: 128Mi }
       limits:   { cpu: 500m, memory: 512Mi }
 
+# ─── CNPG app-secret annotator Job (templates/cnpg-app-annotator-job.yaml) ─
+# Helm post-install/post-upgrade Job that patches `harbor-pg-app` with
+# Reflector permission annotations so Reflector can copy the CNPG-generated
+# password into `harbor-database-secret` at runtime (issue #585).
+# Uses curl (not busybox wget) because PATCH verb is required and busybox
+# wget only supports GET + POST.
+cnpgAnnotator:
+  image:
+    repository: "curlimages/curl"
+    tag: "8.7.1"
+    pullPolicy: "IfNotPresent"
+
 objectStorage:
   # When false, no credentials Secret is rendered (contabo, local dev,
   # etc.). Per-Sovereign overlay flips to true.

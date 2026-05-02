@@ -52,6 +52,15 @@ The PATCH is a JSON merge-patch on `metadata.annotations`. If the
 annotations are already present (re-run after Helm upgrade), the patch is
 a no-op — the Job still exits 0.
 
+## Why curl, not busybox wget?
+
+The Kubernetes API PATCH endpoint requires the `PATCH` HTTP method with
+`Content-Type: application/merge-patch+json`. BusyBox's `wget` only
+supports `GET` and `POST` — it has no `--method` flag. curl supports all
+HTTP verbs natively via `-X PATCH`. The `curlimages/curl` image is a
+minimal Alpine-based container (~5MB) that ships nothing except curl and
+sh — same threat surface as busybox for this one-shot Job.
+
 ## Pattern
 
 Mirrors bp-openbao's init-job.yaml: ServiceAccount (hook weight 0,
@@ -68,8 +77,8 @@ never reads or copies the actual password bytes.
 {{- $backoff := 5 -}}
 {{- $annotatorCfg := .Values.cnpgAnnotator | default dict -}}
 {{- $imgCfg := $annotatorCfg.image | default dict -}}
-{{- $imgRepo := $imgCfg.repository | default "busybox" -}}
-{{- $imgTag := $imgCfg.tag | default "1.36.1" -}}
+{{- $imgRepo := $imgCfg.repository | default "curlimages/curl" -}}
+{{- $imgTag := $imgCfg.tag | default "8.7.1" -}}
 {{- $imgPullPolicy := $imgCfg.pullPolicy | default "IfNotPresent" -}}
 ---
 apiVersion: batch/v1
@@ -107,9 +116,11 @@ spec:
         runAsGroup: 65534
       containers:
         - name: annotator
-          # busybox ships wget + base64 + sh — zero extra deps.
-          # Upstream pinned tag per INVIOLABLE-PRINCIPLES #4; operator-
-          # bumpable via .Values.cnpgAnnotator.image.{repository,tag}.
+          # curlimages/curl: minimal Alpine image that ships curl + sh.
+          # curl is required (not busybox wget) because the k8s API PATCH
+          # endpoint requires the HTTP PATCH verb; busybox wget only
+          # supports GET + POST. Operator-bumpable via
+          # .Values.cnpgAnnotator.image.{repository,tag}.
           image: {{ printf "%s:%s" $imgRepo $imgTag | quote }}
           imagePullPolicy: {{ $imgPullPolicy | quote }}
           env:
@@ -135,9 +146,10 @@ spec:
               # Cluster CR is created. Poll every 5 s up to 10 min.
               ATTEMPTS=0
               MAX_ATTEMPTS=120
-              until wget -qO /dev/null --no-check-certificate \
-                  --header="Authorization: Bearer $TOKEN" \
-                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET" 2>/dev/null; do
+              until curl -sf --cacert "$CACERT" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET" \
+                  -o /dev/null 2>/dev/null; do
                 ATTEMPTS=$((ATTEMPTS+1))
                 if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
                   echo "[harbor-pg-annotator] FATAL: $PG_APP_SECRET not found after $MAX_ATTEMPTS attempts ($(( MAX_ATTEMPTS * 5 )) s)"
@@ -155,19 +167,23 @@ spec:
               # We patch the Secret's metadata.annotations only.
               PATCH_BODY='{"metadata":{"annotations":{"reflector.v1.k8s.emberstack.com/reflection-allowed":"true","reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces":"{{ $targetNamespace }}"}}}'
 
-              HTTP_RESPONSE=$(wget -qO- --no-check-certificate \
-                --header="Authorization: Bearer $TOKEN" \
-                --header="Content-Type: application/merge-patch+json" \
-                --header="Accept: application/json" \
-                --method=PATCH \
-                --body-data="$PATCH_BODY" \
-                "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET" 2>&1) || {
-                  echo "[harbor-pg-annotator] FATAL: PATCH $PG_APP_SECRET failed"
-                  echo "$HTTP_RESPONSE"
-                  exit 1
-                }
+              HTTP_CODE=$(curl -s --cacert "$CACERT" \
+                -X PATCH \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/merge-patch+json" \
+                -H "Accept: application/json" \
+                -d "$PATCH_BODY" \
+                -o /tmp/patch-response.json \
+                -w "%{http_code}" \
+                "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET")
 
-              echo "[harbor-pg-annotator] annotations applied — Reflector will copy $PG_APP_SECRET → harbor-database-secret within seconds"
+              if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+                echo "[harbor-pg-annotator] FATAL: PATCH $PG_APP_SECRET returned HTTP $HTTP_CODE"
+                cat /tmp/patch-response.json || true
+                exit 1
+              fi
+
+              echo "[harbor-pg-annotator] annotations applied (HTTP $HTTP_CODE) — Reflector will copy $PG_APP_SECRET → harbor-database-secret within seconds"
               echo "[harbor-pg-annotator] done"
           resources:
             requests:
@@ -177,6 +193,6 @@ spec:
               memory: 64Mi
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
