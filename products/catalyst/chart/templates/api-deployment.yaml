@@ -322,6 +322,12 @@ spec:
             # time. optional=true: Catalyst-Zero side leaves this unset.
             - name: CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
               value: /var/lib/catalyst/handover-jwt-public.jwk
+            # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
+            # catalyst-api uses to mint magic-link + handover JWTs. The
+            # signer auto-generates the keypair on first start if absent.
+            # MUST be on a writable PVC mount. Catalyst-Zero only.
+            - name: CATALYST_HANDOVER_KEY_PATH
+              value: /var/lib/catalyst/handover-jwt-private.pem
             # ── Magic-link auth (issue #608, Phase-8b Agent A) ──────────────
             # CATALYST_KC_CLIENT_ID — OIDC client ID for the Catalyst-Zero
             # UI (catalyst-zero-ui PKCE client). Defaults to "catalyst-zero-ui"
