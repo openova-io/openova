@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest'
 import {
   applyEvent,
   buildInitialState,
+  markFailedTerminal,
   type DeploymentEvent,
 } from './eventReducer'
 import { deriveJobs, fmtTime, jobsForApplication, statusBadge } from './jobs'
@@ -153,6 +154,63 @@ describe('jobs — deriveJobs', () => {
     const bootstrap = jobs.find((j) => j.app === 'cluster-bootstrap')!
     expect(bootstrap.steps.length).toBeGreaterThanOrEqual(2)
     expect(bootstrap.steps.map((s) => s.name)).toContain('cloning repo')
+  })
+
+  /**
+   * Issue #519 regression — reproduces the otech17 deployment
+   * 6b17518f12d529ea timeline at 2026-05-02 04:50 UTC:
+   *
+   *   • Tofu emits 200+ events in the first 10 seconds of tofu-apply,
+   *     overflowing the catalyst-api producer channel (cap 256). The
+   *     `tofu-output` and `flux-bootstrap` events are dropped.
+   *   • Cloud-init on the new control plane finishes; PUTs kubeconfig
+   *     back. catalyst-api's PutKubeconfig launches runPhase1Watch.
+   *   • Phase-1 watch runs 60 minutes, sees zero HelmReleases, returns
+   *     OutcomeFluxNotReconciling.
+   *   • markPhase1Done writes Status="failed", phase1Outcome="flux-not-
+   *     reconciling".
+   *   • The wizard's `useDeploymentEvents` hook reads the GET /events
+   *     terminal snapshot and (pre-fix) bailed early — never converging
+   *     the Phase-0 banner. Result: "Phase 0 — Infrastructure" jobs
+   *     stuck Running for 2h+ on a deployment that finished an hour ago.
+   *
+   * Post-fix: useDeploymentEvents calls markFailedTerminal on the
+   * failed path, which uses the durable phase1Outcome ground truth to
+   * converge the Hetzner-infra banner to done. The 4 tofu jobs then
+   * derive to "succeeded" via jobs.ts.
+   */
+  it('issue #519: tofu-output dropped + Phase-1 timeout — markFailedTerminal flips Phase-0 jobs to succeeded', () => {
+    // Produce events that LACK tofu-output (the regression scenario).
+    const baseState = feed([
+      { phase: 'tofu-init', time: '2026-05-02T02:08:14Z' },
+      { phase: 'tofu-plan', time: '2026-05-02T02:08:15Z' },
+      { phase: 'tofu-apply', time: '2026-05-02T02:08:18Z' },
+      { phase: 'tofu', message: 'hcloud_network.main: Creating', time: '2026-05-02T02:08:19Z' },
+      { phase: 'tofu', message: 'hcloud_load_balancer.main: Creating', time: '2026-05-02T02:08:19Z' },
+      // … 230+ more tofu events here in production; we don't replay
+      // them all because the regression is about the MISSING events,
+      // not the captured ones. tofu-output / flux-bootstrap dropped.
+    ])
+
+    // Pre-fix: Phase-0 jobs are stuck in "running" / "pending".
+    const preFix = deriveJobs(baseState, APPS)
+    const preApplyJob = preFix.find((j) => j.id === 'infrastructure:tofu-apply')!
+    const preOutputJob = preFix.find((j) => j.id === 'infrastructure:tofu-output')!
+    expect(preApplyJob.status).toBe('running')
+    expect(preOutputJob.status).toBe('pending')
+
+    // Post-fix: markFailedTerminal converges Phase-0 banner using the
+    // helmwatch outcome (any outcome != '' proves Phase 0 finished).
+    const postState = markFailedTerminal(baseState, 'flux-not-reconciling', null)
+    const postFix = deriveJobs(postState, APPS)
+    for (const phase of ['tofu-init', 'tofu-plan', 'tofu-apply', 'tofu-output']) {
+      const job = postFix.find((j) => j.id === `infrastructure:${phase}`)!
+      expect(job.status).toBe('succeeded')
+    }
+    // cluster-bootstrap surfaces the Phase-1 failure so the operator's
+    // eye lands on the actual failing phase.
+    const bootstrap = postFix.find((j) => j.app === 'cluster-bootstrap')!
+    expect(bootstrap.status).toBe('failed')
   })
 })
 

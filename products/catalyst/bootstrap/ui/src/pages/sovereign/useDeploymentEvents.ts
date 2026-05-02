@@ -43,6 +43,7 @@ import {
   buildInitialState,
   reduceEvents,
   markAllReady,
+  markFailedTerminal,
   type DeploymentEvent,
   type ReducerState,
 } from './eventReducer'
@@ -71,6 +72,17 @@ export interface DeploymentSnapshot {
   componentStates?: Record<string, string>
   /** UTC timestamp the helmwatch loop terminated (RFC3339). */
   phase1FinishedAt?: string
+  /**
+   * Helmwatch's terminal classification — empty, "ready", "failed",
+   * "timeout", "flux-not-reconciling", "kubeconfig-missing",
+   * "watcher-start-failed". The presence of any non-empty value implies
+   * `runPhase1Watch` was reached, which in turn implies Phase 0
+   * (Hetzner provision + cloud-init kubeconfig PUT) succeeded. Issue
+   * #519 — this is the durable signal the wizard uses to converge the
+   * Phase-0 banner when streaming events lost the `tofu-output` line in
+   * a producer-buffer overflow on the high-throughput tofu-apply burst.
+   */
+  phase1Outcome?: string
   result?: {
     sovereignFQDN: string
     controlPlaneIP: string
@@ -81,6 +93,8 @@ export interface DeploymentSnapshot {
     componentStates?: Record<string, string>
     /** Same as top-level `phase1FinishedAt`. */
     phase1FinishedAt?: string
+    /** Same as top-level `phase1Outcome`. */
+    phase1Outcome?: string
   }
 }
 
@@ -180,6 +194,19 @@ export function useDeploymentEvents(
             setState((prev) => markAllReady(prev, componentStates))
             setStreamStatus('completed')
           } else if (body.state.status === 'failed') {
+            // Issue #519 — `failed` does NOT mean Phase 0 failed. Most
+            // commonly it means Phase 0 succeeded and Phase 1 timed out
+            // / saw zero HelmReleases / could not start (post-PR #495).
+            // Converge the Phase-0 banner if helmwatch recorded any
+            // outcome — that proves Phase 0 finished. Without this the
+            // wizard pins Hetzner-infra at "running" forever because
+            // the `tofu-output` event was lost in producer-channel
+            // overflow on the high-throughput tofu-apply burst.
+            const componentStates =
+              body.state.componentStates ?? body.state.result?.componentStates ?? null
+            const phase1Outcome =
+              body.state.phase1Outcome ?? body.state.result?.phase1Outcome ?? ''
+            setState((prev) => markFailedTerminal(prev, phase1Outcome, componentStates))
             setStreamStatus('failed')
             setStreamError(body.state.error ?? null)
           }
@@ -232,6 +259,18 @@ export function useDeploymentEvents(
           setState((prev) => markAllReady(prev, componentStates))
           setStreamStatus('completed')
         } else {
+          // Issue #519 — same Phase-0 banner convergence as the GET-
+          // replay path above. The SSE `done` event is the live-stream
+          // mirror; failing to converge here would cause the same
+          // "Phase-0 stuck Running" UX on a tab that stayed open from
+          // the start.
+          if (snap?.status === 'failed') {
+            const componentStates =
+              snap.componentStates ?? snap.result?.componentStates ?? null
+            const phase1Outcome =
+              snap.phase1Outcome ?? snap.result?.phase1Outcome ?? ''
+            setState((prev) => markFailedTerminal(prev, phase1Outcome, componentStates))
+          }
           setStreamStatus('failed')
           setStreamError(snap?.error ?? `Deployment ended with status=${snap?.status ?? 'unknown'}`)
         }
