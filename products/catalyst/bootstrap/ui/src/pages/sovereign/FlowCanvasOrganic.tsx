@@ -305,13 +305,17 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const gridTargets = useMemo(() => {
     type GridCell = {
       tx: number // absolute target X in layout coordinates
-      ty: number // absolute target Y in layout coordinates (#532 homogeneous spread)
+      ty: number // absolute target Y in layout coordinates
       totalCols: number
       totalRows: number
     }
     const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
-    const Y_BUDGET = MAX_VBOX_H - (NODE_RADIUS * 2 + 60)
-    const COL_CAPACITY = Math.max(1, Math.floor(Y_BUDGET / ROW_PITCH))
+    const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
+    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
+    // How many bubbles fit vertically with the no-overlap collision
+    // pitch (NODE_RADIUS*2 + COLLIDE_PADDING = 92px on 700px viewBox →
+    // 7 rows). Beyond that, we MUST add sub-columns or bubbles overlap.
+    const COL_CAPACITY = Math.max(1, Math.floor(Y_RANGE_LOCAL / ROW_PITCH))
     const buckets = new Map<number, OrganicNode[]>()
     for (const n of layout.nodes) {
       let bucket = buckets.get(n.depth)
@@ -322,32 +326,43 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       bucket.push(n)
     }
     const cells = new Map<string, GridCell>()
-    const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
-    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
     for (const [depth, bucket] of buckets) {
-      // Only apply homogeneous-spread layout when sibling count exceeds
-      // a single-column capacity. Sparse depths keep the original
-      // force-anchor behaviour (depthX + jittered Y by depRank).
+      // Only apply grid layout when sibling count exceeds the single-
+      // column vertical capacity. Sparse depths keep the original
+      // force-anchor behaviour (depthX + depRank-based Y).
       if (bucket.length <= COL_CAPACITY) continue
       const baseX = depth * PER_DEPTH_X
-      // Two sub-columns: alternate left/right within the depth column
-      // so consecutive siblings have a small X separation. This avoids
-      // the linear-stack failure mode and gives forceLink room to
-      // settle each sibling around the parent without overlap.
-      const totalCols = 2
+      // Issue #532: with N siblings in a depth bucket and Y-range
+      // budget that fits COL_CAPACITY rows at the no-overlap pitch,
+      // we need ceil(N / COL_CAPACITY) sub-columns. Each sub-column
+      // contains COL_CAPACITY rows distributed homogeneously across
+      // the full Y range. This guarantees no overlap by construction
+      // (forceCollide is then a safety net for boundary effects).
+      const totalCols = Math.max(1, Math.ceil(bucket.length / COL_CAPACITY))
       const totalRows = Math.ceil(bucket.length / totalCols)
-      const SUB_COL_SPAN = PER_DEPTH_X * 0.4
-      // Issue #532 — siblings within a single depth bucket may already
-      // be sorted by depRank (because flowLayoutOrganic's topological
-      // sort places same-depth siblings consecutively in the rank
-      // order). Distribute them homogeneously across the full Y range
-      // using their bucket index, NOT their global depRank, so each
-      // depth bucket fills the available Y span evenly.
+      // Sub-column span — each sub-column gets a slice of the depth
+      // column's natural width. Cap at PER_DEPTH_X so adjacent depth
+      // columns never visually merge.
+      const SUB_COL_SPAN = PER_DEPTH_X * 0.8
+      const colStep = totalCols > 1 ? SUB_COL_SPAN / (totalCols - 1) : 0
+      // Issue #532 founder verbatim: "homogenously spread". Distribute
+      // rows evenly across the full Y range (not packed at the top).
+      const rowStep = totalRows > 1
+        ? Y_RANGE_LOCAL / (totalRows - 1)
+        : 0
       bucket.forEach((n, idx) => {
-        const subCol = idx % totalCols // 0 or 1
-        const colOffset = (subCol - 0.5) * SUB_COL_SPAN
-        const t = bucket.length === 1 ? 0.5 : idx / (bucket.length - 1)
-        const ty = Y_MARGIN_LOCAL + t * Y_RANGE_LOCAL
+        // Column-major fill: idx 0..(totalRows-1) fill column 0 top→
+        // bottom, then idx totalRows..(2*totalRows-1) fill column 1,
+        // etc. This keeps consecutive siblings (often related in the
+        // upstream order) clustered together rather than scattered.
+        const subCol = Math.floor(idx / totalRows)
+        const subRow = idx % totalRows
+        const colOffset = totalCols > 1
+          ? (subCol - (totalCols - 1) / 2) * colStep
+          : 0
+        const ty = totalRows > 1
+          ? Y_MARGIN_LOCAL + subRow * rowStep
+          : Y_MARGIN_LOCAL + Y_RANGE_LOCAL / 2
         cells.set(n.id, {
           tx: baseX + colOffset,
           ty,
@@ -501,20 +516,27 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
           const cell = gridTargets.get(n.id)
           if (cell) {
-            // Issue #532 — homogeneous-spread grid: each sibling has
-            // an absolute (tx, ty) target where ty is its slot in the
-            // full Y range. Allow the X position to jitter ±half the
-            // sub-column span so adjacent siblings can settle without
-            // visually overlapping their X coordinate. Y is allowed to
-            // drift ±half a row pitch around the ty target — enough
-            // for forceCollide to separate near-identical-Y siblings
-            // pairwise without them escaping the homogeneous spread.
-            const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
-            const SUB_COL_SPAN = PER_DEPTH_X * 0.4
-            const xMin = cell.tx - SUB_COL_SPAN
-            const xMax = cell.tx + SUB_COL_SPAN
-            const yMin = cell.ty - ROW_PITCH * 0.5
-            const yMax = cell.ty + ROW_PITCH * 0.5
+            // Issue #532 — sub-grid clamping. Each sibling has an
+            // absolute (tx, ty) target inside the depth column's
+            // sub-grid. The clamp window is half the sub-column span
+            // wide and half the row step tall so adjacent siblings
+            // can settle without invading each other's slots, but
+            // the slot itself is large enough that forceCollide can
+            // resolve any tiny overlaps inside the slot without
+            // pushing the node outside.
+            const SUB_COL_SPAN = PER_DEPTH_X * 0.8
+            const colSlot = cell.totalCols > 1
+              ? SUB_COL_SPAN / (cell.totalCols - 1)
+              : PER_DEPTH_X
+            const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
+            const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
+            const rowSlot = cell.totalRows > 1
+              ? Y_RANGE_LOCAL / (cell.totalRows - 1)
+              : Y_RANGE_LOCAL
+            const xMin = cell.tx - colSlot * 0.5
+            const xMax = cell.tx + colSlot * 0.5
+            const yMin = cell.ty - rowSlot * 0.5
+            const yMax = cell.ty + rowSlot * 0.5
             if (typeof n.x === 'number') {
               if (n.x < xMin) n.x = xMin
               else if (n.x > xMax) n.x = xMax
