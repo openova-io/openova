@@ -274,6 +274,39 @@ spec:
               # for parallel provider init and sustained `apply` work.
               cpu: 1000m
               memory: 1Gi
+          # Liveness vs readiness — the split is REQUIRED, not cosmetic
+          # (issue #530). /healthz is liveness: it returns 200 whenever
+          # the catalyst-api process is up and the HTTP server is
+          # serving. /readyz is readiness: it returns 200 only when the
+          # primary Sovereign's Pod + Deployment informers are synced
+          # (or no Sovereigns are registered yet).
+          #
+          # The previous wiring pointed BOTH probes at /healthz AND
+          # /healthz performed the strict informer-sync check. The
+          # crashloop chain that followed:
+          #
+          #   1. Operator POSTs a fresh deployment.
+          #   2. catalyst-api registers the Sovereign in k8scache and
+          #      starts looking for a kubeconfig file on the PVC.
+          #   3. Kubeconfig will NOT arrive until the new Sovereign's
+          #      cloud-init runs (~60-120s) and PUTs it back. Until
+          #      then, informers cannot start, sync flips false.
+          #   4. /healthz returns 503. kubelet kills the Pod on the
+          #      next liveness probe (~33s).
+          #   5. Restarted Pod restores deployments from the PVC,
+          #      re-registers the Sovereign, re-enters the same
+          #      no-kubeconfig state. Loop repeats.
+          #   6. Service has zero ready endpoints throughout. nginx
+          #      returns 502 to cloud-init's kubeconfig PUT. The PUT
+          #      never reaches catalyst-api. Provision stalls forever.
+          #
+          # The fix: liveness must be process-level (am I up?), NOT
+          # workload-level (do I have a kubeconfig?). The strict
+          # informer-sync check stays — moved to /readyz — so a Pod
+          # whose primary Sovereign is mid-sync briefly drops out of
+          # the Service rotation but is NOT restarted. The kubeconfig
+          # PUT endpoint reaches catalyst-api the moment cloud-init
+          # calls it, breaking the deadlock.
           livenessProbe:
             httpGet:
               path: /healthz
@@ -282,7 +315,7 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5

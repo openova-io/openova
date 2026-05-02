@@ -108,6 +108,7 @@ func newRouter(h *Handler) http.Handler {
 	r.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
 	r.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
 	r.Get("/healthz", h.Health)
+	r.Get("/readyz", h.Ready)
 	return r
 }
 
@@ -183,10 +184,48 @@ func TestHandleK8sSync_ReturnsPerKindMap(t *testing.T) {
 	}
 }
 
-func TestHealth_PlainTextWhenK8sCacheDisabled(t *testing.T) {
+// TestHealth_AlwaysOK — /healthz is liveness; it MUST return 200
+// regardless of k8scache state (issue #530). The previous
+// implementation returned 503 when a Sovereign was registered but
+// its informers had not yet synced, which caused kubelet to
+// crashloop the catalyst-api Pod during fresh provisions. This test
+// exercises both the cold (no k8scache) and warm (k8scache wired)
+// paths with the same expectation.
+func TestHealth_AlwaysOK(t *testing.T) {
+	t.Run("k8scache_disabled", func(t *testing.T) {
+		h := &Handler{log: quietLog()}
+		r := newRouter(h)
+		req := httptest.NewRequest("GET", "/healthz", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if rec.Body.String() != "ok" {
+			t.Fatalf("expected ok, got %q", rec.Body.String())
+		}
+	})
+	t.Run("k8scache_wired", func(t *testing.T) {
+		f := newFactoryWithPod(t, nil)
+		h := &Handler{log: quietLog()}
+		h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+		r := newRouter(h)
+		req := httptest.NewRequest("GET", "/healthz", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		// Liveness MUST be 200 even when informers are still syncing.
+		if rec.Code != 200 {
+			t.Fatalf("expected 200 (liveness), got %d", rec.Code)
+		}
+	})
+}
+
+// TestReadyz_PlainTextWhenK8sCacheDisabled — readiness when k8scache
+// is unwired (test/CI env) is unconditionally 200; nothing to wait for.
+func TestReadyz_PlainTextWhenK8sCacheDisabled(t *testing.T) {
 	h := &Handler{log: quietLog()}
 	r := newRouter(h)
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/readyz", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -197,13 +236,17 @@ func TestHealth_PlainTextWhenK8sCacheDisabled(t *testing.T) {
 	}
 }
 
-func TestHealth_JSONWhenAcceptHeaderSet(t *testing.T) {
+// TestReadyz_JSONWhenAcceptHeaderSet — Accept: application/json
+// returns the structured per-cluster sync map. With no Sovereigns
+// registered (factory created from empty cluster list) the response
+// is 200 + Ready=true.
+func TestReadyz_JSONWhenAcceptHeaderSet(t *testing.T) {
 	f := newFactoryWithPod(t, nil)
 	h := &Handler{log: quietLog()}
 	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
 	r := newRouter(h)
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/readyz", nil)
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
