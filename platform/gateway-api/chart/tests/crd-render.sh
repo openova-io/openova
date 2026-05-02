@@ -3,12 +3,22 @@
 #
 # Verifies, in order:
 #   1. `helm template` renders without error.
-#   2. The render contains exactly 5 CustomResourceDefinitions:
+#   2. The render contains exactly 10 CustomResourceDefinitions
+#      (experimental channel — required by Cilium 1.16.x which checks for
+#      TLSRoute at operator startup; standard channel only ships 5 CRDs and
+#      the cilium gateway controller stays disabled without TLSRoute):
+#      Standard channel (5):
 #      - gatewayclasses.gateway.networking.k8s.io
 #      - gateways.gateway.networking.k8s.io
 #      - grpcroutes.gateway.networking.k8s.io
 #      - httproutes.gateway.networking.k8s.io
 #      - referencegrants.gateway.networking.k8s.io
+#      Experimental-only (5):
+#      - backendlbpolicies.gateway.networking.k8s.io
+#      - backendtlspolicies.gateway.networking.k8s.io
+#      - tcproutes.gateway.networking.k8s.io
+#      - tlsroutes.gateway.networking.k8s.io
+#      - udproutes.gateway.networking.k8s.io
 #   3. Each CRD carries `helm.sh/resource-policy: keep` so a Helm
 #      uninstall does NOT delete it (Gateway API CRDs are foundational —
 #      deleting them on uninstall would orphan every HTTPRoute on the

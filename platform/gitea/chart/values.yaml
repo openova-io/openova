@@ -33,6 +33,14 @@ gitea:
       server:
         DOMAIN: gitea.catalyst.local
         ROOT_URL: https://gitea.catalyst.local
+      # Wire CNPG-managed Postgres (replaces bitnami subchart).
+      # Password is injected at runtime via additionalConfigFromEnvs below.
+      database:
+        DB_TYPE: postgres
+        HOST: gitea-pg-rw.gitea.svc.cluster.local:5432
+        NAME: gitea
+        USER: gitea
+        SSL_MODE: disable
     # Gitea built-in metrics + ServiceMonitor — DEFAULT OFF.
     #
     # Per docs/INVIOLABLE-PRINCIPLES.md #4 and
@@ -48,34 +56,27 @@ gitea:
       enabled: false
       serviceMonitor:
         enabled: false
+    # Inject DB password from the reflector-managed gitea-database-secret.
+    # Reflector copies `gitea-pg-app` (CNPG-generated) into
+    # `gitea-database-secret`; the `password` key holds the postgres user
+    # password. GITEA__database__PASSWD overrides the empty value in
+    # gitea.config.database above.
+    additionalConfigFromEnvs:
+      - name: GITEA__database__PASSWD
+        valueFrom:
+          secretKeyRef:
+            name: gitea-database-secret
+            key: password
+  # Bitnami postgresql subchart DISABLED — bitnami/* and bitnamilegacy/*
+  # images are unavailable via the Harbor proxy_cache (DockerHub returns
+  # text/html for these namespaces — image pull fails with "unexpected media
+  # type text/html"). Replaced by bp-cnpg-managed Cluster
+  # (templates/cnpg-cluster.yaml + templates/database-secret.yaml), the
+  # same pattern used by bp-harbor. Fixes ImagePullBackOff on otech22.
   postgresql-ha:
     enabled: false
   postgresql:
-    enabled: true
-    global:
-      postgresql:
-        auth:
-          username: gitea
-          database: gitea
-    # Bitnami evacuated docker.io/bitnami/postgresql tags around 2025-09;
-    # the chart's default 16.3.0-debian-12-r23 returns 404. bitnamilegacy
-    # is the frozen archive that still serves these tags. Same workaround
-    # as #191 for bp-keycloak. Long-term: cnpg subchart override.
-    image:
-      repository: bitnamilegacy/postgresql
-      tag: 16.3.0-debian-12-r23
-    # PostgreSQL exporter + ServiceMonitor + PrometheusRule — DEFAULT OFF.
-    metrics:
-      enabled: false
-      image:
-        repository: bitnamilegacy/postgres-exporter
-      serviceMonitor:
-        enabled: false
-      prometheusRule:
-        enabled: false
-    volumePermissions:
-      image:
-        repository: bitnamilegacy/os-shell
+    enabled: false
   redis-cluster:
     enabled: false
   valkey-cluster:
@@ -87,6 +88,31 @@ gitea:
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:
     enabled: false
+
+# ─── CNPG-managed Postgres cluster for Gitea ──────────────────────────────
+# Per the Harbor pattern (templates/cnpg-cluster.yaml in bp-harbor), Gitea's
+# postgres is provisioned by CNPG rather than the Bitnami subchart. The
+# CNPG Cluster creates a `gitea-pg-app` Secret; database-secret.yaml uses
+# reflector to mirror it into `gitea-database-secret`, which the Gitea
+# deployment reads via a secretKeyRef for GITEA__database__PASSWD.
+postgres:
+  cluster:
+    name: gitea-pg
+    # namespace defaults to .Release.Namespace (gitea)
+    namespace: ""
+    instances: 1
+    pgVersion: "16"
+    database: gitea
+    owner: gitea
+    storageSize: 5Gi
+    storageClass: local-path
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 # ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
 # Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
