@@ -91,6 +91,14 @@ spec:
       host: bao.${SOVEREIGN_FQDN}
     autoUnseal:
       enabled: true
+      # Issue #517 (cont): the chart's init-job.yaml + auth-bootstrap-job.yaml
+      # default baoAddress to `http://<release>-openbao:8200`, but with
+      # spec.releaseName=openbao the upstream openbao chart's `fullname`
+      # template returns just `openbao` (not `openbao-openbao`) because
+      # Release.Name CONTAINS chart name. The rendered Service is
+      # `openbao` in the openbao namespace. Override the default so the
+      # post-install Jobs can actually reach the server.
+      baoAddress: http://openbao.openbao.svc.cluster.local:8200
     # Issue #517 (Phase-8a single-node): openbao upstream chart's
     # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
     # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
