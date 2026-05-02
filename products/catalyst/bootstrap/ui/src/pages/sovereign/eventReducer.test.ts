@@ -29,6 +29,7 @@ import {
   buildInitialState,
   computeOverallStatus,
   markAllReady,
+  markFailedTerminal,
   normaliseComponentId,
   reduceEvents,
   seedComponentStates,
@@ -388,5 +389,150 @@ describe('eventReducer — normaliseComponentId', () => {
     expect(normaliseComponentId('')).toBeNull()
     expect(normaliseComponentId('bp-foo')).toBe('bp-foo')
     expect(normaliseComponentId('foo')).toBe('bp-foo')
+  })
+})
+
+/**
+ * markFailedTerminal — issue #519 regression coverage.
+ *
+ * The Phase-0 banner used to stay pinned at "running" for an entire
+ * deployment lifetime when the SSE producer-channel overflowed and
+ * dropped the `tofu-output` event (typical on the high-throughput
+ * tofu-apply burst). Pre-PR #495 this was masked because every
+ * Phase-1 short-circuit flipped Status="ready" and the wizard called
+ * markAllReady (which converges banners). Post-#495, Phase-1 failures
+ * correctly flip Status="failed" — but the wizard skipped banner
+ * convergence on the failed path, freezing the UI on jobs that had
+ * actually finished an hour ago.
+ *
+ * Coverage:
+ *   • non-empty phase1Outcome → Phase-0 banner converges to done
+ *   • outcome="ready" + failed status → cluster-bootstrap=done
+ *   • outcome=any-non-ready → cluster-bootstrap=failed (the helmwatch
+ *     reports its outcome on termination, not as per-event errors —
+ *     so the streaming events alone wouldn't have flipped this banner
+ *     to failed)
+ *   • empty phase1Outcome (Phase 0 itself failed) → banners untouched;
+ *     the streaming events' verdict stands
+ *   • per-Application cards are seeded from componentStates (no
+ *     auto-installed promotion on the failed path)
+ *   • previously-failed banner is preserved (never demote-to-done)
+ *   • phase1WatchSkipped flag fires when phase0Succeeded but no
+ *     per-component ground truth exists (mirrors markAllReady)
+ */
+describe('eventReducer — markFailedTerminal (issue #519)', () => {
+  it('outcome="flux-not-reconciling" — Phase 0 banner converges to done, cluster-bootstrap to failed', () => {
+    // Reproduces the exact otech17 deployment 6b17518f12d529ea state:
+    // ~237 tofu events captured before producer overflow dropped the
+    // `tofu-output` line. Reducer sees only `tofu-init`/`-plan`/`-apply`
+    // (banner: running) and never receives `tofu-output` (which would
+    // flip it to done). Without markFailedTerminal, banner stays
+    // "running" forever after deployment.status===failed.
+    const s = reduceEvents(buildInitialState(APPS), [
+      { phase: 'tofu-init' },
+      { phase: 'tofu-plan' },
+      { phase: 'tofu-apply' },
+      // NOTE: NO tofu-output event — that's the regression scenario.
+    ])
+    expect(s.hetznerInfra.status).toBe('running')
+
+    const next = markFailedTerminal(s, 'flux-not-reconciling', null)
+    expect(next.hetznerInfra.status).toBe('done')
+    expect(next.clusterBootstrap.status).toBe('failed')
+  })
+
+  it('outcome="ready" + failed deployment — cluster-bootstrap=done (rare but legal: Phase-1 ran to completion then a downstream check failed)', () => {
+    const s = reduceEvents(buildInitialState(APPS), [
+      { phase: 'tofu-init' },
+      { phase: 'tofu-plan' },
+      { phase: 'tofu-apply' },
+    ])
+    const next = markFailedTerminal(s, 'ready', null)
+    expect(next.hetznerInfra.status).toBe('done')
+    expect(next.clusterBootstrap.status).toBe('done')
+  })
+
+  it('outcome="kubeconfig-missing" — Phase 0 done, cluster-bootstrap failed (pre-PR #495 false-ready regression)', () => {
+    const s = reduceEvents(buildInitialState(APPS), [
+      { phase: 'tofu-init' },
+      { phase: 'tofu-plan' },
+    ])
+    const next = markFailedTerminal(s, 'kubeconfig-missing', null)
+    expect(next.hetznerInfra.status).toBe('done')
+    expect(next.clusterBootstrap.status).toBe('failed')
+  })
+
+  it('outcome="watcher-start-failed" — Phase 0 done, cluster-bootstrap failed', () => {
+    const s = buildInitialState(APPS)
+    const next = markFailedTerminal(s, 'watcher-start-failed', null)
+    expect(next.hetznerInfra.status).toBe('done')
+    expect(next.clusterBootstrap.status).toBe('failed')
+  })
+
+  it('empty phase1Outcome — banners untouched (Phase 0 itself failed; streaming events have set the truthful state)', () => {
+    // Streaming events drove the Hetzner banner to failed via a level=error
+    // tofu line. markFailedTerminal MUST NOT flip it back to done.
+    const s = reduceEvents(buildInitialState(APPS), [
+      { phase: 'tofu-init' },
+      { phase: 'tofu-apply', level: 'error', message: 'hcloud_server.cp[0]: HTTP 503 from Hetzner' },
+    ])
+    expect(s.hetznerInfra.status).toBe('failed')
+
+    const next = markFailedTerminal(s, '', null)
+    expect(next.hetznerInfra.status).toBe('failed')
+    // cluster-bootstrap stays pending — Phase 1 never ran, no signal to
+    // mark it failed; streaming events alone are the source of truth.
+    expect(next.clusterBootstrap.status).toBe('pending')
+  })
+
+  it('previously-failed Phase-0 banner is preserved (never demote-to-done)', () => {
+    const s = reduceEvents(buildInitialState(APPS), [
+      { phase: 'tofu-init' },
+      { phase: 'tofu-apply', level: 'error', message: 'fatal' },
+    ])
+    expect(s.hetznerInfra.status).toBe('failed')
+
+    // Even if helmwatch somehow ran AFTER a Phase-0 failure (it
+    // shouldn't, but the contract is: never demote a failed banner
+    // to done), markFailedTerminal honours the streaming-events verdict.
+    const next = markFailedTerminal(s, 'ready', null)
+    expect(next.hetznerInfra.status).toBe('failed')
+  })
+
+  it('does not auto-promote pending Application cards to installed on the failed path', () => {
+    const s = buildInitialState(APPS)
+    const next = markFailedTerminal(s, 'flux-not-reconciling', null)
+    for (const id of APPS) {
+      expect(next.apps[id]?.status).toBe('pending')
+    }
+  })
+
+  it('seeds Application cards from componentStates map when supplied', () => {
+    const s = buildInitialState(APPS)
+    const next = markFailedTerminal(s, 'failed', {
+      cilium: 'installed',
+      'cert-manager': 'installed',
+      flux: 'failed',
+      // crossplane: not in the map, stays pending
+    })
+    expect(next.apps['bp-cilium']?.status).toBe('installed')
+    expect(next.apps['bp-cert-manager']?.status).toBe('installed')
+    expect(next.apps['bp-flux']?.status).toBe('failed')
+    expect(next.apps['bp-crossplane']?.status).toBe('pending')
+  })
+
+  it('flips phase1WatchSkipped=true when Phase-0 succeeded but no per-component ground truth exists (matches markAllReady contract)', () => {
+    const s = buildInitialState(APPS)
+    const next = markFailedTerminal(s, 'flux-not-reconciling', null)
+    expect(next.phase1WatchSkipped).toBe(true)
+    expect(next.phase1WatchSkippedReason).toBeTruthy()
+  })
+
+  it('does not flip phase1WatchSkipped when ground truth IS present', () => {
+    const s = buildInitialState(APPS)
+    const next = markFailedTerminal(s, 'failed', {
+      cilium: 'failed',
+    })
+    expect(next.phase1WatchSkipped).toBe(false)
   })
 })

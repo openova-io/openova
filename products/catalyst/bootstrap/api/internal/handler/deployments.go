@@ -682,6 +682,15 @@ func (d *Deployment) State() map[string]any {
 		if d.Result.Phase1FinishedAt != nil {
 			out["phase1FinishedAt"] = d.Result.Phase1FinishedAt.UTC().Format(time.RFC3339)
 		}
+		// Issue #519 — lift phase1Outcome too so the wizard's
+		// `markFailedTerminal` reducer can read it without unwrapping
+		// result. The presence of any non-empty value is the durable
+		// proof that runPhase1Watch reached its terminal classification,
+		// which in turn proves Phase 0 finished — even if the
+		// `tofu-output` event was lost in producer-channel overflow.
+		if d.Result.Phase1Outcome != "" {
+			out["phase1Outcome"] = d.Result.Phase1Outcome
+		}
 	}
 	// adoptedAt — handover-finalisation flag (issue #317) lifted to the
 	// top level so the UI's beforeLoad redirect (issue #319) reads it

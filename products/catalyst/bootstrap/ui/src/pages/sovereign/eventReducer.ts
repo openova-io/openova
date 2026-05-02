@@ -505,6 +505,105 @@ export function markAllReady(
 }
 
 /**
+ * `phase1Outcome` non-empty means runPhase1Watch was reached — which
+ * in turn means runProvisioning's Phase-0 path returned successfully OR
+ * cloud-init's PutKubeconfig handler ran (control plane is up). Either
+ * way, the Hetzner-infra Phase 0 has succeeded by the time helmwatch
+ * surfaces ANY of these outcomes. The PHASE-1-only failures
+ * (`flux-not-reconciling`, `failed`, `timeout`) must NOT leave the
+ * Hetzner-infra banner stuck on "running" because the wizard's SSE
+ * stream lost the `tofu-output` event in a producer-channel-overflow
+ * burst.
+ *
+ * Issue #519: pre-#495, `markPhase1Done` flipped `dep.Status = "ready"`
+ * on every Phase-1 short-circuit, so `useDeploymentEvents` always took
+ * the `markAllReady` branch and the banner converged. Post-#495,
+ * Phase-1 failures correctly flip `dep.Status = "failed"`, but
+ * `markAllReady` was the ONLY caller that converged the Phase-0/Phase-1
+ * banners — leaving the Hetzner banner pinned at "running" for a
+ * deployment that had finished an hour ago.
+ *
+ * We honour the actual ground truth: if the catalyst-api recorded a
+ * Phase-1 outcome (any Outcome*), runPhase1Watch reached its decision
+ * — Phase 0 finished. Anything still showing "running" / "pending" on
+ * the Phase-0 banner is a stale UI artefact, not the truth.
+ */
+const PHASE1_OUTCOMES_IMPLYING_PHASE0_SUCCESS = new Set<string>([
+  'ready',
+  'failed',
+  'timeout',
+  'flux-not-reconciling',
+  'kubeconfig-missing',
+  'watcher-start-failed',
+])
+
+/**
+ * Converge phase banners when the deployment terminates as `failed`.
+ *
+ * `failed` is NOT an "everything is broken" signal — it commonly means
+ * "Phase 0 succeeded, Phase 1 (helmwatch) timed out / saw zero HRs /
+ * could not start". The operator must still see the Phase-0 jobs as
+ * Succeeded so the failure scope is unambiguous.
+ *
+ *   • If `phase1Outcome` is one of the post-Phase-0 outcomes
+ *     (PHASE1_OUTCOMES_IMPLYING_PHASE0_SUCCESS), mark Hetzner-infra =
+ *     done. cluster-bootstrap = done IFF the outcome is `ready`;
+ *     anything else is a Phase-1 failure and the cluster-bootstrap
+ *     banner reads `failed` so the operator's eye snaps to the correct
+ *     phase.
+ *   • If `phase1Outcome` is empty, the failure is in Phase 0 itself
+ *     (or before it) — leave banners alone (the streaming events have
+ *     already set them; if they're missing, we don't have ground truth
+ *     to flip them).
+ *   • Per-Application cards are seeded from the durable componentStates
+ *     map (same rule as markAllReady) — no auto-installed promotion.
+ */
+export function markFailedTerminal(
+  base: ReducerState,
+  phase1Outcome: string | null | undefined,
+  componentStates?: Record<string, string> | null,
+): ReducerState {
+  const seeded = seedComponentStates(base, componentStates ?? null)
+  const next = reduceEvents(seeded, [])
+
+  const outcome = phase1Outcome ?? ''
+  const phase0Succeeded = PHASE1_OUTCOMES_IMPLYING_PHASE0_SUCCESS.has(outcome)
+  if (phase0Succeeded) {
+    // Hetzner-infra: done unless the streaming events explicitly
+    // marked it failed (e.g. an `error`-level tofu event arrived).
+    if (next.hetznerInfra.status !== 'failed') {
+      next.hetznerInfra.status = 'done'
+    }
+    // cluster-bootstrap: this banner spans cloud-init AND helmwatch.
+    // If the helmwatch outcome is anything except `ready`, the banner
+    // is genuinely failed — even if the streaming events never carried
+    // a `level: error` for it (the watcher reports its outcome on
+    // termination, not via per-step error events).
+    if (outcome !== 'ready') {
+      next.clusterBootstrap.status = 'failed'
+    } else if (next.clusterBootstrap.status !== 'failed') {
+      next.clusterBootstrap.status = 'done'
+    }
+  }
+
+  // Same ground-truth rule as markAllReady: surface the
+  // helmwatch-unavailable banner if there's no per-component data at
+  // all. We do NOT auto-promote any card to installed.
+  const haveAnyGroundTruth =
+    (componentStates && Object.keys(componentStates).length > 0) ||
+    Object.values(next.apps).some((a) => a.status !== 'pending')
+  if (!haveAnyGroundTruth && phase0Succeeded) {
+    next.phase1WatchSkipped = true
+    if (!next.phase1WatchSkippedReason) {
+      next.phase1WatchSkippedReason =
+        'Phase-1 install state not available — the catalyst-api could not observe per-component install state on the new Sovereign cluster (typically because the kubeconfig was not available on the catalyst-api side). Check the new cluster directly with kubectl get helmrelease -n flux-system.'
+    }
+  }
+
+  return next
+}
+
+/**
  * Compute an aggregate Sovereign-wide status from the per-component +
  * phase-banner mix. Used by the top-bar status pill.
  *
