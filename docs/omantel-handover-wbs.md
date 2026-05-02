@@ -478,6 +478,63 @@ If founder wants to amend ADR-0001 with §13 formalised (S3 vs SeaweedFS rule), 
 | #461 | ✅ done — Phase-8a preflight C · Cilium Gateway HTTPRoute admission on kind. Surfaces Risk R3 ahead of Phase 8a. Workflow `.github/workflows/preflight-cilium-httproute.yaml` boots kind, installs Cilium 1.16.5 with `gatewayAPI.enabled=true`, applies the per-Sovereign Gateway shape (HTTP listener mirroring `clusters/_template/bootstrap-kit/01-cilium.yaml`; HTTPS deferred to Phase 8a since TLS needs cert-manager DNS01), pulls bp-catalyst-platform:1.1.8 from GHCR, renders `products/catalyst/chart/templates/httproute.yaml` with sovereign-overlay values, and asserts both `catalyst-ui` + `catalyst-api` HTTPRoutes reach `Accepted=True`. Triggers event-driven (`push` on the workflow + chart templates + canonical Gateway slot, plus `workflow_dispatch`); no cron. | [#465](https://github.com/openova-io/openova/pull/465) merged `48b73af6` | preflight workflow shipped; live exec on push or `gh workflow run` |
 | #462 | 🟢 done — Phase-8a preflight E · Keycloak realm-import + kubectl OIDC client render on kind. Ships `.github/workflows/preflight-keycloak-realm.yaml` (event-driven, kind v1.30.6, bp-keycloak 1.2.0, asserts sovereign realm + kubectl client + groups mapper via Admin REST API). Surfaces Risk R6. | (merged) | de-risks #454 |
 
+## 9b. Phase 8a live iteration log — 2026-05-01 → 2026-05-02
+
+Status of the **first real Hetzner Sovereign provisioning attempts** (otech10..otech22 burn cycles). Each bug listed here was surfaced by an actual provision against `*.omani.works` Hetzner cluster — the integration-test value Phase 8a is supposed to deliver. Founder instruction 2026-05-02: this section is the canonical handover-state truth, updated as bugs land. Stop relying on memory files.
+
+### Phase-8a fixes landed (chronological — most recent at top)
+
+| Ticket | Symptom on Sovereign | Root cause | Fix | PR | Status on otech22 |
+|---|---|---|---|---|---|
+| **#553** | bp-powerdns Helm upgrade fails: `namespaces "openova-system" not found`; CNPG Cluster CR never applied; powerdns Deployment locks at `secret "pdns-pg-app" not found` | `platform/powerdns/chart/values.yaml` defaulted `postgres.cluster.namespace` to `openova-system` (contabo legacy) — non-existent on Sovereigns | Default to `powerdns` (chart targetNamespace); bump bp-powerdns 1.1.4 → 1.1.5 | (PR pending) | re-issuing |
+| **#547** | Wizard `/jobs` page shows 12/38 install rows for 50+ minutes after cluster is fully Ready | `helmwatch.DefaultMinBootstrapKitHRs = 11`; informer alphabetical sync caused early `OutcomeReady` after seeding only 12 components | Set `CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS=38` env on catalyst-api Deployment via canonical seam | [#551](https://github.com/openova-io/openova/pull/551) `acffc415` | ✅ wizard renders 38/39 rows live, dependency edges, all Succeeded |
+| **#544** | external-dns CreateContainerConfigError; cannot read `powerdns-api-credentials` (lives in `powerdns` ns, external-dns is in own ns) | No cross-namespace Secret propagation | emberstack/Reflector annotations on the Secret manifest; `dependsOn: bp-reflector` on bp-external-dns; bp-powerdns 1.1.3 → 1.1.4 | [#552](https://github.com/openova-io/openova/pull/552) `902d8577` | ✅ external-dns 1/1 Running |
+| **#549** | catalyst-api on Sovereign CrashLoops: `Error: secret "dynadot-api-credentials" not found` | Chart hardcoded DYNADOT_API_KEY/SECRET as required env without `optional: true`; Sovereigns don't hold Dynadot creds (their tenant DNS goes through their own PowerDNS) | Mark `optional: true` on both secretKeyRefs; chart 1.1.9 → 1.1.12 | [#549](https://github.com/openova-io/openova/pull/549) `991b2560` | ✅ catalyst-api Running |
+| **#542** | Wizard "Bootstrap cluster" job RUNNING for 50+ min after cluster is fully Ready; helmwatch silently fails with `connect: connection refused` to Sovereign kube-api | Cloud-init rewrote kubeconfig `server:` to LB IP; LB only forwards 80/443; CP node IP was reachable on 6443 directly via firewall rule but kubeconfig pointed at the wrong address | Pass `control_plane_ipv4` (= `hcloud_server.control_plane[0].ipv4_address`) into cloud-init template; rewrite `server:` to CP IP not LB IP | [#546](https://github.com/openova-io/openova/pull/546) `5b55d654` | ✅ helmwatch observes all HRs |
+| **#538** | Phase-1 watch terminated with `kubeconfig-missing` exactly when cloud-init's PUT-back arrived; deployment latched terminal-failed | Race: `runProvisioning` launched watch before `PutKubeconfig` landed; first miss flipped terminal | `waitForKubeconfig` polling loop (15s/15min, env-configurable); relaunch watch on PUT when prior outcome was kubeconfig-missing | [#541](https://github.com/openova-io/openova/pull/541) `db6c4c93` | ✅ |
+| **#536** | catalyst-api crashloop on contabo every ~33s; cloud-init kubeconfig PUT got 502 | Single `/healthz` path served both liveness + readiness; cluster registration in k8scache failed `/healthz` until kubeconfig arrived → kubelet killed pod | Split `/healthz` (always 200 if process alive) from `/readyz` (always 200; informer-sync state in JSON body for telemetry only) | [#536](https://github.com/openova-io/openova/pull/536) `5768924e` | ✅ |
+| **#539** / #540 | bp-openbao chart 1.2.3 unseal keys only stored in /tmp of init Job pod; lost on pod death | Init Job didn't persist keys to a K8s Secret BEFORE `bao operator init` finished | Persist `openbao-unseal-keys` Secret as Step 3a (fresh init) and Step 2a (idempotent unseal); chart 1.2.3 → 1.2.4 | [#540](https://github.com/openova-io/openova/pull/540) `8cde771c` | ✅ openbao Running |
+| #531/#532/#534/#535/#537 | Wizard cosmetics — notification bell, page titles, +more click, settings width, force-directed flow physics, dep-order Y axis, drag-to-pin, parent-elision, sub-grid for high-fan-out depth | Multiple UI bugs surfaced during Phase-8a operator usage | Multi-PR fix bundle | #534, #533, #535, #537 | ✅ |
+| **#519** | Wizard Phase-0 jobs stuck "Running" on failed deployments; banner never converged | Front-end converged status from event buffer rather than helmwatch outcome | Converge banner from helmwatch outcome (`Phase1Outcome` field on Result) | [#526](https://github.com/openova-io/openova/pull/526) `4e88abea` | ✅ |
+| **#510** | bp-catalyst-platform installed a duplicate flux source-controller alongside bp-flux's | Umbrella chart bundled flux subchart unconditionally | Split — bp-catalyst-platform no longer ships flux subchart | #514 | ✅ |
+| **#503** | Multiple HRs failed to render: `no matches for kind HTTPRoute` (gateway.networking.k8s.io/v1 CRDs not registered) | CRDs not present at HR install time | New bp-gateway-api blueprint installs upstream CRDs as Phase-8a-prerequisite | [#505](https://github.com/openova-io/openova/pull/505) `e1f7d22f` | ✅ |
+| **#506** / #508 | cert-manager-powerdns-webhook chart had duplicate labels + commonName overflow on long Sovereign FQDNs | Chart authoring bugs | Fix labels; truncate commonName to ≤64 chars (X.509 limit) | #507, #509 | ✅ |
+| **#491** | bp-cilium installed without envoyConfig CRDs / Cilium Gateway support — Phase-8a Sovereigns can't admit HTTPRoutes | Cilium values block missing parity with the production reference | Restore values parity (envoyConfig.enabled, gatewayAPI.enabled, hubble) | [#496](https://github.com/openova-io/openova/pull/496) `141dc9df` | ✅ |
+| **#492** | Bootstrap-kit Kustomization timeout 30m vs Helm install timeout 5m mismatch caused premature failure on slow charts | Mismatched timeouts between layers | Bootstrap-kit Kustomization timeout 30m → 5m matching Helm | [#500](https://github.com/openova-io/openova/pull/500) `66ff717f` | ✅ |
+| **#488** | Phase-1 watch flipped Status="ready" when no kubeconfig had ever arrived (false-ready bug) | Empty outcome path defaulted to "ready" instead of failed | Explicit `OutcomeKubeconfigMissing` constant; UI banner shows operator-actionable diagnostic | [#495](https://github.com/openova-io/openova/pull/495) `e2f8df74` | ✅ |
+| **#487** | Wizard "Banner placement" issue covering apps page nav | UI cosmetic | Banner moved | [#487](https://github.com/openova-io/openova/pull/487) `e6663f16` | ✅ |
+| **#474** | JobsAdapter row-id contract drift between table view and deep-link viewer | Row-id schema regression | jobsAdapter row-id contract test pinned | [#501](https://github.com/openova-io/openova/pull/501) `d6caeddf` | ✅ |
+| **#489** | PDM subdomain release — leftover otechN entries in PDM not cleaned up after wipe | Wipe didn't trigger PDM release | Wire wipe to `POST /api/v1/release` + force-release fallback | [#502](https://github.com/openova-io/openova/pull/502) `c148ef36` | ✅ |
+| **#494** | Hardcoded `/api/` paths in UI bypassed the API_BASE seam | Inconsistent routing | All API calls go through `lib/config.ts:apiBase` | [#498](https://github.com/openova-io/openova/pull/498) `a5f5a37e` | ✅ |
+| **#340** | bp-seaweedfs HelmRelease failed `fromToml` rendering | Upstream chart bug | Vendor seaweedfs subchart with patched `fromToml` | [#504](https://github.com/openova-io/openova/pull/504) `1865ac89` | ✅ |
+| **#317** | Handover-finalisation didn't preserve slim record for redirect | `Deployment.SlimForHandover` missing | New seam transforms record to status:adopted, preserves redirect contract | [#453](https://github.com/openova-io/openova/issues/453) | ✅ tested |
+
+### Phase-8a in flight (background agents — 2026-05-02 ~10:00 UTC)
+
+| Ticket | Scope | Agent state | Blocks |
+|---|---|---|---|
+| **#543** | bp-reflector blueprint + global rename `ghcr-pull-secret` → `ghcr-pull` across catalyst, anthropic-adapter, cert-manager-powerdns-webhook charts; emberstack/Reflector mirrors `flux-system/ghcr-pull` to all namespaces | running | catalyst-api/catalyst-ui/gitea/harbor/keycloak ImagePullBackOff |
+| **#548** | Switch Sovereign DNS-01 ClusterIssuer from cert-manager-powerdns-webhook (PowerDNS not authoritative for parent zone) to cert-manager-dynadot-webhook (Dynadot IS authoritative) so Let's Encrypt can issue the wildcard cert | running | TLS for `console.<sovereign>.omani.works` handover URL |
+
+### Phase-8a queue (next after current agents land)
+
+| Issue | Scope | Estimate |
+|---|---|---|
+| Live re-provision otech23 from clean slate, verify all 38 HRs Ready=True with all the above fixes baked in | Tofu apply → cloud-init → 38 HRs Ready → wizard 38/39 → handover URL serves Keycloak login | 30-45 min for Hetzner provision; 15 min for Phase-1 reconciliation |
+| Phase 8b dispatch | Handover-finalisation + decommission cycle on `test.omani.works` | gates Phase 8c |
+| Phase 8c | Production omantel.omani.works run | DoD gate |
+
+### Phase-8a is doing exactly what it was designed to do
+Risk Register entries we've now exercised live and resolved:
+- **R3** (Cilium Gateway HTTPRoute admission) — admission works on otech22 but TLS chain (R7-adjacent) not yet wired; #548 closes that
+- **R4** (bootstrap-kit reconcile order under load) — surfaced 14+ ordering / dependency / chart-bug fixes; integrated into chart-released versions
+
+Risk Register entries still open:
+- **R2** (Crossplane provider-hcloud Healthy=True) — #460 preflight workflow shipped; live observation pending next provision
+- **R5** (Hetzner Object Storage credentials acceptance) — Velero/Harbor not yet exercised end-to-end
+- **R7** (PowerDNS NS delegation flow) — being addressed via #548 dynadot-webhook switch instead of NS-delegation
+- **R8** (wipe + re-provision idempotency) — exercised partially; otech10..otech22 cycle proves wipe seam works but doesn't prove no-orphans
+
 ## 9a. Risk register — known gaps that will surface in Phase 8a
 
 These are bugs we already know exist but cannot fix until Phase 8a exposes them concretely. Listed honestly so they don't surprise us.
