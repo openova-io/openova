@@ -41,6 +41,15 @@ spec:
     # HelmRelease applies or install fails with `no matches for kind
     # HTTPRoute`.
     - name: bp-gateway-api
+    # bp-cnpg (issue #512): the OpenBao 3-node Raft post-install init Job
+    # (Helm hook weight 5) runs `bao operator init` and seals/unseals via
+    # Kubernetes auth; both paths require the cnpg PostgreSQL backing the
+    # OpenBao audit/storage adjuncts to be Ready, otherwise the hook
+    # blocks until Helm's install timeout (15m) expires. Phase-8a-preflight
+    # otech16 (2026-05-02): even with timeout=15m, the hook raced cnpg
+    # coming up. Adding the explicit dep makes Flux wait for bp-cnpg
+    # Ready=True before starting bp-openbao install. See issue #512.
+    - name: bp-cnpg
   chart:
     spec:
       chart: bp-openbao

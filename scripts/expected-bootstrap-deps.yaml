@@ -69,7 +69,10 @@ slots:
     name: bp-openbao
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered before install.
-    depends_on: [bp-spire, bp-gateway-api]
+    # bp-cnpg dep (issue #512): post-install init hook (`bao operator init`)
+    # races cnpg readiness on a fresh Sovereign, hitting the 15m install
+    # timeout. Explicit dep makes Flux wait for cnpg Ready=True first.
+    depends_on: [bp-spire, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 9
     name: bp-keycloak
@@ -94,7 +97,11 @@ slots:
     name: bp-catalyst-platform
     # bp-gateway-api dep (issue #503): umbrella chart ships catalyst-ui +
     # catalyst-api HTTPRoute templates.
-    depends_on: [bp-gitea, bp-gateway-api]
+    # bp-keycloak + bp-cnpg deps (issue #512): umbrella post-install Jobs
+    # bootstrap OIDC clients + seed PG schemas; both deps take 5+ min to
+    # reach Ready on a fresh Sovereign, racing the 15m install timeout.
+    # Explicit deps make Flux wait for both Ready=True before umbrella starts.
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
