@@ -42,6 +42,21 @@ spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
   imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
+  # Annotations CNPG propagates onto every Secret it generates
+  # (pdns-pg-app, pdns-pg-superuser, etc) so Reflector mirrors
+  # `pdns-pg-app` into the chart-emitted placeholder Secret
+  # (`pdns-pg-app` lives in the same namespace; same-namespace
+  # reflection still requires the source to opt in).
+  # auto-enabled prevents the otech28-diagnosed retry race where
+  # Reflector tries to update the destination Secret before CNPG
+  # finishes provisioning the source — and never logs again.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+
   bootstrap:
     initdb:
       database: {{ .Values.postgres.cluster.database | default "pdns" | quote }}

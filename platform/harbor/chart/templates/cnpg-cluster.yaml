@@ -57,6 +57,15 @@ spec:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
       reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+      # auto-enabled tells Reflector to actively watch this source and
+      # propagate to every namespace in auto-namespaces — independent
+      # of whether the destination Secret pre-exists at the time
+      # Reflector first sees the source. Without this, Reflector logs
+      # "Source could not be found" once when the destination is
+      # processed before CNPG has finished provisioning the source,
+      # then never retries — caught live during otech28.
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
 
   postgresql:
     parameters:
