@@ -57,6 +57,15 @@ slots:
     name: bp-sealed-secrets
     depends_on: [bp-cert-manager]
     wave: present
+  - slot: 5a
+    name: bp-reflector
+    # emberstack/reflector — secret/configmap mirror controller (issue #543).
+    # Propagates ghcr-pull secret to every namespace so cross-namespace
+    # ImagePullBackOff gaps are eliminated. Slot 5a: after sealed-secrets,
+    # before spire. dependsOn bp-cert-manager (CRDs must exist).
+    # Used by bp-gitea + bp-harbor to propagate CNPG-generated pg-app Secrets.
+    depends_on: [bp-cert-manager]
+    wave: present
   - slot: 6
     name: bp-spire
     depends_on: [bp-cert-manager]
@@ -91,7 +100,9 @@ slots:
     wave: present
   - slot: 12
     name: bp-external-dns
-    depends_on: [bp-cert-manager, bp-powerdns]
+    # bp-reflector dep (issue #543): external-dns HTTPRoute uses reflector-mirrored
+    # ghcr-pull secret; reflector must be Ready before external-dns deploys.
+    depends_on: [bp-cert-manager, bp-powerdns, bp-reflector]
     wave: present
   - slot: 13
     name: bp-catalyst-platform
