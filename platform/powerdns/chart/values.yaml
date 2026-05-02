@@ -264,7 +264,15 @@ postgres:
   # ─── Cluster ────────────────────────────────────────────────────────
   cluster:
     name: pdns-pg
-    namespace: openova-system
+    # On Sovereign clusters the chart's targetNamespace is `powerdns` and
+    # `openova-system` does not exist — Helm upgrade fails with
+    # `namespaces "openova-system" not found` and the CNPG Cluster CR is
+    # never applied, so the powerdns Deployment crashloops on the missing
+    # `pdns-pg-app` Secret. Default to the chart's own targetNamespace so
+    # the Secret materialises in the same place the consumer reads it
+    # from. Contabo legacy can override via per-Sovereign values overlay
+    # if it still uses openova-system. Issue #553.
+    namespace: powerdns
     instances: 1                 # bump to 3 alongside replicaCount=3 once we move beyond Phase-0 single-region
     storageSize: 5Gi
     storageClass: local-path     # Contabo k3s default; Sovereign Hetzner clusters override to hcloud-volumes
