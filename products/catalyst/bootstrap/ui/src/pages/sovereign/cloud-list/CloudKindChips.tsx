@@ -287,13 +287,22 @@ const CLOUD_KIND_CHIPS_CSS = `
   color: var(--color-accent);
 }
 
-.cloud-kind-chip-more-wrap { position: relative; }
+/* #531 item 5: the More popover used to sit *behind* the page-body
+   header + table because every later sibling on the page (with z-index
+   auto) painted on top of an absolutely-positioned descendant whose
+   parent's stacking context was also auto. Establishing a stacking
+   context on .cloud-kind-chip-more-wrap (and giving the popover an
+   explicit, very-high z-index) guarantees the popover paints above
+   subsequent toolbar / list-table content. */
+.cloud-kind-chip-more-wrap { position: relative; z-index: 50; }
 .cloud-kind-chip-more { color: var(--color-text); }
 .cloud-kind-chip-more-pop {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
-  z-index: 30;
+  /* High z-index so the popover paints above downstream page sections
+     (cloud header, list table) regardless of their stacking order. */
+  z-index: 2000;
   display: flex;
   flex-direction: column;
   gap: 0.15rem;

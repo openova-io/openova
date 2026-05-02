@@ -190,9 +190,15 @@ describe('Dashboard — 12-cell flat fixture', () => {
 })
 
 describe('Dashboard — drill-down breadcrumb', () => {
-  it('starts with only the root chip', async () => {
+  it('hides the breadcrumb at root depth (#531 item 4)', async () => {
     renderDashboard('d-1', NESTED_FIXTURE)
-    expect(await screen.findByTestId('dashboard-breadcrumb-root')).toBeTruthy()
+    // Wait for the treemap to mount so we know the page has rendered.
+    await screen.findByTestId('dashboard-treemap-frame')
+    // The breadcrumb (and its standalone "All" chip) only appears once
+    // the operator drills into a parent — root has nothing to pop back
+    // to so the row is hidden to reclaim vertical space.
+    expect(screen.queryByTestId('dashboard-breadcrumb')).toBeNull()
+    expect(screen.queryByTestId('dashboard-breadcrumb-root')).toBeNull()
     expect(screen.queryByTestId('dashboard-breadcrumb-0')).toBeNull()
   })
 })

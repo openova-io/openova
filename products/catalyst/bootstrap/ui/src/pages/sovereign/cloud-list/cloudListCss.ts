@@ -10,7 +10,12 @@ export const CLOUD_LIST_CSS = `
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: center;
+  /* #531 item 3: align all controls (search input + filter dropdowns
+     + result count) on the same vertical baseline. Filter labels
+     stack the caption above the select; aligning to the bottom keeps
+     every interactive surface on the same row regardless of which
+     children carry a caption. */
+  align-items: flex-end;
   margin-bottom: 0.75rem;
 }
 .cloud-list-search-wrap {
@@ -30,12 +35,14 @@ export const CLOUD_LIST_CSS = `
 }
 .cloud-list-search-input {
   width: 100%;
-  padding: 0.45rem 0.7rem 0.45rem 1.9rem;
+  /* Match the filter-select height so the search input baseline lines
+     up with the dropdown baselines once the toolbar aligns to flex-end. */
+  padding: 0.32rem 0.7rem 0.32rem 1.9rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--color-text);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   outline: none;
   transition: border-color 0.15s ease;
 }
@@ -44,7 +51,7 @@ export const CLOUD_LIST_CSS = `
 .cloud-list-filters {
   display: flex;
   gap: 0.6rem;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
 }
 .cloud-list-filter-label {

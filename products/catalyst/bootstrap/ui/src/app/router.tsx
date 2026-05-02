@@ -29,6 +29,7 @@ import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
+import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -340,6 +341,14 @@ const provisionSettingsRoute = createRoute({
   component: SettingsPage,
 })
 
+// Standalone notifications surface (#531 item 1) — same in-memory list
+// the bell renders, but with room to scroll long error traces.
+const provisionNotificationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/notifications',
+  component: NotificationsPage,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout.
@@ -396,6 +405,7 @@ const routeTree = rootRoute.addChildren([
   provisionUsersNewRoute,
   provisionUsersEditRoute,
   provisionSettingsRoute,
+  provisionNotificationsRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,

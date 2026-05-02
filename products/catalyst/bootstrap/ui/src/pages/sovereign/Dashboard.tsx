@@ -316,44 +316,45 @@ export function Dashboard({
           setSizeBy={setSizeBy}
         />
 
-        {/* Breadcrumbs — drill stack pop targets. Always visible so the
-         *  operator can see the depth even when at root (root chip is
-         *  shown as the active item). */}
-        <nav
-          className="mt-3 flex flex-wrap items-center gap-1 text-xs"
-          aria-label="Drill path"
-          data-testid="dashboard-breadcrumb"
-        >
-          <button
-            type="button"
-            onClick={() => popDrillTo(0)}
-            className={`rounded-md px-2 py-1 transition-colors ${
-              drillPath.length === 0
-                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
-            }`}
-            data-testid="dashboard-breadcrumb-root"
+        {/* Breadcrumbs — drill stack pop targets. Hidden at root depth
+         *  (#531 item 4 — the standalone "All" chip wasted vertical
+         *  space and had no functional purpose when nothing was
+         *  drilled). The "All" chip reappears as the leftmost crumb as
+         *  soon as the operator drills into a parent so they can pop
+         *  back to root with one click. */}
+        {drillPath.length > 0 ? (
+          <nav
+            className="mt-3 flex flex-wrap items-center gap-1 text-xs"
+            aria-label="Drill path"
+            data-testid="dashboard-breadcrumb"
           >
-            All
-          </button>
-          {drillPath.map((step, i) => (
-            <span key={`${step.id}-${i}`} className="flex items-center gap-1">
-              <span className="text-[var(--color-text-dimmer)]">/</span>
-              <button
-                type="button"
-                onClick={() => popDrillTo(i + 1)}
-                className={`rounded-md px-2 py-1 transition-colors ${
-                  i === drillPath.length - 1
-                    ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                    : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
-                }`}
-                data-testid={`dashboard-breadcrumb-${i}`}
-              >
-                {step.name}
-              </button>
-            </span>
-          ))}
-        </nav>
+            <button
+              type="button"
+              onClick={() => popDrillTo(0)}
+              className="rounded-md px-2 py-1 text-[var(--color-text-dim)] transition-colors hover:text-[var(--color-text)]"
+              data-testid="dashboard-breadcrumb-root"
+            >
+              All
+            </button>
+            {drillPath.map((step, i) => (
+              <span key={`${step.id}-${i}`} className="flex items-center gap-1">
+                <span className="text-[var(--color-text-dimmer)]">/</span>
+                <button
+                  type="button"
+                  onClick={() => popDrillTo(i + 1)}
+                  className={`rounded-md px-2 py-1 transition-colors ${
+                    i === drillPath.length - 1
+                      ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                      : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
+                  }`}
+                  data-testid={`dashboard-breadcrumb-${i}`}
+                >
+                  {step.name}
+                </button>
+              </span>
+            ))}
+          </nav>
+        ) : null}
 
         {/* Treemap surface */}
         <div
