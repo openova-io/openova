@@ -43,3 +43,51 @@ spec:
                 name: catalyst-ui
                 port:
                   number: 80
+---
+# Static asset routing for the Catalyst-Zero UI.
+#
+# With Vite base: '/' (issue #596/#599), the HTML at /sovereign/ references
+# assets as /assets/*.js — the browser requests console.openova.io/assets/*
+# directly (no /sovereign/ prefix). The strip-sovereign middleware on
+# console-sovereign only applies to /sovereign/* paths, so /assets/* would
+# fall through to the SME console's catch-all and return 404.
+#
+# This ingress routes /assets/* and /favicon.svg to catalyst-ui WITHOUT
+# stripping any prefix (no middleware), so nginx receives /assets/* directly.
+# Priority 90 (below console-sovereign at 100) ensures /sovereign/* is
+# handled first; /assets/* only reaches this rule when there is no /sovereign
+# prefix on the request — which is exactly the Vite static-asset case.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console-sovereign-assets
+  namespace: catalyst
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "90"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: console.openova.io
+      http:
+        paths:
+          - path: /assets
+            pathType: Prefix
+            backend:
+              service:
+                name: catalyst-ui
+                port:
+                  number: 80
+          - path: /favicon.svg
+            pathType: Exact
+            backend:
+              service:
+                name: catalyst-ui
+                port:
+                  number: 80
+          - path: /component-logos
+            pathType: Prefix
+            backend:
+              service:
+                name: catalyst-ui
+                port:
+                  number: 80
