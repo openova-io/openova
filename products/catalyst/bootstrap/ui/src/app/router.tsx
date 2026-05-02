@@ -1,6 +1,7 @@
 import { createRouter, createRoute, createRootRoute, redirect, isRedirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 /**
  * Runtime basepath detection (issue #618).
@@ -39,6 +40,7 @@ const isCatalystZero =
 import { RootLayout } from './layouts/RootLayout'
 import { AppLayout } from './layouts/AppLayout'
 import { WizardLayout } from './layouts/WizardLayout'
+import { SovereignConsoleLayout } from './layouts/SovereignConsoleLayout'
 
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
@@ -65,6 +67,14 @@ import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 
+// Sovereign Console pages (issue #607) — rendered only on console.<sov-fqdn>
+import { ConsoleDashboardPage } from '@/pages/sovereign/console/ConsoleDashboardPage'
+import { ConsoleAppsPage } from '@/pages/sovereign/console/ConsoleAppsPage'
+import { ConsoleJobsPage } from '@/pages/sovereign/console/ConsoleJobsPage'
+import { ConsoleCloudPage } from '@/pages/sovereign/console/ConsoleCloudPage'
+import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
+import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
+
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
 
@@ -73,6 +83,8 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
+    // On a Sovereign Console hostname, always send users to the console.
+    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/console/dashboard' as never })
     if (IS_SAAS) throw redirect({ to: '/login' })
     throw redirect({ to: '/wizard' })
   },
@@ -83,6 +95,28 @@ const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login'
 const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage })
 const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgot', component: ForgotPage })
+
+/**
+ * authHandoverRoute — safety-net for /auth/handover on Sovereign Console.
+ *
+ * When catalyst-zero's StepSuccess.tsx redirects the operator's browser to
+ * `console.<sov-fqdn>/auth/handover?token=<jwt>`, the SovereignConsoleLayout
+ * handles the token exchange before the route component renders. This route
+ * definition exists purely so TanStack Router doesn't 404 on the path while
+ * the layout is still mounting. On catalyst-zero mode this redirect would
+ * never fire — but if somehow reached, redirect to /console/dashboard.
+ */
+const authHandoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/handover',
+  beforeLoad: () => {
+    // SovereignConsoleLayout intercepts the handover token; once consumed it
+    // navigates here. Redirect to the console dashboard so the operator
+    // sees the console rather than a blank route.
+    throw redirect({ to: '/console/dashboard' as never, replace: true })
+  },
+  component: () => null,
+})
 
 // App routes
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
@@ -433,6 +467,74 @@ const legacyProvisionRoute = createRoute({
   component: ProvisionPage,
 })
 
+/* ── Sovereign Console routes (issue #607) ────────────────────────────
+ *
+ * These routes are ONLY reachable on console.<sov-fqdn> hostnames.
+ * On console.openova.io (catalyst-zero mode) the index redirect will
+ * never throw to /console/dashboard, and the SovereignConsoleLayout
+ * OIDC gate won't mount, so these pages are effectively unreachable.
+ *
+ * Route tree:
+ *   /console                → SovereignConsoleLayout (OIDC gate)
+ *     /                     → redirect to /console/dashboard
+ *     /dashboard            → ConsoleDashboardPage
+ *     /apps                 → ConsoleAppsPage
+ *     /jobs                 → ConsoleJobsPage
+ *     /cloud                → ConsoleCloudPage
+ *     /users                → ConsoleUsersPage
+ *     /settings             → ConsoleSettingsPage
+ */
+const consoleLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/console',
+  component: SovereignConsoleLayout,
+})
+
+const consoleIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/console/dashboard' as never, replace: true })
+  },
+  component: () => null,
+})
+
+const consoleDashboardRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/dashboard',
+  component: ConsoleDashboardPage,
+})
+
+const consoleAppsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/apps',
+  component: ConsoleAppsPage,
+})
+
+const consoleJobsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/jobs',
+  component: ConsoleJobsPage,
+})
+
+const consoleCloudRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/cloud',
+  component: ConsoleCloudPage,
+})
+
+const consoleUsersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/users',
+  component: ConsoleUsersPage,
+})
+
+const consoleSettingsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/settings',
+  component: ConsoleSettingsPage,
+})
+
 // Design showcase
 const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
 const designsJobsDepsVizRoute = createRoute({
@@ -460,6 +562,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   authCallbackRoute,
+  authHandoverRoute,
   signupRoute,
   forgotRoute,
   appRoute.addChildren([dashboardRoute]),
@@ -487,6 +590,15 @@ const routeTree = rootRoute.addChildren([
   designsJobsDepsVizRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,
+  consoleLayoutRoute.addChildren([
+    consoleIndexRoute,
+    consoleDashboardRoute,
+    consoleAppsRoute,
+    consoleJobsRoute,
+    consoleCloudRoute,
+    consoleUsersRoute,
+    consoleSettingsRoute,
+  ]),
 ])
 
 // basepath is resolved at runtime (see top of file).
