@@ -49,6 +49,13 @@ html {
 .visa-tile { color: #1A1F71; }
 html[data-theme='dark'] .visa-tile { color: #f5f5f5; }
 
+/* Tenant-aware logo swap. Default (no data-tenant or openova) shows the OpenOva
+ * brand; omantel.openova.io shows the Omantel logo. Driven by the pre-hydration
+ * script in src/layouts/Layout.astro which sets html[data-tenant] before paint. */
+.brand-omantel { display: none; }
+html[data-tenant='omantel'] .brand-openova { display: none; }
+html[data-tenant='omantel'] .brand-omantel { display: inline-flex; }
+
 body {
   margin: 0;
   min-height: 100dvh;

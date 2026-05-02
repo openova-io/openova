@@ -19,7 +19,12 @@ spec:
         - name: ghcr-pull
       containers:
         - name: marketplace
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/marketplace:{{ .Values.images.smeTag }}"
+          # SHA-pinned tag bumped by .github/workflows/marketplace-build.yaml.
+          # This file is applied as raw YAML by the contabo-mkt Flux Kustomization
+          # (`./products/catalyst/chart/templates/sme-services`), so it must contain
+          # concrete strings — Helm template syntax silently produces an
+          # InvalidImageName when Kustomize-applied. Sovereigns skip via .helmignore.
+          image: ghcr.io/openova-io/openova/marketplace:046e5eb
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

@@ -21,12 +21,38 @@ const { title, step = 0 } = Astro.props;
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script is:inline>
+    // Tenant + theme bootstrap. Runs before the body paints so the right
+    // theme + tenant brand attribute are set on <html> with no flash.
+    // Tenant table is duplicated from src/lib/tenant.ts (ESM cannot be loaded
+    // from is:inline). Keep both in sync when adding tenants.
     (function () {
+      var TENANTS = {
+        'omantel.openova.io': { id: 'omantel', brand: 'Omantel Cloud', forceTheme: 'light', skipConsoleRedirect: true }
+      };
+      var host = '';
+      try { host = (window.location.hostname || '').toLowerCase(); } catch (e) {}
+      var tenant = TENANTS[host] || { id: 'openova', brand: 'OpenOva' };
+      document.documentElement.setAttribute('data-tenant', tenant.id);
+      document.documentElement.dataset.tenantBrand = tenant.brand;
       try {
-        var saved = localStorage.getItem('sme-theme');
-        var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', saved || system);
+        if (tenant.forceTheme) {
+          document.documentElement.setAttribute('data-theme', tenant.forceTheme);
+        } else {
+          var saved = localStorage.getItem('sme-theme');
+          var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', saved || system);
+        }
       } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+      // Update <title> suffix to match tenant. {title} prefix already rendered
+      // server-side; we only adjust the brand suffix client-side so static HTML
+      // can be cached without per-tenant cache keys.
+      try {
+        if (tenant.id !== 'openova' && document.title.indexOf(' — OpenOva SME') !== -1) {
+          document.title = document.title.replace(' — OpenOva SME', ' — ' + tenant.brand);
+        }
+      } catch (e) {}
+      // Expose to other inline scripts on the page.
+      window.__SME_TENANT__ = tenant;
     })();
   </script>
   <script is:inline>
@@ -41,6 +67,11 @@ const { title, step = 0 } = Astro.props;
     //  - ?new=1 lets an existing customer spin up a second workspace
     (function () {
       try {
+        // Demo tenants (e.g. omantel) want returning visitors to stay on the
+        // marketplace — bouncing them to console.openova.io/nova/ would break
+        // the partner-branded experience. Skip the redirect entirely there.
+        var tenant = window.__SME_TENANT__;
+        if (tenant && tenant.skipConsoleRedirect) return;
         var path = window.location.pathname;
         var qs = new URLSearchParams(window.location.search);
         if (path.indexOf('/auth/callback') === 0) return;
