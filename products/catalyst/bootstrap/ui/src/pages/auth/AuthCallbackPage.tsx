@@ -1,5 +1,31 @@
-import { useEffect } from 'react'
-import { useSearch } from '@tanstack/react-router'
+/**
+ * AuthCallbackPage — mode-aware OIDC / session-cookie callback handler.
+ *
+ * Keycloak (or the catalyst-api session gate) redirects to /auth/callback
+ * after the user authenticates. This component dispatches to one of two
+ * sub-handlers based on DETECTED_MODE:
+ *
+ *   • catalyst-zero mode  → CatalystZeroCallback
+ *     The callback carries the PKCE authorization_code that the SERVER
+ *     needs to exchange.  We hard-navigate the browser to the server-side
+ *     endpoint so the API can set an HttpOnly session cookie and then
+ *     redirect back to the wizard.
+ *
+ *   • sovereign mode      → SovereignCallback
+ *     Standard client-side PKCE exchange via handleCallback() (oidc.ts).
+ *     Tokens are stored in sessionStorage and the user is redirected to
+ *     /console/dashboard inside the SPA.
+ *
+ * Related: GitHub issues #607 (sovereign mode), #608 (magic-link auth)
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the Sovereign
+ * FQDN is read from DETECTED_MODE, never inlined.
+ */
+
+import { useEffect, useState } from 'react'
+import { useRouter } from '@tanstack/react-router'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { handleCallback } from '@/shared/lib/oidc'
 import { API_BASE } from '@/shared/config/urls'
 
 /**
@@ -18,32 +44,20 @@ function uiBase(): string {
   return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
 }
 
-/**
- * AuthCallbackPage — handles the Keycloak PKCE callback for Catalyst-Zero.
- *
- * Keycloak redirects to console.openova.io/sovereign/auth/callback?code=...
- * after the operator clicks the magic-link email. This page receives the
- * `code` query param, builds the server-side callback URL
- * (/api/v1/auth/callback?code=...) and hard-navigates there so the
- * server can:
- *   1. Read the PKCE verifier cookie (same-origin, carried automatically)
- *   2. Exchange the code for tokens
- *   3. Issue the HMAC-signed session cookie
- *   4. Redirect the browser to /sovereign/wizard (or /wizard on Sovereign clusters)
- *
- * A hard navigation (window.location.replace) is required so the
- * browser's cookie jar picks up the Set-Cookie header from the server's
- * 302 response — a client-side fetch or TanStack redirect would not work
- * here because cookies set on redirect responses are honoured by the
- * browser's cookie engine, not by XHR/fetch.
- */
-export function AuthCallbackPage() {
-  const search = useSearch({ strict: false }) as Record<string, string>
+// ── Catalyst-Zero Callback ────────────────────────────────────────────────
+//
+// Hard-navigate to the server-side token-exchange endpoint.  The API sets
+// an HttpOnly session cookie and then 302-redirects back to the wizard
+// (or the originally-requested URL stored in the state param).
+//
+// This is a hard navigate (window.location.replace), NOT a SPA redirect,
+// because the HttpOnly cookie must come from the server response headers —
+// there is no client-side way to receive it.
 
+function CatalystZeroCallback() {
   useEffect(() => {
-    const code = search['code']
-    const state = search['state']
-    const error = search['error']
+    const search = new URLSearchParams(window.location.search)
+    const error = search.get('error')
 
     if (error) {
       // Keycloak denied or the magic-link expired — redirect to login with
@@ -52,6 +66,7 @@ export function AuthCallbackPage() {
       return
     }
 
+    const code = search.get('code')
     if (!code) {
       // No code and no error — unexpected. Redirect to login.
       window.location.replace(uiBase() + '/login?error=no_code')
@@ -63,13 +78,139 @@ export function AuthCallbackPage() {
     // is a same-origin redirect (console.openova.io → /sovereign/api/v1/...)
     // the cookie is carried automatically by the browser.
     const callbackURL = new URL(`${API_BASE}/v1/auth/callback`, window.location.href)
-    callbackURL.searchParams.set('code', code)
-    if (state) callbackURL.searchParams.set('state', state)
+    search.forEach((value, key) => callbackURL.searchParams.set(key, value))
 
     // Hard navigation — must NOT use TanStack router redirect here.
     window.location.replace(callbackURL.toString())
-  }, [search])
+  }, [])
 
-  // Render nothing — we navigate away immediately.
-  return null
+  return (
+    <div
+      className="flex h-screen items-center justify-center bg-[var(--color-bg)]"
+      data-testid="auth-callback-loading"
+    >
+      <div className="flex flex-col items-center gap-3 text-[var(--color-text-dim)]">
+        <svg
+          className="h-8 w-8 animate-spin text-[var(--color-accent)]"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-label="Completing sign-in"
+        >
+          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+          <path
+            fill="currentColor"
+            opacity="0.8"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          />
+        </svg>
+        <span className="text-sm">Completing sign-in…</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Sovereign Callback ────────────────────────────────────────────────────
+//
+// Client-side PKCE token exchange.  Keycloak redirects here with
+// ?code=...&state=... after the user authenticates on the Sovereign realm.
+// handleCallback() (oidc.ts) exchanges the code, stores tokens in
+// sessionStorage, and this component navigates the SPA to /console/dashboard.
+
+type SovereignPageState =
+  | { status: 'exchanging' }
+  | { status: 'error'; message: string }
+
+function SovereignCallback() {
+  const router = useRouter()
+  const [state, setState] = useState<SovereignPageState>({ status: 'exchanging' })
+
+  useEffect(() => {
+    async function exchange() {
+      const sovereignFQDN = DETECTED_MODE.sovereignFQDN
+      if (!sovereignFQDN) {
+        setState({
+          status: 'error',
+          message: 'OIDC callback reached in catalyst-zero mode — unexpected.',
+        })
+        return
+      }
+
+      try {
+        const params = new URLSearchParams(window.location.search)
+        await handleCallback(sovereignFQDN, params)
+        // Navigate to the console dashboard — replace so the callback
+        // URL doesn't appear in browser history.
+        router.navigate({ to: '/console/dashboard' as never, replace: true })
+      } catch (err) {
+        setState({
+          status: 'error',
+          message:
+            err instanceof Error ? err.message : 'Unknown error during OIDC token exchange.',
+        })
+      }
+    }
+
+    void exchange()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (state.status === 'exchanging') {
+    return (
+      <div
+        className="flex h-screen items-center justify-center bg-[var(--color-bg)]"
+        data-testid="auth-callback-loading"
+      >
+        <div className="flex flex-col items-center gap-3 text-[var(--color-text-dim)]">
+          <svg
+            className="h-8 w-8 animate-spin text-[var(--color-accent)]"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-label="Completing sign-in"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="3"
+              opacity="0.25"
+            />
+            <path
+              fill="currentColor"
+              opacity="0.8"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          <span className="text-sm">Completing sign-in…</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex h-screen items-center justify-center bg-[var(--color-bg)] p-8"
+      data-testid="auth-callback-error"
+    >
+      <div className="w-full max-w-md rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 p-8">
+        <h1 className="mb-2 text-lg font-semibold text-[var(--color-error)]">Sign-in failed</h1>
+        <p className="text-sm text-[var(--color-text-dim)]">{state.message}</p>
+        <a
+          href="/"
+          className="mt-6 inline-block text-sm text-[var(--color-accent)] hover:underline"
+        >
+          Return to home
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ── Mode-aware dispatcher ─────────────────────────────────────────────────
+
+export function AuthCallbackPage() {
+  if (DETECTED_MODE.mode === 'sovereign') {
+    return <SovereignCallback />
+  }
+  return <CatalystZeroCallback />
 }
