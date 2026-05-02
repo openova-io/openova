@@ -733,6 +733,16 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	if tok := os.Getenv("CATALYST_GHCR_PULL_TOKEN"); tok != "" {
 		req.GHCRPullToken = tok
 	}
+	// Same fail-fast pattern for the Harbor proxy-cache robot token
+	// (issue #557). Empty token here = Validate() rejects the deployment
+	// at /api/v1/deployments POST, which is the right time to surface
+	// the missing CATALYST_HARBOR_ROBOT_TOKEN env var on the catalyst-
+	// api Pod. Falling through to docker.io is forbidden architecturally;
+	// the alternative is 5+ min of `tofu apply` followed by a stuck CP
+	// at Init:0/6 (caught live during otech24).
+	if tok := os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"); tok != "" {
+		req.HarborRobotToken = tok
+	}
 
 	// Derive the per-Sovereign Object Storage bucket name (issue #371).
 	// Hetzner Object Storage bucket names share a global namespace across
