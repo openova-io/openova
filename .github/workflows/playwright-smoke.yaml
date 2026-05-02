@@ -76,8 +76,9 @@ jobs:
 
       - name: Wait for Catalyst UI to be ready
         run: |
+          # base: '/' since issue #596 — wizard is at /wizard, not /sovereign/wizard.
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:5173/sovereign/wizard; then
+            if curl -sf -o /dev/null http://localhost:5173/wizard; then
               echo "UI ready after ${i}s"
               exit 0
             fi

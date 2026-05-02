@@ -544,7 +544,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     const recommendedId = await page
       .evaluate(async () => {
         const mod = await import(
-          /* @vite-ignore */ '/sovereign/src/shared/constants/providerSizes.ts'
+          /* @vite-ignore */ '/src/shared/constants/providerSizes.ts'
         )
         const sizes = (
           mod as {
@@ -581,7 +581,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     const catalogs = await page
       .evaluate(async () => {
         const mod = await import(
-          /* @vite-ignore */ '/sovereign/src/shared/constants/providerSizes.ts'
+          /* @vite-ignore */ '/src/shared/constants/providerSizes.ts'
         )
         const sizes = (mod as {
           PROVIDER_NODE_SIZES: Record<string, Array<{ id: string }>>
@@ -636,7 +636,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard provision page', () => {
-  test('Launch navigates to /sovereign/provision/<id> as a SPA route (no .html)', async ({
+  test('Launch navigates to /provision/<id> as a SPA route (no .html)', async ({
     page,
   }) => {
     await page.goto('provision/test-deployment-id')
@@ -647,9 +647,10 @@ test.describe('@cosmetic-guard provision page', () => {
       `Provision URL is "${url}" — contains ".html", which means the route is being served as a static document instead of a SPA route. See src/app/router.tsx provisionRoute (path: /provision/$deploymentId, NOT /provision.html).`,
     ).toBe(false)
 
+    // base: '/' since issue #596 — path is /provision/<id> not /sovereign/provision/<id>.
     expect(
-      /\/sovereign\/provision\/[^/]+/.test(url),
-      `Provision URL "${url}" does not match /sovereign/provision/<id> — vite base + tanstack router basepath drift. See vite.config.ts (base /sovereign/) and src/app/router.tsx (basepath /sovereign).`,
+      /\/provision\/[^/]+/.test(url),
+      `Provision URL "${url}" does not match /provision/<id> — vite base + tanstack router basepath drift. See vite.config.ts (base '/') and src/app/router.tsx (basepath '/').`,
     ).toBe(true)
   })
 

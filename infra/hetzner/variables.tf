@@ -535,33 +535,3 @@ variable "object_storage_bucket_name" {
     error_message = "Object Storage bucket name must be 3-63 chars, lowercase alphanumeric + hyphens, starting and ending with alphanumeric (RFC-compliant S3 bucket naming)."
   }
 }
-
-# ── Handover JWT public key (issue #605, Phase-8b) ────────────────────────
-#
-# RFC 7517 JWK JSON bytes of the Catalyst-Zero RS256 public key. Written to
-# /var/lib/catalyst/handover-jwt-public.jwk (mode 0600) on the new Sovereign
-# control-plane by cloud-init. The Sovereign-side Agent-C (auth_handover.go)
-# reads this file to verify the one-time handover JWT without a cross-cluster
-# RPC to Catalyst-Zero.
-#
-# Source: the catalyst-api provisioner reads the live Signer's PublicJWK()
-# and stamps it onto provisioner.Request.HandoverJWTPublicKey before writing
-# tofu.auto.tfvars.json. The field carries json:"-" so the wizard POST body
-# can never inject it — it always comes from the live Signer.
-#
-# Default empty: pre-#605 provisioner builds that do not pass this variable
-# write an empty file; auth/handover returns 503 (key unavailable) on any
-# Sovereign provisioned without it until a subsequent reprovisioning run.
-variable "handover_jwt_public_key" {
-  type        = string
-  description = <<-EOT
-    RFC 7517 JWK JSON of the Catalyst-Zero RS256 handover-JWT public key.
-    Written to /var/lib/catalyst/handover-jwt-public.jwk (mode 0600) on
-    the new Sovereign control-plane by cloud-init so Agent-C can verify
-    the one-time JWT without a cross-cluster network call to Catalyst-Zero.
-    Supplied by the catalyst-api provisioner from h.handoverSigner.PublicJWK().
-    Empty when the provisioner has no signer (CATALYST_HANDOVER_KEY_PATH unset).
-  EOT
-  sensitive = true
-  default   = ""
-}

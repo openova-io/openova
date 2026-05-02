@@ -3,10 +3,10 @@
 // What this test asserts (and ONLY what it asserts — no end-to-end click of
 // "Provision", per the prompt):
 //
-//   1. The Catalyst bootstrap UI is reachable at `${BASE_URL}/sovereign/wizard`
-//      (Vite is configured with `base: '/sovereign/'`; tanstack router uses
-//      the same basepath). See products/catalyst/bootstrap/ui/vite.config.ts
-//      and products/catalyst/bootstrap/ui/src/app/router.tsx.
+//   1. The Catalyst bootstrap UI is reachable at `${BASE_URL}/wizard`
+//      (Vite base: '/' since issue #596; tanstack router basepath: '/').
+//      See products/catalyst/bootstrap/ui/vite.config.ts and
+//      products/catalyst/bootstrap/ui/src/app/router.tsx.
 //
 //   2. The wizard renders a step heading (StepShell.tsx — class `corp-step-title`,
 //      first step is StepOrg titled "Organisation" / similar). We don't hardcode
@@ -31,7 +31,8 @@ import { test, expect } from '@playwright/test'
 import { reachable } from './_helpers'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4321'
-const WIZARD_URL = `${BASE_URL}/sovereign/wizard`
+// base: '/' since issue #596 — wizard is at /wizard, not /sovereign/wizard.
+const WIZARD_URL = `${BASE_URL}/wizard`
 
 test.describe('#142 sovereign wizard smoke', () => {
   test.beforeAll(async () => {
@@ -39,7 +40,7 @@ test.describe('#142 sovereign wizard smoke', () => {
     test.skip(!ok, `Catalyst UI not reachable at ${WIZARD_URL} — run \`npm run dev\` in products/catalyst/bootstrap/ui or set BASE_URL`)
   })
 
-  test('loads /sovereign/wizard and renders a step heading', async ({ page }) => {
+  test('loads /wizard and renders a step heading', async ({ page }) => {
     await page.goto(WIZARD_URL)
 
     // StepShell renders <h2 class="corp-step-title">{title}</h2>. The first

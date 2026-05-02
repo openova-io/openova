@@ -751,24 +751,6 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		req.ObjectStorageBucket = "catalyst-" + strings.ReplaceAll(req.SovereignFQDN, ".", "-")
 	}
 
-	// Stamp the handover JWT public key (issue #605, Phase-8b) from the
-	// live Signer onto the Request. The Signer is nil on Sovereign-side
-	// instances (CATALYST_HANDOVER_KEY_PATH unset) — in that case the
-	// field stays empty and cloud-init writes an empty file. On Catalyst-Zero
-	// the Signer is always set by main.go LoadOrGenerate at startup so the
-	// JWK is always available at deployment-create time. The field carries
-	// json:"-" so the wizard payload cannot inject it.
-	if h.handoverSigner != nil {
-		jwkBytes, jwkErr := h.handoverSigner.PublicJWK()
-		if jwkErr == nil {
-			req.HandoverJWTPublicKey = string(jwkBytes)
-		} else {
-			h.log.Warn("handover-jwt: PublicJWK failed; public key will be missing from cloud-init",
-				"err", jwkErr,
-			)
-		}
-	}
-
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

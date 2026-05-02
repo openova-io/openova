@@ -16,6 +16,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
@@ -41,8 +42,13 @@ func main() {
 		// keeps the policy consistent for any future browser-side
 		// resume flow that re-uses the same endpoint.
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
-		MaxAge:         300,
+		// Cookie is required for SameSite=Strict session cookies to be
+		// forwarded across the Traefik ingress path (issue #608).
+		// X-User-Email + X-User-Sub are injected by the RequireSession
+		// middleware into downstream requests.
+		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization", "Cookie"},
+		AllowCredentials: true,
+		MaxAge:           300,
 	}))
 
 	h := handler.New(log)
@@ -64,11 +70,28 @@ func main() {
 		}
 	}
 
-	// Auth (issue #608, Phase-8b Agent A) — Keycloak OIDC / magic-link.
-	// Wired only on Catalyst-Zero (CATALYST_KC_ADDR set). Sovereign
-	// clusters leave this unset; RequireSession receives nil and becomes
-	// a transparent passthrough per the nil-safe contract in
-	// internal/auth/middleware.go.
+	// Handover JWT signer (issue #605) — RSA-2048 keypair lifecycle.
+	// CATALYST_HANDOVER_KEY_PATH must point at a writable path on the PVC;
+	// if absent the signer is nil and MintHandoverToken returns 503.
+	// Sovereign clusters leave this env unset; Catalyst-Zero sets it.
+	if keyPath := os.Getenv("CATALYST_HANDOVER_KEY_PATH"); keyPath != "" {
+		pubKeyPath := env("CATALYST_HANDOVER_PUBKEY_PATH", keyPath+".pub.jwk")
+		issuer := env("CATALYST_HANDOVER_JWT_ISSUER", "https://console.openova.io")
+		signer, err := handoverjwt.LoadOrGenerate(keyPath, pubKeyPath, issuer, 5*time.Minute)
+		if err != nil {
+			log.Warn("handoverjwt: keypair init failed; MintHandoverToken will return 503",
+				"err", err,
+			)
+		} else {
+			h.SetHandoverSigner(signer)
+			log.Info("handoverjwt: signer ready", "issuer", issuer)
+		}
+	}
+
+	// Keycloak auth config (issue #608, Phase-8b) — PKCE + HMAC session
+	// cookies for the Catalyst-Zero wizard. Wired only when
+	// CATALYST_KC_ADDR is set; Sovereign clusters and CI leave it unset
+	// and the RequireSession middleware becomes a transparent passthrough.
 	if kcAddr := os.Getenv("CATALYST_KC_ADDR"); kcAddr != "" {
 		realm := env("CATALYST_KC_REALM", "openova")
 		clientID := env("CATALYST_KC_CLIENT_ID", "catalyst-zero-ui")
@@ -84,10 +107,9 @@ func main() {
 			JWKSCache:    auth.NewJWKSCache(jwksURL, 10*time.Minute),
 		}
 		h.SetAuthConfig(authCfg)
-		log.Info("auth: Keycloak OIDC enabled",
+		log.Info("auth: Keycloak session gate enabled",
 			"addr", kcAddr,
 			"realm", realm,
-			"client_id", clientID,
 		)
 	}
 
@@ -129,25 +151,24 @@ func main() {
 	r.Get("/readyz", h.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
-	// ── Unauthenticated auth endpoints (issue #608, Phase-8b Agent A) ────
-	// These three must sit OUTSIDE the auth-gated group because they are
-	// part of the login flow itself (no session yet).
-	//
-	// POST /api/v1/auth/magic-link  — triggers KC Execute Actions Email
-	// GET  /api/v1/auth/callback    — PKCE code exchange → session cookie
-	// DELETE /api/v1/auth/session   — logout / clear session cookie
+	// Unauthenticated auth endpoints — magic-link dispatch, PKCE callback,
+	// logout. These MUST remain outside the session gate (the user is not
+	// yet authenticated when they hit /magic-link and /callback).
+	// The session gate (RequireSession) guards ALL wizard data endpoints
+	// below in the r.Group block.
 	r.Post("/api/v1/auth/magic-link", h.HandleMagicLink)
 	r.Get("/api/v1/auth/callback", h.HandleAuthCallback)
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
 
-	// ── Auth-gated wizard routes (issue #608) ─────────────────────────────
-	// RequireSession is nil-safe: when authConfig is nil (Sovereign clusters,
-	// CI without CATALYST_KC_ADDR), the middleware is a transparent passthrough
-	// so all existing Sovereign-side behaviour is preserved unchanged.
+	// Auth-gated wizard endpoints — RequireSession validates the
+	// HMAC-signed catalyst_session cookie on every request. When
+	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)
+	// the middleware is a transparent passthrough and all requests
+	// proceed without any auth check, preserving existing behaviour.
 	r.Group(func(rg chi.Router) {
 		rg.Use(auth.RequireSession(h.GetAuthConfig(), log))
 
-		// /api/v1/whoami — identity endpoint (success criterion for issue #608)
+		// Whoami — UI auth guard polls this; 401 → redirect to /login.
 		rg.Get("/api/v1/whoami", h.HandleWhoami)
 
 		// K8s data-plane endpoints — list + SSE stream + sync map per
@@ -210,6 +231,18 @@ func main() {
 		// PurgeReport summary. The wizard's failed-state banner renders the
 		// operator confirmation modal that POSTs here.
 		rg.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+		// Handover JWT — issue #605 (minting) + issue #606 (consumption).
+		// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
+		// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
+		// redirects the operator's browser to the Sovereign console URL.
+		// GetHandoverPublicKey: Sovereigns fetch the JWK at boot to seed
+		// their CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH (or via cloud-init).
+		// AuthHandover: Sovereign-side receiver — validates the JWT, creates
+		// the operator in Keycloak, exchanges for a session, sets cookies,
+		// and redirects to /console/dashboard.
+		rg.Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
+		rg.Get("/api/v1/handover/public-key", h.GetHandoverPublicKey)
+		rg.Get("/auth/handover", h.AuthHandover)
 		// Subdomain-only release endpoint (issue #489). Releases the PDM
 		// allocation row for a failed-or-abandoned deployment WITHOUT
 		// requiring the operator to re-enter their HetznerToken. Lets a
@@ -303,7 +336,7 @@ func main() {
 		rg.Post("/api/v1/deployments/{depId}/admin/user-access", h.CreateUserAccess)
 		rg.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
 		rg.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
-	}) // end auth-gated wizard routes
+	})
 
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

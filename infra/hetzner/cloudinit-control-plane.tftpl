@@ -354,22 +354,6 @@ write_files:
             name: cloud-credentials
             key: hcloud-token
 
-  # ── Handover JWT public key (issue #605, Phase-8b) ───────────────────
-  #
-  # RFC 7517 JWK JSON of the Catalyst-Zero RS256 public key. Written to
-  # /var/lib/catalyst/handover-jwt-public.jwk (mode 0600) on the new
-  # Sovereign control-plane. Agent-C (auth/handover) reads this file to
-  # verify the one-time handover JWT without a cross-cluster RPC.
-  #
-  # Per INVIOLABLE-PRINCIPLES.md #10 (credential hygiene): mode 0600 so
-  # the file is readable only by root. Even though RSA public keys are
-  # technically non-secret, tightening the permission costs nothing and
-  # avoids any future confusion about sensitivity.
-  - path: /var/lib/catalyst/handover-jwt-public.jwk
-    permissions: '0600'
-    content: |
-      ${handover_jwt_public_key}
-
   # ── Cilium bootstrap values (issue #491) ─────────────────────────────
   #
   # The bootstrap helm install below MUST land the same effective values
