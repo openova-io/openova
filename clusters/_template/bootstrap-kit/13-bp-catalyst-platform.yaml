@@ -44,6 +44,17 @@ spec:
     # catalyst-api HTTPRoute templates; gateway.networking.k8s.io/v1
     # CRDs must be registered first.
     - name: bp-gateway-api
+    # bp-keycloak + bp-cnpg (issue #512): the catalyst-platform umbrella
+    # post-install Jobs bootstrap OIDC clients in Keycloak and seed
+    # PostgreSQL schemas for catalog-svc / projector / billing /
+    # provisioning. Both Keycloak and cnpg take 5+ minutes to reach Ready
+    # on a fresh Sovereign — without an explicit dep, the umbrella's
+    # hook starts before they're warm and times out at 15m.
+    # Phase-8a-preflight otech16 (2026-05-02): adding bp-keycloak +
+    # bp-cnpg here makes Flux wait for both Ready=True before starting
+    # the umbrella install, eliminating the race.
+    - name: bp-keycloak
+    - name: bp-cnpg
   chart:
     spec:
       chart: bp-catalyst-platform
