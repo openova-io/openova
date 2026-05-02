@@ -25,13 +25,6 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-gitea
     catalyst.openova.io/component: gitea
-  annotations:
-    # Allow the k8s-reflector (bp-reflector) to reflect the CNPG-generated
-    # `gitea-pg-app` Secret into the `gitea` namespace so that
-    # `gitea-database-secret` (templates/database-secret.yaml) gets the
-    # real password populated at runtime rather than empty on first install.
-    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
 spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
   imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
@@ -40,6 +33,20 @@ spec:
     initdb:
       database: {{ .Values.postgres.cluster.database | default "gitea" | quote }}
       owner: {{ .Values.postgres.cluster.owner | default "gitea" | quote }}
+
+  # inheritedMetadata.annotations: CNPG propagates these onto every
+  # Secret it generates (gitea-pg-app, gitea-pg-superuser, etc.).
+  # The k8s-reflector (bp-reflector) requires the SOURCE Secret to carry
+  # `reflection-allowed: "true"` before it will copy data into the
+  # DESTINATION Secret (`gitea-database-secret`, defined in
+  # templates/database-secret.yaml). Setting these annotations on the
+  # Cluster CR's own metadata does NOT work — CNPG does not copy
+  # `metadata.annotations` onto generated Secrets. The `inheritedMetadata`
+  # stanza is the correct CNPG v1.24+ mechanism (issue #584).
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
 
   postgresql:
     parameters:

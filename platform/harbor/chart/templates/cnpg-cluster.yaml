@@ -45,6 +45,19 @@ spec:
       database: {{ .Values.postgres.cluster.database | default "registry" | quote }}
       owner: {{ .Values.postgres.cluster.owner | default "harbor" | quote }}
 
+  # inheritedMetadata.annotations: CNPG propagates these onto every
+  # Secret it generates (harbor-pg-app, harbor-pg-superuser, etc.).
+  # The k8s-reflector (bp-reflector) requires the SOURCE Secret to carry
+  # `reflection-allowed: "true"` before it will copy data into the
+  # DESTINATION Secret (`harbor-database-secret`). Setting these
+  # annotations on the Cluster CR metadata does NOT work — CNPG does not
+  # copy `metadata.annotations` onto generated Secrets. The
+  # `inheritedMetadata` stanza is the correct CNPG v1.24+ mechanism.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+
   postgresql:
     parameters:
       max_connections: "100"
