@@ -8,6 +8,7 @@ import { AppLayout } from './layouts/AppLayout'
 import { WizardLayout } from './layouts/WizardLayout'
 
 import { LoginPage } from '@/pages/auth/LoginPage'
+import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
@@ -46,6 +47,7 @@ const indexRoute = createRoute({
 
 // Auth routes
 const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login', component: LoginPage })
+const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage })
 const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgot', component: ForgotPage })
 
@@ -53,8 +55,50 @@ const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgo
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/dashboard', component: DashboardPage })
 
+/**
+ * wizardAuthGuard — beforeLoad for the wizard layout route.
+ *
+ * Polls GET /api/v1/whoami with credentials: 'include'. A 401 response
+ * means the session cookie is absent or expired — redirect to /login.
+ * Network errors and 5xx responses are swallowed so a transient
+ * backend restart doesn't lock the operator out of the wizard UI
+ * during a deployment run.
+ *
+ * The guard is a no-op when CATALYST_KC_ADDR is not configured
+ * (RequireSession is a transparent passthrough on the server side),
+ * because /whoami will return 401 from the session check but the
+ * session check itself is skipped — wait, in that case the middleware
+ * passes through so /whoami returns the claims from context which are
+ * nil, so HandleWhoami returns 401 anyway. To handle this: the guard
+ * checks IS_SAAS — in SaaS (catalyst-zero) mode it enforces the guard;
+ * in selfhosted (Sovereign) mode it is a no-op.
+ */
+async function wizardAuthGuard() {
+  if (!IS_SAAS) return // Sovereign clusters handle auth themselves
+  try {
+    const res = await fetch(`${API_BASE}/v1/whoami`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.status === 401) {
+      throw redirect({ to: '/login', replace: true })
+    }
+    // Any other status (200, 5xx) — allow through.
+  } catch (err) {
+    // Re-throw TanStack redirect errors; swallow network/5xx so the
+    // wizard remains usable during backend transients.
+    if (err && typeof err === 'object' && 'isRedirect' in err) throw err
+  }
+}
+
 // Wizard
-const wizardLayoutRoute = createRoute({ getParentRoute: () => rootRoute, path: '/wizard', component: WizardLayout })
+const wizardLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/wizard',
+  component: WizardLayout,
+  beforeLoad: wizardAuthGuard,
+})
 const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path: '/', component: WizardPage })
 
 // Success (full-screen)
@@ -384,6 +428,7 @@ const marketplaceProductRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
+  authCallbackRoute,
   signupRoute,
   forgotRoute,
   appRoute.addChildren([dashboardRoute]),

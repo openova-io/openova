@@ -1,32 +1,83 @@
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { Link } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
-import { Eye, EyeOff, ArrowRight } from 'lucide-react'
 import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { ArrowRight, Mail } from 'lucide-react'
 import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
-import { Separator } from '@/shared/ui/separator'
+import { API_BASE } from '@/shared/config/urls'
 
-const schema = z.object({
-  email: z.string().email('Enter a valid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-})
-type FormValues = z.infer<typeof schema>
+type State = 'idle' | 'sending' | 'sent' | 'error'
 
 export function LoginPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  const [email, setEmail] = useState('')
+  const [state, setState] = useState<State>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
 
-  async function onSubmit(_data: FormValues) {
-    // TODO: wire to auth API
-    await new Promise((r) => setTimeout(r, 800))
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!email.trim()) return
+    setState('sending')
+    setErrorMsg('')
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/magic-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
+      }
+      setState('sent')
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Something went wrong')
+      setState('error')
+    }
+  }
+
+  function resetEmail() {
+    setState('idle')
+    setEmail('')
+    setErrorMsg('')
+  }
+
+  if (state === 'sent') {
+    return (
+      <AuthShell>
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+          className="flex flex-col gap-6"
+        >
+          <div className="flex flex-col items-center gap-4 py-4 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[oklch(22%_0.02_250)] ring-1 ring-[oklch(30%_0.02_250)]">
+              <Mail className="h-6 w-6 text-[--color-brand-400]" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Check your email</h1>
+              <p className="mt-2 text-sm text-[oklch(55%_0.01_250)]">
+                We sent a sign-in link to
+              </p>
+              <p className="mt-1 text-sm font-medium text-[oklch(75%_0.01_250)]">{email}</p>
+            </div>
+            <p className="text-xs text-[oklch(45%_0.01_250)]">
+              The link expires in 1 hour. Sent from{' '}
+              <span className="font-mono">noreply@openova.io</span>.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={resetEmail}
+            className="text-center text-sm text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors"
+          >
+            Use a different email
+          </button>
+        </motion.div>
+      </AuthShell>
+    )
   }
 
   return (
@@ -39,62 +90,34 @@ export function LoginPage() {
       >
         <div>
           <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Welcome back</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">Sign in to your Corporate account</p>
+          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+            Enter your email — we'll send you a sign-in link.
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
           <Input
             label="Email"
             type="email"
             placeholder="you@company.com"
             autoComplete="email"
             autoFocus
-            error={errors.email?.message}
-            {...register('email')}
-          />
-          <Input
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
-            placeholder="••••••••"
-            autoComplete="current-password"
-            error={errors.password?.message}
-            suffix={
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            }
-            {...register('password')}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            error={state === 'error' ? errorMsg : undefined}
           />
 
-          <div className="flex justify-end">
-            <Link to="/forgot" className="text-xs text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors">
-              Forgot password?
-            </Link>
-          </div>
-
-          <Button type="submit" loading={isSubmitting} size="lg" className="mt-1 w-full">
-            Sign in
+          <Button
+            type="submit"
+            loading={state === 'sending'}
+            disabled={state === 'sending' || !email.trim()}
+            size="lg"
+            className="mt-1 w-full"
+          >
+            Send sign-in link
             <ArrowRight className="h-4 w-4" />
           </Button>
         </form>
-
-        <div className="flex items-center gap-3">
-          <Separator className="flex-1" />
-          <span className="text-xs text-[oklch(40%_0.01_250)]">or</span>
-          <Separator className="flex-1" />
-        </div>
-
-        <p className="text-center text-sm text-[oklch(50%_0.01_250)]">
-          No account?{' '}
-          <Link to="/signup" className="text-[--color-brand-400] hover:text-[--color-brand-300] font-medium transition-colors">
-            Create one
-          </Link>
-        </p>
       </motion.div>
     </AuthShell>
   )
