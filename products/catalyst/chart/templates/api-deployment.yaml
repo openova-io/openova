@@ -143,11 +143,20 @@ spec:
                 secretKeyRef:
                   name: dynadot-api-credentials
                   key: api-key
+                  # optional=true: Sovereign clusters don't hold Dynadot
+                  # credentials — their tenant DNS is served by the
+                  # Sovereign's own PowerDNS instance, not the parent
+                  # account. Catalyst-Zero (contabo-mkt) supplies the
+                  # real secret; Sovereigns use an empty stub or omit it
+                  # entirely. Without optional=true the pod refuses to
+                  # start when the secret is absent (issue #547).
+                  optional: true
             - name: DYNADOT_API_SECRET
               valueFrom:
                 secretKeyRef:
                   name: dynadot-api-credentials
                   key: api-secret
+                  optional: true
             # DYNADOT_MANAGED_DOMAINS — comma-separated list of pool domains
             # the same Dynadot account manages. Per docs/INVIOLABLE-PRINCIPLES.md
             # #4, this is runtime configuration so adding a third pool domain

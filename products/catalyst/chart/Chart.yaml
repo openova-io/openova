@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.9
+version: 1.1.12
 appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -80,6 +80,14 @@ description: |
   the umbrella ships ONLY Catalyst-Zero control-plane workloads; the
   foundation layer is owned end-to-end by the bootstrap-kit. Issue
   #510, 2026-05-02.
+  Bumped to 1.1.12 to add optional=true to the DYNADOT_API_KEY and
+  DYNADOT_API_SECRET secretKeyRef entries in the catalyst-api Deployment.
+  Sovereign clusters don't hold Dynadot credentials (their tenant DNS
+  is served by the Sovereign's own PowerDNS instance); without
+  optional=true Kubernetes refuses to start the pod when the
+  dynadot-api-credentials Secret is absent, crashlooping catalyst-api
+  on every new Sovereign. The fix mirrors the existing optional=true on
+  DYNADOT_MANAGED_DOMAINS and DYNADOT_DOMAIN. Issue #547, 2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
