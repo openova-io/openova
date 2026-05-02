@@ -16,7 +16,7 @@ spec:
       serviceAccountName: catalog
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: catalog
           image: ghcr.io/openova-io/openova/services-catalog:046e5eb

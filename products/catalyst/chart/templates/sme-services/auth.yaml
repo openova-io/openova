@@ -16,7 +16,7 @@ spec:
       serviceAccountName: auth
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: auth
           image: ghcr.io/openova-io/openova/services-auth:046e5eb

@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-reflector
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for emberstack/reflector.
+  Reflector mirrors Kubernetes Secrets and ConfigMaps across namespaces
+  by watching for reflector.v1.k8s.emberstack.com/* annotations on the
+  source resource. On every Sovereign, flux-system/ghcr-pull carries
+  these annotations so it auto-mirrors to every namespace, eliminating
+  the ImagePullBackOff surface that was caused by cross-namespace secret
+  propagation gaps (issue #543).
+
+  dependsOn: bp-flux (03) — must be slot 05a to land after sealed-secrets
+  and before spire.
+type: application
+keywords: [catalyst, blueprint, reflector, secret-mirror]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to reflector 7.1.288 (latest
+# stable as of 2026-05). Per INVIOLABLE-PRINCIPLES.md #4 (never hardcode)
+# the version is operator-bumpable via PR + Blueprint release.
+dependencies:
+  - name: reflector
+    version: "7.1.288"
+    repository: "https://emberstack.github.io/helm-charts"

@@ -1,0 +1,33 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved
+# as a Helm subchart via Chart.yaml `dependencies:`. This values.yaml
+# carries both:
+#   1. The catalystBlueprint metadata block (provenance + version).
+#   2. The upstream subchart values overlay under the `reflector:` key
+#      (umbrella-chart convention — the dependency name from Chart.yaml
+#      is the values namespace).
+
+catalystBlueprint:
+  upstream:
+    chart: reflector
+    version: "7.1.288"
+    repo: "https://emberstack.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: reflector) ──────────────────────
+reflector:
+  # Single replica is sufficient for a single-node Sovereign (cpx52).
+  # Reflector uses a watch loop, not a controller-manager with leader
+  # election — extra replicas would cause duplicate reconcile storms.
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+  # Prometheus ServiceMonitor — DEFAULT OFF per
+  # INVIOLABLE-PRINCIPLES.md #4 and Blueprint authoring conventions.
+  # Operator opts in via per-cluster overlay once bp-grafana reconciles.
+  serviceMonitor:
+    enabled: false

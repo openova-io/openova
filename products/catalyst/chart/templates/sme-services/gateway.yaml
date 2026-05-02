@@ -16,7 +16,7 @@ spec:
       serviceAccountName: gateway
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: gateway
           image: ghcr.io/openova-io/openova/services-gateway:046e5eb

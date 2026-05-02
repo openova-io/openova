@@ -16,7 +16,7 @@ spec:
       serviceAccountName: admin
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       containers:
         - name: admin
           image: ghcr.io/openova-io/openova/admin:046e5eb
