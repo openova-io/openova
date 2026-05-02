@@ -282,26 +282,30 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return m
   }, [layout.families])
 
-  /* ── Issue #493 — depth-bucket grid pre-pass ─────────────────────
+  /* ── Issue #493 + #532 — depth-bucket homogeneous-spread pre-pass ──
    *
    * The real OpenOva provisioning graph has one parent ("Applications")
-   * with 50+ blueprint-install children at the same depth. Pre-fix the
-   * simulation anchored every sibling to a single depthX coordinate
-   * with Y clamp ±Y_SCATTER_PX*2 (±160). With 50 nodes × 92px collision
-   * pitch the cluster wanted to grow 4600px tall, but viewBox MAX_VBOX_H
-   * was clamped to 700; only ~15% of node centroids landed in view.
-   * Live screenshot evidence: .playwright-mcp/otech9-cluster-bootstrap-2026-05-01.png
+   * with 50+ blueprint-install children at the same depth. Issue #532
+   * (founder verbatim 2026-05-02) requires those siblings to spread
+   * homogeneously on the Y axis — i.e. fill the full vertical range,
+   * never stack into a 92px-pitch column that overflows the viewBox.
    *
-   * Fix: when a depth bucket exceeds the vertical capacity of the
-   * viewBox (~7 nodes at MAX_VBOX_H=700), lay siblings out in a
-   * sub-column grid (multiple sub-columns within the depth column).
-   * The simulation then anchors each node to its (subColX, subRowY)
-   * grid target instead of the shared depthX/regionYMid pair.
+   * For each depth bucket whose sibling count exceeds the single-column
+   * capacity, distribute the siblings evenly across the full Y range
+   * [Y_MARGIN, MAX_VBOX_H - Y_MARGIN] using a per-sibling fraction:
+   *
+   *   ty(i) = Y_MARGIN + (i / (count - 1)) * Y_RANGE
+   *
+   * Add a small alternating X jitter (±SUB_COL_SPAN/2) so consecutive
+   * siblings don't sit on the exact same X — the link force then has
+   * room to settle without producing the overlap pattern that the
+   * naive grid layout caused. forceCollide takes over the final
+   * pairwise spacing.
    */
   const gridTargets = useMemo(() => {
     type GridCell = {
-      tx: number // target X in layout coordinates
-      ty: number // target Y RELATIVE to regionYMid
+      tx: number // absolute target X in layout coordinates
+      ty: number // absolute target Y in layout coordinates (#532 homogeneous spread)
       totalCols: number
       totalRows: number
     }
@@ -318,25 +322,35 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       bucket.push(n)
     }
     const cells = new Map<string, GridCell>()
+    const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
+    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
     for (const [depth, bucket] of buckets) {
-      // Only apply grid layout when sibling count exceeds a single-
-      // column capacity. Sparse depths keep the original force-anchor
-      // behaviour (depthX + jittered Y inside region centroid).
+      // Only apply homogeneous-spread layout when sibling count exceeds
+      // a single-column capacity. Sparse depths keep the original
+      // force-anchor behaviour (depthX + jittered Y by depRank).
       if (bucket.length <= COL_CAPACITY) continue
-      const totalCols = Math.max(1, Math.ceil(bucket.length / COL_CAPACITY))
-      const totalRows = Math.ceil(bucket.length / totalCols)
       const baseX = depth * PER_DEPTH_X
-      const SUB_COL_SPAN = PER_DEPTH_X * 0.8
-      const colStep = totalCols > 1 ? SUB_COL_SPAN / (totalCols - 1) : 0
-      const rowStep = ROW_PITCH
+      // Two sub-columns: alternate left/right within the depth column
+      // so consecutive siblings have a small X separation. This avoids
+      // the linear-stack failure mode and gives forceLink room to
+      // settle each sibling around the parent without overlap.
+      const totalCols = 2
+      const totalRows = Math.ceil(bucket.length / totalCols)
+      const SUB_COL_SPAN = PER_DEPTH_X * 0.4
+      // Issue #532 — siblings within a single depth bucket may already
+      // be sorted by depRank (because flowLayoutOrganic's topological
+      // sort places same-depth siblings consecutively in the rank
+      // order). Distribute them homogeneously across the full Y range
+      // using their bucket index, NOT their global depRank, so each
+      // depth bucket fills the available Y span evenly.
       bucket.forEach((n, idx) => {
-        const subCol = idx % totalCols
-        const subRow = Math.floor(idx / totalCols)
-        const colOffset = (subCol - (totalCols - 1) / 2) * colStep
-        const rowOffset = (subRow - (totalRows - 1) / 2) * rowStep
+        const subCol = idx % totalCols // 0 or 1
+        const colOffset = (subCol - 0.5) * SUB_COL_SPAN
+        const t = bucket.length === 1 ? 0.5 : idx / (bucket.length - 1)
+        const ty = Y_MARGIN_LOCAL + t * Y_RANGE_LOCAL
         cells.set(n.id, {
           tx: baseX + colOffset,
-          ty: rowOffset,
+          ty,
           totalCols,
           totalRows,
         })
@@ -362,20 +376,19 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         next.push(existing)
       } else {
         const baseX = depthToX(n.depth)
-        // Issue #532 — initial Y comes from the depRank ladder, NOT the
-        // region centroid. The Y axis now reads as dependency order
-        // (top → bottom) and is homogeneously spread by depRank index.
-        const baseY = yForDepRank(rank)
+        // Issue #532 — initial Y comes from either the high-fan-out
+        // grid pre-pass (cell.ty is now absolute, homogeneous-spread
+        // Y target for the depth bucket) or the depRank ladder for
+        // sparse depths.
         const seed = hashSeed(n.id)
         const cell = gridTargets.get(n.id)
         const initX = cell ? cell.tx : baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5
-        // Small jitter on Y so two nodes with identical depRank don't
-        // start at literally the same pixel — the collision force then
-        // separates them deterministically. Cap at NODE_RADIUS so the
-        // jitter never punches a node out of its dep-rank band.
+        // For sparse-depth nodes, small Y jitter so two nodes with
+        // identical depRank don't start at literally the same pixel —
+        // the collision force then separates them deterministically.
         const initY = cell
-          ? baseY + cell.ty
-          : baseY + (seed.fy - 0.5) * NODE_RADIUS * 0.6
+          ? cell.ty
+          : yForDepRank(rank) + (seed.fy - 0.5) * NODE_RADIUS * 0.6
         const fresh: SimNode = {
           id: n.id,
           depth: n.depth,
@@ -450,12 +463,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'y',
         forceY<SimNode>()
           .y((d) => {
-            // Issue #532 — Y target is the depRank ladder. Every node
-            // has a unique slot computed from its global topological
-            // rank, so depth-of-dep order reads as top → bottom on
-            // the canvas. forceCollide handles the no-overlap rule
-            // when two adjacent ranks have identical Y targets after
-            // rounding (rare but possible with very large N).
+            // Issue #532 — Y target. High-fan-out depth buckets get
+            // a homogeneous-spread Y from the gridTargets pre-pass
+            // (cell.ty is absolute). Sparse depths fall through to
+            // the depRank ladder so depth-of-dep order reads as
+            // top → bottom.
+            const cell = gridTargets.get(d.id)
+            if (cell) return cell.ty
             return yForDepRank(d.depRank)
           })
           .strength(FORCE_Y_STRENGTH),
@@ -487,21 +501,20 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
           const cell = gridTargets.get(n.id)
           if (cell) {
+            // Issue #532 — homogeneous-spread grid: each sibling has
+            // an absolute (tx, ty) target where ty is its slot in the
+            // full Y range. Allow the X position to jitter ±half the
+            // sub-column span so adjacent siblings can settle without
+            // visually overlapping their X coordinate. Y is allowed to
+            // drift ±half a row pitch around the ty target — enough
+            // for forceCollide to separate near-identical-Y siblings
+            // pairwise without them escaping the homogeneous spread.
             const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
-            const SUB_COL_SPAN = PER_DEPTH_X * 0.8
-            const colSlot = cell.totalCols > 1
-              ? SUB_COL_SPAN / (cell.totalCols - 1)
-              : PER_DEPTH_X
-            // Issue #532 — Y target for grid-cell nodes is depRank-based,
-            // not regionYMid. The grid sub-row offset is preserved as
-            // jitter on top of the dep-rank Y so siblings inside a
-            // high-fan-out depth still spread vertically while remaining
-            // in the rank-ordered band.
-            const targetY = yForDepRank(n.depRank)
-            const xMin = cell.tx - colSlot * 0.5
-            const xMax = cell.tx + colSlot * 0.5
-            const yMin = targetY - ROW_PITCH * 0.75
-            const yMax = targetY + ROW_PITCH * 0.75
+            const SUB_COL_SPAN = PER_DEPTH_X * 0.4
+            const xMin = cell.tx - SUB_COL_SPAN
+            const xMax = cell.tx + SUB_COL_SPAN
+            const yMin = cell.ty - ROW_PITCH * 0.5
+            const yMax = cell.ty + ROW_PITCH * 0.5
             if (typeof n.x === 'number') {
               if (n.x < xMin) n.x = xMin
               else if (n.x > xMax) n.x = xMax
