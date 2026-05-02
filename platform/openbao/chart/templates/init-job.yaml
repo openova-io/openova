@@ -179,7 +179,73 @@ spec:
                   exit 1
                 fi
                 echo "$ROOT_TOKEN" > /tmp/.root-token
-                rm -f /tmp/recovery-seed.bin
+
+                # ─── Step 3a: unseal the freshly-initialised vault (issue #527) ─
+                # `bao operator init` returns the cluster initialised but
+                # SEALED. Without an explicit `bao operator unseal <key>`
+                # call the StatefulSet pod stays sealed forever, the HR
+                # never goes Ready=True, and every dependent blueprint
+                # (bp-external-secrets, bp-external-secrets-stores,
+                # bp-cnpg consumers, …) blocks on this dep.
+                #
+                # The init JSON has shape:
+                #   {
+                #     "unseal_keys_b64": ["<key1>", "<key2>", ...],
+                #     "unseal_keys_hex": [...],
+                #     "unseal_threshold": 1,
+                #     "unseal_shares": 1,
+                #     "root_token": "...",
+                #     ...
+                #   }
+                #
+                # With key-shares=1 / key-threshold=1 we need exactly one
+                # unseal key. The line returned by sed below isolates
+                # whatever sits between the FIRST `[` and the FIRST `]`
+                # following `"unseal_keys_b64"`, then a second sed strips
+                # quotes / commas to leave one key per line. We take the
+                # first $UNSEAL_THRESHOLD lines and call `bao operator
+                # unseal` once per key. After threshold is met `bao
+                # status` reports Sealed=false and the rest of the script
+                # can proceed.
+                UNSEAL_THRESHOLD=$(grep -E '"unseal_threshold"' /tmp/init-output.json | head -1 | sed -E 's/.*"unseal_threshold"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/')
+                if [ -z "$UNSEAL_THRESHOLD" ] || [ "$UNSEAL_THRESHOLD" -lt 1 ] 2>/dev/null; then
+                  UNSEAL_THRESHOLD=1
+                fi
+                echo "[openbao-init] unseal threshold = $UNSEAL_THRESHOLD; extracting keys"
+                # Pull the unseal_keys_b64 array, split into one key per line.
+                tr -d '\n' < /tmp/init-output.json \
+                  | sed -E 's/.*"unseal_keys_b64"[[:space:]]*:[[:space:]]*\[([^]]*)\].*/\1/' \
+                  | tr ',' '\n' \
+                  | sed -E 's/.*"([^"]+)".*/\1/' \
+                  | sed '/^[[:space:]]*$/d' \
+                  > /tmp/.unseal-keys
+                KEY_COUNT=$(wc -l < /tmp/.unseal-keys | tr -d ' ')
+                if [ "$KEY_COUNT" -lt "$UNSEAL_THRESHOLD" ]; then
+                  echo "[openbao-init] FATAL: extracted $KEY_COUNT unseal key(s) but threshold=$UNSEAL_THRESHOLD — see /tmp/init-output.json"
+                  exit 1
+                fi
+                I=0
+                while [ "$I" -lt "$UNSEAL_THRESHOLD" ]; do
+                  I=$((I+1))
+                  KEY=$(sed -n "${I}p" /tmp/.unseal-keys)
+                  if [ -z "$KEY" ]; then
+                    echo "[openbao-init] FATAL: empty key at slot $I"
+                    exit 1
+                  fi
+                  echo "[openbao-init] applying unseal key $I/$UNSEAL_THRESHOLD"
+                  bao operator unseal "$KEY" >/dev/null
+                done
+                # Verify the seal is actually broken — exit non-zero if
+                # status still reports sealed=true (this is the assertion
+                # that closes #527).
+                SEALED=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
+                if [ "$SEALED" != "false" ]; then
+                  echo "[openbao-init] FATAL: vault still sealed after applying $UNSEAL_THRESHOLD key(s) — sealed=$SEALED"
+                  bao status || true
+                  exit 1
+                fi
+                echo "[openbao-init] vault unsealed (sealed=false)"
+                rm -f /tmp/.unseal-keys /tmp/recovery-seed.bin
               fi
 
               # ─── Step 4: write bootstrap-marker Secret ──────────────────

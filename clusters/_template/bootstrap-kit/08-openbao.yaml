@@ -53,7 +53,7 @@ spec:
   chart:
     spec:
       chart: bp-openbao
-      version: 1.2.2
+      version: 1.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
