@@ -52,7 +52,19 @@ function rebuildCatalogOnYamlChange(): Plugin {
 }
 
 export default defineConfig({
-  base: '/sovereign/',
+  // base: '/' — path-agnostic for all deployment contexts.
+  //
+  // On Sovereigns (console.<sov>.omani.works/) the HTTPRoute passes
+  // through to nginx root; assets must be at /assets/*, not
+  // /sovereign/assets/*. On contabo (console.openova.io/sovereign/*),
+  // the Traefik strip-sovereign Middleware strips the /sovereign prefix
+  // BEFORE forwarding to nginx, so nginx still sees /assets/* — both
+  // cases resolve correctly with base: '/'.
+  //
+  // Issue #596: the previous base: '/sovereign/' caused blank pages on
+  // every Sovereign cluster because the browser requested
+  // /sovereign/assets/index-*.js but nginx (serving dist at /) returned 404.
+  base: '/',
   plugins: [tailwindcss(), react(), rebuildCatalogOnYamlChange()],
   resolve: {
     alias: {
@@ -62,19 +74,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // With base: '/', API_BASE = '/api' in dev too. Direct proxy to
+      // catalyst-api on localhost:8080 — no prefix rewrite needed.
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-      },
-      // The UI is served under `base: '/sovereign/'`, so fetch calls
-      // emitted by `${API_BASE}/v1/...` (where API_BASE = `/sovereign/api`)
-      // arrive here as `/sovereign/api/...`. Rewrite to `/api/...` so
-      // catalyst-api receives the canonical path. Production traefik
-      // performs the same prefix strip, so dev mirrors prod.
-      '/sovereign/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-        rewrite: (p: string) => p.replace(/^\/sovereign/, ''),
       },
     },
   },
