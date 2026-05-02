@@ -117,12 +117,12 @@ spec:
                 sleep 5
               done
 
-              # ─── Step 2: idempotency check — skip if already initialised ─
+              # ─── Step 2: idempotency check — skip init if already initialised ─
               # `bao status` exit code semantics:
               #   0 — initialized AND unsealed
               #   1 — error (not reachable)
               #   2 — initialized but sealed
-              # We treat 0 OR 2 as "already initialized, exit success".
+              # We treat 0 OR 2 as "already initialized".
               STATUS_RC=0
               bao status >/dev/null 2>&1 || STATUS_RC=$?
               if [ "$STATUS_RC" = "0" ] || [ "$STATUS_RC" = "2" ]; then
@@ -133,16 +133,90 @@ spec:
                   SKIP_INIT=1
                 fi
               fi
+              # k8s API context used in multiple steps below (idempotent
+              # unseal in Step 2a, marker write in Step 4, seed delete in
+              # Step 5). Define once.
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              APISERVER="https://kubernetes.default.svc"
+              UNSEAL_SECRET_NAME="openbao-unseal-keys"
+
+              # ─── Step 2a: idempotent-path unseal (issue #539) ──────────
+              # PR #528 only unsealed on the FRESH init path. If a previous
+              # Job pod completed `bao operator init` but crashed before
+              # the unseal block (or the unseal block failed), the next
+              # Job run takes the idempotent branch and would silently
+              # leave the vault sealed — the symptom #539 captured. Fix:
+              # on every run, if Sealed=true, fetch the persisted
+              # unseal-keys Secret (written by Step 3 on the original
+              # fresh init) and apply unseal here.
+              if [ -n "${SKIP_INIT:-}" ]; then
+                SEALED=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
+                if [ "$SEALED" = "true" ]; then
+                  echo "[openbao-init] vault is sealed — fetching persisted unseal keys from $UNSEAL_SECRET_NAME"
+                  UNSEAL_GET_RC=0
+                  UNSEAL_RESPONSE=$(wget -qO- --no-check-certificate \
+                    --header="Authorization: Bearer $TOKEN" \
+                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME") || UNSEAL_GET_RC=$?
+                  if [ "$UNSEAL_GET_RC" -ne 0 ] || [ -z "$UNSEAL_RESPONSE" ]; then
+                    echo "[openbao-init] FATAL: cannot fetch $UNSEAL_SECRET_NAME — vault is sealed but the unseal-keys Secret is missing."
+                    echo "[openbao-init] This means a prior init completed but never persisted keys (chart <1.2.4)."
+                    echo "[openbao-init] Manual recovery: docs/RUNBOOK-PROVISIONING.md §openbao-auto-unseal — wipe data-openbao-0 PVC and let init run fresh."
+                    exit 1
+                  fi
+                  KEYS_B64_FIELD=$(echo "$UNSEAL_RESPONSE" | tr -d '\n' | sed -E 's/.*"unseal-keys-b64"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+                  THRESHOLD_FIELD=$(echo "$UNSEAL_RESPONSE" | tr -d '\n' | sed -E 's/.*"unseal-threshold"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+                  if [ -z "$KEYS_B64_FIELD" ] || [ "$KEYS_B64_FIELD" = "$UNSEAL_RESPONSE" ]; then
+                    echo "[openbao-init] FATAL: $UNSEAL_SECRET_NAME has no unseal-keys-b64 field"
+                    exit 1
+                  fi
+                  # K8s Secret data fields are base64-encoded. Outer base64
+                  # is the K8s wrapper; the decoded payload itself is a
+                  # newline-separated list of unseal keys (each key is
+                  # itself base64 — that's the OpenBao wire format).
+                  echo "$KEYS_B64_FIELD" | base64 -d > /tmp/.unseal-keys
+                  if [ -z "$THRESHOLD_FIELD" ] || [ "$THRESHOLD_FIELD" = "$UNSEAL_RESPONSE" ]; then
+                    UNSEAL_THRESHOLD=1
+                  else
+                    UNSEAL_THRESHOLD=$(echo "$THRESHOLD_FIELD" | base64 -d)
+                  fi
+                  if [ -z "$UNSEAL_THRESHOLD" ] || [ "$UNSEAL_THRESHOLD" -lt 1 ] 2>/dev/null; then
+                    UNSEAL_THRESHOLD=1
+                  fi
+                  KEY_COUNT=$(wc -l < /tmp/.unseal-keys | tr -d ' ')
+                  if [ "$KEY_COUNT" -lt "$UNSEAL_THRESHOLD" ]; then
+                    echo "[openbao-init] FATAL: persisted $KEY_COUNT key(s) but threshold=$UNSEAL_THRESHOLD"
+                    exit 1
+                  fi
+                  echo "[openbao-init] applying $UNSEAL_THRESHOLD unseal key(s) from persisted Secret"
+                  I=0
+                  while [ "$I" -lt "$UNSEAL_THRESHOLD" ]; do
+                    I=$((I+1))
+                    KEY=$(sed -n "${I}p" /tmp/.unseal-keys)
+                    if [ -z "$KEY" ]; then
+                      echo "[openbao-init] FATAL: empty key at slot $I"
+                      exit 1
+                    fi
+                    bao operator unseal "$KEY" >/dev/null
+                  done
+                  rm -f /tmp/.unseal-keys
+                  SEALED_AFTER=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
+                  if [ "$SEALED_AFTER" != "false" ]; then
+                    echo "[openbao-init] FATAL: vault still sealed after applying $UNSEAL_THRESHOLD key(s) — sealed=$SEALED_AFTER"
+                    bao status || true
+                    exit 1
+                  fi
+                  echo "[openbao-init] resume-unsealed (sealed=false)"
+                else
+                  echo "[openbao-init] vault already unsealed — nothing to do on idempotent path"
+                fi
+              fi
 
               # ─── Step 3: read seed and run `bao operator init` ──────────
               if [ -z "${SKIP_INIT:-}" ]; then
                 echo "[openbao-init] reading seed Secret $NAMESPACE/$SEED_SECRET_NAME"
-                # The upstream openbao image bundles `wget` and basic
-                # POSIX shell tools. We use the in-cluster K8s API via the
-                # ServiceAccount token mounted by Kubernetes.
-                TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-                CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                APISERVER="https://kubernetes.default.svc"
+                # TOKEN/CACERT/APISERVER were defined in Step 2 above
+                # (used by both Step 2a unseal-resume and Step 3+4+5).
                 SEED_B64=$(wget -qO- --no-check-certificate \
                   --header="Authorization: Bearer $TOKEN" \
                   "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$SEED_SECRET_NAME" \
@@ -224,6 +298,38 @@ spec:
                   echo "[openbao-init] FATAL: extracted $KEY_COUNT unseal key(s) but threshold=$UNSEAL_THRESHOLD — see /tmp/init-output.json"
                   exit 1
                 fi
+
+                # ─── Persist unseal keys for idempotent recovery (issue #539) ─
+                # Store the unseal keys as a K8s Secret so future Job runs
+                # can take the idempotent path (Step 2a) and resume an
+                # already-initialised-but-still-sealed vault. Without this
+                # persistence, any pod restart of openbao-0 leaves it
+                # sealed forever (shamir seal type re-seals on restart),
+                # because the keys produced by `bao operator init` only
+                # ever existed in /tmp/.unseal-keys of the original Job
+                # pod. Writing this secret BEFORE unseal means even if
+                # the unseal block crashes the next retry can recover.
+                echo "[openbao-init] persisting unseal keys to Secret $UNSEAL_SECRET_NAME"
+                KEYS_PAYLOAD_B64=$(base64 < /tmp/.unseal-keys | tr -d '\n')
+                THRESHOLD_PAYLOAD_B64=$(printf '%s' "$UNSEAL_THRESHOLD" | base64 | tr -d '\n')
+                UNSEAL_SECRET_BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-unseal-keys"}},"type":"Opaque","data":{"unseal-keys-b64":"%s","unseal-threshold":"%s"}}' \
+                  "$UNSEAL_SECRET_NAME" "$NAMESPACE" "$KEYS_PAYLOAD_B64" "$THRESHOLD_PAYLOAD_B64")
+                US_CREATE_RC=0
+                wget -qO- --no-check-certificate \
+                  --header="Authorization: Bearer $TOKEN" \
+                  --header="Content-Type: application/json" \
+                  --post-data="$UNSEAL_SECRET_BODY" \
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets" >/dev/null 2>&1 || US_CREATE_RC=$?
+                if [ "$US_CREATE_RC" -ne 0 ]; then
+                  echo "[openbao-init] $UNSEAL_SECRET_NAME exists, replacing via PUT"
+                  wget -qO- --no-check-certificate \
+                    --header="Authorization: Bearer $TOKEN" \
+                    --header="Content-Type: application/json" \
+                    --method=PUT \
+                    --body-data="$UNSEAL_SECRET_BODY" \
+                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME" >/dev/null 2>&1 || true
+                fi
+
                 I=0
                 while [ "$I" -lt "$UNSEAL_THRESHOLD" ]; do
                   I=$((I+1))
@@ -250,9 +356,7 @@ spec:
 
               # ─── Step 4: write bootstrap-marker Secret ──────────────────
               echo "[openbao-init] writing bootstrap-marker openbao-init-marker"
-              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-              CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-              APISERVER="https://kubernetes.default.svc"
+              # TOKEN/CACERT/APISERVER were defined in Step 2 above.
               MARKER_PAYLOAD=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"openbao-init-marker","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-init-marker"}},"type":"Opaque","data":{"initialised-at":"%s"}}' \
                 "$NAMESPACE" "$(date -u +%Y-%m-%dT%H:%M:%SZ | base64 | tr -d '\n')")
               # Try create; if it exists, patch.
