@@ -110,7 +110,7 @@ spec:
         app.kubernetes.io/name: catalyst-api
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-pull
       # fsGroup applies to the volumes mounted into the Pod so the
       # non-root container UID (65534) can write to the deployments
       # PVC. Without this, Hetzner Cloud Volumes default to root:root
@@ -196,6 +196,20 @@ spec:
             # credentials redacted; see internal/store/store.go.
             - name: CATALYST_DEPLOYMENTS_DIR
               value: /var/lib/catalyst/deployments
+            # CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS (issue #547) — current
+            # bootstrap-kit cardinality is 38 HRs (clusters/_template/
+            # bootstrap-kit/01-cilium → 49-bp-cert-manager-powerdns-webhook).
+            # Watch must observe at least this many HRs before the
+            # terminate-on-all-done check fires. The helmwatch default is
+            # 11 (the legacy 11-component count); without this override
+            # informer alphabetical sync order means the first 12 HRs reach
+            # Ready=True before the rest enter the cache, watch exits Ready
+            # early, the wizard's jobs page locks at 12/38 install rows.
+            # Per INVIOLABLE-PRINCIPLES #4 (no hardcoded values), keeping
+            # the actual count as a chart value lets future bootstrap-kit
+            # additions ship without touching helmwatch source.
+            - name: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS
+              value: "38"
             # CATALYST_KUBECONFIGS_DIR — sibling directory on the same
             # PVC for the plaintext kubeconfigs the new Sovereign POSTs
             # back via the bearer-token endpoint (issue #183, Option D).
