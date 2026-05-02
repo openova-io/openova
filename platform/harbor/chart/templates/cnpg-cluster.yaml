@@ -1,0 +1,67 @@
+{{- /*
+CNPG-managed Postgres cluster for Harbor registry metadata.
+
+Harbor requires PostgreSQL for its core database (registrations, tags,
+access control, replication rules, GC scheduling, etc.). bp-harbor ships
+this Cluster CR so the metadata database is provisioned by CNPG alongside
+the HelmRelease — no separate Helm release or manual setup required.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally-
+meaningful value flows from values.yaml. The Cluster name defaults to
+`harbor-pg`; the CNPG operator synthesises a `harbor-pg-app` Secret that
+the adjacent `templates/database-secret.yaml` re-emits under the name
+`harbor-database-secret`, which the upstream harbor chart reads via
+`database.external.existingSecret`.
+
+`enableSuperuserAccess: true` is kept consistent with bp-powerdns to allow
+DB-level introspection during incident response.
+
+Capabilities gate (issue #190): bp-cnpg ships the `postgresql.cnpg.io/v1`
+CRD that backs Cluster — it is NOT in the bootstrap-kit. On a cold
+install of a fresh Sovereign before bp-cnpg is reconciling, the apiserver
+rejects this Cluster with `no matches for kind Cluster in version
+postgresql.cnpg.io/v1`. The Capabilities check skips this template until
+the CRD is registered, at which point the gate becomes a no-op. The
+Sovereign's bootstrap order MUST land bp-cnpg before bp-harbor; the gate
+exists so a misordered cluster overlay surfaces as `no Cluster created yet`
+rather than a hard install failure of the entire bp-harbor release.
+*/}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.cluster.name | default "harbor-pg" }}
+  namespace: {{ .Values.postgres.cluster.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.cluster.instances | default 1 }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.cluster.database | default "harbor" | quote }}
+      owner: {{ .Values.postgres.cluster.owner | default "harbor" | quote }}
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "64MB"
+      effective_cache_size: "192MB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+      log_statement: "ddl"
+      log_min_duration_statement: "1000"
+
+  resources:
+    {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}
+
+  storage:
+    size: {{ .Values.postgres.cluster.storageSize | default "5Gi" }}
+    storageClass: {{ .Values.postgres.cluster.storageClass | default "local-path" | quote }}
+
+  enableSuperuserAccess: true
+
+  monitoring:
+    enablePodMonitor: false
+{{- end }}
