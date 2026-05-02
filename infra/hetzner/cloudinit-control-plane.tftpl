@@ -693,9 +693,14 @@ runcmd:
   # local single-node install. catalyst-api lives off-cluster (Catalyst-Zero
   # franchise console on contabo-mkt) and cannot reach 127.0.0.1 on this
   # node, so we MUST rewrite that field before sending the kubeconfig
-  # back. The Hetzner load balancer at $${load_balancer_ipv4} forwards
-  # 6443 to the control plane's 6443 (firewall rule above), so a kubeconfig
-  # pointing at the LB's public IPv4 is reachable from anywhere.
+  # back.
+  #
+  # Issue #542: kubeconfig server: must be the control-plane's PUBLIC IPv4,
+  # NOT the load balancer's. The Hetzner LB only forwards 80/443 (Cilium
+  # Gateway ingress); 6443 is exposed directly on the CP via firewall rule
+  # main.tf:51-56 (0.0.0.0/0 → CP:6443). Earlier code rewrote to the LB IP
+  # which silently fails with "connect: connection refused" — wizard jobs
+  # page stuck PENDING for 50+ minutes after install completes.
   #
   # Plaintext: we read from /etc/rancher/k3s/k3s.yaml (mode 0644 written
   # by k3s), apply the rewrite via sed, write the result to
@@ -710,7 +715,7 @@ runcmd:
   # reconciliation) — the cloud-init runcmd budget is bounded by the
   # systemd cloud-final timeout (~30 minutes).
   - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
-  - sed 's|https://127.0.0.1:6443|https://${load_balancer_ipv4}:6443|g' /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public
+  - sed 's|https://127.0.0.1:6443|https://${control_plane_ipv4}:6443|g' /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public
   - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
   - |
     curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
