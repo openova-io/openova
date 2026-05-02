@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.14
+version: 1.1.15
 appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -99,6 +99,15 @@ description: |
   Catalyst-authored image refs (catalyst-api, catalyst-ui, marketplace-api,
   console, and all 10 SME service deployments). Post-handover per-Sovereign
   overlays set global.imageRegistry to the local Harbor mirror. Issue #560.
+  Bumped to 1.1.15 to rebuild catalyst-ui with Vite base: '/' (was
+  /sovereign/). The previous base caused blank pages on Sovereign clusters:
+  the browser requested /sovereign/assets/index-*.js but nginx served the
+  dist at / so every asset returned 404. On contabo
+  (console.openova.io/sovereign/*) Traefik's strip-sovereign Middleware strips
+  the prefix before reaching nginx — both environments now serve assets at
+  /assets/* as expected. Also fixes router.tsx basepath from '/sovereign' to
+  '/' so TanStack Router Link/navigate calls emit correct paths. Issue #596,
+  2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

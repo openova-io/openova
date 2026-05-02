@@ -413,9 +413,10 @@ const routeTree = rootRoute.addChildren([
   marketplaceProductRoute,
 ])
 
-// basepath mirrors Vite's `base: '/sovereign/'` so internal <Link> and
-// router.navigate calls emit URLs prefixed with /sovereign/.
-export const router = createRouter({ routeTree, basepath: '/sovereign' })
+// basepath: '/' — Vite base is now '/' (issue #596). Both Sovereigns
+// (console.<sov>/) and contabo (console.openova.io/sovereign/* with
+// Traefik strip-prefix) resolve to root, so router and Vite must agree.
+export const router = createRouter({ routeTree, basepath: '/' })
 
 declare module '@tanstack/react-router' {
   interface Register {
