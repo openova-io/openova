@@ -521,6 +521,32 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
+  // Bug #481 (reopened 2026-05-01) — operator's exact words:
+  //   "they could have put a simple rule saying the max distance of a
+  //    line cannot be longer than a percentage of canvas, or they could
+  //    say no single bubble could be outside of the canvas etc."
+  //
+  // Live failure on otech17: a single dependency chain reached depth
+  // 190 (e.g. bp-catalyst-platform → bp-langfuse → ... long chain). At
+  // PER_DEPTH_X=160 that placed leaves at x=30,400+. Per-tick clamps
+  // bound nodes around their own depth-anchor (which itself was at
+  // 30,400) so they never came back into view — and the viewBox
+  // ceiling MAX_VBOX_W=1200 captured only a 1200px slice of a 30,000px
+  // cluster. The yellow horizontal lines on screen were the few edges
+  // that happened to cross the visible 1200px window; every bubble was
+  // off-canvas.
+  //
+  // The bounded tests passed because they asserted positions inside
+  // the viewBox for 5-80 sibling stars, but never modelled a deep
+  // chain (the actual production shape).
+  //
+  // Structural fix per operator's ask: "no single bubble could be
+  // outside of the canvas". After the natural bbox is computed, clamp
+  // it to MAX so the viewBox stays bounded, then HARD-CLAMP every
+  // rendered position into the viewBox. Edges are then drawn between
+  // already-clamped positions, so the second rule ("max line length")
+  // is also bounded as a side effect (any link is at most the
+  // viewBox's diagonal).
   let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity
   for (const p of livePos.values()) {
     if (p.x < bbMinX) bbMinX = p.x
@@ -533,21 +559,62 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   const PAD_Y_BOTTOM = NODE_RADIUS + 40
   const naturalW = (bbMaxX - bbMinX) + PAD_X * 2
   const naturalH = (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM
-  // Bug #481 — clamp the viewBox between MIN and MAX so:
-  //   • Tiny graphs (4-6 nodes) don't squeeze into a microscopic cluster
-  //     (MIN floor keeps them readable at ≥120px wide each).
-  //   • Pathological / runaway graphs don't force the SVG to scale
-  //     down so far the nodes turn into specks (MAX ceiling).
-  // The MAX ceiling is the operative half of this clamp for #481 — it
-  // is the structural answer to "kilometers of edges between tiny
-  // nodes": even if the simulation drifts, the visible area never
-  // exceeds MAX, so nodes always render at a usable size.
   const vbW = Math.min(MAX_VBOX_W, Math.max(MIN_VBOX_W, naturalW))
   const vbH = Math.min(MAX_VBOX_H, Math.max(MIN_VBOX_H, naturalH))
-  const cx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
-  const cy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
-  const vbX = cx - vbW / 2
-  const vbY = cy - vbH / 2
+  // Bug #481 — when the natural bbox is wider than MAX_VBOX, anchor
+  // the viewBox at the LEFT-MOST cluster point (depth 0) instead of
+  // centring on the cluster centroid. Centring put depth 0 at
+  // x=-15,000 off-canvas; left-anchor keeps the visible 1200px slice
+  // starting at the actual left edge of the data, where the operator
+  // expects depth-0 root nodes to live.
+  const naturalCx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
+  const naturalCy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
+  const vbX = naturalW > MAX_VBOX_W && Number.isFinite(bbMinX)
+    ? bbMinX - PAD_X
+    : naturalCx - vbW / 2
+  const vbY = naturalH > MAX_VBOX_H && Number.isFinite(bbMinY)
+    ? bbMinY - PAD_Y_TOP
+    : naturalCy - vbH / 2
+
+  // Bug #481 — Constraint A: hard-clamp every render position into the
+  // viewBox so no bubble ever drifts off-canvas, regardless of what the
+  // simulation, depth-anchor, or grid-target produced. Operator's exact
+  // request: "no single bubble could be outside of the canvas".
+  //
+  // For pathological-width clusters (depth-190 chains with naturalW
+  // ≈ 30,000 vs MAX_VBOX_W=1200) plain clamping would pile every
+  // distant node on the right edge. Solve that by scaling the X axis
+  // proportionally to fit the viewBox, then clamping as a final
+  // safety net. Y gets the same treatment.
+  const CLAMP_INSET = NODE_RADIUS + 8
+  const usableW = vbW - CLAMP_INSET * 2
+  const usableH = vbH - CLAMP_INSET * 2
+  const xScale = naturalW > vbW && (bbMaxX - bbMinX) > 0
+    ? usableW / (bbMaxX - bbMinX)
+    : 1
+  const yScale = naturalH > vbH && (bbMaxY - bbMinY) > 0
+    ? usableH / (bbMaxY - bbMinY)
+    : 1
+  const project = (p: { x: number; y: number }) => {
+    let x = p.x
+    let y = p.y
+    if (xScale < 1 && Number.isFinite(bbMinX)) {
+      x = vbX + CLAMP_INSET + (p.x - bbMinX) * xScale
+    }
+    if (yScale < 1 && Number.isFinite(bbMinY)) {
+      y = vbY + CLAMP_INSET + (p.y - bbMinY) * yScale
+    }
+    // Final safety clamp — even when scaling, FP drift / partial-tick
+    // values can land a fraction outside; the inset clamp guarantees
+    // the bubble's full diameter stays visible.
+    x = Math.min(vbX + vbW - CLAMP_INSET, Math.max(vbX + CLAMP_INSET, x))
+    y = Math.min(vbY + vbH - CLAMP_INSET, Math.max(vbY + CLAMP_INSET, y))
+    return { x, y }
+  }
+  const renderPos = new Map<string, { x: number; y: number }>()
+  for (const [id, p] of livePos) {
+    renderPos.set(id, project(p))
+  }
 
   return (
     <svg
@@ -605,8 +672,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       </defs>
 
       {layout.edges.map((e) => {
-        const s = livePos.get(e.fromId)
-        const t = livePos.get(e.toId)
+        // Bug #481 — use clamped renderPos, not raw livePos. Edges
+        // between clamped endpoints are bounded by the viewBox
+        // diagonal so "kilometers of edges" is structurally impossible.
+        const s = renderPos.get(e.fromId)
+        const t = renderPos.get(e.toId)
         if (!s || !t) return null
         const onSelectionPath =
           openJobId !== null && (e.fromId === openJobId || e.toId === openJobId)
@@ -625,7 +695,9 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })}
 
       {layout.nodes.map((node) => {
-        const pos = livePos.get(node.id)
+        // Bug #481 — render at clamped position so no bubble ever sits
+        // outside the viewBox.
+        const pos = renderPos.get(node.id)
         if (!pos) return null
         const family = familyById.get(node.familyId) ?? null
         const isNeighbor = neighborIds.has(node.id)
