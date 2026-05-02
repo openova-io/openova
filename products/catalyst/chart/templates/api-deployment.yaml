@@ -136,8 +136,13 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            # CORS_ORIGIN — browser origin allowed to call the API.
+            # Catalyst-Zero (contabo-mkt Kustomize path): console.openova.io
+            # Sovereign clusters (Helm path): console.<sov-fqdn> (set via values.yaml)
+            # The catalyst-ui browser is always served from the same hostname as
+            # the API ingress, so this value equals the console hostname.
             - name: CORS_ORIGIN
-              value: "https://catalyst.openova.io"
+              value: "https://console.openova.io"
             - name: DYNADOT_API_KEY
               valueFrom:
                 secretKeyRef:
