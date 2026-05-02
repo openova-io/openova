@@ -98,6 +98,16 @@ type Handler struct {
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
 
+	// kubeconfigArrivalTimeout / kubeconfigArrivalPollInterval —
+	// runtime knobs for the polling loop that waits for cloud-init
+	// to PUT the new Sovereign's kubeconfig. Zero falls back to the
+	// env var → DefaultKubeconfigArrivalTimeout /
+	// DefaultKubeconfigArrivalPollInterval. Tests inject tiny
+	// values (e.g. 200ms / 50ms) so the kubeconfig-arrival path
+	// can be exercised in milliseconds. Issue #538.
+	kubeconfigArrivalTimeout      time.Duration
+	kubeconfigArrivalPollInterval time.Duration
+
 	// refreshWatchSeedTimeout — bound on how long
 	// POST /api/v1/deployments/{id}/refresh-watch blocks waiting for
 	// the bridge seed hook to fire. Zero falls back to

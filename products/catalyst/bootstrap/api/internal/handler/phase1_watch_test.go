@@ -268,8 +268,17 @@ func TestRunPhase1Watch_FailedComponentFlipsStatusToFailed(t *testing.T) {
 // that a Sovereign was Ready when catalyst-api had never observed
 // it. The truthful state is "failed" with a kubeconfig-missing
 // outcome and an operator-actionable error message.
+//
+// Issue #538: the watch now POLLS for the cloud-init kubeconfig
+// rather than terminating on the first miss. To exercise the
+// terminal-on-timeout path deterministically the test injects a
+// tiny kubeconfigArrivalTimeout / kubeconfigArrivalPollInterval —
+// the polling loop runs for ~50 ms and then surfaces
+// OutcomeKubeconfigMissing as the original test expected.
 func TestRunPhase1Watch_EmptyKubeconfigShortCircuits(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.kubeconfigArrivalTimeout = 50 * time.Millisecond
+	h.kubeconfigArrivalPollInterval = 10 * time.Millisecond
 	dep := makeDeploymentWithKubeconfig(t, h, "phase1-no-kubeconfig", "")
 	h.runPhase1Watch(dep)
 
@@ -688,6 +697,187 @@ func TestEvent_ComponentAndStateFieldsPresentForPhase1(t *testing.T) {
 	}
 	if !strings.Contains(got, `"state":"installed"`) {
 		t.Errorf("Phase-1 event missing state: %s", got)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Issue #538 — Phase-1 watch waits for cloud-init's kubeconfig PUT
+// instead of terminating on the first miss.
+// ─────────────────────────────────────────────────────────────────────
+
+// TestRunPhase1Watch_WaitsForKubeconfigArrival proves that
+// runPhase1Watch polls for the kubeconfig file and proceeds when it
+// shows up partway through the wait window — instead of terminating
+// kubeconfig-missing on the first poll. This is the live bug from
+// otech21 (1a7328cc3a94210b): runProvisioning launched the watch
+// moments before cloud-init's PUT arrived, so the deployment latched
+// terminal-failed and the wizard showed Install X jobs PENDING
+// forever even though the cluster was healthy.
+//
+// The test races a goroutine that writes the kubeconfig file 50 ms
+// into the watch against a ~5 s deadline; the watch must observe
+// the kubeconfig and run the helmwatch successfully against the
+// fake dynamic client.
+func TestRunPhase1Watch_WaitsForKubeconfigArrival(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(
+		makeReadyHR("bp-cilium"),
+	)
+	h.phase1WatchTimeout = 5 * time.Second
+	// 5 s of polling time, every 25 ms — tiny enough to keep the
+	// test fast but big enough that the writer goroutine has time
+	// to hand the file to the watch.
+	h.kubeconfigArrivalTimeout = 5 * time.Second
+	h.kubeconfigArrivalPollInterval = 25 * time.Millisecond
+
+	// Build a deployment whose KubeconfigPath is set BEFORE the
+	// watch starts (so the polling loop knows where to look) but
+	// whose file does NOT yet exist on disk — a faithful re-creation
+	// of the live race: dep.Result.KubeconfigPath was never going
+	// to be empty in production because PutKubeconfig sets it.
+	id := "phase1-arrival-race"
+	kcDir := t.TempDir()
+	kcPath := filepath.Join(kcDir, id+".yaml")
+	dep := &Deployment{
+		ID:        id,
+		Status:    "phase1-watching",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: "test." + id + ".example",
+			Region:        "fsn1",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN:  "test." + id + ".example",
+			KubeconfigPath: kcPath,
+		},
+	}
+	h.deployments.Store(id, dep)
+
+	// Writer goroutine: after a short delay, drop the kubeconfig
+	// onto disk. The polling loop should pick it up on the next
+	// tick (≤25 ms later) and proceed with helmwatch.
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		_ = os.WriteFile(kcPath, []byte("fake-kubeconfig: yaml"), 0o600)
+	}()
+
+	h.runPhase1Watch(dep)
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status != "ready" {
+		t.Fatalf("Status = %q, want %q (kubeconfig arrived mid-wait — watch must NOT terminate kubeconfig-missing on first miss; issue #538): error=%q outcome=%q",
+			dep.Status, "ready", dep.Error, func() string {
+				if dep.Result == nil {
+					return "<nil>"
+				}
+				return dep.Result.Phase1Outcome
+			}())
+	}
+	// Issue #538 contract: the watch ran (it didn't short-circuit
+	// kubeconfig-missing). Phase1Outcome is OutcomeKubeconfigMissing
+	// ONLY when the wait window times out without a PUT — anything
+	// else proves the wait succeeded and the watch took over.
+	if dep.Result == nil || dep.Result.Phase1Outcome == helmwatch.OutcomeKubeconfigMissing {
+		got := "<nil result>"
+		if dep.Result != nil {
+			got = dep.Result.Phase1Outcome
+		}
+		t.Errorf("Phase1Outcome = %q, want anything other than %q — kubeconfig arrived mid-wait (issue #538)", got, helmwatch.OutcomeKubeconfigMissing)
+	}
+	if dep.Result.ComponentStates["cilium"] != helmwatch.StateInstalled {
+		t.Errorf("ComponentStates[cilium] = %q, want %q",
+			dep.Result.ComponentStates["cilium"], helmwatch.StateInstalled)
+	}
+}
+
+// TestPutKubeconfig_RestartsWatchAfterTerminalKubeconfigMissing
+// proves the belt-and-braces second half of the issue #538 fix:
+// when a previous Phase-1 watch already terminated with
+// OutcomeKubeconfigMissing (the deployment is terminal-failed,
+// phase1Started=true, Phase1FinishedAt set), a successful
+// PutKubeconfig clears those terminal markers and launches a fresh
+// watch. The freshly-started watch picks the kubeconfig up off disk
+// and observes the bp-cilium HelmRelease, ending in Status=ready
+// with Phase1Outcome=ready.
+func TestPutKubeconfig_RestartsWatchAfterTerminalKubeconfigMissing(t *testing.T) {
+	h, _, id, bearer := makePutFixture(t, "phase1-watching")
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(
+		makeReadyHR("bp-cilium"),
+	)
+	h.phase1WatchTimeout = 3 * time.Second
+	h.kubeconfigArrivalTimeout = 1 * time.Second
+	h.kubeconfigArrivalPollInterval = 10 * time.Millisecond
+
+	val, _ := h.deployments.Load(id)
+	dep := val.(*Deployment)
+
+	// Simulate the live state from otech21: a previous watch ran,
+	// timed out kubeconfig-missing, and latched the deployment in
+	// terminal-failed. phase1Started=true, Phase1Outcome=
+	// OutcomeKubeconfigMissing, Phase1FinishedAt set, Status=failed.
+	finishedAt := time.Now().UTC()
+	dep.mu.Lock()
+	dep.Status = "failed"
+	dep.Error = "Phase 1 watch never ran: kubeconfig missing"
+	dep.FinishedAt = finishedAt
+	dep.phase1Started = true
+	dep.Result.Phase1Outcome = helmwatch.OutcomeKubeconfigMissing
+	dep.Result.Phase1FinishedAt = &finishedAt
+	dep.Result.ComponentStates = map[string]string{}
+	// runProvisioning's close()s would have run when the original
+	// watch terminated; close them here too so the relaunch path's
+	// channel-allocation branch is genuinely exercised.
+	close(dep.eventsCh)
+	close(dep.done)
+	dep.mu.Unlock()
+
+	// Drive the cloud-init PUT.
+	w := httptest.NewRecorder()
+	r := putReq(t, id, bearer, []byte("fake-kubeconfig: yaml"))
+	h.PutKubeconfig(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("PUT status = %d, want 204; body=%s", w.Code, w.Body.String())
+	}
+
+	// Wait for the relaunched watch to terminate. With a fake
+	// dynamic client + ~3 s phase1WatchTimeout it should land
+	// within ~1 s.
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		dep.mu.Lock()
+		done := dep.Result != nil &&
+			dep.Result.Phase1Outcome != helmwatch.OutcomeKubeconfigMissing &&
+			dep.Result.Phase1Outcome != ""
+		dep.mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status != "ready" {
+		t.Fatalf("Status = %q, want %q after PUT-relaunch; outcome=%q error=%q (issue #538)",
+			dep.Status, "ready", dep.Result.Phase1Outcome, dep.Error)
+	}
+	// Issue #538 contract: the relaunched watch ran. The exact
+	// terminal outcome is OutcomeReady when the all-done gate fires
+	// (≥ MinBootstrapKitHRs observed) or OutcomeTimeout otherwise;
+	// what matters is that we are NOT still latched in
+	// OutcomeKubeconfigMissing.
+	if dep.Result.Phase1Outcome == helmwatch.OutcomeKubeconfigMissing || dep.Result.Phase1Outcome == "" {
+		t.Errorf("Phase1Outcome = %q, want anything other than %q/empty — PUT must have relaunched the watch (issue #538)",
+			dep.Result.Phase1Outcome, helmwatch.OutcomeKubeconfigMissing)
+	}
+	if dep.Result.ComponentStates["cilium"] != helmwatch.StateInstalled {
+		t.Errorf("ComponentStates[cilium] = %q, want %q (relaunched watch must observe HRs)",
+			dep.Result.ComponentStates["cilium"], helmwatch.StateInstalled)
 	}
 }
 

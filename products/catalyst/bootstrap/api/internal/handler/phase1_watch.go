@@ -58,6 +58,37 @@ const phase1MinBootstrapKitHRsEnv = "CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS"
 // watch's overall budget is phase1WatchTimeoutEnv.
 const phase1FirstSeenTimeoutEnv = "CATALYST_PHASE1_FIRST_SEEN_TIMEOUT"
 
+// kubeconfigArrivalTimeoutEnv — how long runPhase1Watch waits for the
+// cloud-init PUT to land /var/lib/catalyst/kubeconfigs/<id>.yaml on
+// disk before giving up with OutcomeKubeconfigMissing. Cloud-init
+// typically completes within 3-6 minutes after `tofu apply` returns;
+// 15 minutes is generous headroom for slow Hetzner regions or LB
+// reconcile delays. Tests inject a much shorter value via
+// Handler.kubeconfigArrivalTimeout.
+//
+// While waiting, dep.Status stays "phase1-watching" (NOT "failed")
+// — markPhase1Done is only called once the timeout elapses. Issue
+// #538: previously the watch terminated on the first miss, so when
+// runProvisioning launched it moments before cloud-init's PUT
+// landed, the deployment latched terminal-failed and the wizard
+// showed Install X jobs PENDING forever even when the new Sovereign
+// was actually healthy.
+const kubeconfigArrivalTimeoutEnv = "CATALYST_PHASE1_KUBECONFIG_ARRIVAL_TIMEOUT"
+
+// kubeconfigArrivalPollIntervalEnv — how often runPhase1Watch
+// re-checks for the kubeconfig file on disk while waiting for the
+// cloud-init PUT. 15 seconds keeps the wizard log pane responsive
+// without thrashing the PVC.
+const kubeconfigArrivalPollIntervalEnv = "CATALYST_PHASE1_KUBECONFIG_POLL_INTERVAL"
+
+// DefaultKubeconfigArrivalTimeout — production default for the
+// kubeconfig-arrival wait window. Issue #538.
+const DefaultKubeconfigArrivalTimeout = 15 * time.Minute
+
+// DefaultKubeconfigArrivalPollInterval — production default for the
+// kubeconfig-arrival poll cadence. Issue #538.
+const DefaultKubeconfigArrivalPollInterval = 15 * time.Second
+
 // runPhase1Watch builds a helmwatch.Watcher and runs it to completion.
 // All emit goes through h.emitWatchEvent so the durable buffer + SSE
 // channel get every per-component event.
@@ -73,6 +104,13 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 	// goroutine; the second is a no-op. Without this, a duplicate
 	// run would spin up a second informer + emit a duplicate set of
 	// per-component events into the SSE buffer.
+	//
+	// Issue #538 nuance: PutKubeconfig clears phase1Started AND
+	// resets the terminal kubeconfig-missing markers BEFORE
+	// re-launching, so the belt-and-braces kick-the-watch path
+	// can run a fresh watch even after a previous attempt
+	// terminated kubeconfig-missing. See PutKubeconfig in
+	// kubeconfig.go for the reset logic.
 	dep.mu.Lock()
 	if dep.phase1Started {
 		dep.mu.Unlock()
@@ -82,43 +120,22 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 		return
 	}
 	dep.phase1Started = true
-	kubeconfigPath := ""
-	if dep.Result != nil {
-		kubeconfigPath = dep.Result.KubeconfigPath
-	}
 	dep.mu.Unlock()
 
-	// Read the kubeconfig from disk. Plaintext lives only on the
-	// PVC at /var/lib/catalyst/kubeconfigs/<id>.yaml (chmod 0600),
-	// never in the on-disk JSON record. An empty path OR a missing
-	// file are both short-circuit cases — the wizard's FailureCard
-	// reads the emitted warn event so the operator can investigate
-	// the cloud-init postback.
-	kubeconfig := ""
-	if kubeconfigPath != "" {
-		raw, err := os.ReadFile(kubeconfigPath)
-		if err == nil {
-			kubeconfig = string(raw)
-		} else {
-			h.log.Warn("phase 1 watch: kubeconfig file not readable",
-				"id", dep.ID,
-				"path", kubeconfigPath,
-				"err", err,
-			)
-		}
-	}
-
-	if kubeconfig == "" {
-		h.emitWatchEvent(dep, provisioner.Event{
-			Time:    time.Now().UTC().Format(time.RFC3339),
-			Phase:   helmwatch.PhaseComponent,
-			Level:   "warn",
-			Message: "Phase-1 watch skipped: no kubeconfig is available on the catalyst-api side. The new Sovereign's cloud-init has not yet PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 is still in flight, or cloud-init failed to reach this endpoint. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment to observe per-component install state.",
-		})
-		// Short-circuit path — no watch ever ran. Outcome MUST be
-		// OutcomeKubeconfigMissing (not empty) so markPhase1Done sets
-		// Status to a truthful failed state instead of falling through
-		// to the default "ready" branch — issue #488.
+	// Wait for the kubeconfig file to appear on disk. The path
+	// pointer (dep.Result.KubeconfigPath) is set by PutKubeconfig
+	// when cloud-init's postback succeeds. While waiting, dep.Status
+	// stays "phase1-watching" — markPhase1Done is only called on
+	// timeout. Issue #538: previously the watch terminated on the
+	// first miss, so when runProvisioning launched it moments before
+	// cloud-init's PUT landed, the deployment latched terminal-failed
+	// and the wizard showed Install X jobs PENDING forever even when
+	// the new Sovereign was actually healthy.
+	kubeconfig, ok := h.waitForKubeconfig(dep)
+	if !ok {
+		// Timeout elapsed — surface kubeconfig-missing as before.
+		// The warn event was emitted by waitForKubeconfig at the
+		// final tick.
 		h.markPhase1Done(dep, nil, helmwatch.OutcomeKubeconfigMissing)
 		return
 	}
@@ -323,4 +340,96 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 // env var the package reads. Returns "" if unset.
 func envOrEmpty(key string) string {
 	return os.Getenv(key)
+}
+
+// waitForKubeconfig polls for the cloud-init kubeconfig postback to
+// land on disk. Returns (kubeconfig-bytes, true) when the file
+// appears within the timeout, or ("", false) when the timeout
+// elapses. While waiting, an info-level component event is emitted
+// every poll-interval so the wizard log pane shows progress
+// instead of going silent. Issue #538.
+//
+// Timeout / poll cadence are runtime-configurable per
+// docs/INVIOLABLE-PRINCIPLES.md #4 — see kubeconfigArrivalTimeoutEnv
+// and kubeconfigArrivalPollIntervalEnv. Tests override via the
+// Handler.kubeconfigArrivalTimeout / kubeconfigArrivalPollInterval
+// fields so the path is exercised in milliseconds.
+func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
+	timeout := h.kubeconfigArrivalTimeout
+	if timeout == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(kubeconfigArrivalTimeoutEnv)); v > 0 {
+			timeout = v
+		} else {
+			timeout = DefaultKubeconfigArrivalTimeout
+		}
+	}
+	pollEvery := h.kubeconfigArrivalPollInterval
+	if pollEvery == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(kubeconfigArrivalPollIntervalEnv)); v > 0 {
+			pollEvery = v
+		} else {
+			pollEvery = DefaultKubeconfigArrivalPollInterval
+		}
+	}
+
+	deadline := time.Now().Add(timeout)
+	first := true
+	for {
+		// Snapshot the current kubeconfig path under the lock.
+		// PutKubeconfig writes Result.KubeconfigPath under the same
+		// lock, so a concurrent PUT is observed atomically.
+		dep.mu.Lock()
+		path := ""
+		if dep.Result != nil {
+			path = dep.Result.KubeconfigPath
+		}
+		dep.mu.Unlock()
+
+		// If the path pointer is set, try to read it. The pointer
+		// can be set BEFORE the file is fully fsynced on slow disks
+		// — read errors fall through to the next poll tick.
+		if path != "" {
+			if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
+				if !first {
+					h.emitWatchEvent(dep, provisioner.Event{
+						Time:    time.Now().UTC().Format(time.RFC3339),
+						Phase:   helmwatch.PhaseComponent,
+						Level:   "info",
+						Message: fmt.Sprintf("Phase-1 watch: kubeconfig received from cloud-init (%d bytes); starting per-component HelmRelease watch.", len(raw)),
+					})
+				}
+				return string(raw), true
+			}
+		}
+
+		// First tick is a single "waiting for cloud-init" message
+		// so the wizard log pane shows the watch is alive.
+		// Subsequent ticks are silent on the event bus (every 15s
+		// of "still waiting" log noise would drown the operator's
+		// view); we still poll the file system every tick so a
+		// PUT lands as soon as it arrives.
+		if first {
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: fmt.Sprintf("Phase-1 watch: waiting for cloud-init to PUT the new Sovereign's kubeconfig (timeout %s, polling every %s).", timeout, pollEvery),
+			})
+			first = false
+		}
+
+		// Check the deadline AFTER an emit so the operator-visible
+		// log includes the final timeout reason.
+		if time.Now().After(deadline) {
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "warn",
+				Message: fmt.Sprintf("Phase-1 watch: timed out after %s waiting for cloud-init kubeconfig postback. The new Sovereign's cloud-init never PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 failed, the LB never routed to the cloud-init endpoint, or cloud-init crashed. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment.", timeout),
+			})
+			return "", false
+		}
+
+		time.Sleep(pollEvery)
+	}
 }
