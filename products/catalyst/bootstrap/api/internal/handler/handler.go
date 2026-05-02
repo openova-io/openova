@@ -170,7 +170,7 @@ type Handler struct {
 	handoverSigner *handoverjwt.Signer
 
 	// ── /auth/handover fields (issue #606, Phase-8b Agent C) ─────────────────
-	// kc — Keycloak client for the /auth/handover endpoint.
+	// kc — Keycloak client for the /auth/handover endpoint (Sovereign realm).
 	kc keycloakClient
 	// jtiStore — single-use JTI store for /auth/handover replay protection.
 	jtiStore jtiStorer
@@ -182,6 +182,12 @@ type Handler struct {
 	kcAudience string
 	// authHandoverRedirect — post-handover redirect target. Defaults to "/console/dashboard".
 	authHandoverRedirect string
+
+	// ── /auth/magic-link fields (issue #614, Phase-8b Option B) ─────────────
+	// openovaKC — Keycloak client for the openova realm magic-link flow.
+	// Separate from kc (Sovereign realm) — different realm, different SA client.
+	// Nil when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is not set (Sovereign-side, CI).
+	openovaKC keycloakClient
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
@@ -377,6 +383,10 @@ func (h *Handler) GetAuthConfig() *auth.Config { return h.authConfig }
 
 // SetAuthConfig wires an auth.Config into the Handler.
 func (h *Handler) SetAuthConfig(cfg *auth.Config) { h.authConfig = cfg }
+
+// SetOpenovaKC wires the openova-realm Keycloak client (Option-B magic-link).
+// Called by main.go at startup when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
+func (h *Handler) SetOpenovaKC(kc keycloakClient) { h.openovaKC = kc }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

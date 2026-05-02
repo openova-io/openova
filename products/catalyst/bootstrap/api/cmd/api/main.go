@@ -18,6 +18,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
 
@@ -113,6 +114,20 @@ func main() {
 		)
 	}
 
+	// Option-B magic-link openova-realm Keycloak client (issue #614).
+	// Wired only when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
+	// Catalyst-Zero always sets this; Sovereign clusters leave it unset.
+	if secret := os.Getenv("CATALYST_OPENOVA_KC_SA_CLIENT_SECRET"); secret != "" {
+		addr := env("CATALYST_OPENOVA_KC_ADDR", env("CATALYST_KC_ADDR", "http://keycloak-zero.keycloak-zero.svc.cluster.local"))
+		realm := env("CATALYST_OPENOVA_KC_REALM", "openova")
+		clientID := env("CATALYST_OPENOVA_KC_SA_CLIENT_ID", "catalyst-zero-server")
+		h.SetOpenovaKC(keycloak.New(addr, realm, clientID, secret))
+		log.Info("magic-link: openova KC client ready",
+			"addr", addr,
+			"realm", realm,
+		)
+	}
+
 	// K8s data-plane (issue #321) — informer cache + SSE + disk
 	// snapshot. Wired only when at least one kubeconfig is mountable;
 	// in test/CI without a real cluster the catalyst-api still
@@ -151,13 +166,24 @@ func main() {
 	r.Get("/readyz", h.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
-	// Unauthenticated auth endpoints — magic-link dispatch, PKCE callback,
-	// logout. These MUST remain outside the session gate (the user is not
-	// yet authenticated when they hit /magic-link and /callback).
-	// The session gate (RequireSession) guards ALL wizard data endpoints
-	// below in the r.Group block.
+	// Unauthenticated auth endpoints — magic-link dispatch, magic-link
+	// consumption (Option B server-side token-exchange), and logout.
+	// These MUST remain outside the session gate (the user is not yet
+	// authenticated when they hit /magic-link and /auth/magic).
+	//
+	// Option B replaces the Keycloak execute-actions-email PKCE flow:
+	//   POST /api/v1/auth/magic-link  — mint JWT + email link
+	//   GET  /api/v1/auth/magic       — validate JWT + KC token-exchange + cookies + redirect
+	//
+	// The legacy /auth/callback endpoint is kept as a 302 redirect to /login
+	// so any cached Keycloak redirect_uri bookmarks degrade gracefully.
 	r.Post("/api/v1/auth/magic-link", h.HandleMagicLink)
-	r.Get("/api/v1/auth/callback", h.HandleAuthCallback)
+	r.Get("/api/v1/auth/magic", h.HandleMagicValidate)
+	r.Get("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Legacy PKCE callback — Option B does not use this path.
+		// Redirect to login so cached bookmarks don't 404.
+		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
+	})
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
 
 	// Auth-gated wizard endpoints — RequireSession validates the
