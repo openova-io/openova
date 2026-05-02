@@ -298,48 +298,23 @@ jobs:
 
       - name: Update SHA tags in values.yaml
         # The catalyst-ui and catalyst-api images are referenced via Helm
-        # template expressions in ui-deployment.yaml / api-deployment.yaml
-        # (e.g. `image: .../catalyst-ui:{{ .Values.images.catalystUi.tag }}`).
-        # The canonical SHA update point is products/catalyst/chart/values.yaml
-        # where `images.catalystUi.tag` and `images.catalystApi.tag` live.
-        # Updating a Helm template file with sed would silently no-op because
-        # the sed pattern `image: ghcr.io/.../catalyst-ui:.*` never matches
-        # `{{ .Values.images.catalystUi.tag }}`. This step updates values.yaml
-        # directly so Flux picks up the new SHA on next reconcile.
+        # template expressions (e.g. `{{ .Values.images.catalystUi.tag }}`).
+        # sed targeting the template YAML files silently no-ops because the
+        # pattern `image: ghcr.io/.../catalyst-ui:.*` never matches. The
+        # canonical update point is images.catalystUi.tag / images.catalystApi.tag
+        # in products/catalyst/chart/values.yaml. We use awk to replace the
+        # `tag:` line that immediately follows the catalystUi/catalystApi key.
         env:
           SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
         run: |
           VALUES="products/catalyst/chart/values.yaml"
-
-          sed -i "s|^\(\s*\)tag: \"[0-9a-f]\{7\}\" *# *catalystUi|\1tag: \"${SHA_SHORT}\" # catalystUi|" \
-            "${VALUES}" || true
-
-          # Canonical sed: match the tag line immediately following `catalystUi:`
-          # and the tag line immediately following `catalystApi:`.
-          python3 - <<PYEOF
-import re, sys
-
-path = "${VALUES}"
-sha  = "${SHA_SHORT}"
-
-with open(path) as f:
-    text = f.read()
-
-# Replace the `tag:` line directly after catalystUi: and catalystApi:
-# Pattern: `  catalystUi:\n    tag: "old"\n` → `  catalystUi:\n    tag: "sha"\n`
-for key in ("catalystUi", "catalystApi"):
-    text = re.sub(
-        r'(' + key + r':\s*\n\s*tag:\s*")[^"]*(")',
-        r'\g<1>' + sha + r'\2',
-        text,
-    )
-
-with open(path, 'w') as f:
-    f.write(text)
-
-print(f"Updated {path} catalystUi.tag and catalystApi.tag to {sha}")
-PYEOF
-
+          awk -v sha="${SHA_SHORT}" '
+            /^  catalystApi:/ { print; in_api=1; next }
+            /^  catalystUi:/  { print; in_ui=1; next }
+            in_api && /^ *tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_api=0 }
+            in_ui  && /^ *tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_ui=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
           echo "values.yaml after update:"
           grep -A2 "catalystUi\|catalystApi" "${VALUES}" | head -10
 
