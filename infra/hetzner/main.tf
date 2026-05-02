@@ -242,6 +242,7 @@ locals {
     deployment_id           = var.deployment_id
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
+    handover_jwt_public_key = var.handover_jwt_public_key
     load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
     # control_plane_ipv4 is NOT templated — it would create a dependency cycle
     # (cloud-init → control_plane.ipv4_address → control_plane.user_data → cloud-init).

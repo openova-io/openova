@@ -780,6 +780,21 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	req.DeploymentID = id
 	req.KubeconfigBearerToken = bearerToken
 
+	// Stamp the Catalyst-Zero handover-JWT public JWK so cloud-init can
+	// write it to /var/lib/catalyst/handover-jwt-public.jwk on the new
+	// Sovereign (issue #605, Phase-8b). When the signer is unavailable
+	// (CATALYST_HANDOVER_KEY_PATH unset) we leave the field empty — the
+	// OpenTofu module's variables.tf default ("") preserves backwards
+	// compatibility, the file gets written empty, and the handover flow
+	// is simply not yet wired on that Sovereign.
+	if h.handoverSigner != nil {
+		if jwk, jerr := h.handoverSigner.PublicJWK(); jerr == nil {
+			req.HandoverJWTPublicKey = string(jwk)
+		} else {
+			h.log.Warn("handover signer present but PublicJWK failed; provisioning without JWK on new Sovereign", "err", jerr)
+		}
+	}
+
 	dep := &Deployment{
 		ID:                   id,
 		Status:               "provisioning",
