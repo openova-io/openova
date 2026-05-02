@@ -143,12 +143,42 @@ flowchart TB
         T544["#544 powerdns-api-credentials reflect"]
     end
 
+    subgraph PH0d[Phase 0d · Phase-8a chart bug bash · 2026-05-02]
+        direction LR
+        T549["#549 catalyst DYNADOT_API_* optional"]
+        T561["#561 dynadot-webhook duplicate labels"]
+        T553["#553 powerdns ns default"]
+        T567["#567 mimir ingest_storage off"]
+        T569["#569 external-dns ns + endpoint"]
+        T570["#570 falco rules_files"]
+        T571["#571 spire OIDC re-enabled"]
+        T568["#568 seaweedfs double-slash"]
+        T565["#565 harbor missing CNPG cluster"]
+        T562["#562 cilium-operator gateway-controller race"]
+        T563["#563 NS delegation + LB:53 + DNS-01 wildcard"]
+    end
+
     subgraph PH1[Phase 1 · Foundational charts]
         direction LR
         T338["#338 bp-flux RBAC"]
         T387["#387 Gateway API audit"]
         T542["#542 kubeconfig CP IP not LB"]
         T547["#547 helmwatch 38-HR threshold"]
+        T538["#538 Phase-1 watch waits for kubeconfig"]
+        T536["#536 catalyst-api split healthz/readyz"]
+        T539["#539 openbao idempotent unseal"]
+        T519["#519 jobs banner converge from helmwatch"]
+        T510["#510 catalyst-platform no duplicate flux"]
+        T503["#503 bp-gateway-api blueprint"]
+        T506["#506 powerdns-webhook duplicate labels"]
+        T508["#508 powerdns-webhook commonName length"]
+        T491["#491 cilium values parity"]
+        T492["#492 bootstrap-kit Kustomization timeout"]
+        T488["#488 Phase-1 honest reporting"]
+        T474["#474 jobsAdapter row-id contract"]
+        T489["#489 PDM subdomain release"]
+        T494["#494 API_BASE no hardcode"]
+        T340["#340 seaweedfs fromToml"]
     end
 
     subgraph PH2[Phase 2 · DNS + TLS charts]
@@ -250,6 +280,25 @@ flowchart TB
     T543 --> T385
     T544 --> T373
 
+    %% Phase 0d (Phase-8a chart bug bash, 2026-05-02) — bugs surfaced by
+    %% otech10..otech22 burn cycles. Each had to land before the bp-* HR
+    %% it gates could reconcile cleanly on a fresh Sovereign.
+    T567 --> T454
+    T569 --> T373
+    T569 --> T454
+    T570 --> T454
+    T571 --> T454
+    T568 --> T454
+    T565 --> T383
+    T561 --> T563
+    T562 --> T454
+    T562 --> T563
+    T549 --> T385
+    T553 --> T373
+
+    %% The actual handover-URL critical chain (must be GREEN for #454 8a DoD)
+    T563 --> T454
+
     %% Phase 1 → Phase 2
     T338 --> T373
     T387 --> T373
@@ -296,9 +345,11 @@ flowchart TB
     %% Phase 8 → DoD
     T456 --> DOD
 
-    class PH0,PH0b,PH0c,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
+    class PH0,PH0b,PH0c,PH0d,PH1,PH2,PH3,PH4,PH5,PH6,PH7,PH8,SCAF,PRE phase
     class T316,T317,T319,T327,T331,T338,T370,T371,T373,T374,T375,T376,T377,T378,T379,T380,T381,T382,T383,T384,T385,T387,T392,T425,T428,T429,T430,T438,T453,T542,T543,T544,T547 done
+    class T549,T553,T561,T567,T568,T569,T570,T571,T538,T536,T539,T519,T510,T503,T506,T508,T491,T492,T488,T474,T489,T494,T340 done
     class T557,T557B,T557C wip
+    class T562,T563,T565 wip
     class T459,T460,T462 done
     class T461 wip
     class T454,T455,T456 blocked
