@@ -117,3 +117,26 @@ spec:
       host: pdns.${SOVEREIGN_FQDN}
       gateway:
         enabled: true
+    # DNS-01 wildcard cert: expose PowerDNS on NodePort 30053 so the
+    # Sovereign LB can forward :53 → PowerDNS. This is the NS-delegated
+    # endpoint that Let's Encrypt resolvers query when validating ACME
+    # DNS-01 challenges for *.${SOVEREIGN_FQDN}. Per ADR-0001 §9.4 the
+    # Sovereign must be self-sufficient post-handover — no Dynadot
+    # dependency for cert renewals.
+    anycast:
+      enabled: true
+      serviceName: powerdns-anycast
+      # NodePort on Sovereign Hetzner clusters: lb11 LB forwards TCP:53 to
+      # NodePort 30053; k3s iptables DNAT handles UDP:53 NodePort natively.
+      serviceType: NodePort
+      ports:
+        - name: dns-udp
+          port: 53
+          targetPort: 5353
+          nodePort: 30053
+          protocol: UDP
+        - name: dns-tcp
+          port: 53
+          targetPort: 5353
+          nodePort: 30053
+          protocol: TCP

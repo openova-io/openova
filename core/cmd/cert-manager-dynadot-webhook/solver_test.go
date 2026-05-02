@@ -137,7 +137,10 @@ func setRec(zone map[string]map[string]string, sub, typ, val string) {
 
 func writeOK(w http.ResponseWriter, env string) {
 	w.Header().Set("Content-Type", "application/json")
-	body := `{"` + env + `":{"ResponseHeader":{"ResponseCode":0,"Status":"success"}}}`
+	// Real Dynadot api3.json returns ResponseCode + Status directly in the
+	// envelope (no nested ResponseHeader key). Must match dynadot-client
+	// struct: var raw struct { SetDNSResponse respHeader `json:"SetDnsResponse"` }
+	body := `{"` + env + `":{"ResponseCode":0,"Status":"success"}}`
 	_, _ = w.Write([]byte(body))
 }
 
@@ -387,7 +390,9 @@ func TestSolver_DynadotErrorPropagation(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseHeader":{"ResponseCode":-1,"Status":"error","Error":"Invalid api key"}}}`))
+		// Real Dynadot api3.json format: ResponseCode + Status directly in
+		// SetDnsResponse envelope (no nested ResponseHeader key).
+		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseCode":-1,"Status":"error","Error":"Invalid api key"}}`))
 	}))
 	defer srv.Close()
 	s := solverWith(t, srv, "omani.works")

@@ -60,6 +60,26 @@ resource "hcloud_firewall" "main" {
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
+  # DNS/53 — open to the world so the Sovereign's PowerDNS authoritative
+  # server is reachable from Let's Encrypt resolvers (DNS-01 challenge) and
+  # from the public internet for subdomain NS delegation. Both TCP and UDP
+  # are required: TCP for zone transfers and large responses, UDP for
+  # standard query traffic. The LB service (hcloud_load_balancer_service.dns)
+  # forwards :53 → NodePort 30053 on the control-plane node where k3s exposes
+  # the powerdns Service.
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "53"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+  rule {
+    direction  = "in"
+    protocol   = "udp"
+    port       = "53"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
   # SSH (22) is intentionally NOT open to the world. When ssh_allowed_cidrs is
   # set, we add a narrow rule for those operators only; otherwise the rule is
   # omitted entirely and break-glass is via Hetzner Console (out-of-band).
@@ -325,6 +345,26 @@ resource "hcloud_load_balancer_service" "https" {
   protocol         = "tcp"
   listen_port      = 443
   destination_port = 31443
+}
+
+resource "hcloud_load_balancer_service" "dns" {
+  load_balancer_id = hcloud_load_balancer.main.id
+  protocol         = "tcp"
+  listen_port      = 53
+  # NodePort 30053 — the powerdns Service exposes DNS on this NodePort via
+  # the anycast-endpoint ServiceType=NodePort overlay in 11-powerdns.yaml.
+  # lb11 supports TCP only; UDP :53 is handled via the Hetzner Firewall
+  # opening UDP/53 directly to the node's public IP (k3s NodePort handles
+  # UDP natively via iptables DNAT). The LB TCP path handles zone transfers
+  # and ACME challenge TXT queries; UDP is used for regular resolution.
+  destination_port = 30053
+  health_check {
+    protocol = "tcp"
+    port     = 30053
+    interval = 15
+    timeout  = 10
+    retries  = 3
+  }
 }
 
 # ── DNS: deliberately NOT a tofu concern ──────────────────────────────────
