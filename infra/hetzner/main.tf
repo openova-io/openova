@@ -243,7 +243,10 @@ locals {
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
     load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
-    control_plane_ipv4      = hcloud_server.control_plane[0].ipv4_address
+    # control_plane_ipv4 is NOT templated — it would create a dependency cycle
+    # (cloud-init → control_plane.ipv4_address → control_plane.user_data → cloud-init).
+    # The cloud-init runs ON the CP node, so it resolves its own public IP at boot
+    # via Hetzner metadata service (169.254.169.254) — see cloudinit-control-plane.tftpl.
   }), "/(?m)^[ ]{0,2}# .*\n/", "")
 
   worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
