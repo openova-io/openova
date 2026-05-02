@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.8
+version: 1.1.9
 appVersion: 1.1.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -8,20 +8,16 @@ description: |
   Deployed via Flux on Catalyst-Zero (Contabo k3s) and on every franchised Sovereign provisioned by Catalyst-Zero.
   Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
 
-  Umbrella that depends on the 10 leaf bootstrap-kit Blueprints
-  (cilium, cert-manager, flux, crossplane, sealed-secrets, spire,
-  nats-jetstream, openbao, keycloak, gitea) — each resolved as an OCI
-  artifact at ghcr.io/openova-io/bp-<name>. As of 1.1.0 each leaf is
-  itself a proper Helm umbrella that depends on its upstream chart
-  (cert-manager, cilium, flux2, crossplane, ...) so installing
-  bp-catalyst-platform brings up the full upstream payload — no
-  Catalyst-side bootstrap installer is required.
+  As of 1.1.9 this umbrella contains ONLY the Catalyst-Zero control-plane
+  workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
+  HTTPRoute). Foundation Blueprints (cilium, cert-manager, flux,
+  crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
+  gitea) are installed independently by the bootstrap-kit at slots
+  01..10 (see clusters/_template/bootstrap-kit/). Each lands in its own
+  namespace (flux-system, cert-manager, kube-system, etc.) under its own
+  Flux HelmRelease — install order owned by Flux dependsOn rather than
+  this umbrella's Helm dependency graph.
 
-  bp-external-dns is NOT a dep of this umbrella; it is installed
-  separately by the bootstrap-kit Kustomization (12-external-dns.yaml)
-  alongside bp-cert-manager / bp-powerdns / bp-flux / etc. so its
-  install ordering is owned by Flux dependsOn (bp-cert-manager,
-  bp-powerdns) rather than this umbrella's Helm dependency graph.
   Bumped to 1.1.1 in lockstep with bp-external-dns 1.1.0 to reflect the
   dependency removal. Bumped to 1.1.2 to pull in bp-flux:1.1.2 — the
   catastrophic-double-install fix (omantel.omani.works incident,
@@ -67,41 +63,36 @@ description: |
   bp-catalyst-platform Blueprint — they will be re-homed in a
   contabo-mkt-only Kustomization (or a separate `bp-sme` Blueprint)
   if/when SME is re-deployed. Issue #281, 2026-04-30.
+  Bumped to 1.1.9 to remove the 10 foundation-Blueprint subchart
+  dependencies (bp-cilium, bp-cert-manager, bp-flux, bp-crossplane,
+  bp-sealed-secrets, bp-spire, bp-nats-jetstream, bp-openbao,
+  bp-keycloak, bp-gitea). When this umbrella reconciled with
+  `targetNamespace: catalyst-system`, Helm rendered every subchart's
+  `flux2` / `cilium` / etc. controllers into catalyst-system —
+  duplicating the foundation stack the bootstrap-kit had already
+  installed at slots 01..10 in their own canonical namespaces
+  (flux-system, cert-manager, kube-system, ...). On Phase-8a-preflight
+  otech16 (2026-05-02) this manifested as a duplicate source-controller
+  in catalyst-system NS that other HRs (bp-cnpg, bp-spire,
+  bp-crossplane-claims) intermittently routed to via service discovery,
+  failing chart pulls with "i/o timeout" against
+  `source-controller.catalyst-system.svc.cluster.local`. Resolution:
+  the umbrella ships ONLY Catalyst-Zero control-plane workloads; the
+  foundation layer is owned end-to-end by the bootstrap-kit. Issue
+  #510, 2026-05-02.
 type: application
 
-dependencies:
-  - name: bp-cilium
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-cert-manager
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  # bp-flux 1.1.2 — version-pinned to upstream Flux v2.4.0 (matches
-  # cloud-init's install.yaml URL). Earlier 1.1.1 shipped flux2 2.13.0
-  # (= upstream v2.3.0), which destroyed cluster Flux on first reconcile
-  # via Helm rollback (omantel.omani.works incident, 2026-04-29). See
-  # docs/RUNBOOK-PROVISIONING.md §"bp-flux double-install".
-  - name: bp-flux
-    version: 1.1.2
-    repository: oci://ghcr.io/openova-io
-  - name: bp-crossplane
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-sealed-secrets
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-spire
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-nats-jetstream
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-openbao
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-keycloak
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
-  - name: bp-gitea
-    version: 1.1.1
-    repository: oci://ghcr.io/openova-io
+# Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
+# This umbrella legitimately ships only Catalyst-authored workloads
+# (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign HTTPRoute);
+# the foundation layer is installed independently by the bootstrap-kit
+# and must NOT be re-rendered into catalyst-system as subcharts.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+
+# No subchart dependencies — see 1.1.9 changelog above. The 10
+# foundation Blueprints are installed by clusters/_template/bootstrap-kit/
+# at their own slots, each as a top-level Flux HelmRelease in its own
+# canonical namespace. This umbrella renders only the Catalyst-Zero
+# control-plane workloads (catalyst-ui, catalyst-api, ProvisioningState
+# CRD, Sovereign HTTPRoute) into targetNamespace: catalyst-system.

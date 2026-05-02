@@ -1,32 +1,19 @@
 # bp-catalyst-platform umbrella values
 #
-# Catalyst-Zero composes ten Blueprint subcharts (cilium, cert-manager, flux,
-# crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak, gitea).
-# Two of them (bp-keycloak, bp-gitea) each pull in the bitnami `postgresql`
-# subchart with no fullnameOverride. Helm renders both as
-# `<release>-postgresql`, which collides on install — Helm post-render
-# rejects the second occurrence with:
-#   "may not add resource with an already registered id:
-#    NetworkPolicy.v1.networking.k8s.io/<release>-postgresql.<namespace>"
-# (and the same collision on Service, Secret, StatefulSet, PDB, ...).
+# As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane
+# workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
+# HTTPRoute). The 10 foundation Blueprints (cilium, cert-manager, flux,
+# crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
+# gitea) are installed independently by clusters/_template/bootstrap-kit/
+# at slots 01..10. There are no subchart values to thread here.
 #
-# Fix: give each embedded postgresql a distinct fullnameOverride so the
-# rendered names never collide. The override flows umbrella → bp-<name>
-# → upstream chart → its postgresql subchart via Helm's standard subchart
-# value-namespacing.
-#
-# Resolves openova-io/openova#252 (otech.omani.works HelmRelease
-# `catalyst-system/catalyst-platform` install_failed, 2026-04-30).
-
-bp-keycloak:
-  keycloak:
-    postgresql:
-      fullnameOverride: keycloak-postgresql
-
-bp-gitea:
-  gitea:
-    postgresql:
-      fullnameOverride: gitea-postgresql
+# Historic note: 1.1.4 set `bp-keycloak.keycloak.postgresql.fullnameOverride`
+# and `bp-gitea.gitea.postgresql.fullnameOverride` to deconflict bitnami
+# postgresql `<release>-postgresql` collisions when both Blueprints were
+# subcharts of this umbrella (issue #252). Now that they're top-level
+# Flux HelmReleases under separate namespaces (bp-keycloak →
+# `keycloak`, bp-gitea → `gitea`), the collision is gone and the
+# overrides are unnecessary.
 
 # ProvisioningState CRD — the canonical persistence shape for Sovereign
 # provisioning runs (issue #88). Keeps observability of in-flight wizard
