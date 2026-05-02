@@ -1,0 +1,177 @@
+{{- /*
+Helm post-install/post-upgrade Job: annotate the CNPG-generated
+`harbor-pg-app` Secret with Reflector permissions.
+
+## Why this Job exists
+
+Harbor's DB password lives in the CNPG-generated `harbor-pg-app` Secret
+(key: `password`). Harbor upstream chart reads `HARBOR_DATABASE_PASSWORD`
+from `harbor-database-secret` (templates/database-secret.yaml). Reflector
+(bp-reflector, slot 05a) bridges the two: `harbor-database-secret` carries
+the annotation:
+
+  reflector.v1.k8s.emberstack.com/reflects: "harbor/harbor-pg-app"
+
+which tells Reflector to copy all keys from `harbor-pg-app` into
+`harbor-database-secret`.
+
+Reflector v7 (emberstack) requires the SOURCE Secret to carry:
+
+  reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+  reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "harbor"
+
+before it will honour a `reflects` annotation on the destination.
+CNPG generates `harbor-pg-app` with ONLY `cnpg.io/operatorVersion` — no
+Reflector annotations. Without the source grant, Reflector refuses the
+copy and `harbor-database-secret` stays empty forever.
+
+## Why not annotate the CNPG Cluster CR?
+
+`cnpg-cluster.yaml` used to carry Reflector annotations on the Cluster
+CR object itself. Those annotations are inert: Reflector watches Secrets
+and ConfigMaps, not CNPG Cluster CRs. The annotations on the Cluster CR
+are never propagated to the generated `harbor-pg-app` Secret.
+
+## Why not use Helm `lookup` in database-secret.yaml?
+
+`lookup` runs at Helm template-render time. On a fresh Sovereign install,
+CNPG takes 30-60 s to bootstrap `harbor-pg-app` AFTER the bp-harbor
+HelmRelease applies. The first `helm install` render finds `harbor-pg-app`
+absent — `lookup` returns nil — and the Secret is written with empty
+passwords. Subsequent Helm `upgrade` runs (Flux remediation retries) DO
+find the secret, but only if bp-harbor is retried and the Secret is
+already present.
+
+A runtime Job avoids the render-time race entirely: it polls the K8s API
+directly until `harbor-pg-app` appears, then patches it. Reflector fires
+immediately after the annotation lands.
+
+## Idempotency
+
+The PATCH is a JSON merge-patch on `metadata.annotations`. If the
+annotations are already present (re-run after Helm upgrade), the patch is
+a no-op — the Job still exits 0.
+
+## Pattern
+
+Mirrors bp-openbao's init-job.yaml: ServiceAccount (hook weight 0,
+in cnpg-app-annotator-rbac.yaml) + Job (hook weight 5).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene): no plaintext
+credentials appear here. The Job only ADDS Reflector annotations; it
+never reads or copies the actual password bytes.
+*/}}
+{{- $clusterName := .Values.postgres.cluster.name | default "harbor-pg" -}}
+{{- $targetNamespace := .Values.postgres.cluster.namespace | default .Release.Namespace -}}
+{{- $pgAppSecret := printf "%s-app" $clusterName -}}
+{{- $deadline := 600 -}}
+{{- $backoff := 5 -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-pg-app-annotator
+  namespace: {{ $targetNamespace | quote }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    catalyst.openova.io/comment: |
+      Patches harbor-pg-app with reflector.v1.k8s.emberstack.com/
+      reflection-allowed so Reflector can copy the CNPG password into
+      harbor-database-secret at runtime, eliminating the CNPG bootstrap
+      race condition. Closes #585.
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    catalyst.openova.io/component: cnpg-app-annotator
+spec:
+  activeDeadlineSeconds: {{ $deadline }}
+  backoffLimit: {{ $backoff }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "bp-harbor.labels" . | nindent 8 }}
+        catalyst.openova.io/component: cnpg-app-annotator
+    spec:
+      serviceAccountName: harbor-pg-app-annotator
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: annotator
+          # busybox ships wget + base64 + sh — zero extra deps.
+          # Upstream pinned tag per INVIOLABLE-PRINCIPLES #4; operator-
+          # bumpable via .Values.cnpgAnnotator.image.{repository,tag}.
+          image: "{{ .Values.cnpgAnnotator.image.repository | default "busybox" }}:{{ .Values.cnpgAnnotator.image.tag | default "1.36.1" }}"
+          imagePullPolicy: {{ .Values.cnpgAnnotator.image.pullPolicy | default "IfNotPresent" | quote }}
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PG_APP_SECRET
+              value: {{ $pgAppSecret | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              APISERVER="https://kubernetes.default.svc"
+              CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+              echo "[harbor-pg-annotator] target: $NAMESPACE/$PG_APP_SECRET"
+
+              # ─── Step 1: wait for harbor-pg-app to exist ─────────────────
+              # CNPG bootstraps the application Secret 30-60 s after the
+              # Cluster CR is created. Poll every 5 s up to 10 min.
+              ATTEMPTS=0
+              MAX_ATTEMPTS=120
+              until wget -qO /dev/null --no-check-certificate \
+                  --header="Authorization: Bearer $TOKEN" \
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET" 2>/dev/null; do
+                ATTEMPTS=$((ATTEMPTS+1))
+                if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[harbor-pg-annotator] FATAL: $PG_APP_SECRET not found after $MAX_ATTEMPTS attempts ($(( MAX_ATTEMPTS * 5 )) s)"
+                  echo "[harbor-pg-annotator] Check: kubectl get cluster harbor-pg -n $NAMESPACE"
+                  exit 1
+                fi
+                echo "[harbor-pg-annotator] $PG_APP_SECRET not ready yet (attempt $ATTEMPTS/$MAX_ATTEMPTS), waiting 5 s..."
+                sleep 5
+              done
+              echo "[harbor-pg-annotator] $PG_APP_SECRET found — applying Reflector annotations"
+
+              # ─── Step 2: patch reflection-allowed annotations ─────────────
+              # JSON merge-patch: if the annotation already exists, the
+              # API server is idempotent — same value, no change, 200 OK.
+              # We patch the Secret's metadata.annotations only.
+              PATCH_BODY='{"metadata":{"annotations":{"reflector.v1.k8s.emberstack.com/reflection-allowed":"true","reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces":"{{ $targetNamespace }}"}}}'
+
+              HTTP_RESPONSE=$(wget -qO- --no-check-certificate \
+                --header="Authorization: Bearer $TOKEN" \
+                --header="Content-Type: application/merge-patch+json" \
+                --header="Accept: application/json" \
+                --method=PATCH \
+                --body-data="$PATCH_BODY" \
+                "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$PG_APP_SECRET" 2>&1) || {
+                  echo "[harbor-pg-annotator] FATAL: PATCH $PG_APP_SECRET failed"
+                  echo "$HTTP_RESPONSE"
+                  exit 1
+                }
+
+              echo "[harbor-pg-annotator] annotations applied — Reflector will copy $PG_APP_SECRET → harbor-database-secret within seconds"
+              echo "[harbor-pg-annotator] done"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
