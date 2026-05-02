@@ -407,6 +407,126 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
     }
   })
 
+  /* ── Bug #481 round 2 — parent-elision render verification ──────────
+   *
+   * Founder directive 2026-05-02: when a group is unfolded and its
+   * children are rendered, the group itself disappears from the canvas
+   * (its inbound deps rewire to the children, its outbound deps lift
+   * onto each child). This test feeds the canvas a layout that already
+   * went through flowLayoutOrganic with an unfolded group + visible
+   * children; the canvas must NOT render a bubble for the group.
+   */
+  it('does not render a bubble for a parent group whose children are visible (parent-elided)', async () => {
+    // Use the real flowLayoutOrganic to build the layout — the
+    // elision rewiring is the unit under test.
+    const { flowLayoutOrganic } = await import('@/lib/flowLayoutOrganic')
+    const baseJob = {
+      appId: 'x',
+      dependsOn: [] as string[],
+      childIds: [] as string[],
+      status: 'pending' as const,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: 0,
+    }
+    const flatJobs = [
+      {
+        ...baseJob,
+        id: 'apps',
+        jobName: 'apps',
+        displayName: 'Applications',
+        type: 'group' as const,
+        appId: '',
+        parentId: '',
+        childIds: ['c1', 'c2', 'c3'],
+      },
+      { ...baseJob, id: 'c1', jobName: 'c1', type: 'install' as const, parentId: 'apps' },
+      { ...baseJob, id: 'c2', jobName: 'c2', type: 'install' as const, parentId: 'apps' },
+      { ...baseJob, id: 'c3', jobName: 'c3', type: 'install' as const, parentId: 'apps' },
+    ]
+    const layout = flowLayoutOrganic(flatJobs, {
+      hints: new Map(),
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    const { container } = render(
+      <FlowCanvasOrganic
+        layout={layout}
+        openJobId={null}
+        hostJobId={null}
+        onJobClick={() => {}}
+        onJobDoubleClick={() => {}}
+        onCanvasBackgroundClick={() => {}}
+      />,
+    )
+    // The elided group must NOT have a rendered <g data-flow-draggable>.
+    const groupBubble = container.querySelector(
+      '[data-flow-draggable][data-job-id="apps"]',
+    )
+    expect(groupBubble).toBeNull()
+    // The three children MUST be rendered.
+    for (const cid of ['c1', 'c2', 'c3']) {
+      const childBubble = container.querySelector(
+        `[data-flow-draggable][data-job-id="${cid}"]`,
+      )
+      expect(childBubble).not.toBeNull()
+    }
+  })
+
+  it('renders the parent bubble for a folded group (children hidden)', async () => {
+    const { flowLayoutOrganic } = await import('@/lib/flowLayoutOrganic')
+    const baseJob = {
+      appId: 'x',
+      dependsOn: [] as string[],
+      childIds: [] as string[],
+      status: 'pending' as const,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: 0,
+    }
+    const flatJobs = [
+      {
+        ...baseJob,
+        id: 'apps',
+        jobName: 'apps',
+        displayName: 'Applications',
+        type: 'group' as const,
+        appId: '',
+        parentId: '',
+        childIds: ['c1', 'c2'],
+      },
+      { ...baseJob, id: 'c1', jobName: 'c1', type: 'install' as const, parentId: 'apps' },
+      { ...baseJob, id: 'c2', jobName: 'c2', type: 'install' as const, parentId: 'apps' },
+    ]
+    const layout = flowLayoutOrganic(flatJobs, {
+      hints: new Map(),
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(['apps']),
+    })
+    const { container } = render(
+      <FlowCanvasOrganic
+        layout={layout}
+        openJobId={null}
+        hostJobId={null}
+        onJobClick={() => {}}
+        onJobDoubleClick={() => {}}
+        onCanvasBackgroundClick={() => {}}
+      />,
+    )
+    expect(
+      container.querySelector('[data-flow-draggable][data-job-id="apps"]'),
+    ).not.toBeNull()
+    // Folded children are hidden.
+    expect(
+      container.querySelector('[data-flow-draggable][data-job-id="c1"]'),
+    ).toBeNull()
+    expect(
+      container.querySelector('[data-flow-draggable][data-job-id="c2"]'),
+    ).toBeNull()
+  })
+
   it('keeps every bubble visible (radius ≥40) and viewBox bounded for a 60-node graph', () => {
     const layout = makeLayout(60)
     const { container } = render(

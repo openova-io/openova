@@ -164,6 +164,194 @@ describe('flowLayoutOrganic — cycle protection (bug #476)', () => {
   })
 })
 
+describe('flowLayoutOrganic — parent-elision (bug #481 round 2)', () => {
+  // The founder's directive (2026-05-02): when a group is unfolded
+  // and its children are visible, the group itself disappears from
+  // the canvas. Its inbound deps are rewired to its children; its
+  // outbound deps lift onto each child ("parent calling their
+  // parents").
+  function leaf(id: string, parentId: string, deps: string[] = []): Job {
+    return {
+      id,
+      jobName: id,
+      type: 'install',
+      appId: id,
+      parentId,
+      dependsOn: deps,
+      childIds: [],
+      status: 'pending',
+      startedAt: null,
+      finishedAt: null,
+      durationMs: 0,
+    }
+  }
+
+  function group(id: string, parentId: string, childIds: string[], deps: string[] = []): Job {
+    return {
+      id,
+      jobName: id,
+      displayName: id,
+      type: 'group',
+      appId: '',
+      parentId,
+      dependsOn: deps,
+      childIds,
+      status: 'pending',
+      startedAt: null,
+      finishedAt: null,
+      durationMs: 0,
+    }
+  }
+
+  it('elides an unfolded group when its children are visible', () => {
+    const flat: Job[] = [
+      group('apps', '', ['c1', 'c2', 'c3']),
+      leaf('c1', 'apps'),
+      leaf('c2', 'apps'),
+      leaf('c3', 'apps'),
+    ]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    const ids = new Set(layout.nodes.map((n) => n.id))
+    // Group is elided: only the children render.
+    expect(ids.has('apps')).toBe(false)
+    expect(ids.has('c1')).toBe(true)
+    expect(ids.has('c2')).toBe(true)
+    expect(ids.has('c3')).toBe(true)
+    expect(layout.nodes.length).toBe(3)
+    // No parent→child edges from the elided group.
+    for (const e of layout.edges) {
+      expect(e.fromId).not.toBe('apps')
+      expect(e.toId).not.toBe('apps')
+    }
+  })
+
+  it('keeps a folded group as a single node and hides its children', () => {
+    const flat: Job[] = [
+      group('apps', '', ['c1', 'c2']),
+      leaf('c1', 'apps'),
+      leaf('c2', 'apps'),
+    ]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(['apps']),
+    })
+    const ids = new Set(layout.nodes.map((n) => n.id))
+    expect(ids.has('apps')).toBe(true)
+    expect(ids.has('c1')).toBe(false)
+    expect(ids.has('c2')).toBe(false)
+  })
+
+  it('rewires inbound deps to children: foundation→apps becomes foundation→c1, foundation→c2', () => {
+    const flat: Job[] = [
+      leaf('foundation', ''),
+      group('apps', '', ['c1', 'c2'], ['foundation']),
+      leaf('c1', 'apps'),
+      leaf('c2', 'apps'),
+    ]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    const edgeKeys = new Set(layout.edges.map((e) => `${e.fromId}→${e.toId}`))
+    // The "apps depends on foundation" relationship must be honoured by
+    // each visible child once apps is elided.
+    expect(edgeKeys.has('foundation→c1')).toBe(true)
+    expect(edgeKeys.has('foundation→c2')).toBe(true)
+    // No edge points at the elided apps node.
+    for (const e of layout.edges) {
+      expect(e.fromId).not.toBe('apps')
+      expect(e.toId).not.toBe('apps')
+    }
+  })
+
+  it('fans an inbound depends-on edge across all visible children of an elided group', () => {
+    const flat: Job[] = [
+      group('apps', '', ['c1', 'c2']),
+      leaf('c1', 'apps'),
+      leaf('c2', 'apps'),
+      leaf('sentinel', '', ['apps']),
+    ]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    const edgeKeys = new Set(layout.edges.map((e) => `${e.fromId}→${e.toId}`))
+    // sentinel depended on the elided apps → fans out to every child.
+    expect(edgeKeys.has('c1→sentinel')).toBe(true)
+    expect(edgeKeys.has('c2→sentinel')).toBe(true)
+    // No edge mentions apps.
+    for (const e of layout.edges) {
+      expect(e.fromId).not.toBe('apps')
+      expect(e.toId).not.toBe('apps')
+    }
+  })
+
+  it('caps depth at MAX_VISIBLE_DEPTH for malformed deep chains (defence-in-depth)', () => {
+    // 50-leaf chain — each depends on the previous. Even without
+    // elision-eligible groups, the depth cap kicks in.
+    const CHAIN = 50
+    const flat: Job[] = []
+    for (let i = 0; i < CHAIN; i++) {
+      flat.push(leaf(`n${i}`, '', i > 0 ? [`n${i - 1}`] : []))
+    }
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    // Every depth must be ≤ MAX_VISIBLE_DEPTH (8).
+    for (const n of layout.nodes) {
+      expect(n.depth).toBeLessThanOrEqual(8)
+    }
+    expect(layout.maxDepth).toBeLessThanOrEqual(8)
+  })
+
+  it('collapses a real-shape graph (foundation → apps[c1..c10] → sentinel) to ≤4 visible depths', () => {
+    // Mirrors the live otech17 shape that broke #481: a long
+    // dependency chain through an unfolded "applications" group.
+    const flat: Job[] = [
+      leaf('foundation', ''),
+      group('apps', '', Array.from({ length: 10 }, (_, i) => `c${i}`), ['foundation']),
+      ...Array.from({ length: 10 }, (_, i) => leaf(`c${i}`, 'apps')),
+      leaf('sentinel', '', ['apps']),
+    ]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    // 1 (foundation) + 10 (children) + 1 (sentinel) = 12 nodes.
+    expect(layout.nodes.length).toBe(12)
+    // Depth: foundation=0, c0..c9=1, sentinel=2 → maxDepth=2.
+    expect(layout.maxDepth).toBeLessThanOrEqual(2)
+  })
+
+  it('handles an empty group gracefully (no children → group still renders)', () => {
+    const flat: Job[] = [group('orphan-group', '', [])]
+    const layout = flowLayoutOrganic(flat, {
+      hints: HINTS,
+      regions: REGIONS,
+      families: FAMILIES,
+      folded: new Set<string>(),
+    })
+    // No children means no elision: operator still sees the group.
+    expect(layout.nodes.map((n) => n.id)).toEqual(['orphan-group'])
+  })
+})
+
 describe('defaultFoldedAtDepth — cycle protection (bug #476)', () => {
   it('returns within 100ms when a group references its own id as parent', () => {
     const flat: Job[] = [
