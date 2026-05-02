@@ -1,0 +1,280 @@
+{{- /*
+Catalyst bp-keycloak — Sovereign realm import ConfigMap (issue #604, Phase-8b).
+
+This ConfigMap is rendered by the parent bp-keycloak chart (not the upstream bitnami/keycloak
+subchart) so it has access to the full parent `.Values` tree — specifically:
+  - .Values.sovereignFQDN  → per-Sovereign FQDN substituted into catalyst-ui redirect URIs
+  - .Values.smtp.*         → SMTP host/port/credentials for outbound realm email
+
+The upstream bitnami/keycloak chart's keycloakConfigCli.existingConfigmap is pointed at this
+ConfigMap (see values.yaml keycloak.keycloakConfigCli.existingConfigmap), so the upstream
+config-cli Job mounts it and imports the realm on first install. Re-run is idempotent.
+
+Why this template instead of inline values.yaml string:
+  The realm JSON requires Helm template rendering for two per-Sovereign fields:
+    1. catalyst-ui redirect/origin URIs contain console.<sovereignFQDN>
+    2. smtpServer block contains runtime-configurable SMTP credentials
+  The inline values.yaml approach puts these under the `keycloak:` subchart key where
+  only subchart-scoped .Values are available. A parent-chart template is the canonical
+  seam for cross-scope interpolation (anti-duplication rule, ADR-0001 §11.3).
+
+Naming: the configmap name matches what keycloak.keycloakConfigCli.existingConfigmap
+references — "{{ .Release.Name }}-sovereign-realm-config". The Release.Name for
+bootstrap-kit default is "keycloak" (releaseName in HelmRelease manifest).
+
+Canonical seam: platform/keycloak/chart/templates/configmap-sovereign-realm.yaml
+*/}}
+{{- if .Values.sovereignRealm.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sovereign-realm-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: keycloak-config-cli
+    {{- with .Values.sovereignFQDN }}
+    catalyst.openova.io/sovereign-fqdn: {{ . | quote }}
+    {{- end }}
+data:
+  sovereign-realm.json: |
+    {
+      "realm": "sovereign",
+      "enabled": true,
+      "displayName": "Sovereign",
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "accessTokenLifespan": 900,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 28800,
+      "attributes": {
+        "token-exchange": "true"
+      },
+      {{- if and .Values.smtp .Values.smtp.host }}
+      "smtpServer": {
+        "host": {{ .Values.smtp.host | quote }},
+        "port": {{ .Values.smtp.port | default "587" | quote }},
+        "from": {{ .Values.smtp.from | default "noreply@openova.io" | quote }},
+        "fromDisplayName": "Sovereign Cloud",
+        "ssl": {{ .Values.smtp.ssl | default "false" | quote }},
+        "starttls": {{ .Values.smtp.starttls | default "true" | quote }},
+        "auth": {{ .Values.smtp.auth | default "true" | quote }}
+        {{- if and .Values.smtp.user .Values.smtp.user }},
+        "user": {{ .Values.smtp.user | quote }}
+        {{- end }}
+      },
+      {{- end }}
+      "defaultGroups": [
+        "/sovereign-viewers"
+      ],
+      "groups": [
+        { "name": "sovereign-admins" },
+        { "name": "sovereign-ops" },
+        { "name": "sovereign-viewers" }
+      ],
+      "requiredActions": [
+        {
+          "alias": "UPDATE_PASSWORD",
+          "name": "Update Password",
+          "providerId": "UPDATE_PASSWORD",
+          "enabled": true,
+          "defaultAction": true,
+          "priority": 30,
+          "config": {}
+        },
+        {
+          "alias": "webauthn-register",
+          "name": "Webauthn Register",
+          "providerId": "webauthn-register",
+          "enabled": true,
+          "defaultAction": false,
+          "priority": 70,
+          "config": {}
+        },
+        {
+          "alias": "webauthn-register-passwordless",
+          "name": "Webauthn Register Passwordless",
+          "providerId": "webauthn-register-passwordless",
+          "enabled": true,
+          "defaultAction": false,
+          "priority": 80,
+          "config": {}
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "required-actions",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "required-actions",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "requiredActions",
+                "id.token.claim": "true",
+                "access.token.claim": "false",
+                "claim.name": "requiredActions",
+                "userinfo.token.claim": "true",
+                "multivalued": "true",
+                "jsonType.label": "String"
+              }
+            }
+          ]
+        }
+      ],
+      "clients": [
+        {
+          "clientId": "kubectl",
+          "name": "kubectl (per-Sovereign K8s api-server OIDC client)",
+          "description": "Public OIDC client for kubectl OIDC login against k3s api-server (issue #326). Left intact from bp-keycloak 1.2.x.",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "redirectUris": [
+            "http://localhost:8000",
+            "http://localhost:8000/*",
+            "urn:ietf:wg:oauth:2.0:oob"
+          ],
+          "webOrigins": [
+            "+"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "access.token.lifespan": "900"
+          }
+        },
+        {
+          "clientId": "catalyst-ui",
+          "name": "Catalyst UI (Sovereign console)",
+          "description": "Public PKCE client for the catalyst-ui SPA at console.<sovereignFQDN>. ID token includes groups + requiredActions claims for first-login UX (issue #604).",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "redirectUris": [
+            "https://console.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://console.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt",
+            "required-actions"
+          ],
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://console.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "catalyst-api-server",
+          "name": "Catalyst API Server (service account)",
+          "description": "Confidential service-account client for catalyst-api. Holds impersonate + manage-users roles on realm-management so it can use token-exchange to mint user tokens for the seamless handover flow (issue #604).",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": true,
+          "authorizationServicesEnabled": false,
+          "secret": "{{ .Values.catalystApiServerClientSecret }}",
+          "redirectUris": [],
+          "webOrigins": [],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "300"
+          }
+        }
+      ],
+      "clientScopeMappings": {
+        "realm-management": [
+          {
+            "client": "catalyst-api-server",
+            "roles": [
+              "impersonation",
+              "manage-users",
+              "view-users",
+              "query-users"
+            ]
+          }
+        ]
+      }
+    }
+{{- end }}

@@ -41,7 +41,7 @@ spec:
   chart:
     spec:
       chart: bp-keycloak
-      version: 1.2.2
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -61,10 +61,11 @@ spec:
     timeout: 15m
     remediation:
       retries: 3
-  # Per-Sovereign overrides — issue #387:
-  # Wire the per-Sovereign hostname into the HTTPRoute template
-  # (platform/keycloak/chart/templates/httproute.yaml). The HTTPRoute
+  # Per-Sovereign overrides — issue #387 + #604:
+  # Wire the per-Sovereign hostname into the HTTPRoute template and
+  # sovereign realm ConfigMap (catalyst-ui redirect URIs). The HTTPRoute
   # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
   values:
+    sovereignFQDN: ${SOVEREIGN_FQDN}
     gateway:
       host: auth.${SOVEREIGN_FQDN}
