@@ -154,10 +154,19 @@ spec:
                 fi
                 # Recovery key file is single-use; deleted in step 5.
                 echo "$SEED_B64" | base64 -d > /tmp/recovery-seed.bin
-                echo "[openbao-init] running bao operator init (recovery-shares=1, recovery-threshold=1)"
+                # Issue #517 (cont): -recovery-shares/-recovery-threshold are
+                # only valid for auto-unseal seal types (gcpckms, awskms,
+                # transit, etc.). The upstream openbao chart's default
+                # config uses `seal "shamir"` (no auto-unseal stanza in
+                # values.standalone.config / values.ha.config), so the
+                # right flags are -key-shares / -key-threshold. With
+                # auto-unseal seal types added later, swap back to
+                # -recovery-* — but per the current chart values this
+                # NEVER worked.
+                echo "[openbao-init] running bao operator init (key-shares=1, key-threshold=1, shamir seal)"
                 bao operator init \
-                  -recovery-shares=1 \
-                  -recovery-threshold=1 \
+                  -key-shares=1 \
+                  -key-threshold=1 \
                   -format=json \
                   > /tmp/init-output.json
                 # Store init outputs INSIDE OpenBao itself via the recovery-key.
