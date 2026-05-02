@@ -17,7 +17,7 @@ description: |
   (recommend only) — SREs opt individual workloads into `Auto` via
   VerticalPodAutoscaler CRs.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "1.5.0"
 keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
 maintainers:
