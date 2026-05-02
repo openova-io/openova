@@ -178,6 +178,17 @@ type Request struct {
 	// wholesale, the token does not leak.
 	KubeconfigBearerToken string `json:"-"`
 
+	// HandoverJWTPublicKey — RFC 7517 JWK JSON of the Catalyst-Zero
+	// RS256 handover-JWT public key. Stamped by the handler from
+	// h.handoverSigner.PublicJWK() before tfvars are written. Cloud-init
+	// writes the JWK to /var/lib/catalyst/handover-jwt-public.jwk on the
+	// new Sovereign control-plane (issue #605, Phase-8b) so Agent-C can
+	// verify the one-time handover JWT without a cross-cluster RPC back
+	// to Catalyst-Zero. Empty when CATALYST_HANDOVER_KEY_PATH is unset
+	// (variables.tf default ""). json:"-" to keep it out of API request
+	// JSON — it's stamped server-side, never accepted from the client.
+	HandoverJWTPublicKey string `json:"-"`
+
 	// ── Hetzner Object Storage (Phase 0b — issue #371) ──────────────────
 	//
 	// Per-Sovereign S3 backing for Harbor (#383) and Velero (#384). The
@@ -806,6 +817,16 @@ func writeTfvars(deployDir string, req Request) error {
 			"CATALYST_API_PUBLIC_URL",
 			"https://console.openova.io/sovereign",
 		),
+
+		// Phase-8b handover JWK (issue #605). Stamped server-side from
+		// h.handoverSigner.PublicJWK() in CreateDeployment. cloud-init
+		// renders it into /var/lib/catalyst/handover-jwt-public.jwk on
+		// the new Sovereign so Agent-C verifies the one-time handover
+		// JWT without a cross-cluster RPC. variables.tf default "" keeps
+		// the var optional — if the signer is unavailable the file lands
+		// empty and the handover flow is simply not yet wired on that
+		// Sovereign (caught at /auth/handover, not at provision time).
+		"handover_jwt_public_key": req.HandoverJWTPublicKey,
 
 		// ── Hetzner Object Storage (issue #371) ─────────────────────────
 		// Per-Sovereign S3 backing for Harbor + Velero. variables.tf in
