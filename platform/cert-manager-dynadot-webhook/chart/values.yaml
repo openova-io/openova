@@ -36,8 +36,20 @@ webhook:
   # into clusters/<sovereign>/.
   image:
     repository: ghcr.io/openova-io/openova/cert-manager-dynadot-webhook
-    tag: "latest"
+    # Pinned per docs/INVIOLABLE-PRINCIPLES.md #4 — `:latest` is forbidden.
+    # CI tags are the openova-io/openova short-SHA; bump on every webhook
+    # source change. Caught live during otech27.
+    tag: "942be6f"
     pullPolicy: IfNotPresent
+
+  # The image lives in private ghcr.io/openova-io/openova/* — the new
+  # Sovereign's flux-system bootstrap (Reflector + cloud-init) creates
+  # a `ghcr-pull` Secret in every namespace including cert-manager.
+  # Reference it here so kubelet authenticates the GHCR pull. Without
+  # this, the Pod is stuck ErrImagePull/ImagePullBackOff (caught live
+  # during otech27).
+  imagePullSecrets:
+    - name: ghcr-pull
 
   # Listen port for the aggregated apiserver. The Service + APIService
   # resources both reference this. cert-manager's controllers reach the
