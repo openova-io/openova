@@ -459,6 +459,63 @@ write_files:
         serviceMonitor:
           enabled: false
 
+  # ── containerd pull-through mirror: harbor.openova.io (issue #557, Option A) ──
+  #
+  # k3s uses containerd. Containerd's mirror table is configured via
+  # /etc/rancher/k3s/registries.yaml BEFORE k3s starts — the file is
+  # read once at startup and cannot be hot-reloaded without a k3s restart.
+  #
+  # Each `mirrors:` key is the upstream registry hostname containerd
+  # intercepts. When a pod pulls `nats:2.10` (implicitly `docker.io/library/
+  # nats:2.10`), containerd tries `harbor.openova.io/proxy-dockerhub/library/
+  # nats:2.10` first; on a cache miss, harbor.openova.io fetches from
+  # DockerHub and caches the blob for subsequent pulls by other pods or
+  # Sovereign nodes.
+  #
+  # This eliminates DockerHub's anonymous rate limit (100 pulls/6h per IP)
+  # on fresh Sovereign IPs where the bootstrap-kit pulls 50+ images in the
+  # first 30 minutes.
+  #
+  # The `configs:` block supplies harbor.openova.io credentials so containerd
+  # can authenticate against the proxy project (Harbor proxy-cache projects
+  # are set Public but a robot account is provided for future private-project
+  # pulls and consistent audit logging).
+  #
+  # harbor_robot_token is interpolated from var.harbor_robot_token (added to
+  # infra/hetzner/variables.tf); the catalyst-api provisioner reads it from
+  # the `harbor-robot-token` K8s Secret in the openova-harbor namespace on
+  # contabo and passes it to each new Sovereign's cloud-init render at
+  # provisioning time. This keeps the token out of git.
+  #
+  # CRITICAL ORDERING: this file MUST be written to disk BEFORE k3s installs
+  # (the k3s install runcmd below). k3s reads registries.yaml at startup and
+  # configures containerd's mirror table; a missing file at startup means
+  # direct pulls from DockerHub for the entire lifetime of that node.
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0600'
+    content: |
+      mirrors:
+        "docker.io":
+          endpoint:
+            - "https://harbor.openova.io/proxy-dockerhub"
+        "quay.io":
+          endpoint:
+            - "https://harbor.openova.io/proxy-quay"
+        "gcr.io":
+          endpoint:
+            - "https://harbor.openova.io/proxy-gcr"
+        "registry.k8s.io":
+          endpoint:
+            - "https://harbor.openova.io/proxy-k8s"
+        "ghcr.io":
+          endpoint:
+            - "https://harbor.openova.io/proxy-ghcr"
+      configs:
+        "harbor.openova.io":
+          auth:
+            username: "robot$openova-bot"
+            password: "${harbor_robot_token}"
+
   # Flux GitRepository + Kustomizations that take over after k3s is up.
   #
   # ── Per-Sovereign tree vs. shared _template (issue #218) ─────────────
