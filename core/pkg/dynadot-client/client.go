@@ -118,15 +118,16 @@ func (c *Client) AddRecord(ctx context.Context, domain string, rec Record) error
 		return err
 	}
 
+	// Dynadot api3.json returns ResponseCode + Status directly in the
+	// SetDnsResponse envelope (no nested ResponseHeader key).
+	// Actual format: {"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}
 	var raw struct {
-		SetDNSResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
-		} `json:"SetDnsResponse"`
+		SetDNSResponse respHeader `json:"SetDnsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse set_dns2: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	return classifyDynadotError(raw.SetDNSResponse.ResponseHeader)
+	return classifyDynadotError(raw.SetDNSResponse)
 }
 
 // DomainInfo is the parsed result of a `domain_info` call. Only the
@@ -254,15 +255,16 @@ func (c *Client) SetFullDNS(ctx context.Context, domain string, mains, subs []Re
 		return err
 	}
 
+	// Dynadot api3.json returns ResponseCode + Status directly in the
+	// SetDnsResponse envelope (no nested ResponseHeader key).
+	// Actual format: {"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}
 	var raw struct {
-		SetDNSResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
-		} `json:"SetDnsResponse"`
+		SetDNSResponse respHeader `json:"SetDnsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse set_dns2: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	return classifyDynadotError(raw.SetDNSResponse.ResponseHeader)
+	return classifyDynadotError(raw.SetDNSResponse)
 }
 
 // RemoveSubRecord performs a safe read-modify-write that removes any
@@ -303,9 +305,10 @@ func (c *Client) RemoveSubRecord(ctx context.Context, domain string, match Recor
 	return c.SetFullDNS(ctx, domain, info.MainRecords, kept)
 }
 
-// respHeader matches the Dynadot envelope's ResponseHeader on every
-// command. `ResponseCode` is 0 on success, non-zero on failure;
-// `Error` is human-readable.
+// respHeader matches the Dynadot envelope used by set_dns2 responses.
+// ResponseCode + Status are placed directly in the command's envelope key
+// (e.g. SetDnsResponse) — NOT under a nested ResponseHeader object.
+// Actual format: {"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}
 //
 // ResponseCode is typed as json.Number because the Dynadot api3.json
 // endpoint returns it as a JSON integer (e.g. `"ResponseCode":0`) rather

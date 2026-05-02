@@ -102,3 +102,22 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # DNS-01 wildcard cert: expose PowerDNS on NodePort 30053 so the
+  # Sovereign LB can forward :53 → PowerDNS for ACME DNS-01 challenge
+  # validation. Both TCP and UDP are exposed on the same NodePort.
+  values:
+    anycast:
+      enabled: true
+      serviceName: powerdns-anycast
+      serviceType: NodePort
+      ports:
+        - name: dns-udp
+          port: 53
+          targetPort: 5353
+          nodePort: 30053
+          protocol: UDP
+        - name: dns-tcp
+          port: 53
+          targetPort: 5353
+          nodePort: 30053
+          protocol: TCP

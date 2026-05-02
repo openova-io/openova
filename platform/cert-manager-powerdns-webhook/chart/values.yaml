@@ -40,11 +40,14 @@ webhook:
   # Distinct from the dynadot webhook's group so both can coexist on the
   # same cluster during the onboarding overlap window.
   groupName: acme.powerdns.openova.io
-  # Solver name — currently informational on the upstream binary (it
-  # registers a single solver bound to GROUP_NAME), but kept here so the
-  # ClusterIssuer template's solverName field can be overridden in
-  # lock-step with the binary if the upstream ever supports multi-solver.
-  solverName: powerdns
+  # Solver name — MUST match the Name() return value of the upstream
+  # webhook binary. The zachomedia/cert-manager-webhook-pdns binary's
+  # Name() method returns "pdns" (hardcoded). cert-manager calls
+  # POST /apis/<groupName>/v1alpha1/<solverName> — if solverName doesn't
+  # match the registered resource name, cert-manager gets a 404 and
+  # reports "the server could not find the requested resource".
+  # This MUST stay "pdns" unless the upstream binary changes its Name().
+  solverName: pdns
 
   # Replica count. Single-replica works for one Sovereign; bump to 2 in
   # an HA overlay so a node drain doesn't stall an in-flight challenge.
