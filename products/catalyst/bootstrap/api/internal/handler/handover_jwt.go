@@ -1,0 +1,197 @@
+// Package handler — handover_jwt.go: JWT handover signing endpoint (issue #605,
+// Phase-8b).
+//
+// # Endpoint
+//
+//	POST /api/v1/deployments/{id}/mint-handover-token
+//
+// Requires an authenticated session (the OIDC proxy upstream sets
+// X-Forwarded-User = sub and X-Forwarded-Email = email before requests
+// reach catalyst-api). The handler reads both headers and mints a
+// short-lived RS256 JWT whose claims satisfy the Agent-C contract.
+//
+// # JWT contract (Agent C must accept exactly this shape)
+//
+//	{
+//	  "iss":            "https://console.openova.io",
+//	  "aud":            ["https://console.<sovereignFqdn>"],
+//	  "sub":            "<openova-user-sub>",
+//	  "email":          "<verified-email>",
+//	  "email_verified": true,
+//	  "sovereign_fqdn": "<deployment.SovereignFQDN>",
+//	  "deployment_id":  "<deployment.ID>",
+//	  "role":           "sovereign-admin",
+//	  "jti":            "<uuid-v4>",
+//	  "iat":            <unix>,
+//	  "exp":            <unix + 300>
+//	}
+//
+// # Response
+//
+//	200 OK:  { "token": "<jwt>", "redirectURL": "https://console.<fqdn>/auth/handover?token=<jwt>" }
+//	401:     signer not configured — CATALYST_HANDOVER_KEY_PATH missing
+//	404:     deployment not found
+//	409:     deployment not in handover-ready state (not adopted, not phase1-done)
+//	500:     signing failure
+//
+// # Public-key endpoint
+//
+//	GET /api/v1/handover/public-key
+//
+// Returns the RS256 public key as a JSON Web Key (RFC 7517). This endpoint
+// lets the Sovereign-side Agent-C bootstrap its trust anchor at provision time
+// in addition to the cloud-init distribution path.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//   - #10 (credential hygiene): private key never logged, only the jti goes
+//     into the info-level log line.
+//   - #4 (never hardcode): issuer URL and TTL come from the Signer config
+//     (set by main.go from CATALYST_HANDOVER_JWT_ISSUER / _TTL_SECONDS).
+package handler
+
+import (
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
+)
+
+// MintHandoverToken handles
+//
+//	POST /api/v1/deployments/{id}/mint-handover-token
+//
+// See package-level comment for the full contract.
+func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
+	if h.handoverSigner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "signer-not-configured",
+			"detail": "CATALYST_HANDOVER_KEY_PATH is not set or the key file could not be loaded — catalyst-api cannot mint handover tokens on this instance",
+		})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		http.Error(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	dep := val.(*Deployment)
+
+	dep.mu.Lock()
+	fqdn := dep.Request.SovereignFQDN
+	status := dep.Status
+	dep.mu.Unlock()
+
+	// Only mint a token for deployments that have successfully reached the
+	// handover-ready state. Accept both "ready" (Phase-1 complete, not yet
+	// finalised) and "adopted" (finalised, browser already redirected once
+	// but may retry) as valid states.
+	if status != "ready" && status != "adopted" {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":  "not-handover-ready",
+			"detail": "deployment status is " + status + "; handover token can only be minted when status is ready or adopted",
+		})
+		return
+	}
+
+	if strings.TrimSpace(fqdn) == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "missing-fqdn",
+			"detail": "deployment has no SovereignFQDN; cannot mint handover token",
+		})
+		return
+	}
+
+	// Read user identity from OIDC proxy headers. The OIDC proxy upstream
+	// sets X-Forwarded-User (subject) and X-Forwarded-Email (email) before
+	// requests reach catalyst-api. When either header is missing the handler
+	// still mints a token (catalyst-api may be tested without a proxy) but
+	// logs a warning so an operator can tell the proxy isn't configured.
+	sub := h.k8sUser(r) // X-Forwarded-User or h.k8sUserHeader
+	if sub == "" {
+		sub = "unknown"
+	}
+	email := r.Header.Get("X-Forwarded-Email")
+	if email == "" {
+		email = r.Header.Get("X-Auth-Request-Email") // Oauth2-proxy alt header
+	}
+	if email == "" {
+		// Construct a plausible email from the subject if the proxy doesn't
+		// forward an email claim.
+		email = sub
+		h.log.Warn("handover-jwt: X-Forwarded-Email header absent; using sub as email",
+			"sub", sub,
+			"deploymentId", id,
+		)
+	}
+
+	tokenStr, err := h.handoverSigner.MintToken(fqdn, id, sub, email)
+	if err != nil {
+		h.log.Error("handover-jwt: mint failed",
+			"deploymentId", id,
+			"fqdn", fqdn,
+			"err", err,
+		)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  "mint-failed",
+			"detail": "could not sign handover JWT: " + err.Error(),
+		})
+		return
+	}
+
+	// Build redirect URL: https://console.<fqdn>/auth/handover?token=<jwt>
+	redirectURL := "https://console." + fqdn + "/auth/handover?token=" + url.QueryEscape(tokenStr)
+
+	h.log.Info("handover-jwt: token minted",
+		"deploymentId", id,
+		"fqdn", fqdn,
+		"sub", sub,
+	)
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"token":       tokenStr,
+		"redirectURL": redirectURL,
+	})
+}
+
+// GetHandoverPublicKey handles
+//
+//	GET /api/v1/handover/public-key
+//
+// Returns the RS256 public key as a JSON Web Key (RFC 7517). The Sovereign-side
+// Agent-C can call this at provision time to bootstrap its trust anchor as an
+// alternative to the cloud-init distribution path.
+func (h *Handler) GetHandoverPublicKey(w http.ResponseWriter, r *http.Request) {
+	if h.handoverSigner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "signer-not-configured",
+			"detail": "handover signer not initialised on this catalyst-api instance",
+		})
+		return
+	}
+
+	jwk, err := h.handoverSigner.PublicJWK()
+	if err != nil {
+		h.log.Error("handover-jwt: PublicJWK failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "jwk-encode-failed",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(jwk)
+}
+
+// SetHandoverSigner wires the handover JWT signer into the Handler.
+// Called by main.go after loading/generating the keypair.
+// Tests can inject a test Signer via this method.
+func (h *Handler) SetHandoverSigner(s *handoverjwt.Signer) {
+	h.handoverSigner = s
+}

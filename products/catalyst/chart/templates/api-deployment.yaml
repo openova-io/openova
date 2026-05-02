@@ -287,6 +287,88 @@ spec:
                   name: catalyst-ghcr-pull-token
                   key: token
                   optional: true
+            # ── /auth/handover Keycloak service-account (issue #606) ──────────
+            # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
+            # service FQDN in code; override here for non-standard Sovereign
+            # Keycloak deployments.
+            # optional=true: Catalyst-Zero pods don't run Keycloak locally.
+            - name: CATALYST_KC_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-kc-sa-credentials
+                  key: addr
+                  optional: true
+            - name: CATALYST_KC_REALM
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-kc-sa-credentials
+                  key: realm
+                  optional: true
+            - name: CATALYST_KC_SA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-kc-sa-credentials
+                  key: client-id
+                  optional: true
+            - name: CATALYST_KC_SA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-kc-sa-credentials
+                  key: client-secret
+                  optional: true
+            # CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH — path to the JWK file that
+            # holds the RS256 public key for validating one-time handover JWTs.
+            # cloud-init writes this from the Catalyst-Zero keypair at provision
+            # time. optional=true: Catalyst-Zero side leaves this unset.
+            - name: CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
+              value: /var/lib/catalyst/handover-jwt-public.jwk
+            # ── Magic-link auth (issue #608, Phase-8b Agent A) ──────────────
+            # CATALYST_KC_CLIENT_ID — OIDC client ID for the Catalyst-Zero
+            # UI (catalyst-zero-ui PKCE client). Defaults to "catalyst-zero-ui"
+            # in code; override here for multi-tenant or custom client names.
+            # optional=true: Sovereign clusters don't use this auth path.
+            - name: CATALYST_KC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-magic-link-credentials
+                  key: kc-client-id
+                  optional: true
+            # CATALYST_KC_REDIRECT_URI — OAuth callback URL the Keycloak magic-
+            # link redirects to after verification (e.g.
+            # https://console.openova.io/sovereign/auth/callback).
+            # Per INVIOLABLE-PRINCIPLES #4: runtime configuration, not hardcoded.
+            - name: CATALYST_KC_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-magic-link-credentials
+                  key: kc-redirect-uri
+                  optional: true
+            # CATALYST_SESSION_COOKIE_SECRET — HMAC-SHA256 key for signing the
+            # catalyst_session HttpOnly cookie value. 32 random bytes (base64url
+            # encoded). Rotation invalidates all active sessions.
+            - name: CATALYST_SESSION_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-magic-link-credentials
+                  key: session-cookie-secret
+                  optional: true
+            # CATALYST_KC_ADMIN_USER / CATALYST_KC_ADMIN_PASS — Keycloak master
+            # realm admin credentials used by HandleMagicLink to call the Admin
+            # REST API (create user, execute-actions-email). On Catalyst-Zero the
+            # admin-cli password grant against the master realm is used.
+            # optional=true: Sovereign clusters don't call the Admin API.
+            - name: CATALYST_KC_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-magic-link-credentials
+                  key: kc-admin-user
+                  optional: true
+            - name: CATALYST_KC_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-magic-link-credentials
+                  key: kc-admin-pass
+                  optional: true
           resources:
             requests:
               cpu: 50m
@@ -389,6 +471,14 @@ spec:
             # itself when a snapshot ages past 1h.
             - name: sov-cache
               mountPath: /var/cache/sov-cache
+            # handover-jwt-public — RS256 public key JWK distributed by
+            # cloud-init from Catalyst-Zero's signing keypair. Mounted
+            # read-only. optional=true so pods start on Catalyst-Zero
+            # (which is the SIGNER, not the verifier) and in CI.
+            - name: handover-jwt-public
+              mountPath: /var/lib/catalyst/handover-jwt-public.jwk
+              subPath: public.jwk
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
@@ -415,3 +505,13 @@ spec:
         - name: sov-cache
           persistentVolumeClaim:
             claimName: catalyst-api-cache
+        # handover-jwt-public — RS256 public key JWK written by cloud-init
+        # from Catalyst-Zero's signing keypair. Secret is optional so
+        # Catalyst-Zero pods (the signer) and CI start without it.
+        - name: handover-jwt-public
+          secret:
+            secretName: catalyst-handover-jwt-public
+            optional: true
+            items:
+              - key: public.jwk
+                path: public.jwk

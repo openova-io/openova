@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.1.16
-appVersion: 1.1.6
+version: 1.2.0
+appVersion: 1.2.0
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -115,6 +115,15 @@ description: |
   SHA tags to 59fb2b7, so Sovereigns pulling 1.1.15 got the old
   ccc3898 image. 1.1.16 ships with catalystUi.tag + catalystApi.tag =
   59fb2b7 baked in. Issue #596, 2026-05-02.
+
+  Bumped to 1.2.0 — feature add: GET /auth/handover seamless single-identity
+  flow (issue #606, Phase-8b Agent C). Adds:
+  - CATALYST_KC_ADDR / CATALYST_KC_SA_CLIENT_ID / CATALYST_KC_SA_CLIENT_SECRET env
+  - CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH env + Secret volume for handover JWK
+  Sovereign-side catalyst-api pods receive the operator's browser redirect from
+  Catalyst-Zero, validate the one-time RS256 JWT, create/update the operator in
+  Keycloak (sovereign realm), exchange for a user session via token-exchange,
+  set HttpOnly session cookies, and redirect to /console/dashboard. 2026-05-02.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

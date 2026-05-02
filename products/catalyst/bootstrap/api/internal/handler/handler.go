@@ -12,6 +12,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -153,6 +155,33 @@ type Handler struct {
 	// finalise handler. Empty in production; falls back to a 60s-timeout
 	// http.Client. Tests inject a client that points at a test server.
 	handoverHTTPClient *http.Client
+
+	// ── auth config (issue #608, Phase-8b Agent A) ──────────────────────────
+	// authConfig — Keycloak OIDC config for the Catalyst-Zero wizard session.
+	// Nil when CATALYST_KC_ADDR is not set (Sovereign-side, CI).
+	authConfig *auth.Config
+
+	// ── handover JWT signer (issue #605, Phase-8b Agent B) ──────────────────
+	// handoverSigner — RSA-2048 signer that mints the one-time JWT for the
+	// seamless single-identity redirect:
+	//   POST /api/v1/deployments/{id}/mint-handover-token
+	//   GET  /api/v1/handover/public-key
+	// Nil when CATALYST_HANDOVER_KEY_PATH is unset (Sovereign-side).
+	handoverSigner *handoverjwt.Signer
+
+	// ── /auth/handover fields (issue #606, Phase-8b Agent C) ─────────────────
+	// kc — Keycloak client for the /auth/handover endpoint.
+	kc keycloakClient
+	// jtiStore — single-use JTI store for /auth/handover replay protection.
+	jtiStore jtiStorer
+	// handoverJWTPublicKeyPath — path to the RS256 public key JWK file.
+	handoverJWTPublicKeyPath string
+	// authHandoverSovereignFQDN — test override for SOVEREIGN_FQDN env.
+	authHandoverSovereignFQDN string
+	// kcAudience — OIDC client id for token-exchange. Defaults to "catalyst-ui".
+	kcAudience string
+	// authHandoverRedirect — post-handover redirect target. Defaults to "/console/dashboard".
+	authHandoverRedirect string
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
@@ -341,6 +370,13 @@ func (h *Handler) SetK8sCache(f *k8scache.Factory, sar *k8scache.SARCache, userH
 // K8sCache exposes the wired Factory so /healthz can read its synced
 // map without reaching into private state.
 func (h *Handler) K8sCache() *k8scache.Factory { return h.k8sCache }
+
+// GetAuthConfig returns the wired auth.Config. Used by main.go to pass to
+// auth.RequireSession middleware. Returns nil when KC is unconfigured.
+func (h *Handler) GetAuthConfig() *auth.Config { return h.authConfig }
+
+// SetAuthConfig wires an auth.Config into the Handler.
+func (h *Handler) SetAuthConfig(cfg *auth.Config) { h.authConfig = cfg }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
