@@ -47,7 +47,7 @@ const magicLinkTTL = 15 * time.Minute
 const magicLinkIssuer = "https://console.openova.io"
 
 // magicLinkAudience — the consume endpoint URL.
-const magicLinkAudience = "https://console.openova.io/sovereign/auth/magic"
+const magicLinkAudience = "https://console.openova.io/sovereign/api/v1/auth/magic"
 
 // magicLinkRole — role claim stamped into every magic-link JWT.
 const magicLinkRole = "openova-user"
@@ -259,7 +259,7 @@ func (h *Handler) HandleMagicLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 3. Email the link ────────────────────────────────────────────────────
-	magicURL := consoleBase() + "/auth/magic?token=" + url.QueryEscape(tokenStr)
+	magicURL := consoleBase() + "/api/v1/auth/magic?token=" + url.QueryEscape(tokenStr)
 	if err := sendMagicLinkEmail(email, magicURL); err != nil {
 		h.log.Error("magic-link: SMTP send failed", "email", email, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "email dispatch failed"})
