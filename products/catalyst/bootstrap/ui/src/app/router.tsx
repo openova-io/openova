@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router'
+import { createRouter, createRoute, createRootRoute, redirect, isRedirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
 
@@ -114,9 +114,12 @@ async function wizardAuthGuard() {
     }
     // Any other status (200, 5xx) — allow through.
   } catch (err) {
-    // Re-throw TanStack redirect errors; swallow network/5xx so the
+    // Re-throw TanStack redirect Responses; swallow network/5xx so the
     // wizard remains usable during backend transients.
-    if (err && typeof err === 'object' && 'isRedirect' in err) throw err
+    // TanStack Router redirect() returns a Response with opts attached —
+    // use the isRedirect() helper rather than an 'isRedirect' property check
+    // (the property does not exist on the Response object).
+    if (isRedirect(err)) throw err
   }
 }
 
