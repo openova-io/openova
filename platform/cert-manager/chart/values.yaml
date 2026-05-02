@@ -14,6 +14,17 @@
 # meaningful value is configurable; cluster overlays in clusters/<sovereign>/
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream cert-manager
+  # subchart exposes per-component image.registry knobs:
+  #   cert-manager.image.registry, cert-manager.webhook.image.registry,
+  #   cert-manager.cainjector.image.registry, cert-manager.startupapicheck.image.registry
+  # Per-Sovereign overlays should populate those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: cert-manager, version: "v1.16.2", repo: "https://charts.jetstack.io" }
 

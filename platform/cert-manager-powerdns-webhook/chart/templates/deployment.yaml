@@ -48,7 +48,7 @@ spec:
       {{- end }}
       containers:
         - name: webhook
-          image: "{{ .Values.webhook.image.repository }}:{{ include "bp-cert-manager-powerdns-webhook.imageTag" . }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.webhook.image.repository }}:{{ include "bp-cert-manager-powerdns-webhook.imageTag" . }}"
           imagePullPolicy: {{ .Values.webhook.image.pullPolicy }}
           # The cert-manager webhook framework's RunWebhookServer uses the
           # standard apiserver flag set — --secure-port, --tls-cert-file,

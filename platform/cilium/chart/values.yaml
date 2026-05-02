@@ -8,6 +8,16 @@
 #      (umbrella-chart convention — the dependency name from Chart.yaml is
 #      the values namespace).
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream cilium subchart
+  # does not expose a single `image.registry` knob; per-Sovereign overlays
+  # should set specific image paths (e.g. `cilium.image.repository`) in
+  # conjunction with this value. Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream: { chart: cilium, version: "1.16.5", repo: "https://helm.cilium.io" }
 

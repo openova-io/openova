@@ -13,6 +13,16 @@
 # webhook.yaml flips clusterIssuer.enabled=true and supplies the per-
 # Sovereign PowerDNS host + apiKeySecretRef.
 
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). When non-empty, the
+  # deployment.yaml template prepends this value to webhook.image.repository:
+  #   image: "<global.imageRegistry>/<webhook.image.repository>:<tag>"
+  # Tracked under #560.
+  imageRegistry: ""
+
 catalystBlueprint:
   upstream:
     chart: cert-manager-webhook-pdns
