@@ -140,7 +140,6 @@ const COLLIDE_PADDING = 12
  *  measured cluster bbox + padding. */
 const MIN_VBOX_W = 400
 const MIN_VBOX_H = 280
-const VIEW_H = 800
 /** MAX_VBOX matters because preserveAspectRatio "meet" scales the
  *  viewBox to fit the canvas-host. With MAX 1200×700, on a 1200px-wide
  *  host scale=1.0 (bubble = 80px). On a 600px host scale=0.5 (bubble =
@@ -150,10 +149,6 @@ const MAX_VBOX_H = 700
 /** Per-depth column width — wider than NODE_RADIUS*4 so adjacent-depth
  *  bubbles never visually touch. */
 const PER_DEPTH_X = NODE_RADIUS * 4
-/** Vertical scatter on first paint and inside the soft `forceY`.
- *  Tightened with the larger NODE_RADIUS so siblings stack cleanly
- *  instead of drifting beyond the visible cluster. */
-const Y_SCATTER_PX = 80
 /** Link distance — connected siblings settle ~100px apart, total
  *  on-canvas edge length stays <140px even with arrowhead trim. */
 const LINK_DISTANCE = NODE_RADIUS * 2.5
@@ -174,6 +169,10 @@ const NEIGHBOR_RING = '#FCD34D'    // lighter amber — neighbour of selected
 type SimNode = SimulationNodeDatum & {
   id: string
   depth: number
+  /** Issue #532 — global topological rank in [0, N-1] used as the Y
+   *  target. Lower depRank = earlier in the dep chain (top of the
+   *  canvas); higher = deeper (bottom of the canvas). */
+  depRank: number
   regionId: string
   familyId: string
   status: JobStatus
@@ -208,21 +207,73 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   )
   const nodesRef = useRef<Map<string, SimNode>>(new Map())
   const [tick, setTick] = useState(0)
+  // Issue #532 — mutable tick counter shared between the sim's tick
+  // callback and the drag-handler effect. dragstart resets tickCount to
+  // 0 so each drag gets a fresh MAX_TICKS budget; without this, after
+  // the initial 2s freeze the sim is dead and a drag can't re-flow
+  // neighbours out of the way. Stored on a ref so the drag handler can
+  // mutate the value the sim's tick callback reads each frame.
+  const tickCountRef = useRef<number>(0)
 
-  const REGION_BAND_H = NODE_RADIUS * 8
-  const regionYMid = useMemo(() => {
-    const map = new Map<string, number>()
-    const regions = layout.regions
-    if (regions.length === 0) return map
-    regions.forEach((r, i) => {
-      map.set(r.id, i * REGION_BAND_H + REGION_BAND_H / 2)
-    })
-    return map
-  }, [layout.regions, REGION_BAND_H])
+  // Issue #532 — regionYMid removed. The Y axis is now driven by
+  // depRank (global topological-sort rank), not region centroids.
+  // Regions still drive family/region badges in FlowNode but no longer
+  // partition the canvas vertically — the dependency order does.
 
   const depthToX = useCallback(
     (depth: number) => depth * PER_DEPTH_X,
     [],
+  )
+
+  /* Issue #532 — resolve a per-node depRank.
+   *
+   * Real flowLayoutOrganic() output sets `depRank` on every node (a
+   * dense topological-sort rank in [0, N-1]). Test fixtures that build
+   * OrganicNode literals directly may omit it; when missing, we derive
+   * a rank by sorting layout.nodes by (depth, original-index) so the
+   * canvas still spreads them homogeneously by dep-order on Y. */
+  const resolvedDepRank = useMemo(() => {
+    const map = new Map<string, number>()
+    const indexOf = new Map<string, number>()
+    layout.nodes.forEach((n, i) => indexOf.set(n.id, i))
+    const sorted = layout.nodes.slice().sort((a, b) => {
+      if (a.depth !== b.depth) return a.depth - b.depth
+      return (indexOf.get(a.id) ?? 0) - (indexOf.get(b.id) ?? 0)
+    })
+    sorted.forEach((n, i) => {
+      // Prefer the layout-supplied depRank when present; fall back to
+      // the derived rank otherwise.
+      map.set(n.id, typeof n.depRank === 'number' ? n.depRank : i)
+    })
+    return map
+  }, [layout.nodes])
+
+  /* Issue #532 — homogeneous Y-spread by dependency rank.
+   *
+   * Founder verbatim 2026-05-02:
+   *   "following the dependency order in the y axis they must
+   *    homogenously spread considering the edge cases such as max
+   *    bubble size max wire length etc."
+   *
+   * Map every node's `depRank` ∈ [0, N-1] to a Y target in
+   *   [Y_MARGIN, MAX_VBOX_H - Y_MARGIN]
+   * so the visible cluster fills the Y axis evenly regardless of node
+   * count. With Y_MARGIN = NODE_RADIUS + COLLIDE_PADDING the bubble's
+   * full diameter stays inside the viewBox. The minimum spacing
+   * NODE_RADIUS*2 + COLLIDE_PADDING (= 92px) caps the maximum number
+   * of fully-spread nodes at MAX_VBOX_H / 92 ≈ 7; beyond that, the
+   * forceCollide guarantees pairwise spacing while siblings pack into
+   * the available vertical band naturally. */
+  const Y_MARGIN = NODE_RADIUS + COLLIDE_PADDING
+  const Y_RANGE = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN * 2)
+  const totalNodes = layout.nodes.length
+  const yForDepRank = useCallback(
+    (depRank: number) => {
+      if (totalNodes <= 1) return Y_MARGIN + Y_RANGE / 2
+      const t = depRank / (totalNodes - 1)
+      return Y_MARGIN + t * Y_RANGE
+    },
+    [totalNodes, Y_RANGE, Y_MARGIN],
   )
 
   const familyById = useMemo(() => {
@@ -299,9 +350,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     const seen = new Set<string>()
     for (const n of layout.nodes) {
       seen.add(n.id)
+      const rank = resolvedDepRank.get(n.id) ?? 0
       const existing = nodesRef.current.get(n.id)
       if (existing) {
         existing.depth = n.depth
+        existing.depRank = rank
         existing.regionId = n.regionId
         existing.familyId = n.familyId
         existing.status = n.status
@@ -309,19 +362,24 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         next.push(existing)
       } else {
         const baseX = depthToX(n.depth)
-        const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
+        // Issue #532 — initial Y comes from the depRank ladder, NOT the
+        // region centroid. The Y axis now reads as dependency order
+        // (top → bottom) and is homogeneously spread by depRank index.
+        const baseY = yForDepRank(rank)
         const seed = hashSeed(n.id)
-        // Issue #493 — seed initial X/Y from the precomputed grid cell
-        // when one exists (high-fan-out depth buckets). Otherwise fall
-        // back to depth-anchor + jitter for sparse layouts.
         const cell = gridTargets.get(n.id)
         const initX = cell ? cell.tx : baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5
+        // Small jitter on Y so two nodes with identical depRank don't
+        // start at literally the same pixel — the collision force then
+        // separates them deterministically. Cap at NODE_RADIUS so the
+        // jitter never punches a node out of its dep-rank band.
         const initY = cell
           ? baseY + cell.ty
-          : baseY + (seed.fy - 0.5) * Y_SCATTER_PX * 2
+          : baseY + (seed.fy - 0.5) * NODE_RADIUS * 0.6
         const fresh: SimNode = {
           id: n.id,
           depth: n.depth,
+          depRank: rank,
           regionId: n.regionId,
           familyId: n.familyId,
           status: n.status,
@@ -337,7 +395,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       if (!seen.has(id)) nodesRef.current.delete(id)
     }
     return next
-  }, [layout.nodes, depthToX, regionYMid, gridTargets])
+  }, [layout.nodes, depthToX, yForDepRank, gridTargets, resolvedDepRank])
 
   useEffect(() => {
     if (simNodes.length === 0) {
@@ -357,8 +415,14 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     // visible motion). alphaDecay=0.06 + alphaMin=0.01 brings it to ≈60
     // ticks (~1s at 60fps), and a hard MAX_TICKS guard freezes positions
     // even on slow devices that can't hit 60fps.
+    //
+    // Issue #532 — tickCount is stored on tickCountRef so the drag
+    // handler effect can reset it to 0 on dragstart. After a drag,
+    // each MAX_TICKS budget begins fresh and the sim has time to
+    // re-flow neighbours away from the pinned drop position before
+    // freezing again.
     const MAX_TICKS = 120
-    let tickCount = 0
+    tickCountRef.current = 0
     const sim = forceSimulation<SimNode>(simNodes)
       .alpha(0.9)
       .alphaDecay(0.06)
@@ -386,18 +450,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'y',
         forceY<SimNode>()
           .y((d) => {
-            const base = regionYMid.get(d.regionId) ?? VIEW_H / 2
-            // Issue #493 — high-fan-out depth buckets get a sub-row Y
-            // offset relative to regionYMid. Sparse depths still get
-            // the seeded jitter so they don't visually align in a row.
-            const cell = gridTargets.get(d.id)
-            if (cell) return base + cell.ty
-            const seed = hashSeed(d.id)
-            // Bug #481 — clamp the per-node Y target inside ±Y_SCATTER_PX
-            // so the soft `forceY` cannot stretch the graph into a
-            // kilometers-tall column. Previous value (±180) was the
-            // root of the "scattered between left + right panes" symptom.
-            return base + (seed.fy - 0.5) * Y_SCATTER_PX * 2
+            // Issue #532 — Y target is the depRank ladder. Every node
+            // has a unique slot computed from its global topological
+            // rank, so depth-of-dep order reads as top → bottom on
+            // the canvas. forceCollide handles the no-overlap rule
+            // when two adjacent ranks have identical Y targets after
+            // rounding (rare but possible with very large N).
+            return yForDepRank(d.depRank)
           })
           .strength(FORCE_Y_STRENGTH),
       )
@@ -417,20 +476,32 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         // Issue #493 — when a node has a grid cell, clamp around the
         // (cell.tx, baseY+cell.ty) target instead of (depthX, regionYMid)
         // so high-fan-out siblings stay in their assigned sub-row.
+        // Issue #532 — pinned nodes (fx/fy set by drag) MUST NOT be
+        // clamped: the operator dragged them to a specific position
+        // and that position has to be respected, even if it falls
+        // outside the depth-anchor window.
         for (const n of simNodes) {
+          // Skip clamping for pinned (dragged) nodes — d3-force already
+          // snaps n.x/n.y to n.fx/n.fy each tick, but we must not let
+          // our depth-window clamp override the operator's chosen pin.
+          if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
           const cell = gridTargets.get(n.id)
-          const baseY = regionYMid.get(n.regionId) ?? VIEW_H / 2
           if (cell) {
             const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
             const SUB_COL_SPAN = PER_DEPTH_X * 0.8
             const colSlot = cell.totalCols > 1
               ? SUB_COL_SPAN / (cell.totalCols - 1)
               : PER_DEPTH_X
-            const targetY = baseY + cell.ty
+            // Issue #532 — Y target for grid-cell nodes is depRank-based,
+            // not regionYMid. The grid sub-row offset is preserved as
+            // jitter on top of the dep-rank Y so siblings inside a
+            // high-fan-out depth still spread vertically while remaining
+            // in the rank-ordered band.
+            const targetY = yForDepRank(n.depRank)
             const xMin = cell.tx - colSlot * 0.5
             const xMax = cell.tx + colSlot * 0.5
-            const yMin = targetY - ROW_PITCH * 0.5
-            const yMax = targetY + ROW_PITCH * 0.5
+            const yMin = targetY - ROW_PITCH * 0.75
+            const yMax = targetY + ROW_PITCH * 0.75
             if (typeof n.x === 'number') {
               if (n.x < xMin) n.x = xMin
               else if (n.x > xMax) n.x = xMax
@@ -442,28 +513,33 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             continue
           }
           const baseX = depthToX(n.depth)
-          // Sparse-depth fallback — original ±PER_DEPTH_X / ±Y_SCATTER_PX*2
-          // clamp around (depthX, regionYMid). See Bug #481.
+          // Sparse-depth fallback — clamp X around the depth column,
+          // Y around the dep-rank slot ± half the collision pitch so
+          // siblings of identical depRank can still separate via the
+          // forceCollide pass without escaping the rank-ordered band.
           const xMin = baseX - PER_DEPTH_X
           const xMax = baseX + PER_DEPTH_X
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
-          const yMin = baseY - Y_SCATTER_PX * 2
-          const yMax = baseY + Y_SCATTER_PX * 2
+          const targetY = yForDepRank(n.depRank)
+          const Y_HALF_BAND = (NODE_RADIUS * 2 + COLLIDE_PADDING)
+          const yMin = targetY - Y_HALF_BAND
+          const yMax = targetY + Y_HALF_BAND
           if (typeof n.y === 'number') {
             if (n.y < yMin) n.y = yMin
             else if (n.y > yMax) n.y = yMax
           }
         }
-        // Issue #481 round 3: hard MAX_TICKS cap. Even if alpha/velocity
-        // decay schedules don't drive alpha below alphaMin in time (slow
-        // device, many nodes), this stops the sim deterministically at
-        // ~2s and freezes positions — no more "infinitely dynamically
-        // trying" symptom the founder reported.
-        tickCount++
-        if (tickCount >= MAX_TICKS) {
+        // Issue #481 round 3 + #532: hard MAX_TICKS cap. Even if
+        // alpha/velocity decay schedules don't drive alpha below alphaMin
+        // in time (slow device, many nodes), this stops the sim
+        // deterministically at ~2s and freezes positions. The counter
+        // resets on dragstart so each drag gets a fresh 2s budget to
+        // re-flow neighbours out of the way of the pinned bubble.
+        tickCountRef.current++
+        if (tickCountRef.current >= MAX_TICKS) {
           sim.stop()
         }
         setTick((t) => t + 1)
@@ -473,7 +549,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return () => {
       sim.stop()
     }
-  }, [simNodes, layout.edges, depthToX, regionYMid, gridTargets])
+  }, [simNodes, layout.edges, depthToX, yForDepRank, gridTargets])
 
   const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {
@@ -483,6 +559,14 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
 
     const dragBehavior = d3drag<SVGGElement, unknown>()
       .on('start', function (event) {
+        // Issue #532 — d81effc2 stops the sim permanently after
+        // MAX_TICKS=120 (~2s). Without resetting the tick counter
+        // here, the sim is dead by the time the operator drags and
+        // neighbours can't move out of the way. Reset the counter to
+        // 0 so the post-drag MAX_TICKS budget restarts from scratch,
+        // then re-heat with alphaTarget(0.3) so the simulation
+        // actually runs.
+        tickCountRef.current = 0
         if (!event.active) sim.alphaTarget(0.3).restart()
         const id = (this as SVGGElement).getAttribute('data-job-id')
         const d = id ? nodesRef.current.get(id) : null
@@ -501,7 +585,12 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
       .on('end', function (event) {
         if (!event.active) sim.alphaTarget(0)
-        // Pin where dropped — operator wants drag to stick.
+        // Issue #532 — DO NOT clear d.fx/d.fy here. Pinned nodes stay
+        // pinned forever (until the next drag) so the operator's
+        // chosen position is respected. forceCollide guarantees the
+        // pinned bubble never overlaps a free-moving neighbour;
+        // free-moving neighbours yield around the pin during the
+        // post-drag re-heat phase.
       })
 
     const sel = select(svgRef.current).selectAll<SVGGElement, unknown>(
