@@ -86,6 +86,16 @@ cilium:
   # Gateway API — replaces traditional ingress controllers
   gatewayAPI:
     enabled: true
+    gatewayClass:
+      # Force GatewayClass creation regardless of CRD presence at Helm
+      # render time. Upstream default is "auto" which skips creation when
+      # the gateway.networking.k8s.io CRDs are absent (Capabilities check
+      # at helm install time). During bootstrap, bp-gateway-api runs AFTER
+      # bp-cilium, so "auto" silently skips the GatewayClass — leaving
+      # every HTTPRoute orphaned until the operator is manually restarted.
+      # Forcing "true" ensures GatewayClass/cilium is always created.
+      # Permanent fix for the cilium-gateway race (issue #503).
+      create: "true"
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:

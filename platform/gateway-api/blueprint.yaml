@@ -6,11 +6,11 @@ metadata:
     catalyst.openova.io/category: per-host-cluster-infrastructure
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 1.0.0
+  version: 1.1.0
   card:
     title: Gateway API
     summary: |
-      Upstream Kubernetes Gateway API CRDs (Standard channel) — the
+      Upstream Kubernetes Gateway API CRDs (Experimental channel, v1.1.0) — the
       gateway.networking.k8s.io/v1 family that every HTTPRoute/Gateway/
       GatewayClass-using Blueprint depends on. Cilium 1.16's `gatewayAPI.
       enabled=true` flag wires up the cilium controller but does NOT

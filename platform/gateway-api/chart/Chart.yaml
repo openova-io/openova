@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-gateway-api
-version: 1.0.0
+version: 1.1.0
 description: |
   Catalyst Blueprint installing the upstream Kubernetes Gateway API
   CustomResourceDefinitions (Standard channel — gatewayclasses, gateways,
@@ -41,8 +41,21 @@ maintainers:
 # Upstream Gateway API release pinned here (operator-bumpable per
 # docs/INVIOLABLE-PRINCIPLES.md #4 — never hardcode in app/values, only in
 # the Blueprint version metadata + a single annotation that the templates
-# read via .Chart.Annotations). Cilium 1.16 supports Gateway API v1.2.x;
-# bumping requires a paired Cilium support-matrix check.
+# read via .Chart.Annotations).
+#
+# Version v1.1.0 (NOT v1.2.0): Gateway API v1.2.0 changed
+# status.supportedFeatures from string[] to object[]; Cilium 1.16.5
+# still writes the old string format. The v1.2.0 CRD rejects the
+# status patch with "must be of type object: string", leaving
+# GatewayClass/cilium permanently Unknown/Pending. v1.1.0 retains the
+# string schema. Bump in lock-step with Cilium when 1.17+ (which
+# writes the v1.2.0 object format) is adopted. See issue #503.
+#
+# experimental-install.yaml (NOT standard-install.yaml): Cilium 1.16.x
+# checks for tlsroutes.gateway.networking.k8s.io at operator startup.
+# The standard channel does not ship TLSRoute — the operator disables
+# its gateway controller if TLSRoute is absent. Experimental channel
+# includes TLSRoute, TCPRoute, UDPRoute, BackendLBPolicy, BackendTLSPolicy.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-  catalyst.openova.io/upstream-gateway-api-version: "v1.2.0"
+  catalyst.openova.io/upstream-gateway-api-version: "v1.1.0"
