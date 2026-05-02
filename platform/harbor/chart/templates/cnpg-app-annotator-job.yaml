@@ -66,6 +66,11 @@ never reads or copies the actual password bytes.
 {{- $pgAppSecret := printf "%s-app" $clusterName -}}
 {{- $deadline := 600 -}}
 {{- $backoff := 5 -}}
+{{- $annotatorCfg := .Values.cnpgAnnotator | default dict -}}
+{{- $imgCfg := $annotatorCfg.image | default dict -}}
+{{- $imgRepo := $imgCfg.repository | default "busybox" -}}
+{{- $imgTag := $imgCfg.tag | default "1.36.1" -}}
+{{- $imgPullPolicy := $imgCfg.pullPolicy | default "IfNotPresent" -}}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -105,8 +110,8 @@ spec:
           # busybox ships wget + base64 + sh — zero extra deps.
           # Upstream pinned tag per INVIOLABLE-PRINCIPLES #4; operator-
           # bumpable via .Values.cnpgAnnotator.image.{repository,tag}.
-          image: "{{ .Values.cnpgAnnotator.image.repository | default "busybox" }}:{{ .Values.cnpgAnnotator.image.tag | default "1.36.1" }}"
-          imagePullPolicy: {{ .Values.cnpgAnnotator.image.pullPolicy | default "IfNotPresent" | quote }}
+          image: {{ printf "%s:%s" $imgRepo $imgTag | quote }}
+          imagePullPolicy: {{ $imgPullPolicy | quote }}
           env:
             - name: NAMESPACE
               valueFrom:
