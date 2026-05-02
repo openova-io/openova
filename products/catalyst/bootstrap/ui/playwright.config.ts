@@ -12,18 +12,17 @@
 // provision, sidebar-matches-canonical, expand-in-place jobs, etc.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL is
-// driven by env vars with sensible local-dev defaults. Vite serves the
-// app under the `/sovereign/` basepath (see vite.config.ts), so the
-// default BASE_URL points at the dev port AND the basepath.
+// driven by env vars with sensible local-dev defaults. Vite base is '/'
+// since issue #596 — the app root is at http://host:port/, not /sovereign/.
 
 import { defineConfig, devices } from '@playwright/test'
 
-// Defaults match `vite.config.ts` (server.port = 5173, base = '/sovereign/').
+// Defaults match `vite.config.ts` (server.port = 5173, base = '/').
 // Both are overridable for CI runners or when another vite instance has
 // claimed 5173 — the CI workflow at .github/workflows/cosmetic-guards.yaml
 // sets PLAYWRIGHT_HOST explicitly.
 const HOST = process.env.PLAYWRIGHT_HOST ?? 'http://localhost:5173'
-const BASEPATH = process.env.PLAYWRIGHT_BASEPATH ?? '/sovereign'
+const BASEPATH = process.env.PLAYWRIGHT_BASEPATH ?? '/'
 
 export default defineConfig({
   testDir: './e2e',
@@ -49,11 +48,10 @@ export default defineConfig({
 
   use: {
     // Trailing slash on baseURL is REQUIRED for WHATWG URL resolution
-    // to keep `page.goto('wizard')` resolving as
-    //   http://host:port/sovereign/wizard
-    // (without it, "wizard" replaces "sovereign" in the last path
-    // segment per RFC 3986). See playwright docs on baseURL.
-    baseURL: `${HOST}${BASEPATH}/`,
+    // to keep `page.goto('wizard')` resolving as http://host:port/wizard.
+    // With base: '/', BASEPATH defaults to '/' so baseURL = 'http://host:port//'.
+    // Playwright normalises double slashes, so this works correctly.
+    baseURL: `${HOST}${BASEPATH === '/' ? '' : BASEPATH}/`,
     headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

@@ -213,18 +213,6 @@ type Request struct {
 	ObjectStorageAccessKey string `json:"objectStorageAccessKey"`
 	ObjectStorageSecretKey string `json:"objectStorageSecretKey"`
 	ObjectStorageBucket    string `json:"objectStorageBucket"`
-
-	// HandoverJWTPublicKey — RFC 7517 JWK JSON of the Catalyst-Zero
-	// RS256 public key. Cloud-init writes this to
-	// /var/lib/catalyst/handover-jwt-public.jwk (mode 0600) on the new
-	// Sovereign so Agent-C (auth/handover) can verify the one-time JWT
-	// without a cross-cluster RPC. Stamped by handler.CreateDeployment
-	// from h.handoverSigner.PublicJWK(); empty on Catalyst-Zero instances
-	// that have no signer (CATALYST_HANDOVER_KEY_PATH unset). The field
-	// carries json:"-" because the wire format (wizard POST body) must
-	// never accept an externally-supplied public key — it must always come
-	// from the live Signer inside catalyst-api.
-	HandoverJWTPublicKey string `json:"-"`
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
@@ -837,16 +825,6 @@ func writeTfvars(deployDir string, req Request) error {
 		"object_storage_access_key":  req.ObjectStorageAccessKey,
 		"object_storage_secret_key":  req.ObjectStorageSecretKey,
 		"object_storage_bucket_name": req.ObjectStorageBucket,
-
-		// Handover JWT public key (issue #605, Phase-8b). RFC 7517 JWK JSON
-		// stamped by handler.CreateDeployment from h.handoverSigner.PublicJWK().
-		// Cloud-init writes this to /var/lib/catalyst/handover-jwt-public.jwk
-		// (mode 0600) on the new Sovereign so Agent-C can verify handover JWTs
-		// without a cross-cluster network call. Empty string → the Tofu module
-		// receives "" and cloud-init writes an empty file; auth/handover returns
-		// 503 (key unavailable) until populated via a fresh provisioning run or
-		// the GET /api/v1/handover/public-key bootstrap endpoint.
-		"handover_jwt_public_key": req.HandoverJWTPublicKey,
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")

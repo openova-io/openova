@@ -64,16 +64,16 @@ jobs:
         env:
           HOST: 0.0.0.0
         run: |
-          # Vite binds the port from vite.config.ts (server.port = 5173)
-          # under base /sovereign/. Tests reach the wizard at
-          # http://localhost:5173/sovereign/wizard.
+          # Vite binds the port from vite.config.ts (server.port = 5173).
+          # base: '/' since issue #596 — wizard is at /wizard, not /sovereign/wizard.
           nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
           echo $! > /tmp/catalyst-ui.pid
 
       - name: Wait for Catalyst UI to be ready
         run: |
+          # base: '/' since issue #596 — health-check /wizard not /sovereign/wizard.
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:5173/sovereign/wizard; then
+            if curl -sf -o /dev/null http://localhost:5173/wizard; then
               echo "UI ready after ${i}s"
               exit 0
             fi
@@ -87,7 +87,7 @@ jobs:
         working-directory: products/catalyst/bootstrap/ui
         env:
           PLAYWRIGHT_HOST: http://localhost:5173
-          PLAYWRIGHT_BASEPATH: /sovereign
+          PLAYWRIGHT_BASEPATH: /
         # --grep filters by the @cosmetic-guard annotation that every
         # test in the suite carries. If a future test in the same file
         # is added without the tag, this command will skip it — that's

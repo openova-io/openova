@@ -1,32 +1,31 @@
+import { useEffect, useState } from 'react'
+import { useSearch, useRouter } from '@tanstack/react-router'
+import { API_BASE } from '@/shared/config/urls'
+
 /**
- * AuthCallbackPage — mode-aware OIDC / session-cookie callback handler.
+ * AuthCallbackPage — handles the OIDC / Keycloak authorization_code callback.
  *
- * Keycloak (or the catalyst-api session gate) redirects to /auth/callback
- * after the user authenticates. This component dispatches to one of two
- * sub-handlers based on DETECTED_MODE:
+ * This page serves two distinct auth flows depending on the detected mode:
  *
- *   • catalyst-zero mode  → CatalystZeroCallback
- *     The callback carries the PKCE authorization_code that the SERVER
- *     needs to exchange.  We hard-navigate the browser to the server-side
- *     endpoint so the API can set an HttpOnly session cookie and then
- *     redirect back to the wizard.
+ * Catalyst-Zero (console.openova.io):
+ *   Keycloak redirects to /sovereign/auth/callback?code=...&state=...
+ *   after the operator clicks the magic-link email. The page hard-navigates
+ *   to the server-side callback handler (/api/v1/auth/callback) so the
+ *   server can read the PKCE verifier cookie (same-origin), exchange the
+ *   code for tokens, issue an HMAC-signed session cookie, and redirect to
+ *   /wizard (or /sovereign/wizard on Traefik-prefixed clusters).
+ *   A hard navigation is REQUIRED so the browser cookie jar picks up the
+ *   Set-Cookie header from the server's 302 response.
  *
- *   • sovereign mode      → SovereignCallback
- *     Standard client-side PKCE exchange via handleCallback() (oidc.ts).
- *     Tokens are stored in sessionStorage and the user is redirected to
- *     /console/dashboard inside the SPA.
- *
- * Related: GitHub issues #607 (sovereign mode), #608 (magic-link auth)
+ * Sovereign (console.<sov-fqdn>):
+ *   Keycloak redirects to /auth/callback?code=...&state=... after the
+ *   operator authenticates via Keycloak. The page calls handleCallback()
+ *   to exchange the code for tokens via the PKCE token endpoint (client-
+ *   side), then navigates to /console/dashboard.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the Sovereign
- * FQDN is read from DETECTED_MODE, never inlined.
+ * FQDN and mode are detected at runtime, never inlined.
  */
-
-import { useEffect, useState } from 'react'
-import { useRouter } from '@tanstack/react-router'
-import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import { handleCallback } from '@/shared/lib/oidc'
-import { API_BASE } from '@/shared/config/urls'
 
 /**
  * Derive the path-only UI base prefix for hard-navigation fallback.
@@ -44,98 +43,38 @@ function uiBase(): string {
   return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
 }
 
-// ── Catalyst-Zero Callback ────────────────────────────────────────────────
-//
-// Hard-navigate to the server-side token-exchange endpoint.  The API sets
-// an HttpOnly session cookie and then 302-redirects back to the wizard
-// (or the originally-requested URL stored in the state param).
-//
-// This is a hard navigate (window.location.replace), NOT a SPA redirect,
-// because the HttpOnly cookie must come from the server response headers —
-// there is no client-side way to receive it.
+// Detect Catalyst-Zero at module-init time (same logic as router.tsx).
+const isCatalystZero =
+  typeof window !== 'undefined' && window.location.hostname === 'console.openova.io'
 
-function CatalystZeroCallback() {
-  useEffect(() => {
-    const search = new URLSearchParams(window.location.search)
-    const error = search.get('error')
+// ── Sovereign OIDC state type ──────────────────────────────────────────────
 
-    if (error) {
-      // Keycloak denied or the magic-link expired — redirect to login with
-      // an error indicator so the UI can surface the right copy.
-      window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
-      return
-    }
-
-    const code = search.get('code')
-    if (!code) {
-      // No code and no error — unexpected. Redirect to login.
-      window.location.replace(uiBase() + '/login?error=no_code')
-      return
-    }
-
-    // Build the server-side callback URL. The PKCE verifier cookie was set
-    // by the server when the operator submitted their email. Because this
-    // is a same-origin redirect (console.openova.io → /sovereign/api/v1/...)
-    // the cookie is carried automatically by the browser.
-    const callbackURL = new URL(`${API_BASE}/v1/auth/callback`, window.location.href)
-    search.forEach((value, key) => callbackURL.searchParams.set(key, value))
-
-    // Hard navigation — must NOT use TanStack router redirect here.
-    window.location.replace(callbackURL.toString())
-  }, [])
-
-  return (
-    <div
-      className="flex h-screen items-center justify-center bg-[var(--color-bg)]"
-      data-testid="auth-callback-loading"
-    >
-      <div className="flex flex-col items-center gap-3 text-[var(--color-text-dim)]">
-        <svg
-          className="h-8 w-8 animate-spin text-[var(--color-accent)]"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-label="Completing sign-in"
-        >
-          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-          <path
-            fill="currentColor"
-            opacity="0.8"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-          />
-        </svg>
-        <span className="text-sm">Completing sign-in…</span>
-      </div>
-    </div>
-  )
-}
-
-// ── Sovereign Callback ────────────────────────────────────────────────────
-//
-// Client-side PKCE token exchange.  Keycloak redirects here with
-// ?code=...&state=... after the user authenticates on the Sovereign realm.
-// handleCallback() (oidc.ts) exchanges the code, stores tokens in
-// sessionStorage, and this component navigates the SPA to /console/dashboard.
-
-type SovereignPageState =
+type SovereignState =
   | { status: 'exchanging' }
   | { status: 'error'; message: string }
 
-function SovereignCallback() {
+// ── Sovereign OIDC callback component ─────────────────────────────────────
+
+function SovereignCallbackPage() {
   const router = useRouter()
-  const [state, setState] = useState<SovereignPageState>({ status: 'exchanging' })
+  const [state, setState] = useState<SovereignState>({ status: 'exchanging' })
 
   useEffect(() => {
     async function exchange() {
-      const sovereignFQDN = DETECTED_MODE.sovereignFQDN
-      if (!sovereignFQDN) {
-        setState({
-          status: 'error',
-          message: 'OIDC callback reached in catalyst-zero mode — unexpected.',
-        })
-        return
-      }
-
       try {
+        // Lazy-import oidc so Catalyst-Zero builds don't pay for unused code.
+        const { handleCallback } = await import('@/shared/lib/oidc')
+        const { DETECTED_MODE } = await import('@/shared/lib/detectMode')
+
+        const sovereignFQDN = DETECTED_MODE.sovereignFQDN
+        if (!sovereignFQDN) {
+          setState({
+            status: 'error',
+            message: 'OIDC callback reached in catalyst-zero mode — unexpected.',
+          })
+          return
+        }
+
         const params = new URLSearchParams(window.location.search)
         await handleCallback(sovereignFQDN, params)
         // Navigate to the console dashboard — replace so the callback
@@ -144,8 +83,7 @@ function SovereignCallback() {
       } catch (err) {
         setState({
           status: 'error',
-          message:
-            err instanceof Error ? err.message : 'Unknown error during OIDC token exchange.',
+          message: err instanceof Error ? err.message : 'Unknown error during OIDC token exchange.',
         })
       }
     }
@@ -167,14 +105,7 @@ function SovereignCallback() {
             fill="none"
             aria-label="Completing sign-in"
           >
-            <circle
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="3"
-              opacity="0.25"
-            />
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
             <path
               fill="currentColor"
               opacity="0.8"
@@ -206,11 +137,50 @@ function SovereignCallback() {
   )
 }
 
-// ── Mode-aware dispatcher ─────────────────────────────────────────────────
+// ── Catalyst-Zero magic-link callback component ───────────────────────────
+
+function CatalystZeroCallbackPage() {
+  const search = useSearch({ strict: false }) as Record<string, string>
+
+  useEffect(() => {
+    const code = search['code']
+    const state = search['state']
+    const error = search['error']
+
+    if (error) {
+      // Keycloak denied or the magic-link expired — redirect to login with
+      // an error indicator so the UI can surface the right copy.
+      window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
+      return
+    }
+
+    if (!code) {
+      // No code and no error — unexpected. Redirect to login.
+      window.location.replace(uiBase() + '/login?error=no_code')
+      return
+    }
+
+    // Build the server-side callback URL. The PKCE verifier cookie was set
+    // by the server when the operator submitted their email. Because this
+    // is a same-origin redirect (console.openova.io → /sovereign/api/v1/...)
+    // the cookie is carried automatically by the browser.
+    const callbackURL = new URL(`${API_BASE}/v1/auth/callback`, window.location.href)
+    callbackURL.searchParams.set('code', code)
+    if (state) callbackURL.searchParams.set('state', state)
+
+    // Hard navigation — must NOT use TanStack router redirect here.
+    window.location.replace(callbackURL.toString())
+  }, [search])
+
+  // Render nothing — we navigate away immediately.
+  return null
+}
+
+// ── Mode-dispatching export ────────────────────────────────────────────────
 
 export function AuthCallbackPage() {
-  if (DETECTED_MODE.mode === 'sovereign') {
-    return <SovereignCallback />
+  if (isCatalystZero) {
+    return <CatalystZeroCallbackPage />
   }
-  return <CatalystZeroCallback />
+  return <SovereignCallbackPage />
 }
