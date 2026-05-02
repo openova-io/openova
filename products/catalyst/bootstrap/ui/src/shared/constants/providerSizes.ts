@@ -129,12 +129,20 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
     // CPX — AMD shared (Regular Performance lineup)
     { id: 'cpx22', label: 'CPX22', vcpu: 2, ram: 4, disk: 80, priceHour: 0.0128, priceMonth: 7.99,
       category: 'shared-amd', description: 'AMD shared vCPU — entry compute' },
-    // CPX32 — founder-stated Helsinki tier price; recommended starter SKU.
+    // CPX32 — entry-level shared SKU. NOT default for SOLO Sovereigns
+    // because the bootstrap-kit's 35 components + CNPG / Harbor /
+    // Keycloak / Cilium / Flux / etc together exceed 4 vCPU at peak —
+    // pods queue Pending forever (caught live on otech26). Operators
+    // can opt into CPX32 explicitly when they trim the component set.
     { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0232, priceMonth: 14.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (4 vCPU / 8 GB / 160 GB SSD)',
-      recommended: true },
+      category: 'shared-amd', description: 'AMD shared vCPU — entry tier (4 vCPU / 8 GB) — too small for full SOLO bootstrap-kit; trim components first' },
+    // CPX42 — recommended SOLO starter. 8 vCPU / 16 GB fits the full
+    // bootstrap-kit (Cilium + Crossplane + Flux + Cert-manager + CNPG +
+    // Keycloak + OpenBao + Harbor + Gitea + observability) on a single
+    // node with enough headroom for VPA recommendations to converge.
     { id: 'cpx42', label: 'CPX42', vcpu: 8, ram: 16, disk: 320, priceHour: 0.0408, priceMonth: 25.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — production worker' },
+      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (8 vCPU / 16 GB / 320 GB SSD)',
+      recommended: true },
     { id: 'cpx52', label: 'CPX52', vcpu: 12, ram: 24, disk: 480, priceHour: 0.0585, priceMonth: 36.49,
       category: 'shared-amd', description: 'AMD shared vCPU — heavy worker' },
     { id: 'cpx62', label: 'CPX62', vcpu: 16, ram: 32, disk: 640, priceHour: 0.0809, priceMonth: 50.49,
