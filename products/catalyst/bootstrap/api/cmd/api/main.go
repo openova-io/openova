@@ -194,6 +194,16 @@ func main() {
 	})
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
 
+	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
+	// The new Sovereign's control plane PUTs its rewritten kubeconfig
+	// here with `Authorization: Bearer <postback-token>`. PutKubeconfig
+	// has its own SHA-256-hash-vs-stored-hash compare — it MUST live
+	// outside the session-cookie middleware because cloud-init has no
+	// browser cookies. Putting this inside the RequireSession group
+	// rejected every postback with 401 {"error":"unauthenticated"} and
+	// stuck Phase-1 in PENDING forever (caught live on otech23).
+	r.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
+
 	// Auth-gated wizard endpoints — RequireSession validates the
 	// HMAC-signed catalyst_session cookie on every request. When
 	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)
@@ -242,13 +252,8 @@ func main() {
 		// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
 		// to a deployment whose kubeconfig is on the PVC.
 		rg.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
-		// PUT — cloud-init postback (issue #183, Option D). The new
-		// Sovereign's control plane PUTs its rewritten kubeconfig here
-		// with an Authorization: Bearer header. The handler verifies
-		// SHA-256 of the bearer against the persisted hash, writes the
-		// kubeconfig file to the PVC at mode 0600, and triggers the
-		// Phase-1 helmwatch goroutine.
-		rg.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
+		// (PUT /kubeconfig is registered ABOVE the session group — see
+		// the cloud-init postback comment near r.Delete /auth/session.)
 		// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
 		// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
 		// called from CreateDeployment when domainMode == byo-api.
