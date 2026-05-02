@@ -302,6 +302,111 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
     },
   )
 
+  /* ── Bug #481 (reopened 2026-05-01) — deep-chain production shape ──
+   *
+   * Live failure on otech17/cluster-bootstrap: nodes drifted to
+   * x≈30,560 because the dependency graph had longest-path depth ~190
+   * (bp-* leaves chained through "applications"). At PER_DEPTH_X=160,
+   * that placed nodes at depth*160=30,400 — far outside the
+   * MAX_VBOX_W=1200 ceiling. The viewBox showed only a 1200px slice
+   * of a 30,000px cluster, so 99% of bubbles rendered off-canvas.
+   * Operator saw yellow horizontal lines (the few edges that crossed
+   * the visible window) and zero bubbles.
+   *
+   * Pre-existing bounded tests modelled depth=0/1 stars only, so this
+   * pathology slipped through. Lock it in.
+   */
+  it('keeps every bubble inside the viewBox for a deep dependency chain (production shape, #481 reopen)', () => {
+    const CHAIN = 50
+    const nodes = Array.from({ length: CHAIN }, (_, i) => ({
+      id: `n${i}`,
+      depth: i,
+      regionId: 'primary',
+      familyId: 'catalyst',
+      label: `Node ${i}`,
+      subLabel: '',
+      status: 'pending' as const,
+      isGroup: false,
+      isFolded: false,
+      childCount: 0,
+      job: {
+        id: `n${i}`,
+        jobName: `n${i}`,
+        type: 'install' as const,
+        appId: 'x',
+        parentId: '',
+        dependsOn: i > 0 ? [`n${i - 1}`] : [],
+        childIds: [],
+        status: 'pending' as const,
+        startedAt: null,
+        finishedAt: null,
+        durationMs: 0,
+      },
+    }))
+    const edges = nodes.slice(1).map((n, i) => ({
+      fromId: `n${i}`,
+      toId: n.id,
+      fromStatus: 'pending' as const,
+      crossRegion: false,
+      kind: 'depends-on' as const,
+    }))
+    const layout: OrganicLayoutResult = {
+      nodes,
+      edges,
+      maxDepth: CHAIN - 1,
+      regions: REGIONS,
+      families: FAMILIES,
+    }
+    const { container } = render(
+      <FlowCanvasOrganic
+        layout={layout}
+        openJobId={null}
+        hostJobId={null}
+        onJobClick={() => {}}
+        onJobDoubleClick={() => {}}
+        onCanvasBackgroundClick={() => {}}
+      />,
+    )
+    const svg = container.querySelector<SVGSVGElement>(
+      '[data-testid="flow-canvas-svg"]',
+    )!
+    const vb = svg.getAttribute('viewBox') ?? ''
+    const [vbX, vbY, vbW, vbH] = vb.split(/\s+/).map(Number)
+    expect(vbW).toBeLessThanOrEqual(1200)
+    expect(vbH).toBeLessThanOrEqual(700)
+    const groups = container.querySelectorAll<SVGGElement>(
+      '[data-flow-draggable]',
+    )
+    expect(groups.length).toBe(CHAIN)
+    // Operator's exact request: "no single bubble could be outside of
+    // the canvas". Strict — every centroid inside [vbX, vbX+vbW] ×
+    // [vbY, vbY+vbH] regardless of how pathological the depth chain.
+    for (const g of Array.from(groups)) {
+      const t = g.getAttribute('transform') ?? ''
+      const m = t.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
+      expect(m).not.toBeNull()
+      const x = Number(m![1])
+      const y = Number(m![2])
+      expect(x).toBeGreaterThanOrEqual(vbX)
+      expect(x).toBeLessThanOrEqual(vbX + vbW)
+      expect(y).toBeGreaterThanOrEqual(vbY)
+      expect(y).toBeLessThanOrEqual(vbY + vbH)
+    }
+    // Operator's second rule: "max distance of a line cannot be longer
+    // than a percentage of canvas". With render-time clamping into the
+    // viewBox, every line is at most the viewBox diagonal — structural,
+    // not flaky.
+    const diagonal = Math.hypot(vbW, vbH)
+    const lines = container.querySelectorAll<SVGLineElement>('line')
+    for (const ln of Array.from(lines)) {
+      const x1 = Number(ln.getAttribute('x1') ?? '0')
+      const y1 = Number(ln.getAttribute('y1') ?? '0')
+      const x2 = Number(ln.getAttribute('x2') ?? '0')
+      const y2 = Number(ln.getAttribute('y2') ?? '0')
+      expect(Math.hypot(x2 - x1, y2 - y1)).toBeLessThanOrEqual(diagonal)
+    }
+  })
+
   it('keeps every bubble visible (radius ≥40) and viewBox bounded for a 60-node graph', () => {
     const layout = makeLayout(60)
     const { container } = render(
