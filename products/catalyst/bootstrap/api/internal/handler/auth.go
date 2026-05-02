@@ -405,28 +405,31 @@ func (h *Handler) HandleMagicValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 4. Token-exchange with Keycloak ──────────────────────────────────────
-	kc := h.openovaKCClient()
-	if kc == nil {
-		writeMagicError(w, "server misconfiguration: keycloak not configured")
-		return
+	// ── 4. Mint session JWT (catalyst-api owns sessions; Keycloak only stores
+	// the user record, no token-exchange needed). RFC 8693 in Keycloak 24.7+
+	// removed legacy `requested_subject`, so server-side impersonation through
+	// KC is unavailable without a real user token. We sign our own session JWT
+	// with the same handover key.
+	sessionTTL := 8 * time.Hour
+	sessionClaims := jwt.MapClaims{
+		"iss":            magicLinkIssuer,
+		"sub":            claims.Subject,
+		"email":          claims.Email,
+		"email_verified": true,
+		"role":           magicLinkRole,
+		"iat":            time.Now().Unix(),
+		"exp":            time.Now().Add(sessionTTL).Unix(),
+		"jti":            uuid.NewString(),
+		"typ":            "session",
 	}
-
-	kcAudience := os.Getenv("CATALYST_OPENOVA_KC_AUDIENCE")
-	if kcAudience == "" {
-		kcAudience = "catalyst-zero-ui"
-	}
-
-	accessToken, refreshToken, expiresIn, err := kc.ImpersonateToken(r.Context(), claims.Subject, kcAudience)
+	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
-		h.log.Error("magic-validate: ImpersonateToken failed",
-			"userID", claims.Subject,
-			"email", claims.Email,
-			"err", err,
-		)
-		writeMagicError(w, "keycloak error: token exchange")
+		h.log.Error("magic-validate: SignCustomClaims failed", "err", err)
+		writeMagicError(w, "session signing failed")
 		return
 	}
+	refreshToken := ""
+	expiresIn := int(sessionTTL.Seconds())
 
 	// ── 5. Issue session cookies ─────────────────────────────────────────────
 	cookieMaxAge := expiresIn
