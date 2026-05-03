@@ -316,21 +316,44 @@ spec:
                 THRESHOLD_PAYLOAD_B64=$(printf '%s' "$UNSEAL_THRESHOLD" | base64 | tr -d '\n')
                 UNSEAL_SECRET_BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-unseal-keys"}},"type":"Opaque","data":{"unseal-keys-b64":"%s","unseal-threshold":"%s"}}' \
                   "$UNSEAL_SECRET_NAME" "$NAMESPACE" "$KEYS_PAYLOAD_B64" "$THRESHOLD_PAYLOAD_B64")
+                # CRITICAL: persist MUST succeed before continuing.
+                # Earlier versions wrapped POST + PUT with `|| true` so
+                # silent failures left the server initialized with no
+                # recoverable keys (caught live on otech37 — every retry
+                # hit the idempotent FATAL because openbao-unseal-keys
+                # never actually existed).
                 US_CREATE_RC=0
                 wget -qO- --no-check-certificate \
                   --header="Authorization: Bearer $TOKEN" \
                   --header="Content-Type: application/json" \
                   --post-data="$UNSEAL_SECRET_BODY" \
-                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets" >/dev/null 2>&1 || US_CREATE_RC=$?
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets" > /tmp/.us-create-out 2>&1 || US_CREATE_RC=$?
                 if [ "$US_CREATE_RC" -ne 0 ]; then
-                  echo "[openbao-init] $UNSEAL_SECRET_NAME exists, replacing via PUT"
+                  echo "[openbao-init] POST failed (rc=$US_CREATE_RC); trying PUT"
+                  US_PUT_RC=0
                   wget -qO- --no-check-certificate \
                     --header="Authorization: Bearer $TOKEN" \
                     --header="Content-Type: application/json" \
                     --method=PUT \
                     --body-data="$UNSEAL_SECRET_BODY" \
-                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME" >/dev/null 2>&1 || true
+                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME" > /tmp/.us-put-out 2>&1 || US_PUT_RC=$?
+                  if [ "$US_PUT_RC" -ne 0 ]; then
+                    echo "[openbao-init] FATAL: cannot persist $UNSEAL_SECRET_NAME — both POST and PUT failed"
+                    echo "[openbao-init] POST output: $(cat /tmp/.us-create-out 2>/dev/null)"
+                    echo "[openbao-init] PUT  output: $(cat /tmp/.us-put-out 2>/dev/null)"
+                    exit 1
+                  fi
                 fi
+                # Verify read-back contains the keys field (catches
+                # partial writes, apiserver-eventual-consistency, etc).
+                VERIFY_RESPONSE=$(wget -qO- --no-check-certificate \
+                  --header="Authorization: Bearer $TOKEN" \
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME" 2>&1) || true
+                if ! echo "$VERIFY_RESPONSE" | grep -q '"unseal-keys-b64"'; then
+                  echo "[openbao-init] FATAL: $UNSEAL_SECRET_NAME persisted but read-back missing 'unseal-keys-b64'"
+                  exit 1
+                fi
+                echo "[openbao-init] $UNSEAL_SECRET_NAME persisted + verified"
 
                 I=0
                 while [ "$I" -lt "$UNSEAL_THRESHOLD" ]; do
