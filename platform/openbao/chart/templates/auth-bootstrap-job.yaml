@@ -99,6 +99,23 @@ spec:
               value: {{ $tokenTTL | quote }}
             - name: TOKEN_MAX_TTL
               value: {{ $tokenMaxTTL | quote }}
+            # BAO_TOKEN sourced from openbao-root-token Secret that init-job
+            # (post-install weight 5) writes from the bao operator init
+            # output. Required so this Job's `bao auth enable`,
+            # `bao secrets enable`, `bao policy write`, and `bao write
+            # role/...` calls are authenticated. Without it bao returns
+            # 403 Forbidden — caught live on otech43+otech44 because the
+            # PR #663 commit only added the revoke logic, not the env
+            # declaration that gates it.
+            - name: BAO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openbao-root-token
+                  key: token
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           command: ["/bin/sh", "-c"]
           args:
             - |
