@@ -445,6 +445,51 @@ write_files:
     content: |
       ${handover_jwt_public_key}
 
+  # ── catalyst-system/catalyst-handover-jwt-public Secret (issue #606 followup) ─
+  #
+  # On Phase-8b live (otech48, 2026-05-03) the Sovereign-side catalyst-api
+  # responded to GET /auth/handover with
+  #   {"error":"server misconfiguration: public key unavailable"}.
+  # Root cause: the JWK above was written ONLY to host disk
+  # (/var/lib/catalyst/handover-jwt-public.jwk). The catalyst-api Pod's
+  # volume mount references K8s Secret `catalyst-handover-jwt-public`
+  # (key: public.jwk). That Secret was never created on the Sovereign,
+  # so the volume mount fell through (the Secret is `optional: true`)
+  # and the file was missing inside the container at the env-pinned
+  # path `/etc/catalyst/handover-jwt-public/public.jwk`.
+  #
+  # Fix: mirror the canonical pattern that flux-system/ghcr-pull (PR #543)
+  # and flux-system/harbor-robot-token (PR #680) already follow. Cloud-init
+  # writes the Secret manifest into catalyst-system NS and runcmd: applies
+  # it BEFORE flux-bootstrap, so the Secret exists by the time the
+  # bp-catalyst-platform HelmRelease lands and the catalyst-api Pod starts.
+  #
+  # Why catalyst-system rather than flux-system + Reflector: the Secret is
+  # mounted ONLY by the catalyst-api Pod (single workload, single namespace).
+  # Reflector auto-mirror would just create unused copies in every other
+  # namespace — extra blast radius for no benefit. The harbor-robot-token
+  # case is different: it has to be visible to flux-system (Flux pulls OCI
+  # charts) AND catalyst-system (catalyst-api re-stamps it onto child
+  # provisions), so Reflector is justified there.
+  #
+  # The catalyst-system namespace itself is created by the bp-catalyst-platform
+  # HelmRelease wrapper in clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml,
+  # but Flux applies that namespace alongside the HelmRelease — racing with
+  # this Secret apply. Pre-creating the namespace here (idempotent dry-run/apply
+  # pattern, identical to the cert-manager pre-create at line ~1099) eliminates
+  # the race.
+  - path: /var/lib/catalyst/handover-jwt-public-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: catalyst-handover-jwt-public
+        namespace: catalyst-system
+      type: Opaque
+      data:
+        public.jwk: ${base64encode(handover_jwt_public_key)}
+
   # ── Cilium bootstrap values (issue #491) ─────────────────────────────
   #
   # The bootstrap helm install below MUST land the same effective values
@@ -1098,6 +1143,22 @@ runcmd:
   # pre-create it idempotently here so the Secret apply does not fail.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
+
+  # ── catalyst-system/catalyst-handover-jwt-public Secret (issue #606 followup) ─
+  #
+  # Apply the Sovereign-side Catalyst handover-JWT public-key Secret BEFORE
+  # Flux reconciles bp-catalyst-platform. Without this Secret the catalyst-api
+  # Pod's optional Secret-volume mount falls through, the JWK file is absent
+  # at /etc/catalyst/handover-jwt-public/public.jwk, and GET /auth/handover
+  # returns "server misconfiguration: public key unavailable" (caught live on
+  # otech48, 2026-05-03).
+  #
+  # Pre-create the catalyst-system namespace (the bp-catalyst-platform
+  # HelmRelease wrapper also declares it, but Flux applies the namespace
+  # alongside the HelmRelease — racing this Secret apply). Same idempotency
+  # pattern as the cert-manager pre-create above.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/handover-jwt-public-secret.yaml'
 
   # ── OpenBao auto-unseal seed Secret (issue #316) ─────────────────────
   #

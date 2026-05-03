@@ -389,10 +389,38 @@ spec:
                   optional: true
             # CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH — path to the JWK file that
             # holds the RS256 public key for validating one-time handover JWTs.
-            # cloud-init writes this from the Catalyst-Zero keypair at provision
-            # time. optional=true: Catalyst-Zero side leaves this unset.
+            # The K8s Secret `catalyst-handover-jwt-public` (created by
+            # cloud-init at provision time, see infra/hetzner/cloudinit-control-
+            # plane.tftpl) is mounted as a directory at /etc/catalyst/handover-
+            # jwt-public/, so the JWK lives at /etc/catalyst/handover-jwt-public/
+            # public.jwk. We deliberately mount the Secret as a directory rather
+            # than using subPath: the catalyst-api PVC at /var/lib/catalyst is
+            # ReadWriteOnce and a leftover empty directory at the legacy path
+            # /var/lib/catalyst/handover-jwt-public.jwk/ from earlier installs
+            # (where the Secret was missing and Kubernetes created an empty
+            # directory in the volume) collides with the subPath file mount on
+            # re-provisioning. Mounting under /etc/ keeps the JWK off the PVC
+            # entirely so the conflict cannot recur. Caught live on otech48,
+            # 2026-05-03.
             - name: CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
-              value: /var/lib/catalyst/handover-jwt-public.jwk
+              value: /etc/catalyst/handover-jwt-public/public.jwk
+            # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
+            # validator (auth_handover.go) reads this to compute the expected
+            # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When
+            # unset on a Sovereign, the audience check collapses to the literal
+            # "https://console." prefix and every valid token is rejected with
+            # "invalid audience" 401 — caught live on otech48, 2026-05-03.
+            #
+            # Default empty string is fine for Catalyst-Zero (contabo-mkt):
+            # catalyst-api there is the SIGNER, never the validator, and the
+            # /auth/handover handler is never hit on contabo. The bp-catalyst-
+            # platform HelmRelease overlay in clusters/_template/bootstrap-kit/
+            # 13-bp-catalyst-platform.yaml stamps `global.sovereignFQDN:
+            # ${SOVEREIGN_FQDN}` onto every per-Sovereign install via Flux's
+            # postBuild substitution; this template line plumbs that value
+            # through to the Pod env.
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
             # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
             # catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
@@ -616,11 +644,17 @@ spec:
               mountPath: /var/cache/sov-cache
             # handover-jwt-public — RS256 public key JWK distributed by
             # cloud-init from Catalyst-Zero's signing keypair. Mounted
-            # read-only. optional=true so pods start on Catalyst-Zero
-            # (which is the SIGNER, not the verifier) and in CI.
+            # read-only as a directory under /etc/catalyst/ (NOT under
+            # /var/lib/catalyst because that is the catalyst-api PVC; a
+            # leftover empty directory at the legacy file path from
+            # pre-#606 installs would collide with a subPath file mount on
+            # re-provision). The JWK lives at /etc/catalyst/handover-jwt-
+            # public/public.jwk — see CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
+            # above. optional=true on the Secret so pods start on
+            # Catalyst-Zero (which is the SIGNER, not the verifier) and
+            # in CI where the Secret may be absent.
             - name: handover-jwt-public
-              mountPath: /var/lib/catalyst/handover-jwt-public.jwk
-              subPath: public.jwk
+              mountPath: /etc/catalyst/handover-jwt-public
               readOnly: true
       volumes:
         - name: tmp
