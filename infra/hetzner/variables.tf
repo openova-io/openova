@@ -250,6 +250,13 @@ variable "dynadot_managed_domains" {
   default     = ""
 }
 
+variable "powerdns_api_key" {
+  type        = string
+  description = "Contabo PowerDNS API key. Interpolated by cloudinit-control-plane.tftpl into the Sovereign's cert-manager/powerdns-api-credentials Secret so bp-cert-manager-powerdns-webhook can write DNS-01 challenge TXT records to contabo's authoritative omani.works zone (PR #681 followup). Required when domain_mode=pool."
+  default     = ""
+  sensitive   = true
+}
+
 # ── GHCR pull token ───────────────────────────────────────────────────────
 #
 # Long-lived GHCR token (GitHub PAT or fine-grained token, scope

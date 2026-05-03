@@ -242,32 +242,35 @@ write_files:
       data:
         token: ${base64encode(harbor_robot_token)}
 
-  # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────────
+  # ── cert-manager/powerdns-api-credentials Secret (PR #681 followup) ──────
   #
-  # The bp-cert-manager-dynadot-webhook Pod reads DYNADOT_API_KEY /
-  # DYNADOT_API_SECRET / DYNADOT_MANAGED_DOMAINS from this Secret at startup.
-  # The Secret MUST exist BEFORE the webhook Pod first starts — a missing
-  # secretKeyRef (required, not optional) causes CrashLoopBackOff.
+  # The bp-cert-manager-powerdns-webhook Pod reads X-API-Key from this
+  # Secret to authenticate against contabo's authoritative PowerDNS for
+  # the omani.works zone. Without this, DNS-01 challenges hang and the
+  # wildcard cert never issues — caught live on otech47.
   #
-  # Namespace: cert-manager — the same namespace the HelmRelease targets
-  # (spec.targetNamespace: cert-manager in 49b-bp-cert-manager-dynadot-webhook.yaml).
+  # PR #681 dropped bp-cert-manager-dynadot-webhook in favour of the
+  # contabo-targeted webhook but left the cloud-init Secret block on the
+  # old shape. This block replaces it with the powerdns-api-credentials
+  # Secret pointed at by ClusterIssuer letsencrypt-dns01-prod-powerdns
+  # (apiKeySecretRef.name: powerdns-api-credentials, key: api-key).
   #
-  # Why cloud-init and not a SealedSecret in git: the Dynadot credentials are
-  # operator-issued, forwarded from the provisioner API wizard payload, and must
-  # never land in a public git repository. Same rationale as ghcr-pull.
-  - path: /var/lib/catalyst/dynadot-api-credentials.yaml
+  # Namespace: cert-manager — same as the HelmRelease's targetNamespace.
+  # Source on contabo: openova-system/powerdns-api-credentials Secret;
+  # mirrored into the catalyst namespace via Reflector annotations
+  # (platform/powerdns/chart/templates/api-secret.yaml) so catalyst-api
+  # can mount it as env CATALYST_POWERDNS_API_KEY.
+  - path: /var/lib/catalyst/powerdns-api-credentials.yaml
     permissions: '0600'
     content: |
       apiVersion: v1
       kind: Secret
       metadata:
-        name: dynadot-api-credentials
+        name: powerdns-api-credentials
         namespace: cert-manager
       type: Opaque
       data:
-        api-key: ${base64encode(dynadot_key)}
-        api-secret: ${base64encode(dynadot_secret)}
-        domains: ${base64encode(dynadot_managed_domains)}
+        api-key: ${base64encode(powerdns_api_key)}
 
   # ── flux-system/object-storage Secret (issue #371, vendor-agnostic since #425) ─
   #
@@ -1081,17 +1084,20 @@ runcmd:
   # start cleanly. Same idempotency property as ghcr-pull above.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
 
-  # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────
+  # ── cert-manager/powerdns-api-credentials Secret (PR #681 followup) ──
   #
-  # Apply the Dynadot credentials BEFORE Flux reconciles the bootstrap-kit:
-  # bp-cert-manager-dynadot-webhook (slot 49b) references this Secret via
-  # secretKeyRef (required). A missing Secret causes CrashLoopBackOff and
-  # stalls TLS issuance from Day 0.
+  # Apply the contabo PowerDNS credentials BEFORE Flux reconciles
+  # bp-cert-manager-powerdns-webhook: the webhook reads
+  # apiKeySecretRef.name=powerdns-api-credentials at startup. A missing
+  # Secret causes the DNS-01 challenge to hang indefinitely with
+  # "secrets powerdns-api-credentials not found" and the wildcard cert
+  # never issues — the Sovereign Console TLS handshake then fails
+  # (caught live on otech47).
   #
   # cert-manager namespace is created by bp-cert-manager via Flux — we
   # pre-create it idempotently here so the Secret apply does not fail.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/dynadot-api-credentials.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
 
   # ── OpenBao auto-unseal seed Secret (issue #316) ─────────────────────
   #

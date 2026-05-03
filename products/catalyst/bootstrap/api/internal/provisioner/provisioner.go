@@ -159,6 +159,19 @@ type Request struct {
 	// during otech24). json:"-" — never accepted from the wizard payload.
 	HarborRobotToken string `json:"-"`
 
+	// PowerDNSAPIKey — contabo PowerDNS API key (PR #681 followup).
+	// The Sovereign-side bp-cert-manager-powerdns-webhook calls
+	// pdns.openova.io to write DNS-01 challenge TXT records into
+	// contabo's authoritative omani.works zone. The webhook reads its
+	// API key from cert-manager/powerdns-api-credentials Secret on the
+	// Sovereign — that Secret MUST be created by cloud-init at boot
+	// (mirroring the harbor-robot-token pattern from PR #680) because
+	// Reflector cannot bridge across clusters. Caught live on otech47.
+	// Stamped server-side from Provisioner.PowerDNSAPIKey (env
+	// CATALYST_POWERDNS_API_KEY). json:"-" — never accepted from
+	// wizard payload.
+	PowerDNSAPIKey string `json:"-"`
+
 	// DeploymentID — catalyst-api's per-deployment identifier (16-char
 	// hex). Stamped onto the Request by the handler before tfvars are
 	// emitted so the OpenTofu cloud-init template can render the URL
@@ -530,6 +543,19 @@ type Provisioner struct {
 	// upstream (Docker Hub) pulls will fail when the proxy can't
 	// authenticate either. Stamped onto every Request before tfvars.
 	HarborRobotToken string
+
+	// PowerDNSAPIKey is the contabo PowerDNS API key — the same value
+	// living in the contabo cluster's `openova-system/powerdns-api-
+	// credentials` Secret (key `api-key`). The catalyst-api Pod mounts
+	// it via a Reflector-mirrored copy in the `catalyst` namespace as
+	// env CATALYST_POWERDNS_API_KEY. cloudinit-control-plane.tftpl
+	// interpolates it into the Sovereign's `cert-manager/powerdns-api-
+	// credentials` Secret so bp-cert-manager-powerdns-webhook can write
+	// DNS-01 challenge TXT records to contabo's authoritative omani.works
+	// zone. PR #681 followup — without this the wildcard cert never
+	// issues and the Sovereign Console TLS handshake fails (caught
+	// live on otech47).
+	PowerDNSAPIKey string
 }
 
 // New returns a Provisioner with paths read from environment.
@@ -547,6 +573,7 @@ func New() *Provisioner {
 		WorkDir:          env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
 		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
 		HarborRobotToken: os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),
+		PowerDNSAPIKey:   os.Getenv("CATALYST_POWERDNS_API_KEY"),
 	}
 }
 
@@ -564,6 +591,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 	if strings.TrimSpace(req.HarborRobotToken) == "" {
 		req.HarborRobotToken = p.HarborRobotToken
+	}
+	if strings.TrimSpace(req.PowerDNSAPIKey) == "" {
+		req.PowerDNSAPIKey = p.PowerDNSAPIKey
 	}
 
 	if err := req.Validate(); err != nil {
@@ -644,6 +674,9 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	}
 	if strings.TrimSpace(req.HarborRobotToken) == "" {
 		req.HarborRobotToken = p.HarborRobotToken
+	}
+	if strings.TrimSpace(req.PowerDNSAPIKey) == "" {
+		req.PowerDNSAPIKey = p.PowerDNSAPIKey
 	}
 
 	emit := func(phase, level, msg string) {
@@ -827,6 +860,15 @@ func writeTfvars(deployDir string, req Request) error {
 		"pool_domain":    req.SovereignPoolDomain,
 		"dynadot_key":    req.DynadotAPIKey, // empty when domain_mode != "pool"
 		"dynadot_secret": req.DynadotAPISecret,
+
+		// Contabo PowerDNS API key — interpolated by
+		// cloudinit-control-plane.tftpl into the Sovereign's
+		// `cert-manager/powerdns-api-credentials` Secret so
+		// bp-cert-manager-powerdns-webhook can write DNS-01 challenge
+		// TXT records to contabo's authoritative omani.works zone.
+		// PR #681 followup. Empty here = wildcard cert never issues
+		// (caught live on otech47).
+		"powerdns_api_key": req.PowerDNSAPIKey,
 
 		// GitOps source — Flux on the new cluster watches this for
 		// clusters/<sovereign-fqdn>/. Defaults to the public OpenOva monorepo;
