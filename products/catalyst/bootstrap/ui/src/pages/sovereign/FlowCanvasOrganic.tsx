@@ -239,8 +239,15 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       const e = entries[0]
       if (!e) return
       const rect = e.contentRect
-      const w = Math.max(MIN_HOST_W, Math.round(rect.width))
-      const h = Math.max(MIN_HOST_H, Math.round(rect.height))
+      // Use the actual measured rect — not a floor. The MIN_HOST_*
+      // constants only apply when the rect is degenerate (0×0 during
+      // first paint). Forcing the viewBox to MIN_HOST_W when the
+      // host is narrower (e.g. LogPane reserves 30vw) causes the
+      // SVG to render 1200 viewBox-units into 686 CSS px (0.57×
+      // downscale), shrinking bubbles AND collapsing pairwise
+      // distances below the no-overlap threshold.
+      const w = Math.round(rect.width) || MIN_HOST_W
+      const h = Math.round(rect.height) || MIN_HOST_H
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
