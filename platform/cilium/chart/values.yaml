@@ -43,10 +43,20 @@ cilium:
     mode: kubernetes
 
   # WireGuard mTLS for transparent encryption between every pod (per
-  # platform/cilium/README.md "mTLS via WireGuard")
+  # platform/cilium/README.md "mTLS via WireGuard"). This is the
+  # CANONICAL east-west mTLS layer for OpenOva Sovereign clusters —
+  # 100% mesh enforcement at the kernel transport level. SPIFFE-based
+  # workload identity is intentionally NOT enabled here; bp-spire was
+  # dropped from the bootstrap-kit (founder direction 2026-05-03)
+  # because (a) Cilium WireGuard already gives every connection
+  # transparent encryption + node-level identity, and (b) ESO→OpenBao
+  # auth uses K8s ServiceAccount auth method (TokenReview), not
+  # JWT-SVID. Federation across Sovereigns or per-workload-fingerprint
+  # attestation can re-introduce SPIRE later as an opt-in blueprint.
   encryption:
     enabled: true
     type: wireguard
+    nodeEncryption: true
 
   # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics).
   #
