@@ -30,18 +30,32 @@ import (
 // wizard so the SSE log shows the operator a concrete tally of what was
 // removed (or what was already gone).
 type PurgeReport struct {
-	Servers       []string `json:"servers"`
-	LoadBalancers []string `json:"load_balancers"`
-	Networks      []string `json:"networks"`
-	Firewalls     []string `json:"firewalls"`
-	SSHKeys       []string `json:"ssh_keys"`
-	Errors        []string `json:"errors"`
+	Servers          []string `json:"servers"`
+	LoadBalancers    []string `json:"load_balancers"`
+	Networks         []string `json:"networks"`
+	Firewalls        []string `json:"firewalls"`
+	SSHKeys          []string `json:"ssh_keys"`
+	S3Buckets        []string `json:"s3_buckets"`
+	FirewallsRetried int      `json:"firewalls_retried"`
+	Errors           []string `json:"errors"`
 }
 
-// Add returns Report's fields summed for the SSE log.
+// Total returns Report's deleted-resource fields summed for the SSE log.
 func (r PurgeReport) Total() int {
-	return len(r.Servers) + len(r.LoadBalancers) + len(r.Networks) + len(r.Firewalls) + len(r.SSHKeys)
+	return len(r.Servers) + len(r.LoadBalancers) + len(r.Networks) + len(r.Firewalls) + len(r.SSHKeys) + len(r.S3Buckets)
 }
+
+// firewallRetryAttempts caps the number of firewall-delete retries we run
+// against Hetzner. The Cloud API returns 422 `resource_in_use` while a
+// soft-deleted server is still detaching the firewall — server delete is
+// async (returns 200 with action started) so the firewall stays attached
+// for 5-30 seconds. 5 attempts at 6s/12s/24s/48s = ~90s of headroom which
+// covers every observed detach in production. Issue #706.
+const firewallRetryAttempts = 5
+
+// firewallRetryInitialBackoff is the first sleep between firewall-delete
+// retries. Exposed as a var so tests can shrink it without slowing CI.
+var firewallRetryInitialBackoff = 6 * time.Second
 
 // PurgeLabelKey is the canonical Hetzner-resource label that the OpenTofu
 // module at infra/hetzner/main.tf stamps on every resource it creates
@@ -120,8 +134,17 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 		report.Errors = append(report.Errors, "list firewalls: "+err.Error())
 	}
 	for _, r := range firewalls {
-		if err := deleteResource(ctx, token, "/v1/firewalls/"+strconv.FormatInt(r.ID, 10)); err != nil {
-			report.Errors = append(report.Errors, fmt.Sprintf("delete firewall %s: %s", r.Name, err.Error()))
+		// Issue #706: server delete is async on Hetzner — the API returns
+		// 200 "action started" but the firewall stays attached to the
+		// soft-deleted server for several seconds, during which firewall
+		// delete fails with 422 resource_in_use. Retry with exponential
+		// backoff until 204 / 404 (already gone) or attempts exhausted.
+		retried, err := deleteFirewallWithRetry(ctx, token, r.ID, progress, r.Name)
+		if retried > 0 {
+			report.FirewallsRetried += retried
+		}
+		if err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete firewall %s (id=%d): %s", r.Name, r.ID, err.Error()))
 			continue
 		}
 		report.Firewalls = append(report.Firewalls, r.Name)
@@ -214,23 +237,103 @@ func listResources(ctx context.Context, token, path, labelSelector, listKey stri
 // retryable. We treat 404 as success and surface every other non-2xx as
 // an error the caller appends to PurgeReport.Errors.
 func deleteResource(ctx context.Context, token, path string) error {
+	code, err := deleteResourceStatus(ctx, token, path)
+	if err != nil {
+		return err
+	}
+	switch code {
+	case http.StatusOK, http.StatusNoContent, http.StatusAccepted, http.StatusNotFound:
+		return nil
+	default:
+		return fmt.Errorf("status %d", code)
+	}
+}
+
+// deleteResourceStatus is the lower-level form of deleteResource that
+// returns the raw HTTP status code so callers can distinguish retryable
+// 422 (resource_in_use, used by Hetzner during async server detach) from
+// terminal errors. Issue #706 — firewall delete needs this signal to
+// drive an exponential-backoff retry while the server delete is still
+// in flight.
+func deleteResourceStatus(ctx context.Context, token, path string) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		"https://api.hetzner.cloud"+path, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := purgeHTTPClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK, http.StatusNoContent, http.StatusAccepted, http.StatusNotFound:
-		return nil
-	default:
-		return fmt.Errorf("status %d", resp.StatusCode)
+	return resp.StatusCode, nil
+}
+
+// deleteFirewallWithRetry deletes a firewall by id, retrying on 422
+// resource_in_use with exponential backoff (6s, 12s, 24s, 48s — capped
+// at firewallRetryAttempts). Returns the number of retries performed
+// (i.e. attempts beyond the first) and a non-nil error only if every
+// attempt returned 422 or a non-recoverable HTTP error surfaced.
+//
+// Hetzner's server delete is asynchronous: the API responds 200 "action
+// started" while the soft-deleted server still references the firewall,
+// causing firewall delete to 422 for the next 5-30 seconds. Without
+// this retry the wipe handler reports "0 firewalls deleted" while the
+// firewall remains live, costing money and leaking security boundary
+// — verified on otech50 2026-05-03, issue #706.
+func deleteFirewallWithRetry(ctx context.Context, token string, id int64, progress func(string), name string) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
 	}
+	path := "/v1/firewalls/" + strconv.FormatInt(id, 10)
+	backoff := firewallRetryInitialBackoff
+	retries := 0
+	var lastCode int
+	for attempt := 1; attempt <= firewallRetryAttempts; attempt++ {
+		code, err := deleteResourceStatus(ctx, token, path)
+		if err != nil {
+			// Network error — surface immediately (no point retrying a
+			// torn TCP connection in a tight loop; the upstream wipe
+			// handler can rerun the whole purge).
+			return retries, err
+		}
+		lastCode = code
+		switch code {
+		case http.StatusOK, http.StatusNoContent, http.StatusAccepted, http.StatusNotFound:
+			return retries, nil
+		case http.StatusUnprocessableEntity:
+			// resource_in_use — the server delete is still in flight.
+			// Sleep and retry with exponential backoff.
+			if attempt == firewallRetryAttempts {
+				return retries, fmt.Errorf("status 422 resource_in_use after %d attempts (server detach did not complete in ~%s)", firewallRetryAttempts, totalBackoffWindow())
+			}
+			progress(fmt.Sprintf("firewall %s still in use (attempt %d/%d) — backing off %s", name, attempt, firewallRetryAttempts, backoff))
+			retries++
+			select {
+			case <-ctx.Done():
+				return retries, ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		default:
+			return retries, fmt.Errorf("status %d", code)
+		}
+	}
+	return retries, fmt.Errorf("status %d after %d attempts", lastCode, firewallRetryAttempts)
+}
+
+// totalBackoffWindow returns a human-readable summary of the maximum time
+// the firewall retry loop sleeps. Used in error messages so operators
+// can size patience accordingly without re-reading the code.
+func totalBackoffWindow() time.Duration {
+	total := time.Duration(0)
+	b := firewallRetryInitialBackoff
+	for i := 1; i < firewallRetryAttempts; i++ {
+		total += b
+		b *= 2
+	}
+	return total
 }
 
 // purgeHTTPClient is separate from the package-level httpClient in
