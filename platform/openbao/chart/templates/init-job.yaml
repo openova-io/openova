@@ -339,13 +339,26 @@ spec:
                 fi
                 echo "[openbao-init] unseal threshold = $UNSEAL_THRESHOLD; extracting keys"
                 # Pull the unseal_keys_b64 array, split into one key per line.
+                # The trailing `awk 1` ensures the LAST line has a trailing
+                # newline. Without it, with key-shares=1 the pipeline
+                # produces `<key>` with NO terminal `\n` (because tr+sed
+                # only added newlines BETWEEN comma-separated entries),
+                # and `wc -l` counts 0. Caught live on otech42 with chart
+                # 1.2.11's per-pod logs: "extracted 0 unseal key(s) but
+                # threshold=1" — root cause for every prior provisioning
+                # loop attributed to RBAC/wget/etc. (See PR history of
+                # 1.2.5..1.2.11.)
                 tr -d '\n' < /tmp/init-output.json \
                   | sed -E 's/.*"unseal_keys_b64"[[:space:]]*:[[:space:]]*\[([^]]*)\].*/\1/' \
                   | tr ',' '\n' \
                   | sed -E 's/.*"([^"]+)".*/\1/' \
                   | sed '/^[[:space:]]*$/d' \
+                  | awk 1 \
                   > /tmp/.unseal-keys
-                KEY_COUNT=$(wc -l < /tmp/.unseal-keys | tr -d ' ')
+                # Count via grep -c . to count NON-EMPTY lines without
+                # depending on trailing-newline semantics. Belt-and-braces
+                # alongside the awk 1 above.
+                KEY_COUNT=$(grep -c . /tmp/.unseal-keys 2>/dev/null || echo 0)
                 if [ "$KEY_COUNT" -lt "$UNSEAL_THRESHOLD" ]; then
                   echo "[openbao-init] FATAL: extracted $KEY_COUNT unseal key(s) but threshold=$UNSEAL_THRESHOLD — see /tmp/init-output.json"
                   exit 1
