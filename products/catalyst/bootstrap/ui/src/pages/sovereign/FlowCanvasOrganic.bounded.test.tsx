@@ -385,8 +385,12 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
     )!
     const vb = svg.getAttribute('viewBox') ?? ''
     const [vbX, vbY, vbW, vbH] = vb.split(/\s+/).map(Number)
-    expect(vbW).toBeLessThanOrEqual(1200)
+    /* Issue #669 round 5 — viewBox width can exceed host width when
+     * the dep chain doesn't fit horizontally even at MIN_NODE_RADIUS;
+     * the parent host scrolls. Assert vbH still bounded (Y always
+     * fits) and vbW positive. */
     expect(vbH).toBeLessThanOrEqual(700)
+    expect(vbW).toBeGreaterThan(0)
     const groups = container.querySelectorAll<SVGGElement>(
       '[data-flow-draggable]',
     )
