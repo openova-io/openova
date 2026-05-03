@@ -1,17 +1,40 @@
+/**
+ * LoginPage — email-entry step of the 6-digit PIN auth flow (issue #688).
+ *
+ * Replaces the magic-link login screen. The operator types their email,
+ * we POST /api/v1/auth/pin/issue, then route them to /login/verify with
+ * the email + requestId in the URL so a refresh on the verify screen
+ * keeps state. The PIN itself never enters the URL.
+ */
+
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Mail } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { API_BASE } from '@/shared/config/urls'
 
-type State = 'idle' | 'sending' | 'sent' | 'error'
+type State = 'idle' | 'sending' | 'error'
 
 export function LoginPage() {
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as Record<string, string | undefined>
+  const next = search['next']
+  const initialError = search['error']
+
   const [email, setEmail] = useState('')
   const [state, setState] = useState<State>('idle')
-  const [errorMsg, setErrorMsg] = useState('')
+  const [errorMsg, setErrorMsg] = useState<string>(
+    initialError === 'pin-expired'
+      ? 'Your sign-in code expired. Request a new one.'
+      : initialError === 'attempts-exceeded'
+        ? 'Too many wrong attempts. Request a new code.'
+        : initialError === 'flow_changed'
+          ? 'The sign-in flow has changed. Enter your email to receive a 6-digit code.'
+          : '',
+  )
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -19,65 +42,46 @@ export function LoginPage() {
     setState('sending')
     setErrorMsg('')
     try {
-      const res = await fetch(`${API_BASE}/v1/auth/magic-link`, {
+      const res = await fetch(`${API_BASE}/v1/auth/pin/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email: email.trim() }),
       })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        requestId?: string
+        error?: string
+        detail?: string
+        retryAfterSec?: number
       }
-      setState('sent')
+      if (!res.ok || !body.ok || !body.requestId) {
+        if (body.error === 'pin-rate-limited') {
+          setErrorMsg(
+            `Please wait ${body.retryAfterSec ?? 60}s before requesting another code.`,
+          )
+        } else {
+          setErrorMsg(body.detail ?? body.error ?? `HTTP ${res.status}`)
+        }
+        setState('error')
+        return
+      }
+
+      // Route to /login/verify with email + requestId in the URL so a
+      // refresh keeps state. PIN never enters the URL.
+      const params: Record<string, string> = {
+        email: email.trim(),
+        requestId: body.requestId,
+      }
+      if (next) params.next = next
+      navigate({
+        to: '/login/verify',
+        search: params,
+      })
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Something went wrong')
       setState('error')
     }
-  }
-
-  function resetEmail() {
-    setState('idle')
-    setEmail('')
-    setErrorMsg('')
-  }
-
-  if (state === 'sent') {
-    return (
-      <AuthShell>
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-          className="flex flex-col gap-6"
-        >
-          <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[oklch(22%_0.02_250)] ring-1 ring-[oklch(30%_0.02_250)]">
-              <Mail className="h-6 w-6 text-[--color-brand-400]" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Check your email</h1>
-              <p className="mt-2 text-sm text-[oklch(55%_0.01_250)]">
-                We sent a sign-in link to
-              </p>
-              <p className="mt-1 text-sm font-medium text-[oklch(75%_0.01_250)]">{email}</p>
-            </div>
-            <p className="text-xs text-[oklch(45%_0.01_250)]">
-              The link expires in 1 hour. Sent from{' '}
-              <span className="font-mono">noreply@openova.io</span>.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={resetEmail}
-            className="text-center text-sm text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors"
-          >
-            Use a different email
-          </button>
-        </motion.div>
-      </AuthShell>
-    )
   }
 
   return (
@@ -89,9 +93,9 @@ export function LoginPage() {
         className="flex flex-col gap-8"
       >
         <div>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Welcome back</h1>
+          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Sign in</h1>
           <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
-            Enter your email — we'll send you a sign-in link.
+            Enter your email — we'll send you a 6-digit sign-in code.
           </p>
         </div>
 
@@ -105,6 +109,7 @@ export function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             error={state === 'error' ? errorMsg : undefined}
+            data-testid="login-email"
           />
 
           <Button
@@ -113,8 +118,9 @@ export function LoginPage() {
             disabled={state === 'sending' || !email.trim()}
             size="lg"
             className="mt-1 w-full"
+            data-testid="login-submit"
           >
-            Send sign-in link
+            Send code
             <ArrowRight className="h-4 w-4" />
           </Button>
         </form>

@@ -43,6 +43,7 @@ import { WizardLayout } from './layouts/WizardLayout'
 import { SovereignConsoleLayout } from './layouts/SovereignConsoleLayout'
 
 import { LoginPage } from '@/pages/auth/LoginPage'
+import { VerifyPinPage } from '@/pages/auth/VerifyPinPage'
 import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
@@ -102,6 +103,15 @@ const indexRoute = createRoute({
 
 // Auth routes
 const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login', component: LoginPage })
+// /login/verify — PIN-entry step of the 6-digit auth flow (issue #688).
+// Mounted at sibling depth (not nested under /login) so a refresh on the
+// verify URL doesn't lose its email/requestId search params to a parent
+// loader.
+const loginVerifyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login/verify',
+  component: VerifyPinPage,
+})
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage })
 const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgot', component: ForgotPage })
 
@@ -589,6 +599,7 @@ const consoleSettingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
+  loginVerifyRoute,
   authCallbackRoute,
   signupRoute,
   forgotRoute,

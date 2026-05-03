@@ -143,9 +143,9 @@ func (c *Config) ValidateToken(ctx context.Context, rawToken string) (*Claims, e
 	}
 
 	// First try our own self-signed session JWTs (no kid header).
-	// These are minted by handler/auth.go HandleMagicValidate after a
-	// successful magic-link click. Always try local first for low latency
-	// and to avoid an unnecessary JWKS fetch on the hot path.
+	// These are minted by handler/auth.go HandlePinVerify (issue #688) after
+	// a successful 6-digit code entry. Always try local first for low
+	// latency and to avoid an unnecessary JWKS fetch on the hot path.
 	var pubKey *rsa.PublicKey
 	if c.LocalPublicKey != nil && header.Kid == "" {
 		pubKey = c.LocalPublicKey
@@ -249,7 +249,7 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 //  1. HMAC-wrapped (Option A legacy): "<token>.<hmac>" — produced by
 //     IssueSessionCookie. The HMAC suffix is verified and stripped.
 //
-//  2. Raw Keycloak JWT (Option B magic-link): the cookie value is a
+//  2. Raw self-signed JWT (PIN auth, issue #688): the cookie value is a
 //     compact JWT ("<header>.<payload>.<sig>"). Recognised by the absence
 //     of an additional "." after the third segment. When CookieSecret is
 //     empty, only this path is used so existing single-component deployments

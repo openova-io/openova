@@ -270,9 +270,9 @@ func LoadOrGenerate(keyPath, pubKeyPath, issuer string, ttl time.Duration) (*Sig
 }
 
 // SignCustomClaims signs an arbitrary jwt.Claims implementation using the
-// signer's RS256 private key. This is the extension point for the magic-link
-// Option-B flow (issue #614): the handler builds its own magicLinkClaims and
-// calls this method rather than MintToken (which is purpose-built for the
+// signer's RS256 private key. This is the extension point for the PIN-auth
+// flow (issue #688): the handler builds its own session claims map and calls
+// this method rather than MintToken (which is purpose-built for the
 // handover flow's fixed claim shape).
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the private key is never returned or

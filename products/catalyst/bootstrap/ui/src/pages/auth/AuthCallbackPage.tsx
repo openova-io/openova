@@ -4,23 +4,22 @@ import { useSearch, useRouter } from '@tanstack/react-router'
 /**
  * AuthCallbackPage — handles the OIDC / Keycloak authorization_code callback.
  *
- * This page serves two distinct auth flows depending on the detected mode:
- *
- * Catalyst-Zero (console.openova.io):
- *   Keycloak redirects to /sovereign/auth/callback?code=...&state=...
- *   after the operator clicks the magic-link email. The page hard-navigates
- *   to the server-side callback handler (/api/v1/auth/callback) so the
- *   server can read the PKCE verifier cookie (same-origin), exchange the
- *   code for tokens, issue an HMAC-signed session cookie, and redirect to
- *   /wizard (or /sovereign/wizard on Traefik-prefixed clusters).
- *   A hard navigation is REQUIRED so the browser cookie jar picks up the
- *   Set-Cookie header from the server's 302 response.
+ * After issue #688 (6-digit PIN auth) replaced the magic-link flow on
+ * Catalyst-Zero, this page only matters for Sovereign clusters that
+ * still use the PKCE round-trip with their own Keycloak realm. On
+ * Catalyst-Zero it's a safety-net 302 to /login since cached Keycloak
+ * redirect URIs may still resolve here.
  *
  * Sovereign (console.<sov-fqdn>):
  *   Keycloak redirects to /auth/callback?code=...&state=... after the
- *   operator authenticates via Keycloak. The page calls handleCallback()
- *   to exchange the code for tokens via the PKCE token endpoint (client-
- *   side), then navigates to /console/dashboard.
+ *   operator authenticates. The page calls handleCallback() to exchange
+ *   the code for tokens via the PKCE token endpoint (client-side), then
+ *   navigates to /console/dashboard.
+ *
+ * Catalyst-Zero (console.openova.io):
+ *   The PIN flow set the catalyst_session cookie on /auth/pin/verify;
+ *   this page is never visited in the normal happy path. If a stale
+ *   bookmark lands here, redirect to /login with an explanatory error.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the Sovereign
  * FQDN and mode are detected at runtime, never inlined.
@@ -136,29 +135,21 @@ function SovereignCallbackPage() {
   )
 }
 
-// ── Catalyst-Zero callback component (Option B) ───────────────────────────
+// ── Catalyst-Zero callback component (post-#688 safety net) ───────────────
 //
-// Option B replaces the PKCE flow entirely with a server-side token-exchange.
-// The browser never visits this component in the normal flow:
-//   User clicks email link → browser hits GET /api/v1/auth/magic?token=...
-//   → catalyst-api validates JWT, calls KC token-exchange, sets cookies,
-//   → redirects directly to /sovereign/wizard (no client-side callback needed).
-//
-// This component only exists as a safety net in case Keycloak still has
-// /sovereign/auth/callback in its allowed redirect list and sends the user
-// here. In that case redirect to login so the user sees a clean screen.
+// PIN auth (#688) doesn't use a callback URL — the verify endpoint sets
+// the cookie inline. This component only exists as a safety net in case
+// Keycloak still has /sovereign/auth/callback in its allowed redirect
+// list and sends the user here. In that case redirect to /login with an
+// error code so the operator sees a clean screen.
 function CatalystZeroCallbackPage() {
   const search = useSearch({ strict: false }) as Record<string, string>
 
   useEffect(() => {
-    // Option B: the /auth/magic endpoint handles everything server-side.
-    // If we land here, it means the user followed a stale Keycloak link or
-    // the flow_changed redirect happened. Send them to login.
     const error = search['error'] ?? 'flow_changed'
     window.location.replace(uiBase() + '/login?error=' + encodeURIComponent(error))
   }, [search])
 
-  // Render nothing — we navigate away immediately.
   return null
 }
 

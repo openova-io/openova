@@ -183,11 +183,16 @@ type Handler struct {
 	// authHandoverRedirect — post-handover redirect target. Defaults to "/console/dashboard".
 	authHandoverRedirect string
 
-	// ── /auth/magic-link fields (issue #614, Phase-8b Option B) ─────────────
-	// openovaKC — Keycloak client for the openova realm magic-link flow.
+	// ── /auth/pin fields (issue #688, replaces magic-link flow) ─────────────
+	// openovaKC — Keycloak client for the openova realm PIN flow.
 	// Separate from kc (Sovereign realm) — different realm, different SA client.
 	// Nil when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is not set (Sovereign-side, CI).
 	openovaKC keycloakClient
+	// pinStore — in-memory store for outstanding 6-digit PINs. Lazy-wired
+	// in pinStoreFor(); tests inject a deterministic instance directly.
+	// PINs are credentials and per docs/INVIOLABLE-PRINCIPLES.md #10 are
+	// NEVER persisted to disk — a Pod restart invalidates every code.
+	pinStore *pinStore
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
@@ -389,7 +394,7 @@ func (h *Handler) SetAuthConfig(cfg *auth.Config) { h.authConfig = cfg }
 // so the session middleware can validate self-signed session JWTs.
 func (h *Handler) GetHandoverSigner() *handoverjwt.Signer { return h.handoverSigner }
 
-// SetOpenovaKC wires the openova-realm Keycloak client (Option-B magic-link).
+// SetOpenovaKC wires the openova-realm Keycloak client (PIN auth, #688).
 // Called by main.go at startup when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
 func (h *Handler) SetOpenovaKC(kc keycloakClient) { h.openovaKC = kc }
 

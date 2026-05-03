@@ -122,7 +122,7 @@ func main() {
 		)
 	}
 
-	// Option-B magic-link openova-realm Keycloak client (issue #614).
+	// PIN-auth openova-realm Keycloak client (issue #688, replaces #614 magic-link).
 	// Wired only when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
 	// Catalyst-Zero always sets this; Sovereign clusters leave it unset.
 	if secret := os.Getenv("CATALYST_OPENOVA_KC_SA_CLIENT_SECRET"); secret != "" {
@@ -130,7 +130,7 @@ func main() {
 		realm := env("CATALYST_OPENOVA_KC_REALM", "openova")
 		clientID := env("CATALYST_OPENOVA_KC_SA_CLIENT_ID", "catalyst-zero-server")
 		h.SetOpenovaKC(keycloak.New(addr, realm, clientID, secret))
-		log.Info("magic-link: openova KC client ready",
+		log.Info("pin-auth: openova KC client ready",
 			"addr", addr,
 			"realm", realm,
 		)
@@ -174,22 +174,26 @@ func main() {
 	r.Get("/readyz", h.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
-	// Unauthenticated auth endpoints — magic-link dispatch, magic-link
-	// consumption (Option B server-side token-exchange), and logout.
-	// These MUST remain outside the session gate (the user is not yet
-	// authenticated when they hit /magic-link and /auth/magic).
+	// Unauthenticated auth endpoints — 6-digit PIN issue + verify (#688)
+	// and logout. These MUST remain outside the session gate (the user is
+	// not yet authenticated when they hit /pin/issue and /pin/verify).
 	//
-	// Option B replaces the Keycloak execute-actions-email PKCE flow:
-	//   POST /api/v1/auth/magic-link  — mint JWT + email link
-	//   GET  /api/v1/auth/magic       — validate JWT + KC token-exchange + cookies + redirect
+	// PIN auth replaces the magic-link flow rejected by the founder
+	// (looks like phishing, 2026-05-03):
+	//   POST /api/v1/auth/pin/issue   — generate + email a 6-digit code
+	//   POST /api/v1/auth/pin/verify  — validate code + set session cookie
 	//
-	// The legacy /auth/callback endpoint is kept as a 302 redirect to /login
-	// so any cached Keycloak redirect_uri bookmarks degrade gracefully.
-	r.Post("/api/v1/auth/magic-link", h.HandleMagicLink)
-	r.Get("/api/v1/auth/magic", h.HandleMagicValidate)
+	// The legacy /auth/callback and /auth/magic routes are kept as 302
+	// redirects to /login so any cached Keycloak redirect_uri bookmarks
+	// or stale magic-link emails degrade gracefully.
+	r.Post("/api/v1/auth/pin/issue", h.HandlePinIssue)
+	r.Post("/api/v1/auth/pin/verify", h.HandlePinVerify)
 	r.Get("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
-		// Legacy PKCE callback — Option B does not use this path.
-		// Redirect to login so cached bookmarks don't 404.
+		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
+	})
+	r.Get("/api/v1/auth/magic", func(w http.ResponseWriter, r *http.Request) {
+		// Legacy magic-link callback — replaced by PIN auth in #688.
+		// Redirect to login so cached email links degrade gracefully.
 		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
 	})
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)

@@ -109,8 +109,8 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 	// Read user identity. Two valid sources, in order:
 	//   1. X-User-Sub / X-User-Email — injected by catalyst-api's own
 	//      RequireSession middleware (auth/middleware.go) when the
-	//      magic-link/Keycloak session cookie is validated. This is
-	//      the canonical Catalyst-Zero auth path.
+	//      PIN-auth (issue #688) / Keycloak session cookie is validated.
+	//      This is the canonical Catalyst-Zero auth path.
 	//   2. X-Forwarded-User / X-Forwarded-Email — set by an upstream
 	//      OIDC proxy when one is deployed. Backwards-compat with the
 	//      original handler design.
