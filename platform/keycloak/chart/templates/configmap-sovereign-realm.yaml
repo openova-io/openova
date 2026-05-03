@@ -334,7 +334,22 @@ data:
             ]
           }
         ]
-      }
+      },
+      "users": [
+        {
+          "username": "service-account-catalyst-api-server",
+          "enabled": true,
+          "serviceAccountClientId": "catalyst-api-server",
+          "clientRoles": {
+            "realm-management": [
+              "impersonation",
+              "manage-users",
+              "view-users",
+              "query-users"
+            ]
+          }
+        }
+      ]
     }
 ---
 {{- /* ── catalyst-kc-sa-credentials Secret ─────────────────────────────────
