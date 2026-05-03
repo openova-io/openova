@@ -43,6 +43,28 @@ spec:
   hostnames:
     - {{ $consoleHost | quote }}
   rules:
+    # /auth/* and /api/* on the console hostname route to catalyst-api
+    # (the Go backend), not catalyst-ui (the React shell). The handover
+    # JWT lands at GET /auth/handover?token=… which is implemented in
+    # catalyst-api. Without this rule the React app sees /auth/handover,
+    # has no client-side route for it, and falls through to Keycloak's
+    # bare login screen — defeating the Phase-8b seamless auth promise.
+    # Caught live on otech46.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/auth/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    # Default — catalyst-ui (the React shell)
     - matches:
         - path:
             type: PathPrefix
