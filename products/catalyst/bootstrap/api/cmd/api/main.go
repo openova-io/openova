@@ -208,6 +208,20 @@ func main() {
 	// stuck Phase-1 in PENDING forever (caught live on otech23).
 	r.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
 
+	// Sovereign-side handover receiver (issue #606). The operator's
+	// browser arrives at GET /auth/handover?token=<jwt> from the
+	// Catalyst-Zero wizard. The JWT IS the auth — there is NO
+	// catalyst_session cookie yet (the handler MINTS one). Therefore
+	// this route MUST live outside RequireSession. Putting it inside
+	// rejected every handover with 401 {"error":"unauthenticated"}
+	// before AuthHandover ever ran (caught live on otech49 2026-05-03).
+	// AuthHandover validates the RS256 JWT against the public-key file,
+	// creates the user in the Sovereign Keycloak, exchanges for a
+	// session, sets HttpOnly Secure SameSite=Lax cookies, and redirects
+	// to /sovereign/dashboard. The cookies it sets are what gates every
+	// subsequent /sovereign/api/v1/* call inside the RequireSession group.
+	r.Get("/auth/handover", h.AuthHandover)
+
 	// Auth-gated wizard endpoints — RequireSession validates the
 	// HMAC-signed catalyst_session cookie on every request. When
 	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)
@@ -285,7 +299,6 @@ func main() {
 		// and redirects to /console/dashboard.
 		rg.Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
 		rg.Get("/api/v1/handover/public-key", h.GetHandoverPublicKey)
-		rg.Get("/auth/handover", h.AuthHandover)
 		// Subdomain-only release endpoint (issue #489). Releases the PDM
 		// allocation row for a failed-or-abandoned deployment WITHOUT
 		// requiring the operator to re-enter their HetznerToken. Lets a
