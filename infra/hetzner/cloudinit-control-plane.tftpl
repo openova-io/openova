@@ -51,6 +51,26 @@ write_files:
         "gitopsBranch": "${gitops_branch}"
       }
 
+  # ── Kernel inotify limits — k3s + Flux + CNPG + bao + Helm exhaust Ubuntu defaults ──
+  # Default Hetzner Ubuntu 24.04 ships fs.inotify.max_user_instances=128
+  # and fs.inotify.max_user_watches=524288 — but every Helm controller,
+  # CNPG operator, k3s kubelet, file-watching admin tool grabs an
+  # instance slot. On a 35-component bootstrap-kit the slots run out
+  # mid-install and the next process to ask gets:
+  #   failed to create fsnotify watcher: too many open files
+  # Diagnosed live during otech35 — bp-openbao's `bao operator init`
+  # crash-looped 4× with that exact error, which Flux escalated to
+  # InstallFailed/RetriesExceeded — masking the real OS-level root cause.
+  #
+  # Bump well above k8s/k3s production guidance so future blueprint
+  # additions don't tickle the same wall.
+  - path: /etc/sysctl.d/99-catalyst-inotify.conf
+    permissions: '0644'
+    content: |
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_queued_events = 16384
+
   # ── OS hardening: SSH daemon ──────────────────────────────────────────
   # Drop-in overrides /etc/ssh/sshd_config defaults. Per Catalyst's threat
   # model the operator's only valid path in is the Hetzner-project SSH key
@@ -727,6 +747,11 @@ runcmd:
   - sed -i '/swap/d' /etc/fstab
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+
+  # Apply inotify-limit bumps written by write_files. sysctl --system
+  # picks up /etc/sysctl.d/*.conf so future blueprints + bao init never
+  # hit "too many open files" again.
+  - sysctl --system
 
   # Activate hardened sshd config (cloud-init may have written authorized_keys
   # already from Hetzner ssh_keys[]; we never touch that file).
