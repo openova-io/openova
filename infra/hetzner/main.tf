@@ -341,14 +341,21 @@ resource "hcloud_load_balancer_service" "http" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 80
-  destination_port = 31080 # Cilium Gateway will bind this NodePort post-bootstrap
+  # destination_port=80 — Cilium Gateway runs in hostNetwork mode
+  # (bp-cilium 1.1.5+ values: gatewayAPI.hostNetwork.enabled=true),
+  # binding cilium-envoy directly to the host's :80 instead of a random
+  # nodePort. The previous nodePort=31080 mapping broke because Cilium
+  # 1.16.5's BPF L7LB Proxy Port (e.g. 12869) doesn't actually align
+  # with what cilium-envoy listens on, dropping all TLS handshakes
+  # silently. Caught live on otech45.
+  destination_port = 80
 }
 
 resource "hcloud_load_balancer_service" "https" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 443
-  destination_port = 31443
+  destination_port = 443
 }
 
 resource "hcloud_load_balancer_service" "dns" {
