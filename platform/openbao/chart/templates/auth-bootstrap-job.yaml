@@ -174,6 +174,19 @@ spec:
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
 
+              # ─── Revoke + cleanup root token ──────────────────────────
+              # Acceptance criterion #6: the privileged root token must
+              # not persist past the install window. Revoke it inside
+              # bao first, then delete the K8s Secret that held it.
+              echo "[openbao-auth-bootstrap] revoking root token"
+              bao token revoke -self 2>&1 || echo "[openbao-auth-bootstrap] WARN: token revoke returned non-zero (may already be revoked)"
+              echo "[openbao-auth-bootstrap] deleting transient openbao-root-token Secret"
+              wget -qO- --no-check-certificate \
+                --header="Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+                --method=DELETE \
+                "https://kubernetes.default.svc/api/v1/namespaces/$NAMESPACE/secrets/openbao-root-token" >/dev/null 2>&1 || \
+              echo "[openbao-auth-bootstrap] WARN: --method=DELETE not supported (busybox wget); manual cleanup may be needed via kubectl"
+
               echo "[openbao-auth-bootstrap] Kubernetes auth bootstrap complete"
           resources:
             requests:

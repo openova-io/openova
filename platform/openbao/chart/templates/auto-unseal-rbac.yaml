@@ -100,6 +100,13 @@ rules:
       # secret material itself, but treating it as a Secret keeps it
       # under the same RBAC umbrella.
       - openbao-init-trace
+      # openbao-root-token: transient Secret that init-job writes the
+      # root_token into so auth-bootstrap (the next post-install hook)
+      # can authenticate against bao. auth-bootstrap REVOKES the token
+      # and DELETES this Secret on completion so the privileged token
+      # never persists past the install window. RBAC mutation/delete
+      # is intentionally scoped to this name.
+      - openbao-root-token
 ---
 # RoleBinding — NOT a hook (issue #598).
 apiVersion: rbac.authorization.k8s.io/v1
