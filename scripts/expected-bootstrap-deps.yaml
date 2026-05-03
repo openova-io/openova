@@ -66,13 +66,8 @@ slots:
     # Used by bp-gitea + bp-harbor to propagate CNPG-generated pg-app Secrets.
     depends_on: [bp-cert-manager]
     wave: present
-  - slot: 6
-    name: bp-spire
-    depends_on: [bp-cert-manager]
-    wave: present
-  - slot: 7
     name: bp-nats-jetstream
-    depends_on: [bp-spire]
+    depends_on: []
     wave: present
   - slot: 8
     name: bp-openbao
@@ -81,7 +76,7 @@ slots:
     # bp-cnpg dep (issue #512): post-install init hook (`bao operator init`)
     # races cnpg readiness on a fresh Sovereign, hitting the 15m install
     # timeout. Explicit dep makes Flux wait for cnpg Ready=True first.
-    depends_on: [bp-spire, bp-gateway-api, bp-cnpg]
+    depends_on: [bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 9
     name: bp-keycloak

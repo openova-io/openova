@@ -34,7 +34,6 @@ spec:
   releaseName: nats-jetstream
   targetNamespace: nats-system
   dependsOn:
-    - name: bp-spire
   chart:
     spec:
       chart: bp-nats-jetstream
