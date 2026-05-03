@@ -270,14 +270,30 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	now := time.Now().UTC()
 
 	dep.mu.Lock()
-	defer dep.mu.Unlock()
-
 	if dep.Result == nil {
 		// Phase 0 already failed and runProvisioning skipped the
 		// watch — markPhase1Done shouldn't have been called, but
 		// defend against a future caller anyway.
+		dep.mu.Unlock()
 		return
 	}
+
+	// Refuse to downgrade an already-handover-completed deployment.
+	// Status="adopted" means the operator has already minted a
+	// handover token and the wizard has redirected to the Sovereign
+	// Console. A late helmwatch event (informer flake, transient
+	// HR.Ready=False that recovers, watcher Cancel race) MUST NOT
+	// flap back to "ready"/"failed"/"phase1-watching" — the
+	// handover flow has already taken ownership of the deployment.
+	if dep.Status == "adopted" {
+		dep.mu.Unlock()
+		h.log.Info("phase 1 watch terminated after adoption — preserving adopted status",
+			"id", dep.ID,
+			"phase1Outcome", outcome,
+		)
+		return
+	}
+
 	dep.Result.ComponentStates = finalStates
 	dep.Result.Phase1FinishedAt = &now
 	dep.Result.Phase1Outcome = outcome
@@ -327,11 +343,26 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Status = "ready"
 	}
 
+	finalStatus := dep.Status
+	dep.mu.Unlock()
+
+	// Persist the deployment record after the status flip so a
+	// concurrent State() snapshot picked up by the wizard's poll
+	// reads the same value. Without this, the in-memory record
+	// would say "ready" but the on-disk JSON file (read by
+	// /deployments/{id} after a Pod restart) would still say
+	// "phase1-watching" — a Pod kill in the gap between flip and
+	// next event would leave the deployment stuck in the wrong
+	// state forever. otech48 verified the gap: the in-memory
+	// transition was correct in earlier code paths but never
+	// persisted, so any state read from disk was stale.
+	h.persistDeployment(dep)
+
 	h.log.Info("phase 1 watch terminated",
 		"id", dep.ID,
 		"componentCount", len(finalStates),
 		"failedCount", failed,
-		"finalStatus", dep.Status,
+		"finalStatus", finalStatus,
 		"phase1Outcome", outcome,
 	)
 }

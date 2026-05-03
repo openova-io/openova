@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.2.5
+version: 1.2.6
 appVersion: 1.2.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -189,6 +189,31 @@ description: |
   flux-system/ghcr-pull already uses (PR #543). Chart-side change is
   a comment update on the secretKeyRef explaining the new seam.
   Issue #557 follow-up, 2026-05-03.
+
+  Bumped to 1.2.6 — Phase-1 watcher status transition fix (otech48
+  incident, 2026-05-03). All 37 bp-* HelmReleases reached Ready=True
+  on the Sovereign cluster but the catalyst-api deployment record
+  stayed status=phase1-watching. Wizard's POST /mint-handover-token
+  returned 409 not-handover-ready, blocking the auto-redirect to
+  console.otech48.omani.works/auth/handover.
+  Root cause: helmwatch's terminate-on-all-done gate required
+  `len(observed) >= MinBootstrapKitHRs`. Chart shipped
+  CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS=38 (matched the kit count
+  it was originally tuned against), but the actual bootstrap-kit
+  cardinality had drifted to 37 — making the gate permanently
+  unsatisfiable. Watch ran until 60-minute WatchTimeout fired.
+  Fix:
+  - helmwatch: gate terminate-on-all-done on the informer's
+    HasSynced signal (after WaitForCacheSync the full bp-* set is
+    in cache regardless of cardinality). MinBootstrapKitHRs stays
+    as a defence-in-depth floor (now default 1).
+  - chart env: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS=1 (was 38).
+  - watcher: emit operator-visible "All N blueprints reconciled.
+    Sovereign ready for handover." SSE event on transition
+    (idempotent).
+  - handler: persistDeployment after markPhase1Done so the on-disk
+    JSON reflects status=ready before any wizard poll. Refuse to
+    downgrade adopted status on late watcher events. Issue #TBD.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
