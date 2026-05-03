@@ -4,13 +4,29 @@
  * This layout is mounted when catalyst-ui detects it is running on a
  * Sovereign's `console.<sov-fqdn>` hostname (mode = 'sovereign'). It:
  *
- *   1. Reads the current OIDC session from sessionStorage.
- *   2. If no valid session exists, initiates the Keycloak PKCE login flow.
+ *   1. Calls GET /api/v1/whoami (with credentials:'include') to detect a
+ *      `catalyst_session` cookie minted by the server-side /auth/handover
+ *      handler. If 200, the operator is authenticated via the cookie —
+ *      render the console without ever touching Keycloak.
+ *   2. If 401, fall back to the legacy OIDC flow:
+ *      - read tokens from sessionStorage,
+ *      - if missing/expired, attempt silentRefresh,
+ *      - if that fails, initiateLogin (PKCE redirect to Keycloak).
  *   3. After login, if the id_token contains required actions
  *      (UPDATE_PASSWORD / configure-passkey / CONFIGURE_TOTP), shows the
  *      RequiredActionsModal before rendering the console.
  *   4. Once authenticated + no required actions, renders the
  *      SovereignSidebar + main <Outlet />.
+ *
+ * Why /whoami first: the wizard's handover button lands the operator at
+ *   GET /auth/handover?token=<jwt>
+ * which the Sovereign-side catalyst-api validates, mints a
+ * `catalyst_session` HttpOnly Secure SameSite=Lax cookie for, and 302s to
+ * /console/dashboard. The browser arrives with a fresh cookie but no
+ * sessionStorage tokens — the layout MUST recognise that cookie before
+ * bouncing to Keycloak's hosted login (issue: live regression on
+ * otech49 + otech52 today, operator landed on a username/password
+ * screen instead of the dashboard).
  *
  * The SovereignSidebar uses `/console/*` routes (no deploymentId param) —
  * in Sovereign mode the sovereign context is implicit from the hostname.
@@ -25,13 +41,15 @@
  * issuer URL, account URL, and Sovereign FQDN are always derived from
  * runtime state, never inlined.
  *
- * Related: GitHub issue #607
+ * Related: GitHub issue #607 (initial OIDC gate),
+ *          Phase-8b followup (session-cookie precedence).
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { Outlet, useRouter } from '@tanstack/react-router'
 import { LogOut, Settings } from 'lucide-react'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { API_BASE } from '@/shared/config/urls'
 import {
   loadTokens,
   isTokenExpired,
@@ -56,10 +74,52 @@ import {
 } from '@/shared/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 
+/**
+ * Shape returned by GET /api/v1/whoami when the catalyst_session cookie
+ * is present and valid (HMAC-verified server-side by the session
+ * middleware in catalyst-api/internal/auth).
+ */
+interface WhoamiClaims {
+  email: string
+  sub: string
+  verified: boolean
+}
+
+/**
+ * Cookie-authenticated mode — no OIDC tokens involved. The user arrived
+ * via /auth/handover and the server-side middleware will continue to
+ * gate /api/v1/* on every subsequent request via the same cookie.
+ */
 type AuthState =
   | { status: 'loading' }
   | { status: 'unauthenticated' }
   | { status: 'authenticated'; tokens: TokenSet; requiredActions: string[] }
+  | { status: 'cookie-authenticated'; claims: WhoamiClaims }
+
+/**
+ * Probe GET /api/v1/whoami to detect a server-side catalyst_session
+ * cookie.
+ *
+ * Returns the claims on 200, null on 401 (no/invalid cookie), and null on
+ * any other error so the caller falls through to the OIDC path —
+ * 5xx/network failures must NOT redirect the operator to Keycloak with a
+ * fresh PKCE flow when the cookie might still be valid; the next
+ * request will retry. Surfacing the failure as "no cookie" is the safe
+ * default because the OIDC fallback is itself idempotent.
+ */
+async function probeSessionCookie(): Promise<WhoamiClaims | null> {
+  try {
+    const res = await fetch(`${API_BASE}/v1/whoami`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.status !== 200) return null
+    return (await res.json()) as WhoamiClaims
+  } catch {
+    return null
+  }
+}
 
 interface SovereignConsoleLayoutProps {
   pageTitle?: string
@@ -82,6 +142,23 @@ export function SovereignConsoleLayout({
         return
       }
 
+      // Phase-8b followup: the wizard handover lands the operator at
+      // /auth/handover?token=<jwt>, which mints a catalyst_session
+      // cookie and 302s here. The cookie predates any OIDC PKCE flow,
+      // so we MUST probe /whoami before considering Keycloak. If the
+      // cookie is valid, render the console — never redirect to
+      // Keycloak's hosted login when the operator already has a
+      // server-issued session.
+      const cookieClaims = await probeSessionCookie()
+      if (cookieClaims) {
+        setAuthState({ status: 'cookie-authenticated', claims: cookieClaims })
+        return
+      }
+
+      // Legacy OIDC fallback — for operators who arrived via direct
+      // navigation to /console/* without going through the wizard
+      // handover (e.g. a returning user whose cookie expired). The PKCE
+      // flow remains the canonical re-auth path.
       const existing = loadTokens()
       if (!existing) {
         setAuthState({ status: 'unauthenticated' })
@@ -113,7 +190,25 @@ export function SovereignConsoleLayout({
     setAuthState({ status: 'authenticated', tokens, requiredActions: [] })
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    // Cookie-authenticated session: clear the server-side cookie via
+    // the DELETE /api/v1/auth/session endpoint, then hard-reload to '/'
+    // so the layout re-runs initAuth from a clean state. The OIDC
+    // logout endpoint isn't relevant in this branch — there is no
+    // Keycloak session to terminate.
+    if (authState.status === 'cookie-authenticated') {
+      try {
+        await fetch(`${API_BASE}/v1/auth/session`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+      } catch {
+        // Network failures don't block client-side sign-out; the cookie
+        // will be cleared on the next request that gets a 401 anyway.
+      }
+      window.location.replace('/')
+      return
+    }
     if (sovereignFQDN) initiateLogout(sovereignFQDN)
   }
 
@@ -144,13 +239,28 @@ export function SovereignConsoleLayout({
     )
   }
 
-  const { tokens, requiredActions } = authState
-  const claims = parseJWTClaims(tokens.idToken)
-  const userName =
-    (claims.name as string | undefined) ??
-    (claims.preferred_username as string | undefined) ??
-    (claims.email as string | undefined) ??
-    'User'
+  // Two authenticated branches feed the same shell: the cookie path
+  // (post-handover, no OIDC tokens) and the OIDC path (returning user
+  // whose KC session is fresh). Normalise both to a (userName,
+  // requiredActions) pair so the chrome below stays branch-agnostic.
+  let userName: string
+  let requiredActions: string[]
+  if (authState.status === 'cookie-authenticated') {
+    userName = authState.claims.email || 'User'
+    // No id_token in the cookie path — required actions are gated by
+    // the server-side middleware before the cookie is ever issued, so
+    // there is nothing for the client to enforce here.
+    requiredActions = []
+  } else {
+    const { tokens, requiredActions: ra } = authState
+    const claims = parseJWTClaims(tokens.idToken)
+    userName =
+      (claims.name as string | undefined) ??
+      (claims.preferred_username as string | undefined) ??
+      (claims.email as string | undefined) ??
+      'User'
+    requiredActions = ra
+  }
   const userInitials = userName
     .split(/\s+/)
     .map((w) => w[0]?.toUpperCase() ?? '')
