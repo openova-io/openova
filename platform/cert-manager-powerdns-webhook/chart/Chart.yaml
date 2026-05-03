@@ -1,21 +1,30 @@
 apiVersion: v2
 name: bp-cert-manager-powerdns-webhook
-version: 1.0.3
+version: 1.0.4
 appVersion: "v2.5.5"
 description: |
   Catalyst-authored Blueprint chart wrapping the upstream
   zachomedia/cert-manager-webhook-pdns binary. Deploys a TLS-fronted
   aggregated apiserver that cert-manager's DNS-01 ClusterIssuer
   (letsencrypt-dns01-prod-powerdns, shipped by this chart) calls into
-  to provision ACME challenge TXT records on a per-Sovereign PowerDNS
-  zone via PowerDNS's REST API. Closes openova#373.
+  to provision ACME challenge TXT records on the central openova
+  PowerDNS (authoritative for omani.works) via the public REST API
+  at https://pdns.openova.io. Closes openova#373; supersedes
+  bp-cert-manager-dynadot-webhook (omani.works is delegated from
+  Dynadot to ns1/2/3.openova.io which run on contabo's PowerDNS, so
+  Dynadot is NOT the API-level authority and the dynadot webhook
+  cannot solve DNS-01 challenges for omani.works subdomains).
 
-  This blueprint is the post-handover companion to
-  bp-cert-manager-dynadot-webhook: the dynadot webhook solves DNS-01
-  against the openova parent zone (omani.works) during onboarding;
-  this powerdns webhook solves DNS-01 against the Sovereign's own
-  delegated subdomain post-handover, removing the last reachback to
-  Dynadot for cert renewals.
+  Lifecycle: a Sovereign at otechN.omani.works gets its NS delegation
+  written into contabo's PowerDNS by pool-domain-manager. Until that
+  delegation is sealed, the Sovereign's own PowerDNS is NOT reachable
+  through the public DNS chain — Let's Encrypt resolvers query
+  contabo's PowerDNS for *.otechN.omani.works TXT records and get
+  NXDOMAIN. This webhook writes ACME challenge TXT records directly
+  to contabo's PowerDNS so Let's Encrypt validation succeeds on the
+  first attempt, regardless of whether the Sovereign-side delegation
+  has propagated. Caught live on otech43–46 where manual workaround
+  was to seed the challenge TXT directly in contabo PowerDNS.
 
   Upstream chart: zachomedia/cert-manager-webhook-pdns (v3.2.5,
   appVersion v2.5.5). Vendored as a top-level wrapper rather than a
@@ -50,8 +59,7 @@ maintainers:
 # `sigstore/common` library subchart is a tiny library chart (helper
 # templates only, zero runtime resources) and contributes nothing to
 # the rendered manifests of bp-cert-manager-powerdns-webhook. Mirrors
-# bp-cert-manager-dynadot-webhook + bp-coraza which use the same pattern
-# for the same reason.
+# bp-coraza which uses the same pattern for the same reason.
 dependencies:
   - name: common
     version: "0.1.3"

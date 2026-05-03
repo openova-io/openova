@@ -277,18 +277,17 @@ slots:
     depends_on: [bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak]
     wave: W2.K4
 
-  # ---- Phase-2 (handover) — DNS-01 webhook against Sovereign's own PowerDNS -
+  # ---- Slot 49 — DNS-01 wildcard TLS solver against contabo's central PowerDNS
   # Authored under #373; lands at slot 49 because slots 36-48 were already
-  # forward-declared by the W2.K4 batch. Wave is "present" because the HR
-  # exists on disk now (chart-released; runtime exercise deferred to Phase 8).
+  # forward-declared by the W2.K4 batch. Re-targeted from per-Sovereign
+  # PowerDNS to contabo central PowerDNS (https://pdns.openova.io) because
+  # omani.works is delegated from Dynadot to ns1/2/3.openova.io which run
+  # on contabo PowerDNS — the Sovereign's own PowerDNS is not on the
+  # public DNS chain until pool-domain-manager seals the per-Sovereign
+  # NS delegation. Caught live on otech43–46. Slot 49b
+  # (bp-cert-manager-dynadot-webhook) was dropped in the same PR
+  # (Dynadot is NOT the API-level authority for omani.works subdomains).
   - slot: 49
     name: bp-cert-manager-powerdns-webhook
-    depends_on: [bp-cert-manager, bp-powerdns]
-    wave: present
-  # PRE-handover DNS-01 solver. Slot 49b sits adjacent to 49 (powerdns).
-  # Active from Day 0 while Dynadot is authoritative for omani.works.
-  # Closes openova#550.
-  - slot: "49b"
-    name: bp-cert-manager-dynadot-webhook
     depends_on: [bp-cert-manager]
     wave: present

@@ -93,9 +93,10 @@ spec:
 # parentRefs.
 #
 # TLS material: a wildcard Certificate is requested from
-# letsencrypt-dns01-prod (cert-manager + bp-cert-manager-powerdns-webhook
-# from #373). The resulting Secret `sovereign-wildcard-tls` is
-# referenced by the Gateway listener.
+# letsencrypt-dns01-prod-powerdns (cert-manager + bp-cert-manager-
+# powerdns-webhook from #373; webhook calls contabo's central PowerDNS
+# at https://pdns.openova.io). The resulting Secret
+# `sovereign-wildcard-tls` is referenced by the Gateway listener.
 #
 # Cross-namespace HTTPRoute attachment: allowedRoutes.namespaces.from=All
 # permits every blueprint namespace (catalyst-system, gitea, keycloak,

@@ -12,10 +12,11 @@ spec:
       cert-manager DNS-01 external webhook for PowerDNS. Lets the
       letsencrypt-dns01-prod-powerdns ClusterIssuer (shipped by this
       blueprint) issue wildcard TLS certificates (e.g. *.<sovereign>)
-      by writing ACME challenge TXT records to the Sovereign's OWN
-      PowerDNS instance — no reachback to Dynadot at the openova
-      parent zone, so a handed-over Sovereign owns its full DNS+TLS
-      chain. Closes openova#373; gates #319 post-handover renewals.
+      by writing ACME challenge TXT records to contabo's central
+      PowerDNS at https://pdns.openova.io (authoritative for omani.works
+      because Dynadot delegates the zone to ns1/2/3.openova.io). Caught
+      live on otech43–46. Closes openova#373; supersedes
+      bp-cert-manager-dynadot-webhook for omani.works Sovereigns.
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
     chart: ./chart
@@ -26,19 +27,18 @@ spec:
     # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
     # is Ready — Flux dependsOn enforces that at the HelmRelease level.
     - bp-cert-manager
-    # bp-powerdns provides the in-cluster API endpoint the webhook talks
-    # to. Without bp-powerdns the webhook has no upstream to call. The
-    # bootstrap-kit slot ordering (02-cert-manager → 11-powerdns →
-    # cert-manager-powerdns-webhook) plus Flux dependsOn enforce this.
-    - bp-powerdns
+    # NOTE: bp-powerdns dependency intentionally REMOVED. The webhook
+    # calls contabo's central PowerDNS (https://pdns.openova.io) — an
+    # out-of-cluster endpoint — not the Sovereign's local PowerDNS. The
+    # Sovereign's bp-powerdns slot is still installed (it backs the
+    # Sovereign's own subzone for app-level records via bp-external-dns)
+    # but it is NOT in the cert-issuance path.
   outputs:
     # Tells dependents (the per-Sovereign Gateway's wildcard Certificate
-    # in 01-cilium.yaml, etc.) which solverName the ClusterIssuer's
-    # solvers[].dns01.webhook block must reference. Defaults are baked
-    # into the chart values but exposing them here keeps the blueprint
-    # DAG's contract honest. Distinct from the dynadot pair to allow
-    # both webhooks to coexist on the same cluster (during the
-    # parent-zone-cert + Sovereign-zone-cert overlap window).
+    # in clusters/_template/sovereign-tls/cilium-gateway-cert.yaml, etc.)
+    # which solverName the ClusterIssuer's solvers[].dns01.webhook block
+    # must reference. Defaults are baked into the chart values but
+    # exposing them here keeps the blueprint DAG's contract honest.
     solverName: powerdns
     groupName: acme.powerdns.openova.io
     issuerName: letsencrypt-dns01-prod-powerdns
