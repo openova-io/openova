@@ -676,13 +676,21 @@ const FLOW_PAGE_CSS = `
   position: relative;
   min-width: 0;
   height: 100%;
-  background: radial-gradient(ellipse at 20% 0%, rgba(11,28,58,0.85) 0%, rgba(7,10,18,0.85) 75%);
+  /* Issue #669 — theme-aware backdrop. Dark mode keeps the navy
+   * radial gradient; light mode flips to a soft slate gradient so
+   * canvas chrome doesn't fight the green succeeded bubbles or the
+   * blue running ring. */
+  background: var(--flow-canvas-bg, radial-gradient(ellipse at 20% 0%, rgba(11,28,58,0.85) 0%, rgba(7,10,18,0.85) 75%));
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.04);
+  border: 1px solid var(--flow-canvas-border, rgba(255,255,255,0.04));
   overflow: auto;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+[data-theme="light"] .flow-canvas-host {
+  --flow-canvas-bg: radial-gradient(ellipse at 20% 0%, #f1f5f9 0%, #e2e8f0 75%);
+  --flow-canvas-border: #cbd5e1;
 }
 
 .flow-surface.is-fullscreen .flow-canvas-host {

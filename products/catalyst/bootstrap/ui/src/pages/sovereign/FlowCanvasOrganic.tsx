@@ -785,7 +785,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   return (
     <div
       ref={hostRef}
-      data-testid="flow-canvas-host"
+      data-testid="flow-canvas-svg-host"
       style={{
         position: 'relative',
         width: '100%',
