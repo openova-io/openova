@@ -33,7 +33,6 @@ resources:
   - 23-mimir.yaml
   - 24-tempo.yaml
   - 25-grafana.yaml
-  - 26-langfuse.yaml
   - 27-kyverno.yaml
   - 28-reloader.yaml
   - 29-vpa.yaml
