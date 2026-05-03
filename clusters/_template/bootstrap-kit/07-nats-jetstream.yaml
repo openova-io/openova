@@ -33,7 +33,10 @@ spec:
   interval: 15m
   releaseName: nats-jetstream
   targetNamespace: nats-system
-  dependsOn:
+  # No dependsOn: bp-spire was dropped (PR #665, founder direction
+  # 2026-05-03 — Cilium WireGuard mesh handles east-west mTLS).
+  # NATS no longer needs SVID-based auth; the kernel-level WireGuard
+  # encryption between every pod covers the in-flight traffic.
   chart:
     spec:
       chart: bp-nats-jetstream
