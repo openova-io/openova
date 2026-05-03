@@ -77,7 +77,15 @@ spec:
         catalyst.openova.io/component: openbao-init
     spec:
       serviceAccountName: openbao-auto-unseal
-      restartPolicy: OnFailure
+      # restartPolicy: Never — with OnFailure, the kubelet restarts the
+      # SAME container in the SAME pod on every failure, and only the
+      # MOST RECENT failed container's logs are retrievable (older
+      # restarts get reaped). Switching to Never means each retry is a
+      # NEW pod via the Job's backoffLimit replay; every failed pod is
+      # individually inspectable with `kubectl logs <pod>` until
+      # ttlSecondsAfterFinished tears it down. Required to diagnose
+      # the fresh-init persist gap.
+      restartPolicy: Never
       securityContext:
         runAsNonRoot: true
         runAsUser: 100
