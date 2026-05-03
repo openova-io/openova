@@ -239,6 +239,12 @@ locals {
     # authenticates against harbor.openova.io proxy-cache projects.
     harbor_robot_token      = var.harbor_robot_token
 
+    # Contabo PowerDNS API key (PR #686, F3 followup). Interpolated into
+    # the Sovereign's cert-manager/powerdns-api-credentials Secret so
+    # bp-cert-manager-powerdns-webhook can write DNS-01 challenge TXT
+    # records to contabo's authoritative omani.works zone.
+    powerdns_api_key        = var.powerdns_api_key
+
     deployment_id           = var.deployment_id
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url
