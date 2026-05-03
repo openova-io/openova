@@ -1198,3 +1198,93 @@ func TestWatch_5HRs_BelowMinBootstrapKitHRs_DoesNotTerminate(t *testing.T) {
 	}
 }
 
+
+// TestWatch_SubscribeFanOut covers issue #695: Subscribe must receive
+// every event the Watcher emits, in addition to the primary `emit`
+// callback. The jobs.Bridge subscribes here so its per-Job state map
+// updates on every per-component HelmRelease transition observed by
+// the watcher — independent of the SSE emit pipeline being wired.
+func TestWatch_SubscribeFanOut(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeHelmRelease("bp-cilium", []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "Helm install succeeded"},
+		}),
+		makeHelmRelease("bp-cert-manager", []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "Helm install succeeded"},
+		}),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	primary := &recorder{}
+	subscriber := &recorder{}
+
+	cfg := Config{
+		KubeconfigYAML: "fake",
+		WatchTimeout:   3 * time.Second,
+		DynamicFactory: fakeFactory(client),
+		Resync:         0,
+	}
+	w, err := NewWatcher(cfg, primary.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	w.Subscribe(subscriber.emit)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := w.Watch(ctx); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	// Both sinks must see the same set of per-component events.
+	primaryComponents := primary.componentStateEvents()
+	subscriberComponents := subscriber.componentStateEvents()
+
+	if len(primaryComponents) != 2 {
+		t.Errorf("primary emit: want 2 component events, got %d (%+v)", len(primaryComponents), primaryComponents)
+	}
+	if len(subscriberComponents) != 2 {
+		t.Errorf("subscriber: want 2 component events, got %d (%+v)", len(subscriberComponents), subscriberComponents)
+	}
+
+	// Subscriber must see the "ready for handover" terminal event too.
+	hasReady := false
+	for _, ev := range subscriber.snapshot() {
+		if ev.Phase == PhaseComponent && ev.Component == "" && strings.Contains(ev.Message, "ready for handover") {
+			hasReady = true
+			break
+		}
+	}
+	if !hasReady {
+		t.Errorf("subscriber must receive the 'ready for handover' terminal event (got %d events: %+v)", len(subscriber.snapshot()), subscriber.snapshot())
+	}
+}
+
+// TestWatch_SubscribeNilIsNoop guards against a nil callback panic
+// — passing nil to Subscribe must be silently ignored.
+func TestWatch_SubscribeNilIsNoop(t *testing.T) {
+	scheme := newFakeScheme()
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+	)
+	cfg := Config{
+		KubeconfigYAML: "fake",
+		WatchTimeout:   500 * time.Millisecond,
+		DynamicFactory: fakeFactory(client),
+		Resync:         0,
+	}
+	w, err := NewWatcher(cfg, (&recorder{}).emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	w.Subscribe(nil)
+	// Just ensure the watcher doesn't panic when dispatch fans out.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _ = w.Watch(ctx)
+}
