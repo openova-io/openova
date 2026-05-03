@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - cilium-gateway-cert.yaml
   - cilium-gateway.yaml
+  - sovereign-fqdn-configmap.yaml

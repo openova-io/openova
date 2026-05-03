@@ -408,20 +408,31 @@ spec:
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When
-            # unset on a Sovereign, the audience check collapses to the literal
-            # "https://console." prefix and every valid token is rejected with
-            # "invalid audience" 401 — caught live on otech48, 2026-05-03.
+            # unset on a Sovereign, the audience check collapses to "https://
+            # console." and every valid token is rejected with "invalid
+            # audience" 401 — caught live on otech48, 2026-05-03.
             #
-            # Default empty string is fine for Catalyst-Zero (contabo-mkt):
-            # catalyst-api there is the SIGNER, never the validator, and the
-            # /auth/handover handler is never hit on contabo. The bp-catalyst-
-            # platform HelmRelease overlay in clusters/_template/bootstrap-kit/
-            # 13-bp-catalyst-platform.yaml stamps `global.sovereignFQDN:
-            # ${SOVEREIGN_FQDN}` onto every per-Sovereign install via Flux's
-            # postBuild substitution; this template line plumbs that value
-            # through to the Pod env.
+            # NOTE: this file is consumed BOTH by Helm (per-Sovereign install
+            # via bp-catalyst-platform OCI chart) AND by Kustomize (contabo-
+            # mkt's clusters/contabo-mkt/apps/catalyst-platform Kustomization
+            # at path: ./products/catalyst/chart/templates). Kustomize parses
+            # raw YAML — Helm template syntax `{{ ... }}` here breaks the
+            # Kustomize build (caught live on contabo 2026-05-03 from
+            # commit adf8dc7d: "yaml: invalid map key: {.Values.global...}").
+            #
+            # Solution: read the value from a ConfigMap that exists ONLY on
+            # Sovereigns (not contabo). On contabo the optional reference
+            # resolves to empty (correct — catalyst-api on contabo is the
+            # SIGNER never the validator, /auth/handover never hits there).
+            # On Sovereigns, clusters/_template/sovereign-tls/sovereign-fqdn-
+            # configmap.yaml renders the ConfigMap from envsubst-ed
+            # ${SOVEREIGN_FQDN} when Flux applies the kustomization.
             - name: SOVEREIGN_FQDN
-              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: fqdn
+                  optional: true
             # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
             # catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
