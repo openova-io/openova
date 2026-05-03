@@ -1,0 +1,49 @@
+{{- /*
+sovereign-fqdn ConfigMap — emitted ONLY when running on a Sovereign cluster
+(global.sovereignFQDN set non-empty).
+
+Why this lives inside the chart instead of clusters/_template/sovereign-tls/:
+the original sovereign-tls Kustomization-rendered ConfigMap is applied
+asynchronously to the bp-catalyst-platform HelmRelease. When the catalyst-api
+Pod schedules BEFORE the ConfigMap commits to etcd (race observed live on
+otech48/62/64/66/68 throughout 2026-05-03), the Pod's
+valueFrom.configMapKeyRef.optional:true resolves to "" and stays empty for
+the lifetime of the Pod — so SOVEREIGN_FQDN env stays empty, the
+/auth/handover audience check collapses to "https://console.", and every
+valid handover JWT is rejected with 401 invalid audience.
+
+bp-reloader was tried as a workaround (configmap.reloader.stakater.com/reload
+annotation) but Reloader v1.4.16 is silent on this otech68 install — neither
+env-vars nor annotations strategy produced any reload activity, despite
+correct RBAC and watch coverage. Investigated and abandoned.
+
+Helm install applies all chart manifests as a single batch. When the chart
+emits this ConfigMap from its templates/ directory, Kubernetes commits both
+the ConfigMap AND the Deployment in the same Helm install transaction; the
+catalyst-api Pod then schedules AFTER the ConfigMap is in etcd, valueFrom
+resolves to the right value the first time, no race.
+
+The {{ if }} guard means contabo (Catalyst-Zero, no global.sovereignFQDN)
+never emits this ConfigMap — the catalyst-api Pod there keeps SOVEREIGN_FQDN
+empty (correct: contabo is the SIGNER, never the validator).
+
+The Kustomize path on contabo (clusters/contabo-mkt/apps/catalyst-platform/
+Kustomization listing files in templates/) explicitly enumerates resources;
+this new file is NOT in that resources list, so Kustomize never attempts to
+parse this Helm template syntax. Verified at templates/kustomization.yaml.
+
+Closes the SOVEREIGN_FQDN race chain that began at #698 and persisted through
+#714, #716. */}}
+{{- if .Values.global.sovereignFQDN }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sovereign-fqdn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/component: sovereign-fqdn-config
+    catalyst.openova.io/sovereign: {{ .Values.global.sovereignFQDN | quote }}
+data:
+  fqdn: {{ .Values.global.sovereignFQDN | quote }}
+{{- end }}
