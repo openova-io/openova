@@ -416,9 +416,9 @@ spec:
             # via bp-catalyst-platform OCI chart) AND by Kustomize (contabo-
             # mkt's clusters/contabo-mkt/apps/catalyst-platform Kustomization
             # at path: ./products/catalyst/chart/templates). Kustomize parses
-            # raw YAML — Helm template syntax `{{ ... }}` here breaks the
-            # Kustomize build (caught live on contabo 2026-05-03 from
-            # commit adf8dc7d: "yaml: invalid map key: {.Values.global...}").
+            # raw YAML — Helm template syntax (double-curly directives) here
+            # breaks the Kustomize build (caught live on contabo 2026-05-03
+            # from commit adf8dc7d: "yaml: invalid map key").
             #
             # Solution: read the value from a ConfigMap that exists ONLY on
             # Sovereigns (not contabo). On contabo the optional reference
