@@ -100,6 +100,57 @@ func (f *fakePDM) Commit(ctx context.Context, pool string, in pdm.CommitInput) e
 	return nil
 }
 
+// CommitWithRetry on the fake delegates to the same commit hook used by
+// Commit (so existing tests that stub `commit` keep working unchanged)
+// but threads the re-Reserve loop manually so the retry behaviour can
+// be exercised against in-memory fakes too. The 5xx-backoff branch
+// is a no-op on the fake (it returns whatever the hook returns and
+// the caller's MaxAttempts gate stops the loop) — callers that want
+// to verify backoff timing should use the httptest-based test in
+// pdm/client_test.go instead.
+func (f *fakePDM) CommitWithRetry(
+	ctx context.Context,
+	pool string,
+	in pdm.CommitInput,
+	reserve func(ctx context.Context) (*pdm.Reservation, error),
+	onRereserve func(newToken string),
+	cfg pdm.CommitRetryConfig,
+) error {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
+	}
+	current := in
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+		err := f.Commit(ctx, pool, current)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if errors.Is(err, pdm.ErrNotFound) || errors.Is(err, pdm.ErrExpired) || errors.Is(err, pdm.ErrTokenMismatch) {
+			if reserve == nil || attempt == cfg.MaxAttempts {
+				break
+			}
+			fresh, rerr := reserve(ctx)
+			if rerr != nil {
+				return rerr
+			}
+			current.ReservationToken = fresh.ReservationToken
+			if onRereserve != nil {
+				onRereserve(fresh.ReservationToken)
+			}
+			continue
+		}
+		// Non-sentinel error — fakes don't sleep; just keep iterating
+		// up to MaxAttempts so a stub returning an error N times then
+		// success behaves the same as the real client.
+		if attempt == cfg.MaxAttempts {
+			break
+		}
+	}
+	return lastErr
+}
+
 func (f *fakePDM) Release(ctx context.Context, pool, sub string) error {
 	f.mu.Lock()
 	f.releases = append(f.releases, releaseCall{pool, sub})

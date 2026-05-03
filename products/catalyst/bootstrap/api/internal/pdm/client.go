@@ -88,8 +88,26 @@ type Reservation struct {
 // ErrConflict — PDM returned 409 Conflict (subdomain already taken).
 var ErrConflict = errors.New("pool allocation conflict")
 
-// ErrNotFound — PDM returned 404 (no row to commit/release).
+// ErrNotFound — PDM returned 404 (no row to commit/release). Most often
+// raised on /commit when the reservation TTL elapsed and PDM's sweeper
+// goroutine has already deleted the row. CommitWithRetry treats this as
+// recoverable by re-Reserving with the same (poolDomain, subdomain,
+// createdBy) tuple and re-Committing with the fresh token.
 var ErrNotFound = errors.New("pool allocation not found")
+
+// ErrExpired — PDM returned 410 Gone on /commit. The reservation row
+// is still in the database but its expires_at has elapsed; the caller
+// must Reserve again before committing. CommitWithRetry treats this as
+// recoverable identically to ErrNotFound.
+var ErrExpired = errors.New("pool allocation expired before commit")
+
+// ErrTokenMismatch — PDM returned 403 Forbidden on /commit. The supplied
+// reservationToken does not match the token PDM holds for this row.
+// In practice this happens when a sweeper-then-rereserve race produced
+// a fresh row under the same name with a different token between the
+// initial Reserve and the Commit. Recoverable by re-Reserving (via
+// CommitWithRetry).
+var ErrTokenMismatch = errors.New("pool allocation token mismatch")
 
 // Reserve calls POST /api/v1/pool/{domain}/reserve. Returns ErrConflict on
 // 409 so callers can distinguish "name taken" from "PDM down".
@@ -137,6 +155,23 @@ type CommitInput struct {
 }
 
 // Commit calls POST /api/v1/pool/{domain}/commit.
+//
+// Status mapping (mirrors core/pool-domain-manager/internal/handler/handler.go
+// /commit semantics):
+//
+//	200/202    — success (202 means row committed but PowerDNS write
+//	             pending; the caller can re-Commit idempotently to
+//	             republish DNS — CommitWithRetry handles that)
+//	404        — ErrNotFound: the reservation row was swept (TTL
+//	             elapsed) and no row exists; caller must Reserve again
+//	410        — ErrExpired: the row is still present but expires_at
+//	             has elapsed before the sweeper ran; same recovery
+//	             (Reserve again) as 404
+//	403        — ErrTokenMismatch: a parallel /reserve replaced the row
+//	             with a different token after the original Reserve;
+//	             same recovery (Reserve again) as 404
+//	5xx / network errors → wrapped in fmt.Errorf so CommitWithRetry's
+//	             backoff loop can detect-and-retry.
 func (c *Client) Commit(ctx context.Context, poolDomain string, in CommitInput) error {
 	body := map[string]string{
 		"subdomain":        in.Subdomain,
@@ -165,9 +200,130 @@ func (c *Client) Commit(ctx context.Context, poolDomain string, in CommitInput) 
 		return nil
 	case http.StatusNotFound:
 		return ErrNotFound
+	case http.StatusGone:
+		return ErrExpired
+	case http.StatusForbidden:
+		return ErrTokenMismatch
 	default:
 		return fmt.Errorf("pdm commit status %d: %s", resp.StatusCode, truncate(string(respBody), 256))
 	}
+}
+
+// CommitRetryConfig parameterises CommitWithRetry. Zero values fall
+// back to production defaults (5 attempts, 1s → 16s exponential
+// backoff). Tests inject tighter bounds so a 404→200 re-Reserve path
+// completes in milliseconds rather than seconds.
+type CommitRetryConfig struct {
+	// MaxAttempts — total attempts including the first. <=0 → 5.
+	MaxAttempts int
+	// InitialBackoff — delay before the second attempt (doubles each
+	// retry, capped at MaxBackoff). <=0 → 1s.
+	InitialBackoff time.Duration
+	// MaxBackoff — upper bound on the per-step delay. <=0 → 16s.
+	MaxBackoff time.Duration
+}
+
+// CommitWithRetry runs Commit with two layered recovery primitives:
+//
+//  1. Re-Reserve on TTL expiry — when Commit returns ErrNotFound /
+//     ErrExpired / ErrTokenMismatch, the reservation row is gone or
+//     unusable. PDM's design says "Reserve again." This loop calls
+//     reserve(ctx) (a caller-supplied closure that wraps Client.Reserve
+//     with the deployment's poolDomain/subdomain/createdBy) to obtain
+//     a fresh reservation token, then retries Commit with the new
+//     token. The caller's onRereserve callback receives the fresh
+//     token so it can update the persisted Deployment row (otherwise
+//     a Pod restart between re-Reserve and re-Commit would lose the
+//     new token).
+//
+//  2. Exponential backoff on 5xx / network — when Commit returns a
+//     non-sentinel error (network failure, PDM 500, etc.) the loop
+//     sleeps InitialBackoff * 2^attempt (capped at MaxBackoff) then
+//     retries the SAME token. Up to MaxAttempts total attempts.
+//
+// On final exhaustion the loop returns the last error wrapped with
+// "pdm commit retry exhausted (N attempts)" — the caller surfaces
+// that string into Deployment.Error so the wizard FailureCard
+// renders it.
+//
+// The 404/410/403 branch counts against MaxAttempts (a malicious /
+// flapping PDM cannot loop forever) but does NOT sleep between the
+// re-Reserve and the next Commit — the row is gone, not flapping;
+// a fresh write is the right next step.
+func (c *Client) CommitWithRetry(
+	ctx context.Context,
+	poolDomain string,
+	in CommitInput,
+	reserve func(ctx context.Context) (*Reservation, error),
+	onRereserve func(newToken string),
+	cfg CommitRetryConfig,
+) error {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
+	}
+	if cfg.InitialBackoff <= 0 {
+		cfg.InitialBackoff = 1 * time.Second
+	}
+	if cfg.MaxBackoff <= 0 {
+		cfg.MaxBackoff = 16 * time.Second
+	}
+
+	current := in
+	var lastErr error
+	backoff := cfg.InitialBackoff
+
+	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+		err := c.Commit(ctx, poolDomain, current)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		// 404/410/403 — reservation gone or unusable. Re-Reserve and
+		// retry with the fresh token. Don't sleep — the row is gone,
+		// not flapping; a fresh write is the right next step.
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrExpired) || errors.Is(err, ErrTokenMismatch) {
+			if reserve == nil {
+				return fmt.Errorf("pdm commit needs re-Reserve but no reserve closure provided: %w", err)
+			}
+			if attempt == cfg.MaxAttempts {
+				break
+			}
+			fresh, rerr := reserve(ctx)
+			if rerr != nil {
+				// Re-reserve itself failed — most likely ErrConflict
+				// (someone else grabbed the name in the gap, which
+				// for catalyst-api is a hard fail because the
+				// deployment is already running on Hetzner) or a
+				// network/5xx (transient). Either way, propagate so
+				// the caller can mark dep.Error.
+				return fmt.Errorf("pdm re-reserve after commit %v: %w", err, rerr)
+			}
+			current.ReservationToken = fresh.ReservationToken
+			if onRereserve != nil {
+				onRereserve(fresh.ReservationToken)
+			}
+			continue
+		}
+
+		// 5xx / network — back off before retrying with the SAME
+		// token. The reservation row is still good (no sentinel), the
+		// PDM service is just unhappy.
+		if attempt == cfg.MaxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("pdm commit retry cancelled after %d attempts: %w", attempt, ctx.Err())
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > cfg.MaxBackoff {
+			backoff = cfg.MaxBackoff
+		}
+	}
+
+	return fmt.Errorf("pdm commit retry exhausted (%d attempts): %w", cfg.MaxAttempts, lastErr)
 }
 
 // Release calls DELETE /api/v1/pool/{domain}/release.
