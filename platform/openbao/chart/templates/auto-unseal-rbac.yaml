@@ -79,6 +79,13 @@ rules:
       # can both write the keys on fresh init and re-read them on a
       # later retry when the vault is initialised but still sealed.
       - openbao-unseal-keys
+      # openbao-init-trace: every init script run uploads its full
+      # set -x trace to this Secret on EXIT, so the FIRST run's logs
+      # survive subsequent container restarts that quickly hit the
+      # idempotent FATAL. Recovery diagnostic only — contains no
+      # secret material itself, but treating it as a Secret keeps it
+      # under the same RBAC umbrella.
+      - openbao-init-trace
 ---
 # RoleBinding — NOT a hook (issue #598).
 apiVersion: rbac.authorization.k8s.io/v1
