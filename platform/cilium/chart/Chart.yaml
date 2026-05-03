@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cilium
-version: 1.1.5
+version: 1.2.0
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
@@ -16,11 +16,21 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to cilium/cilium 1.16.5 (matches
+# bundles it into the OCI artifact. Pinned to cilium/cilium 1.19.3 (matches
 # platform/cilium/blueprint.yaml + values.yaml `catalystBlueprint.upstream
 # .version`). Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
 # version is operator-bumpable via PR + Blueprint release.
+#
+# 1.16.5 → 1.19.3 jump (2026-05-03): 1.16.x had buggy gateway-api hostNetwork
+# mode where cilium-envoy NACK'd listeners with "cannot bind '0.0.0.0:80':
+# Permission denied" and the loaded RDS for the Sovereign vhost only
+# carried the default `/` route — `/auth/*` and `/api/*` HTTPRoute matches
+# never reached envoy's live config. 1.18+ ships the mature Gateway API
+# implementation (graduated from beta), 1.19 is the current stable line.
+# Values shape verified compatible: gatewayAPI.hostNetwork.enabled,
+# envoy.enabled, envoyConfig.enabled, encryption.type=wireguard,
+# nodeEncryption — all unchanged.
 dependencies:
   - name: cilium
-    version: "1.16.5"
+    version: "1.19.3"
     repository: "https://helm.cilium.io"

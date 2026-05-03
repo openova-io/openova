@@ -19,7 +19,7 @@ global:
   imageRegistry: ""
 
 catalystBlueprint:
-  upstream: { chart: cilium, version: "1.16.5", repo: "https://helm.cilium.io" }
+  upstream: { chart: cilium, version: "1.19.3", repo: "https://helm.cilium.io" }
 
 # Catalyst-curated Cilium values per platform/cilium/README.md.
 #
@@ -76,7 +76,7 @@ cilium:
   # `metrics.enabled: null` (NOT [] and NOT a populated list) is the
   # exact value that makes the upstream Cilium chart skip the metrics
   # ServiceMonitor template branch — verified by reading the upstream
-  # cilium 1.16.5 chart's _hubble.tpl.
+  # cilium 1.19.3 chart's _hubble.tpl.
   #
   # Operator opts in via clusters/<sovereign>/bootstrap-kit/01-cilium.yaml
   # values overlay once bp-kube-prometheus-stack reconciles (issue #182).
