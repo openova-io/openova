@@ -64,14 +64,28 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
-  # The init Job persists root token + recovery-key INSIDE OpenBao itself
-  # (via `bao` CLI), but it ALSO needs to write a small bootstrap-marker
-  # Secret in the same namespace so that the auth-bootstrap Job (second
-  # hook) can detect that init has already completed and skip re-running.
-  # Marker contains no secret material — only a timestamp + checksum.
+  # CREATE rule — Kubernetes RBAC does NOT enforce resourceNames on
+  # the "create" verb (the resource has no name yet at admission time,
+  # so there's nothing to filter against). Splitting create into its
+  # own rule WITHOUT resourceNames is the documented k8s pattern and
+  # is required for the init Job's POST to /secrets to succeed.
+  #
+  # The 1.x history of this chart had `verbs: ["create", "get", "patch",
+  # "update"]` with resourceNames set — every fresh init's POST
+  # silently 403'd and the PUT fallback then silently failed (busybox
+  # wget has no --method flag), so the openbao-unseal-keys Secret was
+  # never written and every retry hit the idempotent FATAL. Caught
+  # live across otech22..otech40 with chart 1.2.9's trace capture.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["create", "get", "patch", "update"]
+    verbs: ["create"]
+  # MUTATION rule — once the Secret exists, restrict subsequent
+  # GET/PATCH/UPDATE/DELETE to only the well-known names this Job is
+  # allowed to touch. Newly added secrets in the namespace remain
+  # invisible to the Job SA.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch", "update", "delete"]
     resourceNames:
       - openbao-init-marker
       # openbao-unseal-keys: persisted unseal-key set used by the init
