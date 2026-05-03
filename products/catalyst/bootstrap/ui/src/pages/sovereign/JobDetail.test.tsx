@@ -149,13 +149,17 @@ function renderDetailWithLiveJobs(
 }
 
 describe('JobDetail — v3 surface (full-bleed canvas + LogPane, no tab strip)', () => {
-  it('renders the two-line header with the populated jobId', async () => {
+  it('renders the collapsed header (#669) with the back link, last-update + status chip', async () => {
+    // Issue #669 — the in-page job-detail-title was removed (PortalShell
+    // owns the page title now). The header strip keeps the back link,
+    // last-update timestamp and status chip; the page title lives in
+    // PortalShell's portal-header-title.
     renderDetail('d-1', 'bp-cilium')
     await waitFor(() => {
-      const header = screen.queryByTestId('job-detail-header')
-      const title = screen.queryByTestId('job-detail-title')
-      expect(header).toBeTruthy()
-      expect(title).toBeTruthy()
+      expect(screen.queryByTestId('job-detail-header')).toBeTruthy()
+      expect(screen.queryByTestId('job-detail-back')).toBeTruthy()
+      expect(screen.queryByTestId('job-detail-status')).toBeTruthy()
+      expect(screen.queryByTestId('portal-header-title')).toBeTruthy()
     })
   })
 
@@ -210,7 +214,8 @@ describe('JobDetail — backend-format jobId lookup (regression for #245 not-fou
       expect(screen.queryByTestId('job-detail-not-found')).toBeNull()
       expect(screen.queryByTestId(`job-detail-${jobId}`)).toBeTruthy()
     })
-    expect(screen.getByTestId('job-detail-title').textContent).toBe('Install Cilium')
+    // Issue #669 — title now lives in PortalShell's portal-header-title.
+    expect(screen.getByTestId('portal-header-title').textContent).toBe('Install Cilium')
   })
 
   it('still renders not-found when no live job AND no reducer-derived job matches', async () => {

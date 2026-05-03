@@ -65,6 +65,54 @@
   --color-accent-hover: #2563eb;
   --color-warn: #f59e0b;
   --color-danger: #ef4444;
+
+  /* ─── Flow-canvas + log-viewer tokens (issue #669) ──────────────────
+     Status palette for FlowCanvasOrganic bubbles (fill / ring / glyph
+     / glow / edge / arrow). Keyed by JobStatus. Light-mode peers in
+     the [data-theme="light"] block below. */
+  --bubble-fill-pending:   #0D1726;
+  --bubble-ring-pending:   rgba(148,163,184,0.45);
+  --bubble-glyph-pending:  rgba(148,163,184,0.75);
+  --bubble-glow-pending:   transparent;
+  --bubble-edge-pending:   rgba(148,163,184,0.32);
+  --bubble-arrow-pending:  rgba(148,163,184,0.60);
+
+  --bubble-fill-running:   #0E1A33;
+  --bubble-ring-running:   rgba(56,189,248,0.85);
+  --bubble-glyph-running:  #BAE6FD;
+  --bubble-glow-running:   rgba(56,189,248,0.30);
+  --bubble-edge-running:   rgba(56,189,248,0.65);
+  --bubble-arrow-running:  #38BDF8;
+
+  /* Issue #669 — succeeded bubbles MUST read as "done" at a glance.
+     Solid green fill, white tick. Was: dark fill #0F1F18 with green
+     glyph, which read identically to pending at a glance. */
+  --bubble-fill-succeeded: #16A34A;
+  --bubble-ring-succeeded: rgba(22,163,74,0.95);
+  --bubble-glyph-succeeded: #FFFFFF;
+  --bubble-glow-succeeded: rgba(74,222,128,0.20);
+  --bubble-edge-succeeded: rgba(74,222,128,0.55);
+  --bubble-arrow-succeeded: #4ADE80;
+
+  --bubble-fill-failed:    #23070A;
+  --bubble-ring-failed:    rgba(248,113,113,0.85);
+  --bubble-glyph-failed:   #FCA5A5;
+  --bubble-glow-failed:    rgba(248,113,113,0.30);
+  --bubble-edge-failed:    rgba(248,113,113,0.65);
+  --bubble-arrow-failed:   #F87171;
+
+  /* Bubble label (text below the bubble). Dark default = white-ish;
+     light peer flips to slate-900 for AA on white background. */
+  --bubble-label:          rgba(255,255,255,0.85);
+  --bubble-sublabel:       rgba(255,255,255,0.45);
+
+  /* Log viewer surface — was hardcoded #0D1117 in ExecutionLogs.tsx. */
+  --log-viewer-bg:         #0D1117;
+  --log-viewer-text:       #c9d1d9;
+  --log-viewer-text-dim:   rgba(139,148,158,0.85);
+  --log-viewer-text-num:   rgba(139,148,158,0.7);
+  --log-viewer-empty:      rgba(201,209,217,0.55);
+  --log-line-focused-bg:   rgba(56,139,253,0.18);
 }
 
 /* Console-token override for `--color-success` — the wizard surface
@@ -170,6 +218,49 @@
      dark-mode green semantic while clearing 4.5:1 against
      #ffffff bg (the dark default #10b981 is 1.6:1, AA-failing). */
   --color-success: #047857;
+
+  /* ─── Flow-canvas light peers (issue #669) ─────────────────────────
+     Bubble fills go pale tint instead of dark surface so glyph + ring
+     stay readable on a white page. Ring + glyph use AA-clearing
+     foregrounds. Edges + glows soften to keep the canvas light. */
+  --bubble-fill-pending:    #F1F5F9;
+  --bubble-ring-pending:    #94A3B8;
+  --bubble-glyph-pending:   #475569;
+  --bubble-glow-pending:    transparent;
+  --bubble-edge-pending:    rgba(100,116,139,0.45);
+  --bubble-arrow-pending:   #64748B;
+
+  --bubble-fill-running:    #DBEAFE;
+  --bubble-ring-running:    #2563EB;
+  --bubble-glyph-running:   #1E3A8A;
+  --bubble-glow-running:    rgba(37,99,235,0.20);
+  --bubble-edge-running:    rgba(37,99,235,0.65);
+  --bubble-arrow-running:   #2563EB;
+
+  --bubble-fill-succeeded:  #16A34A;
+  --bubble-ring-succeeded:  rgba(22,163,74,0.95);
+  --bubble-glyph-succeeded: #FFFFFF;
+  --bubble-glow-succeeded:  rgba(22,163,74,0.20);
+  --bubble-edge-succeeded:  rgba(22,163,74,0.65);
+  --bubble-arrow-succeeded: #16A34A;
+
+  --bubble-fill-failed:     #FEE2E2;
+  --bubble-ring-failed:     #B91C1C;
+  --bubble-glyph-failed:    #7F1D1D;
+  --bubble-glow-failed:     rgba(185,28,28,0.20);
+  --bubble-edge-failed:     rgba(185,28,28,0.65);
+  --bubble-arrow-failed:    #B91C1C;
+
+  --bubble-label:           #0F172A;
+  --bubble-sublabel:        #64748B;
+
+  /* Log viewer light peer — bright surface, AA-clearing text. */
+  --log-viewer-bg:          #F8FAFC;
+  --log-viewer-text:        #0F172A;
+  --log-viewer-text-dim:    #475569;
+  --log-viewer-text-num:    #94A3B8;
+  --log-viewer-empty:       #64748B;
+  --log-line-focused-bg:    rgba(37,99,235,0.12);
 
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;

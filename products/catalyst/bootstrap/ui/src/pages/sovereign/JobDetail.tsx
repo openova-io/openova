@@ -147,6 +147,37 @@ export function JobDetail({
     return stepsToLogLines(dj.steps)
   }, [executionId, selectedJob, jobId, derivedJobsById])
 
+  // Issue #669 — provision-wide global log stream. Merge the SSE-event
+  // step log of every derived job (Phase 0, cluster-bootstrap, every
+  // bp-*) into a single timestamp-sorted list. Each line's message is
+  // prefixed with the source job's display name so the column reads as
+  // a unified provision tail without losing the per-component context.
+  // Re-runs on every reducer state change (every SSE event) so the
+  // global stream is live, no polling needed.
+  const globalLines = useMemo<LogLine[]>(() => {
+    const merged: Array<{ ts: number; line: LogLine }> = []
+    let counter = 1
+    for (const dj of derivedJobs) {
+      const label = dj.displayName ?? dj.jobName ?? dj.id
+      for (const ll of stepsToLogLines(dj.steps)) {
+        const ts = ll.timestamp ? Date.parse(ll.timestamp) : NaN
+        merged.push({
+          ts: Number.isFinite(ts) ? ts : 0,
+          line: {
+            lineNumber: counter++,
+            timestamp: ll.timestamp,
+            level: ll.level,
+            message: `[${label}] ${ll.message}`,
+          },
+        })
+      }
+    }
+    merged.sort((a, b) => a.ts - b.ts)
+    // Renumber after sort so lineNumber reads top-down in chronological
+    // order rather than the per-job order produced above.
+    return merged.map((m, i) => ({ ...m.line, lineNumber: i + 1 }))
+  }, [derivedJobs])
+
   const onCanvasJobSelect = useCallback(
     (id: string | null) => {
       // Empty / null — operator clicked the canvas background; restore
@@ -190,19 +221,8 @@ export function JobDetail({
 
   const badge = statusBadge(job.status as JobUiStatus)
   const lastUpdate = job.finishedAt ?? job.startedAt
-  const parent = job.parentId ? jobsById[job.parentId] ?? null : null
-  const parentLabel = parent ? parent.displayName ?? parent.jobName : null
   const titleLabel = job.displayName ?? job.jobName
-
-  // Subtitle pieces — composed into a single line so the chrome stays
-  // at 2 lines (header title + meta). Empty pieces drop out.
-  const subtitlePieces: string[] = [job.id]
-  if (job.appId && job.appId !== 'infrastructure' && job.appId !== 'cluster-bootstrap' && job.type !== 'group') {
-    subtitlePieces.push(job.appId)
-  }
-  if (parentLabel) subtitlePieces.push(parentLabel)
   const lastUpdateLabel = fmtTime(lastUpdate)
-  if (lastUpdateLabel) subtitlePieces.push(`last update ${lastUpdateLabel}`)
 
   // LogPane title + status — driven by the SELECTED job (operator
   // clicked something), defaulting to the host job.
@@ -221,31 +241,31 @@ export function JobDetail({
       >
         <style>{JOB_DETAIL_CSS}</style>
 
-        {/* Two-line compact header with status chip top-right. */}
+        {/* Issue #669 — collapsed header.
+         *
+         * The page title (titleLabel) is already rendered by PortalShell
+         * via `pageTitle={titleLabel}` above; we no longer duplicate it
+         * here. The previous subtitle row (`<jobId> · <appId> ·
+         * <parentDisplayName> · last update`) is gone — jobId / appId /
+         * parent are derivable from the title and the canvas selection,
+         * and the only piece operators routinely scan is the
+         * last-update timestamp, which now lives inline next to the
+         * back link. Title + status chip remain available; meta clutter
+         * does not. */}
         <header className="job-detail-header" data-testid="job-detail-header">
-          <div className="job-detail-header-titles">
-            <div className="job-detail-header-line1">
-              <Link
-                to="/provision/$deploymentId/jobs"
-                params={{ deploymentId }}
-                className="job-detail-back"
-                data-testid="job-detail-back"
-              >
-                ← Back to jobs
-              </Link>
-              <h1 className="job-detail-title" data-testid="job-detail-title" title={titleLabel}>
-                {titleLabel}
-              </h1>
-            </div>
-            <div className="job-detail-header-line2" data-testid="job-detail-meta">
-              {subtitlePieces.map((p, idx) => (
-                <span key={idx} className="job-detail-meta-piece">
-                  {idx > 0 ? <span className="job-detail-meta-sep" aria-hidden> · </span> : null}
-                  {p}
-                </span>
-              ))}
-            </div>
-          </div>
+          <Link
+            to="/provision/$deploymentId/jobs"
+            params={{ deploymentId }}
+            className="job-detail-back"
+            data-testid="job-detail-back"
+          >
+            ← Back to jobs
+          </Link>
+          {lastUpdateLabel ? (
+            <span className="job-detail-last-update" data-testid="job-detail-last-update">
+              last update {lastUpdateLabel}
+            </span>
+          ) : null}
           <span
             className={`job-detail-status-chip ${badge.classes}`}
             data-testid="job-detail-status"
@@ -274,25 +294,11 @@ export function JobDetail({
           />
         </div>
 
-        {/* When the pane is closed, surface a small re-open button so
-            the operator can recover the log surface without having to
-            click a bubble. Stays out of the way (top-right of the
-            canvas area). */}
-        {!paneOpen ? (
-          <button
-            type="button"
-            className="job-detail-reopen-pane"
-            data-testid="job-detail-reopen-pane"
-            aria-label="Show log pane"
-            title="Show log pane"
-            onClick={() => setPaneOpen(true)}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-              <path d="M2 3 L12 3 M2 7 L12 7 M2 11 L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            Logs
-          </button>
-        ) : null}
+        {/* Issue #669 — the floating "Logs" reopen chip overlapped the
+         * status chip in the top-right corner. Removed: operators
+         * reopen the pane by clicking any bubble in the canvas (still
+         * wired in `onCanvasJobSelect`), or by toggling fullscreen
+         * with the existing keyboard shortcut. */}
       </div>
 
       {/* Floating log pane — open by default on the host's logs.
@@ -302,6 +308,7 @@ export function JobDetail({
         <CanvasLogBridge
           executionId={executionId}
           fallbackLines={fallbackLines}
+          globalLines={globalLines}
           jobTitle={logPaneJob.displayName ?? logPaneJob.jobName}
           jobStatus={logPaneStatus}
           onClose={() => {
@@ -326,6 +333,8 @@ interface CanvasLogBridgeProps {
   executionId: string | null | undefined
   /** Bug #481 — derived-job fallback lines (Phase-0, cluster-bootstrap). */
   fallbackLines: readonly LogLine[]
+  /** Issue #669 — provision-wide merged log stream. */
+  globalLines: readonly LogLine[]
   jobTitle: string
   jobStatus: string
   onClose: () => void
@@ -334,6 +343,7 @@ interface CanvasLogBridgeProps {
 function CanvasLogBridge({
   executionId,
   fallbackLines,
+  globalLines,
   jobTitle,
   jobStatus,
   onClose,
@@ -346,6 +356,7 @@ function CanvasLogBridge({
     <LogPane
       executionId={executionId ?? null}
       fallbackLines={fallbackLines}
+      globalLines={globalLines}
       jobTitle={jobTitle}
       statusLabel={jobStatus}
       statusTone={tone}
@@ -411,56 +422,18 @@ const JOB_DETAIL_CSS = `
 .job-detail-page.is-pane-closed {
   padding-right: 1rem;
 }
-.job-detail-reopen-pane {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.32rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-dim);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-  z-index: 50;
-  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
-}
-.job-detail-reopen-pane:hover {
-  color: var(--color-text-strong);
-  border-color: var(--color-text-dim);
-  background: rgba(148, 163, 184, 0.08);
-}
 
 .job-detail-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   padding-bottom: 0.45rem;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
-}
-.job-detail-header-titles {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1 1 auto;
-  gap: 0.05rem;
-}
-.job-detail-header-line1 {
-  display: flex;
-  align-items: baseline;
-  gap: 0.7rem;
   min-width: 0;
 }
 .job-detail-back {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: var(--color-text-dim);
   text-decoration: none;
   white-space: nowrap;
@@ -468,28 +441,15 @@ const JOB_DETAIL_CSS = `
   transition: color 0.12s ease;
 }
 .job-detail-back:hover { color: var(--color-text-strong); }
-.job-detail-title {
-  margin: 0;
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--color-text-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.job-detail-header-line2 {
+.job-detail-last-update {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.72rem;
   color: var(--color-text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.job-detail-meta-sep {
-  margin: 0 0.4rem;
-  opacity: 0.6;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .job-detail-status-chip {
   flex-shrink: 0;

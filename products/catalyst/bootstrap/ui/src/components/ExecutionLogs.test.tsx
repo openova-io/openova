@@ -199,12 +199,14 @@ describe('ExecutionLogs — rendering', () => {
       expect(screen.getByTestId('execution-logs-line-1')).toBeTruthy()
     })
     const root = screen.getByTestId('execution-logs-root')
-    // jsdom canonicalises hex → rgb. We accept either form so the test
-    // is portable across environments that preserve the literal vs.
-    // those that round-trip via CSSOM. Both representations encode the
-    // founder-specified `#0D1117`.
+    // Issue #669 — the viewer surface routes through `--log-viewer-bg`
+    // so the colour flips on `[data-theme="light"]`. Globals.css sets
+    // the dark default to #0D1117 (founder-specified, verbatim) and the
+    // light peer to #F8FAFC. We assert the CSS-variable wiring rather
+    // than the resolved colour because jsdom never loads the stylesheet
+    // that supplies the variable's value.
     const bg = (root as HTMLElement).style.background.toLowerCase()
-    expect(bg === '#0d1117' || bg.includes('rgb(13, 17, 23)')).toBe(true)
+    expect(bg).toContain('var(--log-viewer-bg)')
   })
 })
 
