@@ -328,6 +328,36 @@ spec:
                 secretKeyRef:
                   name: harbor-robot-token
                   key: token
+            # CATALYST_POWERDNS_API_KEY — contabo PowerDNS API key (PR
+            # #681 followup). The value is interpolated into the new
+            # Sovereign's `cert-manager/powerdns-api-credentials` Secret
+            # at cloud-init time so bp-cert-manager-powerdns-webhook
+            # can write DNS-01 challenge TXT records to contabo's
+            # authoritative omani.works zone.
+            #
+            # Provisioning seam:
+            #   1. Source: contabo's `openova-system/powerdns-api-
+            #      credentials` Secret (created by bp-powerdns chart).
+            #   2. Reflector mirrors it into every namespace incl.
+            #      catalyst (annotations on the source: reflection-
+            #      auto-enabled: "true", reflection-auto-namespaces: "").
+            #   3. This Pod resolves it via secretKeyRef.
+            #   4. provisioner.New() reads CATALYST_POWERDNS_API_KEY at
+            #      startup, stamps onto every Request.
+            #   5. cloud-init writes the Sovereign-side Secret in
+            #      cert-manager namespace BEFORE Flux reconciles
+            #      bp-cert-manager-powerdns-webhook.
+            #
+            # optional=true: Catalyst-Zero pods on Sovereigns don't have
+            # this Secret reflected (their PowerDNS is local) so the
+            # bootstrap shape stays clean across both contabo+Sovereign
+            # catalyst-api deployments.
+            - name: CATALYST_POWERDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: powerdns-api-credentials
+                  key: api-key
+                  optional: true
             # ── /auth/handover Keycloak service-account (issue #606) ──────────
             # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
             # service FQDN in code; override here for non-standard Sovereign

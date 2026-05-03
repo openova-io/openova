@@ -373,8 +373,21 @@ api:
     secretName: powerdns-api-tls
     issuer: letsencrypt-prod
   basicAuth:
-    enabled: true
-    secretName: powerdns-api-basicauth      # bcrypt(operator:<password>) — managed out-of-band, see api-ingress.yaml
+    # PR #681 followup (2026-05-03): basicAuth disabled by default.
+    # Reason: PowerDNS already enforces X-API-Key on every API call
+    # (powerdns.openova-system.svc:8081 + the public pdns.openova.io
+    # ingress both require X-API-Key). Layering Traefik basicAuth on
+    # top blocked the Sovereign-side bp-cert-manager-powerdns-webhook
+    # from issuing DNS-01 challenges, because the webhook only knows
+    # how to send X-API-Key (not Authorization: Basic). Caught live
+    # on otech47 — DNS-01 challenges hung with `Unauthorized` despite
+    # the API key being correct.
+    #
+    # Operators who want a UI-only basicAuth gate can flip this back
+    # to true in their cluster overlay; the X-API-Key contract for
+    # API consumers is unchanged either way.
+    enabled: false
+    secretName: powerdns-api-basicauth      # bcrypt(operator:<password>) — only used when enabled=true
   middlewareName: powerdns-api-auth
   # Cilium Gateway API mode (issue #387). Set `enabled: true` ON SOVEREIGNS
   # ONLY. parentRef defaults to cilium-gateway/kube-system, the per-Sovereign

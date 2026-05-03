@@ -23,7 +23,7 @@ Middleware while still rendering the Ingress below, so the auth posture
 must then be supplied by the cluster overlay's chosen ingress controller
 (per docs/INVIOLABLE-PRINCIPLES.md #4 — never hardcode ingress class).
 */}}
-{{- if .Capabilities.APIVersions.Has "traefik.io/v1alpha1" }}
+{{- if and .Values.api.basicAuth.enabled (.Capabilities.APIVersions.Has "traefik.io/v1alpha1") }}
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -34,8 +34,8 @@ metadata:
 spec:
   basicAuth:
     secret: {{ .Values.api.basicAuth.secretName | default "powerdns-api-basicauth" | quote }}
-{{- end }}
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -45,10 +45,13 @@ metadata:
     {{- include "bp-powerdns.labels" . | nindent 4 }}
   annotations:
     cert-manager.io/cluster-issuer: {{ .Values.api.tls.issuer | default "letsencrypt-prod" | quote }}
-    {{- /* Traefik router middleware annotation only renders when the Traefik
-    Middleware CRD is present (gated above). When Traefik is absent the
-    auth posture moves to the Sovereign's chosen ingress controller. */}}
-    {{- if .Capabilities.APIVersions.Has "traefik.io/v1alpha1" }}
+    {{- /* Traefik router middleware annotation only renders when the
+    Middleware CRD is present (Traefik is the chosen ingress controller)
+    AND basicAuth.enabled is true. When basicAuth is off (current default
+    per PR #681 followup) the API surface relies on PowerDNS's own
+    X-API-Key check — see api-credentials-secret.yaml for the source
+    of truth on the API key. */}}
+    {{- if and .Values.api.basicAuth.enabled (.Capabilities.APIVersions.Has "traefik.io/v1alpha1") }}
     traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace (.Values.api.middlewareName | default "powerdns-api-auth") | quote }}
     {{- end }}
 spec:
