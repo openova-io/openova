@@ -104,13 +104,17 @@ if grep -qE "smoke-bao-openbao-auth-delegator" "$TMP/initonly.yaml"; then
 fi
 echo "  PASS"
 
-echo "[auto-unseal-toggle] Case 4: idempotency — hook-delete-policy includes before-hook-creation"
-# The init Job + auth-bootstrap Job + auto-unseal RBAC must declare
-# `before-hook-creation,hook-succeeded` so Helm cleans up stale objects
-# from a prior install and the seed Secret is removed on success.
+echo "[auto-unseal-toggle] Case 4: idempotency — hook-delete-policy on Jobs only"
+# bp-openbao 1.2.6 (commit b1a25c42) intentionally removed the
+# `helm.sh/hook-delete-policy` from the SA/Role/RoleBinding so Helm
+# DOES NOT delete them mid-install. The previous policy
+# (before-hook-creation,hook-succeeded) caused the SA to be reaped after
+# the weight-0 RBAC hook completed but before the weight-5 init Job
+# could mount its SA token — surfacing as "RBAC hook lifecycle bug".
+# Only the 2 Jobs (init + auth-bootstrap) keep the annotation.
 JOB_BEFORE_HOOK=$(grep -cE '"helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded' "$TMP/autounseal.yaml" || true)
-if [ "$JOB_BEFORE_HOOK" -lt 5 ]; then
-  echo "FAIL: expected ≥5 before-hook-creation,hook-succeeded annotations (SA+Role+RoleBinding+2 Jobs); found $JOB_BEFORE_HOOK." >&2
+if [ "$JOB_BEFORE_HOOK" -lt 2 ]; then
+  echo "FAIL: expected ≥2 before-hook-creation,hook-succeeded annotations on the 2 Jobs (init + auth-bootstrap); found $JOB_BEFORE_HOOK." >&2
   exit 1
 fi
 echo "  PASS"
