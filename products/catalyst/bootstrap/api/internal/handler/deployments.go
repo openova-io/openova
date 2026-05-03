@@ -1023,6 +1023,31 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// resumed/diagnosed correctly.
 	h.persistDeployment(dep)
 
+	// PDM /commit fires HERE — between Phase 0 and Phase 1 — for two
+	// architectural reasons:
+	//
+	//   1. The Phase-0 LB IP is the ONLY data PDM needs to write the
+	//      child-zone records (NS delegation + console/api/wildcard
+	//      A records). Phase-1 outcome does NOT change DNS routing,
+	//      so deferring the commit to AFTER Phase 1 just delays the
+	//      moment console.<sub>.<pool> resolves (and previously did
+	//      so with the SSE channel already closed — failures were
+	//      invisible to the wizard).
+	//   2. The PDM reservation TTL is 10 minutes by default; Phase-0
+	//      routinely takes 8-12 min on a fresh Hetzner cluster, so
+	//      the commit can race the sweeper. CommitWithRetry handles
+	//      that by re-Reserving on 404/410/403 — and it does so while
+	//      the wizard SSE stream is still open, surfacing each
+	//      attempt as an event. See pdm/client.go:CommitWithRetry.
+	//
+	// On Phase-0 failure (no LB IP), Release is called instead so the
+	// reservation TTL doesn't have to expire to free the name.
+	if err == nil && result != nil {
+		h.commitPDMWithRetry(dep, result)
+	} else {
+		h.releasePDMReservation(dep)
+	}
+
 	// Phase 1 — HelmRelease watch. Only runs on Phase-0 success and
 	// only when a kubeconfig is available. The watch emits per-
 	// component events into the same SSE buffer + live channel; when
@@ -1044,50 +1069,137 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// ran, or is a no-op for the Phase 0 failure path (already
 	// persisted above).
 	h.persistDeployment(dep)
+}
 
-	// PDM lifecycle: on success, /commit with the LB IP; on failure,
-	// /release so the reservation TTL doesn't have to expire to free
-	// the name. PDM is the single owner of the Dynadot side-effect
-	// (it is also responsible for AddSovereignRecords on commit;
-	// catalyst-api never writes DNS itself). The commit happens
-	// post-Phase-0 because the LB IP is the only data PDM needs;
-	// the Phase-1 watch outcome does NOT change DNS routing.
-	if dep.pdmReservationToken != "" && h.pdm != nil {
-		pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer pdmCancel()
-		if err == nil && result != nil {
-			commitErr := h.pdm.Commit(pdmCtx, dep.pdmPoolDomain, pdm.CommitInput{
-				Subdomain:        dep.pdmSubdomain,
-				ReservationToken: dep.pdmReservationToken,
-				SovereignFQDN:    result.SovereignFQDN,
-				LoadBalancerIP:   result.LoadBalancerIP,
-			})
-			if commitErr != nil {
-				h.log.Error("pdm commit failed; sovereign is live but DNS records may be stale",
-					"id", dep.ID,
-					"poolDomain", dep.pdmPoolDomain,
-					"subdomain", dep.pdmSubdomain,
-					"err", commitErr,
-				)
-			} else {
-				h.log.Info("pdm commit complete",
-					"id", dep.ID,
-					"poolDomain", dep.pdmPoolDomain,
-					"subdomain", dep.pdmSubdomain,
-					"loadBalancerIP", result.LoadBalancerIP,
-				)
-			}
+// commitPDMWithRetry promotes the deployment's PDM reservation to
+// ACTIVE and triggers the per-Sovereign zone write inside PDM. It runs
+// while the wizard SSE stream is still open so each attempt + failure
+// surfaces as an event; on final exhaustion the human-readable error
+// is appended to dep.Error so the wizard FailureCard renders it.
+//
+// The retry loop is delegated to pdm.Client.CommitWithRetry (5
+// attempts, 1s → 16s backoff). Re-Reserve on 404/410/403 is done
+// inline so a TTL-expiry — the actual symptom that broke otech41+ —
+// recovers automatically and the persisted deployment row is updated
+// to the fresh token (so a Pod restart between re-Reserve and
+// re-Commit picks up the new token instead of the stale one).
+//
+// No-op when the deployment isn't using PDM (BYO domain mode, or
+// h.pdm == nil in tests).
+func (h *Handler) commitPDMWithRetry(dep *Deployment, result *provisioner.Result) {
+	if dep.pdmReservationToken == "" || h.pdm == nil {
+		return
+	}
+
+	// Up to 5 minutes for the full retry window — 5 attempts at
+	// 1s/2s/4s/8s/16s backoff plus per-attempt HTTP timeouts (15s
+	// each from Client.HTTP) plus a re-Reserve every other attempt
+	// in the worst case = ~3 min ceiling, with a safety margin.
+	pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer pdmCancel()
+
+	emitInfo := func(msg string) {
+		h.emitWatchEvent(dep, provisioner.Event{
+			Time:    time.Now().UTC().Format(time.RFC3339),
+			Phase:   "pdm-commit",
+			Level:   "info",
+			Message: msg,
+		})
+	}
+	emitErr := func(msg string) {
+		h.emitWatchEvent(dep, provisioner.Event{
+			Time:    time.Now().UTC().Format(time.RFC3339),
+			Phase:   "pdm-commit",
+			Level:   "error",
+			Message: msg,
+		})
+	}
+
+	emitInfo(fmt.Sprintf("Publishing DNS records for %s via pool-domain-manager (LB %s)…",
+		result.SovereignFQDN, result.LoadBalancerIP))
+
+	commitErr := h.pdm.CommitWithRetry(
+		pdmCtx,
+		dep.pdmPoolDomain,
+		pdm.CommitInput{
+			Subdomain:        dep.pdmSubdomain,
+			ReservationToken: dep.pdmReservationToken,
+			SovereignFQDN:    result.SovereignFQDN,
+			LoadBalancerIP:   result.LoadBalancerIP,
+		},
+		func(ctx context.Context) (*pdm.Reservation, error) {
+			emitInfo(fmt.Sprintf("PDM reservation expired during Phase 0 — re-Reserving %s.%s",
+				dep.pdmSubdomain, dep.pdmPoolDomain))
+			return h.pdm.Reserve(ctx, dep.pdmPoolDomain, dep.pdmSubdomain, "catalyst-api/deployment-"+dep.ID)
+		},
+		func(newToken string) {
+			// Token rotated — persist the new token onto the row so a
+			// Pod restart between this re-Reserve and the next
+			// Commit attempt doesn't lose it.
+			dep.mu.Lock()
+			dep.pdmReservationToken = newToken
+			dep.mu.Unlock()
+			h.persistDeployment(dep)
+		},
+		pdm.CommitRetryConfig{}, // production defaults
+	)
+	if commitErr != nil {
+		// Final exhaustion — surface to the wizard. The Sovereign is
+		// live (cluster, LB, kubeconfig all good) but DNS is stale,
+		// so we annotate dep.Error rather than flipping Status to
+		// failed (which would imply the cluster itself is broken).
+		// The wizard's FailureCard checks dep.Error before rendering
+		// "ready" so the operator sees this regardless.
+		h.log.Error("pdm commit failed after retry; sovereign is live but DNS records are stale — operator action required",
+			"id", dep.ID,
+			"poolDomain", dep.pdmPoolDomain,
+			"subdomain", dep.pdmSubdomain,
+			"err", commitErr,
+		)
+		emitErr(fmt.Sprintf("DNS publish FAILED after retry: %v. The Sovereign cluster is live (LB %s) but %s will not resolve until an operator runs PDM /commit manually or re-runs the deployment.",
+			commitErr, result.LoadBalancerIP, result.SovereignFQDN))
+		dep.mu.Lock()
+		errMsg := fmt.Sprintf("DNS commit failed: %v — sovereign cluster is live but %s does not resolve. Re-run `curl -X POST $POOL_DOMAIN_MANAGER_URL/api/v1/pool/%s/commit` with a fresh reservation, or re-trigger the deployment.",
+			commitErr, result.SovereignFQDN, dep.pdmPoolDomain)
+		if dep.Error == "" {
+			dep.Error = errMsg
 		} else {
-			releaseErr := h.pdm.Release(pdmCtx, dep.pdmPoolDomain, dep.pdmSubdomain)
-			if releaseErr != nil && !errors.Is(releaseErr, pdm.ErrNotFound) {
-				h.log.Error("pdm release failed; reservation will expire on TTL",
-					"id", dep.ID,
-					"poolDomain", dep.pdmPoolDomain,
-					"subdomain", dep.pdmSubdomain,
-					"err", releaseErr,
-				)
-			}
+			dep.Error = dep.Error + " | " + errMsg
 		}
+		dep.mu.Unlock()
+		h.persistDeployment(dep)
+		return
+	}
+
+	h.log.Info("pdm commit complete",
+		"id", dep.ID,
+		"poolDomain", dep.pdmPoolDomain,
+		"subdomain", dep.pdmSubdomain,
+		"loadBalancerIP", result.LoadBalancerIP,
+	)
+	emitInfo(fmt.Sprintf("DNS published — %s now resolves to %s.",
+		result.SovereignFQDN, result.LoadBalancerIP))
+}
+
+// releasePDMReservation releases the PDM reservation on Phase-0
+// failure so the reservation TTL doesn't have to expire to free the
+// name. Best-effort: a release failure logs a warning but does not
+// block the failure-cleanup path. ErrNotFound is silently ignored
+// because the row may have been swept already.
+func (h *Handler) releasePDMReservation(dep *Deployment) {
+	if dep.pdmReservationToken == "" || h.pdm == nil {
+		return
+	}
+	pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer pdmCancel()
+	releaseErr := h.pdm.Release(pdmCtx, dep.pdmPoolDomain, dep.pdmSubdomain)
+	if releaseErr != nil && !errors.Is(releaseErr, pdm.ErrNotFound) {
+		h.log.Error("pdm release failed; reservation will expire on TTL",
+			"id", dep.ID,
+			"poolDomain", dep.pdmPoolDomain,
+			"subdomain", dep.pdmSubdomain,
+			"err", releaseErr,
+		)
 	}
 }
 

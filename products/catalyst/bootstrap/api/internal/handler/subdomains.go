@@ -243,9 +243,21 @@ func isNXDomain(err error) bool {
 
 // pdmClient is implemented by *pdm.Client. The interface lets us pass a
 // fake in tests without wiring a real HTTP server.
+//
+// CommitWithRetry is the production path for /commit (handles TTL-expiry
+// re-Reserve + 5xx exponential backoff); plain Commit is retained for
+// tests that exercise the underlying single-shot semantics.
 type pdmClient interface {
 	Check(ctx context.Context, poolDomain, subdomain string) (*pdm.CheckResult, error)
 	Reserve(ctx context.Context, poolDomain, subdomain, createdBy string) (*pdm.Reservation, error)
 	Commit(ctx context.Context, poolDomain string, in pdm.CommitInput) error
+	CommitWithRetry(
+		ctx context.Context,
+		poolDomain string,
+		in pdm.CommitInput,
+		reserve func(ctx context.Context) (*pdm.Reservation, error),
+		onRereserve func(newToken string),
+		cfg pdm.CommitRetryConfig,
+	) error
 	Release(ctx context.Context, poolDomain, subdomain string) error
 }
