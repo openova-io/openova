@@ -102,6 +102,15 @@ spec:
           args:
             - |
               set -eu
+              # set -x makes every shell command echo to stderr so that
+              # if the script crashes mid-run (e.g. during `bao operator
+              # init` extraction), the LAST command before exit is
+              # captured in pod logs. Diagnostic guardrail added after
+              # otech37/38 surfaced first-attempt logs disappearing
+              # between init and persist (server became Initialized=true
+              # but unseal-keys Secret never got written, with no log
+              # evidence of where the crash happened).
+              set -x
               # ─── Step 1: wait for openbao-0 to answer status checks ────
               # Upstream chart name pattern: <release>-openbao-0. Skip if
               # already responsive.
