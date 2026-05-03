@@ -136,15 +136,19 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
     // can opt into CPX32 explicitly when they trim the component set.
     { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0232, priceMonth: 14.49,
       category: 'shared-amd', description: 'AMD shared vCPU — entry tier (4 vCPU / 8 GB) — too small for full SOLO bootstrap-kit; trim components first' },
-    // CPX42 — recommended SOLO starter. 8 vCPU / 16 GB fits the full
-    // bootstrap-kit (Cilium + Crossplane + Flux + Cert-manager + CNPG +
-    // Keycloak + OpenBao + Harbor + Gitea + observability) on a single
-    // node with enough headroom for VPA recommendations to converge.
+    // CPX42 — fits a TRIMMED bootstrap-kit but otech29 showed 8 vCPU
+    // is too tight for the full 35-component default — keycloak-config-cli
+    // post-upgrade Job sits Pending forever with "Insufficient cpu".
     { id: 'cpx42', label: 'CPX42', vcpu: 8, ram: 16, disk: 320, priceHour: 0.0408, priceMonth: 25.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (8 vCPU / 16 GB / 320 GB SSD)',
-      recommended: true },
+      category: 'shared-amd', description: 'AMD shared vCPU — entry tier (8 vCPU / 16 GB) — sufficient for trimmed component sets' },
+    // CPX52 — recommended SOLO starter. 12 vCPU / 24 GB fits the full
+    // 35-component bootstrap-kit + post-install hooks (keycloak-config-cli
+    // realm import, mimir compactor, harbor migrator) without hitting
+    // node CPU pressure. Empirically validated as the smallest SKU that
+    // schedules every default Pod on a single node.
     { id: 'cpx52', label: 'CPX52', vcpu: 12, ram: 24, disk: 480, priceHour: 0.0585, priceMonth: 36.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — heavy worker' },
+      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (12 vCPU / 24 GB / 480 GB SSD)',
+      recommended: true },
     { id: 'cpx62', label: 'CPX62', vcpu: 16, ram: 32, disk: 640, priceHour: 0.0809, priceMonth: 50.49,
       category: 'shared-amd', description: 'AMD shared vCPU — top-of-range shared' },
 
