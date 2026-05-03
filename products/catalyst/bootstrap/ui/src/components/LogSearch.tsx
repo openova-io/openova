@@ -201,6 +201,15 @@ export function lineMatches(text: string, filter: LogFilter): boolean {
   return text.toLowerCase().includes(q.toLowerCase())
 }
 
+/* Issue #669 round 2 — LogSearch theme tokens.
+ *
+ * All hardcoded rgba/hex values routed through CSS variables so the
+ * search bar reskins under [data-theme="light"] without losing AA
+ * contrast. New tokens: --log-search-bg, --log-search-input-bg,
+ * --log-search-input-text, --log-search-icon, --log-search-pill-text,
+ * --log-search-pill-regex-{bg,fg,border}, plus per-level
+ * --log-search-level-{info,warn,error,debug}-{bg,fg,border}. Light
+ * peers are defined in globals.css. */
 const LOG_SEARCH_CSS = `
 .log-search {
   display: flex;
@@ -208,7 +217,7 @@ const LOG_SEARCH_CSS = `
   gap: 0.4rem;
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--color-border);
-  background: rgba(13, 17, 23, 0.5);
+  background: var(--log-search-bg, rgba(13,17,23,0.5));
   flex-shrink: 0;
 }
 .log-search-input-wrap {
@@ -222,27 +231,30 @@ const LOG_SEARCH_CSS = `
   left: 0.55rem;
   width: 13px;
   height: 13px;
-  color: rgba(148, 163, 184, 0.6);
+  color: var(--log-search-icon, rgba(148,163,184,0.6));
   pointer-events: none;
 }
 .log-search-input {
   flex: 1 1 auto;
   padding: 0.34rem 0.55rem 0.34rem 1.7rem;
-  background: rgba(13, 17, 23, 0.85);
+  background: var(--log-search-input-bg, rgba(13,17,23,0.85));
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  color: rgba(201, 209, 217, 0.95);
+  color: var(--log-search-input-text, var(--color-text));
   font-size: 0.78rem;
   font-family: ui-monospace, SFMono-Regular, monospace;
   outline: none;
   transition: border-color 0.15s ease;
+}
+.log-search-input::placeholder {
+  color: var(--log-search-input-placeholder, var(--color-text-dim));
 }
 .log-search-input:focus {
   border-color: var(--color-accent, #38BDF8);
 }
 .log-search-count {
   font-size: 0.7rem;
-  color: rgba(148, 163, 184, 0.7);
+  color: var(--color-text-dim);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   padding: 0 0.35rem;
@@ -251,17 +263,18 @@ const LOG_SEARCH_CSS = `
   appearance: none;
   border: 1px solid var(--color-border);
   background: transparent;
-  color: rgba(201, 209, 217, 0.85);
+  color: var(--color-text-dim);
   border-radius: 6px;
   width: 24px;
   height: 24px;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
   flex-shrink: 0;
 }
 .log-search-nav:hover:not(:disabled) {
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--log-search-nav-hover, rgba(148,163,184,0.1));
+  color: var(--color-text-strong);
   border-color: var(--color-text-dim);
 }
 .log-search-nav:disabled {
@@ -284,7 +297,7 @@ const LOG_SEARCH_CSS = `
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
-  color: rgba(148, 163, 184, 0.7);
+  color: var(--log-search-pill-text, var(--color-text-dim));
   transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .log-search-pill:hover { color: var(--color-text-strong); }
@@ -294,12 +307,28 @@ const LOG_SEARCH_CSS = `
   letter-spacing: 0;
 }
 .log-search-pill.regex.active {
-  background: rgba(192, 132, 252, 0.15);
-  color: #C084FC;
-  border-color: rgba(192, 132, 252, 0.45);
+  background: var(--log-search-pill-regex-bg, rgba(192,132,252,0.15));
+  color: var(--log-search-pill-regex-fg, #C084FC);
+  border-color: var(--log-search-pill-regex-border, rgba(192,132,252,0.45));
 }
-.log-search-pill.level-info.active   { background: rgba(56, 139, 253, 0.18);  color: #79b8ff; border-color: rgba(56, 139, 253, 0.45); }
-.log-search-pill.level-warn.active   { background: rgba(245, 158, 11, 0.18);  color: #f59e0b; border-color: rgba(245, 158, 11, 0.45); }
-.log-search-pill.level-error.active  { background: rgba(248, 81, 73, 0.18);   color: #f85149; border-color: rgba(248, 81, 73, 0.45); }
-.log-search-pill.level-debug.active  { background: rgba(148, 163, 184, 0.18); color: #94a3b8; border-color: rgba(148, 163, 184, 0.45); }
+.log-search-pill.level-info.active   {
+  background: var(--log-search-level-info-bg, rgba(56,139,253,0.18));
+  color: var(--log-search-level-info-fg, #79b8ff);
+  border-color: var(--log-search-level-info-border, rgba(56,139,253,0.45));
+}
+.log-search-pill.level-warn.active   {
+  background: var(--log-search-level-warn-bg, rgba(245,158,11,0.18));
+  color: var(--log-search-level-warn-fg, #f59e0b);
+  border-color: var(--log-search-level-warn-border, rgba(245,158,11,0.45));
+}
+.log-search-pill.level-error.active  {
+  background: var(--log-search-level-error-bg, rgba(248,81,73,0.18));
+  color: var(--log-search-level-error-fg, #f85149);
+  border-color: var(--log-search-level-error-border, rgba(248,81,73,0.45));
+}
+.log-search-pill.level-debug.active  {
+  background: var(--log-search-level-debug-bg, rgba(148,163,184,0.18));
+  color: var(--log-search-level-debug-fg, #94a3b8);
+  border-color: var(--log-search-level-debug-border, rgba(148,163,184,0.45));
+}
 `

@@ -195,9 +195,9 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
           const r = Number(c.getAttribute('r') ?? '0')
           if (r > maxR) maxR = r
         }
-        // The status-fill circle is at r=NODE_RADIUS (40); ensure the
-        // bubble has at least that much radius (≥40 → diameter ≥80).
-        expect(maxR).toBeGreaterThanOrEqual(40)
+        // Issue #669 round 2 — radius adaptive within
+        // [MIN_NODE_RADIUS=16, MAX_NODE_RADIUS=40]; assert floor only.
+        expect(maxR).toBeGreaterThanOrEqual(16)
       }
       void baseCircles
       void allCircles
@@ -540,7 +540,12 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
     ).toBeNull()
   })
 
-  it('keeps every bubble visible (radius ≥40) and viewBox bounded for a 60-node graph', () => {
+  it('keeps every bubble visible (radius ≥ MIN_NODE_RADIUS) and viewBox bounded for a 60-node graph (#669 round 2)', () => {
+    /* Issue #669 round 2 — bubble radius is now ADAPTIVE: clamped to
+     * [MIN_NODE_RADIUS=16, MAX_NODE_RADIUS=40]. A 60-node graph in a
+     * default-host (1200×700) shrinks toward MIN; we just assert R is
+     * never below the floor and the viewBox stays bounded. */
+    const MIN_NODE_RADIUS = 16
     const layout = makeLayout(60)
     const { container } = render(
       <FlowCanvasOrganic
@@ -569,7 +574,7 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
         const r = Number(c.getAttribute('r') ?? '0')
         if (r > maxR) maxR = r
       }
-      expect(maxR).toBeGreaterThanOrEqual(40)
+      expect(maxR).toBeGreaterThanOrEqual(MIN_NODE_RADIUS)
     }
   })
 
@@ -644,7 +649,7 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
     }
   })
 
-  it('orders Y by depRank — root sits higher than leaves (#532)', async () => {
+  it('linear chain reads horizontally on the X-axis centerline (#669 round 2)', async () => {
     const { flowLayoutOrganic } = await import('@/lib/flowLayoutOrganic')
     const baseJob = {
       appId: 'x',
@@ -687,8 +692,8 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
         onCanvasBackgroundClick={() => {}}
       />,
     )
-    // Read each node's rendered Y coordinate.
-    const yById = new Map<string, number>()
+    // Read each node's rendered position.
+    const posById = new Map<string, { x: number; y: number }>()
     for (const id of ['a', 'b', 'c', 'd', 'e']) {
       const g = container.querySelector<SVGGElement>(
         `[data-flow-draggable][data-job-id="${id}"]`,
@@ -697,18 +702,29 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
       const t = g!.getAttribute('transform') ?? ''
       const m = t.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
       expect(m).not.toBeNull()
-      yById.set(id, Number(m![2]))
+      posById.set(id, { x: Number(m![1]), y: Number(m![2]) })
     }
-    // Higher depRank → higher Y (lower on canvas — Y grows downward).
-    // Because forceY is gentle and the initial seed already orders by
-    // depRank, the rendered Y must be non-decreasing along the chain.
-    expect(yById.get('a')!).toBeLessThan(yById.get('b')!)
-    expect(yById.get('b')!).toBeLessThan(yById.get('c')!)
-    expect(yById.get('c')!).toBeLessThan(yById.get('d')!)
-    expect(yById.get('d')!).toBeLessThan(yById.get('e')!)
+    /* Issue #669 round 2 — linear chain reads LEFT-TO-RIGHT (X grows
+     * with depth) and clusters around the X-axis centerline (each
+     * depth's bucket has size 1 so the median sibling lands at y=h/2).
+     * X must be strictly increasing along the dep chain; Y stays
+     * within ±halfBand of the host centerline. */
+    const svg = container.querySelector<SVGSVGElement>('[data-testid="flow-canvas-svg"]')!
+    const vbParts = (svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
+    const hostH = vbParts[3]
+    const yCenter = hostH / 2
+    expect(posById.get('a')!.x).toBeLessThan(posById.get('b')!.x)
+    expect(posById.get('b')!.x).toBeLessThan(posById.get('c')!.x)
+    expect(posById.get('c')!.x).toBeLessThan(posById.get('d')!.x)
+    expect(posById.get('d')!.x).toBeLessThan(posById.get('e')!.x)
+    // Y stays clustered near the centerline (±100px tolerance for
+    // jitter + force settling).
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      expect(Math.abs(posById.get(id)!.y - yCenter)).toBeLessThanOrEqual(100)
+    }
   })
 
-  it('forceCollide guarantees min spacing of NODE_RADIUS*2 + COLLIDE_PADDING (#532 no-overlap)', async () => {
+  it('forceCollide guarantees min spacing of 2R + COLLIDE_PADDING — adaptive R (#669 round 2 no-overlap)', async () => {
     // 8 sibling nodes — same depth, same region, all pending. Without
     // forceCollide they'd want to overlap at the same depth-anchor.
     const { flowLayoutOrganic } = await import('@/lib/flowLayoutOrganic')
@@ -761,11 +777,15 @@ describe('FlowCanvasOrganic — Bug #481 bounded layout', () => {
       positions.push({ id, x: Number(m[1]), y: Number(m[2]) })
     }
     expect(positions.length).toBe(8)
-    // Acceptance: every pair of node centroids is ≥
-    // NODE_RADIUS*2 + COLLIDE_PADDING apart (= 92px). Allow a small
-    // numerical tolerance (2px) for sub-pixel float drift before the
-    // sim fully converges.
-    const MIN_SPACING = 40 * 2 + 12 // NODE_RADIUS*2 + COLLIDE_PADDING
+    /* Issue #669 round 2 — bubble radius is adaptive. Read the actual
+     * rendered radius from the SVG (last <circle> on each <g> is the
+     * status fill) and require pairwise distance ≥ 2R + COLLIDE_PADDING.
+     * R is constant across all bubbles in a single layout. */
+    const COLLIDE_PADDING = 12
+    const someG = groups[0]!
+    const lastCircle = someG.querySelectorAll('circle')[someG.querySelectorAll('circle').length - 1]
+    const renderedR = Number(lastCircle?.getAttribute('r') ?? '40')
+    const MIN_SPACING = renderedR * 2 + COLLIDE_PADDING
     const TOL = 2
     for (let i = 0; i < positions.length; i++) {
       for (let j = i + 1; j < positions.length; j++) {

@@ -427,11 +427,22 @@ const JOB_DETAIL_CSS = `
   padding-right: 1rem;
 }
 
+/* Issue #669 round 2 — sticky header. The Back link, last-update
+ * timestamp and status chip stay frozen at the top of the canvas
+ * scroll area while the flow-canvas / LogPane content scrolls.
+ * position:sticky + top:0 pin against the .job-detail-page
+ * container; a solid surface background prevents the header text
+ * from blending into the canvas backdrop while content slides
+ * underneath. */
 .job-detail-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--color-bg);
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding-bottom: 0.45rem;
+  padding: 0.45rem 0;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   min-width: 0;
