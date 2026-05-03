@@ -190,6 +190,58 @@ write_files:
           }
         }))}
 
+  # ── flux-system/harbor-robot-token Secret (issue #557 follow-up) ─────
+  #
+  # The catalyst-api Pod template (products/catalyst/chart/templates/
+  # api-deployment.yaml) references a Secret named `harbor-robot-token`
+  # via a REQUIRED (non-optional) secretKeyRef on every Sovereign. The
+  # token authenticates pulls from the central harbor.openova.io
+  # proxy-cache (proxy-dockerhub, proxy-gcr, proxy-quay, proxy-k8s,
+  # proxy-ghcr) — the same value already interpolated into
+  # /etc/rancher/k3s/registries.yaml below.
+  #
+  # Without this Secret the catalyst-api Pod stays in
+  # CreateContainerConfigError indefinitely. Caught live on otech43,
+  # otech45, otech46 — the operator workaround was hand-creating a
+  # placeholder Secret on each iteration, which is a workaround, not
+  # a fix.
+  #
+  # Why this Secret lives in flux-system + uses Reflector auto-mirror:
+  # the same canonical pattern as `ghcr-pull` above — bp-reflector
+  # (slot 05a) propagates the Secret to every namespace via
+  # `reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"`,
+  # so catalyst-system (and any other namespace that needs the token)
+  # picks it up event-driven on first reconcile.
+  #
+  # The Secret carries one key (`token`) which catalyst-api reads as
+  # CATALYST_HARBOR_ROBOT_TOKEN and re-stamps onto every grandchild
+  # Sovereign provision request — the Sovereign's own Sovereigns
+  # (post-handover) inherit the same central proxy-cache auth.
+  #
+  # Token rotation: yearly, see docs/SECRET-ROTATION.md. Rotation flows
+  # through `var.harbor_robot_token` → re-render cloud-init → re-apply
+  # this Secret. The plaintext NEVER lives in git.
+  - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: harbor-robot-token
+        namespace: flux-system
+        annotations:
+          # bp-reflector (slot 05a) mirrors this Secret to every
+          # namespace so catalyst-api in catalyst-system (and any
+          # workload added later that needs the central Harbor robot
+          # auth) picks it up without per-namespace manual creation.
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
+      type: Opaque
+      data:
+        token: ${base64encode(harbor_robot_token)}
+
   # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────────
   #
   # The bp-cert-manager-dynadot-webhook Pod reads DYNADOT_API_KEY /
@@ -1018,6 +1070,16 @@ runcmd:
   # rewrites this with the same content; a token rotation propagates
   # through here on the next cloud-init render.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
+
+  # ── flux-system/harbor-robot-token Secret (issue #557 follow-up) ─────
+  #
+  # Apply the central-Harbor robot-account Secret BEFORE Flux reconciles
+  # the bootstrap-kit. bp-catalyst-platform's catalyst-api Pod has a
+  # REQUIRED (non-optional) secretKeyRef to `harbor-robot-token` in its
+  # own namespace; bp-reflector (slot 05a) mirrors this Secret from
+  # flux-system into catalyst-system on first reconcile so the Pod can
+  # start cleanly. Same idempotency property as ghcr-pull above.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
 
   # ── cert-manager/dynadot-api-credentials Secret (issue #550) ─────────
   #
