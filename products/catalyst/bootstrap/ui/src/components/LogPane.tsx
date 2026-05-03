@@ -92,14 +92,17 @@ export function LogPane({
   const [matchCount, setMatchCount] = useState<number>(0)
   const [matchIndex, setMatchIndex] = useState<number>(0)
   const [fullScreen, setFullScreen] = useState<boolean>(false)
-  /* Issue #669 — split-view state. When `splitView` is true and there
-   * are non-empty `globalLines`, the pane body lays out as a 2-column
-   * grid: per-component on the left, global merged stream on the
-   * right. Default to OFF so the pane keeps its slim 30vw footprint
-   * for the common single-component flow; operators flip it on when
-   * they want a provision-wide tail. */
-  const [splitView, setSplitView] = useState<boolean>(false)
+  /* Issue #669 round 2 — global view is a TOGGLE, not a split. Operators
+   * flip a globe icon to swap the single-column body between the host
+   * job's logs and the provision-wide merged stream. The pane width
+   * stays the same in both modes. Founder-verbatim 2026-05-03: "we do
+   * not split the page in to 2 pieces instead we toggle between global
+   * and the individual log views". */
+  const [viewMode, setViewMode] = useState<'component' | 'global'>('component')
   const hasGlobal = (globalLines?.length ?? 0) > 0
+  useEffect(() => {
+    if (!hasGlobal && viewMode === 'global') setViewMode('component')
+  }, [hasGlobal, viewMode])
 
   // Reset matchIndex whenever the count drops below it (e.g. operator
   // tightens the query). Bumping it from 0 → 1 the moment results
@@ -156,10 +159,8 @@ export function LogPane({
       aria-label={`Logs for ${jobTitle}`}
       data-testid="log-pane"
       data-fullscreen={fullScreen ? 'true' : 'false'}
-      data-split={splitView && hasGlobal ? 'true' : 'false'}
-      className={`log-pane${fullScreen ? ' is-fullscreen' : ''}${
-        splitView && hasGlobal ? ' is-split' : ''
-      }`}
+      data-view-mode={viewMode}
+      className={`log-pane${fullScreen ? ' is-fullscreen' : ''}`}
     >
       <style>{LOG_PANE_CSS}</style>
       <header className="log-pane-header" data-testid="log-pane-header">
@@ -173,29 +174,33 @@ export function LogPane({
         <span className="log-pane-title" data-testid="log-pane-title" title={jobTitle}>
           {jobTitle}
         </span>
-        {/* Issue #669 — split-view toggle. Only enabled when the
-            consumer passes `globalLines` so legacy mounts (no global
-            stream) hide the affordance entirely instead of showing a
-            disabled button. */}
+        {/* Issue #669 round 2 — globe icon toggles single-column view
+            between this component's log and the provision-wide merged
+            stream. Pressed = global, unpressed = component. */}
         {hasGlobal ? (
           <button
             type="button"
             className="log-pane-icon-btn"
-            aria-label={splitView ? 'Hide global log column' : 'Show global log column'}
-            aria-pressed={splitView}
-            data-testid="log-pane-split"
-            onClick={() => setSplitView((v) => !v)}
-            title={splitView ? 'Hide global log column' : 'Show global log column'}
+            aria-label={
+              viewMode === 'global'
+                ? 'Show this component log'
+                : 'Show global (all-components) log'
+            }
+            aria-pressed={viewMode === 'global'}
+            data-testid="log-pane-view-toggle"
+            onClick={() =>
+              setViewMode((m) => (m === 'global' ? 'component' : 'global'))
+            }
+            title={
+              viewMode === 'global'
+                ? 'Showing global · click to view this component'
+                : 'Showing this component · click to view global'
+            }
           >
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-              <path
-                d="M2 2 L6 2 L6 12 L2 12 Z M8 2 L12 2 L12 12 L8 12 Z"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3" fill="none" />
+              <ellipse cx="7" cy="7" rx="2.4" ry="5.5" stroke="currentColor" strokeWidth="1.3" fill="none" />
+              <path d="M1.5 7 L12.5 7" stroke="currentColor" strokeWidth="1.3" fill="none" />
             </svg>
           </button>
         ) : null}
@@ -246,7 +251,27 @@ export function LogPane({
         </button>
       </header>
 
-      {executionId ? (
+      {/*
+        Issue #669 round 2 — single-column body. `viewMode` selects the
+        content: 'component' renders the host job's logs (executionId
+        if present, else fallbackLines, else empty state); 'global'
+        renders the provision-wide merged stream. The LogSearch above
+        applies to whichever view is active.
+       */}
+      {viewMode === 'global' && hasGlobal ? (
+        <>
+          <LogSearch
+            matchCount={matchCount}
+            matchIndex={matchIndex}
+            onPrev={goPrev}
+            onNext={goNext}
+            onFilterChange={setFilter}
+          />
+          <div className="log-pane-body" data-testid="log-pane-body">
+            <GlobalLogColumn lines={globalLines!} filter={filter} />
+          </div>
+        </>
+      ) : executionId ? (
         <>
           <LogSearch
             matchCount={matchCount}
@@ -257,9 +282,6 @@ export function LogPane({
           />
           <div className="log-pane-body" data-testid="log-pane-body">
             <div className="log-pane-col" data-testid="log-pane-col-primary">
-              <div className="log-pane-col-header" data-testid="log-pane-col-primary-header">
-                <span>{jobTitle}</span>
-              </div>
               <div className="log-pane-col-body">
                 <ExecutionLogs
                   executionId={executionId}
@@ -270,9 +292,6 @@ export function LogPane({
                 />
               </div>
             </div>
-            {splitView && hasGlobal ? (
-              <GlobalLogColumn lines={globalLines!} filter={filter} />
-            ) : null}
           </div>
         </>
       ) : fallbackLines && fallbackLines.length > 0 ? (
@@ -286,9 +305,6 @@ export function LogPane({
           />
           <div className="log-pane-body" data-testid="log-pane-body">
             <div className="log-pane-col" data-testid="log-pane-col-primary">
-              <div className="log-pane-col-header" data-testid="log-pane-col-primary-header">
-                <span>{jobTitle}</span>
-              </div>
               <div className="log-pane-col-body">
                 <FallbackLogList
                   lines={fallbackLines}
@@ -298,19 +314,8 @@ export function LogPane({
                 />
               </div>
             </div>
-            {splitView && hasGlobal ? (
-              <GlobalLogColumn lines={globalLines!} filter={filter} />
-            ) : null}
           </div>
         </>
-      ) : splitView && hasGlobal ? (
-        // Issue #669 — operator opened split-view on a host job that has
-        // no recorded execution + no fallback lines yet. Render the
-        // global column on its own so the split affordance still
-        // delivers value.
-        <div className="log-pane-body" data-testid="log-pane-body">
-          <GlobalLogColumn lines={globalLines!} filter={filter} />
-        </div>
       ) : (
         <div className="log-pane-empty" data-testid="log-pane-empty">
           No execution recorded yet.
@@ -692,28 +697,21 @@ const LOG_PANE_CSS = `
   border-color: var(--color-accent, #38BDF8);
   background: rgba(56, 189, 248, 0.10);
 }
-/* Issue #669 — log-pane body lays out as a row of columns. With one
- * column (default) the column fills the body. With split-view on
- * (.is-split on the root aside element) the body holds two columns
- * side-by-side, each at 50% with a divider between them. */
+/* Issue #669 round 2 — single-column body. Globe icon swaps content
+ * in place; pane width stays the same in both modes. */
 .log-pane-body {
   flex: 1 1 auto;
   overflow: hidden;
   display: flex;
-  flex-direction: row;
-  gap: 0;
+  flex-direction: column;
   min-height: 0;
 }
 .log-pane-col {
-  flex: 1 1 50%;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  border-left: 1px solid var(--color-border);
-}
-.log-pane-col:first-child {
-  border-left: 0;
 }
 .log-pane-col-header {
   flex-shrink: 0;
@@ -740,11 +738,6 @@ const LOG_PANE_CSS = `
 .log-pane-col-body > * {
   flex: 1 1 auto;
   min-height: 0;
-}
-/* Wider footprint when split-view is on so each column has breathing
- * room. Falls back to the single-column 30vw when split is off. */
-.log-pane.is-split:not(.is-fullscreen) {
-  width: max(var(--log-pane-width, 30vw), 56vw);
 }
 .log-pane-empty {
   display: flex;
