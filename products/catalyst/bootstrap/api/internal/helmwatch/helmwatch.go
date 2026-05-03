@@ -400,6 +400,25 @@ type Watcher struct {
 	mu2          sync.Mutex
 	onSyncedHooks []func([]ComponentSnapshot)
 	syncedOnce   bool
+
+	// runtimeSubscribers — fan-out callbacks invoked on EVERY event the
+	// Watcher emits (per-component state transitions, post-sync ready
+	// transition, first-seen warn, all watch-level diagnostics). The
+	// jobs Bridge subscribes here so its per-Job state map is updated on
+	// every transition, not just on the post-sync seed snapshot.
+	//
+	// Issue #695: the historical wiring fanned events out only through
+	// the single `emit` callback (handler.emitWatchEvent), which routed
+	// to bridge.OnProvisionerEvent via the durable-buffer + SSE emit
+	// path. That path is correct in steady state but is brittle to any
+	// future refactor that decouples the bridge from emitWatchEvent
+	// — so Watcher.Subscribe gives the bridge a direct, dedicated event
+	// stream that does not depend on the SSE pipeline being wired.
+	//
+	// Mutated under mu2; dispatched under no lock (the slice is
+	// snapshotted under the lock then iterated without it so a
+	// subscriber that calls Subscribe re-entrantly cannot deadlock).
+	runtimeSubscribers []func(provisioner.Event)
 }
 
 // ComponentSnapshot is one entry in the informer's local cache — the
@@ -562,14 +581,14 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		if err != nil {
 			// Non-fatal — emit a warn event and continue without log
 			// streaming. The state watch is the load-bearing part.
-			w.emit(provisioner.Event{
+			w.dispatch(provisioner.Event{
 				Time:    w.cfg.Now().UTC().Format(time.RFC3339),
 				Phase:   PhaseComponent,
 				Level:   "warn",
 				Message: "helm-controller log tailing disabled: build core client: " + err.Error(),
 			})
 		} else {
-			tailer := newLogTailer(core, w.emit, w.cfg.Now)
+			tailer := newLogTailer(core, w.dispatch, w.cfg.Now)
 			go tailer.run(watchCtx)
 		}
 	}
@@ -658,7 +677,7 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 			// Timeout or caller cancel — emit a single warn event so
 			// the Sovereign Admin can render "watch ended (timeout):
 			// X of Y installed" rather than going silent.
-			w.emit(provisioner.Event{
+			w.dispatch(provisioner.Event{
 				Time:    w.cfg.Now().UTC().Format(time.RFC3339),
 				Phase:   PhaseComponent,
 				Level:   "warn",
@@ -709,7 +728,7 @@ func (w *Watcher) maybeEmitFirstSeenWarn(firstSeenStart time.Time) {
 	w.firstSeenWarnEmitted = true
 	w.mu.Unlock()
 
-	w.emit(provisioner.Event{
+	w.dispatch(provisioner.Event{
 		Time:  w.cfg.Now().UTC().Format(time.RFC3339),
 		Phase: PhaseComponent,
 		Level: "warn",
@@ -838,7 +857,7 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	w.mu.Unlock()
 
 	if prev != state {
-		w.emit(provisioner.Event{
+		w.dispatch(provisioner.Event{
 			Time:      w.cfg.Now().UTC().Format(time.RFC3339),
 			Phase:     PhaseComponent,
 			Level:     level,
@@ -886,7 +905,7 @@ func (w *Watcher) maybeEmitReadyTransition() {
 	componentCount := len(w.observed)
 	w.mu.Unlock()
 
-	w.emit(provisioner.Event{
+	w.dispatch(provisioner.Event{
 		Time:    w.cfg.Now().UTC().Format(time.RFC3339),
 		Phase:   PhaseComponent,
 		Level:   "info",
@@ -1230,6 +1249,58 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 		})
 	}
 	return out
+}
+
+// Subscribe registers a callback the Watcher invokes for EVERY event
+// it emits, in addition to the primary `emit` Emit callback supplied at
+// construction. Callbacks fire synchronously on the same goroutine that
+// invokes processEvent / fireOnSyncedHooks etc., so a slow subscriber
+// blocks the watch — subscribers that need decoupled processing must
+// shovel events into their own buffered channel and return immediately.
+//
+// Issue #695: the jobs.Bridge subscribes here (via the handler) so its
+// per-Job state map updates on every per-component HelmRelease
+// transition the Watcher observes — independent of whether the SSE
+// emit pipeline is wired. This is the runtime complement to
+// OnInitialListSynced (which only fires once with the initial-list
+// snapshot).
+//
+// Concurrency: safe to call from any goroutine. Subscribers added
+// AFTER Watch has begun emitting events will only see future events
+// (the Watcher does not replay the history) — but combined with
+// OnInitialListSynced + SnapshotComponents the subscriber can
+// reconstruct the current state on attach.
+func (w *Watcher) Subscribe(fn func(ev provisioner.Event)) {
+	if fn == nil {
+		return
+	}
+	w.mu2.Lock()
+	w.runtimeSubscribers = append(w.runtimeSubscribers, fn)
+	w.mu2.Unlock()
+}
+
+// dispatch routes ev to the primary emit callback AND to every
+// runtime subscriber registered via Subscribe. Used by every internal
+// event-producing path (processEvent, maybeEmitReadyTransition,
+// maybeEmitFirstSeenWarn, the watch-cancel diagnostic, the log-tailer
+// disabled warn). Subscribers run synchronously after the primary
+// emit so a subscriber that panics cannot prevent the SSE pipeline
+// from receiving the event.
+//
+// The subscriber slice is snapshotted under mu2 and iterated outside
+// the lock so a callback that re-enters Subscribe (e.g. a deferred
+// resubscribe after seeing a particular event) cannot deadlock.
+func (w *Watcher) dispatch(ev provisioner.Event) {
+	w.emit(ev)
+
+	w.mu2.Lock()
+	subs := make([]func(provisioner.Event), len(w.runtimeSubscribers))
+	copy(subs, w.runtimeSubscribers)
+	w.mu2.Unlock()
+
+	for _, fn := range subs {
+		fn(ev)
+	}
 }
 
 // OnInitialListSynced registers a callback the Watcher will invoke

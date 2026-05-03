@@ -75,6 +75,16 @@ const defaultRefreshWatchSeedTimeout = 30 * time.Second
 // that). The bridge handles idempotency end-to-end so repeated
 // wiring across resume / refresh paths is safe.
 //
+// In addition to the one-shot seed hook, the bridge is ALSO
+// subscribed to the Watcher's runtime event stream via Subscribe so
+// every per-component HelmRelease transition observed AFTER the
+// initial-list sync drives bridge.OnProvisionerEvent. This is the
+// load-bearing path for issue #695: without it the per-Job state map
+// stayed pinned to whatever the initial-list snapshot saw, so the
+// wizard's /jobs page rendered Install rows as "running"/"pending"
+// even after kubectl showed every bp-* HelmRelease at Ready=True
+// (verified on otech48/49/50/52, 2026-05-03).
+//
 // A nil jobs store (CI runner, in-memory test handler) makes this a
 // no-op — every test that doesn't wire a jobs store needs the path
 // to silently skip the seeding.
@@ -83,15 +93,20 @@ func (h *Handler) attachBridgeSeederHook(dep *Deployment, watcher *helmwatch.Wat
 		return
 	}
 	depID := dep.ID
-	watcher.OnInitialListSynced(func(snap []helmwatch.ComponentSnapshot) {
-		dep.mu.Lock()
-		bridge := dep.jobsBridge
-		if bridge == nil {
-			bridge = jobs.NewBridge(h.jobs, depID)
-			dep.jobsBridge = bridge
-		}
-		dep.mu.Unlock()
 
+	// Materialise the bridge eagerly so the runtime Subscribe path can
+	// reference the same bridge instance as the seeder hook. The
+	// bridge is goroutine-safe (Store.mu + Bridge.mu) so concurrent
+	// dispatch of seed-hook + runtime-event paths is safe.
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, depID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+
+	watcher.OnInitialListSynced(func(snap []helmwatch.ComponentSnapshot) {
 		seeds := snapshotsToSeeds(snap)
 		jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
 		if err != nil {
@@ -108,6 +123,26 @@ func (h *Handler) attachBridgeSeederHook(dep *Deployment, watcher *helmwatch.Wat
 			"jobsWritten", jobsCount,
 			"executionsSeeded", execsSeeded,
 		)
+	})
+
+	// Subscribe the bridge to the Watcher's runtime event stream so
+	// every per-component HelmRelease transition (state changes
+	// observed AFTER the initial-list snapshot) drives the per-Job
+	// state map. The bridge dedups duplicate transitions internally
+	// (Bridge.lastState), so receiving the same event via both the
+	// emitWatchEvent path and this Subscribe path is a no-op for the
+	// second arrival — issue #695. Errors are logged at warn so an
+	// operator can spot persistent drift; they never abort the
+	// Watcher loop.
+	watcher.Subscribe(func(ev provisioner.Event) {
+		if err := bridge.OnProvisionerEvent(ev); err != nil {
+			h.log.Warn("jobs bridge: runtime event forward failed",
+				"id", depID,
+				"phase", ev.Phase,
+				"component", ev.Component,
+				"err", err,
+			)
+		}
 	})
 }
 
@@ -236,15 +271,18 @@ func (h *Handler) RefreshWatch(w http.ResponseWriter, r *http.Request) {
 	// "seed is durable, your /jobs poll will see it" signal.
 	seeded := make(chan time.Time, 1)
 	depID2 := dep.ID
-	watcher.OnInitialListSynced(func(snap []helmwatch.ComponentSnapshot) {
-		dep.mu.Lock()
-		bridge := dep.jobsBridge
-		if bridge == nil {
-			bridge = jobs.NewBridge(h.jobs, depID2)
-			dep.jobsBridge = bridge
-		}
-		dep.mu.Unlock()
 
+	// Materialise the bridge before registering the seeder + runtime
+	// hooks so both reference the same instance.
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, depID2)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+
+	watcher.OnInitialListSynced(func(snap []helmwatch.ComponentSnapshot) {
 		seeds := snapshotsToSeeds(snap)
 		jobsCount, execsSeeded, seedErr := bridge.SeedJobsFromInformerList(seeds)
 		if seedErr != nil {
@@ -262,6 +300,22 @@ func (h *Handler) RefreshWatch(w http.ResponseWriter, r *http.Request) {
 		select {
 		case seeded <- time.Now().UTC():
 		default:
+		}
+	})
+
+	// Subscribe the bridge to the runtime event stream — issue #695.
+	// Same reasoning as attachBridgeSeederHook: every per-component
+	// transition observed AFTER the seed must drive the per-Job state
+	// map so the wizard's /jobs page advances past the initial-list
+	// snapshot.
+	watcher.Subscribe(func(ev provisioner.Event) {
+		if err := bridge.OnProvisionerEvent(ev); err != nil {
+			h.log.Warn("jobs bridge: refresh-watch runtime event forward failed",
+				"id", depID2,
+				"phase", ev.Phase,
+				"component", ev.Component,
+				"err", err,
+			)
 		}
 	})
 

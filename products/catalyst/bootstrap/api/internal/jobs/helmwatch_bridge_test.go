@@ -700,3 +700,126 @@ func TestOnProvisionerEvent_dropsUnknownPhases(t *testing.T) {
 		t.Errorf("non-component phases must not allocate Jobs, got %d", len(got))
 	}
 }
+
+// TestBridge_SeedThenRuntimeTransitions covers the issue #695 fix path:
+// after seeding the bridge from the helmwatch informer's initial-list
+// (3 HRs all Pending → 3 pending Jobs), subsequent runtime transition
+// events (the Watcher.Subscribe runtime stream) must update the
+// per-Job state map so the wizard's /jobs page advances past the
+// initial snapshot.
+//
+// Wire-shape mirrors how attachBridgeSeederHook subscribes the bridge
+// to the Watcher: SeedJobsFromInformerList for the initial-list seed,
+// then OnHelmReleaseEvent (driven from Watcher.Subscribe → bridge.
+// OnProvisionerEvent) for each subsequent transition.
+//
+// Acceptance from the issue:
+//   - HR-1 → Ready=True   ⇒ 1 succeeded + 2 pending
+//   - HR-2 → Ready=Unknown ⇒ 1 succeeded + 1 running + 1 pending
+//
+// The pre-fix bug rendered every row as the seed-time state because
+// the bridge was never wired to the runtime event stream — only to
+// the one-shot OnInitialListSynced hook.
+func TestBridge_SeedThenRuntimeTransitions(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	now := time.Date(2026, 5, 3, 14, 40, 0, 0, time.UTC)
+
+	// Seed three pending HelmReleases (the initial-list snapshot the
+	// helmwatch informer hands the bridge via SeedJobsFromInformerList).
+	seeds := []InformerSeed{
+		{Component: "cilium", State: HelmStatePending, Message: "waiting on first reconcile", ObservedAt: now},
+		{Component: "cert-manager", State: HelmStatePending, Message: "waiting on cilium", ObservedAt: now},
+		{Component: "flux", State: HelmStatePending, Message: "waiting on cert-manager", ObservedAt: now},
+	}
+	if _, _, err := br.SeedJobsFromInformerList(seeds); err != nil {
+		t.Fatalf("SeedJobsFromInformerList: %v", err)
+	}
+
+	leaves := leafJobs(mustList(t, st, depID))
+	if len(leaves) != 3 {
+		t.Fatalf("after seed: want 3 leaf jobs, got %d (%+v)", len(leaves), leaves)
+	}
+	for _, j := range leaves {
+		if j.Status != StatusPending {
+			t.Errorf("after seed: %s status=%q, want %q", j.JobName, j.Status, StatusPending)
+		}
+	}
+
+	// HR-1 (cilium) goes Ready=True → bridge sees the runtime
+	// transition through OnHelmReleaseEvent (Watcher.Subscribe path).
+	// Job status flips to succeeded; siblings remain pending.
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "Helm install succeeded", now.Add(30*time.Second)); err != nil {
+		t.Fatalf("OnHelmReleaseEvent cilium installed: %v", err)
+	}
+
+	leaves = leafJobs(mustList(t, st, depID))
+	statusByName := map[string]string{}
+	for _, j := range leaves {
+		statusByName[j.JobName] = j.Status
+	}
+	if got := statusByName["install-cilium"]; got != StatusSucceeded {
+		t.Errorf("after cilium ready: install-cilium status=%q, want %q", got, StatusSucceeded)
+	}
+	if got := statusByName["install-cert-manager"]; got != StatusPending {
+		t.Errorf("after cilium ready: install-cert-manager status=%q, want %q", got, StatusPending)
+	}
+	if got := statusByName["install-flux"]; got != StatusPending {
+		t.Errorf("after cilium ready: install-flux status=%q, want %q", got, StatusPending)
+	}
+
+	// Verify the cilium Job has the terminal-state stamps the wizard
+	// renders (StartedAt / FinishedAt / DurationMs / LatestExecutionID).
+	cilium, ciliumExecs, err := st.GetJob(depID, JobID(depID, "install-cilium"))
+	if err != nil {
+		t.Fatalf("GetJob install-cilium: %v", err)
+	}
+	if cilium.LatestExecutionID == "" {
+		t.Errorf("install-cilium: LatestExecutionID must be set after terminal transition")
+	}
+	if cilium.StartedAt == nil {
+		t.Errorf("install-cilium: StartedAt must be set after terminal transition")
+	}
+	if cilium.FinishedAt == nil {
+		t.Errorf("install-cilium: FinishedAt must be set after terminal transition")
+	}
+	if len(ciliumExecs) != 1 || ciliumExecs[0].Status != StatusSucceeded {
+		t.Errorf("install-cilium executions: %+v", ciliumExecs)
+	}
+
+	// HR-2 (cert-manager) goes Ready=Unknown → state="installing"
+	// → Job status=running. Siblings keep their prior state.
+	if err := br.OnHelmReleaseEvent("cert-manager", HelmStateInstalling, "info", "first reconcile in flight", now.Add(45*time.Second)); err != nil {
+		t.Fatalf("OnHelmReleaseEvent cert-manager installing: %v", err)
+	}
+
+	leaves = leafJobs(mustList(t, st, depID))
+	statusByName = map[string]string{}
+	for _, j := range leaves {
+		statusByName[j.JobName] = j.Status
+	}
+	if got := statusByName["install-cilium"]; got != StatusSucceeded {
+		t.Errorf("after cert-manager installing: install-cilium status=%q, want %q", got, StatusSucceeded)
+	}
+	if got := statusByName["install-cert-manager"]; got != StatusRunning {
+		t.Errorf("after cert-manager installing: install-cert-manager status=%q, want %q", got, StatusRunning)
+	}
+	if got := statusByName["install-flux"]; got != StatusPending {
+		t.Errorf("after cert-manager installing: install-flux status=%q, want %q", got, StatusPending)
+	}
+
+	// And cert-manager should now have an open Execution (not finished
+	// — it's still running).
+	cm, cmExecs, err := st.GetJob(depID, JobID(depID, "install-cert-manager"))
+	if err != nil {
+		t.Fatalf("GetJob install-cert-manager: %v", err)
+	}
+	if cm.LatestExecutionID == "" {
+		t.Errorf("install-cert-manager: LatestExecutionID must be set after non-pending transition")
+	}
+	if cm.FinishedAt != nil {
+		t.Errorf("install-cert-manager: FinishedAt must be nil while still running, got %v", cm.FinishedAt)
+	}
+	if len(cmExecs) != 1 || cmExecs[0].Status != StatusRunning {
+		t.Errorf("install-cert-manager executions: %+v", cmExecs)
+	}
+}
