@@ -158,7 +158,11 @@ export function JobDetail({
     const merged: Array<{ ts: number; line: LogLine }> = []
     let counter = 1
     for (const dj of derivedJobs) {
-      const label = dj.displayName ?? dj.jobName ?? dj.id
+      // DerivedJob (./jobs.ts) uses `title` for the human-readable
+      // label — not `displayName`/`jobName` which belong to the flat
+      // Job in @/lib/jobs.types. Fall back to the id when title is
+      // unset (it shouldn't be, but defensive).
+      const label = dj.title || dj.id
       for (const ll of stepsToLogLines(dj.steps)) {
         const ts = ll.timestamp ? Date.parse(ll.timestamp) : NaN
         merged.push({
