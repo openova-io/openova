@@ -2,6 +2,7 @@ import { createRouter, createRoute, createRootRoute, redirect, isRedirect } from
 import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { setProvisionFlashBanner } from '@/shared/lib/flashBanner'
 
 /**
  * Runtime basepath detection (issue #618).
@@ -160,19 +161,24 @@ const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', co
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/dashboard', component: DashboardPage })
 
 /**
- * wizardAuthGuard — beforeLoad for the wizard layout route.
+ * provisionAuthGuard — beforeLoad for /provision/$deploymentId routes
+ * (issue #689).
  *
- * Polls GET /api/v1/whoami with credentials: 'include'. A 401 response
- * means the session cookie is absent or expired — redirect to /login.
- * Network errors and 5xx responses are swallowed so a transient
- * backend restart doesn't lock the operator out of the wizard UI
- * during a deployment run.
+ * The wizard surface is anonymous-first: a visitor can run the entire
+ * 7-step flow without ever signing in.  But the post-launch
+ * `/provision/<id>` surface is per-deployment state owned by a real
+ * operator, and therefore requires a session — anonymous visitors get
+ * redirected back to the wizard with an inline banner explaining why.
  *
- * The guard only fires on Catalyst-Zero (console.openova.io). Sovereign
- * clusters do not have the session middleware wired and handle auth
- * through their own Keycloak realm — the guard is a no-op there.
+ * Catalyst-Zero only.  Sovereign clusters handle their own auth in the
+ * SovereignConsoleLayout's OIDC gate.
+ *
+ * Per #689 DoD: a signed-in operator who is NOT the owner of the
+ * deployment id sees the canonical 404 surface (the catalyst-api
+ * returns 404 for cross-tenant access — the UI does not need to
+ * implement a separate "you don't have access" branch).
  */
-async function wizardAuthGuard() {
+async function provisionAuthGuard() {
   if (!isCatalystZero) return // Sovereign clusters manage their own auth
   try {
     const res = await fetch(`${API_BASE}/v1/whoami`, {
@@ -181,22 +187,28 @@ async function wizardAuthGuard() {
       headers: { Accept: 'application/json' },
     })
     if (res.status === 401) {
-      throw redirect({ to: '/login', replace: true })
+      // Anonymous — flash a banner the wizard can render, then redirect.
+      setProvisionFlashBanner('Sign in to view your deployments')
+      throw redirect({ to: '/wizard', replace: true })
     }
-    // Any other status (200, 5xx) — allow through.
+    // Any other status (200, 5xx) — allow through. A 5xx that locks the
+    // user out of `/provision` would erase their post-launch progress
+    // visibility, which is worse than rendering a stale page.
   } catch (err) {
-    // Re-throw TanStack redirect errors; swallow network/5xx so the
-    // wizard remains usable during backend transients.
     if (isRedirect(err)) throw err
+    // Network errors / unreachable backend — fall through, render the
+    // page; AppsPage's own 404 / 503 branch will surface the failure.
   }
 }
 
-// Wizard
+// Wizard — guest-mode (issue #689). The wizard route renders for
+// anonymous visitors; auth fires only when they click Launch on
+// StepReview.  This is the SME-marketplace pattern — the visitor can
+// see the entire product surface before being asked to sign in.
 const wizardLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/wizard',
   component: WizardLayout,
-  beforeLoad: wizardAuthGuard,
 })
 const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path: '/', component: WizardPage })
 
@@ -261,6 +273,10 @@ const provisionRoute = createRoute({
   path: '/provision/$deploymentId',
   component: AppsPage,
   beforeLoad: async ({ params }) => {
+    // Issue #689 — anonymous visitors get redirected to the wizard
+    // with a flash banner; signed-in but cross-tenant gets 404 from
+    // the API (no UI-side branch needed).
+    await provisionAuthGuard()
     await maybeRedirectToCustomerConsole(params.deploymentId)
   },
 })
@@ -273,6 +289,8 @@ const provisionAppRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/app/$componentId',
   component: AppDetail,
+  // Issue #689 — anonymous redirected to wizard with banner; cross-tenant 404 from API.
+  beforeLoad: provisionAuthGuard,
 })
 
 // Global jobs list — table view (issue #204 founder spec). Each row is
@@ -281,6 +299,7 @@ const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
@@ -291,6 +310,7 @@ const provisionJobsTimelineRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs/timeline',
   component: JobsTimeline,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Per-Job detail page (epic #204).
@@ -298,6 +318,7 @@ const provisionJobDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs/$jobId',
   component: JobDetail,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Sovereign Dashboard — resource-utilisation treemap (founder spec).
@@ -305,6 +326,7 @@ const provisionDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/dashboard',
   component: Dashboard,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Sovereign self-decommission (issue #319). Reachable from the Sovereign
@@ -338,6 +360,7 @@ const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/cloud',
   component: CloudPage,
+  beforeLoad: provisionAuthGuard,
   validateSearch: (raw: Record<string, unknown>): CloudSearch => {
     const out: CloudSearch = {}
     if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
@@ -460,16 +483,19 @@ const provisionUsersListRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/users',
   component: UserAccessListPage,
+  beforeLoad: provisionAuthGuard,
 })
 const provisionUsersNewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/users/new',
   component: UserAccessEditPage,
+  beforeLoad: provisionAuthGuard,
 })
 const provisionUsersEditRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/users/$name',
   component: UserAccessEditPage,
+  beforeLoad: provisionAuthGuard,
 })
 
 /* ── Sovereign Settings (issue #516) ─────────────────────────────
@@ -482,6 +508,7 @@ const provisionSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/settings',
   component: SettingsPage,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Standalone notifications surface (#531 item 1) — same in-memory list
@@ -490,6 +517,7 @@ const provisionNotificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/notifications',
   component: NotificationsPage,
+  beforeLoad: provisionAuthGuard,
 })
 
 // Legacy DAG provision view — preserved at a sub-path so existing

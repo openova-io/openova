@@ -50,6 +50,8 @@ import type { CloudProvider } from '@/entities/deployment/model'
 import { findNodeSize } from '@/shared/constants/providerSizes'
 import { API_BASE } from '@/shared/config/urls'
 import { useRouter } from '@tanstack/react-router'
+import { useSession } from '@/shared/lib/useSession'
+import { PinSignInModal } from '@/widgets/auth/PinSignInModal'
 import { StepShell, useStepNav } from './_shared'
 import {
   GROUPS,
@@ -513,8 +515,13 @@ function dimIfMissing(value: string | null | undefined, fallback = '— not conf
 export function StepReview() {
   const store = useWizardStore()
   const router = useRouter()
+  const session = useSession()
   const { back } = useStepNav()
   const [loading, setLoading] = useState(false)
+  // Issue #689 — anonymous-launch flow. When the operator clicks
+  // [Launch OpenOva] without a session, we open the PIN modal first;
+  // on successful verify, we re-trigger provision().
+  const [pinModalOpen, setPinModalOpen] = useState(false)
 
   /* ── Derived values for display + POST body ──────────────────── */
   const sovereignFQDN = resolveSovereignDomain(store)
@@ -598,12 +605,29 @@ export function StepReview() {
   })()
 
   /* ── Submission ─────────────────────────────────────────────── */
-  async function provision() {
+  // Issue #689 — anonymous launch: if the user is not signed in, open
+  // the PIN modal first; the modal's onAuthenticated callback re-runs
+  // postDeployment(). Signed-in users skip the modal.
+  async function onLaunch() {
+    if (!session.signedIn) {
+      setPinModalOpen(true)
+      return
+    }
+    await postDeployment()
+  }
+
+  async function postDeployment() {
     setLoading(true)
     try {
       const res = await fetch(`${API_BASE}/v1/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Issue #689 — credentials: 'include' so the session cookie
+        // (set either by the magic-link flow or — once #688 lands —
+        // the PIN verify endpoint) reaches the catalyst-api. The
+        // catalyst-api's auth.RequireSession middleware sets
+        // X-User-Email from the cookie before CreateDeployment runs.
+        credentials: 'include',
         body: JSON.stringify({
           // Identity
           orgName:  store.orgName,
@@ -667,7 +691,7 @@ export function StepReview() {
     <StepShell
       title="Ready to launch"
       description="Every value below is exactly what we'll send to the provisioning API. Use Back to amend any section — none of the steps lose state when you navigate."
-      onNext={provision}
+      onNext={onLaunch}
       onBack={back}
       nextLabel={
         <>
@@ -1010,6 +1034,32 @@ export function StepReview() {
           </p>
         </div>
       </div>
+
+      {/* Issue #689 — guest-mode launch.  Anonymous click on the
+          [Launch OpenOva] button opens this modal; on successful PIN
+          verify the session cookie is set and we immediately POST the
+          deployment.  Pre-fill from the wizard's orgEmail field so the
+          user doesn't have to re-type. */}
+      <PinSignInModal
+        open={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        onAuthenticated={(verifiedEmail) => {
+          setPinModalOpen(false)
+          // Mirror the verified email into the wizard's orgEmail so
+          // every downstream display (Review, success, handover) carries
+          // the actual signed-in identity rather than a stale typo.
+          if (verifiedEmail && verifiedEmail !== store.orgEmail) {
+            store.setOrgEmail(verifiedEmail)
+          }
+          // Refresh the session cache so the ProfileMenu re-paints,
+          // then immediately POST the deployment.
+          session.refetch()
+          void postDeployment()
+        }}
+        initialEmail={store.orgEmail}
+        title="Sign in to launch"
+        subtitle="We'll email you a 6-digit PIN. Your wizard answers stay exactly as you left them."
+      />
     </StepShell>
   )
 }

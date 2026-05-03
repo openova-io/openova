@@ -102,6 +102,12 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — ownership check before allowing the destructive wipe.
+	// 404 (not 403) on mismatch so a hostile probe can't enumerate which
+	// deployment ids exist by walking 403 vs 404 responses.
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 
 	// Parse body — the wizard re-prompts for the Hetzner token because
 	// catalyst-api intentionally GCs it from the in-memory Request after

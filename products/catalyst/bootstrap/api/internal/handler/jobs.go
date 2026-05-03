@@ -63,6 +63,14 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Issue #689 — ownership check. If the deployment is unknown the
+	// in-memory map returns no entry; treat that as 404. If the entry
+	// exists, the helper writes 404 on cross-tenant access.
+	if val, ok := h.deployments.Load(depID); ok {
+		if !h.checkOwnership(w, r, val.(*Deployment)) {
+			return
+		}
+	}
 	out, err := st.ListJobs(depID)
 	if err != nil {
 		h.log.Error("ListJobs: load index failed", "depId", depID, "err", err)
@@ -104,6 +112,12 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 			"error": "missing-path-params",
 		})
 		return
+	}
+	// Issue #689 — ownership check (404 on cross-tenant).
+	if val, ok := h.deployments.Load(depID); ok {
+		if !h.checkOwnership(w, r, val.(*Deployment)) {
+			return
+		}
 	}
 	job, execs, err := st.GetJob(depID, jobID)
 	if err != nil {

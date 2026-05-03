@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Outlet, Link } from '@tanstack/react-router'
 import { X, Sun, Moon, Check } from 'lucide-react'
 import { IS_SAAS } from '@/shared/constants/env'
@@ -6,6 +6,8 @@ import { useWizardStore } from '@/entities/deployment/store'
 import { useWizardNav } from '@/shared/lib/wizardNav'
 import { useTheme } from '@/shared/lib/useTheme'
 import { OOLogo } from '@/shared/ui/OOLogo'
+import { ProfileMenu } from '@/widgets/auth/ProfileMenu'
+import { consumeProvisionFlashBanner } from '@/shared/lib/flashBanner'
 
 /**
  * Wizard step list — seven progress stops in dependency order. StepSuccess
@@ -67,13 +69,22 @@ export const WIZARD_STEPS = [
  * (`--wiz-*` in `src/app/globals.css`); no inline literals.
  */
 export function WizardLayout() {
-  const { currentStep, setStep } = useWizardStore()
+  const { currentStep, setStep, orgEmail } = useWizardStore()
   const nav = useWizardNav((s) => s.nav)
   const { theme, toggle } = useTheme()
   const totalSteps = WIZARD_STEPS.length
   const progressPct = Math.round((currentStep / totalSteps) * 100)
   const currentLabel =
     WIZARD_STEPS.find((s) => s.id === currentStep)?.label ?? ''
+
+  // Issue #689 — consume the provisionAuthGuard's flash banner if one
+  // was queued by a redirect from /provision/<id>. The banner clears
+  // itself on read, so a refresh of the wizard page does NOT re-show
+  // it.
+  const [flashBanner, setFlashBanner] = useState<string | null>(null)
+  useEffect(() => {
+    setFlashBanner(consumeProvisionFlashBanner())
+  }, [])
 
   return (
     <div className="corp-body">
@@ -149,6 +160,11 @@ export function WizardLayout() {
           >
             {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
           </button>
+          {/* Issue #689 — guest-mode profile menu. Anonymous renders a
+              [Sign in] button; signed-in renders the email-initial avatar
+              with a Sign-out dropdown. ProfileMenu reads useSession()
+              internally so the layout doesn't need to. */}
+          <ProfileMenu initialEmail={orgEmail} />
           <Link to={IS_SAAS ? '/app/dashboard' : '/'}>
             <button className="corp-icon-btn" aria-label="Exit wizard" title="Exit wizard">
               <X size={14} />
@@ -156,6 +172,45 @@ export function WizardLayout() {
           </Link>
         </div>
       </header>
+
+      {/* Flash banner — set by the /provision/* auth guard when an
+          anonymous visitor lands on a deployment URL. Renders as a
+          single-line strip beneath the header; the close button clears
+          it permanently for the session. */}
+      {flashBanner && (
+        <div
+          role="status"
+          data-testid="wizard-flash-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '8px 16px',
+            background: 'rgba(56,189,248,0.08)',
+            borderBottom: '1px solid rgba(56,189,248,0.18)',
+            fontSize: 13,
+            color: 'var(--wiz-text-md)',
+          }}
+        >
+          <span style={{ flex: 1 }}>{flashBanner}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setFlashBanner(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--wiz-text-sub)',
+              cursor: 'pointer',
+              padding: 4,
+              borderRadius: 4,
+              display: 'inline-flex',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── Step body — stepper has been hoisted into the header above,
             so the body now starts directly with the step's title/form. ── */}

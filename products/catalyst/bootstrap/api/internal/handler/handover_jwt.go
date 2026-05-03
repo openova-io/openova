@@ -80,6 +80,14 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — CRITICAL ownership check before minting a handover
+	// JWT. Without this, a different signed-in operator could mint a
+	// handover for someone else's Sovereign and impersonate the original
+	// owner during the cross-domain redirect. 404 (not 403) on mismatch
+	// preserves the never-leak-existence contract.
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 
 	dep.mu.Lock()
 	fqdn := dep.Request.SovereignFQDN
