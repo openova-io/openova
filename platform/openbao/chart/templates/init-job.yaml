@@ -102,15 +102,48 @@ spec:
           args:
             - |
               set -eu
-              # set -x makes every shell command echo to stderr so that
-              # if the script crashes mid-run (e.g. during `bao operator
-              # init` extraction), the LAST command before exit is
-              # captured in pod logs. Diagnostic guardrail added after
-              # otech37/38 surfaced first-attempt logs disappearing
-              # between init and persist (server became Initialized=true
-              # but unseal-keys Secret never got written, with no log
-              # evidence of where the crash happened).
               set -x
+              # Persist the full script trace to a Secret (openbao-init-trace)
+              # so that the FIRST init attempt's logs survive container
+              # restarts and the operator can diagnose persist-step failures
+              # after the fact. Captured otech38/39: server reaches
+              # Initialized=true on the first run but never persists the
+              # unseal-keys Secret, and subsequent pod restarts hit the
+              # idempotent FATAL with no record of where the first run
+              # exited. By teeing into /tmp/.script.trace and uploading on
+              # EXIT, every iteration leaves a recoverable trace.
+              TRACE_FILE=/tmp/.script.trace
+              : > "$TRACE_FILE"
+              exec > >(tee -a "$TRACE_FILE") 2>&1
+              upload_trace() {
+                # Best-effort upload — never crash the script if the trace
+                # upload fails (the diagnostic isn't load-bearing on the
+                # happy path). Uses the SA token already mounted at the
+                # well-known path.
+                local TT
+                TT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)
+                [ -z "$TT" ] && return 0
+                local NS=$NAMESPACE
+                local API=https://kubernetes.default.svc
+                local CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                local B64
+                B64=$(base64 < "$TRACE_FILE" 2>/dev/null | tr -d '\n')
+                # Try PUT (idempotent — overwrite on every restart so the
+                # latest run's trace is what's captured).
+                local BODY
+                BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"openbao-init-trace","namespace":"%s"},"type":"Opaque","data":{"trace.log":"%s"}}' "$NS" "$B64")
+                wget -qO- --no-check-certificate --ca-certificate="$CA" \
+                  --header="Authorization: Bearer $TT" \
+                  --header="Content-Type: application/json" \
+                  --method=PUT --body-data="$BODY" \
+                  "$API/api/v1/namespaces/$NS/secrets/openbao-init-trace" >/dev/null 2>&1 || \
+                wget -qO- --no-check-certificate --ca-certificate="$CA" \
+                  --header="Authorization: Bearer $TT" \
+                  --header="Content-Type: application/json" \
+                  --post-data="$BODY" \
+                  "$API/api/v1/namespaces/$NS/secrets" >/dev/null 2>&1 || true
+              }
+              trap upload_trace EXIT
               # ─── Step 1: wait for openbao-0 to answer status checks ────
               # Upstream chart name pattern: <release>-openbao-0. Skip if
               # already responsive.
