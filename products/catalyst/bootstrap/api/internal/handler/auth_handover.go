@@ -75,7 +75,17 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 1. Load public key ──────────────────────────────────────────────
+	// Resolution order:
+	//   1. h.handoverJWTPublicKeyPath (set by tests via the field)
+	//   2. CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH env var (chart sets this
+	//      from .Values.handoverJwtPublicKeyPath; PR #692 moved the
+	//      Sovereign-side mount to /etc/catalyst/handover-jwt-public/
+	//      public.jwk to avoid a subPath conflict on the catalyst-api PVC).
+	//   3. DefaultHandoverJWTPublicKeyPath constant (final fallback).
 	keyPath := h.handoverJWTPublicKeyPath
+	if keyPath == "" {
+		keyPath = os.Getenv("CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH")
+	}
 	if keyPath == "" {
 		keyPath = DefaultHandoverJWTPublicKeyPath
 	}
@@ -237,7 +247,7 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 // the RS256 public key JWK to. Overridable via CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH.
 // The handoverjwt.Signer.PublicJWK() writes JSON; cloud-init distributes this
 // file from Catalyst-Zero's /var/lib/catalyst/handover-jwt-public.jwk.
-const DefaultHandoverJWTPublicKeyPath = "/var/lib/catalyst/handover-jwt-public.jwk"
+const DefaultHandoverJWTPublicKeyPath = "/etc/catalyst/handover-jwt-public/public.jwk"
 
 // jtiStorer is the interface implemented by *jtistore.Store.
 type jtiStorer interface {
