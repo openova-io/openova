@@ -341,21 +341,29 @@ resource "hcloud_load_balancer_service" "http" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 80
-  # destination_port=80 — Cilium Gateway runs in hostNetwork mode
-  # (bp-cilium 1.1.5+ values: gatewayAPI.hostNetwork.enabled=true),
-  # binding cilium-envoy directly to the host's :80 instead of a random
-  # nodePort. The previous nodePort=31080 mapping broke because Cilium
-  # 1.16.5's BPF L7LB Proxy Port (e.g. 12869) doesn't actually align
-  # with what cilium-envoy listens on, dropping all TLS handshakes
-  # silently. Caught live on otech45.
-  destination_port = 80
+  # destination_port=30080 — Cilium Gateway listens on a high port
+  # (clusters/_template/sovereign-tls/cilium-gateway.yaml) because even
+  # with hostNetwork=true + privileged=true + NET_BIND_SERVICE +
+  # envoy-keep-cap-netbindservice=true, cilium-envoy still gets
+  # "Permission denied" binding 0.0.0.0:80 on the host. The bind is
+  # intercepted by cilium-agent's BPF socket-LB program in a way that
+  # is not resolvable via container caps. High ports work without
+  # privileged binding (verified on otech47 after iterating through
+  # the privileged-bind chain). Hetzner LB translates the public 80→
+  # node:30080 so the operator-facing URL stays `http://console.<fqdn>/`.
+  destination_port = 30080
 }
 
 resource "hcloud_load_balancer_service" "https" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 443
-  destination_port = 443
+  # destination_port=30443 — see http service comment above. The
+  # cilium-gateway HTTPS listener binds 30443 (not 443) because
+  # privileged-port bind through cilium-agent's BPF intercept fails
+  # regardless of capability configuration. HCLB does the listener-side
+  # port translation so external users still hit `https://console.<fqdn>/`.
+  destination_port = 30443
 }
 
 resource "hcloud_load_balancer_service" "dns" {
