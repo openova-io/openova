@@ -61,8 +61,11 @@ export type FetchLogsFn = (args: {
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
-/** Founder-specified background — verbatim. */
-export const LOG_VIEWER_BG = '#0D1117'
+/** Founder-specified background — kept as the legacy default for any
+ *  consumer that imports it directly. New code should use
+ *  `var(--log-viewer-bg)` (issue #669) so the viewer reskins under
+ *  `[data-theme="light"]` without a re-mount. */
+export const LOG_VIEWER_BG = 'var(--log-viewer-bg)'
 
 /** Founder-specified page size — verbatim ("chunks of 500 at a time"). */
 const LOG_PAGE_LIMIT = 500
@@ -231,12 +234,23 @@ export function ExecutionLogs({
   }, [query.data, fromLine])
 
   /* Auto-scroll on new lines if user is "near-bottom"; if they've
-   * scrolled up, leave the viewport where they put it. */
+   * scrolled up, leave the viewport where they put it.
+   *
+   * Issue #669 — real `tail -f` slide. Was: `el.scrollTop = scrollHeight`
+   * instant snap. Now uses native smooth scroll so the viewport glides
+   * to the new bottom over ~120-200ms. New lines also fade-up via the
+   * `log-line-row` keyframe animation (see <style> block at the bottom
+   * of this component) so the effect reads as content streaming in,
+   * not a teleport. */
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     if (pausedAutoScroll) return
-    el.scrollTop = el.scrollHeight
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
     wasAtBottomRef.current = true
   }, [allLines.length, pausedAutoScroll])
 
@@ -336,14 +350,20 @@ export function ExecutionLogs({
   return (
     <div
       data-testid="execution-logs-root"
+      className="execution-logs-root"
       style={{
-        background: LOG_VIEWER_BG,
+        background: 'var(--log-viewer-bg)',
         borderRadius: 6,
         position: 'relative',
         overflow: 'hidden',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       }}
     >
+      {/* Issue #669 — keyframes for the tail-slide effect. Applied to
+          new line rows via the `log-line-row` class so each incoming
+          line fades+rises into place; combined with smooth scrollTo,
+          the viewer reads as a real `tail -f` stream. */}
+      <style>{LOG_VIEWER_CSS}</style>
       <div
         ref={viewportRef}
         onScroll={handleScroll}
@@ -359,7 +379,7 @@ export function ExecutionLogs({
             data-testid="execution-logs-empty"
             style={{
               padding: '1rem',
-              color: 'rgba(201, 209, 217, 0.55)',
+              color: 'var(--log-viewer-empty)',
               fontSize: '0.78rem',
             }}
           >
@@ -466,6 +486,7 @@ function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLi
   return (
     <div
       data-testid={`execution-logs-line-${line.lineNumber}`}
+      className="log-line-row"
       data-level={line.level}
       data-match-position={matchPosition || undefined}
       data-focused-match={isFocusedMatch ? 'true' : undefined}
@@ -476,10 +497,10 @@ function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLi
         padding: '0.1rem 0.85rem',
         fontSize: '0.78rem',
         lineHeight: 1.55,
-        color: '#c9d1d9',
+        color: 'var(--log-viewer-text)',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
-        background: isFocusedMatch ? 'rgba(56, 139, 253, 0.18)' : 'transparent',
+        background: isFocusedMatch ? 'var(--log-line-focused-bg)' : 'transparent',
       }}
     >
       <span
@@ -488,7 +509,7 @@ function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLi
           width: lineNumWidth,
           flexShrink: 0,
           textAlign: 'right',
-          color: 'rgba(139, 148, 158, 0.7)',
+          color: 'var(--log-viewer-text-num)',
           fontVariantNumeric: 'tabular-nums',
           userSelect: 'none',
         }}
@@ -499,7 +520,7 @@ function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLi
         data-testid={`execution-logs-ts-${line.lineNumber}`}
         style={{
           flexShrink: 0,
-          color: 'rgba(139, 148, 158, 0.85)',
+          color: 'var(--log-viewer-text-dim)',
           fontVariantNumeric: 'tabular-nums',
         }}
       >
@@ -534,3 +555,39 @@ function LogLineRow({ line, lineNumWidth, matchPosition, isFocusedMatch }: LogLi
     </div>
   )
 }
+
+/* ── Tail-slide keyframes (issue #669) ────────────────────────────
+ *
+ * Each row plays a one-shot fade+rise animation when it mounts. The
+ * `prefers-reduced-motion` query disables it for users who set that
+ * accessibility flag. Combined with `el.scrollTo({behavior: 'smooth'})`
+ * in the auto-scroll effect, the viewer reads as a `tail -f` stream
+ * rather than the previous instant-snap append.
+ *
+ * Note on duration: 180ms is short enough that on burst-write logs
+ * (10 lines/s during install-openbao) animations stay below the
+ * frame budget. Longer durations get visibly choppy under load.
+ */
+const LOG_VIEWER_CSS = `
+@keyframes log-line-tail-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.execution-logs-root .log-line-row {
+  animation: log-line-tail-in 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-logs-root .log-line-row {
+    animation: none;
+  }
+}
+`

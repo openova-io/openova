@@ -27,8 +27,8 @@
  *       tokens; only the slide-in keyframe owns motion-specific values.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ExecutionLogs, type LogLine, LOG_VIEWER_BG, formatLogTimestamp } from './ExecutionLogs'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ExecutionLogs, type LogLine, formatLogTimestamp } from './ExecutionLogs'
 import { LogSearch, lineMatches, type LogFilter } from './LogSearch'
 
 interface LogPaneProps {
@@ -50,6 +50,16 @@ interface LogPaneProps {
    * filter pipeline as the polling viewer.
    */
   fallbackLines?: readonly LogLine[]
+  /**
+   * Issue #669 — global log lines for the *entire deployment*, merged
+   * across every component by timestamp. When non-empty, the pane
+   * surfaces a "Split" toggle in the header that adds a second column
+   * showing these lines next to the per-component pane on the left.
+   * Each entry is prefixed with the source component name in
+   * `LogLine.message` by the consumer (JobDetail) so the column reads
+   * as a unified provision-wide tail.
+   */
+  globalLines?: readonly LogLine[]
   /** Display title — typically the host job's display name or jobName. */
   jobTitle: string
   /** Status text rendered as a small chip in the header strip. */
@@ -72,6 +82,7 @@ const EMPTY_FILTER: LogFilter = { query: '', regex: false, levels: new Set() }
 export function LogPane({
   executionId,
   fallbackLines,
+  globalLines,
   jobTitle,
   statusLabel,
   statusTone = 'pending',
@@ -81,6 +92,14 @@ export function LogPane({
   const [matchCount, setMatchCount] = useState<number>(0)
   const [matchIndex, setMatchIndex] = useState<number>(0)
   const [fullScreen, setFullScreen] = useState<boolean>(false)
+  /* Issue #669 — split-view state. When `splitView` is true and there
+   * are non-empty `globalLines`, the pane body lays out as a 2-column
+   * grid: per-component on the left, global merged stream on the
+   * right. Default to OFF so the pane keeps its slim 30vw footprint
+   * for the common single-component flow; operators flip it on when
+   * they want a provision-wide tail. */
+  const [splitView, setSplitView] = useState<boolean>(false)
+  const hasGlobal = (globalLines?.length ?? 0) > 0
 
   // Reset matchIndex whenever the count drops below it (e.g. operator
   // tightens the query). Bumping it from 0 → 1 the moment results
@@ -137,7 +156,10 @@ export function LogPane({
       aria-label={`Logs for ${jobTitle}`}
       data-testid="log-pane"
       data-fullscreen={fullScreen ? 'true' : 'false'}
-      className={`log-pane${fullScreen ? ' is-fullscreen' : ''}`}
+      data-split={splitView && hasGlobal ? 'true' : 'false'}
+      className={`log-pane${fullScreen ? ' is-fullscreen' : ''}${
+        splitView && hasGlobal ? ' is-split' : ''
+      }`}
     >
       <style>{LOG_PANE_CSS}</style>
       <header className="log-pane-header" data-testid="log-pane-header">
@@ -151,6 +173,32 @@ export function LogPane({
         <span className="log-pane-title" data-testid="log-pane-title" title={jobTitle}>
           {jobTitle}
         </span>
+        {/* Issue #669 — split-view toggle. Only enabled when the
+            consumer passes `globalLines` so legacy mounts (no global
+            stream) hide the affordance entirely instead of showing a
+            disabled button. */}
+        {hasGlobal ? (
+          <button
+            type="button"
+            className="log-pane-icon-btn"
+            aria-label={splitView ? 'Hide global log column' : 'Show global log column'}
+            aria-pressed={splitView}
+            data-testid="log-pane-split"
+            onClick={() => setSplitView((v) => !v)}
+            title={splitView ? 'Hide global log column' : 'Show global log column'}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+              <path
+                d="M2 2 L6 2 L6 12 L2 12 Z M8 2 L12 2 L12 12 L8 12 Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : null}
         <button
           type="button"
           className="log-pane-icon-btn"
@@ -208,13 +256,23 @@ export function LogPane({
             onFilterChange={setFilter}
           />
           <div className="log-pane-body" data-testid="log-pane-body">
-            <ExecutionLogs
-              executionId={executionId}
-              filter={filter}
-              matchIndex={matchIndex}
-              onMatchCountChange={setMatchCount}
-              height="100%"
-            />
+            <div className="log-pane-col" data-testid="log-pane-col-primary">
+              <div className="log-pane-col-header" data-testid="log-pane-col-primary-header">
+                <span>{jobTitle}</span>
+              </div>
+              <div className="log-pane-col-body">
+                <ExecutionLogs
+                  executionId={executionId}
+                  filter={filter}
+                  matchIndex={matchIndex}
+                  onMatchCountChange={setMatchCount}
+                  height="100%"
+                />
+              </div>
+            </div>
+            {splitView && hasGlobal ? (
+              <GlobalLogColumn lines={globalLines!} filter={filter} />
+            ) : null}
           </div>
         </>
       ) : fallbackLines && fallbackLines.length > 0 ? (
@@ -227,20 +285,178 @@ export function LogPane({
             onFilterChange={setFilter}
           />
           <div className="log-pane-body" data-testid="log-pane-body">
-            <FallbackLogList
-              lines={fallbackLines}
-              filter={filter}
-              matchIndex={matchIndex}
-              onMatchCountChange={setMatchCount}
-            />
+            <div className="log-pane-col" data-testid="log-pane-col-primary">
+              <div className="log-pane-col-header" data-testid="log-pane-col-primary-header">
+                <span>{jobTitle}</span>
+              </div>
+              <div className="log-pane-col-body">
+                <FallbackLogList
+                  lines={fallbackLines}
+                  filter={filter}
+                  matchIndex={matchIndex}
+                  onMatchCountChange={setMatchCount}
+                />
+              </div>
+            </div>
+            {splitView && hasGlobal ? (
+              <GlobalLogColumn lines={globalLines!} filter={filter} />
+            ) : null}
           </div>
         </>
+      ) : splitView && hasGlobal ? (
+        // Issue #669 — operator opened split-view on a host job that has
+        // no recorded execution + no fallback lines yet. Render the
+        // global column on its own so the split affordance still
+        // delivers value.
+        <div className="log-pane-body" data-testid="log-pane-body">
+          <GlobalLogColumn lines={globalLines!} filter={filter} />
+        </div>
       ) : (
         <div className="log-pane-empty" data-testid="log-pane-empty">
           No execution recorded yet.
         </div>
       )}
     </aside>
+  )
+}
+
+/* ── GlobalLogColumn ─────────────────────────────────────────────
+ *
+ * Issue #669 — provision-wide merged log column. Reads `globalLines`
+ * (already merged + sorted by timestamp by JobDetail) and renders
+ * them through the same dark/light themed surface as the per-
+ * component view, with auto-tail-on-bottom and the search filter
+ * piped through. Each line's `message` is expected to have a
+ * component-name prefix so operators can read the column as a
+ * unified provision tail without losing source context.
+ */
+interface GlobalLogColumnProps {
+  lines: readonly LogLine[]
+  filter: LogFilter
+}
+
+function GlobalLogColumn({ lines, filter }: GlobalLogColumnProps) {
+  const filterActive = filter.query.trim().length > 0 || filter.levels.size > 0
+  const displayed = useMemo(() => {
+    if (!filterActive) return lines
+    const out: LogLine[] = []
+    for (const ll of lines) {
+      if (filter.levels.size > 0 && !filter.levels.has(ll.level)) continue
+      if (!lineMatches(ll.message, filter)) continue
+      out.push(ll)
+    }
+    return out
+  }, [lines, filter, filterActive])
+
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [pausedAutoScroll, setPausedAutoScroll] = useState(false)
+
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el || pausedAutoScroll) return
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [displayed.length, pausedAutoScroll])
+
+  function handleScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    const distFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight)
+    const atBottom = distFromBottom <= 40
+    if (!atBottom && !pausedAutoScroll) setPausedAutoScroll(true)
+    else if (atBottom && pausedAutoScroll) setPausedAutoScroll(false)
+  }
+
+  const lineNumWidth = useMemo(() => {
+    const last = displayed[displayed.length - 1]
+    const digits = Math.max(3, String(last?.lineNumber ?? 0).length)
+    return `${digits}ch`
+  }, [displayed])
+
+  return (
+    <div className="log-pane-col" data-testid="log-pane-col-global">
+      <div className="log-pane-col-header" data-testid="log-pane-col-global-header">
+        <span>Global · all components</span>
+      </div>
+      <div className="log-pane-col-body">
+        <div
+          ref={viewportRef}
+          onScroll={handleScroll}
+          data-testid="global-log-viewport"
+          className="execution-logs-root"
+          style={{
+            background: 'var(--log-viewer-bg)',
+            borderRadius: 6,
+            position: 'relative',
+            overflowY: 'auto',
+            height: '100%',
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            padding: '0.5rem 0',
+          }}
+        >
+          {displayed.length === 0 ? (
+            <div
+              data-testid="global-log-empty"
+              style={{
+                padding: '1rem',
+                color: 'var(--log-viewer-empty)',
+                fontSize: '0.78rem',
+              }}
+            >
+              {filterActive
+                ? 'No global log lines match the active search.'
+                : 'No global logs captured yet.'}
+            </div>
+          ) : (
+            displayed.map((line) => (
+              <div
+                key={`${line.timestamp}-${line.lineNumber}`}
+                className="log-line-row"
+                data-testid={`global-log-line-${line.lineNumber}`}
+                data-level={line.level}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.6rem',
+                  padding: '0.1rem 0.85rem',
+                  fontSize: '0.78rem',
+                  lineHeight: 1.55,
+                  color: 'var(--log-viewer-text)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                <span
+                  style={{
+                    width: lineNumWidth,
+                    flexShrink: 0,
+                    textAlign: 'right',
+                    color: 'var(--log-viewer-text-num)',
+                    fontVariantNumeric: 'tabular-nums',
+                    userSelect: 'none',
+                  }}
+                >
+                  {line.lineNumber}
+                </span>
+                <span
+                  style={{
+                    flexShrink: 0,
+                    color: 'var(--log-viewer-text-dim)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {formatLogTimestamp(line.timestamp)}
+                </span>
+                <span style={{ flex: '1 1 auto', minWidth: 0 }}>{line.message}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -302,8 +518,9 @@ function FallbackLogList({
   return (
     <div
       data-testid="fallback-log-list"
+      className="execution-logs-root"
       style={{
-        background: LOG_VIEWER_BG,
+        background: 'var(--log-viewer-bg)',
         borderRadius: 6,
         position: 'relative',
         overflow: 'auto',
@@ -317,7 +534,7 @@ function FallbackLogList({
           data-testid="fallback-log-empty"
           style={{
             padding: '1rem',
-            color: 'rgba(201, 209, 217, 0.55)',
+            color: 'var(--log-viewer-empty)',
             fontSize: '0.78rem',
           }}
         >
@@ -333,6 +550,7 @@ function FallbackLogList({
             <div
               key={line.lineNumber}
               data-testid={`fallback-log-line-${line.lineNumber}`}
+              className="log-line-row"
               data-level={line.level}
               data-match-position={matchPosition || undefined}
               data-focused-match={isFocusedMatch ? 'true' : undefined}
@@ -343,10 +561,10 @@ function FallbackLogList({
                 padding: '0.1rem 0.85rem',
                 fontSize: '0.78rem',
                 lineHeight: 1.55,
-                color: '#c9d1d9',
+                color: 'var(--log-viewer-text)',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
-                background: isFocusedMatch ? 'rgba(56, 139, 253, 0.18)' : 'transparent',
+                background: isFocusedMatch ? 'var(--log-line-focused-bg)' : 'transparent',
               }}
             >
               <span
@@ -354,7 +572,7 @@ function FallbackLogList({
                   width: lineNumWidth,
                   flexShrink: 0,
                   textAlign: 'right',
-                  color: 'rgba(139, 148, 158, 0.7)',
+                  color: 'var(--log-viewer-text-num)',
                   fontVariantNumeric: 'tabular-nums',
                   userSelect: 'none',
                 }}
@@ -364,7 +582,7 @@ function FallbackLogList({
               <span
                 style={{
                   flexShrink: 0,
-                  color: 'rgba(139, 148, 158, 0.85)',
+                  color: 'var(--log-viewer-text-dim)',
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
@@ -474,15 +692,59 @@ const LOG_PANE_CSS = `
   border-color: var(--color-accent, #38BDF8);
   background: rgba(56, 189, 248, 0.10);
 }
+/* Issue #669 — log-pane body lays out as a row of columns. With one
+ * column (default) the column fills the body. With split-view on
+ * (.is-split on the root aside element) the body holds two columns
+ * side-by-side, each at 50% with a divider between them. */
 .log-pane-body {
   flex: 1 1 auto;
   overflow: hidden;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  gap: 0;
+  min-height: 0;
 }
-.log-pane-body > * {
+.log-pane-col {
+  flex: 1 1 50%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-left: 1px solid var(--color-border);
+}
+.log-pane-col:first-child {
+  border-left: 0;
+}
+.log-pane-col-header {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  background: var(--color-bg-2);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-pane-col-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.log-pane-col-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Wider footprint when split-view is on so each column has breathing
+ * room. Falls back to the single-column 30vw when split is off. */
+.log-pane.is-split:not(.is-fullscreen) {
+  width: max(var(--log-pane-width, 30vw), 56vw);
 }
 .log-pane-empty {
   display: flex;

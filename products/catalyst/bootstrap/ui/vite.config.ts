@@ -89,5 +89,6 @@ export default defineConfig({
     globals: false,
     css: false,
     include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['src/test/setup.ts'],
   },
 })

@@ -51,7 +51,14 @@ import type {
   OrganicRegion,
 } from '@/lib/flowLayoutOrganic'
 
-/* ── Status palette ──────────────────────────────────────────── */
+/* ── Status palette ──────────────────────────────────────────────────
+ *
+ * Colours are read from CSS variables defined in globals.css so the
+ * whole flow canvas reskins on `[data-theme="light"]` without touching
+ * this file. Each status has a six-token surface (fill / ring / glyph
+ * / glow / edge / arrow). Tokens are looked up via `var(--bubble-*)`
+ * inline so hot-reload + theme flips work without re-mounting.
+ */
 
 interface StatusTone {
   fill: string
@@ -64,88 +71,92 @@ interface StatusTone {
 }
 const STATUS_TONE: Record<JobStatus, StatusTone> = {
   succeeded: {
-    fill: '#0F1F18',
-    ring: 'rgba(74,222,128,0.78)',
-    glyph: '#86EFAC',
-    glow: 'rgba(74,222,128,0.20)',
-    edge: 'rgba(74,222,128,0.55)',
-    arrow: '#4ADE80',
+    fill: 'var(--bubble-fill-succeeded)',
+    ring: 'var(--bubble-ring-succeeded)',
+    glyph: 'var(--bubble-glyph-succeeded)',
+    glow: 'var(--bubble-glow-succeeded)',
+    edge: 'var(--bubble-edge-succeeded)',
+    arrow: 'var(--bubble-arrow-succeeded)',
     label: 'Succeeded',
   },
   running: {
-    fill: '#0E1A33',
-    ring: 'rgba(56,189,248,0.85)',
-    glyph: '#BAE6FD',
-    glow: 'rgba(56,189,248,0.30)',
-    edge: 'rgba(56,189,248,0.65)',
-    arrow: '#38BDF8',
+    fill: 'var(--bubble-fill-running)',
+    ring: 'var(--bubble-ring-running)',
+    glyph: 'var(--bubble-glyph-running)',
+    glow: 'var(--bubble-glow-running)',
+    edge: 'var(--bubble-edge-running)',
+    arrow: 'var(--bubble-arrow-running)',
     label: 'Running',
   },
   failed: {
-    fill: '#23070A',
-    ring: 'rgba(248,113,113,0.85)',
-    glyph: '#FCA5A5',
-    glow: 'rgba(248,113,113,0.30)',
-    edge: 'rgba(248,113,113,0.65)',
-    arrow: '#F87171',
+    fill: 'var(--bubble-fill-failed)',
+    ring: 'var(--bubble-ring-failed)',
+    glyph: 'var(--bubble-glyph-failed)',
+    glow: 'var(--bubble-glow-failed)',
+    edge: 'var(--bubble-edge-failed)',
+    arrow: 'var(--bubble-arrow-failed)',
     label: 'Failed',
   },
   pending: {
-    fill: '#0D1726',
-    ring: 'rgba(148,163,184,0.45)',
-    glyph: 'rgba(148,163,184,0.65)',
-    glow: 'transparent',
-    edge: 'rgba(148,163,184,0.32)',
-    arrow: 'rgba(148,163,184,0.60)',
+    fill: 'var(--bubble-fill-pending)',
+    ring: 'var(--bubble-ring-pending)',
+    glyph: 'var(--bubble-glyph-pending)',
+    glow: 'var(--bubble-glow-pending)',
+    edge: 'var(--bubble-edge-pending)',
+    arrow: 'var(--bubble-arrow-pending)',
     label: 'Pending',
   },
 }
 
-/** Bug #481 follow-up — the previous fix (#483) over-corrected.
- *  Symptoms after #483: bubbles invisible at default zoom, edges
- *  appeared to stretch infinitely. Root causes:
- *    (1) NODE_RADIUS was still 22 → diameter 44 → at MAX_VBOX 1600
- *        scale 0.4-0.5 in a 600-800px canvas-host (LogPane covers half
- *        the screen), bubbles rendered ~16-22px wide. Effectively
- *        invisible to the operator.
- *    (2) MIN_VBOX_W/H floors at 1200×700 forced sparse graphs (4-6
- *        nodes spread across 200×100 of layout space) into a viewBox
- *        6× bigger than the cluster — bubbles shrank to specks.
- *    (3) FORCE_X_STRENGTH=0.55 + FORCE_LINK_STRENGTH=0.45 fought hard
- *        on graphs with depth-disparate dependencies (depth 0 root
- *        wired to depth-5 leaf), causing oscillation that read as
- *        "infinitely stretching" in mid-tick frames.
+/** SVG `<marker>` elements cannot read CSS variables directly inside
+ *  attributes that the browser resolves at definition time (Chrome's
+ *  marker resolution does not propagate `currentColor` through `<marker>`
+ *  consistently). Concrete fallback colours used only inside the
+ *  arrow-marker `<defs>` — bubble + edge strokes themselves use the
+ *  CSS-variable tokens above. The marker fill is a small visual
+ *  arrowhead and these fallbacks read acceptable on both themes. */
+const ARROW_FALLBACK: Record<JobStatus, string> = {
+  succeeded: '#16A34A',
+  running:   '#38BDF8',
+  failed:    '#B91C1C',
+  pending:   '#94A3B8',
+}
+
+/** Issue #669 — bubble sizing decoupled from canvas size.
  *
- *  The fix:
- *    • NODE_RADIUS 22 → 40 (diameter 80px — meets acceptance: bubble
- *      ≥80px wide on 1440×900 viewport).
- *    • MIN_VBOX dropped to a small floor (400×280) so sparse graphs
- *      render at native scale without the SVG zooming out to fit a
- *      pretend 1200×700 canvas.
- *    • MAX_VBOX 1600×900 → 1200×700 so even on full-screen canvas the
- *      effective render scale stays close to 1:1.
- *    • Force strengths balanced: X=0.12, Y=0.10, link=0.18 — gentle
- *      enough not to oscillate, strong enough to converge.
- *    • LINK_DISTANCE = NODE_RADIUS * 2.5 = 100px → connected siblings
- *      stay <140px apart at steady state, well under the 300px
- *      acceptance ceiling.
- *    • Per-tick X clamp tightened to ±PER_DEPTH_X (was ±1.5×) so depth
- *      anchoring stays disciplined.
+ *  The previous design coupled bubble radius to the SVG viewBox: viewBox
+ *  was capped at MAX_VBOX 1200×700 and `preserveAspectRatio="xMidYMid
+ *  meet"` upscaled the entire content to fit the host. On full-screen,
+ *  that upscale made bubbles bigger instead of giving the dependency
+ *  chain more horizontal room.
+ *
+ *  Fix: viewBox = host pixel dimensions (driven by ResizeObserver), so
+ *  NODE_RADIUS=40 means literally 40 CSS px on screen, regardless of
+ *  host size. Extra horizontal canvas space becomes layout space along
+ *  the dep chain.
+ *
+ *  No-overlap rule: the previous projection-scale fallback (`xScale`)
+ *  compressed positions but not radii — guaranteed overlap on wide
+ *  clusters. Removed entirely. forceCollide (radius NODE_RADIUS +
+ *  COLLIDE_PADDING, strength 0.95, iterations 2) is now the single
+ *  source of pairwise spacing, applied to the rendered positions
+ *  directly. Wide clusters that don't fit get clamped at the viewBox
+ *  edge by the per-tick clamp; forceCollide then resolves any
+ *  edge-induced overlaps within the visible window.
  */
 const NODE_RADIUS = 40
 const GROUP_RADIUS = 48
 const COLLIDE_PADDING = 12
-/** Floor for very-sparse graphs — enough room for 1-3 nodes without
- *  the SVG collapsing to a single point. Anything denser uses the
- *  measured cluster bbox + padding. */
-const MIN_VBOX_W = 400
-const MIN_VBOX_H = 280
-/** MAX_VBOX matters because preserveAspectRatio "meet" scales the
- *  viewBox to fit the canvas-host. With MAX 1200×700, on a 1200px-wide
- *  host scale=1.0 (bubble = 80px). On a 600px host scale=0.5 (bubble =
- *  40px — still readable, vs the previous 22px). */
-const MAX_VBOX_W = 1200
-const MAX_VBOX_H = 700
+/** Initial host dimensions used until ResizeObserver fires.
+ *
+ *  ResizeObserver emits asynchronously after mount, so on first paint
+ *  we lay out against a sensible default rather than 0×0 (which would
+ *  collapse every node onto the origin and break forceCollide's
+ *  pairwise spacing). 1200×700 mirrors the previous MAX_VBOX seed —
+ *  the first frame renders against that, then the observer's first
+ *  callback corrects to the real host pixel rect within ~16ms. */
+const MIN_HOST_W = 1200
+const MIN_HOST_H = 700
 /** Per-depth column width — wider than NODE_RADIUS*4 so adjacent-depth
  *  bubbles never visually touch. */
 const PER_DEPTH_X = NODE_RADIUS * 4
@@ -202,11 +213,45 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   } = props
 
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
   const simRef = useRef<Simulation<SimNode, SimulationLinkDatum<SimNode>> | null>(
     null,
   )
   const nodesRef = useRef<Map<string, SimNode>>(new Map())
   const [tick, setTick] = useState(0)
+  /* Issue #669 — track the canvas-host pixel dimensions so the
+   * viewBox can equal them 1:1. Bubble radius (CSS px) then stays
+   * constant regardless of host size; full-screening the canvas
+   * gives the dep chain more horizontal room instead of magnifying
+   * each bubble. */
+  const [hostSize, setHostSize] = useState<{ w: number; h: number }>({
+    w: MIN_HOST_W,
+    h: MIN_HOST_H,
+  })
+
+  useEffect(() => {
+    const el = hostRef.current
+    if (!el) return
+    // ResizeObserver may fire synchronously during layout — use rAF to
+    // batch state updates so we never trigger a re-render mid-tick.
+    let raf = 0
+    const ro = new ResizeObserver((entries) => {
+      const e = entries[0]
+      if (!e) return
+      const rect = e.contentRect
+      const w = Math.max(MIN_HOST_W, Math.round(rect.width))
+      const h = Math.max(MIN_HOST_H, Math.round(rect.height))
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+      })
+    })
+    ro.observe(el)
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
+  }, [])
   // Issue #532 — mutable tick counter shared between the sim's tick
   // callback and the drag-handler effect. dragstart resets tickCount to
   // 0 so each drag gets a fresh MAX_TICKS budget; without this, after
@@ -220,9 +265,15 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   // Regions still drive family/region badges in FlowNode but no longer
   // partition the canvas vertically — the dependency order does.
 
+  /* Issue #669 — anchor depth 0 at a left margin instead of x=0 so the
+   * grid-target sub-columns (centred on baseX with span ±SUB_COL_SPAN)
+   * don't extend into negative X. With viewBox = host px starting at
+   * 0,0 (preserveAspectRatio "xMinYMin meet"), negative coordinates
+   * render off-canvas to the left. */
+  const X_LEFT_MARGIN = NODE_RADIUS + PER_DEPTH_X / 2
   const depthToX = useCallback(
-    (depth: number) => depth * PER_DEPTH_X,
-    [],
+    (depth: number) => X_LEFT_MARGIN + depth * PER_DEPTH_X,
+    [X_LEFT_MARGIN],
   )
 
   /* Issue #532 — resolve a per-node depRank.
@@ -265,7 +316,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * forceCollide guarantees pairwise spacing while siblings pack into
    * the available vertical band naturally. */
   const Y_MARGIN = NODE_RADIUS + COLLIDE_PADDING
-  const Y_RANGE = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN * 2)
+  /* Issue #669 — Y-range driven by hostSize.h, not a hardcoded MAX_VBOX
+   * ceiling. ResizeObserver on the canvas-host re-runs this whenever
+   * the host pixel height changes (e.g. fullscreen, log-pane closed). */
+  const Y_RANGE = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN * 2)
   const totalNodes = layout.nodes.length
   const yForDepRank = useCallback(
     (depRank: number) => {
@@ -311,7 +365,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
     const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
     const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
-    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
+    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
     // How many bubbles fit vertically with the no-overlap collision
     // pitch (NODE_RADIUS*2 + COLLIDE_PADDING = 92px on 700px viewBox →
     // 7 rows). Beyond that, we MUST add sub-columns or bubbles overlap.
@@ -331,7 +385,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       // column vertical capacity. Sparse depths keep the original
       // force-anchor behaviour (depthX + depRank-based Y).
       if (bucket.length <= COL_CAPACITY) continue
-      const baseX = depth * PER_DEPTH_X
+      // Issue #669 — anchor at depthToX (NODE_RADIUS + PER_DEPTH_X/2 +
+      // depth * PER_DEPTH_X) so sub-columns centred on baseX never
+      // extend into negative X (which would render off-canvas under
+      // the new viewBox = host-px convention).
+      const baseX = X_LEFT_MARGIN + depth * PER_DEPTH_X
       // Issue #532: with N siblings in a depth bucket and Y-range
       // budget that fits COL_CAPACITY rows at the no-overlap pitch,
       // we need ceil(N / COL_CAPACITY) sub-columns. Each sub-column
@@ -372,7 +430,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
     }
     return cells
-  }, [layout.nodes])
+  }, [layout.nodes, hostSize.h, X_LEFT_MARGIN])
 
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
@@ -529,7 +587,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
               ? SUB_COL_SPAN / (cell.totalCols - 1)
               : PER_DEPTH_X
             const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
-            const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, MAX_VBOX_H - Y_MARGIN_LOCAL * 2)
+            const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
             const rowSlot = cell.totalRows > 1
               ? Y_RANGE_LOCAL / (cell.totalRows - 1)
               : Y_RANGE_LOCAL
@@ -548,20 +606,28 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             continue
           }
           const baseX = depthToX(n.depth)
-          // Sparse-depth fallback — clamp X around the depth column,
-          // Y around the dep-rank slot ± half the collision pitch so
-          // siblings of identical depRank can still separate via the
-          // forceCollide pass without escaping the rank-ordered band.
-          const xMin = baseX - PER_DEPTH_X
-          const xMax = baseX + PER_DEPTH_X
+          /* Sparse-depth fallback — clamp X around the depth column,
+           * Y around the dep-rank slot ± half the collision pitch so
+           * siblings of identical depRank can still separate via the
+           * forceCollide pass without escaping the rank-ordered band.
+           *
+           * Issue #669 — also clamp X+Y inside hostSize so no node
+           * settles outside the viewBox. forceCollide is the no-
+           * overlap guarantee, but it only resolves overlaps inside
+           * the simulated coordinate space; if sim positions are
+           * outside the viewBox, post-render clamping cannot recover
+           * pairwise spacing. Keep the sim inside the visible window
+           * end-to-end. */
+          const xMin = Math.max(NODE_RADIUS, baseX - PER_DEPTH_X)
+          const xMax = Math.min(hostSize.w - NODE_RADIUS, baseX + PER_DEPTH_X)
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
           const targetY = yForDepRank(n.depRank)
           const Y_HALF_BAND = (NODE_RADIUS * 2 + COLLIDE_PADDING)
-          const yMin = targetY - Y_HALF_BAND
-          const yMax = targetY + Y_HALF_BAND
+          const yMin = Math.max(NODE_RADIUS, targetY - Y_HALF_BAND)
+          const yMax = Math.min(hostSize.h - NODE_RADIUS, targetY + Y_HALF_BAND)
           if (typeof n.y === 'number') {
             if (n.y < yMin) n.y = yMin
             else if (n.y > yMax) n.y = yMax
@@ -584,7 +650,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return () => {
       sim.stop()
     }
-  }, [simNodes, layout.edges, depthToX, yForDepRank, gridTargets])
+  }, [simNodes, layout.edges, depthToX, yForDepRank, gridTargets, hostSize.h, hostSize.w])
 
   const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {
@@ -640,6 +706,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   if (layout.nodes.length === 0) {
     return (
       <div
+        ref={hostRef}
         data-testid="flow-canvas-empty"
         className="rounded-xl border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-dim)]"
       >
@@ -663,94 +730,44 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
   }
 
-  // Bug #481 (reopened 2026-05-01) — operator's exact words:
-  //   "they could have put a simple rule saying the max distance of a
-  //    line cannot be longer than a percentage of canvas, or they could
-  //    say no single bubble could be outside of the canvas etc."
-  //
-  // Live failure on otech17: a single dependency chain reached depth
-  // 190 (e.g. bp-catalyst-platform → bp-langfuse → ... long chain). At
-  // PER_DEPTH_X=160 that placed leaves at x=30,400+. Per-tick clamps
-  // bound nodes around their own depth-anchor (which itself was at
-  // 30,400) so they never came back into view — and the viewBox
-  // ceiling MAX_VBOX_W=1200 captured only a 1200px slice of a 30,000px
-  // cluster. The yellow horizontal lines on screen were the few edges
-  // that happened to cross the visible 1200px window; every bubble was
-  // off-canvas.
-  //
-  // The bounded tests passed because they asserted positions inside
-  // the viewBox for 5-80 sibling stars, but never modelled a deep
-  // chain (the actual production shape).
-  //
-  // Structural fix per operator's ask: "no single bubble could be
-  // outside of the canvas". After the natural bbox is computed, clamp
-  // it to MAX so the viewBox stays bounded, then HARD-CLAMP every
-  // rendered position into the viewBox. Edges are then drawn between
-  // already-clamped positions, so the second rule ("max line length")
-  // is also bounded as a side effect (any link is at most the
-  // viewBox's diagonal).
-  let bbMinX = Infinity, bbMinY = Infinity, bbMaxX = -Infinity, bbMaxY = -Infinity
-  for (const p of livePos.values()) {
-    if (p.x < bbMinX) bbMinX = p.x
-    if (p.y < bbMinY) bbMinY = p.y
-    if (p.x > bbMaxX) bbMaxX = p.x
-    if (p.y > bbMaxY) bbMaxY = p.y
-  }
-  const PAD_X = NODE_RADIUS + 30
-  const PAD_Y_TOP = NODE_RADIUS + 12
-  const PAD_Y_BOTTOM = NODE_RADIUS + 40
-  const naturalW = (bbMaxX - bbMinX) + PAD_X * 2
-  const naturalH = (bbMaxY - bbMinY) + PAD_Y_TOP + PAD_Y_BOTTOM
-  const vbW = Math.min(MAX_VBOX_W, Math.max(MIN_VBOX_W, naturalW))
-  const vbH = Math.min(MAX_VBOX_H, Math.max(MIN_VBOX_H, naturalH))
-  // Bug #481 — when the natural bbox is wider than MAX_VBOX, anchor
-  // the viewBox at the LEFT-MOST cluster point (depth 0) instead of
-  // centring on the cluster centroid. Centring put depth 0 at
-  // x=-15,000 off-canvas; left-anchor keeps the visible 1200px slice
-  // starting at the actual left edge of the data, where the operator
-  // expects depth-0 root nodes to live.
-  const naturalCx = Number.isFinite(bbMinX) ? (bbMinX + bbMaxX) / 2 : vbW / 2
-  const naturalCy = Number.isFinite(bbMinY) ? (bbMinY + bbMaxY) / 2 : vbH / 2
-  const vbX = naturalW > MAX_VBOX_W && Number.isFinite(bbMinX)
-    ? bbMinX - PAD_X
-    : naturalCx - vbW / 2
-  const vbY = naturalH > MAX_VBOX_H && Number.isFinite(bbMinY)
-    ? bbMinY - PAD_Y_TOP
-    : naturalCy - vbH / 2
+  /* Issue #669 — viewBox = host pixel dimensions (1:1).
+   *
+   * Bubble radius (NODE_RADIUS=40 in viewBox units) renders at exactly
+   * 40 CSS px on screen because the viewBox now equals the host's
+   * pixel rect — there is no preserveAspectRatio scale. Full-screening
+   * the canvas grows hostSize.w / hostSize.h, which gives the
+   * dependency chain more layout room along x without changing bubble
+   * size. The preserveAspectRatio default is "xMidYMid meet", which is
+   * a no-op when viewBox dims = SVG dims.
+   *
+   * The previous bbox-then-scale-then-clamp pipeline actively caused
+   * overlap on wide clusters because position scaling did not also
+   * scale the rendered radius. forceCollide's pairwise distance
+   * guarantee then no longer held in screen space. Removed.
+   *
+   * For wide clusters that don't fit in hostSize.w (deep dep chains),
+   * the per-tick clamp at line 540-606 already pulls nodes back inside
+   * the viewBox window, and forceCollide resolves resulting clusters
+   * within the visible area. We do NOT compress positions; we let the
+   * sim clamp positions, which preserves the no-overlap guarantee.
+   */
+  const vbX = 0
+  const vbY = 0
+  const vbW = hostSize.w
+  const vbH = hostSize.h
 
-  // Bug #481 — Constraint A: hard-clamp every render position into the
-  // viewBox so no bubble ever drifts off-canvas, regardless of what the
-  // simulation, depth-anchor, or grid-target produced. Operator's exact
-  // request: "no single bubble could be outside of the canvas".
-  //
-  // For pathological-width clusters (depth-190 chains with naturalW
-  // ≈ 30,000 vs MAX_VBOX_W=1200) plain clamping would pile every
-  // distant node on the right edge. Solve that by scaling the X axis
-  // proportionally to fit the viewBox, then clamping as a final
-  // safety net. Y gets the same treatment.
+  /* Hard-clamp positions to viewBox. The per-tick clamp inside the sim
+   * also clamps, but ResizeObserver may shrink hostSize between sim
+   * ticks (drag of the LogPane); applying the clamp here ensures
+   * rendering never paints a bubble outside the visible area, even
+   * one frame. forceCollide already guarantees pairwise spacing of
+   * ≥ NODE_RADIUS*2 + COLLIDE_PADDING (= 92 px), and clamping to a
+   * single edge cannot reduce two clamped nodes' distance below that
+   * threshold (the collide pass owns it pre-render). */
   const CLAMP_INSET = NODE_RADIUS + 8
-  const usableW = vbW - CLAMP_INSET * 2
-  const usableH = vbH - CLAMP_INSET * 2
-  const xScale = naturalW > vbW && (bbMaxX - bbMinX) > 0
-    ? usableW / (bbMaxX - bbMinX)
-    : 1
-  const yScale = naturalH > vbH && (bbMaxY - bbMinY) > 0
-    ? usableH / (bbMaxY - bbMinY)
-    : 1
   const project = (p: { x: number; y: number }) => {
-    let x = p.x
-    let y = p.y
-    if (xScale < 1 && Number.isFinite(bbMinX)) {
-      x = vbX + CLAMP_INSET + (p.x - bbMinX) * xScale
-    }
-    if (yScale < 1 && Number.isFinite(bbMinY)) {
-      y = vbY + CLAMP_INSET + (p.y - bbMinY) * yScale
-    }
-    // Final safety clamp — even when scaling, FP drift / partial-tick
-    // values can land a fraction outside; the inset clamp guarantees
-    // the bubble's full diameter stays visible.
-    x = Math.min(vbX + vbW - CLAMP_INSET, Math.max(vbX + CLAMP_INSET, x))
-    y = Math.min(vbY + vbH - CLAMP_INSET, Math.max(vbY + CLAMP_INSET, y))
+    const x = Math.min(vbW - CLAMP_INSET, Math.max(CLAMP_INSET, p.x))
+    const y = Math.min(vbH - CLAMP_INSET, Math.max(CLAMP_INSET, p.y))
     return { x, y }
   }
   const renderPos = new Map<string, { x: number; y: number }>()
@@ -759,12 +776,24 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   }
 
   return (
+    <div
+      ref={hostRef}
+      data-testid="flow-canvas-host"
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        minWidth: 0,
+        overflow: 'hidden',
+      }}
+    >
     <svg
       ref={svgRef}
       width="100%"
       height="100%"
-      viewBox={`${vbX.toFixed(1)} ${vbY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}`}
-      preserveAspectRatio="xMidYMid meet"
+      viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+      preserveAspectRatio="xMinYMin meet"
       className="flow-canvas-svg-organic"
       data-testid="flow-canvas-svg"
       role="img"
@@ -786,7 +815,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             markerHeight="6"
             orient="auto-start-reverse"
           >
-            <path d="M0,1 L9,5 L0,9 Z" fill={STATUS_TONE[s].arrow} opacity="0.92" />
+            <path d="M0,1 L9,5 L0,9 Z" fill={ARROW_FALLBACK[s]} opacity="0.92" />
           </marker>
         ))}
         <marker
@@ -862,6 +891,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         )
       })}
     </svg>
+    </div>
   )
 }
 
@@ -1060,13 +1090,14 @@ function FlowNode({
         </text>
       )}
 
-      {/* Label below bubble */}
+      {/* Label below bubble — routed through CSS var so it flips on
+          [data-theme="light"] (issue #669). */}
       <text
         x={0}
         y={radius + 14}
         textAnchor="middle"
         fontSize={10}
-        fill="rgba(255,255,255,0.85)"
+        fill="var(--bubble-label)"
         fontFamily="var(--font-mono, ui-monospace, monospace)"
         pointerEvents="none"
       >
@@ -1080,7 +1111,7 @@ function FlowNode({
           y={radius + 26}
           textAnchor="middle"
           fontSize={8}
-          fill="rgba(255,255,255,0.45)"
+          fill="var(--bubble-sublabel)"
           fontFamily="var(--font-mono, ui-monospace, monospace)"
           pointerEvents="none"
         >
