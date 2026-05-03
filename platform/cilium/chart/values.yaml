@@ -106,6 +106,18 @@ cilium:
       # Forcing "true" ensures GatewayClass/cilium is always created.
       # Permanent fix for the cilium-gateway race (issue #503).
       create: "true"
+    # hostNetwork mode — bind gateway listeners directly to the host's
+    # 80/443 ports (instead of Service-of-type-LoadBalancer with random
+    # nodePort allocation). Required for the Hetzner Cloud Load Balancer
+    # forwarding chain: HCLB listens on public 80/443 and forwards via
+    # the private network to the CP node's 80/443 (NOT to a random
+    # nodePort). With nodePort mode, Cilium's BPF L7LB Proxy Port doesn't
+    # match what cilium-envoy actually binds, breaking TLS termination
+    # entirely (cilium service list shows the redirect, but envoy isn't
+    # listening on the proxy port). Caught live on otech45 — TCP connects
+    # but TLS handshake never completes.
+    hostNetwork:
+      enabled: true
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:
