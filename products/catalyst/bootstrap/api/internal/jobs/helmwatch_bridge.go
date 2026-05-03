@@ -416,6 +416,23 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		return err
 	}
 
+	// Status mapping with monotonic guard: once a Job has an active
+	// Execution (i.e. helmwatch ever observed a non-pending state for
+	// this component), DO NOT regress back to "pending" if the next
+	// event maps to HelmStatePending. Flux retries reconciliation while
+	// dependencies aren't ready, oscillating the HR's Ready condition
+	// between DependencyNotReady ("pending") and Reconciling
+	// ("installing"). Without the guard the Jobs page flips between
+	// "pending" and "running" while the Exec Log accumulates lines —
+	// the founder caught this on otech34 (install-external-secrets:
+	// status=pending despite startedAt + latestExecutionId set, blocked
+	// on bp-openbao). Treat ongoing-after-start as Running so the row
+	// reflects the live exec stream.
+	nextStatus := jobStatusFromHelmState(state)
+	if nextStatus == StatusPending && b.activeExecID[componentID] != "" {
+		nextStatus = StatusRunning
+	}
+
 	// Ensure the Job row exists. If SeedJobs was called this is a
 	// no-op merge; if it wasn't (e.g. the bootstrap-kit hot-shipped a
 	// new chart helmwatch wasn't seeded with) the bridge still
@@ -427,7 +444,7 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		Type:         JobTypeInstall,
 		ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 		DependsOn:    []string{},
-		Status:       jobStatusFromHelmState(state),
+		Status:       nextStatus,
 	}); err != nil {
 		return err
 	}
