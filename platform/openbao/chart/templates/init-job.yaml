@@ -306,6 +306,40 @@ spec:
                 fi
                 echo "$ROOT_TOKEN" > /tmp/.root-token
 
+                # ─── Persist root_token to Secret for auth-bootstrap ────────
+                # The auth-bootstrap Job (post-install weight 10) needs an
+                # authenticated bao token to call `bao auth enable`,
+                # `bao secrets enable`, `bao policy write`, and `bao write
+                # auth/.../role/...`. Without this Secret, auth-bootstrap
+                # makes unauthenticated requests and bao returns 403 —
+                # caught live on otech43 once 1.2.12 fixed the persist gap
+                # and made auth-bootstrap actually run.
+                #
+                # auth-bootstrap reads BAO_TOKEN from this Secret via
+                # secretKeyRef, runs to completion, then revokes the token
+                # via `bao token revoke -self` (acceptance criterion #6 —
+                # the privileged token does not persist past install).
+                echo "[openbao-init] persisting root_token to Secret openbao-root-token (revoked + cleaned by auth-bootstrap on success)"
+                ROOT_TOKEN_B64=$(printf '%s' "$ROOT_TOKEN" | base64 | tr -d '\n')
+                ROOT_SECRET_BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"openbao-root-token","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-root-token"}},"type":"Opaque","data":{"token":"%s"}}' \
+                  "$NAMESPACE" "$ROOT_TOKEN_B64")
+                RT_CREATE_RC=0
+                wget -qO- --no-check-certificate \
+                  --header="Authorization: Bearer $TOKEN" \
+                  --header="Content-Type: application/json" \
+                  --post-data="$ROOT_SECRET_BODY" \
+                  "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets" > /tmp/.rt-create-out 2>&1 || RT_CREATE_RC=$?
+                if [ "$RT_CREATE_RC" -ne 0 ]; then
+                  # Already-exists 409 is fine — this is an idempotent re-run.
+                  if grep -q '"reason":"AlreadyExists"' /tmp/.rt-create-out 2>/dev/null; then
+                    echo "[openbao-init] root-token Secret already exists (idempotent re-run)"
+                  else
+                    echo "[openbao-init] FATAL: cannot persist openbao-root-token Secret"
+                    cat /tmp/.rt-create-out 2>/dev/null
+                    exit 1
+                  fi
+                fi
+
                 # ─── Step 3a: unseal the freshly-initialised vault (issue #527) ─
                 # `bao operator init` returns the cluster initialised but
                 # SEALED. Without an explicit `bao operator unseal <key>`
