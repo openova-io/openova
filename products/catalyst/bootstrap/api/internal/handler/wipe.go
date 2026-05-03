@@ -205,9 +205,47 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		report.Errors = append(report.Errors, "hetzner purge: "+err.Error())
 	}
-	if purge.Total() > 0 {
-		emit("wipe", "info", "Hetzner orphan purge removed "+itoa(purge.Total())+" resource(s) (servers: "+itoa(len(purge.Servers))+", lbs: "+itoa(len(purge.LoadBalancers))+", networks: "+itoa(len(purge.Networks))+", firewalls: "+itoa(len(purge.Firewalls))+", ssh-keys: "+itoa(len(purge.SSHKeys))+")")
-	} else if len(purge.Errors) == 0 {
+
+	// Step 2b — Hetzner Object Storage bucket purge (issue #706). tofu
+	// destroy does NOT remove `minio_s3_bucket` resources because the
+	// minio provider's force_destroy semantics intentionally fail when
+	// the bucket holds objects. Run AFTER tofu destroy so we don't fight
+	// tofu state, BEFORE the local-record cleanup so the UI banner can
+	// surface the count + any error.
+	//
+	// Credentials come from the in-memory Request (the wizard captured
+	// them at provision time and they live on dep.Request until the Pod
+	// restarts; on-disk records redact them). When they're absent, skip
+	// with a recorded note rather than fail — the operator can run the
+	// manual sweep documented in feedback_idempotent_iac_purge.md.
+	if dep.Request.ObjectStorageAccessKey != "" && dep.Request.ObjectStorageSecretKey != "" && dep.Request.ObjectStorageRegion != "" {
+		bucketCtx, bucketCancel := context.WithTimeout(r.Context(), 5*time.Minute)
+		removed, berr := hetzner.PurgeBuckets(bucketCtx,
+			hetzner.PurgeBucketsConfig{
+				AccessKey: dep.Request.ObjectStorageAccessKey,
+				SecretKey: dep.Request.ObjectStorageSecretKey,
+				Region:    dep.Request.ObjectStorageRegion,
+			},
+			dep.Request.SovereignFQDN,
+			func(msg string) { emit("wipe", "info", "object-storage: "+msg) },
+		)
+		bucketCancel()
+		if removed > 0 {
+			report.HetznerPurge.S3Buckets = append(report.HetznerPurge.S3Buckets,
+				hetzner.BucketNameForSovereign(dep.Request.SovereignFQDN))
+		}
+		if berr != nil {
+			report.HetznerPurge.Errors = append(report.HetznerPurge.Errors,
+				"object-storage bucket purge: "+berr.Error())
+			report.Errors = append(report.Errors, "object-storage bucket purge: "+berr.Error())
+		}
+	} else {
+		emit("wipe", "warn", "object-storage credentials not on in-memory deployment record (Pod likely restarted) — skipping bucket purge; run the manual sweep from docs/feedback_idempotent_iac_purge.md")
+	}
+
+	if report.HetznerPurge.Total() > 0 {
+		emit("wipe", "info", "Hetzner orphan purge removed "+itoa(report.HetznerPurge.Total())+" resource(s) (servers: "+itoa(len(report.HetznerPurge.Servers))+", lbs: "+itoa(len(report.HetznerPurge.LoadBalancers))+", networks: "+itoa(len(report.HetznerPurge.Networks))+", firewalls: "+itoa(len(report.HetznerPurge.Firewalls))+", ssh-keys: "+itoa(len(report.HetznerPurge.SSHKeys))+", s3-buckets: "+itoa(len(report.HetznerPurge.S3Buckets))+")")
+	} else if len(report.HetznerPurge.Errors) == 0 {
 		emit("wipe", "info", "Hetzner orphan purge: nothing to remove (clean account)")
 	}
 
