@@ -53,8 +53,18 @@ external-dns:
   # NOTE: --pdns-api-version is NOT a valid flag for external-dns v0.15.1
   # native pdns provider — it causes `unknown long flag '--pdns-api-version'`
   # fatal on start. The provider auto-negotiates the API version. Removed.
+  #
+  # --request-timeout=120s — bumps the apiserver client RequestTimeout from
+  # the upstream default of 30s. On every fresh Sovereign provision the
+  # k3s apiserver is CPU-saturated for the first ~5 minutes (catalyst-api
+  # kubeconfig PUT, Flux bootstrap, all 38 HelmReleases reconciling
+  # concurrently). With the 30s default external-dns crashloops 10+ times
+  # with `level=fatal msg="failed to sync *v1.Pod: context deadline exceeded"`
+  # before the initial cluster cache sync completes. 120s lets the first
+  # sync finish cleanly. Caught live on otech43–46.
   extraArgs:
     - --pdns-server=http://powerdns.powerdns.svc.cluster.local:8081
+    - --request-timeout=120s
 
   # API key for the PowerDNS REST API — read from the `powerdns-api-
   # credentials` Secret rendered by bp-powerdns (templates/api-credentials-
