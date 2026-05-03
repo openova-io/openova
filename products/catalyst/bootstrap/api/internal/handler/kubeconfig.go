@@ -105,6 +105,12 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — ownership check before serving the kubeconfig (which
+	// is the most sensitive artefact a Sovereign produces). 404 on
+	// mismatch so existence is never leaked.
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 
 	dep.mu.Lock()
 	var path string

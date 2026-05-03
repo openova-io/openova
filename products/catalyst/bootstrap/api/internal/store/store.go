@@ -98,6 +98,22 @@ type Record struct {
 	// restarts so a redirect that should fire still fires after a
 	// catalyst-api roll.
 	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
+	// OwnerEmail — the operator who created this deployment (issue #689).
+	// Stamped at CreateDeployment time from the authenticated session
+	// (X-User-Email injected by auth.RequireSession middleware). Every
+	// read/mutate handler on /deployments/{id}* enforces ownership by
+	// comparing the request's session email against this value; a
+	// mismatch yields 404 (NOT 403 — the 404 distinction is deliberate
+	// per issue #689 so the existence of someone else's deployment is
+	// never leaked).
+	//
+	// Legacy compatibility: deployments persisted before the field was
+	// added will deserialize with OwnerEmail == "". The ownership check
+	// MUST treat that as "legacy — skip the check, log a warning" so a
+	// catalyst-api upgrade doesn't lock operators out of their own
+	// pre-existing deployments. New deployments always populate it.
+	OwnerEmail string `json:"ownerEmail,omitempty"`
 }
 
 // RedactedRequest is the on-disk projection of provisioner.Request with

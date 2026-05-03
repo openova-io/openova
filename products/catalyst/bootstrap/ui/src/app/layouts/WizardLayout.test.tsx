@@ -26,7 +26,7 @@
  *     calls out.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, within } from '@testing-library/react'
 import {
   RouterProvider,
@@ -36,6 +36,7 @@ import {
   createMemoryHistory,
   Outlet,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WizardLayout, WIZARD_STEPS } from './WizardLayout'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -63,16 +64,30 @@ function renderLayout() {
     routeTree,
     history: createMemoryHistory({ initialEntries: ['/wizard'] }),
   })
-  return render(<RouterProvider router={router} />)
+  // Issue #689 — WizardLayout now mounts <ProfileMenu>, which calls
+  // useSession() (a React Query hook). The layout therefore requires a
+  // QueryClientProvider in the tree.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {
   // Reset Zustand store so every test starts on step 1.
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+  // Stub /whoami → 401 (anonymous) so ProfileMenu renders the
+  // [Sign in] button without making a real network request.
+  vi.spyOn(global, 'fetch').mockImplementation(async () => {
+    return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+  })
 })
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
 })
 
 describe('WizardLayout — page-header refactor (#174)', () => {
@@ -152,5 +167,27 @@ describe('WizardLayout — page-header refactor (#174)', () => {
     const allSteppers = await screen.findAllByTestId('wizard-stepper')
     expect(allSteppers).toHaveLength(1)
     expect(header.contains(allSteppers[0]!)).toBe(true)
+  })
+})
+
+// Issue #689 — guest-mode header chrome.
+describe('WizardLayout — guest mode (#689)', () => {
+  it('renders a [Sign in] button when the visitor is anonymous', async () => {
+    renderLayout()
+    const header = await screen.findByTestId('wizard-header')
+    // The ProfileMenu renders profile-menu-signin in the anonymous branch.
+    const signin = await within(header).findByTestId('profile-menu-signin')
+    expect(signin.textContent).toContain('Sign in')
+  })
+
+  it('renders the flash banner when one was queued by the provision auth guard', async () => {
+    sessionStorage.setItem('openova-wizard-flash-banner', 'Sign in to view your deployments')
+    renderLayout()
+    const banner = await screen.findByTestId('wizard-flash-banner')
+    expect(banner.textContent).toContain('Sign in to view your deployments')
+    // The banner clears itself on read, so a re-render should NOT show
+    // it — the consume-on-mount semantics are load-bearing for the
+    // sessionStorage seam.
+    expect(sessionStorage.getItem('openova-wizard-flash-banner')).toBeNull()
   })
 })

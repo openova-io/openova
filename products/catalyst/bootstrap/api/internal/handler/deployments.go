@@ -130,6 +130,16 @@ type Deployment struct {
 	// here.
 	kubeconfigBearerHash string
 
+	// OwnerEmail — the email address of the operator who created this
+	// deployment (issue #689). Stamped at CreateDeployment time from the
+	// authenticated session (X-User-Email injected by RequireSession).
+	// Read by checkOwnership() on every /deployments/{id}* handler so a
+	// signed-in operator cannot read or mutate another operator's
+	// deployment. Empty for legacy records persisted before #689 — the
+	// check skips with a log warning when empty so an in-place upgrade
+	// doesn't lock operators out of pre-existing rows.
+	OwnerEmail string
+
 	// phase1Started gates the at-most-once launch of the Phase-1
 	// helmwatch goroutine. Two callers race to start it:
 	//   - runProvisioning, after `tofu apply` finishes
@@ -292,6 +302,7 @@ func (d *Deployment) toRecord() store.Record {
 		PDMSubdomain:         d.pdmSubdomain,
 		KubeconfigBearerHash: d.kubeconfigBearerHash,
 		AdoptedAt:            d.AdoptedAt,
+		OwnerEmail:           d.OwnerEmail,
 	}
 }
 
@@ -335,6 +346,7 @@ func fromRecord(rec store.Record) *Deployment {
 		pdmSubdomain:         rec.PDMSubdomain,
 		kubeconfigBearerHash: rec.KubeconfigBearerHash,
 		AdoptedAt:            rec.AdoptedAt,
+		OwnerEmail:           rec.OwnerEmail,
 	}
 
 	// Kubeconfig file lost across restart → mark as failed. If the
@@ -664,6 +676,12 @@ func (d *Deployment) State() map[string]any {
 		"sovereignFQDN": d.Request.SovereignFQDN,
 		"region":        d.Request.Region,
 		"numEvents":     len(d.eventsBuf),
+		// ownerEmail — the operator who created this deployment (issue #689).
+		// Always emitted so the UI can compare against the current session;
+		// only operators authorised by checkOwnership() ever reach this path,
+		// so the email shown is necessarily either the current user's or
+		// blank (legacy record).
+		"ownerEmail": d.OwnerEmail,
 	}
 	if !d.FinishedAt.IsZero() {
 		out["finishedAt"] = d.FinishedAt.Format(time.RFC3339)
@@ -805,6 +823,14 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Stamp the owner email from the authenticated session (issue #689).
+	// auth.RequireSession sets X-User-Email after validating the session
+	// cookie; if the value is missing, the deployment was created on a
+	// catalyst-api instance running without the auth middleware (legacy
+	// CI / Sovereign-side bootstrap) and we leave the field empty. The
+	// ownership-check helper treats empty as "legacy — skip".
+	ownerEmail := strings.TrimSpace(r.Header.Get("X-User-Email"))
+
 	dep := &Deployment{
 		ID:                   id,
 		Status:               "provisioning",
@@ -813,6 +839,7 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		eventsCh:             make(chan provisioner.Event, 256),
 		done:                 make(chan struct{}),
 		kubeconfigBearerHash: bearerHash,
+		OwnerEmail:           ownerEmail,
 	}
 
 	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
@@ -888,6 +915,11 @@ func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — ownership check. Returns 404 (not 403) on mismatch so
+	// the existence of someone else's deployment is never leaked.
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 	writeJSON(w, http.StatusOK, dep.State())
 }
 
@@ -899,6 +931,12 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — ownership check BEFORE any SSE bytes are written. Once
+	// the response is hijacked into text/event-stream mode the helper's
+	// JSON 404 path can't fire, so this MUST happen before the SSE headers.
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -966,6 +1004,10 @@ func (h *Handler) GetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := val.(*Deployment)
+	// Issue #689 — ownership check (404 on mismatch — never leak existence).
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"state":  dep.State(),
 		"events": dep.snapshotEvents(),
