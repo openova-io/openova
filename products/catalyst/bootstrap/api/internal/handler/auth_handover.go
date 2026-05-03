@@ -34,8 +34,10 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
@@ -186,23 +188,38 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 6. Token-exchange ───────────────────────────────────────────────
-	audience := h.kcAudience
-	if audience == "" {
-		audience = "catalyst-ui"
+	// ── 6. Mint local session JWT ───────────────────────────────────────
+	// Keycloak v26 dropped the legacy `requested_subject` token-exchange
+	// flow ("Parameter 'requested_subject' is not supported for standard
+	// token exchange"). We mint the session JWT locally with the same
+	// handoverSigner that PIN-verify uses (handler/auth.go pattern), so
+	// the auth path is consistent regardless of how the operator authed.
+	// The Sovereign Keycloak still owns the canonical user record (created
+	// by EnsureUser above) and can be the federation target for any
+	// downstream IdP brokering — we just don't need its token-exchange
+	// endpoint to mint THIS session.
+	const sessionTTL = 8 * time.Hour
+	sessionClaims := jwt.MapClaims{
+		"iss":            "https://console.openova.io",
+		"sub":            claims.Email,
+		"email":          claims.Email,
+		"email_verified": true,
+		"role":           "sovereign-admin",
+		"iat":            time.Now().Unix(),
+		"exp":            time.Now().Add(sessionTTL).Unix(),
+		"jti":            uuid.NewString(),
+		"typ":            "session",
+		"keycloak_uid":   userID,
 	}
-	accessToken, refreshToken, expiresIn, err := kc.ImpersonateToken(r.Context(), userID, audience)
+	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
-		h.log.Error("auth_handover: ImpersonateToken failed", "userID", userID, "err", err)
-		writeAuthError(w, "keycloak error: token exchange")
+		h.log.Error("auth_handover: SignCustomClaims failed", "err", err)
+		writeAuthError(w, "internal error")
 		return
 	}
 
 	// ── 7. Set cookies + redirect ───────────────────────────────────────
-	cookieMaxAge := expiresIn
-	if cookieMaxAge <= 0 {
-		cookieMaxAge = 3600
-	}
+	cookieMaxAge := int(sessionTTL.Seconds())
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
 	http.SetCookie(w, &http.Cookie{
@@ -214,22 +231,21 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-	if refreshToken != "" {
-		http.SetCookie(w, &http.Cookie{
-			Name:     "catalyst_refresh",
-			Value:    refreshToken,
-			Path:     "/",
-			MaxAge:   cookieMaxAge * 8, // refresh token lives longer
-			HttpOnly: true,
-			Secure:   secure,
-			SameSite: http.SameSiteLaxMode,
-		})
-	}
+	// Clear any legacy refresh cookie from the old token-exchange flow.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "catalyst_refresh",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	h.log.Info("auth_handover: operator session established",
 		"email", claims.Email,
 		"userID", userID,
-		"expires_in", expiresIn,
+		"expires_in", cookieMaxAge,
 	)
 
 	redirectTarget := h.authHandoverRedirect
