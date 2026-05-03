@@ -144,25 +144,28 @@ const ARROW_FALLBACK: Record<JobStatus, string> = {
  *  edge by the per-tick clamp; forceCollide then resolves any
  *  edge-induced overlaps within the visible window.
  */
-const NODE_RADIUS = 40
-const GROUP_RADIUS = 48
-const COLLIDE_PADDING = 12
-/** Initial host dimensions used until ResizeObserver fires.
+/** Issue #669 round 2 — adaptive bubble + edge sizing.
  *
- *  ResizeObserver emits asynchronously after mount, so on first paint
- *  we lay out against a sensible default rather than 0×0 (which would
- *  collapse every node onto the origin and break forceCollide's
- *  pairwise spacing). 1200×700 mirrors the previous MAX_VBOX seed —
- *  the first frame renders against that, then the observer's first
- *  callback corrects to the real host pixel rect within ~16ms. */
+ *  Bubbles render at a per-layout effective radius `R` clamped to
+ *  [MIN_NODE_RADIUS, MAX_NODE_RADIUS]. The chosen R is the largest
+ *  size that keeps the densest depth bucket fitting vertically inside
+ *  the host. With one bubble on a wide canvas R=MAX (the bubble doesn't
+ *  inflate to fill the screen); with 30+ siblings in a tight column
+ *  R shrinks to MIN before any flow shape compromises kick in.
+ *  Founder-verbatim 2026-05-03: "if there is only one buble on
+ *  the page... we prefer making them sammller instead of compromising
+ *  from their flow view". */
+const MIN_NODE_RADIUS = 16
+const MAX_NODE_RADIUS = 40
+const GROUP_RADIUS_DELTA = 8
+const COLLIDE_PADDING = 12
+/** Initial host dimensions used until ResizeObserver fires. */
 const MIN_HOST_W = 1200
 const MIN_HOST_H = 700
-/** Per-depth column width — wider than NODE_RADIUS*4 so adjacent-depth
- *  bubbles never visually touch. */
-const PER_DEPTH_X = NODE_RADIUS * 4
-/** Link distance — connected siblings settle ~100px apart, total
- *  on-canvas edge length stays <140px even with arrowhead trim. */
-const LINK_DISTANCE = NODE_RADIUS * 2.5
+/** Per-depth horizontal step floor / ceiling — `layoutMetrics` picks
+ *  inside this range based on layout density and host width. */
+const MIN_PER_DEPTH_X = 110
+const MAX_PER_DEPTH_X = 200
 /** Force strengths re-tuned post-#483. Gentle X-anchor lets the link
  *  force pull connected nodes together without the X-force fighting
  *  back and producing the oscillation that read as "infinite stretch". */
@@ -272,15 +275,57 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   // Regions still drive family/region badges in FlowNode but no longer
   // partition the canvas vertically — the dependency order does.
 
-  /* Issue #669 — anchor depth 0 at a left margin instead of x=0 so the
-   * grid-target sub-columns (centred on baseX with span ±SUB_COL_SPAN)
-   * don't extend into negative X. With viewBox = host px starting at
-   * 0,0 (preserveAspectRatio "xMinYMin meet"), negative coordinates
-   * render off-canvas to the left. */
-  const X_LEFT_MARGIN = NODE_RADIUS + PER_DEPTH_X / 2
+  /* Issue #669 round 2 — adaptive layout metrics.
+   *
+   * For each layout we compute the effective bubble radius `R`, group
+   * radius `GR`, per-depth horizontal step `perDepthX`, and link
+   * distance `linkDistance`. The chosen R is the largest that lets
+   * the densest depth bucket fit vertically inside the host AND the
+   * depth-chain fit horizontally; if neither constraint binds, R
+   * snaps to MAX_NODE_RADIUS. A single bubble does NOT inflate; many
+   * bubbles in a tight host shrink toward MIN before any flow-shape
+   * compromise is made.
+   *
+   * The metrics depend on layout.nodes + hostSize.{w,h} so they
+   * re-run when LogPane opens/closes or window resizes, which —
+   * together with the sim-restart effect below that re-seeds free
+   * nodes to their fresh targets — gives bubbles a visible re-flow
+   * pass on every host change. */
+  const layoutMetrics = useMemo(() => {
+    let maxBucket = 0
+    let maxDepth = 0
+    const buckets = new Map<number, number>()
+    for (const n of layout.nodes) {
+      const c = (buckets.get(n.depth) ?? 0) + 1
+      buckets.set(n.depth, c)
+      if (c > maxBucket) maxBucket = c
+      if (n.depth > maxDepth) maxDepth = n.depth
+    }
+    const depthCount = maxDepth + 1
+    let r = MAX_NODE_RADIUS
+    if (maxBucket > 1) {
+      const usableH = Math.max(60, hostSize.h - 2 * (MAX_NODE_RADIUS + COLLIDE_PADDING))
+      const pitchAvail = usableH / maxBucket
+      const rFit = (pitchAvail - COLLIDE_PADDING) / 2
+      r = Math.min(MAX_NODE_RADIUS, Math.max(MIN_NODE_RADIUS, Math.floor(rFit)))
+    }
+    let perDepthX = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, r * 4))
+    if (depthCount > 1) {
+      const usableW = Math.max(120, hostSize.w - 2 * (r + COLLIDE_PADDING))
+      const fitW = usableW / Math.max(1, depthCount - 1)
+      perDepthX = Math.min(perDepthX, Math.max(MIN_PER_DEPTH_X, fitW))
+    }
+    const linkDistance = perDepthX * 0.625
+    const gr = r + GROUP_RADIUS_DELTA
+    const xLeftMargin = r + perDepthX / 2
+    return { r, gr, perDepthX, linkDistance, xLeftMargin, maxBucket, depthCount }
+  }, [layout.nodes, hostSize.w, hostSize.h])
+
+  const { r: R, gr: GR, perDepthX: PER_DEPTH_X, linkDistance: LINK_DISTANCE, xLeftMargin: X_LEFT_MARGIN } = layoutMetrics
+
   const depthToX = useCallback(
     (depth: number) => X_LEFT_MARGIN + depth * PER_DEPTH_X,
-    [X_LEFT_MARGIN],
+    [X_LEFT_MARGIN, PER_DEPTH_X],
   )
 
   /* Issue #532 — resolve a per-node depRank.
@@ -322,19 +367,47 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * of fully-spread nodes at MAX_VBOX_H / 92 ≈ 7; beyond that, the
    * forceCollide guarantees pairwise spacing while siblings pack into
    * the available vertical band naturally. */
-  const Y_MARGIN = NODE_RADIUS + COLLIDE_PADDING
-  /* Issue #669 — Y-range driven by hostSize.h, not a hardcoded MAX_VBOX
-   * ceiling. ResizeObserver on the canvas-host re-runs this whenever
-   * the host pixel height changes (e.g. fullscreen, log-pane closed). */
-  const Y_RANGE = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN * 2)
-  const totalNodes = layout.nodes.length
-  const yForDepRank = useCallback(
-    (depRank: number) => {
-      if (totalNodes <= 1) return Y_MARGIN + Y_RANGE / 2
-      const t = depRank / (totalNodes - 1)
-      return Y_MARGIN + t * Y_RANGE
+  /* Issue #669 round 2 — per-depth-bucket Y rank.
+   *
+   * Founder-verbatim 2026-05-03: "y axis should be equally splitted
+   * into y and -y... items distributed in +y and -y axis accepting
+   * the x axis as their separator". The diagonal layout came from a
+   * global topo-rank for Y — depth-0 nodes piled at the top while
+   * deeper ranks slid down, producing a left-top → right-bottom
+   * diagonal. Replace with per-depth ranks so each depth column
+   * distributes its siblings symmetrically around y=h/2. */
+  const Y_CENTER = hostSize.h / 2
+  const PITCH = R * 2 + COLLIDE_PADDING
+
+  const bucketRank = useMemo(() => {
+    const rank = new Map<string, { idx: number; size: number }>()
+    const seen = new Map<number, OrganicNode[]>()
+    for (const n of layout.nodes) {
+      let arr = seen.get(n.depth)
+      if (!arr) { arr = []; seen.set(n.depth, arr) }
+      arr.push(n)
+    }
+    for (const arr of seen.values()) {
+      arr.sort((a, b) => {
+        const ra = resolvedDepRank.get(a.id) ?? 0
+        const rb = resolvedDepRank.get(b.id) ?? 0
+        return ra - rb
+      })
+      arr.forEach((n, i) => rank.set(n.id, { idx: i, size: arr.length }))
+    }
+    return rank
+  }, [layout.nodes, resolvedDepRank])
+
+  /* Per-bucket centred Y target — sibling at index `i` of `n` lands
+   * at h/2 + (i - (n-1)/2) * pitch. Median sibling on the X-axis
+   * centerline; rest spread symmetrically above and below. */
+  const yForBucket = useCallback(
+    (id: string) => {
+      const b = bucketRank.get(id)
+      if (!b) return Y_CENTER
+      return Y_CENTER + (b.idx - (b.size - 1) / 2) * PITCH
     },
-    [totalNodes, Y_RANGE, Y_MARGIN],
+    [bucketRank, Y_CENTER, PITCH],
   )
 
   const familyById = useMemo(() => {
@@ -370,9 +443,10 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       totalCols: number
       totalRows: number
     }
-    const ROW_PITCH = NODE_RADIUS * 2 + COLLIDE_PADDING
-    const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
-    const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
+    const ROW_PITCH = R * 2 + COLLIDE_PADDING
+    const Y_MARGIN_LOCAL = R + COLLIDE_PADDING
+    const Y_RANGE_LOCAL = Math.max(R * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
+    const Y_CENTER_LOCAL = hostSize.h / 2
     // How many bubbles fit vertically with the no-overlap collision
     // pitch (NODE_RADIUS*2 + COLLIDE_PADDING = 92px on 700px viewBox →
     // 7 rows). Beyond that, we MUST add sub-columns or bubbles overlap.
@@ -413,21 +487,20 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       // Issue #532 founder verbatim: "homogenously spread". Distribute
       // rows evenly across the full Y range (not packed at the top).
       const rowStep = totalRows > 1
-        ? Y_RANGE_LOCAL / (totalRows - 1)
+        ? Math.min(ROW_PITCH * 1.2, Y_RANGE_LOCAL / (totalRows - 1))
         : 0
       bucket.forEach((n, idx) => {
-        // Column-major fill: idx 0..(totalRows-1) fill column 0 top→
-        // bottom, then idx totalRows..(2*totalRows-1) fill column 1,
-        // etc. This keeps consecutive siblings (often related in the
-        // upstream order) clustered together rather than scattered.
         const subCol = Math.floor(idx / totalRows)
         const subRow = idx % totalRows
         const colOffset = totalCols > 1
           ? (subCol - (totalCols - 1) / 2) * colStep
           : 0
+        // Issue #669 round 2 — centred row spread around y=h/2 instead
+        // of starting from the top margin. Median row lands on the
+        // X-axis centerline; rest spread above and below.
         const ty = totalRows > 1
-          ? Y_MARGIN_LOCAL + subRow * rowStep
-          : Y_MARGIN_LOCAL + Y_RANGE_LOCAL / 2
+          ? Y_CENTER_LOCAL + (subRow - (totalRows - 1) / 2) * rowStep
+          : Y_CENTER_LOCAL
         cells.set(n.id, {
           tx: baseX + colOffset,
           ty,
@@ -437,7 +510,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
     }
     return cells
-  }, [layout.nodes, hostSize.h, X_LEFT_MARGIN])
+  }, [layout.nodes, hostSize.h, X_LEFT_MARGIN, R, PER_DEPTH_X])
 
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
@@ -456,19 +529,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         next.push(existing)
       } else {
         const baseX = depthToX(n.depth)
-        // Issue #532 — initial Y comes from either the high-fan-out
-        // grid pre-pass (cell.ty is now absolute, homogeneous-spread
-        // Y target for the depth bucket) or the depRank ladder for
-        // sparse depths.
         const seed = hashSeed(n.id)
         const cell = gridTargets.get(n.id)
-        const initX = cell ? cell.tx : baseX + (seed.fx - 0.5) * NODE_RADIUS * 1.5
-        // For sparse-depth nodes, small Y jitter so two nodes with
-        // identical depRank don't start at literally the same pixel —
-        // the collision force then separates them deterministically.
+        const initX = cell ? cell.tx : baseX + (seed.fx - 0.5) * R * 1.5
+        // Issue #669 round 2 — initial Y from per-bucket centred target.
         const initY = cell
           ? cell.ty
-          : yForDepRank(rank) + (seed.fy - 0.5) * NODE_RADIUS * 0.6
+          : yForBucket(n.id) + (seed.fy - 0.5) * R * 0.6
         const fresh: SimNode = {
           id: n.id,
           depth: n.depth,
@@ -488,7 +555,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       if (!seen.has(id)) nodesRef.current.delete(id)
     }
     return next
-  }, [layout.nodes, depthToX, yForDepRank, gridTargets, resolvedDepRank])
+  }, [layout.nodes, depthToX, yForBucket, gridTargets, resolvedDepRank, R])
 
   useEffect(() => {
     if (simNodes.length === 0) {
@@ -516,6 +583,19 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     // freezing again.
     const MAX_TICKS = 120
     tickCountRef.current = 0
+    /* Issue #669 round 2 — visible re-flow on every layout/host change.
+     * Snap each free (un-pinned) node to its fresh target so the
+     * operator sees the reflow rather than the sim drifting back to
+     * old positions over 2s. Pinned (dragged) nodes keep fx/fy. */
+    for (const n of simNodes) {
+      if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
+      const cell = gridTargets.get(n.id)
+      const seed = hashSeed(n.id)
+      n.x = cell ? cell.tx : depthToX(n.depth) + (seed.fx - 0.5) * R * 1.5
+      n.y = cell ? cell.ty : yForBucket(n.id) + (seed.fy - 0.5) * R * 0.6
+      n.vx = 0
+      n.vy = 0
+    }
     const sim = forceSimulation<SimNode>(simNodes)
       .alpha(0.9)
       .alphaDecay(0.06)
@@ -524,7 +604,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       .force(
         'collide',
         forceCollide<SimNode>()
-          .radius((d) => (d.isGroup ? GROUP_RADIUS : NODE_RADIUS) + COLLIDE_PADDING)
+          .radius((d) => (d.isGroup ? GR : R) + COLLIDE_PADDING)
           .strength(0.95)
           .iterations(2),
       )
@@ -532,8 +612,6 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'x',
         forceX<SimNode>()
           .x((d) => {
-            // Issue #493 — high-fan-out depth buckets have a sub-column
-            // X target. Sparse depths fall through to the depth anchor.
             const cell = gridTargets.get(d.id)
             return cell ? cell.tx : depthToX(d.depth)
           })
@@ -543,14 +621,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         'y',
         forceY<SimNode>()
           .y((d) => {
-            // Issue #532 — Y target. High-fan-out depth buckets get
-            // a homogeneous-spread Y from the gridTargets pre-pass
-            // (cell.ty is absolute). Sparse depths fall through to
-            // the depRank ladder so depth-of-dep order reads as
-            // top → bottom.
+            // Issue #669 round 2 — Y target now per-bucket centred
+            // (yForBucket) instead of global topo ladder.
             const cell = gridTargets.get(d.id)
             if (cell) return cell.ty
-            return yForDepRank(d.depRank)
+            return yForBucket(d.id)
           })
           .strength(FORCE_Y_STRENGTH),
       )
@@ -593,8 +668,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             const colSlot = cell.totalCols > 1
               ? SUB_COL_SPAN / (cell.totalCols - 1)
               : PER_DEPTH_X
-            const Y_MARGIN_LOCAL = NODE_RADIUS + COLLIDE_PADDING
-            const Y_RANGE_LOCAL = Math.max(NODE_RADIUS * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
+            const Y_MARGIN_LOCAL = R + COLLIDE_PADDING
+            const Y_RANGE_LOCAL = Math.max(R * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
             const rowSlot = cell.totalRows > 1
               ? Y_RANGE_LOCAL / (cell.totalRows - 1)
               : Y_RANGE_LOCAL
@@ -625,16 +700,16 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
            * outside the viewBox, post-render clamping cannot recover
            * pairwise spacing. Keep the sim inside the visible window
            * end-to-end. */
-          const xMin = Math.max(NODE_RADIUS, baseX - PER_DEPTH_X)
-          const xMax = Math.min(hostSize.w - NODE_RADIUS, baseX + PER_DEPTH_X)
+          const xMin = Math.max(R, baseX - PER_DEPTH_X)
+          const xMax = Math.min(hostSize.w - R, baseX + PER_DEPTH_X)
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
-          const targetY = yForDepRank(n.depRank)
-          const Y_HALF_BAND = (NODE_RADIUS * 2 + COLLIDE_PADDING)
-          const yMin = Math.max(NODE_RADIUS, targetY - Y_HALF_BAND)
-          const yMax = Math.min(hostSize.h - NODE_RADIUS, targetY + Y_HALF_BAND)
+          const targetY = yForBucket(n.id)
+          const Y_HALF_BAND = (R * 2 + COLLIDE_PADDING)
+          const yMin = Math.max(R, targetY - Y_HALF_BAND)
+          const yMax = Math.min(hostSize.h - R, targetY + Y_HALF_BAND)
           if (typeof n.y === 'number') {
             if (n.y < yMin) n.y = yMin
             else if (n.y > yMax) n.y = yMax
@@ -657,7 +732,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     return () => {
       sim.stop()
     }
-  }, [simNodes, layout.edges, depthToX, yForDepRank, gridTargets, hostSize.h, hostSize.w])
+  }, [simNodes, layout.edges, depthToX, yForBucket, gridTargets, hostSize.h, hostSize.w, R, GR, PER_DEPTH_X, LINK_DISTANCE])
 
   const nodeIdsKey = simNodes.map((n) => n.id).join(',')
   useEffect(() => {
@@ -771,7 +846,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * ≥ NODE_RADIUS*2 + COLLIDE_PADDING (= 92 px), and clamping to a
    * single edge cannot reduce two clamped nodes' distance below that
    * threshold (the collide pass owns it pre-render). */
-  const CLAMP_INSET = NODE_RADIUS + 8
+  const CLAMP_INSET = R + 8
   const project = (p: { x: number; y: number }) => {
     const x = Math.min(vbW - CLAMP_INSET, Math.max(CLAMP_INSET, p.x))
     const y = Math.min(vbH - CLAMP_INSET, Math.max(CLAMP_INSET, p.y))
@@ -868,6 +943,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             status={e.fromStatus}
             kind={e.kind}
             highlighted={onSelectionPath ? 'selection' : onHostPath ? 'host' : 'none'}
+            r={R}
           />
         )
       })}
@@ -894,6 +970,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             isDimmed={openJobId !== null && !isNeighbor && !isOpen && !isHost}
             onClick={(e) => onJobClick(node.id, e)}
             onDoubleClick={() => onJobDoubleClick(node.id)}
+            r={R}
+            gr={GR}
           />
         )
       })}
@@ -910,16 +988,17 @@ interface FlowEdgeProps {
   status: JobStatus
   kind: 'depends-on' | 'parent-child'
   highlighted: 'none' | 'selection' | 'host'
+  r: number
 }
 
-function FlowEdge({ from, to, status, kind, highlighted }: FlowEdgeProps) {
+function FlowEdge({ from, to, status, kind, highlighted, r }: FlowEdgeProps) {
   const tone = STATUS_TONE[status]
   const dx = to.x - from.x
   const dy = to.y - from.y
   const len = Math.hypot(dx, dy) || 1
-  const trim = NODE_RADIUS + 6
-  const fx = from.x + (dx / len) * NODE_RADIUS
-  const fy = from.y + (dy / len) * NODE_RADIUS
+  const trim = r + 6
+  const fx = from.x + (dx / len) * r
+  const fy = from.y + (dy / len) * r
   const tx = to.x - (dx / len) * trim
   const ty = to.y - (dy / len) * trim
 
@@ -963,6 +1042,8 @@ interface FlowNodeProps {
   isDimmed: boolean
   onClick: (e: ReactMouseEvent<SVGGElement>) => void
   onDoubleClick: () => void
+  r: number
+  gr: number
 }
 
 function FlowNode({
@@ -976,6 +1057,8 @@ function FlowNode({
   isDimmed,
   onClick,
   onDoubleClick,
+  r,
+  gr,
 }: FlowNodeProps) {
   const tone = STATUS_TONE[node.status]
   // Inner ring priority — drawn on the bubble itself:
@@ -992,7 +1075,7 @@ function FlowNode({
         ? HOST_RING
         : tone.ring
   const familyColor = family?.color ?? 'rgba(148,163,184,0.55)'
-  const radius = node.isGroup ? GROUP_RADIUS : NODE_RADIUS
+  const radius = node.isGroup ? gr : r
   const grpStyle: CSSProperties = { cursor: 'grab' }
   const groupOpacity = isDimmed ? 0.35 : 1
   const innerWidth = isOpen ? 4 : isNeighbor ? 3 : isHost ? 3.5 : 2
