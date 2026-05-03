@@ -80,6 +80,15 @@ mimir-distributed:
     structuredConfig:
       ingest_storage:
         enabled: false
+      # Re-enable Push gRPC method on the ingester. Upstream
+      # mimir-distributed 6.0.6 sets push_grpc_method_enabled=false
+      # when ingest-storage is disabled, but classic-mode ingester
+      # REQUIRES the Push gRPC method. Without this override the
+      # ingester pod crashloops with: "cannot disable Push gRPC
+      # method in ingester, while ingest storage is not enabled".
+      # Caught live on otech43.
+      ingester:
+        push_grpc_method_enabled: true
 
   # MetaMonitoring (ServiceMonitor + Grafana dashboards) — DEFAULT FALSE
   # per docs/BLUEPRINT-AUTHORING.md §11.2.
