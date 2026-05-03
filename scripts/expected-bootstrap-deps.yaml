@@ -57,7 +57,7 @@ slots:
     name: bp-sealed-secrets
     depends_on: [bp-cert-manager]
     wave: present
-  - slot: 5a
+  - slot: "5a"
     name: bp-reflector
     # emberstack/reflector — secret/configmap mirror controller (issue #543).
     # Propagates ghcr-pull secret to every namespace so cross-namespace
@@ -66,6 +66,7 @@ slots:
     # Used by bp-gitea + bp-harbor to propagate CNPG-generated pg-app Secrets.
     depends_on: [bp-cert-manager]
     wave: present
+  - slot: 7
     name: bp-nats-jetstream
     depends_on: []
     wave: present
@@ -93,7 +94,13 @@ slots:
   - slot: 11
     name: bp-powerdns
     # bp-gateway-api dep (issue #503): chart ships an api-httproute.yaml template.
-    depends_on: [bp-cert-manager, bp-gateway-api]
+    # bp-cnpg dep: chart's templates/cnpg-cluster.yaml renders a
+    # postgresql.cnpg.io/v1.Cluster gated on Capabilities.APIVersions.
+    # Without this dep Helm renders before the CRD is registered, the
+    # gate evaluates false, the Cluster CR is silently skipped, CNPG
+    # never creates pdns-pg-app, and powerdns Pods fail at boot with
+    # "secret pdns-pg-app not found" (caught live during otech28).
+    depends_on: [bp-cert-manager, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 12
     name: bp-external-dns
