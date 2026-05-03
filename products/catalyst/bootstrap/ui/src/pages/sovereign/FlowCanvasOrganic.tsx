@@ -169,8 +169,8 @@ const MAX_PER_DEPTH_X = 200
 /** Force strengths re-tuned post-#483. Gentle X-anchor lets the link
  *  force pull connected nodes together without the X-force fighting
  *  back and producing the oscillation that read as "infinite stretch". */
-const FORCE_X_STRENGTH = 0.12
-const FORCE_Y_STRENGTH = 0.10
+const FORCE_X_STRENGTH = 0.18
+const FORCE_Y_STRENGTH = 0.22
 const FORCE_LINK_STRENGTH = 0.18
 
 /** Selection palette — distinct from any status colour AND distinct
@@ -252,8 +252,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
      * effect downstream from running unnecessarily). */
     let timer: ReturnType<typeof setTimeout> | null = null
     let pending: { w: number; h: number } | null = null
-    const RESIZE_DEBOUNCE_MS = 180
-    const RESIZE_EPSILON_PX = 8
+    const RESIZE_DEBOUNCE_MS = 60
+    const RESIZE_EPSILON_PX = 4
     const ro = new ResizeObserver((entries) => {
       const e = entries[0]
       if (!e) return
@@ -387,34 +387,155 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
     r = Math.max(MIN_NODE_RADIUS, Math.min(MAX_NODE_RADIUS, Math.round(r / 4) * 4))
 
-    const ROW_PITCH = r * 2 + COLLIDE_PADDING
-    const Y_RANGE = Math.max(r * 2, hostSize.h - 2 * (r + COLLIDE_PADDING))
-    const HARD_ROW_CAP = Math.max(1, Math.floor(Y_RANGE / ROW_PITCH))
-
-    // Per-bucket sub-grid info (cols × rows + slot width).
-    const slotInfo = new Map<number, { cols: number; rows: number; width: number }>()
-    for (const [d, count] of buckets) {
-      // Cap target rows by what fits vertically — defensive when R
-      // got pushed to MIN_NODE_RADIUS by an unusually tight host.
-      const rows = Math.min(targetRowsFor(count), HARD_ROW_CAP)
-      const cols = Math.max(1, Math.ceil(count / rows))
-      const naturalW = cols > 1
-        ? (cols - 1) * (r * 2 + COLLIDE_PADDING) + r * 2
-        : r * 2
-      const width = Math.round(Math.max(naturalW, r * 2) / 8) * 8
-      slotInfo.set(d, { cols, rows, width })
+    /* computeAt(radius, rowMultiplier) — recomputes slot widths at the
+     * given radius. rowMultiplier > 1 forces dense buckets to use MORE
+     * rows (and fewer columns) per bucket, compressing the slot
+     * horizontally at the cost of more vertical space. Used when the
+     * chain still overflows the host width even at R = MIN_NODE_RADIUS:
+     * we trade horizontal sprawl for vertical until totalWidth fits. */
+    const computeAt = (radius: number, rowMultiplier = 1) => {
+      const ROW_PITCH = radius * 2 + COLLIDE_PADDING
+      const Y_RANGE = Math.max(radius * 2, hostSize.h - 2 * (radius + COLLIDE_PADDING))
+      const hardRowCap = Math.max(1, Math.floor(Y_RANGE / ROW_PITCH))
+      const slotInfo = new Map<number, { cols: number; rows: number; width: number }>()
+      for (const [d, count] of buckets) {
+        const baseRows = targetRowsFor(count)
+        const rows = Math.min(Math.max(1, Math.ceil(baseRows * rowMultiplier)), hardRowCap, count)
+        const cols = Math.max(1, Math.ceil(count / rows))
+        const naturalW = cols > 1
+          ? (cols - 1) * (radius * 2 + COLLIDE_PADDING) + radius * 2
+          : radius * 2
+        const width = Math.round(Math.max(naturalW, radius * 2) / 8) * 8
+        slotInfo.set(d, { cols, rows, width })
+      }
+      const gap = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, radius * 4))
+      const xByDepth = new Map<number, number>()
+      let cursor = radius + COLLIDE_PADDING
+      for (let d = 0; d <= maxDepth; d++) {
+        const w = slotInfo.get(d)?.width ?? radius * 2
+        xByDepth.set(d, cursor + w / 2)
+        cursor += w + gap
+      }
+      const totalWidth = cursor - gap + radius + COLLIDE_PADDING
+      return { slotInfo, gap, xByDepth, totalWidth, hardRowCap }
     }
 
-    const gap = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, r * 4))
-
-    const xByDepth = new Map<number, number>()
-    let cursor = r + COLLIDE_PADDING
-    for (let d = 0; d <= maxDepth; d++) {
-      const w = slotInfo.get(d)?.width ?? r * 2
-      xByDepth.set(d, cursor + w / 2)
-      cursor += w + gap
+    /* Issue #669 round 5 — aggressive fit-to-host horizontally.
+     *
+     * Founder UAT: "the graph is not fitting into the full page,
+     * getting out of the full screen with huge extended x axis".
+     *
+     * Two-stage fit:
+     *   Stage 1 — shrink the inter-depth gap proportionally toward
+     *             a tight floor (R*2.2) before touching R. Wide
+     *             gaps are the first thing to give up.
+     *   Stage 2 — if even a tight gap doesn't fit, shrink R by 4
+     *             and recompute everything. R has its own MIN floor;
+     *             past that we accept horizontal scroll.
+     */
+    let attempt = computeAt(r)
+    // Stage 1: tighten gap if it would let us fit.
+    if (attempt.totalWidth > hostSize.w && depthCount > 1) {
+      const slotsTotal = Array.from(attempt.slotInfo.values()).reduce((acc, s) => acc + s.width, 0)
+      const margin = 2 * (r + COLLIDE_PADDING)
+      const fitGap = (hostSize.w - slotsTotal - margin) / (depthCount - 1)
+      // Floor on inter-depth gap = just enough to prevent adjacent
+      // depth bubbles from visually touching (R*2.2 → 9.6px clear gap
+      // at R=16). MIN_PER_DEPTH_X is the *aesthetic* preference for
+      // sparse layouts; when the chain doesn't fit, function over form.
+      const minGap = r * 2.2
+      if (fitGap >= minGap) {
+        // Recompute xByDepth + totalWidth with the tighter gap.
+        const newGap = Math.floor(fitGap)
+        const newX = new Map<number, number>()
+        let cursor = r + COLLIDE_PADDING
+        for (let d = 0; d <= maxDepth; d++) {
+          const w = attempt.slotInfo.get(d)?.width ?? r * 2
+          newX.set(d, cursor + w / 2)
+          cursor += w + newGap
+        }
+        attempt = {
+          ...attempt,
+          gap: newGap,
+          xByDepth: newX,
+          totalWidth: cursor - newGap + r + COLLIDE_PADDING,
+        }
+      }
     }
-    const totalWidth = cursor - gap + r + COLLIDE_PADDING
+    // Stage 2: shrink R if still overflows.
+    while (attempt.totalWidth > hostSize.w && r > MIN_NODE_RADIUS) {
+      r = Math.max(MIN_NODE_RADIUS, r - 4)
+      attempt = computeAt(r)
+      if (attempt.totalWidth > hostSize.w && depthCount > 1) {
+        const slotsTotal = Array.from(attempt.slotInfo.values()).reduce((acc, s) => acc + s.width, 0)
+        const margin = 2 * (r + COLLIDE_PADDING)
+        const fitGap = (hostSize.w - slotsTotal - margin) / (depthCount - 1)
+        // Floor on inter-depth gap = just enough to prevent adjacent
+      // depth bubbles from visually touching (R*2.2 → 9.6px clear gap
+      // at R=16). MIN_PER_DEPTH_X is the *aesthetic* preference for
+      // sparse layouts; when the chain doesn't fit, function over form.
+      const minGap = r * 2.2
+        if (fitGap >= minGap) {
+          const newGap = Math.floor(fitGap)
+          const newX = new Map<number, number>()
+          let cursor = r + COLLIDE_PADDING
+          for (let d = 0; d <= maxDepth; d++) {
+            const w = attempt.slotInfo.get(d)?.width ?? r * 2
+            newX.set(d, cursor + w / 2)
+            cursor += w + newGap
+          }
+          attempt = {
+            ...attempt,
+            gap: newGap,
+            xByDepth: newX,
+            totalWidth: cursor - newGap + r + COLLIDE_PADDING,
+          }
+        }
+      }
+    }
+    /* Stage 3 — at MIN_R with min gap and STILL overflowing? Trade
+     * horizontal extent for vertical: increase the row-multiplier on
+     * dense buckets so they pile MORE vertically and less
+     * horizontally. Each step multiplies targetRows by 1.4 (so a
+     * bucket that wanted 3 rows × 4 cols becomes 5 rows × 3 cols,
+     * shrinking slot from 356 → 264 px). Stops when fits or
+     * rowMultiplier exceeds the bucket's hard row cap. */
+    let rowMul = 1
+    while (attempt.totalWidth > hostSize.w && rowMul < 4) {
+      rowMul *= 1.4
+      const next = computeAt(r, rowMul)
+      // Re-apply gap tightening at the new radius/rowMul.
+      let stage1 = next
+      if (next.totalWidth > hostSize.w && depthCount > 1) {
+        const slotsTotal = Array.from(next.slotInfo.values()).reduce((acc, s) => acc + s.width, 0)
+        const margin = 2 * (r + COLLIDE_PADDING)
+        const fitGap = (hostSize.w - slotsTotal - margin) / (depthCount - 1)
+        const minGap = r * 2.2
+        if (fitGap >= minGap) {
+          const newGap = Math.floor(fitGap)
+          const newX = new Map<number, number>()
+          let cursor = r + COLLIDE_PADDING
+          for (let d = 0; d <= maxDepth; d++) {
+            const w = next.slotInfo.get(d)?.width ?? r * 2
+            newX.set(d, cursor + w / 2)
+            cursor += w + newGap
+          }
+          stage1 = {
+            ...next,
+            gap: newGap,
+            xByDepth: newX,
+            totalWidth: cursor - newGap + r + COLLIDE_PADDING,
+          }
+        }
+      }
+      // Only adopt if it actually improves fit (or fits exactly).
+      if (stage1.totalWidth <= attempt.totalWidth) {
+        attempt = stage1
+      } else {
+        break
+      }
+    }
+    const { slotInfo, gap, xByDepth, totalWidth, hardRowCap } = attempt
 
     const linkDistance = gap * 0.625
     const gr = r + GROUP_RADIUS_DELTA
@@ -429,7 +550,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       linkDistance,
       maxBucket,
       depthCount,
-      hardRowCap: HARD_ROW_CAP,
+      hardRowCap,
     }
   }, [layout.nodes, hostSize.w, hostSize.h])
 
@@ -512,14 +633,44 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
 
   /* Per-bucket centred Y target — sibling at index `i` of `n` lands
    * at h/2 + (i - (n-1)/2) * pitch. Median sibling on the X-axis
-   * centerline; rest spread symmetrically above and below. */
+   * centerline; rest spread symmetrically above and below.
+   *
+   * Issue #669 round 5 — for SINGLETON depth buckets (size === 1) we
+   * zigzag Y by depth parity so a long sequential chain (e.g. Phase 0
+   * → cluster-bootstrap → cilium → cert-manager) reads as a gentle
+   * wave that uses the vertical canvas instead of a flat horizontal
+   * line. The amplitude (R*1.5) keeps adjacent depths visually
+   * connected while filling more of the host height. */
+  const depthByNodeId = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const n of layout.nodes) m.set(n.id, n.depth)
+    return m
+  }, [layout.nodes])
+  /* Zigzag amplitude — sized to USE the host height, not R. With a
+   * 900-px host, amplitude is ~270 px → singletons sit at
+   * y = h/2 ± 270, filling the upper and lower fifths of the host.
+   * Bounded at host_h × 0.32 (so the bubble's full diameter never
+   * crosses the edge) and at host_h/2 - R - COLLIDE_PADDING (hard
+   * floor to keep bubble inside viewBox). */
+  /* Modest amplitude — just enough to lift singletons off the
+   * centerline so the chain reads as a gentle wave instead of a flat
+   * timeline, but short enough that adjacent depths stay visually
+   * connected without dragging the eye across the canvas. Founder
+   * UAT 2026-05-03: "even if it is kept short, it would give similar
+   * result and look nicer". */
+  const ZIGZAG_AMPLITUDE = Math.min(R * 3, hostSize.h * 0.12)
   const yForBucket = useCallback(
     (id: string) => {
       const b = bucketRank.get(id)
       if (!b) return Y_CENTER
+      if (b.size === 1) {
+        const d = depthByNodeId.get(id) ?? 0
+        const sign = d % 2 === 0 ? -1 : 1
+        return Y_CENTER + sign * ZIGZAG_AMPLITUDE
+      }
       return Y_CENTER + (b.idx - (b.size - 1) / 2) * PITCH
     },
-    [bucketRank, Y_CENTER, PITCH],
+    [bucketRank, Y_CENTER, PITCH, ZIGZAG_AMPLITUDE, depthByNodeId],
   )
 
   const familyById = useMemo(() => {
@@ -803,7 +954,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
            * pairwise spacing. Keep the sim inside the visible window
            * end-to-end. */
           const xMin = Math.max(R, baseX - PER_DEPTH_X)
-          const xMax = Math.min(hostSize.w - R, baseX + PER_DEPTH_X)
+          const xMax = Math.min(layoutMetrics.totalWidth - R, baseX + PER_DEPTH_X)
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
@@ -935,19 +1086,16 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * within the visible area. We do NOT compress positions; we let the
    * sim clamp positions, which preserves the no-overlap guarantee.
    */
+  /* Issue #669 round 4 — viewBox tracks the LARGER of host width or
+   * total layout extent. When the dep chain doesn't fit horizontally
+   * even after R shrinks to MIN_NODE_RADIUS, the SVG renders at full
+   * layout width and the parent host scrolls horizontally instead of
+   * piling bubbles at the right edge. Y still tracks host height. */
   const vbX = 0
   const vbY = 0
-  const vbW = hostSize.w
+  const vbW = Math.max(hostSize.w, layoutMetrics.totalWidth)
   const vbH = hostSize.h
 
-  /* Hard-clamp positions to viewBox. The per-tick clamp inside the sim
-   * also clamps, but ResizeObserver may shrink hostSize between sim
-   * ticks (drag of the LogPane); applying the clamp here ensures
-   * rendering never paints a bubble outside the visible area, even
-   * one frame. forceCollide already guarantees pairwise spacing of
-   * ≥ NODE_RADIUS*2 + COLLIDE_PADDING (= 92 px), and clamping to a
-   * single edge cannot reduce two clamped nodes' distance below that
-   * threshold (the collide pass owns it pre-render). */
   const CLAMP_INSET = R + 8
   const project = (p: { x: number; y: number }) => {
     const x = Math.min(vbW - CLAMP_INSET, Math.max(CLAMP_INSET, p.x))
@@ -969,12 +1117,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         height: '100%',
         minHeight: 0,
         minWidth: 0,
-        overflow: 'hidden',
+        overflowX: layoutMetrics.totalWidth > hostSize.w ? 'auto' : 'hidden',
+        overflowY: 'hidden',
       }}
     >
     <svg
       ref={svgRef}
-      width="100%"
+      width={vbW}
       height="100%"
       viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
       preserveAspectRatio="xMinYMin meet"
@@ -982,7 +1131,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       data-testid="flow-canvas-svg"
       role="img"
       aria-label="Provisioning dependency flow"
-      style={{ display: 'block', width: '100%', height: '100%' }}
+      style={{ display: 'block', minWidth: '100%', height: '100%' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCanvasBackgroundClick()
       }}
