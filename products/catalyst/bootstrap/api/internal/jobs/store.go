@@ -709,6 +709,54 @@ func deriveTreeView(jobs []Job) []Job {
 			jobs[i].DurationMs = 0
 		}
 	}
+
+	// Cascading-failure propagation (founder fail-fast directive,
+	// 2026-05-03): when a leaf job depends on another leaf that has
+	// already terminally Failed, the dependent must surface as Failed
+	// at read time too — never sit at Pending forever waiting on a
+	// dead dependency.
+	//
+	// Without this pass, otech34's install-external-secrets stayed
+	// Pending while install-openbao was Failed, "masking it and
+	// waiting unnecessarily" (founder's words).
+	//
+	// Iterative fixpoint: a single sweep handles direct dependencies;
+	// subsequent sweeps propagate transitive failure (failed → blocks
+	// dependent → that dependent's dependents). 8 sweeps cover the
+	// deepest bootstrap-kit chain (cilium → cert-manager → flux →
+	// crossplane → keycloak → gitea → catalyst-platform = 7 hops).
+	byJobName := make(map[string]int, len(jobs))
+	for i := range jobs {
+		if jobs[i].Type == JobTypeGroup {
+			continue
+		}
+		byJobName[jobs[i].JobName] = i
+	}
+	for sweep := 0; sweep < 8; sweep++ {
+		changed := false
+		for i := range jobs {
+			if jobs[i].Type == JobTypeGroup {
+				continue
+			}
+			if jobs[i].Status == StatusFailed || jobs[i].Status == StatusSucceeded {
+				continue
+			}
+			for _, depName := range jobs[i].DependsOn {
+				di, ok := byJobName[depName]
+				if !ok {
+					continue
+				}
+				if jobs[di].Status == StatusFailed {
+					jobs[i].Status = StatusFailed
+					changed = true
+					break
+				}
+			}
+		}
+		if !changed {
+			break
+		}
+	}
 	return jobs
 }
 
