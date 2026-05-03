@@ -288,18 +288,41 @@ spec:
                   key: token
                   optional: true
             # CATALYST_HARBOR_ROBOT_TOKEN — central Harbor proxy-cache
-            # robot account secret (issue #557). Reflector mirrors the
-            # `harbor-robot-token` Secret from openova-harbor namespace
-            # into catalyst namespace; the value is interpolated into
-            # the new Sovereign's /etc/rancher/k3s/registries.yaml at
-            # cloud-init time so containerd authenticates against
-            # harbor.openova.io's proxy projects (proxy-dockerhub etc).
+            # robot account secret (issue #557 + #557 follow-up). The
+            # value is interpolated into the new Sovereign's
+            # /etc/rancher/k3s/registries.yaml at cloud-init time so
+            # containerd authenticates against harbor.openova.io's proxy
+            # projects (proxy-dockerhub etc).
+            #
+            # Provisioning seam (catalyst-system Pod gets the Secret):
+            #   1. Tofu var.harbor_robot_token enters cloud-init
+            #      (infra/hetzner/cloudinit-control-plane.tftpl).
+            #   2. Cloud-init writes /var/lib/catalyst/harbor-robot-
+            #      token-secret.yaml into flux-system ns with the
+            #      auto-mirror Reflector annotations
+            #      (reflection-auto-enabled: "true").
+            #   3. runcmd applies it BEFORE flux-bootstrap, so the
+            #      Secret exists before any Helm release runs.
+            #   4. bp-reflector (slot 05a) propagates it into every
+            #      namespace (incl. catalyst-system) on first reconcile.
+            #   5. This Pod's secretKeyRef resolves once the mirror lands.
+            # Mirrors the canonical pattern that flux-system/ghcr-pull
+            # already uses (PR #543).
             #
             # NOT optional — provisioner.Validate() rejects deployments
             # with an empty token. The architecture mandate is that every
             # Sovereign image pull goes through harbor.openova.io; falling
             # through to docker.io is forbidden (rate-limit makes a fresh
-            # Hetzner IP unbootable within minutes).
+            # Hetzner IP unbootable within minutes). When `optional: true`
+            # was previously contemplated we chose against it: a missing
+            # token must surface immediately as a Pod start failure
+            # (CreateContainerConfigError), not silently mid-provision.
+            #
+            # Rotation: yearly. Re-render Tofu plan → re-apply cloud-init
+            # → kubectl apply runs against the existing Secret with
+            # rotated bytes; bp-reflector propagates the rotation to all
+            # mirrored copies on the next watch tick. Plaintext NEVER
+            # lives in git.
             - name: CATALYST_HARBOR_ROBOT_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.2.2
+version: 1.2.3
 appVersion: 1.2.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -135,6 +135,25 @@ description: |
   - ZERO Keycloak UI exposure, ZERO browser PKCE round-trip
   Adds CATALYST_OPENOVA_KC_* env refs from new catalyst-openova-kc-credentials
   Secret + CATALYST_SESSION_COOKIE_DOMAIN. 2026-05-02.
+
+  Bumped to 1.2.3 — RCA + permanent fix for catalyst-api Pods stuck in
+  CreateContainerConfigError on every fresh Sovereign because the
+  required (non-optional) `harbor-robot-token` secretKeyRef had no
+  source. Caught live on otech43, otech45, otech46 — operator was
+  hand-creating a placeholder Secret each iteration. Root cause: the
+  chart references `harbor-robot-token` as required but nothing
+  materialised it on the Sovereign cluster. The token VALUE was
+  already arriving (cloud-init interpolates var.harbor_robot_token
+  into /etc/rancher/k3s/registries.yaml), but no Kubernetes Secret
+  was created for catalyst-api to mount. Fix paired with
+  infra/hetzner/cloudinit-control-plane.tftpl: cloud-init now writes
+  /var/lib/catalyst/harbor-robot-token-secret.yaml into flux-system ns
+  with auto-mirror Reflector annotations, runcmd applies it BEFORE
+  flux-bootstrap, and bp-reflector (slot 05a) propagates it into
+  catalyst-system on first reconcile — exactly the canonical pattern
+  flux-system/ghcr-pull already uses (PR #543). Chart-side change is
+  a comment update on the secretKeyRef explaining the new seam.
+  Issue #557 follow-up, 2026-05-03.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
