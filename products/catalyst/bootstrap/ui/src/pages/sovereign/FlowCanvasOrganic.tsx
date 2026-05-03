@@ -235,30 +235,51 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
   useEffect(() => {
     const el = hostRef.current
     if (!el) return
-    // ResizeObserver may fire synchronously during layout — use rAF to
-    // batch state updates so we never trigger a re-render mid-tick.
-    let raf = 0
+    /* Issue #669 round 3 — debounced + epsilon-gated ResizeObserver.
+     *
+     * Background: closing/opening the LogPane animates `padding-right`
+     * over 220ms (cubic-bezier). During that animation the canvas
+     * host width changes by ~1-2 px every animation frame; round-2
+     * fired setHostSize on every rAF, which restarted the d3-force
+     * sim every frame — the operator saw the bubbles "trying never
+     * stabilizing".
+     *
+     * Fix: wait for the host size to be stable for 180ms before
+     * pushing it to React state, AND ignore changes smaller than 8 px
+     * in either dimension (the layoutMetrics snap-to-4 + slot
+     * snap-to-8 combination tolerates ±4 px without re-emitting any
+     * different metric, but explicit gating keeps the sim restart
+     * effect downstream from running unnecessarily). */
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let pending: { w: number; h: number } | null = null
+    const RESIZE_DEBOUNCE_MS = 180
+    const RESIZE_EPSILON_PX = 8
     const ro = new ResizeObserver((entries) => {
       const e = entries[0]
       if (!e) return
       const rect = e.contentRect
-      // Use the actual measured rect — not a floor. The MIN_HOST_*
-      // constants only apply when the rect is degenerate (0×0 during
-      // first paint). Forcing the viewBox to MIN_HOST_W when the
-      // host is narrower (e.g. LogPane reserves 30vw) causes the
-      // SVG to render 1200 viewBox-units into 686 CSS px (0.57×
-      // downscale), shrinking bubbles AND collapsing pairwise
-      // distances below the no-overlap threshold.
       const w = Math.round(rect.width) || MIN_HOST_W
       const h = Math.round(rect.height) || MIN_HOST_H
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
-      })
+      pending = { w, h }
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (!pending) return
+        const next = pending
+        pending = null
+        setHostSize((prev) => {
+          if (
+            Math.abs(prev.w - next.w) < RESIZE_EPSILON_PX &&
+            Math.abs(prev.h - next.h) < RESIZE_EPSILON_PX
+          ) {
+            return prev // ignore — sub-threshold flicker
+          }
+          return next
+        })
+      }, RESIZE_DEBOUNCE_MS)
     })
     ro.observe(el)
     return () => {
-      cancelAnimationFrame(raf)
+      if (timer) clearTimeout(timer)
       ro.disconnect()
     }
   }, [])
@@ -291,10 +312,37 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * together with the sim-restart effect below that re-seeds free
    * nodes to their fresh targets — gives bubbles a visible re-flow
    * pass on every host change. */
+  /* Issue #669 round 3 — variable-width depth columns.
+   *
+   * Founder-verbatim 2026-05-03 (round-2 UAT): "while 2/3 of the
+   * screen is empty, it is trying to pile up everything in the right
+   * edge. And it keep trying never stabilizing. Despite y axis
+   * homogeneous distribution looks fine, x axis distribution is
+   * terrible".
+   *
+   * Root cause: round-2 used a CONSTANT `perDepthX` for every depth
+   * column. With one-bubble depths next to a 30+ sibling depth, the
+   * dense bucket got 80% × perDepthX (~128px) of horizontal room and
+   * had to pile into 8+ sub-columns; the sparse depths each got their
+   * own perDepthX (~160px) for one bubble. End result: 60% of canvas
+   * unused on the left, dense cluster jammed at right.
+   *
+   * Round-3 fix: each depth bucket gets a horizontal slot whose width
+   * equals the bucket's *natural* extent at radius R. Sparse buckets
+   * (1 sibling) need 2R + small gap; dense buckets need
+   * `(totalCols - 1) * (2R + COLLIDE_PADDING)` to fit their
+   * sub-columns side-by-side. Total layout width = sum(slots) + gaps
+   * between slots. depthToX returns the centerline of slot[depth].
+   *
+   * Stabilization: round R to nearest 4 and slot widths to nearest 8
+   * so sub-pixel ResizeObserver fires during pane-transition
+   * animations don't perturb the metrics — without snapping, every
+   * frame of a 220ms padding-right transition recomputes the
+   * `Math.floor(rFit)` value and restarts the sim → never settles. */
   const layoutMetrics = useMemo(() => {
+    const buckets = new Map<number, number>()
     let maxBucket = 0
     let maxDepth = 0
-    const buckets = new Map<number, number>()
     for (const n of layout.nodes) {
       const c = (buckets.get(n.depth) ?? 0) + 1
       buckets.set(n.depth, c)
@@ -302,6 +350,8 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       if (n.depth > maxDepth) maxDepth = n.depth
     }
     const depthCount = maxDepth + 1
+
+    // Step 1 — adaptive R. Densest bucket must fit vertically.
     let r = MAX_NODE_RADIUS
     if (maxBucket > 1) {
       const usableH = Math.max(60, hostSize.h - 2 * (MAX_NODE_RADIUS + COLLIDE_PADDING))
@@ -309,23 +359,64 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       const rFit = (pitchAvail - COLLIDE_PADDING) / 2
       r = Math.min(MAX_NODE_RADIUS, Math.max(MIN_NODE_RADIUS, Math.floor(rFit)))
     }
-    let perDepthX = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, r * 4))
-    if (depthCount > 1) {
-      const usableW = Math.max(120, hostSize.w - 2 * (r + COLLIDE_PADDING))
-      const fitW = usableW / Math.max(1, depthCount - 1)
-      perDepthX = Math.min(perDepthX, Math.max(MIN_PER_DEPTH_X, fitW))
+    // Snap R to nearest 4 — kills sub-pixel flicker during animations.
+    r = Math.max(MIN_NODE_RADIUS, Math.min(MAX_NODE_RADIUS, Math.round(r / 4) * 4))
+
+    const ROW_PITCH = r * 2 + COLLIDE_PADDING
+    const Y_RANGE = Math.max(r * 2, hostSize.h - 2 * (r + COLLIDE_PADDING))
+    const COL_CAPACITY = Math.max(1, Math.floor(Y_RANGE / ROW_PITCH))
+
+    // Step 2 — per-depth slot width.
+    //   sparse (count ≤ COL_CAPACITY): width = 2R + minimal padding
+    //   dense  (count >  COL_CAPACITY): width grows with sub-column count
+    const slotWidth = new Map<number, number>()
+    for (const [d, count] of buckets) {
+      const totalCols = Math.max(1, Math.ceil(count / COL_CAPACITY))
+      const naturalCols = totalCols > 1
+        ? (totalCols - 1) * (r * 2 + COLLIDE_PADDING) + r * 2
+        : r * 2
+      // Snap to nearest 8 px.
+      const w = Math.round(Math.max(naturalCols, r * 2) / 8) * 8
+      slotWidth.set(d, w)
     }
-    const linkDistance = perDepthX * 0.625
+
+    // Step 3 — gap between adjacent depth columns. The gap doubles as
+    // edge length when chains run depth-to-depth. Clamp to
+    // [MIN_PER_DEPTH_X, MAX_PER_DEPTH_X].
+    const gap = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, r * 4))
+
+    // Step 4 — place each depth at its own X. Cumulative cursor.
+    const xByDepth = new Map<number, number>()
+    let cursor = r + COLLIDE_PADDING // left margin
+    for (let d = 0; d <= maxDepth; d++) {
+      const w = slotWidth.get(d) ?? r * 2
+      xByDepth.set(d, cursor + w / 2) // centerline of slot
+      cursor += w + gap
+    }
+    const totalWidth = cursor - gap + r + COLLIDE_PADDING // total layout extent
+
+    const linkDistance = gap * 0.625
     const gr = r + GROUP_RADIUS_DELTA
-    const xLeftMargin = r + perDepthX / 2
-    return { r, gr, perDepthX, linkDistance, xLeftMargin, maxBucket, depthCount }
+
+    return {
+      r,
+      gr,
+      gap,
+      slotWidth,
+      xByDepth,
+      totalWidth,
+      linkDistance,
+      maxBucket,
+      depthCount,
+      colCapacity: COL_CAPACITY,
+    }
   }, [layout.nodes, hostSize.w, hostSize.h])
 
-  const { r: R, gr: GR, perDepthX: PER_DEPTH_X, linkDistance: LINK_DISTANCE, xLeftMargin: X_LEFT_MARGIN } = layoutMetrics
+  const { r: R, gr: GR, gap: PER_DEPTH_X, linkDistance: LINK_DISTANCE, xByDepth, slotWidth } = layoutMetrics
 
   const depthToX = useCallback(
-    (depth: number) => X_LEFT_MARGIN + depth * PER_DEPTH_X,
-    [X_LEFT_MARGIN, PER_DEPTH_X],
+    (depth: number) => xByDepth.get(depth) ?? (R + COLLIDE_PADDING + depth * (R * 4)),
+    [xByDepth, R],
   )
 
   /* Issue #532 — resolve a per-node depRank.
@@ -462,27 +553,21 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
     const cells = new Map<string, GridCell>()
     for (const [depth, bucket] of buckets) {
-      // Only apply grid layout when sibling count exceeds the single-
-      // column vertical capacity. Sparse depths keep the original
-      // force-anchor behaviour (depthX + depRank-based Y).
       if (bucket.length <= COL_CAPACITY) continue
-      // Issue #669 — anchor at depthToX (NODE_RADIUS + PER_DEPTH_X/2 +
-      // depth * PER_DEPTH_X) so sub-columns centred on baseX never
-      // extend into negative X (which would render off-canvas under
-      // the new viewBox = host-px convention).
-      const baseX = X_LEFT_MARGIN + depth * PER_DEPTH_X
-      // Issue #532: with N siblings in a depth bucket and Y-range
-      // budget that fits COL_CAPACITY rows at the no-overlap pitch,
-      // we need ceil(N / COL_CAPACITY) sub-columns. Each sub-column
-      // contains COL_CAPACITY rows distributed homogeneously across
-      // the full Y range. This guarantees no overlap by construction
-      // (forceCollide is then a safety net for boundary effects).
+      // Issue #669 round 3 — anchor at the depth's CENTERLINE in the
+      // variable-width-slot layout, and use the bucket's own slot
+      // width for sub-column spread (NOT a fraction of perDepthX).
+      // This is what stops the dense cluster from piling at the
+      // right edge: dense buckets get a slot wide enough to spread,
+      // and the rest of the depth chain shifts further right to make
+      // room.
+      const baseX = xByDepth.get(depth) ?? (R + COLLIDE_PADDING + depth * (R * 4))
       const totalCols = Math.max(1, Math.ceil(bucket.length / COL_CAPACITY))
       const totalRows = Math.ceil(bucket.length / totalCols)
-      // Sub-column span — each sub-column gets a slice of the depth
-      // column's natural width. Cap at PER_DEPTH_X so adjacent depth
-      // columns never visually merge.
-      const SUB_COL_SPAN = PER_DEPTH_X * 0.8
+      const slot = slotWidth.get(depth) ?? (R * 2)
+      // Sub-column inner span — full slot minus one bubble at each
+      // edge (so a sub-col centerline stays inside the slot).
+      const SUB_COL_SPAN = Math.max(0, slot - R * 2)
       const colStep = totalCols > 1 ? SUB_COL_SPAN / (totalCols - 1) : 0
       // Issue #532 founder verbatim: "homogenously spread". Distribute
       // rows evenly across the full Y range (not packed at the top).
@@ -510,7 +595,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
     }
     return cells
-  }, [layout.nodes, hostSize.h, X_LEFT_MARGIN, R, PER_DEPTH_X])
+  }, [layout.nodes, hostSize.h, xByDepth, slotWidth, R])
 
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
