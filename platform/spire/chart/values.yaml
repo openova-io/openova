@@ -68,14 +68,24 @@ spire:
           default:
             enabled: false
           oidc-discovery-provider:
-            # Re-enabled in bp-spire 1.1.6: the CRD-ordering problem that
-            # originally forced all ClusterSPIFFEIDs to disabled was fixed
-            # in 1.1.4 (spire-crds listed first as a Helm dependency).
-            # Without this identity the oidc-discovery-provider init
-            # container blocks with "PermissionDenied: no identity issued"
-            # because the spire-controller-manager never creates the
-            # registration entry. Fixes otech22 OIDC init stuck (issue #571).
-            enabled: true
+            # Re-DISABLED in bp-spire 1.1.7: the CRD-ordering "fix" in
+            # 1.1.6 (spire-crds as Helm dependency) does NOT work because
+            # spire-crds ships its CRDs in `templates/` (not `crds/`),
+            # and Helm renders subchart templates ALONGSIDE the parent
+            # chart's templates rather than installing CRDs first. So
+            # the ClusterSPIFFEID CR for oidc-discovery-provider is
+            # rejected at install time:
+            #   no matches for kind "ClusterSPIFFEID" in version
+            #   "spire.spiffe.io/v1alpha1"
+            # This blocks bp-spire entirely → cascades to bp-openbao,
+            # bp-external-secrets, bp-nats-jetstream (caught live on
+            # otech29). The proper architectural fix is splitting bp-spire
+            # into bp-spire-crds + bp-spire HRs in the bootstrap-kit so
+            # Flux applies CRDs first; until that lands, disabling this
+            # CR keeps the chart installable. OIDC provider degraded
+            # accordingly — operators that need OIDC can re-enable
+            # post-bootstrap once bp-spire-crds split ships.
+            enabled: false
           test-keys:
             enabled: false
           # child-servers already defaults false upstream
