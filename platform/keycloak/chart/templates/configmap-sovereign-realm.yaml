@@ -1,30 +1,89 @@
 {{- /*
-Catalyst bp-keycloak — Sovereign realm import ConfigMap (issue #604, Phase-8b).
+Catalyst bp-keycloak — Sovereign realm import ConfigMap + catalyst-api service-account
+credentials Secret (issue #604 / #608, Phase-8b handover).
 
-This ConfigMap is rendered by the parent bp-keycloak chart (not the upstream bitnami/keycloak
-subchart) so it has access to the full parent `.Values` tree — specifically:
-  - .Values.sovereignFQDN  → per-Sovereign FQDN substituted into catalyst-ui redirect URIs
-  - .Values.smtp.*         → SMTP host/port/credentials for outbound realm email
+This single template owns BOTH resources so they share the same generated
+service-account client secret. Splitting them into two files would re-run
+randAlphaNum independently, producing two different secrets and a permanent
+authentication mismatch between Keycloak (realm import) and catalyst-api
+(env vars). One file → one Helm template scope → one shared variable.
 
-The upstream bitnami/keycloak chart's keycloakConfigCli.existingConfigmap is pointed at this
-ConfigMap (see values.yaml keycloak.keycloakConfigCli.existingConfigmap), so the upstream
-config-cli Job mounts it and imports the realm on first install. Re-run is idempotent.
+What this file emits
+────────────────────
+1. ConfigMap  {{ "{{ .Release.Name }}" }}-sovereign-realm-config (keycloak ns)
+   - Holds the realm JSON imported by the upstream bitnami/keycloak chart's
+     keycloak-config-cli post-deploy Job (existingConfigmap reference in
+     values.yaml keycloak.keycloakConfigCli.existingConfigmap).
+   - Defines the `sovereign` realm: catalyst-ui (PKCE), kubectl (public),
+     catalyst-api-server (confidential service-account with realm-management
+     impersonate + manage-users + view-users + query-users role mappings).
 
-Why this template instead of inline values.yaml string:
-  The realm JSON requires Helm template rendering for two per-Sovereign fields:
-    1. catalyst-ui redirect/origin URIs contain console.<sovereignFQDN>
-    2. smtpServer block contains runtime-configurable SMTP credentials
-  The inline values.yaml approach puts these under the `keycloak:` subchart key where
-  only subchart-scoped .Values are available. A parent-chart template is the canonical
-  seam for cross-scope interpolation (anti-duplication rule, ADR-0001 §11.3).
+2. Secret    catalyst-kc-sa-credentials (keycloak ns)
+   - Mirrored cross-namespace into catalyst-system by emberstack/reflector
+     (bootstrap-kit slot 05a). The mirror's keys (addr, realm, client-id,
+     client-secret) are consumed by catalyst-api as env vars
+     CATALYST_KC_ADDR / CATALYST_KC_REALM / CATALYST_KC_SA_CLIENT_ID /
+     CATALYST_KC_SA_CLIENT_SECRET — see products/catalyst/chart/templates/
+     api-deployment.yaml secretKeyRef section. Without this Secret the
+     /auth/handover endpoint returns "server misconfiguration: keycloak
+     not configured" (auth_handover.go:169).
 
-Naming: the configmap name matches what keycloak.keycloakConfigCli.existingConfigmap
-references — "{{ .Release.Name }}-sovereign-realm-config". The Release.Name for
-bootstrap-kit default is "keycloak" (releaseName in HelmRelease manifest).
+Secret-value resolution order (first match wins)
+────────────────────────────────────────────────
+  1. operator-supplied .Values.catalystApiServerClientSecret (cluster overlay)
+  2. existing Secret in keycloak ns (helm `lookup` → idempotent on upgrade)
+  3. fresh `randAlphaNum 32` (zero-touch on first install)
+
+Pattern mirrors platform/powerdns/chart/templates/api-credentials-secret.yaml
+(canonical seam for self-bootstrapping per-Sovereign credentials, ADR-0001
+§11.3 anti-duplication). Both resources render in the same template pass so
+the shared `$saSecret` variable carries through.
+
+Why this is the canonical seam vs. a post-install Job
+─────────────────────────────────────────────────────
+The realm import already creates the catalyst-api-server client with role
+mappings (clientScopeMappings.realm-management). The realm import takes a
+literal client secret in the JSON — keycloak-config-cli persists it. So the
+secret value is determined at chart-render time, not by a follow-up Admin-API
+script. A Job-based approach would have to: (a) wait for Keycloak Ready, (b)
+mint an admin token, (c) PUT the client secret, (d) write the K8s Secret —
+that's four failure modes the lookup-or-generate pattern eliminates.
 
 Canonical seam: platform/keycloak/chart/templates/configmap-sovereign-realm.yaml
 */}}
 {{- if .Values.sovereignRealm.enabled }}
+{{- /* ── Resolve catalyst-api-server client secret ─────────────────────── */}}
+{{- $saSecretName := "catalyst-kc-sa-credentials" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $saSecretName -}}
+{{- $saSecret := "" -}}
+{{- if $existing -}}
+  {{- /* Idempotent: reuse on upgrade so the realm-import client secret
+         stays stable across Helm reconciles. */ -}}
+  {{- $saSecret = index $existing.data "client-secret" | b64dec -}}
+{{- end -}}
+{{- if .Values.catalystApiServerClientSecret -}}
+  {{- /* Operator override wins — useful for replicating an existing
+         per-Sovereign secret from a sealed-secret or external store. */ -}}
+  {{- $saSecret = .Values.catalystApiServerClientSecret -}}
+{{- end -}}
+{{- if not $saSecret -}}
+  {{- /* Genuine first install — generate 32-char random per
+         INVIOLABLE-PRINCIPLES #10. */ -}}
+  {{- $saSecret = randAlphaNum 32 -}}
+{{- end -}}
+{{- /* Keycloak base URL — derived from gateway host (auth.<sovereignFQDN>)
+       per Inviolable Principle #4 (never hardcode). The catalyst-api Pod
+       will hit this via the cluster's internal DNS resolver against the
+       Cilium Gateway listener. */ -}}
+{{- $kcAddr := "" -}}
+{{- if .Values.gateway.host -}}
+  {{- $kcAddr = printf "https://%s" .Values.gateway.host -}}
+{{- else -}}
+  {{- /* Fallback: in-cluster Service FQDN. Skips the gateway / TLS path,
+         used only when gateway.host is unset (e.g. Catalyst-Zero). */ -}}
+  {{- $kcAddr = printf "http://%s.%s.svc.cluster.local" .Release.Name .Release.Namespace -}}
+{{- end -}}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -242,7 +301,7 @@ data:
           "implicitFlowEnabled": false,
           "serviceAccountsEnabled": true,
           "authorizationServicesEnabled": false,
-          "secret": "{{ .Values.catalystApiServerClientSecret }}",
+          "secret": {{ $saSecret | quote }},
           "redirectUris": [],
           "webOrigins": [],
           "defaultClientScopes": [
@@ -277,4 +336,51 @@ data:
         ]
       }
     }
+---
+{{- /* ── catalyst-kc-sa-credentials Secret ─────────────────────────────────
+       Mirrored to catalyst-system by reflector. Keys MUST match the
+       secretKeyRef.key values in products/catalyst/chart/templates/
+       api-deployment.yaml: addr / realm / client-id / client-secret. */}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $saSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: catalyst-api-sa-credentials
+    {{- with .Values.sovereignFQDN }}
+    catalyst.openova.io/sovereign-fqdn: {{ . | quote }}
+    {{- end }}
+  annotations:
+    catalyst.openova.io/comment: |
+      catalyst-api-server OIDC client credentials. The client itself is
+      created in the sovereign realm by the keycloak-config-cli realm
+      import (see ConfigMap above). This Secret carries the same
+      client-secret value used in the realm JSON so catalyst-api can
+      authenticate to Keycloak via OAuth2 client_credentials grant for
+      /auth/handover and impersonation calls.
+
+      First-install: Helm `lookup` returns nothing -> randAlphaNum 32 ->
+      both this Secret and the realm JSON share the value (single
+      template scope).
+      Upgrade: Helm `lookup` returns existing Secret -> re-emits same
+      bytes -> realm JSON re-emits same bytes -> no rotation, no drift.
+      Operator override: set .Values.catalystApiServerClientSecret in
+      cluster overlay to pin a known value (e.g. for sealed-secret
+      replication scenarios).
+    # Reflector cross-namespace mirror — catalyst-api lives in
+    # catalyst-system (bootstrap-kit slot 13). Auto-mirror so the
+    # destination Secret materialises as soon as catalyst-system
+    # namespace exists, even if bp-keycloak installs first.
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
+type: Opaque
+stringData:
+  addr: {{ $kcAddr | quote }}
+  realm: "sovereign"
+  client-id: "catalyst-api-server"
+  client-secret: {{ $saSecret | quote }}
 {{- end }}

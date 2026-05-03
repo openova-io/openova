@@ -38,14 +38,27 @@ sovereignRealm:
   enabled: true
 
 # catalystApiServerClientSecret: the client secret for the catalyst-api-server
-# confidential client in the sovereign realm. Set at provisioning time by the
-# OpenTofu/Crossplane provisioner which generates a random 32-char secret and
-# delivers it via HelmRelease valuesFrom → Secret → this key. The secret value
-# is then baked into the realm JSON by configmap-sovereign-realm.yaml template
-# so keycloak-config-cli sets a deterministic known secret on the client.
-# NEVER commit a real value here — empty default fails closed (keycloakConfigCli
-# will import a client with empty secret, which Keycloak rejects; this ensures
-# provisioner must supply the real value).
+# confidential client in the sovereign realm.
+#
+# Resolution order in templates/configmap-sovereign-realm.yaml:
+#   1. operator-supplied .Values.catalystApiServerClientSecret (this key)
+#   2. helm `lookup` of existing catalyst-kc-sa-credentials Secret
+#      in .Release.Namespace (idempotent across upgrades)
+#   3. fresh randAlphaNum 32 (zero-touch on first install)
+#
+# Default empty = self-bootstrap via #3 on a fresh Sovereign. The chart
+# materialises both the realm import (with this secret baked into the
+# catalyst-api-server client JSON) AND the catalyst-kc-sa-credentials
+# Secret in the keycloak namespace, mirrored to catalyst-system by
+# emberstack/reflector. catalyst-api consumes the mirror as env vars
+# CATALYST_KC_ADDR / CATALYST_KC_REALM / CATALYST_KC_SA_CLIENT_ID /
+# CATALYST_KC_SA_CLIENT_SECRET (see products/catalyst/chart/templates/
+# api-deployment.yaml).
+#
+# Set this key only when replicating a known secret from an existing
+# sealed-secret / external secret store (rare; the lookup-or-generate
+# pattern handles re-provisions automatically). NEVER commit a real
+# value here.
 catalystApiServerClientSecret: ""
 
 # ─── SMTP for outbound realm email (welcome / password-reset) (issue #604) ─
