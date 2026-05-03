@@ -95,26 +95,37 @@ const HelmControllerSelector = "app=helm-controller"
 // median is closer to 8 minutes.
 const DefaultWatchTimeout = 60 * time.Minute
 
-// MinComponentCount — the bootstrap-kit ships exactly 11 bp-* HelmReleases
-// (clusters/_template/bootstrap-kit/01-cilium → 11-bp-catalyst-platform).
-// The Watch terminates when all OBSERVED HelmReleases reach terminal
-// state, not when N have appeared, but tests assert this constant so
-// any future drift in the kit count surfaces here too.
-const MinComponentCount = 11
+// MinComponentCount — historical minimum bootstrap-kit cardinality.
+// The Watch terminates when the informer's initial List has synced
+// AND every OBSERVED HelmRelease has reached a terminal state, not
+// when a specific count has been reached. Kept here as documentation
+// of the historical value; new code should rely on the informer
+// HasSynced gate (see allObservedTerminal).
+const MinComponentCount = 1
 
-// DefaultMinBootstrapKitHRs — the lower bound on number of bp-*
+// DefaultMinBootstrapKitHRs — defensive floor on the count of bp-*
 // HelmReleases that must have appeared in the informer cache before
-// the terminate-on-all-done check is even considered. This is the
-// bug-fix gate for omantel-class deployments where the watcher used
-// to exit "ready" one second after flux-bootstrap because zero HRs
-// were yet reconciled (Flux hadn't materialised the bootstrap-kit
-// Kustomization on the new cluster).
+// the terminate-on-all-done check fires. The load-bearing gate is
+// the informer's HasSynced signal (set after WaitForCacheSync
+// returns) — this count is a defence-in-depth guard against the
+// edge case where HasSynced returns true with a completely empty
+// cache (the bootstrap-kit Kustomization on the new cluster never
+// reconciled at all).
 //
-// Operator override: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS. A future
-// bootstrap-kit that ships more or fewer components only needs this
-// env flipped on the catalyst-api Deployment — no code change
-// required.
-const DefaultMinBootstrapKitHRs = 11
+// Default 1 — the watch fires terminate-on-all-done if at least one
+// bp-* HelmRelease has been observed AND every observed HR is
+// terminal AND the informer has synced. A bootstrap-kit ships at
+// least one HR (cilium) so this is a safe floor. Earlier defaults
+// (11, then 38) tied this to the kit cardinality; that coupling is
+// brittle (otech48 incident, 2026-05-03 — kit had 37 HRs but env
+// was 38, so the gate was unsatisfiable). The HasSynced signal is
+// the right correctness gate; this constant stays as a sanity floor
+// only.
+//
+// Operator override: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS. Tests
+// inject a higher value (e.g. 3) when they specifically want to
+// exercise the floor.
+const DefaultMinBootstrapKitHRs = 1
 
 // DefaultFirstSeenTimeout — how long the Watcher waits for the FIRST
 // bp-* HelmRelease to appear in the informer cache after the watch
@@ -322,6 +333,30 @@ type Watcher struct {
 	// Guards against re-emission if the Watcher is hypothetically
 	// driven across multiple FirstSeenTimeout boundaries.
 	firstSeenWarnEmitted bool
+
+	// informerSynced — true after WaitForCacheSync returns successfully,
+	// signalling that the initial List() against the apiserver has
+	// completed. processEvent refuses to consider terminate-on-all-done
+	// while this is false: during the initial sync the informer fires
+	// AddFunc once per HelmRelease in arbitrary (often alphabetical)
+	// order, so allObservedTerminal({first 12: installed}) would
+	// otherwise fire before the remaining 25+ HRs entered the cache.
+	// This was the root cause of the otech48 incident (2026-05-03)
+	// where 37 HRs reached Ready=True on the Sovereign cluster but
+	// the deployment record stayed phase1-watching: the catalyst-api
+	// Deployment shipped CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS=38 to
+	// patch around the early-termination bug, but the actual
+	// bootstrap-kit cardinality had drifted to 37 — so the count gate
+	// was permanently unsatisfiable. Using the informer's HasSynced
+	// signal instead is robust to bootstrap-kit cardinality changes
+	// without touching the chart.
+	informerSynced bool
+
+	// readyTransitionEmitted — set true the first time the watcher
+	// emits the "Sovereign ready for handover" terminal event so a
+	// post-sync stabilisation tick that re-evaluates the gate cannot
+	// double-emit. Mutated under w.mu.
+	readyTransitionEmitted bool
 
 	// outcome — terminal classification of the watch run, set
 	// exactly once by Watch on the path that returns. Read via
@@ -553,6 +588,32 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		return final, fmt.Errorf("helmwatch: informer cache failed to sync: %w", watchCtx.Err())
 	}
 
+	// Initial-list synced — flip the gate that lets processEvent
+	// consider terminate-on-all-done, then re-evaluate the gate once
+	// against the synced cache so a Watcher attaching to a cluster
+	// where every HR is already Ready=True still terminates.
+	//
+	// processEvent fires AddFunc for every HelmRelease in the initial
+	// List BEFORE WaitForCacheSync returns. Those events accumulate
+	// state in w.states + w.observed but MUST NOT close `terminated`
+	// — otherwise the watcher exits as soon as the alphabetically
+	// first batch of HRs land Ready, before the remaining HRs even
+	// enter the cache. We park the all-terminal check until here.
+	w.mu.Lock()
+	w.informerSynced = true
+	allTerminalAtSync := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, true)
+	w.mu.Unlock()
+
+	if allTerminalAtSync {
+		// Resume-after-restart path: every bp-* HR is already
+		// Ready=True at attach time. Emit the terminal "ready" event
+		// immediately so the wizard's auto-redirect fires, then close
+		// `terminated` so the main loop returns through the clean
+		// path with OutcomeReady.
+		w.maybeEmitReadyTransition()
+		closeOnce.Do(func() { close(terminated) })
+	}
+
 	// Initial-list synced — fire the post-sync hooks. The bridge
 	// uses this to seed Jobs from every HelmRelease the informer
 	// already has in its cache, including HRs that have been
@@ -767,7 +828,13 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 		w.firstSeenAt = w.cfg.Now()
 	}
 
-	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt)
+	// The all-terminal check is gated on informerSynced — an event
+	// fired during the initial List MUST NOT close `terminated` even
+	// if the alphabetically-first HRs all happen to be Ready=True.
+	// The post-WaitForCacheSync block in Watch() owns the first
+	// terminal-check after sync; from then on every transition
+	// re-evaluates here.
+	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, w.informerSynced)
 	w.mu.Unlock()
 
 	if prev != state {
@@ -782,25 +849,86 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	}
 
 	if allTerminal {
+		// Emit the operator-visible "ready for handover" message
+		// before signalling termination so the SSE consumer renders
+		// the transition to ready BEFORE the wizard's poll picks up
+		// status=ready and triggers the auto-redirect to the
+		// Sovereign Console handover page. maybeEmitReadyTransition
+		// is idempotent — at-most-once per Watcher lifetime.
+		w.maybeEmitReadyTransition()
 		closeOnce.Do(func() { close(terminated) })
 	}
 }
 
-// allObservedTerminal returns true when:
+// maybeEmitReadyTransition emits the operator-visible "Sovereign
+// ready for handover" event the first time the watcher converges on
+// all-Ready. Idempotent: a follow-up call after the first emit is a
+// no-op so a flicker that re-triggers the gate cannot spam the SSE
+// buffer with duplicate ready messages.
 //
+// The level is "info" so the wizard's banner reducer renders it as a
+// success milestone (warn/error would surface as red). The phase is
+// PhaseComponent so the existing event reducers (wizard log pane,
+// banner) pick it up without new wiring; Component is left empty
+// because this is a watch-level transition, not a per-component
+// state change.
+//
+// Status flips on the deployment record live in markPhase1Done in
+// the handler package — the watcher's only role is to surface the
+// transition through the same SSE pipe Phase 0 used.
+func (w *Watcher) maybeEmitReadyTransition() {
+	w.mu.Lock()
+	if w.readyTransitionEmitted {
+		w.mu.Unlock()
+		return
+	}
+	w.readyTransitionEmitted = true
+	componentCount := len(w.observed)
+	w.mu.Unlock()
+
+	w.emit(provisioner.Event{
+		Time:    w.cfg.Now().UTC().Format(time.RFC3339),
+		Phase:   PhaseComponent,
+		Level:   "info",
+		Message: fmt.Sprintf("All %d blueprints reconciled. Sovereign ready for handover.", componentCount),
+	})
+}
+
+// allObservedTerminal returns true when ALL of the following hold:
+//
+//   - synced is true (the dynamic informer's initial List has
+//     completed — every HelmRelease that exists at watch-start time
+//     is now in the cache, AND
 //   - Watcher.firstSeenAt is non-zero (at least one bp-* HelmRelease
 //     has been observed in the informer cache), AND
-//   - len(observed) ≥ minBootstrapKitHRs (the watch has seen at least
-//     the documented bootstrap-kit count, so it can't be fooled by a
-//     partial early reconcile), AND
+//   - len(observed) ≥ minBootstrapKitHRs (defensive floor — a sane
+//     bootstrap-kit ships ≥ 1 HelmRelease; production sets this to
+//     1 via the chart default to guard the "Phase-0 succeeded but
+//     Flux on the new cluster never started" footgun), AND
 //   - every observed component is in terminalStates (installed |
 //     failed).
 //
-// All three are required. The first two together close the
-// "informer hadn't seen the bootstrap-kit yet" bug surfaced on
-// omantel where a watch returned ready 1s after flux-bootstrap
-// because zero HRs had reconciled.
-func allObservedTerminal(states map[string]string, observed map[string]struct{}, minBootstrapKitHRs int, firstSeenAt time.Time) bool {
+// The synced gate is the load-bearing one. Before it fires, AddFunc
+// events fired during the initial-List can't close `terminated`
+// — otherwise the watcher would exit as soon as the alphabetically
+// first batch of HRs landed Ready=True (issue #547 root cause). The
+// minBootstrapKitHRs gate stays as a defence-in-depth check for the
+// unusual case where the informer's HasSynced returns true with a
+// completely empty cache (e.g. flux-system has no HelmReleases yet
+// — the bootstrap-kit Kustomization on the new cluster is broken or
+// stuck).
+//
+// otech48 incident (2026-05-03): catalyst-api Deployment shipped
+// CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS=38 to patch the early-
+// termination bug, but the actual bootstrap-kit had drifted to 37
+// HRs — making the count gate permanently unsatisfiable. Sound the
+// alarm bell from this comment when reading: never gate on a count
+// that can drift independently of the kit. The synced gate is
+// drift-proof.
+func allObservedTerminal(states map[string]string, observed map[string]struct{}, minBootstrapKitHRs int, firstSeenAt time.Time, synced bool) bool {
+	if !synced {
+		return false
+	}
 	if firstSeenAt.IsZero() {
 		return false
 	}

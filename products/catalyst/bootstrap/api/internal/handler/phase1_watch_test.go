@@ -881,6 +881,59 @@ func TestPutKubeconfig_RestartsWatchAfterTerminalKubeconfigMissing(t *testing.T)
 	}
 }
 
+// TestMarkPhase1Done_RefusesToDowngradeAdopted proves the
+// post-adoption guard: once the operator has minted a handover token
+// and the wizard has redirected to the Sovereign Console (status =
+// "adopted"), a late helmwatch event MUST NOT flap status back to
+// "ready"/"failed"/"phase1-watching".
+//
+// Failure mode without this guard: an adopted Sovereign sees a
+// transient HR.Ready=False (e.g. a Pod restart on the new cluster),
+// helmwatch's processEvent fires terminate-on-all-done, markPhase1Done
+// rewrites Status=ready (or =failed if the flicker pinned a HR in
+// failed), and the wizard's next /deployments/{id} poll sees the
+// regression. The handover redirect is one-way; we should never
+// rewrite past it. otech48 follow-up.
+func TestMarkPhase1Done_RefusesToDowngradeAdopted(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := &Deployment{
+		ID:        "phase1-adopted-no-downgrade",
+		Status:    "adopted",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 8),
+		done:      make(chan struct{}),
+		Result: &provisioner.Result{
+			SovereignFQDN:    "sov.adopted.example",
+			ComponentStates:  map[string]string{"cilium": helmwatch.StateInstalled},
+			Phase1FinishedAt: ptrTime(time.Now().Add(-1 * time.Minute)),
+			Phase1Outcome:    helmwatch.OutcomeReady,
+		},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	// Simulate a late watcher event arriving after adoption — pretend
+	// every observed HR is now flapping (one failed, others installed).
+	// Without the guard this would set Status=failed.
+	flapState := map[string]string{
+		"cilium":       helmwatch.StateFailed,
+		"cert-manager": helmwatch.StateInstalled,
+	}
+	h.markPhase1Done(dep, flapState, helmwatch.OutcomeFailed)
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status != "adopted" {
+		t.Errorf("Status = %q, want %q (markPhase1Done must not downgrade adopted)", dep.Status, "adopted")
+	}
+	if dep.Result.Phase1Outcome != helmwatch.OutcomeReady {
+		t.Errorf("Phase1Outcome = %q, want %q (must not be overwritten on adopted)", dep.Result.Phase1Outcome, helmwatch.OutcomeReady)
+	}
+	if dep.Result.ComponentStates["cilium"] != helmwatch.StateInstalled {
+		t.Errorf("ComponentStates[cilium] = %q, want %q (must not be overwritten on adopted)", dep.Result.ComponentStates["cilium"], helmwatch.StateInstalled)
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // helpers
 // ─────────────────────────────────────────────────────────────────────
