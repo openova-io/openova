@@ -113,6 +113,30 @@
   --log-viewer-text-num:   rgba(139,148,158,0.7);
   --log-viewer-empty:      rgba(201,209,217,0.55);
   --log-line-focused-bg:   rgba(56,139,253,0.18);
+
+  /* Log search bar (issue #669 round 2). */
+  --log-search-bg:               rgba(13,17,23,0.5);
+  --log-search-input-bg:         rgba(13,17,23,0.85);
+  --log-search-input-text:       #c9d1d9;
+  --log-search-input-placeholder:rgba(148,163,184,0.55);
+  --log-search-icon:             rgba(148,163,184,0.6);
+  --log-search-nav-hover:        rgba(148,163,184,0.10);
+  --log-search-pill-text:        rgba(148,163,184,0.7);
+  --log-search-pill-regex-bg:    rgba(192,132,252,0.15);
+  --log-search-pill-regex-fg:    #C084FC;
+  --log-search-pill-regex-border:rgba(192,132,252,0.45);
+  --log-search-level-info-bg:     rgba(56,139,253,0.18);
+  --log-search-level-info-fg:     #79b8ff;
+  --log-search-level-info-border: rgba(56,139,253,0.45);
+  --log-search-level-warn-bg:     rgba(245,158,11,0.18);
+  --log-search-level-warn-fg:     #f59e0b;
+  --log-search-level-warn-border: rgba(245,158,11,0.45);
+  --log-search-level-error-bg:    rgba(248,81,73,0.18);
+  --log-search-level-error-fg:    #f85149;
+  --log-search-level-error-border:rgba(248,81,73,0.45);
+  --log-search-level-debug-bg:    rgba(148,163,184,0.18);
+  --log-search-level-debug-fg:    #94a3b8;
+  --log-search-level-debug-border:rgba(148,163,184,0.45);
 }
 
 /* Console-token override for `--color-success` — the wizard surface
@@ -261,6 +285,31 @@
   --log-viewer-text-num:    #94A3B8;
   --log-viewer-empty:       #64748B;
   --log-line-focused-bg:    rgba(37,99,235,0.12);
+
+  /* Log search bar light peers (issue #669 round 2). All FG values
+   * AA-clearing on the white search bar bg. */
+  --log-search-bg:               #F1F5F9;
+  --log-search-input-bg:         #FFFFFF;
+  --log-search-input-text:       #0F172A;
+  --log-search-input-placeholder:#94A3B8;
+  --log-search-icon:             #64748B;
+  --log-search-nav-hover:        rgba(15,23,42,0.06);
+  --log-search-pill-text:        #475569;
+  --log-search-pill-regex-bg:    rgba(124,58,237,0.10);
+  --log-search-pill-regex-fg:    #7C3AED;
+  --log-search-pill-regex-border:rgba(124,58,237,0.45);
+  --log-search-level-info-bg:     rgba(37,99,235,0.10);
+  --log-search-level-info-fg:     #1D4ED8;
+  --log-search-level-info-border: rgba(37,99,235,0.45);
+  --log-search-level-warn-bg:     rgba(180,83,9,0.10);
+  --log-search-level-warn-fg:     #B45309;
+  --log-search-level-warn-border: rgba(180,83,9,0.45);
+  --log-search-level-error-bg:    rgba(185,28,28,0.10);
+  --log-search-level-error-fg:    #B91C1C;
+  --log-search-level-error-border:rgba(185,28,28,0.45);
+  --log-search-level-debug-bg:    rgba(71,85,105,0.10);
+  --log-search-level-debug-fg:    #475569;
+  --log-search-level-debug-border:rgba(71,85,105,0.45);
 
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;
