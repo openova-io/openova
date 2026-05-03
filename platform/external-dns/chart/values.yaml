@@ -125,6 +125,45 @@ external-dns:
   # workload is IO-bound on the DNS API, not CPU-bound.
   replicas: 1
 
+  # ─── Probes — bumped initialDelaySeconds for cold-cluster cache-sync ────
+  # Issue #700: external-dns has TWO timeouts. `RequestTimeout` (per-API-call,
+  # bumped to 120s above via --request-timeout in extraArgs) covers individual
+  # apiserver calls. The OTHER one is `WaitForCacheSync` — a HARDCODED 60s in
+  # the upstream binary, NOT exposed as a flag. On a freshly-provisioned
+  # Sovereign the k3s apiserver is CPU-saturated for the first ~2 min while
+  # catalyst-api/Flux/all 38 HelmReleases reconcile concurrently; the initial
+  # informer cache sync misses 60s → `fatal: failed to sync *v1.Node: context
+  # deadline exceeded` → kubelet restarts the Pod → repeat 5–10 times until
+  # apiserver settles. Caught live on otech49+ (2026-05-03).
+  #
+  # Fix: bump livenessProbe.initialDelaySeconds from upstream default 10s to
+  # 180s (3 min) so kubelet does NOT restart the Pod while the initial cache
+  # sync is in flight. The Sovereign apiserver reaches steady-state within
+  # ~2 min, so 3 min comfortably covers cold starts. Once cache-sync completes
+  # external-dns becomes a steady-state IO-bound process; periodSeconds=30 +
+  # failureThreshold=3 still kills genuinely hung pods within ~90s.
+  #
+  # Helm overrides replace whole maps (not merge), so we MUST preserve the
+  # upstream `httpGet.path: /healthz` + `port: http` shape.
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 180
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
   # RBAC — ExternalDNS needs read on Service/Ingress; cluster-scoped.
   rbac:
     create: true
