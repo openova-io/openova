@@ -492,10 +492,22 @@ export interface ComponentEntry extends ComponentDef {
  * reachable from the mandatory set. UI / store code MUST read
  * `ALL_COMPONENTS` instead.
  */
+// FLUX-CANONICAL DEPENDENCIES (issue: hardcoded wizard deps deviated from
+// real install graph). Single source of truth = clusters/_template/
+// bootstrap-kit/*.yaml HelmRelease.dependsOn, parsed by
+// scripts/generate-blueprint-deps.sh into blueprint-deps.generated.json.
+// Hardcoded `dependencies: [...]` arrays in the GROUPS literal above are
+// IGNORED at module load — see import below.
+import { depsFor as _bpDepsFor } from '../../../data/blueprintDeps'
+
 export const RAW_COMPONENTS: ComponentEntry[] = GROUPS.flatMap(g =>
   g.components.map(c => ({
     ...c,
-    dependencies: c.dependencies ?? [],
+    // Override every component's `dependencies` with the Flux-canonical
+    // list from blueprint-deps.generated.json. Components without a
+    // bp-* HelmRelease (e.g. opentofu, vcluster — Phase-0 fixtures, not
+    // bootstrap-kit reconciled) fall back to an empty list.
+    dependencies: _bpDepsFor(c.id),
     // Default logo path: vendored SVG keyed by component id, prefixed
     // with the Vite `base` so the URL works behind /sovereign/ (prod)
     // or / (dev / test). `null` in the source overrides the default
