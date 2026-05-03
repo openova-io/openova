@@ -106,24 +106,40 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read user identity from OIDC proxy headers. The OIDC proxy upstream
-	// sets X-Forwarded-User (subject) and X-Forwarded-Email (email) before
-	// requests reach catalyst-api. When either header is missing the handler
-	// still mints a token (catalyst-api may be tested without a proxy) but
-	// logs a warning so an operator can tell the proxy isn't configured.
-	sub := h.k8sUser(r) // X-Forwarded-User or h.k8sUserHeader
+	// Read user identity. Two valid sources, in order:
+	//   1. X-User-Sub / X-User-Email — injected by catalyst-api's own
+	//      RequireSession middleware (auth/middleware.go) when the
+	//      magic-link/Keycloak session cookie is validated. This is
+	//      the canonical Catalyst-Zero auth path.
+	//   2. X-Forwarded-User / X-Forwarded-Email — set by an upstream
+	//      OIDC proxy when one is deployed. Backwards-compat with the
+	//      original handler design.
+	//
+	// Falling back to "unknown" gave the JWT bogus claims, and the
+	// Sovereign-side handover handler couldn't pre-provision the
+	// operator account — landing the operator on Keycloak's bare
+	// login screen instead of the seamless first-session flow
+	// (Phase-8b agreement). Caught live on otech46.
+	sub := r.Header.Get("X-User-Sub")
+	if sub == "" {
+		sub = h.k8sUser(r) // X-Forwarded-User or h.k8sUserHeader override
+	}
 	if sub == "" {
 		sub = "unknown"
 	}
-	email := r.Header.Get("X-Forwarded-Email")
+	email := r.Header.Get("X-User-Email")
 	if email == "" {
-		email = r.Header.Get("X-Auth-Request-Email") // Oauth2-proxy alt header
+		email = r.Header.Get("X-Forwarded-Email")
 	}
 	if email == "" {
-		// Construct a plausible email from the subject if the proxy doesn't
-		// forward an email claim.
+		email = r.Header.Get("X-Auth-Request-Email") // Oauth2-proxy alt
+	}
+	if email == "" {
+		// No identity source — log loud and fall back to sub. Result
+		// will be the bare-Keycloak handover that #20 was supposed to
+		// solve; this branch should never fire in production.
 		email = sub
-		h.log.Warn("handover-jwt: X-Forwarded-Email header absent; using sub as email",
+		h.log.Warn("handover-jwt: no identity header found (X-User-Email, X-Forwarded-Email, X-Auth-Request-Email all empty) — using sub as email",
 			"sub", sub,
 			"deploymentId", id,
 		)
