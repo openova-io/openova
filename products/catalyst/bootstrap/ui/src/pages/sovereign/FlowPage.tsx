@@ -102,57 +102,16 @@ function useFamilyPalette(): OrganicFamily[] {
   }, [])
 }
 
-const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = {
-  cilium: [],
-  'cert-manager': ['cilium'],
-  flux: ['cert-manager'],
-  crossplane: ['flux'],
-  'sealed-secrets': ['cilium'],
-  'crossplane-claims': ['crossplane'],
-  spire: ['cert-manager'],
-  openbao: ['spire'],
-  keycloak: ['cert-manager', 'openbao'],
-  gitea: ['keycloak'],
-  'nats-jetstream': ['cert-manager'],
-  powerdns: ['cert-manager'],
-  'external-dns': ['cert-manager', 'powerdns'],
-  'catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
-  'bp-catalyst-platform': ['gitea', 'keycloak', 'nats-jetstream'],
-  'external-secrets': ['openbao', 'cert-manager'],
-  cnpg: ['flux'],
-  valkey: ['flux'],
-  seaweedfs: ['flux', 'cert-manager'],
-  harbor: ['cnpg', 'seaweedfs', 'cert-manager'],
-  opentelemetry: ['cert-manager'],
-  alloy: ['opentelemetry'],
-  loki: ['seaweedfs'],
-  mimir: ['seaweedfs'],
-  tempo: ['seaweedfs'],
-  grafana: ['cnpg', 'loki', 'mimir', 'tempo', 'keycloak'],
-  langfuse: ['cnpg', 'keycloak', 'cert-manager'],
-  kyverno: ['cilium'],
-  reloader: [],
-  vpa: [],
-  trivy: ['cert-manager'],
-  falco: ['cilium'],
-  sigstore: ['cert-manager'],
-  'syft-grype': ['cert-manager'],
-  velero: ['seaweedfs'],
-  coraza: ['cilium', 'cert-manager'],
-  stunner: ['cilium', 'cert-manager'],
-  knative: ['cert-manager'],
-  kserve: ['knative'],
-  vllm: ['kserve'],
-  'llm-gateway': ['cnpg', 'keycloak'],
-  'anthropic-adapter': ['llm-gateway'],
-  bge: ['cnpg'],
-  'nemo-guardrails': ['llm-gateway', 'bge', 'cnpg'],
-  temporal: ['cnpg', 'cert-manager'],
-  openmeter: ['cnpg', 'nats-jetstream'],
-  livekit: ['stunner', 'cert-manager'],
-  matrix: ['cnpg', 'keycloak', 'cert-manager'],
-  librechat: ['llm-gateway', 'vllm', 'bge', 'keycloak'],
-}
+// FLUX-CANONICAL DEPENDENCIES — single source of truth. The local
+// hardcoded BOOTSTRAP_KIT_DEPS map carried hand-maintained edges that
+// drifted from clusters/_template/bootstrap-kit/*.yaml HelmRelease
+// `dependsOn` (e.g. keycloak→openbao was rendered here while the
+// real Flux install graph is keycloak→[cert-manager, gateway-api]).
+// blueprint-deps.generated.json is built from the YAMLs by
+// scripts/generate-blueprint-deps.sh; the wizard catalog reads from
+// the same file. No FlowPage-private dependency table.
+import { BLUEPRINT_DEPS } from '../../data/blueprintDeps'
+const BOOTSTRAP_KIT_DEPS: Record<string, string[]> = BLUEPRINT_DEPS
 
 function useJobHints(args: {
   jobs: readonly Job[]
