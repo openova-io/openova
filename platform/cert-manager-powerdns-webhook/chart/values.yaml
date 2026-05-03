@@ -122,17 +122,28 @@ webhook:
 # reference. The webhook itself does NOT read these from env — it
 # decodes them out of the ChallengeRequest config supplied by the issuer.
 #
+# Default target: contabo's central PowerDNS at https://pdns.openova.io —
+# the authoritative server for omani.works (delegated from Dynadot to
+# ns1/2/3.openova.io which front this PowerDNS). Every Sovereign at
+# otechN.omani.works writes its ACME challenge TXT records HERE, NOT to
+# its own local PowerDNS, because the Sovereign-side PowerDNS is only
+# reachable through the public DNS chain AFTER pool-domain-manager has
+# committed the NS delegation to contabo — and Let's Encrypt validates
+# DNS-01 challenges against the public DNS chain, not the Sovereign's
+# local view. Caught live on otech43–46.
+#
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL/zone is operator-
-# overridable; cluster overlays MUST set powerdns.host to the per-
-# Sovereign endpoint (e.g. http://powerdns.powerdns:8081 in-cluster, or
-# https://pdns.<sov-fqdn>:8081 if the operator chooses external routing).
+# overridable; cluster overlays MAY set powerdns.host to a different
+# endpoint (e.g. https://pdns.<other-pool>.example for a non-omani.works
+# pool). The default value lets a fresh Sovereign install render a
+# working ClusterIssuer without any per-cluster override.
 powerdns:
-  # Base URL of the PowerDNS REST API. Empty = the chart will NOT render
-  # the paired ClusterIssuer (the operator must supply this via cluster
-  # overlay). The default-values render path (CI smoke test) leaves this
-  # empty and skips ClusterIssuer rendering entirely — see
-  # templates/clusterissuer.yaml's skip-render guard.
-  host: ""
+  # Base URL of the PowerDNS REST API. Defaults to the contabo central
+  # PowerDNS public ingress so a fresh Sovereign overlay needs no host
+  # override. Empty string causes the chart to skip ClusterIssuer
+  # rendering entirely — see templates/clusterissuer.yaml's skip-render
+  # guard. Cluster overlays may override to a different pool's endpoint.
+  host: "https://pdns.openova.io"
   # PowerDNS server ID — virtually always "localhost" per the upstream
   # API contract. Operators with a multi-tenant PowerDNS deployment
   # override this per-Sovereign.
@@ -152,24 +163,34 @@ powerdns:
   # Additional headers (e.g. for an Envoy filter or per-tenant auth).
   headers: {}
 
-  # API-key Secret reference. The webhook reads the key out of this
-  # Secret at challenge-time via the K8s clientset (NOT via Pod
-  # secretKeyRef — cert-manager's webhook contract reads the secret on
-  # demand from whatever namespace the ClusterIssuer points at).
+  # API-key Secret reference. The upstream zachomedia/cert-manager-webhook-pdns
+  # binary reads the key out of this Secret via the K8s clientset on
+  # every Present/CleanUp call (NOT via Pod secretKeyRef). Two important
+  # constraints from the upstream code:
+  #
+  #   1. The Secret is read from `ChallengeRequest.ResourceNamespace`,
+  #      which for a ClusterIssuer is cert-manager's cluster-resource-
+  #      namespace (typically `cert-manager`). The upstream binary IGNORES
+  #      any `namespace:` field on the apiKeySecretRef in the ClusterIssuer
+  #      config — it always reads from ResourceNamespace. So this Secret
+  #      MUST live in the cert-manager namespace on every Sovereign.
+  #   2. The Secret's `api-key` value MUST match the API key configured
+  #      on the central PowerDNS (contabo) at `powerdns.host`. On every
+  #      Sovereign, this is provisioned at control-plane boot time by
+  #      cloud-init (mirroring the dynadot-api-credentials seeding
+  #      pattern; see infra/hetzner/cloudinit-control-plane.tftpl).
   apiKeySecretRef:
-    # Name of the K8s Secret holding the PowerDNS API key. Default
-    # matches the canonical secret produced by bp-powerdns
-    # (powerdns-api-credentials) — see docs/PLATFORM-POWERDNS.md
-    # "REST API" section.
+    # Name of the K8s Secret holding the PowerDNS API key. The Secret
+    # MUST live in the cert-manager namespace and contain the API key
+    # of the PowerDNS at `powerdns.host` (default contabo PowerDNS).
     name: powerdns-api-credentials
-    # Key inside the Secret. Default `api-key` matches bp-powerdns's
-    # secret schema.
+    # Key inside the Secret. Default `api-key` matches the canonical
+    # `powerdns-api-credentials` schema produced by bp-powerdns.
     key: api-key
-    # Namespace where the Secret lives. Defaults to the chart's release
-    # namespace (.Release.Namespace) when blank — set to
-    # `openova-system` if the operator runs the canonical secret in
-    # that namespace and grants the webhook RBAC to read it from
-    # there (see rbac.yaml).
+    # Namespace field — KEPT for backward-compatibility but the upstream
+    # webhook IGNORES it. The Secret is always read from the cert-manager
+    # release namespace (= ChallengeRequest.ResourceNamespace for
+    # ClusterIssuers). Leave blank.
     namespace: ""
 
 # ─── ClusterIssuer (paired with the webhook) ─────────────────────────────
@@ -179,8 +200,12 @@ powerdns:
 # spec.issuerRef.
 #
 # Default `enabled: false` — the chart's default-values render in CI
-# (blueprint-release.yaml smoke test) does not require an operator to
-# supply powerdns.host. Cluster overlays flip this to true.
+# (blueprint-release.yaml smoke test) skips the ClusterIssuer because
+# operators may want to flip the active issuer (acme staging vs prod)
+# at install time without having the chart silently provision a prod
+# issuer. Cluster overlays flip this to true. The companion `host`
+# default already points at contabo PowerDNS so no host override is
+# needed — only `enabled: true` + `email`.
 clusterIssuer:
   enabled: false
   name: letsencrypt-dns01-prod-powerdns

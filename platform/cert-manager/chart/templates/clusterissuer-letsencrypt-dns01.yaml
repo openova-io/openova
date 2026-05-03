@@ -27,9 +27,15 @@
 # 2026-04-28.
 #
 # What we ship today (this file):
-#   - letsencrypt-dns01-prod   — TARGET STATE, ACTIVE. Templated against
-#     bp-cert-manager-dynadot-webhook (closes openova#159). Issues
-#     wildcard certificates for the canonical Sovereign 6-record set.
+#   - letsencrypt-dns01-prod   — DEPRECATED for omani.works Sovereigns,
+#     DEFAULT DISABLED. Was templated against the (now-dropped)
+#     bp-cert-manager-dynadot-webhook. The replacement DNS-01 wildcard
+#     issuer is `letsencrypt-dns01-prod-powerdns`, shipped by
+#     bp-cert-manager-powerdns-webhook against contabo's central PowerDNS
+#     (https://pdns.openova.io — authoritative for omani.works because
+#     Dynadot delegates the zone to ns1/2/3.openova.io). Cluster overlays
+#     MAY flip dns01.enabled=true and supply their own dynadot-webhook
+#     for a non-omani.works pool where Dynadot IS the API-level authority.
 #   - letsencrypt-http01-prod  — INTERIM, RETAINED. Continues to issue
 #     per-host certs for explicit hostnames. Operator may flip the
 #     active issuer at any time via certManager.issuers.dns01.enabled

@@ -10,28 +10,29 @@ A wrapper around the upstream
 binary that satisfies cert-manager's external webhook contract
 (`webhook.acme.cert-manager.io/v1alpha1` — `Present` / `CleanUp` on a
 `ChallengeRequest`) and writes ACME challenge TXT records to the
-per-Sovereign PowerDNS instance via PowerDNS's REST API.
+**central openova PowerDNS** (authoritative for `omani.works`) via
+PowerDNS's REST API at `https://pdns.openova.io`.
 
-The chart structure mirrors `bp-cert-manager-dynadot-webhook` (its
-sibling for the parent-zone DNS-01 path); the only differences are the
-upstream image (`zachomedia/cert-manager-webhook-pdns` vs the Catalyst-
-authored Dynadot binary) and the per-issuer config block (PowerDNS host
-+ API key vs Dynadot api-key + api-secret + managed-domains).
+This blueprint **supersedes** `bp-cert-manager-dynadot-webhook` for
+omani.works Sovereigns: `omani.works` is registered at Dynadot but is
+delegated to `ns1/2/3.openova.io` which run on contabo's PowerDNS.
+Dynadot is NOT the API-level authority for omani.works subdomains;
+contabo PowerDNS is. Caught live on otech43–46 where the dynadot
+webhook silently failed to write challenge TXT records visible on the
+public DNS chain.
 
-## Why two webhooks (dynadot + powerdns) on the same fleet
+## How DNS-01 validation works for `*.${SOVEREIGN_FQDN}`
 
-The two webhooks solve DNS-01 challenges against **different DNS
-authorities** at **different lifecycle stages** of a Sovereign:
+When Let's Encrypt validates a DNS-01 challenge for
+`*.otechN.omani.works`, its resolvers walk the public DNS chain:
+Dynadot → ns1/2/3.openova.io (contabo PowerDNS). Until pool-domain-
+manager has committed the per-Sovereign NS delegation into contabo
+PowerDNS — and that delegation has propagated — the Sovereign's own
+PowerDNS is INVISIBLE on the public chain.
 
-| Stage | Authority | Solver | Blueprint |
-|---|---|---|---|
-| Onboarding (parent-zone cert) | Dynadot (`omani.works`) | `dynadot` | `bp-cert-manager-dynadot-webhook` |
-| Post-handover (Sovereign-zone cert) | Sovereign's own PowerDNS (`omantel.omani.works`) | `powerdns` | `bp-cert-manager-powerdns-webhook` |
-
-Per ADR-0001 §9.4 the goal is **zero contabo dependency** post-handover:
-once a Sovereign's NS delegation flips, its TLS renewals must run
-entirely against its own PowerDNS — no reachback to openova-controlled
-Dynadot credentials. This blueprint is the post-handover companion.
+This webhook writes the ACME challenge TXT record DIRECTLY to contabo's
+central PowerDNS, so Let's Encrypt validation succeeds on the first
+attempt regardless of whether the Sovereign-side delegation has sealed.
 
 ## What this chart deploys
 
@@ -47,23 +48,25 @@ Dynadot credentials. This blueprint is the post-handover companion.
 | ServiceAccount | Identity for the Deployment. |
 | ClusterRoleBinding (auth-delegator) | Lets the aggregated apiserver delegate auth back to kube-apiserver. |
 | RoleBinding (auth-reader) | Reads `extension-apiserver-authentication` ConfigMap from `kube-system`. |
-| ClusterRole + ClusterRoleBinding (secret-reader) | Grants the SA `get` on Secrets cluster-wide so it can read the operator-supplied PowerDNS API-key Secret on demand. |
+| ClusterRole + ClusterRoleBinding (secret-reader) | Grants the SA `get` on Secrets cluster-wide so it can read the PowerDNS API-key Secret on demand. |
 | ClusterRole + ClusterRoleBinding (domain-solver) | Lets cert-manager `create` ChallengeRequest CRs in the webhook's API group. |
-| ClusterIssuer (`letsencrypt-dns01-prod-powerdns`) | Paired DNS-01 issuer. Only renders when `clusterIssuer.enabled=true` AND `powerdns.host` is set (skip-render pattern). |
+| ClusterIssuer (`letsencrypt-dns01-prod-powerdns`) | Paired DNS-01 issuer. Renders when `clusterIssuer.enabled=true` (chart's default `powerdns.host=https://pdns.openova.io` is sufficient for the omani.works pool; cluster overlays may override the host for non-omani.works pools). |
 
-## Pairing with bp-cert-manager and bp-powerdns
+## Pairing with bp-cert-manager
 
-The blueprint declares both as `depends:` in `blueprint.yaml`:
-- `bp-cert-manager` provides the cert-manager controllers + CRDs.
-- `bp-powerdns` provides the per-Sovereign DNS authority + REST API.
+The blueprint declares `bp-cert-manager` as `depends:` in `blueprint.yaml`
+(provides the cert-manager controllers + CRDs). It does NOT depend on
+`bp-powerdns` — the webhook calls contabo's central PowerDNS, an
+out-of-cluster endpoint, not the Sovereign's local PowerDNS.
 
 Flux `dependsOn` enforces ordering at the HelmRelease level (see
-`clusters/_template/bootstrap-kit/<NN>-bp-cert-manager-powerdns-webhook.yaml`).
+`clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml`).
 
 ## Configuration (per-Sovereign overlay)
 
-The chart's defaults render a runnable webhook + skip the ClusterIssuer.
-Cluster overlays MUST set the following for the issuer to materialise:
+The chart's defaults render a runnable webhook + skip the ClusterIssuer
+(default `clusterIssuer.enabled=false` for safe CI smoke renders).
+Sovereign overlays flip `clusterIssuer.enabled=true` and set the email:
 
 ```yaml
 clusterIssuer:
@@ -71,16 +74,20 @@ clusterIssuer:
   email: ops@<sovereign-fqdn>
   acmeServer: https://acme-v02.api.letsencrypt.org/directory   # or staging during bring-up
 
-powerdns:
-  # In-cluster routing (preferred — no external network hop, no public TLS):
-  host: "http://powerdns.powerdns:8081"
-  # ...or external routing when the API is fronted by an ingress:
-  # host: "https://pdns.<sovereign-fqdn>"
-  apiKeySecretRef:
-    name: powerdns-api-credentials   # canonical name from bp-powerdns
-    key: api-key
-    namespace: openova-system        # canonical namespace; webhook reads cross-NS via clientset
+# `powerdns.host` defaults to https://pdns.openova.io (contabo central
+# PowerDNS, authoritative for omani.works). Override only when
+# provisioning a Sovereign in a non-omani.works pool.
+# powerdns:
+#   host: "https://pdns.<other-pool>"
 ```
+
+The credential Secret `powerdns-api-credentials` MUST live in the
+`cert-manager` namespace on every Sovereign (the upstream webhook
+ignores any `namespace:` field on the apiKeySecretRef and reads the
+Secret from cert-manager's cluster-resource-namespace). The Secret's
+`api-key` value MUST match the API key configured on contabo's central
+PowerDNS — provisioned by cloud-init at control-plane boot time
+(infra/hetzner/cloudinit-control-plane.tftpl).
 
 Per `docs/INVIOLABLE-PRINCIPLES.md` #4 every URL/zone is operator-
 overridable. No hardcoded `omantel.omani.works` lives in this chart.
@@ -118,8 +125,7 @@ kubectl get certificate,order,challenge -A -w
 ## See also
 
 - Upstream: https://github.com/zachomedia/cert-manager-webhook-pdns
-- Sibling: `platform/cert-manager-dynadot-webhook/` — parent-zone DNS-01 solver
-- `platform/cert-manager/chart/templates/clusterissuer-letsencrypt-dns01.yaml` — the dynadot-side ClusterIssuer
-- `platform/powerdns/` — the per-Sovereign DNS authority this webhook talks to
+- `platform/cert-manager/chart/templates/clusterissuer-letsencrypt-dns01.yaml` — legacy `letsencrypt-dns01-prod` (now default-disabled; was dynadot-backed)
+- `platform/powerdns/` — the per-Sovereign DNS authority for app-level records (NOT in the cert-issuance path)
 - [openova#373](https://github.com/openova-io/openova/issues/373) — closing issue
 - [cert-manager DNS-01 webhook docs](https://cert-manager.io/docs/configuration/acme/dns01/webhook/)

@@ -70,9 +70,15 @@ cert-manager:
 # The Catalyst-curated wrapper ships TWO ClusterIssuers and lets the
 # operator pick the active one via these values:
 #
-#   - letsencrypt-dns01-prod  (TARGET STATE: wildcard-capable, requires the
-#                              cert-manager-dynadot-webhook image — disabled
-#                              by default until that webhook is built)
+#   - letsencrypt-dns01-prod  (DEPRECATED: was dynadot-webhook-backed.
+#                              DEFAULT DISABLED. The DNS-01 wildcard issuer
+#                              for Sovereigns is now `letsencrypt-dns01-prod-
+#                              powerdns`, shipped by bp-cert-manager-powerdns-
+#                              webhook against contabo's central PowerDNS —
+#                              Dynadot is NOT the API-level authority for
+#                              omani.works subdomains. Cluster overlays MAY
+#                              flip this back on if they ship their own
+#                              dynadot-webhook for a non-omani.works pool.)
 #   - letsencrypt-http01-prod (INTERIM: explicit hostnames only, no
 #                              wildcards, works today via Cilium ingress)
 #
@@ -90,14 +96,15 @@ certManager:
     #   https://acme-staging-v02.api.letsencrypt.org/directory
     acmeServer: https://acme-v02.api.letsencrypt.org/directory
     dns01:
-      # ENABLED as of openova#159 — bp-cert-manager-dynadot-webhook ships
-      # the binary that satisfies the solver contract referenced below.
-      # Operator MUST install bp-cert-manager-dynadot-webhook in the same
-      # Sovereign before this flag activates; the dependent Blueprint's
-      # `depends: [bp-cert-manager]` keeps the bootstrap-kit DAG ordered.
-      # Disabling this flag is the rollback path — http01 below remains
-      # active and continues to issue per-host certs.
-      enabled: true
+      # DEFAULT DISABLED — the dynadot-webhook-backed letsencrypt-dns01-prod
+      # is deprecated for omani.works Sovereigns. The replacement issuer
+      # `letsencrypt-dns01-prod-powerdns` is shipped by
+      # bp-cert-manager-powerdns-webhook (bootstrap-kit slot 49) and writes
+      # ACME challenge TXT records to contabo's central PowerDNS at
+      # https://pdns.openova.io. Cluster overlays MAY flip this back to
+      # true if they ship a custom dynadot-webhook for a non-omani.works
+      # pool where Dynadot IS the API-level authority.
+      enabled: false
       webhookGroupName: acme.dynadot.openova.io
       webhookSolverName: dynadot
     http01:

@@ -19,6 +19,15 @@
 # pre-installs at chart-time. The Certificate is the ONLY resource
 # whose CRD is provided by a HelmRelease in the same Kustomization
 # that needs to validate it.
+#
+# Issuer: `letsencrypt-dns01-prod-powerdns` is shipped by
+# bp-cert-manager-powerdns-webhook (bootstrap-kit slot 49). It writes
+# the ACME challenge TXT record to contabo's central PowerDNS at
+# https://pdns.openova.io (authoritative for omani.works) so Let's
+# Encrypt validation succeeds even before the Sovereign's own NS
+# delegation has propagated. Replaces the previous letsencrypt-dns01-prod
+# (dynadot-webhook-backed) — Dynadot is not the API-level authority for
+# omani.works subdomains. Caught live on otech43–46.
 
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -31,7 +40,7 @@ metadata:
 spec:
   secretName: sovereign-wildcard-tls
   issuerRef:
-    name: letsencrypt-dns01-prod
+    name: letsencrypt-dns01-prod-powerdns
     kind: ClusterIssuer
   commonName: "*.${SOVEREIGN_FQDN}"
   dnsNames:

@@ -42,4 +42,3 @@ resources:
   - 34-velero.yaml
   - 35-coraza.yaml
   - 49-bp-cert-manager-powerdns-webhook.yaml
-  - 49b-bp-cert-manager-dynadot-webhook.yaml

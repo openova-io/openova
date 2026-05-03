@@ -3,29 +3,34 @@
 # this Phase-2 webhook lands at slot 49 — first free slot after the W2.K4
 # forward declarations end at 48. Source of truth: scripts/expected-
 # bootstrap-deps.yaml.)
-# DNS-01 ACME solver against the Sovereign's OWN PowerDNS for wildcard
-# TLS post-handover. Closes openova#373; gates #319 (post-handover renewals).
+# DNS-01 ACME solver against contabo's central PowerDNS (authoritative for
+# omani.works) for wildcard TLS on *.${SOVEREIGN_FQDN}. Supersedes
+# bp-cert-manager-dynadot-webhook (slot 49b, dropped in this PR).
+# Closes openova#373.
 #
 # ──────────────────────────────────────────────────────────────────────────
 # Why this slot exists
 # ──────────────────────────────────────────────────────────────────────────
 # The per-Sovereign Gateway in 01-cilium.yaml requests a wildcard
-# Certificate from `letsencrypt-dns01-prod` (currently the dynadot-backed
-# issuer in bp-cert-manager). That works during onboarding because the
-# parent zone (omani.works) is still owned by openova at Dynadot.
+# Certificate covering `*.${SOVEREIGN_FQDN}` — e.g. `*.otechN.omani.works`.
+# omani.works itself is registered at Dynadot but is delegated to
+# ns1/2/3.openova.io which run on contabo's PowerDNS in the
+# openova-system namespace. Dynadot is NOT the API-level authority for
+# omani.works subdomains; contabo PowerDNS is.
 #
-# Post-handover, the Sovereign owns its delegated subdomain
-# (omantel.omani.works) and serves it from its own PowerDNS replicas.
-# cert-manager on the handed-over Sovereign MUST solve DNS-01 against
-# its own PowerDNS — otherwise renewals require reachback to openova-
-# controlled Dynadot credentials = contabo dependency = ADR-0001 §9.4
-# (handover DoD) violation.
+# When Let's Encrypt validates a DNS-01 challenge for `*.otechN.omani.works`,
+# its resolvers walk the public DNS chain: Dynadot → ns1/2/3.openova.io
+# (contabo PowerDNS). Until pool-domain-manager has committed the per-
+# Sovereign NS delegation into contabo PowerDNS (and that delegation has
+# propagated), the Sovereign's own PowerDNS is INVISIBLE on the public
+# chain — LE queries contabo, gets NXDOMAIN, and the cert never issues.
 #
-# This slot installs the bp-cert-manager-powerdns-webhook Blueprint and
-# wires it to the per-Sovereign PowerDNS endpoint. The Blueprint's
-# paired ClusterIssuer (`letsencrypt-dns01-prod-powerdns`) is the
-# target the Sovereign's wildcard Certificate flips to once handover
-# completes (#319).
+# Caught live on otech43–46: manual workaround was to seed the challenge
+# TXT record directly in contabo PowerDNS. This blueprint automates that
+# write path: every Sovereign's cert-manager webhook calls contabo's
+# PowerDNS API at https://pdns.openova.io to PATCH the challenge TXT
+# record, regardless of whether the Sovereign's own DNS delegation has
+# sealed yet.
 #
 # ──────────────────────────────────────────────────────────────────────────
 # Wiring
@@ -38,11 +43,20 @@
 #   - bp-cert-manager — provides the cert-manager.io CRDs + controllers.
 #                       Without this the ClusterIssuer + Certificate
 #                       resources templated by this blueprint can't apply.
-#   - bp-powerdns     — provides the PowerDNS REST API endpoint the webhook
-#                       talks to. Without this the webhook has no upstream
-#                       to call. The bp-powerdns slot also creates the
-#                       canonical `powerdns-api-credentials` Secret in
-#                       openova-system that the ClusterIssuer references.
+#
+# Note: this slot does NOT depend on bp-powerdns. The webhook calls
+# contabo's central PowerDNS (https://pdns.openova.io) — an out-of-cluster
+# endpoint — not the Sovereign's local PowerDNS. The Sovereign's
+# bp-powerdns slot (11) is still installed (it backs the Sovereign's own
+# subzone for app-level records via bp-external-dns), but it is NOT in
+# the cert-issuance path.
+#
+# Credentials: the chart's apiKeySecretRef points at a Secret named
+# `powerdns-api-credentials` in the cert-manager namespace. That Secret's
+# `api-key` value MUST match the API key configured on contabo's central
+# PowerDNS. It is provisioned onto every Sovereign by cloud-init at
+# control-plane boot time (mirrors the dynadot-api-credentials seeding
+# pattern; see infra/hetzner/cloudinit-control-plane.tftpl).
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") every URL/zone
 # is operator-overridable. ${SOVEREIGN_FQDN} is substituted by Flux
@@ -78,11 +92,10 @@ spec:
   targetNamespace: cert-manager
   dependsOn:
     - name: bp-cert-manager
-    - name: bp-powerdns
   chart:
     spec:
       chart: bp-cert-manager-powerdns-webhook
-      version: 1.0.2
+      version: 1.0.4
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager-powerdns-webhook
@@ -101,21 +114,12 @@ spec:
       retries: 3
   values:
     # ─── PowerDNS API endpoint ──────────────────────────────────────────
-    # In-cluster routing — no external network hop, no public TLS, no
-    # ingress dependency. Operators that prefer external routing flip
-    # this to https://pdns.${SOVEREIGN_FQDN} via the per-cluster
-    # values overlay (clusters/<sovereign>/sovereign-overrides.yaml).
-    powerdns:
-      host: "http://powerdns.powerdns:8081"
-      apiKeySecretRef:
-        # Canonical Secret produced by bp-powerdns; see
-        # docs/PLATFORM-POWERDNS.md "REST API" section.
-        name: powerdns-api-credentials
-        key: api-key
-        # Webhook reads the secret cross-namespace at challenge time
-        # via the K8s clientset (NOT Pod secretKeyRef). The chart's
-        # secret-reader ClusterRole grants the required RBAC.
-        namespace: openova-system
+    # The chart's default value (https://pdns.openova.io — contabo's
+    # central PowerDNS, authoritative for omani.works) is correct for
+    # every Sovereign in the omani.works pool, so no override is needed
+    # here. Operators provisioning a Sovereign in a non-omani.works pool
+    # add a `powerdns: { host: "https://pdns.<other-pool>" }` override
+    # in their per-cluster overlay.
 
     # ─── Paired ClusterIssuer ───────────────────────────────────────────
     # Operator opts in here; the chart's default render skips this
