@@ -193,12 +193,19 @@ spec:
                   key: domain
                   optional: true
             # CATALYST_TOFU_WORKDIR — provisioner runs `tofu init/plan/apply`
-            # inside this directory. Default in code (/var/lib/catalyst/tofu)
-            # is unwritable for UID 65534 because the only emptyDir mounts on
-            # this Pod are /tmp and /home/nonroot. We pin to /tmp/catalyst so
-            # the writable emptyDir backs the per-Sovereign workdir tree.
+            # inside this directory. PVC-backed (catalyst-api-deployments) so
+            # in-progress tofu state survives Pod restarts. Without this,
+            # any catalyst-api Pod roll mid-apply (e.g. an unrelated chart
+            # bump that triggers rolling restart on Catalyst-Zero, or a
+            # node reboot) leaks Hetzner resources because partial apply
+            # state is in emptyDir. Caught live on otech64, 2026-05-03:
+            # contabo's catalyst-api was rolled at 21:40:11 (3 minutes
+            # into otech64's tofu apply), terminal_LB created without its
+            # control_plane target, and otech64 came up with an unreachable
+            # 49.12.16.160 LB. Reasonable for fsGroup=65534 above to
+            # provide write access to /var/lib/catalyst (PVC mountPath).
             - name: CATALYST_TOFU_WORKDIR
-              value: /tmp/catalyst/tofu
+              value: /var/lib/catalyst/tofu
             # CATALYST_DEPLOYMENTS_DIR — flat-file store for deployment
             # records (one JSON file per deployment id). Backed by the
             # PVC mount below so deployments persist across Pod

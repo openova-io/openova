@@ -50,9 +50,24 @@ reloader:
         capabilities:
           drop: ["ALL"]
 
-    # Reload strategy — `env-vars` (sets a checksum env var that triggers a
-    # rollout) is upstream default; `annotations` mode is also supported.
-    reloadStrategy: "env-vars"
+    # Reload strategy — `annotations` mode bumps a pod-template annotation
+    # (reloader.stakater.com/last-reloaded-from) on the watched workload,
+    # triggering rollout regardless of how the ConfigMap/Secret is referenced
+    # (envFrom, valueFrom, or volume mount).
+    #
+    # `env-vars` mode (the previous default) ONLY injects a checksum env var
+    # for ConfigMaps referenced via `envFrom`. Workloads that read a single
+    # key via `valueFrom: configMapKeyRef` are NOT reloaded under `env-vars`,
+    # producing the SOVEREIGN_FQDN race that broke handover on every fresh
+    # Sovereign (otech62-64, 2026-05-03): Pod started before
+    # `clusters/_template/sovereign-tls/sovereign-fqdn-configmap.yaml` had
+    # been applied, valueFrom collapsed to "", and Reloader never rolled
+    # the Pod when the CM appeared.
+    #
+    # Switching to `annotations` makes the
+    # `configmap.reloader.stakater.com/reload: "sovereign-fqdn"` annotation
+    # on catalyst-api work as advertised.
+    reloadStrategy: "annotations"
 
     # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
     serviceMonitor:
