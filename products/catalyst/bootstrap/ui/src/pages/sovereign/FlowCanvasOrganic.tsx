@@ -339,6 +339,26 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    * animations don't perturb the metrics — without snapping, every
    * frame of a 220ms padding-right transition recomputes the
    * `Math.floor(rFit)` value and restarts the sim → never settles. */
+  /* Issue #669 round 4 — sqrt-aspect-ratio dense-bucket grids.
+   *
+   * Round-3 grew dense slot width with bucket size, but used the
+   * vertical-fit COL_CAPACITY (~14 rows on a 700px host) which still
+   * forced wide buckets into thin tall columns. Result: 30 leaves in
+   * 3 sub-cols × 10 rows = ~120 px wide slot, only ~28% of total
+   * X-extent.
+   *
+   * Round-4: target a square-ish-but-wider aspect for dense buckets.
+   *   targetRows = round(sqrt(count / 1.6))
+   * gives e.g. 30 → 4 rows, 8 cols → ~700 px slot. Densest bucket's
+   * targetRows then sets R via vertical-fit so all rows of the
+   * tightest column fit in hostSize.h. With R = 40 (max), sparse
+   * depths get 2R = 80 px slots and dense buckets sprawl horizontally
+   * exactly enough to read as a block, not a pile.
+   *
+   * Stabilization (carries from round-3): R snaps to nearest 4, slot
+   * widths snap to nearest 8, ResizeObserver debounces 180ms with
+   * 8px epsilon — sub-pixel flicker during pane-transition animations
+   * doesn't perturb the metrics. */
   const layoutMetrics = useMemo(() => {
     const buckets = new Map<number, number>()
     let maxBucket = 0
@@ -351,49 +371,50 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
     const depthCount = maxDepth + 1
 
-    // Step 1 — adaptive R. Densest bucket must fit vertically.
+    // Target rows for a bucket of given size — slightly wider than tall.
+    const targetRowsFor = (count: number) =>
+      Math.max(1, Math.round(Math.sqrt(Math.max(1, count) / 1.6)))
+
+    // R derived from the densest bucket's *target* rows (NOT the host's
+    // raw vertical capacity), so wide buckets actually claim X-room.
+    const denseRows = targetRowsFor(maxBucket)
     let r = MAX_NODE_RADIUS
     if (maxBucket > 1) {
       const usableH = Math.max(60, hostSize.h - 2 * (MAX_NODE_RADIUS + COLLIDE_PADDING))
-      const pitchAvail = usableH / maxBucket
+      const pitchAvail = usableH / denseRows
       const rFit = (pitchAvail - COLLIDE_PADDING) / 2
       r = Math.min(MAX_NODE_RADIUS, Math.max(MIN_NODE_RADIUS, Math.floor(rFit)))
     }
-    // Snap R to nearest 4 — kills sub-pixel flicker during animations.
     r = Math.max(MIN_NODE_RADIUS, Math.min(MAX_NODE_RADIUS, Math.round(r / 4) * 4))
 
     const ROW_PITCH = r * 2 + COLLIDE_PADDING
     const Y_RANGE = Math.max(r * 2, hostSize.h - 2 * (r + COLLIDE_PADDING))
-    const COL_CAPACITY = Math.max(1, Math.floor(Y_RANGE / ROW_PITCH))
+    const HARD_ROW_CAP = Math.max(1, Math.floor(Y_RANGE / ROW_PITCH))
 
-    // Step 2 — per-depth slot width.
-    //   sparse (count ≤ COL_CAPACITY): width = 2R + minimal padding
-    //   dense  (count >  COL_CAPACITY): width grows with sub-column count
-    const slotWidth = new Map<number, number>()
+    // Per-bucket sub-grid info (cols × rows + slot width).
+    const slotInfo = new Map<number, { cols: number; rows: number; width: number }>()
     for (const [d, count] of buckets) {
-      const totalCols = Math.max(1, Math.ceil(count / COL_CAPACITY))
-      const naturalCols = totalCols > 1
-        ? (totalCols - 1) * (r * 2 + COLLIDE_PADDING) + r * 2
+      // Cap target rows by what fits vertically — defensive when R
+      // got pushed to MIN_NODE_RADIUS by an unusually tight host.
+      const rows = Math.min(targetRowsFor(count), HARD_ROW_CAP)
+      const cols = Math.max(1, Math.ceil(count / rows))
+      const naturalW = cols > 1
+        ? (cols - 1) * (r * 2 + COLLIDE_PADDING) + r * 2
         : r * 2
-      // Snap to nearest 8 px.
-      const w = Math.round(Math.max(naturalCols, r * 2) / 8) * 8
-      slotWidth.set(d, w)
+      const width = Math.round(Math.max(naturalW, r * 2) / 8) * 8
+      slotInfo.set(d, { cols, rows, width })
     }
 
-    // Step 3 — gap between adjacent depth columns. The gap doubles as
-    // edge length when chains run depth-to-depth. Clamp to
-    // [MIN_PER_DEPTH_X, MAX_PER_DEPTH_X].
     const gap = Math.max(MIN_PER_DEPTH_X, Math.min(MAX_PER_DEPTH_X, r * 4))
 
-    // Step 4 — place each depth at its own X. Cumulative cursor.
     const xByDepth = new Map<number, number>()
-    let cursor = r + COLLIDE_PADDING // left margin
+    let cursor = r + COLLIDE_PADDING
     for (let d = 0; d <= maxDepth; d++) {
-      const w = slotWidth.get(d) ?? r * 2
-      xByDepth.set(d, cursor + w / 2) // centerline of slot
+      const w = slotInfo.get(d)?.width ?? r * 2
+      xByDepth.set(d, cursor + w / 2)
       cursor += w + gap
     }
-    const totalWidth = cursor - gap + r + COLLIDE_PADDING // total layout extent
+    const totalWidth = cursor - gap + r + COLLIDE_PADDING
 
     const linkDistance = gap * 0.625
     const gr = r + GROUP_RADIUS_DELTA
@@ -402,17 +423,17 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       r,
       gr,
       gap,
-      slotWidth,
+      slotInfo,
       xByDepth,
       totalWidth,
       linkDistance,
       maxBucket,
       depthCount,
-      colCapacity: COL_CAPACITY,
+      hardRowCap: HARD_ROW_CAP,
     }
   }, [layout.nodes, hostSize.w, hostSize.h])
 
-  const { r: R, gr: GR, gap: PER_DEPTH_X, linkDistance: LINK_DISTANCE, xByDepth, slotWidth } = layoutMetrics
+  const { r: R, gr: GR, gap: PER_DEPTH_X, linkDistance: LINK_DISTANCE, xByDepth, slotInfo } = layoutMetrics
 
   const depthToX = useCallback(
     (depth: number) => xByDepth.get(depth) ?? (R + COLLIDE_PADDING + depth * (R * 4)),
@@ -529,19 +550,14 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
    */
   const gridTargets = useMemo(() => {
     type GridCell = {
-      tx: number // absolute target X in layout coordinates
-      ty: number // absolute target Y in layout coordinates
+      tx: number
+      ty: number
       totalCols: number
       totalRows: number
     }
     const ROW_PITCH = R * 2 + COLLIDE_PADDING
-    const Y_MARGIN_LOCAL = R + COLLIDE_PADDING
-    const Y_RANGE_LOCAL = Math.max(R * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
+    const Y_RANGE_LOCAL = Math.max(R * 2, hostSize.h - 2 * (R + COLLIDE_PADDING))
     const Y_CENTER_LOCAL = hostSize.h / 2
-    // How many bubbles fit vertically with the no-overlap collision
-    // pitch (NODE_RADIUS*2 + COLLIDE_PADDING = 92px on 700px viewBox →
-    // 7 rows). Beyond that, we MUST add sub-columns or bubbles overlap.
-    const COL_CAPACITY = Math.max(1, Math.floor(Y_RANGE_LOCAL / ROW_PITCH))
     const buckets = new Map<number, OrganicNode[]>()
     for (const n of layout.nodes) {
       let bucket = buckets.get(n.depth)
@@ -553,21 +569,19 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     }
     const cells = new Map<string, GridCell>()
     for (const [depth, bucket] of buckets) {
-      if (bucket.length <= COL_CAPACITY) continue
-      // Issue #669 round 3 — anchor at the depth's CENTERLINE in the
-      // variable-width-slot layout, and use the bucket's own slot
-      // width for sub-column spread (NOT a fraction of perDepthX).
-      // This is what stops the dense cluster from piling at the
-      // right edge: dense buckets get a slot wide enough to spread,
-      // and the rest of the depth chain shifts further right to make
-      // room.
+      const info = slotInfo.get(depth)
+      // Sparse depths (cols=1, rows=1, slot=2R) skip the grid pre-pass —
+      // the force-anchor + per-bucket Y target handles them naturally.
+      if (!info || (info.cols <= 1 && info.rows <= 1)) continue
+      // Issue #669 round 4 — read sub-grid dims from layoutMetrics
+      // (sqrt-aspect target) instead of recomputing here. Guarantees
+      // gridTargets and slotWidth agree on cols/rows.
       const baseX = xByDepth.get(depth) ?? (R + COLLIDE_PADDING + depth * (R * 4))
-      const totalCols = Math.max(1, Math.ceil(bucket.length / COL_CAPACITY))
-      const totalRows = Math.ceil(bucket.length / totalCols)
-      const slot = slotWidth.get(depth) ?? (R * 2)
-      // Sub-column inner span — full slot minus one bubble at each
-      // edge (so a sub-col centerline stays inside the slot).
-      const SUB_COL_SPAN = Math.max(0, slot - R * 2)
+      const totalCols = info.cols
+      const totalRows = info.rows
+      // Sub-column inner span = slot width minus one bubble at each
+      // edge (centerlines stay inside the slot).
+      const SUB_COL_SPAN = Math.max(0, info.width - R * 2)
       const colStep = totalCols > 1 ? SUB_COL_SPAN / (totalCols - 1) : 0
       // Issue #532 founder verbatim: "homogenously spread". Distribute
       // rows evenly across the full Y range (not packed at the top).
@@ -595,7 +609,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
       })
     }
     return cells
-  }, [layout.nodes, hostSize.h, xByDepth, slotWidth, R])
+  }, [layout.nodes, hostSize.h, xByDepth, slotInfo, R])
 
   const simNodes = useMemo<SimNode[]>(() => {
     const next: SimNode[] = []
@@ -741,27 +755,30 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
           const cell = gridTargets.get(n.id)
           if (cell) {
-            // Issue #532 — sub-grid clamping. Each sibling has an
-            // absolute (tx, ty) target inside the depth column's
-            // sub-grid. The clamp window is half the sub-column span
-            // wide and half the row step tall so adjacent siblings
-            // can settle without invading each other's slots, but
-            // the slot itself is large enough that forceCollide can
-            // resolve any tiny overlaps inside the slot without
-            // pushing the node outside.
-            const SUB_COL_SPAN = PER_DEPTH_X * 0.8
-            const colSlot = cell.totalCols > 1
-              ? SUB_COL_SPAN / (cell.totalCols - 1)
-              : PER_DEPTH_X
-            const Y_MARGIN_LOCAL = R + COLLIDE_PADDING
-            const Y_RANGE_LOCAL = Math.max(R * 2, hostSize.h - Y_MARGIN_LOCAL * 2)
-            const rowSlot = cell.totalRows > 1
-              ? Y_RANGE_LOCAL / (cell.totalRows - 1)
-              : Y_RANGE_LOCAL
-            const xMin = cell.tx - colSlot * 0.5
-            const xMax = cell.tx + colSlot * 0.5
-            const yMin = cell.ty - rowSlot * 0.5
-            const yMax = cell.ty + rowSlot * 0.5
+            // Issue #669 round 4 — narrow per-cell clamp.
+            //
+            // Each grid cell's clamp window is half the cell pitch in
+            // each axis, MINUS R, so the bubble's edge can never reach
+            // its neighbour's centre. Old code used colSlot = full
+            // pitch which let two adjacent cells' clamp windows
+            // overlap → forceCollide pushed bubbles into neighbour
+            // territory, the clamp ratcheted them in, and centres
+            // could collapse to <2R apart. The narrow window keeps
+            // forceCollide's pairwise floor intact at runtime. */
+            const xPitch = cell.totalCols > 1
+              ? layoutMetrics.slotInfo.get(n.depth)?.width
+                  ? Math.max(1, ((layoutMetrics.slotInfo.get(n.depth)!.width - R * 2) / (cell.totalCols - 1)))
+                  : R * 2 + COLLIDE_PADDING
+              : layoutMetrics.gap
+            const yPitch = cell.totalRows > 1
+              ? Math.max(R * 2 + COLLIDE_PADDING, (hostSize.h - 2 * (R + COLLIDE_PADDING)) / (cell.totalRows - 1))
+              : hostSize.h - 2 * (R + COLLIDE_PADDING)
+            const xHalf = Math.max(R, xPitch * 0.5 - R)
+            const yHalf = Math.max(R, yPitch * 0.5 - R)
+            const xMin = cell.tx - xHalf
+            const xMax = cell.tx + xHalf
+            const yMin = cell.ty - yHalf
+            const yMax = cell.ty + yHalf
             if (typeof n.x === 'number') {
               if (n.x < xMin) n.x = xMin
               else if (n.x > xMax) n.x = xMax
