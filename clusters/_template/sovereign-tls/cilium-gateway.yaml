@@ -15,9 +15,26 @@ metadata:
     catalyst.openova.io/component: cilium-gateway
 spec:
   gatewayClassName: cilium
+  # NOTE: ports 30080/30443 (not 80/443) — even with hostNetwork=true,
+  # cilium-envoy refuses to bind privileged ports because cilium-agent
+  # gates that bind through its `envoy-keep-cap-netbindservice` flag and
+  # the resulting bind() syscall is intercepted by the agent's BPF
+  # socket-LB program. Setting privileged: true on the cilium-envoy
+  # DaemonSet + adding NET_BIND_SERVICE + flipping the configmap flag
+  # all failed to lift the bind() rejection (verified live on otech45,
+  # otech46, otech47).
+  #
+  # High-port (>1024) bind succeeds without NET_BIND_SERVICE. The
+  # Hetzner LB does the public-facing port translation: HCLB listens on
+  # 80→forwards to CP node:30080; HCLB listens on 443→forwards to CP
+  # node:30443. Browsers hit the canonical URL (`https://console.<fqdn>/`)
+  # so port 30443 is never visible externally.
+  #
+  # See infra/hetzner/main.tf hcloud_load_balancer_service.{http,https}
+  # destination_port settings — they MUST match these listener ports.
   listeners:
     - name: https
-      port: 443
+      port: 30443
       protocol: HTTPS
       hostname: "*.${SOVEREIGN_FQDN}"
       tls:
@@ -29,7 +46,7 @@ spec:
         namespaces:
           from: All
     - name: http
-      port: 80
+      port: 30080
       protocol: HTTP
       hostname: "*.${SOVEREIGN_FQDN}"
       allowedRoutes:
