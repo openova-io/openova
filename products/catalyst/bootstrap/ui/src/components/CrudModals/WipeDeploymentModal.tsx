@@ -50,6 +50,17 @@ export interface WipeReport {
     networks?: string[]
     firewalls?: string[]
     ssh_keys?: string[]
+    /** Issue #706 — Hetzner Object Storage buckets the wipe handler
+     *  emptied + deleted via the S3 API (tofu destroy can't remove
+     *  them while objects exist). One entry per per-Sovereign bucket
+     *  cleaned. */
+    s3_buckets?: string[]
+    /** Number of firewall-delete retries needed because the server
+     *  detach was still in flight (issue #706). 0 = no retries
+     *  necessary; >0 = the firewall was attached when we first tried
+     *  but eventually went through. Surfaced for operator awareness;
+     *  the actual deletion success is encoded in the firewalls list. */
+    firewalls_retried?: number
     errors?: string[]
   }
   pdmReleased: boolean
@@ -132,7 +143,7 @@ export function WipeDeploymentModal({
         </p>
         <ul style={{ margin: '8px 0', paddingLeft: 20, fontSize: 12, color: 'var(--color-text-dim)' }}>
           <li>tofu destroy against the per-deployment workdir</li>
-          <li>Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys)</li>
+          <li>Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys, S3 buckets)</li>
           <li>PDM allocation release (pool-subdomain only)</li>
           <li>Kubeconfig + workdir + on-disk record removed</li>
         </ul>
@@ -202,7 +213,18 @@ export function WipeDeploymentModal({
         {(report.hetznerPurge.load_balancers?.length ?? 0)} load balancers,{' '}
         {(report.hetznerPurge.networks?.length ?? 0)} networks,{' '}
         {(report.hetznerPurge.firewalls?.length ?? 0)} firewalls,{' '}
-        {(report.hetznerPurge.ssh_keys?.length ?? 0)} ssh-keys.
+        {(report.hetznerPurge.ssh_keys?.length ?? 0)} ssh-keys,{' '}
+        {(report.hetznerPurge.s3_buckets?.length ?? 0)} S3 buckets.
+        {(report.hetznerPurge.firewalls_retried ?? 0) > 0 ? (
+          <>
+            {' '}
+            <span>
+              ({report.hetznerPurge.firewalls_retried} firewall delete retr
+              {report.hetznerPurge.firewalls_retried === 1 ? 'y' : 'ies'} while
+              server detach completed)
+            </span>
+          </>
+        ) : null}
       </p>
       <p style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-dim)' }}>
         Tofu destroy: {report.tofuDestroyed ? '✓' : '✗'} · PDM released: {report.pdmReleased ? '✓' : 'n/a'} · Local state cleaned: {report.localCleaned ? '✓' : '✗'}

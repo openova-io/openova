@@ -137,7 +137,18 @@ export function DecommissionPage() {
           {(report.hetznerPurge.load_balancers?.length ?? 0)} load balancers,{' '}
           {(report.hetznerPurge.networks?.length ?? 0)} networks,{' '}
           {(report.hetznerPurge.firewalls?.length ?? 0)} firewalls,{' '}
-          {(report.hetznerPurge.ssh_keys?.length ?? 0)} ssh-keys.
+          {(report.hetznerPurge.ssh_keys?.length ?? 0)} ssh-keys,{' '}
+          {(report.hetznerPurge.s3_buckets?.length ?? 0)} S3 buckets.
+          {(report.hetznerPurge.firewalls_retried ?? 0) > 0 ? (
+            <>
+              {' '}
+              <span>
+                ({report.hetznerPurge.firewalls_retried} firewall delete retr
+                {report.hetznerPurge.firewalls_retried === 1 ? 'y' : 'ies'} while
+                server detach completed)
+              </span>
+            </>
+          ) : null}
         </p>
         <p className="mt-1 text-sm text-[var(--color-text-dim)]">
           PDM allocation released: {report.pdmReleased ? 'yes' : 'n/a (BYO)'} ·
@@ -180,7 +191,7 @@ export function DecommissionPage() {
       </p>
       <ul className="mt-3 list-disc pl-5 text-xs text-[var(--color-text-dim)]">
         <li>tofu destroy against the per-deployment workdir</li>
-        <li>Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys)</li>
+        <li>Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys, S3 buckets)</li>
         <li>PDM allocation release (pool-subdomain only)</li>
         <li>Kubeconfig + workdir + on-disk record removed</li>
       </ul>
