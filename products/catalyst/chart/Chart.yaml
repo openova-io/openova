@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.2.4
+version: 1.2.5
 appVersion: 1.2.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
@@ -135,6 +135,41 @@ description: |
   - ZERO Keycloak UI exposure, ZERO browser PKCE round-trip
   Adds CATALYST_OPENOVA_KC_* env refs from new catalyst-openova-kc-credentials
   Secret + CATALYST_SESSION_COOKIE_DOMAIN. 2026-05-02.
+
+  Bumped to 1.2.5 — Phase-8b live followup on otech48 (2026-05-03). Two
+  handover bugs caught on the live single-identity flow:
+
+  1. Sovereign-side catalyst-api responded to GET /auth/handover with
+     "server misconfiguration: public key unavailable" — the K8s Secret
+     `catalyst-handover-jwt-public` was never created, so the optional
+     Secret-volume mount fell through and the JWK file was absent inside
+     the container. 1.2.0 wired the volume mount but no provisioning
+     step materialised the Secret. Fix paired with infra/hetzner/
+     cloudinit-control-plane.tftpl — cloud-init now writes the Secret
+     manifest into catalyst-system NS and runcmd applies it BEFORE
+     flux-bootstrap, mirroring the canonical pattern that flux-system/
+     ghcr-pull (PR #543) and flux-system/harbor-robot-token (PR #680)
+     already follow. The chart-side change moves the volume mount off
+     the catalyst-api PVC (mountPath /etc/catalyst/handover-jwt-public,
+     no subPath) so a leftover empty directory in the PVC from pre-#606
+     installs cannot collide with a re-provisioned Secret mount, and
+     updates CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH to point at the new
+     location.
+
+  2. /auth/handover validator rejected every valid JWT with 401
+     "invalid audience" because SOVEREIGN_FQDN was unset — the audience
+     check collapsed to the literal "https://console." prefix.
+     bp-catalyst-platform's HelmRelease overlay was already setting
+     `global.sovereignFQDN` but the chart template never plumbed it
+     through to the Pod env. Added a SOVEREIGN_FQDN env reading
+     `.Values.global.sovereignFQDN` (default "" so Catalyst-Zero
+     installs, where catalyst-api is the SIGNER not the validator,
+     stay clean).
+
+  Verifies live on otech49+ — fresh provision should reach
+  https://console.otech49.omani.works/auth/handover?token=... and
+  exchange to a Keycloak session WITHOUT manual Secret creation.
+  Issue #606 followup, 2026-05-03.
 
   Bumped to 1.2.3 — RCA + permanent fix for catalyst-api Pods stuck in
   CreateContainerConfigError on every fresh Sovereign because the
