@@ -158,6 +158,45 @@ auth:
 #       kind: byok
 channels: []
 
+# First-otech default vLLM channel. Disabled by default — opt-in per
+# Sovereign via the bootstrap-kit overlay (slot 80-newapi.yaml). When
+# `enabled: true` AND `endpoint != ""`, the chart composes a `vllm`-typed
+# channel into the rendered channels list.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the endpoint and
+# model identifiers are operator-supplied at install time. The Catalyst
+# repo references the OpenOva marketing site's wired upstream
+# (`https://llm-api.omtd.bankdhofar.com`, model `qwen3-coder`, used by
+# Axon at `openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml`)
+# as the canonical first-otech default ONLY for documentation; the
+# chart's defaults here are empty so an unconfigured deploy does not
+# silently wire customers to a third-party endpoint.
+defaultChannels:
+  vllm:
+    # Set true in the per-Sovereign bootstrap-kit overlay. When false,
+    # this block is ignored and the channel is NOT composed.
+    enabled: false
+    # Customer-visible model prefix.
+    name: "qwen"
+    # Upstream vLLM endpoint URL. Operator-supplied. The chart never
+    # bakes a default endpoint — `helm template` with
+    # `defaultChannels.vllm.enabled: true` and an empty `endpoint` is a
+    # configuration error caught at render time.
+    endpoint: ""
+    # Models exposed via this channel.
+    models:
+      - "qwen3-coder"
+    # ExternalSecret name holding the upstream API key (omit for truly
+    # in-cluster vLLM where no key is required).
+    existingSecret: ""
+    # Attestation block. Default kind = `in-cluster` (operator owns the
+    # weights and inference hardware behind the relay). Overlay the kind
+    # to `commercial-contract` if the relay terminates at a third-party
+    # provider; in that case `accountId` + `contractRef` become required.
+    attestation:
+      kind: "in-cluster"
+      owner: ""
+
 # ─── Geographic AUP enforcement ──────────────────────────────────────────
 # Blocks requests from sanctioned regions on commercial-provider
 # channels. US/EU export-control baseline by default. Operator extends
@@ -198,13 +237,50 @@ reseller:
 # When enabled, the chart provisions a Kubernetes secret
 # `catalyst-newapi-admin-token` consumed by Catalyst's signup hook to
 # issue per-user API keys against NewAPI's admin API.
+#
+# ADR-0003 §3.2 + §6 binds this Secret. The unified-rbac service in the
+# OTECH control plane reads it and `Authorization: Bearer <ADMIN_API_TOKEN>`
+# against `http://newapi.newapi.svc/api/v1/admin/users` to issue per-user
+# keys. Idempotency on `external_id` (return-existing api_key on 409) is
+# the responsibility of the NewAPI admin API itself, not this chart.
 catalystIntegration:
   enabled: true
   # ExternalSecret name carrying the admin API token NewAPI generates at
   # bootstrap. Required key: ADMIN_API_TOKEN. The token is rotated by
   # the operator on a schedule documented in
   # docs/CATALYST-CLI-AGENT.md.
-  existingSecret: ""              # e.g. "catalyst-newapi-admin-token"
+  existingSecret: "catalyst-newapi-admin-token"
+
+  # ExternalSecret render — gated, default true. Sources the admin token
+  # from the operator's OpenBao via a ClusterSecretStore (default
+  # `vault-region1`, the bp-external-secrets-stores default). The remote
+  # path is operator-supplied; the canonical convention per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 is
+  # `sovereign/<sovereign-fqdn>/newapi/admin-token` (under the store's
+  # `secret/` mount) with property `ADMIN_API_TOKEN`. The cluster overlay
+  # at `clusters/<sovereign>/bootstrap-kit/80-newapi.yaml` sets
+  # `externalSecret.remoteRef.key` per Sovereign.
+  externalSecret:
+    enabled: true
+    refreshInterval: "1h"
+    secretStoreRef:
+      # ClusterSecretStore (Catalyst default = `vault-region1`, shipped
+      # by bp-external-secrets-stores). Overlays may swap to a
+      # SecretStore by switching kind.
+      kind: "ClusterSecretStore"
+      name: "vault-region1"
+    # Remote OpenBao path. Per ADR-0001 the secret-store backend is
+    # OpenBao via the vault provider; the path uses the operator's
+    # convention. Operator overlay supplies the per-Sovereign value.
+    remoteRef:
+      # `key` is the OpenBao path under the ClusterSecretStore's base
+      # path (`secret/` in the Catalyst default). Operator overlay
+      # supplies the per-Sovereign value, e.g.:
+      #   sovereign/omantel.omani.works/newapi/admin-token
+      key: ""
+      # `property` is the JSON field inside the OpenBao secret holding
+      # the bearer token used by the Catalyst signup hook (ADR-0003 §3.2).
+      property: "ADMIN_API_TOKEN"
 
 # ─── Service ─────────────────────────────────────────────────────────────
 service:

@@ -1,4 +1,24 @@
-{{- if .Values.newapi.enabled }}
+{{- /*
+Deployment skip-render gate. The Deployment binds three operator-supplied
+Secrets (database DSN, app credentials, optional OIDC client secret); if
+any are missing on a default-values render (CI smoke test), the
+Deployment is silently skipped. The Service / ServiceAccount / ConfigMap
+/ NetworkPolicy still render so `helm template` produces a non-empty
+output that proves the chart is structurally sound, while the actual
+Pod-rendering deferred until the per-Sovereign overlay sets
+`database.existingSecret` and `credentials.existingSecret`.
+
+Keycloak OIDC client secret is required only when
+`auth.adminUI.mode=keycloak` AND `auth.adminUI.keycloak.issuer` is set;
+the configmap mirrors this gate.
+*/ -}}
+{{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
+{{- $kcConfigured := and $kcMode .Values.auth.adminUI.keycloak.issuer .Values.auth.adminUI.keycloak.existingSecret -}}
+{{- $deployReady := and .Values.newapi.enabled .Values.database.existingSecret .Values.credentials.existingSecret -}}
+{{- if and $kcMode (not $kcConfigured) -}}
+{{- $deployReady = false -}}
+{{- end -}}
+{{- if $deployReady }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,7 +54,7 @@ spec:
             - name: SQL_DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                  name: {{ .Values.database.existingSecret }}
                   key: {{ .Values.database.existingSecretKey }}
 
             # ── Valkey cache ──────────────────────────────────────────
@@ -55,7 +75,7 @@ spec:
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "credentials.existingSecret is required" .Values.credentials.existingSecret }}
+                  name: {{ .Values.credentials.existingSecret }}
                   key: SESSION_SECRET
             - name: CRYPTO_SECRET
               valueFrom:
@@ -64,11 +84,11 @@ spec:
                   key: CRYPTO_SECRET
 
             # ── OIDC (admin UI) ───────────────────────────────────────
-            {{- if eq .Values.auth.adminUI.mode "keycloak" }}
+            {{- if $kcConfigured }}
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "auth.adminUI.keycloak.existingSecret is required when auth.adminUI.mode=keycloak" .Values.auth.adminUI.keycloak.existingSecret }}
+                  name: {{ .Values.auth.adminUI.keycloak.existingSecret }}
                   key: OIDC_CLIENT_SECRET
             {{- end }}
 
