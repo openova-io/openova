@@ -110,6 +110,17 @@ type Handler struct {
 	kubeconfigArrivalTimeout      time.Duration
 	kubeconfigArrivalPollInterval time.Duration
 
+	// handoverCertWaitTimeout / handoverCertPollInterval — runtime knobs
+	// for the loop that waits for the sovereign-wildcard-tls Certificate
+	// Ready=True before the handover auto-fire mints the JWT. Zero falls
+	// back to the env var (CATALYST_HANDOVER_CERT_WAIT_TIMEOUT /
+	// CATALYST_HANDOVER_CERT_POLL_INTERVAL) → DefaultHandoverCertWaitTimeout
+	// / DefaultHandoverCertPollInterval. Tests inject tiny values
+	// (e.g. 200ms / 20ms) so the cert-wait path can be exercised
+	// deterministically. Issue #780.
+	handoverCertWaitTimeout  time.Duration
+	handoverCertPollInterval time.Duration
+
 	// refreshWatchSeedTimeout — bound on how long
 	// POST /api/v1/deployments/{id}/refresh-watch blocks waiting for
 	// the bridge seed hook to fire. Zero falls back to
@@ -215,6 +226,14 @@ type Handler struct {
 	// emitter, base-URL template). Wired from main.go at startup; tests
 	// inject stubs.
 	smeDeps SMEDeps
+
+	// ── SME tenant provisioning pipeline (issue #804) ───────────────────────
+	// smeTenantDeps — bundle of dependencies for the SME tenant
+	// provisioning pipeline (state-machine store, GitOps overlay
+	// writer, DNS provisioner, Keycloak client provisioner, NATS
+	// emitter, OTECH FQDN). Wired from main.go at startup; tests
+	// inject stubs.
+	smeTenantDeps SMETenantDeps
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
