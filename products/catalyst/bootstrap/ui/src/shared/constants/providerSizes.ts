@@ -129,26 +129,35 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
     // CPX — AMD shared (Regular Performance lineup)
     { id: 'cpx22', label: 'CPX22', vcpu: 2, ram: 4, disk: 80, priceHour: 0.0128, priceMonth: 7.99,
       category: 'shared-amd', description: 'AMD shared vCPU — entry compute' },
-    // CPX32 — entry-level shared SKU. NOT default for SOLO Sovereigns
-    // because the bootstrap-kit's 35 components + CNPG / Harbor /
-    // Keycloak / Cilium / Flux / etc together exceed 4 vCPU at peak —
-    // pods queue Pending forever (caught live on otech26). Operators
-    // can opt into CPX32 explicitly when they trim the component set.
+    // CPX32 — recommended HORIZONTAL-scale starter (issue #733). The
+    // canonical Sovereign default is 1× CPX32 control plane + 2× CPX32
+    // workers (3 nodes × 4 vCPU/8 GB = 12 vCPU / 24 GB total — same
+    // aggregate footprint as a single CPX52 vertical-scale node, but
+    // with multi-node fault tolerance and the architectural shape
+    // `clusters/_template/` was designed for). The previous "CPX32 is
+    // too small for solo" warning was a single-node observation —
+    // multi-node spreads the bootstrap-kit's load across 3 schedulable
+    // hosts so per-node CPU never saturates the way otech26 hit.
+    // Operators picking SOLO mode (worker_count=0) should still pick
+    // CPX52 explicitly; the wizard's StepProvider surfaces both.
     { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0232, priceMonth: 14.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — entry tier (4 vCPU / 8 GB) — too small for full SOLO bootstrap-kit; trim components first' },
+      category: 'shared-amd', description: 'AMD shared vCPU — multi-node default (4 vCPU / 8 GB) — pair with worker_count ≥ 2 for full Sovereign bootstrap-kit',
+      recommended: true },
     // CPX42 — fits a TRIMMED bootstrap-kit but otech29 showed 8 vCPU
     // is too tight for the full 35-component default — keycloak-config-cli
     // post-upgrade Job sits Pending forever with "Insufficient cpu".
     { id: 'cpx42', label: 'CPX42', vcpu: 8, ram: 16, disk: 320, priceHour: 0.0408, priceMonth: 25.49,
       category: 'shared-amd', description: 'AMD shared vCPU — entry tier (8 vCPU / 16 GB) — sufficient for trimmed component sets' },
-    // CPX52 — recommended SOLO starter. 12 vCPU / 24 GB fits the full
-    // 35-component bootstrap-kit + post-install hooks (keycloak-config-cli
-    // realm import, mimir compactor, harbor migrator) without hitting
-    // node CPU pressure. Empirically validated as the smallest SKU that
-    // schedules every default Pod on a single node.
+    // CPX52 — solo-Sovereign starter when worker_count=0. 12 vCPU / 24 GB
+    // fits the full 35-component bootstrap-kit + post-install hooks
+    // (keycloak-config-cli realm import, mimir compactor, harbor migrator)
+    // without hitting node CPU pressure on a single node. Empirically
+    // validated as the smallest SKU that schedules every default Pod on
+    // a single node. Multi-node Sovereigns pick CPX32 (above) because
+    // the aggregate capacity across 3× CPX32 matches CPX52 at parity
+    // pricing while delivering real horizontal scale.
     { id: 'cpx52', label: 'CPX52', vcpu: 12, ram: 24, disk: 480, priceHour: 0.0585, priceMonth: 36.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (12 vCPU / 24 GB / 480 GB SSD)',
-      recommended: true },
+      category: 'shared-amd', description: 'AMD shared vCPU — solo-Sovereign starter (12 vCPU / 24 GB / 480 GB SSD) when worker_count=0' },
     { id: 'cpx62', label: 'CPX62', vcpu: 16, ram: 32, disk: 640, priceHour: 0.0809, priceMonth: 50.49,
       category: 'shared-amd', description: 'AMD shared vCPU — top-of-range shared' },
 

@@ -14,7 +14,7 @@ This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../do
 | `hcloud_firewall` | Inbound rules for 80/443 (HTTPS), 6443 (k3s API), ICMP, and an opt-in SSH rule keyed to operator CIDRs. |
 | `hcloud_ssh_key` | The operator's existing SSH key (from their Hetzner project) — never auto-generated. |
 | `hcloud_server` (control plane) | 1 node by default (`ha_enabled=false`); 3 nodes when HA is on. Cloud-init installs k3s + Flux + the bootstrap kit pointer. |
-| `hcloud_server` (workers) | `worker_count` nodes (default 0 — solo Sovereign). |
+| `hcloud_server` (workers) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
 | `hcloud_load_balancer` (`lb11`) | Public IPv4; forwards 80→31080 and 443→31443 (Cilium Gateway NodePorts post-bootstrap). |
 | `null_resource.dns_pool` | Calls `/usr/local/bin/catalyst-dns` (a helper inside the catalyst-api container) when `domain_mode=pool` to write Dynadot A records for the new sovereign FQDN. |
 
@@ -22,26 +22,32 @@ After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the pu
 
 ---
 
-## Sizing rationale — why `cx42` is the default
+## Sizing rationale — why `cpx32 × 3` is the default (issue #733)
 
 `docs/PLATFORM-TECH-STACK.md` §7.1 sets the RAM budget for a Catalyst-only mgt cluster at **~11.3 GB**, and §7.4 adds **~8.8 GB** for per-host-cluster infrastructure that runs on every host cluster including mgt (Cilium, Flux, Crossplane, cert-manager, ESO, Kyverno, Trivy Operator, Falco, Harbor, SeaweedFS, Velero, plus small operators).
 
-For a **solo** Sovereign (single node hosting both the Catalyst control plane and the per-host-cluster infra), the floor is therefore **~20 GB RAM minimum**, before adding any application Blueprints.
+The total Sovereign footprint is **~20 GB RAM, ~10 vCPU minimum**. There are two ways to land that:
 
-| Hetzner type | RAM | vCPU | Disk | Verdict for solo Sovereign |
+1. **Vertical scale** — single CPX52 node (12 vCPU / 24 GB) hosts everything.
+2. **Horizontal scale (default)** — 1× CPX32 control plane + 2× CPX32 workers (3 nodes × 4 vCPU / 8 GB = 12 vCPU / 24 GB total). Same aggregate footprint, **multi-node fault tolerance**, real horizontal scale for workloads with `replicas: 2`.
+
+The horizontal-scale shape is the canonical Catalyst architecture — `clusters/_template/` was designed for it. The previous single-node default was a regression that discarded horizontal scalability; this module restores the multi-node default per issue #733.
+
+| Hetzner type | RAM | vCPU | Disk | Default role |
 |---|---|---|---|---|
 | `cx22` | 4 GB | 2 | 40 GB | Insufficient — OOM during Cilium install. |
-| `cx32` | 8 GB | 4 | 80 GB | **Insufficient.** Used to be the default. Bootstrap kit OOMs around the OpenBao + Keycloak step (~12-15 GB working set). |
-| `cx42` | 16 GB | 8 | 160 GB | **Default.** Smallest viable size for a solo Sovereign with no Blueprints. Leaves ~5 GB headroom for the first 1-2 Application Blueprints before scaling. |
-| `cx52` | 32 GB | 16 | 320 GB | Recommended for a solo Sovereign that will also host workloads (10+ Blueprints). |
-| `ccx33` | 32 GB | 8 dedicated | 240 GB | Recommended for **production** solo Sovereign — dedicated vCPUs avoid noisy-neighbour latency on the API server. |
+| `cx32` | 8 GB | 4 | 80 GB | Too small for a solo Sovereign on its own. |
+| `cpx32` | 8 GB | 4 (AMD) | 160 GB | **Default control plane AND default worker.** Multi-node — pair with `worker_count ≥ 2` for the canonical 3-node topology (12 vCPU / 24 GB total). |
+| `cpx42` | 16 GB | 8 (AMD) | 320 GB | Mid-tier worker for trimmed component sets. |
+| `cpx52` | 24 GB | 12 (AMD) | 480 GB | Solo dev/POC starter when `worker_count=0` (single-node mode). |
+| `cx42` | 16 GB | 8 | 160 GB | Legacy single-node default — still allowed, no longer default. |
+| `cx52` | 32 GB | 16 | 320 GB | Heavy single-node Sovereign with many Blueprints. |
+| `ccx33` | 32 GB | 8 dedicated | 240 GB | **Production** dedicated-vCPU control plane — avoids noisy-neighbour latency on the API server. |
 | `cax41` | 32 GB | 16 ARM | 320 GB | Cheapest path to 32 GB. Confirm all upstream Blueprint container images are multi-arch before using (most are; a handful aren't). |
-
-**This is a real fix.** The original `cx32` default was carried over from a development scratchpad; on a real provisioning run it would OOM during the bootstrap. The default is now `cx42`, validated against the §7.1 + §7.4 budget, and the variable's regex blocks anything outside the `cxNN | ccxNN | caxNN` namespace.
 
 ### Upgrade path
 
-Resizing is non-destructive on Hetzner — `tofu apply -var control_plane_size=cx52` will trigger a `hcloud_server` resize. The node reboots once. On a single-node Sovereign that means ~60 seconds of console downtime; the LB health-check covers it. For HA Sovereigns (`ha_enabled=true`), the resize is rolling — no externally-visible downtime.
+Resizing is non-destructive on Hetzner — `tofu apply -var control_plane_size=ccx33` will trigger a `hcloud_server` resize. The node reboots once. On a single-node Sovereign that means ~60 seconds of console downtime; the LB health-check covers it. For HA Sovereigns (`ha_enabled=true`), the resize is rolling — no externally-visible downtime.
 
 For a multi-node Sovereign, prefer **adding workers** (`worker_count`) before upsizing the control plane. The control plane's job is k3s + control-plane services; workers absorb the per-host-infra and application load.
 
