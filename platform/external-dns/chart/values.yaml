@@ -191,6 +191,29 @@ externalDns:
     powerdnsServiceName: powerdns
     powerdnsApiPort: 8081
 
+    # Companion CiliumNetworkPolicy that grants egress to the
+    # `kube-apiserver` reserved Cilium entity. REQUIRED on Cilium —
+    # see templates/ciliumnetworkpolicy.yaml header for the full
+    # diagnosis (issue #770).
+    #
+    # Short version: the vanilla NetworkPolicy egress rule
+    # `to: ipBlock: 0.0.0.0/0 ports: 443,6443` does NOT match traffic
+    # to the kube-apiserver under Cilium with the default
+    # `policy-cidr-match-mode: ""`. Cilium models the apiserver as a
+    # reserved identity, not a CIDR range, so the ipBlock rule is
+    # bypassed and the apiserver call is dropped. Without this CNP,
+    # ExternalDNS fails its initial `*v1.Endpoints` informer cache
+    # sync on every fresh Sovereign provision with:
+    #   fatal: failed to sync *v1.Endpoints: context deadline exceeded
+    # …and crashloops indefinitely.
+    #
+    # Default TRUE because Cilium is the canonical CNI per ADR-0001.
+    # Cluster overlays running on a non-Cilium CNI (none today) MAY
+    # set this to false; the vanilla NetworkPolicy 0.0.0.0/0 rule
+    # covers them.
+    ciliumApiserverEntity:
+      enabled: true
+
   # ServiceMonitor (Catalyst overlay variant) — ALSO default FALSE per the
   # observability-toggle rule. The upstream subchart's ServiceMonitor block
   # above governs scraping of external-dns itself; this Catalyst-side
