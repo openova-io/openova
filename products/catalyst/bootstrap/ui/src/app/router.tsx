@@ -66,6 +66,7 @@ import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
+import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 import { ConsoleDashboardPage } from '@/pages/sovereign/console/ConsoleDashboardPage'
@@ -707,6 +708,24 @@ const consoleSMERolesRoute = createRoute({
   component: SMERolesPage,
 })
 
+/* ── Multi-domain Sovereign — Parent Domains admin (issue #829) ────────
+ *
+ * Operator-admin "Add another parent domain" surface + DNS propagation
+ * status panel. Mounted under /console/* so it sits behind the same
+ * RequireSession + Sovereign-tier auth gate every other admin page uses.
+ *
+ *   /console/parent-domains    → ParentDomainsPage
+ *
+ * Visibility in the sidebar is decided in SovereignSidebar.tsx by
+ * checking the operator-admin role; the route registration here is
+ * always present so a deep-link from the welcome email still resolves.
+ */
+const consoleParentDomainsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/parent-domains',
+  component: ParentDomainsPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -754,6 +773,7 @@ const routeTree = rootRoute.addChildren([
     consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,
     consoleSMERolesRoute,
+    consoleParentDomainsRoute,
   ]),
 ])
 

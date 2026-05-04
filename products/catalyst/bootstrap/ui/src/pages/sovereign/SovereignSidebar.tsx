@@ -102,6 +102,12 @@ interface SubNavItem {
 
 const SETTINGS_SUB_NAV: SubNavItem[] = [
   { id: 'marketplace', label: 'Marketplace', to: '/console/settings/marketplace' },
+  // Parent Domains — admin "Add another parent domain" + DNS propagation
+  // status panel (issue #829). Lives under Settings so the sidebar
+  // surface stays compact for the typical SME tenant who never sees
+  // this surface; operator-admins reach it via /console/parent-domains
+  // directly from the welcome email or by clicking through Settings.
+  { id: 'parent-domains', label: 'Parent Domains', to: '/console/parent-domains' },
 ]
 
 // ── Active-state derivation ───────────────────────────────────────────────────
@@ -116,7 +122,12 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (/\/console\/jobs(\/|$)/.test(pathname)) return 'jobs'
   if (/\/console\/users(\/|$)/.test(pathname)) return 'users'
   if (/\/console\/catalog(\/|$)/.test(pathname)) return 'catalog'
+  // /console/settings/* OR /console/parent-domains → 'settings' so the
+  // Settings nav item highlights and the sub-nav (Marketplace + Parent
+  // Domains) expands. Per inviolable principle #4, the path list is
+  // pulled from SETTINGS_SUB_NAV rather than re-typed here.
   if (/\/console\/settings(\/|$)/.test(pathname)) return 'settings'
+  if (SETTINGS_SUB_NAV.some((s) => pathname.startsWith(s.to))) return 'settings'
   return 'apps'
 }
 

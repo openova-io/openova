@@ -586,6 +586,19 @@ func main() {
 		rg.Post("/api/v1/sovereign/cutover/start", h.HandleCutoverStart)
 		rg.Get("/api/v1/sovereign/cutover/status", h.HandleCutoverStatus)
 		rg.Get("/api/v1/sovereign/cutover/events", h.HandleCutoverEvents)
+
+		// Multi-domain Sovereign — admin "Add another parent domain" flow
+		// + live DNS propagation status panel (issue #829, parent #825).
+		// LIST returns the operator's parent-domain pool (primary +
+		// sme-pool entries). POST queues a new domain through the
+		// NS-flip → PowerDNS-zone-create → cert-issue pipeline.
+		// /propagation fans out to 5 public DNS resolvers via Go's
+		// net.Resolver and reports per-resolver convergence so the
+		// operator can see the gTLD 48h NS TTL window settle.
+		rg.Get("/api/v1/sovereign/parent-domains", h.ListParentDomains)
+		rg.Post("/api/v1/sovereign/parent-domains", h.AddParentDomain)
+		rg.Delete("/api/v1/sovereign/parent-domains/{name}", h.DeleteParentDomain)
+		rg.Get("/api/v1/sovereign/parent-domains/{name}/propagation", h.GetPropagation)
 	})
 
 	log.Info("catalyst api listening", "port", port)
