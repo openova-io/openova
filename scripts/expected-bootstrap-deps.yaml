@@ -159,6 +159,15 @@ slots:
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     depends_on: [bp-cnpg, bp-cert-manager, bp-gateway-api]
     wave: W2.K1
+  - slot: 6a
+    name: bp-self-sovereign-cutover
+    # Post-handover self-sovereignty cutover (issue #791). Filename
+    # carries the 06a- prefix to colocate cohorts visually but the slot
+    # depends on bp-gitea + bp-harbor and therefore actually installs
+    # AFTER both. Chart ships dormant — catalyst-api stamps Jobs from
+    # the chart's PodSpec ConfigMaps only on operator-driven trigger.
+    depends_on: [bp-gitea, bp-harbor]
+    wave: W2.K1
 
   # ---- Tier 6: observability (W2.K2, slots 20-26) ---------------------------
   - slot: 20

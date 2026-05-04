@@ -1,0 +1,20 @@
+{{- /*
+Per-Sovereign cutover namespace. NO Helm hook annotations on this chart
+(the entire chart installs DORMANT — nothing fires until catalyst-api
+stamps Jobs from the step PodSpec ConfigMaps). The namespace is
+delivered as a normal install resource so it lands at HelmRelease apply
+time alongside the step ConfigMaps.
+
+The bootstrap-kit slot
+clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
+also declares this Namespace at the slot level so Flux can apply the
+HelmRelease into it without a chicken-and-egg ordering. That declaration
+is the canonical owner; this template is a no-op safety net for `helm
+template` smoke renders + standalone `helm install` dev workflows.
+*/ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}

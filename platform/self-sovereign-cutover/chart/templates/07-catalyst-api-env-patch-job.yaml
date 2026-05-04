@@ -1,0 +1,60 @@
+{{- /*
+Step 07 — catalyst-api-env-patch.
+
+Sets the env var on the catalyst-api Deployment that drives its
+GitOps source URL. Trips a rolling restart of the catalyst-api pod fleet.
+
+Image phase: post.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-07-catalyst-api-env-patch
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "7"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: catalyst-api-env-patch
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.catalystAPIEnvPatchSeconds }}
+    containers:
+      - name: catalyst-api-env-patch
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: DEPLOYMENT_NAME
+            value: {{ .Values.catalystAPI.deploymentName | quote }}
+          - name: DEPLOYMENT_NAMESPACE
+            value: {{ .Values.catalystAPI.namespace | quote }}
+          - name: ENV_VAR_NAME
+            value: {{ .Values.catalystAPI.envVar | quote }}
+          - name: ENV_VAR_VALUE
+            value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            echo "[catalyst-api-env-patch] target=${DEPLOYMENT_NAMESPACE}/${DEPLOYMENT_NAME}"
+            echo "[catalyst-api-env-patch] ${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
+            kubectl set env "deploy/${DEPLOYMENT_NAME}" \
+              -n "${DEPLOYMENT_NAMESPACE}" \
+              "${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
+            kubectl rollout status "deploy/${DEPLOYMENT_NAME}" \
+              -n "${DEPLOYMENT_NAMESPACE}" \
+              --timeout=300s
+            echo "[catalyst-api-env-patch] done"
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits:   { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

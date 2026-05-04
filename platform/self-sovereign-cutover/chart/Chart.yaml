@@ -1,0 +1,70 @@
+apiVersion: v2
+name: bp-self-sovereign-cutover
+version: 0.1.0
+description: |
+  Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
+  chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
+  the registry-pivot DaemonSet, the mutable cutover-status ConfigMap,
+  plus ServiceAccount/RBAC scoped to the cutover work. NO Helm
+  post-install hooks fire any of the steps; the catalyst-api cutover
+  endpoint (issue #792) reads each step ConfigMap by label selector,
+  stamps a real batch/v1 Job from the embedded PodSpec, and updates
+  the status ConfigMap as each step completes.
+
+  Trigger semantics (post-handover, per #790 scope-correction comment):
+  the operator clicks "Achieve True Sovereignty" in admin console (or
+  catalyst-api auto-fires after first successful operator login on the
+  new Sovereign). The handed-over Sovereign starts soft-tethered to
+  harbor.openova.io for image-pull rate-limit safety, then becomes
+  hard-independent only after this cutover sequence completes.
+
+  Step inventory (label app.kubernetes.io/component=cutover-step):
+    01  cutover-step-01-gitea-mirror               mode=job
+        git push --mirror github.com/openova-io/openova into local Gitea.
+    02  cutover-step-02-harbor-projects            mode=job
+        Create 7 proxy-cache projects in local Harbor.
+    03  cutover-step-03-harbor-prewarm             mode=job
+        HEAD-pull every image referenced by the bootstrap-kit through
+        the proxy-cache.
+    04  cutover-step-04-registry-pivot             mode=daemonset-wait
+        DaemonSet runs on every node + writes /etc/rancher/k3s/registries.yaml
+        v2 once the status ConfigMap key registriesYamlActive flips to v2.
+    05  cutover-step-05-flux-gitrepository-patch   mode=job
+        Patch flux-system/openova GitRepository.url → local Gitea.
+    06  cutover-step-06-helmrepository-patches     mode=job
+        Patch every OCI HelmRepository → oci://harbor.<sov-fqdn>/openova-io.
+    07  cutover-step-07-catalyst-api-env-patch     mode=job
+        kubectl set env deploy/catalyst-api CATALYST_GITOPS_REPO_URL=...
+    08  cutover-step-08-egress-block-test          mode=job
+        Apply CiliumNetworkPolicy denying egress to github.com / ghcr.io
+        / harbor.openova.io for 10 min, assert all reconciles stay Ready.
+
+  Plus:
+    self-sovereign-cutover-status                  ConfigMap
+        Initial state machine state (cutoverComplete: "false" + per-step
+        empty fields). catalyst-api updates this ConfigMap as each step
+        advances.
+    registry-pivot                                 DaemonSet
+        Always-on per-node reconcile loop; idempotent.
+    bp-self-sovereign-cutover-runner               ServiceAccount + ClusterRole +
+                                                   ClusterRoleBinding for the
+                                                   stamped Jobs and the DaemonSet.
+
+  This Blueprint legitimately ships NO upstream subchart — the entire
+  payload is Catalyst-authored ConfigMaps, ServiceAccount, RBAC, and one
+  DaemonSet. The blueprint-release CI hollow-chart guard reads the
+  annotation below and skips the dependencies-required rule.
+type: application
+keywords:
+  - catalyst
+  - blueprint
+  - self-sovereignty
+  - cutover
+  - gitea
+  - harbor
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  catalyst.openova.io/no-upstream: "true"

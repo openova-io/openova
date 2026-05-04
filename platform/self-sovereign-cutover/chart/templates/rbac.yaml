@@ -1,0 +1,118 @@
+{{- /*
+RBAC for the cutover runner ServiceAccount.
+
+CRITICAL — feedback_rbac_create_no_resourcenames.md (auto-memory anchor):
+Kubernetes RBAC forbids combining `create` verbs with `resourceNames`.
+A POST request has no resource name yet; the apiserver MUST evaluate the
+rule against the request without a name match, and a `resourceNames` set
+with `create` produces a 403 every time. This caused the bp-openbao
+6+ provisioning loop. We split `create` into its own Rule with NO
+`resourceNames` and keep `update/patch/get/delete` in a separate Rule
+that may be name-scoped.
+
+The cutover runner needs cluster-scope reach because:
+  - Step 02 reads bp-harbor admin Secret in `harbor` namespace.
+  - Step 02 reads ghcr-pull Secret in `flux-system` namespace.
+  - Step 03 only writes to local Harbor over HTTP (no K8s API).
+  - Step 05 patches GitRepository in `flux-system` namespace.
+  - Step 06 patches HelmRepositories in `flux-system` namespace.
+  - Step 07 patches Deployment in `catalyst-platform` namespace.
+  - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide and
+    queries HelmRelease/Kustomization status across all namespaces.
+  - Registry-pivot DaemonSet writes to /etc/rancher/k3s/registries.yaml
+    on the host filesystem (hostPath, no K8s API needed beyond status
+    update on the cutover-status ConfigMap).
+
+We use ClusterRole + ClusterRoleBinding because the namespaces touched
+are heterogeneous and cluster-scoped resources (CiliumNetworkPolicy)
+must be addressable.
+*/ -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+rules:
+  # ───────────────────────────────────────────────────────────────
+  # CREATE verbs — MUST be in their own Rule WITHOUT resourceNames.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["configmaps"]   # cutover-status ConfigMap is created+updated by every step
+    verbs: ["create"]
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnetworkpolicies"]   # step 08 creates the egress-block NP
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["events"]   # informational events posted as steps complete
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]   # catalyst-api stamps Jobs in this namespace from step ConfigMaps
+    verbs: ["create"]
+
+  # ───────────────────────────────────────────────────────────────
+  # READ verbs — namespace-spanning per the step inventory above.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]   # step 08 inspects pod status during the egress block window
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories", "helmrepositories", "ocirepositories"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnetworkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap
+    verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # UPDATE / PATCH / DELETE — separate from create per RBAC rule.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories", "helmrepositories"]
+    verbs: ["update", "patch"]   # steps 05 + 06
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnetworkpolicies"]
+    verbs: ["delete", "patch", "update"]   # step 08 removes the policy at end-of-test
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

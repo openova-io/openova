@@ -26,6 +26,12 @@ resources:
   - 17-valkey.yaml
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
+  # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename
+  # carries the 06a prefix to colocate cohorts visually, but the slot's
+  # dependsOn pins actual install order to AFTER bp-gitea (slot 10) and
+  # bp-harbor (slot 19). Chart installs DORMANT — catalyst-api stamps
+  # Jobs only on operator-driven cutover trigger.
+  - 06a-bp-self-sovereign-cutover.yaml
   - 20-opentelemetry.yaml
   - 21-alloy.yaml
   - 22-loki.yaml

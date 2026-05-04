@@ -1,0 +1,27 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-self-sovereign-cutover
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 0.1.0
+  card:
+    title: self-sovereignty-cutover
+    summary: |
+      Post-handover Self-Sovereignty Cutover. After bp-gitea + bp-harbor
+      reach Ready, this Blueprint installs DORMANT on the new Sovereign.
+      The catalyst-api cutover endpoint (#792) stamps Jobs from the
+      eight PodSpec ConfigMaps shipped here and pivots EVERY upstream
+      reference (GitOps source, OCI HelmRepositories, container-registry
+      mirrors, catalyst-api repo env) to the local Sovereign — eliminating
+      runtime dependencies on github.com / ghcr.io / harbor.openova.io.
+      Trigger is operator-driven (admin-console button) or auto-fired
+      after the first successful operator login on the new Sovereign.
+      See ADR-0002 + issue #790 for the full tether map.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-gitea
+    - bp-harbor
