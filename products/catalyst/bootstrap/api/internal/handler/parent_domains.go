@@ -20,31 +20,33 @@
 //                                                        — per-resolver
 //                                                          NS-flip propagation
 //
-// Sister tickets:
-//   - #826 (MD-1): Sovereign data model `parentDomains[]` + provisioning
-//     NS-flip loop. NOT YET MERGED → this file stubs the persistence
-//     layer with an in-memory store rooted on the existing single
-//     `SovereignFQDN` field as the implicit "primary" entry. When #826
-//     lands the AddParentDomain handler will switch from the in-memory
-//     store to writing into Deployment.parentDomains[] and triggering
-//     the same NS-flip loop the wizard fires at signup.
-//   - #827 (MD-2): PowerDNS multi-zone bootstrap + cert-manager per-zone
-//     wildcard cert. NOT YET MERGED → AddParentDomain emits an SSE-style
-//     log line for the zone-create + cert-issue steps so the UI can
-//     surface them, but does not block on actual reconciliation.
+// Persistence (issue #837)
+// ------------------------
+// Sister tickets #826 (PR #835) and #829 (PR #834) merged on top of each
+// other: #826 introduced the canonical `Deployment.parentDomains[]` data
+// model + reusable `provisioner.ProvisionParentDomain` per-domain
+// pipeline; #829 shipped the admin-console add-domain handler against an
+// in-memory `parentDomainStore` placeholder, with a comment that the
+// store would swap to the persistent record once #826 merged.
 //
-// Per docs/INVIOLABLE-PRINCIPLES.md:
-//   #1 (waterfall, target-state shape): the wire shape this file emits is
-//       the final shape — `parentDomains[]` with role + flipStatus +
-//       perResolverPropagation. It will not change when #826/#827 merge;
-//       only the persistence backing changes.
-//   #4 (never hardcode): the resolver list lives in `defaultResolvers`,
-//       overridable via `CATALYST_DNS_PROPAGATION_RESOLVERS` env. The
-//       per-query timeout + poll-rate are also env-tunable.
-//   #10 (credential hygiene): registrar API credentials submitted in the
-//       AddParentDomain POST are forwarded byte-for-byte to PDM via the
-//       existing /set-ns proxy seam in registrar.go — they never enter a
-//       struct that gets logged.
+// THIS file is that swap. Reads and writes are now backed by the
+// adopted Deployment's `Request.ParentDomains` slice — survives
+// catalyst-api Pod restarts, image rolls, OOM kills. The wire shape
+// returned to the admin UI is unchanged: the handler-layer
+// `ParentDomain` struct (Name, Role, FlipStatus, FlipMessage,
+// AddedAt, FlippedAt) is still what the JSON response carries, but
+// the durable state behind it is the canonical
+// `provisioner.ParentDomain` (Name, Role, RegistrarKind,
+// RegistrarCredsRef, AddedAt) on the on-disk record.
+//
+// FlipStatus semantics in the persistent world:
+//   - Entries on the persistent record represent SUCCESSFUL adds (the
+//     full pipeline ran: NS-flip → zone-create → cert-issue). They
+//     surface as FlipStatusReady on subsequent GETs.
+//   - In-flight pipeline progress is reported synchronously in the
+//     POST response only. A failed pipeline does NOT persist a
+//     "failed" row — per the wipe-and-restart Catalyst-Zero rule, the
+//     operator retries the add; nothing lingers in the pool.
 //
 // Implementation note for the propagation panel:
 // Go's net.Resolver supports custom Dial that lets us route NS lookups
@@ -54,6 +56,21 @@
 // rate-limit lives client-side: the UI polls this endpoint every 60s,
 // which is plenty given DNS gTLD TTL is 48h. The endpoint itself is
 // stateless — every request fans out fresh.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//   #1 (waterfall, target-state shape): the wire shape this file emits is
+//       the final shape — `parentDomains[]` with role + flipStatus +
+//       perResolverPropagation. Persistence shape is the canonical
+//       provisioner.ParentDomain on the deployment record.
+//   #4 (never hardcode): the resolver list lives in `defaultResolvers`,
+//       overridable via `CATALYST_DNS_PROPAGATION_RESOLVERS` env. The
+//       per-query timeout + poll-rate are also env-tunable.
+//   #10 (credential hygiene): registrar API credentials submitted in the
+//       AddParentDomain POST are forwarded byte-for-byte to PDM via the
+//       existing /set-ns proxy seam in registrar.go — they never enter a
+//       struct that gets logged AND never get persisted onto the
+//       deployment record (only the non-secret RegistrarKind +
+//       RegistrarCredsRef fields are durable).
 package handler
 
 import (
@@ -73,6 +90,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // ParentDomainRole names the two purposes a parent domain can serve in
@@ -106,9 +124,13 @@ const (
 // ParentDomain is the wire-shape entry the admin surface renders + that
 // AddParentDomain accepts (minus the credentials, which travel separately).
 //
-// Per #826 this will eventually also live on Deployment.parentDomains[];
-// for now we serve it from the in-memory parentDomainStore below plus
-// an implicit "primary" row synthesised from Deployment.SovereignFQDN.
+// Wire-shape only. Persistent state lives on the canonical
+// `provisioner.ParentDomain` (Name, Role, RegistrarKind,
+// RegistrarCredsRef, AddedAt) on the adopted Deployment's Request. The
+// FlipStatus + FlipMessage + FlippedAt fields are derived in the
+// response: persisted entries surface as FlipStatusReady; in-flight
+// adds surface their pipeline state synchronously in the POST response
+// before the row is committed.
 type ParentDomain struct {
 	Name              string           `json:"name"`
 	Role              ParentDomainRole `json:"role"`
@@ -120,45 +142,24 @@ type ParentDomain struct {
 	FlippedAt         *time.Time       `json:"flippedAt,omitempty"`
 }
 
-// parentDomainStore — in-memory persistence for additions made via the
-// admin surface. Backed by a sync.Map keyed by domain name. When #826
-// lands this is replaced by Deployment.parentDomains[] + the store.go
-// flat-file persistence layer; the wire shape stays identical so the UI
-// is unaffected by the swap.
-type parentDomainStore struct {
-	entries sync.Map // map[string]*ParentDomain
-}
-
-// global single-instance store. The handler reads this lazily so tests
-// that build Handler{} directly still work — no Init wiring needed.
-var globalParentDomainStore = &parentDomainStore{}
-
-// list — snapshot of every entry, sorted by name for stable UI rendering.
-func (s *parentDomainStore) list() []ParentDomain {
-	out := []ParentDomain{}
-	s.entries.Range(func(_, v any) bool {
-		out = append(out, *(v.(*ParentDomain)))
-		return true
-	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
-
-func (s *parentDomainStore) get(name string) (*ParentDomain, bool) {
-	v, ok := s.entries.Load(strings.ToLower(name))
-	if !ok {
-		return nil, false
+// fromProvisioner converts a canonical provisioner.ParentDomain (the
+// on-disk persistent shape) into the handler's wire shape used by the
+// admin UI. Persisted entries always surface as FlipStatusReady — the
+// presence of the row IS the proof the pipeline succeeded; failed
+// adds are not persisted (see the file-level "Persistence" comment).
+func fromProvisioner(p provisioner.ParentDomain) ParentDomain {
+	role := RoleSMEPool
+	if p.Role == provisioner.ParentDomainRolePrimary {
+		role = RolePrimary
 	}
-	return v.(*ParentDomain), true
-}
-
-func (s *parentDomainStore) put(pd *ParentDomain) {
-	s.entries.Store(strings.ToLower(pd.Name), pd)
-}
-
-func (s *parentDomainStore) del(name string) bool {
-	_, loaded := s.entries.LoadAndDelete(strings.ToLower(name))
-	return loaded
+	return ParentDomain{
+		Name:              p.Name,
+		Role:              role,
+		RegistrarKind:     p.RegistrarKind,
+		RegistrarCredsRef: p.RegistrarCredsRef,
+		FlipStatus:        FlipStatusReady,
+		AddedAt:           p.AddedAt,
+	}
 }
 
 // addParentDomainRequest — POST body shape. RegistrarToken is the
@@ -189,21 +190,148 @@ func validateDomainName(name string) error {
 	return nil
 }
 
+// activeDeployment returns the adopted Deployment whose
+// Request.ParentDomains is the durable parent-domain pool for this
+// Sovereign. The catalyst-api running on a Sovereign post-handover has
+// exactly one adopted deployment (the operator's own); the lookup
+// below picks it deterministically.
+//
+// On Catalyst-Zero (no adopted deployment) the function returns nil —
+// the admin parent-domains panel only makes sense on an adopted
+// Sovereign, so callers respond with an empty pool when this is nil
+// (matching the legacy behaviour where the in-memory store was simply
+// empty).
+//
+// When multiple adopted deployments exist (rare — typically only the
+// home Sovereign reaches that state), returns the lexically-first by
+// SovereignFQDN for determinism. This mirrors the same selection
+// policy lookupPrimaryDomain has used since #829 shipped.
+func (h *Handler) activeDeployment() *Deployment {
+	type candidate struct {
+		fqdn string
+		dep  *Deployment
+	}
+	var candidates []candidate
+	h.deployments.Range(func(_, v any) bool {
+		dep, ok := v.(*Deployment)
+		if !ok {
+			return true
+		}
+		dep.mu.Lock()
+		fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+		adopted := dep.AdoptedAt != nil
+		dep.mu.Unlock()
+		if fqdn != "" && adopted {
+			candidates = append(candidates, candidate{fqdn: fqdn, dep: dep})
+		}
+		return true
+	})
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].fqdn < candidates[j].fqdn })
+	return candidates[0].dep
+}
+
+// listParentDomainsFromActive snapshots the adopted Deployment's
+// Request.ParentDomains slice into a sorted []ParentDomain in wire
+// shape. Holds dep.mu only long enough to copy the slice.
+func listParentDomainsFromActive(dep *Deployment) []ParentDomain {
+	if dep == nil {
+		return []ParentDomain{}
+	}
+	dep.mu.Lock()
+	pds := append([]provisioner.ParentDomain(nil), dep.Request.ParentDomains...)
+	dep.mu.Unlock()
+
+	out := make([]ParentDomain, 0, len(pds))
+	for _, p := range pds {
+		out = append(out, fromProvisioner(p))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// findParentDomain returns the canonical provisioner.ParentDomain for
+// the given lower-cased name on the adopted Deployment, or false when
+// not present. Used by AddParentDomain (idempotency check) and
+// DeleteParentDomain (removal).
+func findParentDomain(dep *Deployment, name string) (provisioner.ParentDomain, bool) {
+	if dep == nil {
+		return provisioner.ParentDomain{}, false
+	}
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	for _, pd := range dep.Request.ParentDomains {
+		if strings.EqualFold(pd.Name, name) {
+			return pd, true
+		}
+	}
+	return provisioner.ParentDomain{}, false
+}
+
+// appendParentDomain commits a successful add to the adopted
+// Deployment's persistent record. Holds dep.mu while mutating the
+// slice; caller invokes h.persistDeployment afterwards so the on-disk
+// record reflects the new pool.
+//
+// The append uses the canonical provisioner.ParentDomain shape so a
+// catalyst-api Pod restart re-reads the same row via fromRecord →
+// rec.Request.ToProvisionerRequest, and the next ListParentDomains
+// surfaces it via fromProvisioner.
+func appendParentDomain(dep *Deployment, pd provisioner.ParentDomain) {
+	if dep == nil {
+		return
+	}
+	dep.mu.Lock()
+	dep.Request.ParentDomains = append(dep.Request.ParentDomains, pd)
+	dep.mu.Unlock()
+}
+
+// removeParentDomainByName drops the entry whose Name (case-insensitive)
+// matches name from the adopted Deployment's slice. Returns true when
+// a row was actually removed. Caller invokes h.persistDeployment
+// afterwards.
+func removeParentDomainByName(dep *Deployment, name string) bool {
+	if dep == nil {
+		return false
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	for i, pd := range dep.Request.ParentDomains {
+		if strings.EqualFold(pd.Name, name) {
+			dep.Request.ParentDomains = append(dep.Request.ParentDomains[:i], dep.Request.ParentDomains[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // ListParentDomains handles GET /api/v1/sovereign/parent-domains.
 //
 // The shape is `{"items": [...]}` to match the rest of the catalyst-api
 // list endpoints (UserAccess, deployments, etc).
+//
+// Persistence: reads from the adopted Deployment's Request.ParentDomains
+// slice (issue #837 swap from the in-memory placeholder). When no
+// deployment has been adopted yet (Catalyst-Zero / fresh wizard run)
+// the function falls back to the env-var-based primary synthesis path
+// so single-Sovereign sandboxes + tests keep rendering the implicit
+// primary row.
 func (h *Handler) ListParentDomains(w http.ResponseWriter, r *http.Request) {
-	items := globalParentDomainStore.list()
+	dep := h.activeDeployment()
 
-	// Synthesise the implicit "primary" row from any deployment record
-	// that has been adopted (i.e. the operator has finalised handover
-	// and is now using this Sovereign as the home cluster). This is the
-	// stub stand-in for #826's Deployment.parentDomains[].
+	items := listParentDomainsFromActive(dep)
+
+	// Synthesise the implicit "primary" row when the active deployment's
+	// slice is empty (legacy single-FQDN record migrated lazily — see
+	// provisioner.Validate's migration path) or no adopted deployment
+	// exists yet (Catalyst-Zero / test sandbox using
+	// CATALYST_PRIMARY_DOMAIN). Idempotent against an already-listed
+	// primary entry.
 	primaryName := h.lookupPrimaryDomain()
 	if primaryName != "" {
-		// Avoid duplicating if the operator already added their primary
-		// via the admin UI (idempotency).
 		alreadyListed := false
 		for _, it := range items {
 			if strings.EqualFold(it.Name, primaryName) {
@@ -264,15 +392,19 @@ func (h *Handler) lookupPrimaryDomain() string {
 //
 // Pipeline (sequential, so the UI can render a per-step progress bar):
 //   1. Validate the request body (name shape, role enum, creds present).
-//   2. Insert a `flipping` row into the store (or 409 if it already
-//      exists) so a concurrent GET/list reflects the in-flight state.
-//   3. Forward the credentials to PDM's /set-ns endpoint to actually
-//      flip the NS records at the registrar (#826's real engine).
-//   4. Forward to PDM's /zones endpoint to bootstrap the PowerDNS zone
-//      (#827, currently a stub since #827 hasn't merged).
-//   5. Update the store row to `ready` (or `failed` with detail).
+//   2. Reject duplicates against the adopted Deployment's persistent
+//      Request.ParentDomains[] (idempotency at the durable boundary,
+//      not just in-memory — issue #837).
+//   3. Run the per-domain step pipeline through
+//      provisioner.ProvisionParentDomain (#826's reusable contract).
+//      Today three steps are wired: registrar-flip → powerdns-zone-create
+//      → cert-manager-cert. Day-1 wizard signup runs the same step list
+//      from inside cloud-init; Day-2 add-domain runs it in-process.
+//   4. Append the canonical provisioner.ParentDomain to the active
+//      deployment's persistent record + persist the deployment so a
+//      Pod restart re-reads the pool intact.
 //
-// All three external calls are bounded by a per-call context with the
+// All external calls are bounded by a per-call context with the
 // request context as parent so a client cancel propagates.
 func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<14))
@@ -326,11 +458,15 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	dep := h.activeDeployment()
+	name := strings.ToLower(strings.TrimSpace(req.Name))
+
 	// Idempotency: a second POST for the same name returns 409 instead
 	// of double-flipping (which would cost real $$$ at the registrar
-	// per-call billing tier of some adapters).
-	name := strings.ToLower(strings.TrimSpace(req.Name))
-	if _, exists := globalParentDomainStore.get(name); exists {
+	// per-call billing tier of some adapters). Checked against the
+	// PERSISTENT pool — the post-#837 store-of-truth.
+	if _, exists := findParentDomain(dep, name); exists {
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error":  "already-exists",
 			"detail": "parent domain already in pool",
@@ -348,94 +484,83 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	pd := &ParentDomain{
+	pd := provisioner.ParentDomain{
 		Name:          name,
-		Role:          ParentDomainRole(role),
+		Role:          provisioner.ParentDomainRoleSMEPool,
 		RegistrarKind: strings.ToLower(req.RegistrarKind),
-		FlipStatus:    FlipStatusFlipping,
 		AddedAt:       now,
 	}
-	globalParentDomainStore.put(pd)
+	if role == string(RolePrimary) {
+		pd.Role = provisioner.ParentDomainRolePrimary
+	}
 
-	// Step 1 of #826: NS-flip via PDM proxy. Forward credentials
-	// byte-for-byte; never log the token.
-	flipErr := h.pdmFlipNS(r.Context(), req.RegistrarKind, req.Name, req.RegistrarToken)
-	if flipErr != nil {
-		pd.FlipStatus = FlipStatusFailed
-		pd.FlipMessage = "ns-flip: " + flipErr.Error()
-		globalParentDomainStore.put(pd)
-		// Log without the token — only registrar + domain + status
-		h.log.Info("parent-domain ns-flip failed",
+	// Run the per-domain pipeline through provisioner.ProvisionParentDomain
+	// (#826's reusable contract) so Day-1 wizard signup and Day-2 admin
+	// add-domain converge on the same step list. The steps are
+	// catalyst-api-side closures bound to the registrar token captured
+	// in this handler's request — the token NEVER lands on the
+	// persistent record, only the non-secret RegistrarKind +
+	// RegistrarCredsRef fields do.
+	steps := []provisioner.ParentDomainStep{
+		&registrarFlipStep{h: h, registrarKind: req.RegistrarKind, registrarToken: req.RegistrarToken, ctx: r.Context()},
+		&powerdnsZoneStep{h: h, ctx: r.Context()},
+		&certManagerStep{h: h, ctx: r.Context()},
+	}
+
+	if err := provisioner.ProvisionParentDomain(r.Context(), pd, "", steps, nil); err != nil {
+		// Per the file-level Persistence comment + the
+		// FAILURE = WIPE + RESTART rule: failed adds do NOT persist.
+		// The operator retries; nothing lingers in the pool.
+		h.log.Info("parent-domain pipeline failed",
 			"registrar", req.RegistrarKind,
 			"domain", req.Name,
-			"err", flipErr.Error(),
+			"err", err.Error(),
 		)
+		// Surface the failed-step name + detail as the wire-shape
+		// FlipStatusFailed row for the wizard's progress UI. The
+		// failure is informational only — no row exists in the pool.
+		failedAt := time.Now().UTC()
 		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":  "ns-flip-failed",
-			"detail": flipErr.Error(),
-			"item":   pd,
+			"error":  "pipeline-failed",
+			"detail": err.Error(),
+			"item": ParentDomain{
+				Name:          name,
+				Role:          ParentDomainRole(role),
+				RegistrarKind: strings.ToLower(req.RegistrarKind),
+				FlipStatus:    FlipStatusFailed,
+				FlipMessage:   err.Error(),
+				AddedAt:       now,
+				FlippedAt:     &failedAt,
+			},
 		})
 		return
 	}
-	pd.FlipStatus = FlipStatusZoneCreate
-	globalParentDomainStore.put(pd)
 
-	// Step 2 of #827: PowerDNS zone create. Best-effort stub — when
-	// #827 lands this becomes a hard dependency.
-	zoneErr := h.pdmCreatePowerDNSZone(r.Context(), req.Name)
-	if zoneErr != nil {
-		pd.FlipStatus = FlipStatusFailed
-		pd.FlipMessage = "zone-create: " + zoneErr.Error()
-		globalParentDomainStore.put(pd)
-		h.log.Info("parent-domain zone-create failed",
-			"domain", req.Name,
-			"err", zoneErr.Error(),
-		)
-		// We don't roll back the registrar NS-flip — that's a deliberate
-		// no-op since the gTLD TTL of 48h means a flip-then-flip-back
-		// burns 4 days for the same end-state. Operator can retry the
-		// zone-create + cert step independently.
-		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":  "zone-create-failed",
-			"detail": zoneErr.Error(),
-			"item":   pd,
-		})
-		return
-	}
-	pd.FlipStatus = FlipStatusCertIssue
-	globalParentDomainStore.put(pd)
-
-	// Step 3 of #827: cert-manager wildcard Certificate create. Stub.
-	// When #827 lands this writes a Certificate CR to the cluster via
-	// dynamic client.
-	certErr := h.createWildcardCert(r.Context(), req.Name)
-	if certErr != nil {
-		pd.FlipStatus = FlipStatusFailed
-		pd.FlipMessage = "cert-issue: " + certErr.Error()
-		globalParentDomainStore.put(pd)
-		h.log.Info("parent-domain cert-issue failed",
-			"domain", req.Name,
-			"err", certErr.Error(),
-		)
-		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error":  "cert-issue-failed",
-			"detail": certErr.Error(),
-			"item":   pd,
-		})
-		return
+	// Pipeline succeeded — append to the adopted Deployment's
+	// Request.ParentDomains slice + persist so the row survives a
+	// catalyst-api Pod restart. activeDeployment() returns nil on
+	// Catalyst-Zero (no adopted deployment); in that case persistence
+	// is a no-op and the row exists only in this response — that
+	// matches the legacy in-memory behaviour for sandboxes/tests.
+	if dep != nil {
+		appendParentDomain(dep, pd)
+		h.persistDeployment(dep)
 	}
 
 	flippedAt := time.Now().UTC()
-	pd.FlipStatus = FlipStatusReady
-	pd.FlippedAt = &flippedAt
-	globalParentDomainStore.put(pd)
-
 	h.log.Info("parent-domain added",
 		"registrar", req.RegistrarKind,
 		"domain", req.Name,
 		"role", role,
 	)
-	writeJSON(w, http.StatusCreated, pd)
+	writeJSON(w, http.StatusCreated, ParentDomain{
+		Name:          name,
+		Role:          ParentDomainRole(role),
+		RegistrarKind: strings.ToLower(req.RegistrarKind),
+		FlipStatus:    FlipStatusReady,
+		AddedAt:       now,
+		FlippedAt:     &flippedAt,
+	})
 }
 
 // DeleteParentDomain handles DELETE /api/v1/sovereign/parent-domains/{name}.
@@ -444,6 +569,10 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 // registrar NS records — that's a destructive operation an operator
 // should perform deliberately at their registrar UI. The intent here is
 // "stop offering this domain to SMEs"; the gTLD NS delegation can stay.
+//
+// Persistence: removes from the adopted Deployment's
+// Request.ParentDomains slice + persists so the deletion survives a
+// Pod restart (issue #837).
 func (h *Handler) DeleteParentDomain(w http.ResponseWriter, r *http.Request) {
 	name := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "name")))
 	if name == "" {
@@ -457,11 +586,65 @@ func (h *Handler) DeleteParentDomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !globalParentDomainStore.del(name) {
+
+	dep := h.activeDeployment()
+	if !removeParentDomainByName(dep, name) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not-found"})
 		return
 	}
+	if dep != nil {
+		h.persistDeployment(dep)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── ParentDomainStep adapters (Day-2 add-domain pipeline) ────────────────
+//
+// These bind the catalyst-api's existing PDM proxy helpers
+// (h.pdmFlipNS, h.pdmCreatePowerDNSZone, h.createWildcardCert) to the
+// reusable provisioner.ParentDomainStep interface from #826. Day-1
+// wizard signup runs the same step list against the primary domain
+// inside cloud-init (templated OpenTofu); Day-2 admin add-domain runs
+// it in-process here.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10: registrarToken lives only on
+// the registrarFlipStep value (a request-scoped closure that doesn't
+// outlive the HTTP handler). It never enters the deployment record,
+// the SSE buffer, or any logged struct.
+
+type registrarFlipStep struct {
+	h              *Handler
+	ctx            context.Context
+	registrarKind  string
+	registrarToken string
+}
+
+func (s *registrarFlipStep) Name() string { return "registrar-flip" }
+
+func (s *registrarFlipStep) Apply(_ context.Context, pd provisioner.ParentDomain, _ string) error {
+	return s.h.pdmFlipNS(s.ctx, s.registrarKind, pd.Name, s.registrarToken)
+}
+
+type powerdnsZoneStep struct {
+	h   *Handler
+	ctx context.Context
+}
+
+func (s *powerdnsZoneStep) Name() string { return "powerdns-zone-create" }
+
+func (s *powerdnsZoneStep) Apply(_ context.Context, pd provisioner.ParentDomain, _ string) error {
+	return s.h.pdmCreatePowerDNSZone(s.ctx, pd.Name)
+}
+
+type certManagerStep struct {
+	h   *Handler
+	ctx context.Context
+}
+
+func (s *certManagerStep) Name() string { return "cert-manager-cert" }
+
+func (s *certManagerStep) Apply(_ context.Context, pd provisioner.ParentDomain, _ string) error {
+	return s.h.createWildcardCert(s.ctx, pd.Name)
 }
 
 // ── DNS propagation panel ───────────────────────────────────────────────
@@ -498,8 +681,8 @@ type resolverSpec struct {
 // green/yellow/red pill plus a tooltip.
 type PropagationState struct {
 	Resolver  resolverSpec `json:"resolver"`
-	Status    string       `json:"status"`              // converged | diverged | error
-	NS        []string     `json:"ns"`                  // NS records returned (sorted)
+	Status    string       `json:"status"` // converged | diverged | error
+	NS        []string     `json:"ns"`     // NS records returned (sorted)
 	QueriedAt time.Time    `json:"queriedAt"`
 	LatencyMs int64        `json:"latencyMs"`
 	Err       string       `json:"error,omitempty"`
@@ -507,13 +690,13 @@ type PropagationState struct {
 
 // PropagationResponse — full payload returned by GET /propagation.
 type PropagationResponse struct {
-	Domain     string             `json:"domain"`
-	ExpectedNS []string           `json:"expectedNs"`
-	Resolvers  []PropagationState `json:"resolvers"`
-	Converged  int                `json:"converged"`
-	Total      int                `json:"total"`
-	Percentage int                `json:"percentage"`
-	GeneratedAt time.Time         `json:"generatedAt"`
+	Domain      string             `json:"domain"`
+	ExpectedNS  []string           `json:"expectedNs"`
+	Resolvers   []PropagationState `json:"resolvers"`
+	Converged   int                `json:"converged"`
+	Total       int                `json:"total"`
+	Percentage  int                `json:"percentage"`
+	GeneratedAt time.Time          `json:"generatedAt"`
 }
 
 // resolversFromEnv parses CATALYST_DNS_PROPAGATION_RESOLVERS into a

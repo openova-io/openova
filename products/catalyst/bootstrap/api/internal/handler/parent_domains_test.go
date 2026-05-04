@@ -1,11 +1,19 @@
 // parent_domains_test.go — coverage for the admin parent-domain pool
-// surface (issue #829).
+// surface (issues #829 + #837).
 //
 // The HTTP handlers are exercised end-to-end against a stub PDM (no
 // network egress, no real registrar API). The propagation panel is
 // covered by a unit test against `nsSetsMatch` + `lookupNSAt` (the
 // latter requires network egress so it is gated behind a build tag in
 // CI; the unit-test path here covers the wire shape only).
+//
+// Issue #837 swapped the in-memory parentDomainStore placeholder for the
+// persistent Deployment.parentDomains[] slice on the adopted deployment.
+// Tests that previously seeded data via globalParentDomainStore.put now
+// seed via the active Deployment record; tests that previously inspected
+// globalParentDomainStore.get inspect dep.Request.ParentDomains. The
+// persistence round-trip across simulated catalyst-api Pod restarts
+// is covered by TestAddParentDomain_PersistsAcrossRestart.
 package handler
 
 import (
@@ -16,18 +24,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
-)
 
-// resetParentDomainStore is a per-test hygiene helper — the global
-// store is shared across handlers so test isolation needs an explicit
-// teardown.
-func resetParentDomainStore() {
-	globalParentDomainStore = &parentDomainStore{entries: sync.Map{}}
-}
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
+)
 
 func newParentDomainsRouter(h *Handler) *chi.Mux {
 	r := chi.NewRouter()
@@ -38,8 +42,43 @@ func newParentDomainsRouter(h *Handler) *chi.Mux {
 	return r
 }
 
+// seedActiveDeployment registers an adopted Deployment on h whose
+// Request.ParentDomains slice is the durable parent-domain pool the
+// admin handlers read/write. Mirrors the production lifecycle (a
+// Sovereign with finalised handover) so the swap from in-memory store
+// to Deployment.parentDomains[] (issue #837) exercises the same code
+// path tests do.
+func seedActiveDeployment(t *testing.T, h *Handler, primaryFQDN string, smePool ...string) *Deployment {
+	t.Helper()
+	now := time.Now().UTC()
+	pds := []provisioner.ParentDomain{}
+	for _, name := range smePool {
+		pds = append(pds, provisioner.ParentDomain{
+			Name:          name,
+			Role:          provisioner.ParentDomainRoleSMEPool,
+			RegistrarKind: "dynadot",
+			AddedAt:       now,
+		})
+	}
+	dep := &Deployment{
+		ID:        "test-active-" + primaryFQDN,
+		Status:    "ready",
+		StartedAt: now,
+		AdoptedAt: &now,
+		eventsCh:  make(chan provisioner.Event, 16),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: primaryFQDN,
+			ParentDomains: pds,
+		},
+	}
+	close(dep.done)
+	close(dep.eventsCh)
+	h.deployments.Store(dep.ID, dep)
+	return dep
+}
+
 func TestListParentDomains_EmptyPool(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
 	h := &Handler{log: slog.Default()}
 	rec := httptest.NewRecorder()
@@ -60,7 +99,6 @@ func TestListParentDomains_EmptyPool(t *testing.T) {
 }
 
 func TestListParentDomains_PrimaryFromEnv(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "omani.works")
 	h := &Handler{log: slog.Default()}
 	rec := httptest.NewRecorder()
@@ -84,15 +122,14 @@ func TestListParentDomains_PrimaryFromEnv(t *testing.T) {
 }
 
 func TestAddParentDomain_ValidationErrors(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
 	h := &Handler{log: slog.Default()}
 
 	cases := []struct {
-		name    string
-		body    string
+		name     string
+		body     string
 		wantHTTP int
-		wantErr string
+		wantErr  string
 	}{
 		{
 			name:     "missing name",
@@ -149,7 +186,6 @@ func TestAddParentDomain_ValidationErrors(t *testing.T) {
 }
 
 func TestAddParentDomain_DuplicateConflict(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
 
 	// Stub PDM that always 200s for /set-ns, so the first add succeeds.
@@ -165,6 +201,12 @@ func TestAddParentDomain_DuplicateConflict(t *testing.T) {
 	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
 
 	h := &Handler{log: slog.Default()}
+	// Adopted Sovereign required for the persistent pool — without an
+	// adopted deployment AddParentDomain still runs the pipeline but the
+	// row is non-durable; the duplicate check uses findParentDomain
+	// against the adopted record, so we need one for the second-POST
+	// 409 to fire.
+	seedActiveDeployment(t, h, "omani.works")
 
 	body := `{"name":"omani.trade","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	first := httptest.NewRecorder()
@@ -186,7 +228,6 @@ func TestAddParentDomain_DuplicateConflict(t *testing.T) {
 }
 
 func TestAddParentDomain_PDMSetNSFail(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
 
 	// Stub PDM that 502s the /set-ns call so we exercise the failure path.
@@ -202,6 +243,7 @@ func TestAddParentDomain_PDMSetNSFail(t *testing.T) {
 	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
 
 	h := &Handler{log: slog.Default()}
+	dep := seedActiveDeployment(t, h, "omani.works")
 
 	body := `{"name":"oman.tel","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
@@ -212,25 +254,34 @@ func TestAddParentDomain_PDMSetNSFail(t *testing.T) {
 		t.Fatalf("want 502, got %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Row should now exist with status=failed.
-	pd, ok := globalParentDomainStore.get("oman.tel")
-	if !ok {
-		t.Fatal("row should be persisted with failed status")
+	// Failed pipeline does NOT persist a row — the wipe-and-restart
+	// rule (see file-level Persistence comment). The active deployment's
+	// ParentDomains slice must be untouched.
+	dep.mu.Lock()
+	persisted := append([]provisioner.ParentDomain(nil), dep.Request.ParentDomains...)
+	dep.mu.Unlock()
+	if len(persisted) != 0 {
+		t.Fatalf("failed pipeline must not persist a row; got %+v", persisted)
 	}
-	if pd.FlipStatus != FlipStatusFailed {
-		t.Fatalf("want FlipStatus=failed, got %s", pd.FlipStatus)
+
+	// Wire shape: the response carries an in-line ParentDomain with
+	// FlipStatus=failed for the wizard's progress UI.
+	var resp struct {
+		Item ParentDomain `json:"item"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Item.FlipStatus != FlipStatusFailed {
+		t.Fatalf("want FlipStatus=failed in response item, got %s", resp.Item.FlipStatus)
 	}
 }
 
 func TestDeleteParentDomain_Removes(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
-	globalParentDomainStore.put(&ParentDomain{
-		Name:       "omani.trade",
-		Role:       RoleSMEPool,
-		FlipStatus: FlipStatusReady,
-	})
+
 	h := &Handler{log: slog.Default()}
+	dep := seedActiveDeployment(t, h, "omani.works", "omani.trade")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sovereign/parent-domains/omani.trade", nil)
@@ -238,13 +289,12 @@ func TestDeleteParentDomain_Removes(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("want 204, got %d", rec.Code)
 	}
-	if _, ok := globalParentDomainStore.get("omani.trade"); ok {
-		t.Fatal("row should be deleted")
+	if _, ok := findParentDomain(dep, "omani.trade"); ok {
+		t.Fatal("row should be deleted from active deployment's ParentDomains")
 	}
 }
 
 func TestDeleteParentDomain_PrimaryLocked(t *testing.T) {
-	resetParentDomainStore()
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "omani.works")
 	h := &Handler{log: slog.Default()}
 
@@ -254,6 +304,147 @@ func TestDeleteParentDomain_PrimaryLocked(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("want 403, got %d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// TestAddParentDomain_PersistsAcrossRestart proves the issue #837 DoD:
+// "Create a domain → restart catalyst-api → list endpoint still
+// returns it". A first Handler instance (h1) writes the new domain
+// onto the adopted Deployment record; the underlying flat-file store
+// persists. A second Handler instance (h2) constructed against the
+// SAME store directory rehydrates the deployment via restoreFromStore
+// + fromRecord, and a fresh GET /parent-domains MUST surface the
+// persisted row through ListParentDomains.
+//
+// The fixture pattern follows deployments_persist_test.go: a real
+// store rooted at t.TempDir(), NewWithStore for both Pods, the
+// adopted deployment seeded with a non-zero AdoptedAt so
+// activeDeployment() picks it up.
+func TestAddParentDomain_PersistsAcrossRestart(t *testing.T) {
+	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
+
+	// Stub PDM — every call succeeds so the per-domain pipeline
+	// commits cleanly.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"valid":true}`))
+	}))
+	defer stub.Close()
+	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
+
+	dir := t.TempDir()
+	st1, err := store.New(dir)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+
+	// First "Pod" — register an adopted deployment, POST a new
+	// parent domain via the admin handler, persist.
+	h1 := NewWithStore(silentLogger(), &fakePDM{}, st1)
+	now := time.Now().UTC()
+	dep := &Deployment{
+		ID:        "persist-parent-domains-id",
+		Status:    "ready",
+		StartedAt: now,
+		AdoptedAt: &now,
+		eventsCh:  make(chan provisioner.Event, 16),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: "omani.works",
+		},
+	}
+	close(dep.done)
+	close(dep.eventsCh)
+	h1.deployments.Store(dep.ID, dep)
+	// Persist the row to disk so the rehydrate path has something to
+	// load. Without this h2's restoreFromStore would not see the
+	// deployment record at all.
+	h1.persistDeployment(dep)
+
+	body := `{"name":"omani.trade","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	newParentDomainsRouter(h1).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first Pod add: want 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Sanity — persisted row visible to h1's own list handler.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/parent-domains", nil)
+	newParentDomainsRouter(h1).ServeHTTP(rec, req)
+	var pre struct {
+		Items []ParentDomain `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pre); err != nil {
+		t.Fatal(err)
+	}
+	if !containsName(pre.Items, "omani.trade") {
+		t.Fatalf("h1 list missing omani.trade; got %+v", pre.Items)
+	}
+
+	// Second "Pod" — fresh handler, SAME store directory. Rehydrates
+	// via restoreFromStore + fromRecord; the active deployment's
+	// ParentDomains slice should round-trip through
+	// store.RedactedRequest.ToProvisionerRequest.
+	st2, err := store.New(dir)
+	if err != nil {
+		t.Fatalf("store.New (Pod 2): %v", err)
+	}
+	h2 := NewWithStore(silentLogger(), &fakePDM{}, st2)
+
+	// The rehydrated deployment must be reachable via h2.deployments
+	// AND its ParentDomains slice must carry the persisted entry.
+	val, ok := h2.deployments.Load(dep.ID)
+	if !ok {
+		t.Fatalf("rehydration failed: %s not in h2.deployments", dep.ID)
+	}
+	rehydrated := val.(*Deployment)
+	rehydrated.mu.Lock()
+	pds := append([]provisioner.ParentDomain(nil), rehydrated.Request.ParentDomains...)
+	rehydrated.mu.Unlock()
+	foundOnDep := false
+	for _, pd := range pds {
+		if strings.EqualFold(pd.Name, "omani.trade") &&
+			pd.Role == provisioner.ParentDomainRoleSMEPool {
+			foundOnDep = true
+			break
+		}
+	}
+	if !foundOnDep {
+		t.Fatalf("rehydrated Deployment.ParentDomains missing omani.trade; got %+v", pds)
+	}
+
+	// And the canonical proof: GET /api/v1/sovereign/parent-domains on
+	// the SECOND Pod still surfaces the persisted row.
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/parent-domains", nil)
+	newParentDomainsRouter(h2).ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second Pod list: want 200, got %d body=%s", rec2.Code, rec2.Body.String())
+	}
+	var post struct {
+		Items []ParentDomain `json:"items"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &post); err != nil {
+		t.Fatal(err)
+	}
+	if !containsName(post.Items, "omani.trade") {
+		t.Fatalf("h2 list missing omani.trade after restart; got %+v", post.Items)
+	}
+}
+
+// containsName reports whether items contains a row with the given
+// (case-insensitive) Name. Local helper for the persistence test
+// above; trivial enough to keep close to the test rather than
+// promote into a shared fixture.
+func containsName(items []ParentDomain, name string) bool {
+	for _, it := range items {
+		if strings.EqualFold(it.Name, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNSSetsMatch(t *testing.T) {

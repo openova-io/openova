@@ -83,9 +83,10 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 
 // ParentDomainsForSMECreate composes the live parent-domain pool the
 // SME tenant create handler validates against. The runtime source of
-// truth is the global parentDomainStore (admin "add a domain" entries
-// from issue #829) merged with the implicit primary domain
-// (lookupPrimaryDomain).
+// truth is the adopted Deployment's Request.ParentDomains slice
+// (issue #837 — replaces the legacy in-memory globalParentDomainStore
+// the admin handler used to seed) merged with the implicit primary
+// domain (lookupPrimaryDomain).
 //
 // Returned entries are normalised to SMETenantParentDomain so the
 // create handler's existing FindParentDomain / PoolDomains paths work
@@ -96,17 +97,18 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 // LoadSMETenantParentDomainsFromEnv → SMETenantDeps.ParentDomains) so
 // SMETenantDeps remains the single startup-time seed. The runtime
 // adapter only adds entries the operator has changed *after* startup
-// (admin store + adopted primary). This preserves the back-compat
-// behaviour from #804 where a single-domain Sovereign with no admin
-// entries falls back to OTECHFQDN as the implicit sme-pool parent.
+// (admin-persisted entries on the adopted deployment + adopted
+// primary). This preserves the back-compat behaviour from #804 where
+// a single-domain Sovereign with no admin entries falls back to
+// OTECHFQDN as the implicit sme-pool parent.
 func (h *Handler) ParentDomainsForSMECreate() []SMETenantParentDomain {
-	live := globalParentDomainStore.list()
+	live := listParentDomainsFromActive(h.activeDeployment())
 	out := make([]SMETenantParentDomain, 0, len(live)+1)
 	seen := map[string]struct{}{}
 	for _, p := range live {
-		// Map the admin-store FlipStatus into SMETenant's narrower
-		// boolean flag. Anything past `flipped` (zone created + cert
-		// issued) is "ready"; pre-flip states are not yet bookable.
+		// Persisted entries surface as FlipStatusReady from
+		// listParentDomainsFromActive (issue #837 — the durable
+		// record IS the proof the pipeline succeeded).
 		ready := p.FlipStatus == FlipStatusReady ||
 			p.FlipStatus == FlipStatusFlipped
 		out = append(out, SMETenantParentDomain{
