@@ -51,7 +51,19 @@
 // GET semantics (unchanged contract for operator break-glass /
 // wizard "Download kubeconfig"):
 //
-//   - 200 application/yaml when KubeconfigPath is set and readable
+//   - 200 application/yaml when KubeconfigPath is set and readable.
+//     The bytes returned are the ON-DISK file with the cluster /
+//     context / user names rewritten from k3s's hardcoded `default`
+//     to the Sovereign's subdomain (e.g. `otech94`) so the operator
+//     can run `KUBECONFIG=$HOME/.kube/config:<file> kubectl config
+//     view --flatten > $HOME/.kube/config` and then
+//     `k9s --context=otech94` immediately, with no manual sed
+//     pipeline. Issue #765. The rename is idempotent (re-applying
+//     to an already-renamed file is a no-op) and preserves the
+//     certificate-authority-data + token bytes verbatim. If the
+//     YAML is not parseable as a kubeconfig we serve the bytes
+//     unmodified so an operator's hand-edited file is never
+//     corrupted by the rewriter.
 //   - 409 {"error":"not-implemented"} when the postback hasn't
 //     happened yet — preserves the StepSuccess.test.tsx fallback.
 //   - 409 {"error":"kubeconfig-file-missing"} when the path pointer
@@ -70,7 +82,9 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,6 +94,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -139,17 +154,238 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Issue #765 — rewrite cluster / context / user names from
+	// k3s's hardcoded `default` to the Sovereign's subdomain so the
+	// operator can `k9s --context=otech94` after a single
+	// `kubectl config view --flatten` merge without manually
+	// sed-ing the YAML. The on-disk file is left as the cloud-init
+	// produced it; the rewrite happens on the response only so the
+	// PUT idempotency invariant holds. If the rewrite fails we serve
+	// the raw bytes unchanged — better to give the operator the
+	// k3s-default-context kubeconfig than fail the download.
+	contextName := preferredContextName(&dep.Request)
+	served := raw
+	if rewritten, rewriteErr := rewriteKubeconfigContext(raw, contextName); rewriteErr == nil {
+		served = rewritten
+	} else {
+		h.log.Warn("kubeconfig context rewrite failed; serving raw file",
+			"id", id,
+			"sovereignFQDN", dep.Request.SovereignFQDN,
+			"contextName", contextName,
+			"err", rewriteErr,
+		)
+	}
+
+	// Filename uses the subdomain when available so a freshly-
+	// downloaded file lands in ~/Downloads as `otech94.yaml` rather
+	// than `otech94.omantel.omani.works-kubeconfig.yaml` which is
+	// awkward to type in a `KUBECONFIG=...` invocation.
 	w.Header().Set("Content-Type", "application/yaml")
 	w.Header().Set("Content-Disposition",
-		`attachment; filename="`+dep.Request.SovereignFQDN+`-kubeconfig.yaml"`)
+		`attachment; filename="`+kubeconfigDownloadFilename(&dep.Request)+`"`)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, _ = w.Write(served)
 
 	h.log.Info("kubeconfig served",
 		"id", id,
 		"sovereignFQDN", dep.Request.SovereignFQDN,
-		"bytes", len(raw),
+		"contextName", contextName,
+		"bytesRaw", len(raw),
+		"bytesServed", len(served),
 	)
+}
+
+// preferredContextName returns the kubeconfig context name to use
+// when serving GET /kubeconfig. Issue #765 spec: "context name =
+// otechN (not default)". Order of preference:
+//
+//  1. Request.SovereignSubdomain — set by the wizard for every
+//     pool-mode deployment (e.g. "otech94"). Sanitised to a safe
+//     k8s context name (RFC 1123-ish: lowercase alnum + dash).
+//  2. First label of SovereignFQDN — for BYO-domain deployments
+//     where SovereignSubdomain is empty (e.g. "k8s.foo.example"
+//     → "k8s").
+//  3. The literal string "sovereign" — last-resort fallback so the
+//     YAML never contains an empty context name (which kubectl
+//     refuses to parse).
+//
+// The returned value is always non-empty.
+func preferredContextName(req *provisioner.Request) string {
+	if req == nil {
+		return "sovereign"
+	}
+	if name := sanitiseContextName(req.SovereignSubdomain); name != "" {
+		return name
+	}
+	if fqdn := strings.TrimSpace(req.SovereignFQDN); fqdn != "" {
+		first := fqdn
+		if dot := strings.IndexByte(first, '.'); dot > 0 {
+			first = first[:dot]
+		}
+		if name := sanitiseContextName(first); name != "" {
+			return name
+		}
+	}
+	return "sovereign"
+}
+
+// sanitiseContextName strips characters kubectl rejects in a
+// context name. kubeconfig technically accepts any string, but
+// $HOME/.kube/config consumers (k9s, kubectl config use-context,
+// kubeconform) treat it as a CLI argument so we restrict to the
+// RFC-1123 lowercase label charset (alphanumeric + dash) and trim
+// leading / trailing dashes.
+func sanitiseContextName(in string) string {
+	in = strings.ToLower(strings.TrimSpace(in))
+	if in == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range in {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-':
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	return out
+}
+
+// kubeconfigDownloadFilename builds the Content-Disposition
+// filename. Prefers the subdomain (operator's mental model — they
+// know "otech94" not "otech94.omantel.omani.works"); falls back to
+// the FQDN when subdomain is empty.
+func kubeconfigDownloadFilename(req *provisioner.Request) string {
+	if req == nil {
+		return "sovereign-kubeconfig.yaml"
+	}
+	if sub := sanitiseContextName(req.SovereignSubdomain); sub != "" {
+		return sub + ".yaml"
+	}
+	if fqdn := strings.TrimSpace(req.SovereignFQDN); fqdn != "" {
+		return fqdn + "-kubeconfig.yaml"
+	}
+	return "sovereign-kubeconfig.yaml"
+}
+
+// rewriteKubeconfigContext rewrites every reference to the k3s
+// default cluster / context / user name to `target` so a downloaded
+// kubeconfig merges into $HOME/.kube/config under a stable, human-
+// readable context name. Specifically rewrites:
+//
+//   - clusters[].name
+//   - contexts[].name
+//   - contexts[].context.cluster
+//   - contexts[].context.user
+//   - users[].name
+//   - current-context
+//
+// Only renames the entry whose existing name == "default" (the
+// k3s seed). Other named entries are left alone so an operator's
+// hand-merged file isn't clobbered. A round-trip through yaml.v3
+// preserves field ordering + comments so the file diffs cleanly.
+//
+// A nil/empty target is rejected (the caller computes a non-empty
+// fallback). A YAML parse failure or a structurally unexpected
+// document (no `kind: Config` root, no `clusters` key) returns the
+// input unchanged with no error so a hand-edited or future-format
+// kubeconfig is never silently corrupted — the GET handler logs
+// the warning and serves raw on rewrite-error path.
+func rewriteKubeconfigContext(in []byte, target string) ([]byte, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil, errors.New("rewriteKubeconfigContext: target context name is empty")
+	}
+	if len(in) == 0 {
+		return nil, errors.New("rewriteKubeconfigContext: input is empty")
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(in, &root); err != nil {
+		return nil, fmt.Errorf("yaml parse: %w", err)
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return nil, errors.New("rewriteKubeconfigContext: not a YAML document")
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return nil, errors.New("rewriteKubeconfigContext: root is not a mapping")
+	}
+
+	// Validate kind: Config (the kubeconfig sentinel). If absent
+	// or wrong, refuse to rewrite — caller will serve raw.
+	if kind := mapStringValue(doc, "kind"); kind != "" && kind != "Config" {
+		return nil, fmt.Errorf("rewriteKubeconfigContext: unexpected kind %q", kind)
+	}
+
+	// rename rewrites a string scalar field on a mapping node from
+	// "default" to target. No-op if the field is missing or the
+	// value is not the k3s default (idempotent re-apply).
+	rename := func(n *yaml.Node, key string) {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return
+		}
+		v := mapChild(n, key)
+		if v == nil || v.Kind != yaml.ScalarNode {
+			return
+		}
+		if v.Value == "default" {
+			v.Value = target
+			v.Tag = "!!str"
+			v.Style = 0
+		}
+	}
+
+	// Iterate clusters[], contexts[], users[] sequences.
+	renameSeq := func(seqKey string, perItem func(*yaml.Node)) {
+		seq := mapChild(doc, seqKey)
+		if seq == nil || seq.Kind != yaml.SequenceNode {
+			return
+		}
+		for _, item := range seq.Content {
+			if item.Kind == yaml.MappingNode {
+				perItem(item)
+			}
+		}
+	}
+
+	renameSeq("clusters", func(item *yaml.Node) {
+		rename(item, "name")
+	})
+	renameSeq("contexts", func(item *yaml.Node) {
+		rename(item, "name")
+		ctx := mapChild(item, "context")
+		if ctx != nil && ctx.Kind == yaml.MappingNode {
+			rename(ctx, "cluster")
+			rename(ctx, "user")
+		}
+	})
+	renameSeq("users", func(item *yaml.Node) {
+		rename(item, "name")
+	})
+
+	// Top-level current-context.
+	if cc := mapChild(doc, "current-context"); cc != nil && cc.Kind == yaml.ScalarNode && cc.Value == "default" {
+		cc.Value = target
+		cc.Tag = "!!str"
+		cc.Style = 0
+	}
+
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("yaml encode: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("yaml encoder close: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 // PutKubeconfig — PUT /api/v1/deployments/{id}/kubeconfig.
