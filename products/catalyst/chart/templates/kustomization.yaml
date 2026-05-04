@@ -10,3 +10,19 @@ resources:
   - api-service.yaml
   - ingress.yaml
   - ingress-console-tls.yaml
+  # Cutover-driver RBAC (issue #830 Bug 1): ServiceAccount +
+  # ClusterRole + ClusterRoleBinding bound to catalyst-api so the
+  # /api/v1/sovereign/cutover/start endpoint can read/patch the cutover
+  # ConfigMaps and create/watch Jobs in the cutover namespace.
+  # Without these listed here, the Kustomize render silently dropped
+  # them — contabo deploys would fail with the catalyst-api Pod
+  # referencing a non-existent SA.
+  #
+  # NOTE on the binding suffix: clusterrolebinding-cutover-driver-
+  # kustomize.yaml is the Kustomize-mode counterpart of the Helm-mode
+  # clusterrolebinding-cutover-driver.yaml. The Helm file uses
+  # {{ .Release.Namespace }} which Kustomize cannot parse, so we keep
+  # them as separate sibling files — see comments in each file.
+  - serviceaccount-cutover-driver.yaml
+  - clusterrole-cutover-driver.yaml
+  - clusterrolebinding-cutover-driver-kustomize.yaml

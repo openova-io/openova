@@ -1,0 +1,39 @@
+# Kustomize-mode ClusterRoleBinding for the catalyst-api-cutover-driver
+# ServiceAccount (issue #830, P0 Bug 1 follow-up).
+#
+# Why a separate file from clusterrolebinding-cutover-driver.yaml:
+# the apiserver requires `subjects[0].namespace` on a ClusterRoleBinding
+# that targets a namespaced ServiceAccount kind. Helm does NOT auto-inject
+# subjects[0].namespace the way it does metadata.namespace, so the Helm-
+# rendered binding (clusterrolebinding-cutover-driver.yaml in this dir)
+# uses {{ .Release.Namespace }} to set it. Kustomize cannot parse the
+# {{ }} directive — it would silently drop the file from the build.
+#
+# This file is the Kustomize counterpart: it omits subjects[0].namespace
+# and relies on Kustomize's native namespace-injection behaviour
+# (verified live on contabo-mkt 2026-05-04). The kustomize binary
+# fills subjects[0].namespace with the same value as the kustomization.yaml
+# `namespace:` directive (catalyst on contabo). The Helm install path
+# does NOT see this file — templates/kustomization.yaml is the file
+# Helm renders (resources list), but Helm renders the .yaml-suffixed
+# files independently of any kustomize.config.k8s.io declaration.
+#
+# Kustomize-only safeguard: this filename ends with `-kustomize.yaml`
+# rather than `.yaml` so a future operator inspecting the directory
+# can immediately see which files are Helm-only / Kustomize-only.
+# Helm renders ALL files under templates/ — to keep this one out of
+# the Helm install we add it to .helmignore (see chart root).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: catalyst-api-cutover-driver
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: cutover-driver-rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: catalyst-api-cutover-driver
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-api-cutover-driver

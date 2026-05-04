@@ -5,6 +5,17 @@ to the same-named ClusterRole (issue #830, P0 Bug 1).
 This binding is what makes catalyst-api able to read/patch the cutover
 ConfigMaps + create/watch the cutover Jobs in the `catalyst` namespace
 when the operator hits POST /api/v1/sovereign/cutover/start.
+
+DUAL-MODE NOTE: this file uses {{ .Release.Namespace }} because the
+ClusterRoleBinding's subjects[0].namespace is required by the apiserver
+and Helm does NOT auto-inject it the way it does for metadata.namespace.
+The Sovereign install runs `helm install --namespace catalyst-system`,
+so .Release.Namespace correctly resolves to catalyst-system.
+
+This file is therefore Helm-only — the Kustomize-mode contabo install
+loads a sibling `clusterrolebinding-cutover-driver-kustomize.yaml` from
+templates/kustomization.yaml that pins subjects[0].namespace to the
+contabo SA namespace (catalyst). See kustomization.yaml resources list.
 */ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
