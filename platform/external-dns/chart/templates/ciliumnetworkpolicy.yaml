@@ -1,0 +1,89 @@
+{{- /*
+CiliumNetworkPolicy — grants egress to the Kubernetes API server.
+
+WHY THIS EXISTS (issue #770)
+─────────────────────────────────────────────────────────────────────
+ExternalDNS's first action on startup is the cluster-wide
+`*v1.Endpoints` / `*v1.Service` / `*v1.Node` informer cache sync against
+the kube-apiserver (https://10.43.0.1:443 → DNAT'd to the CP node's host
+network at <cp-ip>:6443). When that sync misses its 60s hardcoded
+WaitForCacheSync window the binary exits with:
+
+  fatal: failed to sync *v1.Endpoints: context deadline exceeded
+
+The companion templates/networkpolicy.yaml allows egress on TCP/443 +
+TCP/6443 to ipBlock 0.0.0.0/0, which on every other CNI is sufficient
+to reach the apiserver. On Cilium it is NOT — Cilium models traffic to
+node IPs as a special `kube-apiserver` (or `host`/`remote-node`)
+reserved identity, NOT as a CIDR range. With the cluster-wide setting
+`policy-cidr-match-mode: ""` (the default, per bp-cilium values) the
+0.0.0.0/0 rule does NOT match traffic destined for the apiserver, so
+the apiserver call is dropped at the egress hook of the external-dns
+endpoint. Result: the symptom above on every fresh otech9X provision.
+
+Authoritative reference:
+  https://docs.cilium.io/en/stable/security/policy/language/#entities-based
+  https://docs.cilium.io/en/stable/security/policy/language/#policies-cidr-match-mode
+
+Two correct fixes exist:
+
+  (1) Set `policy-cidr-match-mode: nodes` cluster-wide on bp-cilium —
+      makes vanilla NetworkPolicy ipBlock rules match node IPs. This
+      is a global change with cluster-wide blast radius (silently
+      relaxes EVERY other NetworkPolicy that uses 0.0.0.0/0 in the
+      cluster); rejected because per INVIOLABLE-PRINCIPLES the fix
+      MUST be scoped to the workload that needs it.
+
+  (2) Pair the vanilla NetworkPolicy with a CiliumNetworkPolicy that
+      grants egress to the `kube-apiserver` reserved entity for ONLY
+      this Pod selector. This is the canonical Cilium pattern for
+      controllers that watch the apiserver. CHOSEN — fixes the
+      symptom without altering policy semantics for any other
+      workload.
+
+The companion vanilla NetworkPolicy is preserved verbatim so that a
+hypothetical non-Cilium CNI (none on Catalyst today, but the Blueprint
+must remain CNI-agnostic per BLUEPRINT-AUTHORING.md) still has
+apiserver egress via the 0.0.0.0/0 ipBlock.
+
+This file renders ONLY when both flags are true:
+  - externalDns.networkPolicy.enabled
+  - externalDns.networkPolicy.ciliumApiserverEntity.enabled
+The second defaults to TRUE because Cilium is the only CNI shipped by
+Catalyst (see ADR-0001 §"CNI is Cilium"). Cluster overlays running on
+non-Cilium CNIs MAY set it to false to avoid creating an unrecognised
+CRD; the vanilla NetworkPolicy alone covers them.
+
+Per INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
+tunable via values.yaml.
+
+LIVE PROOF (otech93, 2026-05-04)
+─────────────────────────────────────────────────────────────────────
+Before: external-dns-5f596c748b-htr4z CrashLoopBackOff (8 restarts in
+20m), `failed to sync *v1.Endpoints: context deadline exceeded`.
+After applying this CNP: pod transitioned to Running 1/1 within ~30s,
+informer cache sync completed cleanly.
+*/}}
+{{- if and .Values.externalDns.networkPolicy.enabled .Values.externalDns.networkPolicy.ciliumApiserverEntity.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: bp-external-dns-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-external-dns.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    # Cilium reserved identity that resolves to ALL endpoints backing
+    # the kube-apiserver (control-plane host IPs on host network +
+    # ClusterIP 10.43.0.1:443 on the kubernetes Service in default ns).
+    # This is the ONLY rule needed — Cilium short-circuits the lookup
+    # at the eBPF level so the egress hook returns ALLOW immediately
+    # rather than falling through to the vanilla NetworkPolicy.
+    - toEntities:
+        - kube-apiserver
+{{- end }}
