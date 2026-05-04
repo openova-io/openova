@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.3.0
-appVersion: 1.3.0
+version: 1.3.1
+appVersion: 1.3.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -214,6 +214,28 @@ description: |
   - handler: persistDeployment after markPhase1Done so the on-disk
     JSON reflects status=ready before any wizard poll. Refuse to
     downgrade adopted status on late watcher events. Issue #TBD.
+
+  Bumped to 1.3.1 — Phase-8b handover DNS-resolution fix (otech94
+  incident, 2026-05-04, issue #781). On a fresh Sovereign the
+  handover URL returned `{"error":"keycloak error: ensure user"}`
+  with a `dial tcp: lookup auth.<sov-fqdn> on 10.43.0.10:53: no
+  such host` inside the catalyst-api Pod. Root cause: the cluster's
+  CoreDNS resolves *.<sov-fqdn> via the upstream resolvers — it
+  does NOT forward to the in-cluster PowerDNS that holds those
+  records. Public DNS works (PowerDNS authoritative), but Pod-side
+  lookups of auth.<sov-fqdn> return NXDOMAIN.
+
+  No catalyst chart manifest needed change (api-deployment.yaml
+  already reads CATALYST_KC_ADDR from a secretKeyRef into
+  catalyst-kc-sa-credentials). The fix lives in bp-keycloak 1.3.2:
+  the Secret's `addr` value now resolves to the in-cluster Service
+  URL (http://keycloak.keycloak.svc.cluster.local) instead of the
+  public gateway host (https://auth.<sov-fqdn>). The HTTPRoute
+  hostname (.Values.gateway.host) stays at auth.<sov-fqdn> for
+  operator browsers — only the catalyst-api Pod's intra-cluster
+  OAuth client_credentials calls switch to the Service URL.
+  Catalyst-Zero (contabo) uses keycloak-zero (separate chart) and
+  is unaffected. 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

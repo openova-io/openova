@@ -71,18 +71,32 @@ Canonical seam: platform/keycloak/chart/templates/configmap-sovereign-realm.yaml
          INVIOLABLE-PRINCIPLES #10. */ -}}
   {{- $saSecret = randAlphaNum 32 -}}
 {{- end -}}
-{{- /* Keycloak base URL — derived from gateway host (auth.<sovereignFQDN>)
-       per Inviolable Principle #4 (never hardcode). The catalyst-api Pod
-       will hit this via the cluster's internal DNS resolver against the
-       Cilium Gateway listener. */ -}}
-{{- $kcAddr := "" -}}
-{{- if .Values.gateway.host -}}
-  {{- $kcAddr = printf "https://%s" .Values.gateway.host -}}
-{{- else -}}
-  {{- /* Fallback: in-cluster Service FQDN. Skips the gateway / TLS path,
-         used only when gateway.host is unset (e.g. Catalyst-Zero). */ -}}
-  {{- $kcAddr = printf "http://%s.%s.svc.cluster.local" .Release.Name .Release.Namespace -}}
-{{- end -}}
+{{- /* Keycloak base URL — issue #781.
+       This URL is consumed EXCLUSIVELY by the in-cluster catalyst-api Pod
+       (via the catalyst-kc-sa-credentials Secret reflected into
+       catalyst-system) for intra-cluster OAuth client_credentials calls
+       (token mint, EnsureUser, etc.). It is NEVER exposed to browsers —
+       browsers reach Keycloak through the Cilium Gateway HTTPRoute at
+       https://<gateway.host>.
+
+       Why we use the in-cluster Service URL, not https://auth.<sov-fqdn>:
+       on a Sovereign, the cluster's CoreDNS resolves *.<sov-fqdn> via the
+       upstream resolvers — it does NOT forward to the in-cluster
+       PowerDNS that holds those records. Result: Pod-side lookups of
+       auth.<sov-fqdn> return NXDOMAIN even though public DNS is healthy.
+       Caught live on otech94 2026-05-04: handover URL returned
+       `{"error":"keycloak error: ensure user"}` from a
+       `dial tcp: lookup auth.otech94.omani.works ... no such host`
+       inside the catalyst-api Pod.
+
+       The fix: write the Service URL into the Secret. CoreDNS resolves
+       <release>.<namespace>.svc.cluster.local natively (kube-dns plugin),
+       so the lookup never leaves the cluster. The HTTPRoute hostname
+       (.Values.gateway.host) is unaffected — it remains the operator-
+       facing URL for browsers. Inviolable Principle #4 (never hardcode)
+       still holds: the URL is computed from .Release.Name + .Release.Namespace,
+       both runtime-configurable via the bp-keycloak HelmRelease. */ -}}
+{{- $kcAddr := printf "http://%s.%s.svc.cluster.local" .Release.Name .Release.Namespace -}}
 ---
 apiVersion: v1
 kind: ConfigMap
