@@ -103,7 +103,11 @@ spec:
       # at minor-version, only patch). Caught live otech103 — Step-5
       # Pod hit DeadlineExceeded after 10m of ImagePullBackOff for
       # docker.io/bitnami/kubectl:1.31 (404 not found).
-      version: 0.1.8
+      # 0.1.9: bitnami/kubectl :1.31.4 ALSO 404 (Bitnami deprecated
+      # public Docker Hub in 2025). Switched to alpine/k8s:1.31.4 —
+      # canonical alpine-based image with kubectl + helm + k8s CLI
+      # surface, actively maintained.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

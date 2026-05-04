@@ -222,11 +222,12 @@ catalystAPI:
 # global.imageRegistry — defaulted off so smoke render is clean.
 images:
   kubectl:
-    repository: "bitnami/kubectl"
-    # bitnami doesn't tag with :1.31 (only :1.31.X — patch-level). Caught
-    # live on otech103 — DockerHub returned 404 'not found' for :1.31
-    # and Pod hit DeadlineExceeded after 10m of pull retries. Pinning to
-    # the latest .X release for the 1.31 minor.
+    # Switched from bitnami/kubectl (Bitnami deprecated public Docker Hub
+    # in 2025; both :1.31 and :1.31.4 returned 404). alpine/k8s is the
+    # canonical alternative — alpine-based image with kubectl + helm +
+    # the standard k8s CLI surface, actively maintained on Docker Hub.
+    # Caught live on otech103 2026-05-04.
+    repository: "alpine/k8s"
     tag: "1.31.4"
   git:
     repository: "alpine/git"
