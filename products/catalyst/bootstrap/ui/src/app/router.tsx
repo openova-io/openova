@@ -76,6 +76,7 @@ import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
 import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
 import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
 import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
+import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -216,6 +217,19 @@ const wizardRoute = createRoute({ getParentRoute: () => wizardLayoutRoute, path:
 
 // Success (full-screen)
 const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/success', component: SuccessPage })
+
+// Deployments list (issue #747) — operator's history surface. Reachable
+// via /sovereign/deployments (Catalyst-Zero) or /deployments (Sovereign
+// build, though that build never exposes the wizard so this route is
+// effectively Catalyst-Zero only). The page itself reads useSession()
+// and renders an anonymous-only "Sign in" prompt when no cookie is
+// present, so we don't gate the route — keeps it consistent with the
+// wizard's guest-mode pattern.
+const deploymentsListRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/deployments',
+  component: DeploymentsList,
+})
 
 /**
  * Post-handover redirect (issue #319).
@@ -656,6 +670,7 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([dashboardRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
+  deploymentsListRoute,
   provisionRoute,
   provisionAppRoute,
   provisionJobsRoute,

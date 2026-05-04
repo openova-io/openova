@@ -256,6 +256,12 @@ func main() {
 		// handler logs ONLY the fingerprint and never persists either half.
 		rg.Post("/api/v1/sshkey/generate", h.GenerateSSHKey)
 		rg.Post("/api/v1/deployments", h.CreateDeployment)
+		// List endpoint (issue #747) — wizard auto-redirect to /provision/<id>
+		// when the signed-in operator already has an in-flight deployment.
+		// Filtered server-side by the X-User-Email header injected by
+		// RequireSession; the ?owner= query param is a client hint that is
+		// silently overridden when a session is present.
+		rg.Get("/api/v1/deployments", h.ListDeployments)
 		rg.Get("/api/v1/deployments/{id}", h.GetDeployment)
 		rg.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
 		// Buffered event history endpoint (issue #180). Returns the full event

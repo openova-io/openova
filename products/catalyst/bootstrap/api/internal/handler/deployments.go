@@ -906,6 +906,137 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListDeployments returns the slim state of every deployment owned by the
+// authenticated session, optionally filtered by ?owner=<email> (issue #747).
+//
+// Why a list endpoint:
+//
+//   The wizard's index route (/sovereign/wizard, /sovereign/) needs to
+//   know whether the signed-in operator already has an in-flight
+//   deployment so it can auto-redirect to /sovereign/provision/<id>
+//   instead of presenting Step 1 of an empty wizard. Without this
+//   redirect, an operator who refreshes the tab during a 15-minute
+//   provisioning run loses the progress page and lands on the org
+//   form — which is the exact bug the founder hit live with otech90
+//   on 2026-05-04.
+//
+// Filtering rules:
+//
+//   1. ?owner=<email> — restrict to deployments whose OwnerEmail
+//      matches (case-insensitive).
+//   2. When auth.RequireSession is wired, X-User-Email is always set
+//      and we ALSO restrict to that session's email regardless of
+//      the ?owner= value, so an operator can't list someone else's
+//      deployments by passing a different ?owner=. The server-side
+//      check is the security boundary; ?owner= is effectively a
+//      hint that mirrors the session.
+//   3. When the middleware is bypassed (CI / tests / catalyst-api
+//      running without CATALYST_KC_ADDR), the ?owner= filter is the
+//      only filter and an empty ?owner= returns every deployment —
+//      same passthrough policy as checkOwnership() to keep existing
+//      tests working unchanged.
+//
+// Adopted deployments (AdoptedAt != nil) are EXCLUDED from the list —
+// post-handover the customer's Sovereign is operationally self-
+// sufficient and the Catalyst-Zero record is a minimum-retention
+// breadcrumb, not an active session. The wizard-redirect logic only
+// cares about live or recently-failed deployments.
+//
+// The response is a slim shape (id, status, sovereignFQDN, region,
+// startedAt, finishedAt, ownerEmail, adoptedAt, error) so a tab full
+// of deployments stays cheap to render — the full event buffer is
+// fetched per-deployment via /deployments/{id}/events when the
+// operator opens the progress page.
+func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
+	ownerFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("owner")))
+	sessionEmail := strings.TrimSpace(strings.ToLower(r.Header.Get("X-User-Email")))
+
+	// Effective owner filter — when the session header is set (production
+	// behind RequireSession), it always overrides the query param so
+	// ?owner=victim@example.com from a logged-in attacker silently
+	// collapses to their own email. In tests / CI without the middleware,
+	// fall back to whatever the caller passed.
+	effectiveOwner := sessionEmail
+	if effectiveOwner == "" {
+		effectiveOwner = ownerFilter
+	}
+
+	type listEntry struct {
+		ID            string  `json:"id"`
+		Status        string  `json:"status"`
+		SovereignFQDN string  `json:"sovereignFQDN,omitempty"`
+		Region        string  `json:"region,omitempty"`
+		StartedAt     string  `json:"startedAt,omitempty"`
+		FinishedAt    string  `json:"finishedAt,omitempty"`
+		OwnerEmail    string  `json:"ownerEmail,omitempty"`
+		AdoptedAt     *string `json:"adoptedAt,omitempty"`
+		Error         string  `json:"error,omitempty"`
+	}
+
+	out := make([]listEntry, 0)
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
+		}
+		dep.mu.Lock()
+		entry := listEntry{
+			ID:            dep.ID,
+			Status:        dep.Status,
+			SovereignFQDN: dep.Request.SovereignFQDN,
+			Region:        dep.Request.Region,
+			OwnerEmail:    dep.OwnerEmail,
+			Error:         dep.Error,
+		}
+		if !dep.StartedAt.IsZero() {
+			entry.StartedAt = dep.StartedAt.UTC().Format(time.RFC3339)
+		}
+		if !dep.FinishedAt.IsZero() {
+			entry.FinishedAt = dep.FinishedAt.UTC().Format(time.RFC3339)
+		}
+		if dep.AdoptedAt != nil {
+			s := dep.AdoptedAt.UTC().Format(time.RFC3339)
+			entry.AdoptedAt = &s
+		}
+		owner := strings.TrimSpace(strings.ToLower(dep.OwnerEmail))
+		dep.mu.Unlock()
+
+		// Owner filter — when an effective owner is set, only emit
+		// deployments whose OwnerEmail matches case-insensitively.
+		// Legacy records with empty OwnerEmail are treated the same way
+		// checkOwnership treats them on per-id reads: passthrough when
+		// the request has no session, but skipped when the session does
+		// not match (so a signed-in operator does not see legacy rows
+		// owned by someone else).
+		if effectiveOwner != "" {
+			if owner == "" {
+				// Legacy record — only include it when the caller has
+				// no session AND no ?owner= filter, which collapses to
+				// "no effective owner". Since effectiveOwner != "" here,
+				// we skip the legacy row.
+				return true
+			}
+			if owner != effectiveOwner {
+				return true
+			}
+		}
+
+		// Skip adopted deployments — the customer's Sovereign owns
+		// these post-handover, so the wizard redirect should not pull
+		// the operator back into the Catalyst-Zero shell.
+		if entry.AdoptedAt != nil {
+			return true
+		}
+
+		out = append(out, entry)
+		return true
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deployments": out,
+	})
+}
+
 // GetDeployment returns the current state of a deployment for polling.
 func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

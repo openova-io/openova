@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
+import { useSession } from '@/shared/lib/useSession'
+import { useInflightDeployment } from '@/shared/lib/useInflightDeployment'
 import { StepOrg }         from './steps/StepOrg'
 import { StepDomain }      from './steps/StepDomain'
 import { StepTopology }    from './steps/StepTopology'
@@ -61,23 +64,105 @@ export function WizardPage() {
   const idx = Math.max(0, Math.min(currentStep - 1, STEPS.length - 1))
   const StepComponent = STEPS[idx]!
 
+  // Issue #747 — auto-redirect a signed-in operator who already owns
+  // an in-flight deployment back to /provision/<id>. This is the bug
+  // surfaced when the founder refreshed the wizard tab during otech90
+  // provisioning and lost the progress page. We deliberately wait
+  // until the session is resolved before deciding — running the
+  // redirect during session.loading would race the cookie check and
+  // bounce an anonymous visitor erroneously.
+  const navigate = useNavigate()
+  const session = useSession()
+  const { inflight, completed } = useInflightDeployment({
+    ownerEmail: session.email,
+    enabled: !session.loading && session.signedIn,
+  })
+
+  useEffect(() => {
+    if (session.loading) return
+    if (!session.signedIn) return
+    if (!inflight) return
+    // replace:true so the wizard URL doesn't sit in history — a
+    // back-button press from /provision/<id> should land on the
+    // referrer, not on a doomed wizard step.
+    navigate({
+      to: '/provision/$deploymentId',
+      params: { deploymentId: inflight.id },
+      replace: true,
+    })
+  }, [session.loading, session.signedIn, inflight, navigate])
+
   useEffect(() => {
     document.getElementById('wizard-body')?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
   }, [currentStep])
 
+  // While the redirect is pending render nothing — surfacing a
+  // half-rendered Step 1 for one frame before TanStack Router replaces
+  // the route is jarring.
+  if (!session.loading && session.signedIn && inflight) {
+    return null
+  }
+
+  // History banner — operator has at least one completed/wiped/failed
+  // deployment but no live one. Render a single-line strip pointing at
+  // /deployments so the previous run is easy to reopen.
+  const hasHistory =
+    !session.loading && session.signedIn && !inflight && completed.length > 0
+
   return (
-    <AnimatePresence mode="wait" custom={currentStep}>
-      <motion.div
-        key={currentStep}
-        custom={currentStep}
-        variants={variants}
-        initial="enter"
-        animate="center"
-        exit="exit"
-        transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-      >
-        <StepComponent />
-      </motion.div>
-    </AnimatePresence>
+    <>
+      {hasHistory && (
+        <div
+          role="status"
+          data-testid="wizard-history-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '8px 16px',
+            margin: '0 0 16px 0',
+            background: 'rgba(56,189,248,0.08)',
+            border: '1px solid rgba(56,189,248,0.18)',
+            borderRadius: 8,
+            fontSize: 13,
+            color: 'var(--wiz-text-md)',
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            You have {completed.length === 1 ? 'a previous deployment' : `${completed.length} previous deployments`} on
+            file.
+          </span>
+          <Link
+            to={'/deployments' as never}
+            data-testid="wizard-history-banner-link"
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: 'rgba(56,189,248,0.15)',
+              color: '#38bdf8',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+              border: '1px solid rgba(56,189,248,0.35)',
+            }}
+          >
+            View your previous deployments
+          </Link>
+        </div>
+      )}
+      <AnimatePresence mode="wait" custom={currentStep}>
+        <motion.div
+          key={currentStep}
+          custom={currentStep}
+          variants={variants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+        >
+          <StepComponent />
+        </motion.div>
+      </AnimatePresence>
+    </>
   )
 }
