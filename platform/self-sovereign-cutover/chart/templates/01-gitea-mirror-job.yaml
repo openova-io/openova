@@ -113,9 +113,12 @@ data:
               echo "[gitea-mirror] repo already present"
             fi
 
-            # 2. Mirror clone from upstream and push --mirror to local Gitea.
-            #    --mirror preserves all refs, branches, tags, notes; matches
-            #    the desired "lift the upstream wholesale into local" shape.
+            # 3. Clone from upstream and push branches + tags to local Gitea.
+            #    We use --all + --tags rather than --mirror because Gitea
+            #    declines GitHub PR refs (refs/pull/<n>/head, /merge) via
+            #    its update hook — caught live on otech103 2026-05-04.
+            #    Branches and tags are sufficient for Flux GitRepository
+            #    reconciliation; PR refs are GitHub-specific metadata.
             workdir=$(mktemp -d)
             cd "${workdir}"
             git clone --mirror "${UPSTREAM_REPO_URL}" upstream.git
@@ -123,7 +126,10 @@ data:
             # Embed credentials in the push URL only (never in stdout).
             push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -e "s,://,://${GITEA_USERNAME}:${GITEA_PASSWORD}@,")
             git remote set-url --push origin "${push_url}/${GITEA_ORG}/${GITEA_REPO}.git"
-            git push --mirror
+            # Push branches first (--all = all local branches), then
+            # tags. Filter out refs/pull/* by NOT using --mirror.
+            git push origin --all
+            git push origin --tags
             echo "[gitea-mirror] mirror complete"
         resources:
           requests: { cpu: 100m, memory: 256Mi }
