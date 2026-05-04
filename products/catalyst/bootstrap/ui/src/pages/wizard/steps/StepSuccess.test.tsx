@@ -22,12 +22,14 @@ import {
   DEFAULT_KUBECONFIG_DOCS_URL,
 } from './StepSuccess'
 import { useWizardStore } from '@/entities/deployment/store'
-import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
+import { INITIAL_WIZARD_STATE, parseDeploymentID } from '@/entities/deployment/model'
 
 /* ── Test fixtures ──────────────────────────────────────────────── */
 
 const FIXTURE_FQDN = 'omantel.omani.works'
-const FIXTURE_DEPLOYMENT_ID = 'depl-abc-123'
+// Branded `DeploymentID` shape is 16-char lowercase hex (#749 + #754).
+// Use `parseDeploymentID` so the fixture also exercises the validator.
+const FIXTURE_DEPLOYMENT_ID = parseDeploymentID('deadbeefcafebabe')
 
 const FIXTURE_RESULT = {
   sovereignFQDN: FIXTURE_FQDN,
@@ -158,7 +160,7 @@ describe('First-time login fallback when API endpoint is not implemented', () =>
     const docsLink = screen.getByTestId('first-login-docs') as HTMLAnchorElement
     expect(docsLink.href).toBe(DEFAULT_FIRST_LOGIN_DOCS_URL)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/v1\/deployments\/depl-abc-123\/admin-login-url$/),
+      expect.stringMatching(/\/api\/v1\/deployments\/deadbeefcafebabe\/admin-login-url$/),
       expect.any(Object),
     )
   })
