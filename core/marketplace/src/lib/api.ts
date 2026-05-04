@@ -98,7 +98,12 @@ export const getPlans = async (): Promise<Plan[]> => {
   }));
 };
 export const getApps = async (): Promise<App[]> => {
-  const raw = await request<any[]>('/catalog/apps');
+  // Marketplace storefront sees only Published=true (operator-curated)
+  // AND System=false AND Deployable=true. The catalog service enforces
+  // the three-predicate filter server-side via ?published=true (#710).
+  // The Sovereign-console operator view hits /catalog/apps without the
+  // query param to get every app for the per-row publish toggle.
+  const raw = await request<any[]>('/catalog/apps?published=true');
   return raw.map(a => ({
     id: a.id, name: a.name, slug: a.slug, tagline: a.tagline || '',
     description: a.description || a.tagline || '',

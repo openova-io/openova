@@ -27,6 +27,7 @@ func (h *Handler) SeedIfEmpty(ctx context.Context) {
 		h.seedSystemApps(ctx)
 		h.migrateAppDependencies(ctx)
 		h.migrateAppDeployable(ctx)
+		h.migrateAppPublished(ctx)
 		return
 	}
 
@@ -608,6 +609,44 @@ func (h *Handler) migrateAppDeployable(ctx context.Context) {
 	}
 	if updated > 0 {
 		slog.Info("seed: app deployable flag migration complete", "updated", updated)
+	}
+}
+
+// migrateAppPublished defaults Published=true on every existing app on
+// the day Catalyst 1.3.x ships (#710 wave 2). Operators opt OUT of
+// marketplace visibility per app, not IN — this is how a SaaS team
+// curates a real storefront and prevents an empty marketplace from
+// rendering on the day the flag lands.
+//
+// System apps stay invisible to marketplace via ListPublishedApps's
+// `system: false` predicate regardless of this flag, so flipping
+// Published=true on mysql/postgres/redis is harmless. Apps with
+// Deployable=false are gated by the storefront filter too.
+//
+// One-shot: only writes to rows where Published is the zero-value AND
+// updated_at has never seen a published-aware write. Idempotent on
+// re-run because the second pass sees Published already true and skips.
+func (h *Handler) migrateAppPublished(ctx context.Context) {
+	apps, err := h.Store.ListApps(ctx)
+	if err != nil {
+		slog.Error("seed: list apps for published migration", "error", err)
+		return
+	}
+	updated := 0
+	for i := range apps {
+		a := &apps[i]
+		if a.Published {
+			continue
+		}
+		if err := h.Store.SetAppPublished(ctx, a.Slug, true); err != nil {
+			slog.Error("seed: failed to mark app published",
+				"slug", a.Slug, "error", err)
+			continue
+		}
+		updated++
+	}
+	if updated > 0 {
+		slog.Info("seed: app published flag migration complete", "updated", updated)
 	}
 }
 

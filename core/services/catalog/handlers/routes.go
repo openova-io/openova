@@ -19,6 +19,10 @@ func (h *Handler) Routes() http.Handler {
 	// Admin — mutating operations (require superadmin JWT).
 	mux.HandleFunc("POST /catalog/admin/apps", h.CreateApp)
 	mux.HandleFunc("PUT /catalog/admin/apps/{id}", h.UpdateApp)
+	// #710 wave 2: Sovereign-console operator's per-app publish toggle.
+	// Slug-keyed because the Sovereign console renders rows by slug, not
+	// internal Mongo _id — saves a round-trip to look up the id.
+	mux.HandleFunc("PATCH /catalog/admin/apps/{slug}/publish", h.SetAppPublished)
 	mux.HandleFunc("DELETE /catalog/admin/apps/{id}", h.DeleteApp)
 	mux.HandleFunc("POST /catalog/admin/industries", h.CreateIndustry)
 	mux.HandleFunc("PUT /catalog/admin/industries/{id}", h.UpdateIndustry)
