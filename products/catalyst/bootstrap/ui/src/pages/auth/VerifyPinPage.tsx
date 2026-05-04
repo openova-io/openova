@@ -105,14 +105,16 @@ export function VerifyPinPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-        className="flex flex-col gap-8"
+        className="flex flex-col gap-9"
       >
-        <div>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Enter your code</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
-            We sent a 6-digit code to{' '}
-            <span className="font-medium text-[oklch(75%_0.01_250)]">{email}</span>. Paste or type
-            it below.
+        <div className="flex flex-col gap-2 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-[oklch(94%_0.01_250)]">
+            Enter the verification code
+          </h1>
+          <p className="text-[15px] text-[oklch(58%_0.01_250)] leading-snug">
+            A 6-digit code was sent to
+            <br />
+            <span className="font-medium text-[oklch(80%_0.01_250)]">{email}</span>.
           </p>
         </div>
 
@@ -135,7 +137,7 @@ export function VerifyPinPage() {
             <p
               role="alert"
               data-testid="verify-error"
-              className="text-sm text-[--color-error]"
+              className="text-center text-sm text-[--color-error]"
             >
               {errorMsg}
             </p>
@@ -154,19 +156,24 @@ export function VerifyPinPage() {
           </Button>
         </form>
 
-        <button
-          type="button"
-          onClick={() =>
-            navigate({
-              to: '/login',
-              search: next ? { next } : {},
-            })
-          }
-          className="text-center text-sm text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors"
-          data-testid="verify-back"
-        >
-          Use a different email or get a new code
-        </button>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <button
+            type="button"
+            onClick={() =>
+              navigate({
+                to: '/login',
+                search: next ? { next } : {},
+              })
+            }
+            className="text-sm text-[--color-brand-400] hover:text-[--color-brand-300] transition-colors"
+            data-testid="verify-back"
+          >
+            Didn't get a code? Send a new one
+          </button>
+          <p className="text-xs text-[oklch(40%_0.01_250)]">
+            Check your spam folder — codes expire after 10 minutes.
+          </p>
+        </div>
       </motion.div>
     </AuthShell>
   )

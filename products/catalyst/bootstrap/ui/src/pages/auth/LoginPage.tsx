@@ -92,10 +92,12 @@ export function LoginPage() {
         transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
         className="flex flex-col gap-8"
       >
-        <div>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Sign in</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
-            Enter your email — we'll send you a 6-digit sign-in code.
+        <div className="flex flex-col gap-2 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-[oklch(94%_0.01_250)]">
+            Sign in
+          </h1>
+          <p className="text-[15px] text-[oklch(58%_0.01_250)]">
+            We'll email you a 6-digit code to verify it's you.
           </p>
         </div>
 

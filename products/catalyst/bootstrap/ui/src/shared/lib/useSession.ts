@@ -81,17 +81,48 @@ export function useSession(): SessionState {
   }, [qc])
 
   const signOut = useCallback(async () => {
+    // Two-hop sign-out (caught live 2026-05-04: clearing only local
+    // cookies left the operator silently re-authenticated as the same
+    // identity on next page load because the Keycloak SSO session was
+    // still alive and the OIDC PKCE auth-guard re-fetched a session
+    // for it).
+    //
+    //   Hop 1 — DELETE /api/v1/auth/session: server clears the
+    //           catalyst_session + catalyst_refresh cookies (with the
+    //           EXACT same Domain/Path/SameSite they were set with —
+    //           a Domain mismatch silently no-ops the clear) and
+    //           returns the Keycloak end_session_endpoint URL.
+    //
+    //   Hop 2 — window.location.href = keycloakLogoutURL: hard-
+    //           navigate to KC so it drops its SSO session, then KC
+    //           redirects back to /login. Hard navigation (not the
+    //           SPA router) is required because we need the browser
+    //           to send the freshly-cleared cookie state on the next
+    //           page load and to bypass any in-flight TanStack Query
+    //           cache.
+    let keycloakLogoutURL = ''
     try {
-      await fetch(`${API_BASE}/v1/auth/session`, {
+      const res = await fetch(`${API_BASE}/v1/auth/session`, {
         method: 'DELETE',
         credentials: 'include',
       })
+      if (res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          keycloakLogoutURL?: string
+        }
+        keycloakLogoutURL = body.keycloakLogoutURL ?? ''
+      }
     } catch {
-      // Network errors don't block client-side sign-out — the cookie
-      // will be cleared either way once the page reloads.
+      // Network errors don't block client-side sign-out — fall through
+      // to the local clear + hard navigate to /login.
     }
     qc.setQueryData(SESSION_QUERY_KEY, null)
-    void qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+    qc.clear()
+    if (keycloakLogoutURL) {
+      window.location.href = keycloakLogoutURL
+    } else {
+      window.location.href = '/login'
+    }
   }, [qc])
 
   const data = q.data ?? null
