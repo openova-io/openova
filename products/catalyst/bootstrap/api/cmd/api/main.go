@@ -409,6 +409,20 @@ func main() {
 		rg.Post("/api/v1/deployments/{depId}/admin/user-access", h.CreateUserAccess)
 		rg.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
 		rg.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
+
+		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
+		// post-handover step that severs a Sovereign's remaining
+		// tethers to the openova-io mothership: gitea-mirror,
+		// harbor-projects, harbor-prewarm, registry-pivot DaemonSet,
+		// flux-gitrepository-patch, helmrepository-patches,
+		// catalyst-api-env-patch, and an egress-block self-test.
+		// PodSpec ConfigMaps are shipped by bp-self-sovereign-cutover
+		// (issue #791); catalyst-api creates the actual Jobs.
+		// Operator-admin gating is provided by RequireSession above —
+		// only authenticated console operators can fire this.
+		rg.Post("/api/v1/sovereign/cutover/start", h.HandleCutoverStart)
+		rg.Get("/api/v1/sovereign/cutover/status", h.HandleCutoverStatus)
+		rg.Get("/api/v1/sovereign/cutover/events", h.HandleCutoverEvents)
 	})
 
 	log.Info("catalyst api listening", "port", port)
