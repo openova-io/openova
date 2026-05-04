@@ -76,6 +76,35 @@ trivy-operator:
     # Built-in policies — the upstream chart ships baseline policy bundle.
     builtInTrivyServer: false
 
+  # trivyOperator runtime config — values that the operator pod consumes
+  # at runtime via the trivy-operator-config ConfigMap (NOT the operator
+  # Deployment's own pod spec; that's the `operator:` block above).
+  trivyOperator:
+    # scanJobTolerations — applied by the operator to every scan-job pod
+    # it spawns dynamically (per-workload vuln + config-audit + RBAC scan
+    # jobs). Some target workloads (k8s-system DaemonSets, control-plane-
+    # pinned operators) live ONLY on the CP; without this toleration the
+    # scan jobs sit Pending and the matching reports are never produced.
+    # Pairs with the CP NoSchedule taint introduced in PR #755.
+    scanJobTolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+  # node-collector — the operator spawns ONE node-collector pod per node
+  # (pinned via nodeSelector to each node's hostname) to read kubelet /
+  # etcd / kube-scheduler / kube-controller-manager config from hostPath.
+  # The CP node carries those control-plane config files, so the
+  # collector MUST land there. PR #755 added a NoSchedule taint on the CP
+  # in multi-node Sovereigns; without this toleration the CP-bound
+  # collector sits Pending forever (issue #769). On solo Sovereigns
+  # (worker_count=0) the CP is untainted, so this toleration is a no-op.
+  nodeCollector:
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
   # Resources for the operator pod itself.
   # 256Mi was too tight — operator manages scan jobs across 80+ pods and
   # each watch cache grows with cluster size. OOMKilled (exit 137) on otech22.
