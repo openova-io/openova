@@ -68,6 +68,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // CRDGroup / CRDVersion / CRDResource pin the GroupVersionResource for
@@ -490,6 +492,33 @@ func recordToUnstructured(rec Record, namespace string) *unstructured.Unstructur
 		spec["regions"] = regions
 	}
 
+	// Multi-domain pool (issue #826). Persisted on the CRD so the
+	// admin add-domain flow (#829) + the SME signup parent-pool
+	// dropdown can read the live pool from the K8s API without
+	// rehydrating the full deployment record. RegistrarCredsRef
+	// points at a SealedSecret name; the plaintext registrar
+	// credentials are NEVER on the CRD.
+	if len(rec.Request.ParentDomains) > 0 {
+		pds := make([]any, 0, len(rec.Request.ParentDomains))
+		for _, pd := range rec.Request.ParentDomains {
+			entry := map[string]any{
+				"name": pd.Name,
+				"role": pd.Role,
+			}
+			if pd.RegistrarKind != "" {
+				entry["registrarKind"] = pd.RegistrarKind
+			}
+			if pd.RegistrarCredsRef != "" {
+				entry["registrarCredsRef"] = pd.RegistrarCredsRef
+			}
+			if !pd.AddedAt.IsZero() {
+				entry["addedAt"] = pd.AddedAt.UTC().Format(time.RFC3339)
+			}
+			pds = append(pds, entry)
+		}
+		spec["parentDomains"] = pds
+	}
+
 	phase := toCRDPhase(rec.Status)
 	status := map[string]any{
 		"phase":            phase,
@@ -655,6 +684,31 @@ func unstructuredToRecord(obj *unstructured.Unstructured) Record {
 			WorkerCount:         intField(spec, "workerCount"),
 			HAEnabled:           boolField(spec, "haEnabled"),
 			HetznerProjectID:    stringField(spec, "hetznerProjectID"),
+		}
+		// Multi-domain pool rehydrate (issue #826). A CRD persisted
+		// before the field was added returns an empty slice — the
+		// flat-file store + provisioner.Validate() migration path
+		// re-synthesises the primary entry on the next Save, keeping
+		// the CRD in sync over time without an explicit migration.
+		if raw, ok := spec["parentDomains"].([]any); ok && len(raw) > 0 {
+			pds := make([]provisioner.ParentDomain, 0, len(raw))
+			for _, e := range raw {
+				m, ok := e.(map[string]any)
+				if !ok {
+					continue
+				}
+				pd := provisioner.ParentDomain{
+					Name:              stringField(m, "name"),
+					Role:              stringField(m, "role"),
+					RegistrarKind:     stringField(m, "registrarKind"),
+					RegistrarCredsRef: stringField(m, "registrarCredsRef"),
+				}
+				if t, err := time.Parse(time.RFC3339, stringField(m, "addedAt")); err == nil {
+					pd.AddedAt = t
+				}
+				pds = append(pds, pd)
+			}
+			rec.Request.ParentDomains = pds
 		}
 	}
 	if status, ok := obj.Object["status"].(map[string]any); ok {

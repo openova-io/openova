@@ -43,6 +43,95 @@ import (
 	"time"
 )
 
+// ParentDomain is one entry in Request.ParentDomains — a registered
+// parent zone the Sovereign-side PowerDNS becomes authoritative for
+// after NS-flip lands at the registrar.
+//
+// Issue #826 (sub-1 of epic #825 — Multi-domain Sovereign) introduces
+// this shape so a single Sovereign can own N parent domains rather
+// than the legacy one-FQDN model. Day-1 (wizard provision) populates
+// the slice with exactly ONE entry carrying Role="primary"; Day-2
+// add-domain calls (issue #829) append additional entries with
+// Role="sme-pool". The provisioning pipeline iterates over the slice
+// applying the same per-domain steps to each (NS-flip via registrar,
+// PowerDNS zone create, cert-manager Certificate create) — see
+// ProvisionParentDomain below.
+//
+// The wizard UI stays single-FQDN (per the SCOPE CORRECTION on issue
+// #826: multi-domain capability is a Day-2 admin-console action). The
+// catalyst-api translates the wizard's single FQDN into a 1-element
+// ParentDomains array internally — operators never see this struct in
+// the wizard.
+//
+// Field semantics:
+//
+//   - Name is the registered domain at the registrar
+//     (e.g. "omani.works"). Must match parentDomainNamePattern.
+//   - Role is one of ParentDomainRolePrimary | ParentDomainRoleSMEPool.
+//     Exactly one entry in the slice carries the primary role; zero or
+//     more carry sme-pool. Validation enforces this at Validate() time.
+//   - RegistrarKind is the adapter id used to flip the NS records at
+//     the registrar (today: "dynadot"; future: "namecheap" / "godaddy"
+//     / etc). Inviolable Principle #4 ("never hardcode") requires this
+//     to be a runtime value, not a compile-time switch.
+//   - RegistrarCredsRef is the name of a SealedSecret in
+//     catalyst-system holding the registrar credentials. The
+//     catalyst-api resolves this at provision time via the K8s API
+//     (issue #829 wires the resolver). Empty means "fall back to the
+//     same operator-supplied env-mounted credentials the catalyst-api
+//     uses for the primary domain" — the typical case where one
+//     Dynadot account holds every domain in the operator's portfolio.
+//   - AddedAt is the UTC timestamp the domain was added to the pool.
+//     Day-1 entries carry the deployment's StartedAt; Day-2 entries
+//     carry the moment the admin console add-domain handler was
+//     called. Stored on the persisted Record so the admin console can
+//     render "added 3 days ago" on the parent-domains panel.
+type ParentDomain struct {
+	Name              string    `json:"name"`
+	Role              string    `json:"role"`
+	RegistrarKind     string    `json:"registrarKind,omitempty"`
+	RegistrarCredsRef string    `json:"registrarCredsRef,omitempty"`
+	AddedAt           time.Time `json:"addedAt,omitempty"`
+}
+
+// ParentDomain role constants. Exactly one ParentDomain in
+// Request.ParentDomains carries ParentDomainRolePrimary; zero or more
+// carry ParentDomainRoleSMEPool. The wizard's Day-1 path always
+// produces a single primary entry — sme-pool entries are appended
+// post-handover via the admin console (issue #829).
+const (
+	// ParentDomainRolePrimary marks the unique parent domain that
+	// hosts the Sovereign's own URLs (console.<primary>,
+	// api.<primary>, marketplace.<primary>, ...). Its zone is the
+	// authoritative source for the Sovereign's bootstrap-kit
+	// HTTPRoutes.
+	ParentDomainRolePrimary = "primary"
+
+	// ParentDomainRoleSMEPool marks a parent domain offered to SME
+	// tenants for free-subdomain allocation. When an SME signs up
+	// under a Sovereign, they pick from the sme-pool entries to
+	// receive a free console.<sme>.<sme-pool> subdomain.
+	ParentDomainRoleSMEPool = "sme-pool"
+)
+
+// parentDomainNamePattern is the FQDN regex applied to ParentDomain.Name.
+// Matches the wizard's isValidDomain helper (RFC 1035 labels, ≥ 2
+// labels). Lower-cased before the test runs.
+var parentDomainNamePattern = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?(\.[a-z]([a-z0-9-]*[a-z0-9])?)+$`)
+
+// defaultRegistrarKind is the registrar adapter used when a Day-1
+// ParentDomain entry is synthesised from the legacy SovereignFQDN
+// payload (the wizard captures a single FQDN + relies on the
+// catalyst-api's env-mounted Dynadot credentials). Centralised here
+// rather than scattered as a magic string — Inviolable Principle #4.
+//
+// Future operators on registrars other than Dynadot override this via
+// CATALYST_DEFAULT_REGISTRAR_KIND on the catalyst-api Pod. The
+// wizard's StepDomain stays unchanged: the operator ships their
+// registrar credentials as env vars + sets this env to the matching
+// adapter id.
+const defaultRegistrarKind = "dynadot"
+
 // s3BucketNamePattern enforces RFC-compliant S3 bucket naming on
 // Request.ObjectStorageBucket per the rules at
 // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
@@ -82,6 +171,28 @@ type Request struct {
 	SovereignDomainMode string `json:"sovereignDomainMode"` // pool | byo
 	SovereignPoolDomain string `json:"sovereignPoolDomain"`
 	SovereignSubdomain  string `json:"sovereignSubdomain"`
+
+	// ParentDomains — the canonical multi-domain payload introduced by
+	// issue #826 (sub-1 of epic #825 — Multi-domain Sovereign). The
+	// Sovereign-side PowerDNS becomes authoritative for every entry
+	// here; exactly one entry carries Role="primary" (hosts
+	// console/api/marketplace), zero-or-more carry Role="sme-pool"
+	// (offered to SME tenants for free subdomains).
+	//
+	// Backward compatibility: when the wizard ships a payload without
+	// this field (every wizard payload as of issue #826 — the wizard
+	// stays single-FQDN per the scope correction), Validate()
+	// synthesises a single primary entry from SovereignPoolDomain (or
+	// SovereignFQDN when domain_mode is byo). Existing on-disk
+	// deployment records persisted under the legacy single-FQDN shape
+	// thus deserialize cleanly + on next Save() round-trip the
+	// synthesised array, achieving the migration the issue's DoD calls
+	// for without a one-shot migration step.
+	//
+	// Day-2 add-domain (issue #829) appends to this slice via the same
+	// per-domain abstraction the Day-1 path uses — see
+	// ProvisionParentDomain.
+	ParentDomains []ParentDomain `json:"parentDomains,omitempty"`
 
 	HetznerToken     string `json:"hetznerToken"`
 	HetznerProjectID string `json:"hetznerProjectID"`
@@ -308,6 +419,50 @@ func (r *Request) Validate() error {
 	if strings.TrimSpace(r.SovereignFQDN) == "" {
 		return errors.New("sovereign FQDN is required")
 	}
+
+	// ParentDomains migration (issue #826 — backward compat with the
+	// legacy single-FQDN payload). When the slice is empty, synthesise
+	// a single primary entry from SovereignPoolDomain (managed-pool
+	// mode) or SovereignFQDN (BYO mode) so the downstream provisioner
+	// always operates on the array shape regardless of how the request
+	// arrived. This is the migration step for in-flight wizard
+	// deployments and for on-disk records persisted under the old
+	// shape — the next Save() round-trip emits the array form. New
+	// wizard payloads (none today; #826 scope correction holds the
+	// wizard at single-FQDN) would populate the slice directly.
+	//
+	// When the slice IS supplied, validate every entry: name, role,
+	// and "exactly one primary" invariant. The catalyst-api's
+	// add-domain handler (#829) calls Validate() on the same request
+	// shape after appending — re-running the check here is idempotent.
+	if len(r.ParentDomains) == 0 {
+		// Pick the synthesis source: pool-domain mode uses
+		// SovereignPoolDomain (the operator-owned registered domain;
+		// SovereignFQDN is the per-Sovereign sub-zone like
+		// "omantel.omani.works"), BYO-or-empty falls back to
+		// SovereignFQDN. The role is always "primary" — Day-1 has
+		// exactly one entry.
+		name := strings.TrimSpace(r.SovereignPoolDomain)
+		if name == "" {
+			name = strings.TrimSpace(r.SovereignFQDN)
+		}
+		name = strings.ToLower(name)
+		// AddedAt is left zero on the synthesis path so the migration
+		// is observable from the on-disk record (a non-zero
+		// AddedAt indicates the entry was created via the explicit
+		// admin add-domain flow). Callers stamp a real timestamp
+		// when they construct a ParentDomain themselves — see
+		// internal/handler's add-domain handler in #829.
+		r.ParentDomains = []ParentDomain{{
+			Name:          name,
+			Role:          ParentDomainRolePrimary,
+			RegistrarKind: defaultRegistrarKindFromEnv(),
+		}}
+	}
+	if err := validateParentDomains(&r.ParentDomains); err != nil {
+		return err
+	}
+
 	if strings.TrimSpace(r.OrgName) == "" {
 		return errors.New("organisation name is required")
 	}
@@ -918,6 +1073,23 @@ func writeTfvars(deployDir string, req Request) error {
 		"dynadot_key":    req.DynadotAPIKey, // empty when domain_mode != "pool"
 		"dynadot_secret": req.DynadotAPISecret,
 
+		// Multi-domain payload (issue #826) — emitted as a list of
+		// objects so the OpenTofu module can iterate per-domain.
+		// At Day-1 the slice has length 1 (the primary entry). The
+		// OpenTofu module's `variable "parent_domains"` declaration
+		// (when added in a follow-up) consumes this shape directly;
+		// today the field is structural-correct + harmless if the
+		// module's variables.tf has not yet declared it (OpenTofu
+		// ignores unknown variables in tofu.auto.tfvars.json with a
+		// warning, not an error). Emitting it now lets the Day-2
+		// add-domain flow (#829) ship the same shape for every
+		// re-render.
+		//
+		// IMPORTANT: emit empty slice [] (not nil) to mirror the
+		// regions field's failure mode — `for r in var.parent_domains`
+		// in a future module would fail on null.
+		"parent_domains": coalesceParentDomains(req.ParentDomains),
+
 		// Contabo PowerDNS API key — interpolated by
 		// cloudinit-control-plane.tftpl into the Sovereign's
 		// `cert-manager/powerdns-api-credentials` Secret so
@@ -1064,6 +1236,228 @@ func env(key, def string) string {
 	return def
 }
 
+// ParentDomainStep is one named operation in the per-domain
+// provisioning pipeline. Day-1 (wizard signup) runs every registered
+// step against the single primary domain; Day-2 (admin add-domain
+// from issue #829) runs the same steps against each newly-added
+// sme-pool domain.
+//
+// Today the steps are:
+//
+//  1. registrar-flip — point the registered parent zone at the
+//     Sovereign's PowerDNS by writing ns1/ns2/ns3 NS records (and a
+//     glue A record for ns1) at the registrar's API.
+//  2. powerdns-zone-create — POST /api/v1/servers/localhost/zones to
+//     the Sovereign's PowerDNS so it serves the zone authoritatively.
+//  3. cert-manager-cert — apply a Certificate CR for *.<domain>
+//     against the Sovereign so cert-manager issues a wildcard.
+//
+// At Day-1 these are wired structurally inside the OpenTofu cloud-
+// init template (the catalyst-api's role is to write tofu.auto.tfvars.
+// json with the parent-domains list; the cloud-init renders the
+// per-domain Job manifests). At Day-2 (#829) the catalyst-api
+// implements them in-process — running each step against a freshly-
+// added domain post-handover. Same interface, same semantics; only
+// the executor differs.
+//
+// The interface lives here so #829's add-domain handler imports
+// THIS package's contract — not a parallel one. Issue #826's DoD
+// calls out "reusable per-domain function/interface ready for #829";
+// this is that contract.
+type ParentDomainStep interface {
+	// Name is a stable identifier emitted in SSE events
+	// (event.phase = "parent-domain:" + Name). Examples:
+	// "registrar-flip", "powerdns-zone-create", "cert-manager-cert".
+	Name() string
+
+	// Apply executes the step against pd. Implementations MUST be
+	// idempotent: re-running with the same (pd, lbIP) is a no-op
+	// when the desired state is already in place. Idempotency is the
+	// load-bearing property — the wipe + restart loop documented in
+	// the Catalyst-Zero memory ("FAILURE = WIPE + RESTART FROM
+	// ZERO") relies on every per-domain step being safe to re-run.
+	//
+	// The lbIP is the Sovereign's load-balancer IPv4, returned by
+	// the Phase-0 OpenTofu apply. Day-1 has it on the Result struct;
+	// Day-2 reads it from the persisted Record. Threading it through
+	// the interface keeps the steps independent of how the IP got
+	// computed.
+	Apply(ctx context.Context, pd ParentDomain, lbIP string) error
+}
+
+// ProvisionParentDomain runs the full per-domain pipeline (every
+// supplied ParentDomainStep, in order) against pd. Used by:
+//
+//   - Day-1 (wizard signup): the catalyst-api's runProvisioning
+//     iterates Request.ParentDomains and calls this once per entry
+//     (the slice is length 1 today). The OpenTofu module handles the
+//     same fan-out structurally inside cloud-init; this Go-side path
+//     exists for any domain step the catalyst-api owns directly
+//     (e.g. a future "verify NS propagation" probe that runs
+//     post-handover).
+//   - Day-2 (#829 admin add-domain): the catalyst-api's
+//     /api/v1/sovereign/parent-domains POST handler iterates the
+//     freshly-appended entries and calls this for each. Same steps
+//     as Day-1 — the abstraction is the entire point of #826.
+//
+// Per-step events are emitted via the supplied emit function so the
+// SSE stream surfaces "parent-domain:registrar-flip start
+// omani.works" → "parent-domain:registrar-flip ok omani.works" etc.
+// The event shape supports per-domain emission so #829's add-domain
+// flow surfaces progress per added domain.
+//
+// Stops on the first step error; subsequent steps are skipped
+// (failing partway through is the operator's signal to wipe and
+// restart per the wipe-and-rerun rule in the Catalyst-Zero memory).
+// The error wraps the step name + domain name so the operator's log
+// readout names the failure unambiguously.
+func ProvisionParentDomain(ctx context.Context, pd ParentDomain, lbIP string, steps []ParentDomainStep, emit func(phase, level, msg string)) error {
+	if emit == nil {
+		emit = func(string, string, string) {}
+	}
+	for _, step := range steps {
+		phase := "parent-domain:" + step.Name()
+		emit(phase, "info", fmt.Sprintf("%s start %s", step.Name(), pd.Name))
+		if err := step.Apply(ctx, pd, lbIP); err != nil {
+			emit(phase, "error", fmt.Sprintf("%s failed for %s: %s", step.Name(), pd.Name, err.Error()))
+			return fmt.Errorf("parent-domain step %q for %q: %w", step.Name(), pd.Name, err)
+		}
+		emit(phase, "info", fmt.Sprintf("%s ok %s", step.Name(), pd.Name))
+	}
+	return nil
+}
+
+// ProvisionParentDomains is the slice-flavoured ProvisionParentDomain.
+// Iterates pds applying every step against each entry, in order.
+// Day-1 (length 1) and Day-2 (length 1+) take the same path — the
+// Day-1 caller passes Request.ParentDomains, the Day-2 caller passes
+// a single-element slice with the freshly-added entry.
+//
+// Stops on first per-domain failure (the per-domain ProvisionParentDomain
+// call). The caller (catalyst-api handler) decides whether the whole
+// deployment should fail or whether to mark the failed entry and
+// continue — neither policy lives here.
+func ProvisionParentDomains(ctx context.Context, pds []ParentDomain, lbIP string, steps []ParentDomainStep, emit func(phase, level, msg string)) error {
+	for i := range pds {
+		if err := ProvisionParentDomain(ctx, pds[i], lbIP, steps, emit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateParentDomains enforces the parent-domain pool invariants
+// expressed by the multi-domain epic (#825):
+//
+//   - every entry's Name is a syntactically valid FQDN ≥ 2 labels
+//     (parentDomainNamePattern, mirroring the wizard's isValidDomain
+//     helper)
+//   - every entry's Role is one of the two known roles
+//     (ParentDomainRolePrimary | ParentDomainRoleSMEPool)
+//   - exactly ONE entry carries the primary role — neither zero nor
+//     two-or-more is acceptable
+//   - duplicate Names within the slice are rejected (an operator
+//     adding the same domain twice via the admin console is a wizard
+//     bug; surfacing the error from Validate() lets #829's handler
+//     reject with a clear 400 instead of a half-applied NS-flip)
+//
+// Pure function — no side effects, called by Request.Validate after
+// the migration synthesis path runs so it sees the canonical array
+// shape on every request.
+// validateParentDomains uses a *[]ParentDomain so it can normalise
+// each entry's Name in place (lowercase + trim) — the on-disk record
+// then carries the canonical form, and downstream consumers (the
+// registrar adapter, the CRD projection, the SME-signup pool
+// dropdown) all see the same string. Mutating callers' slice
+// through a pointer mirrors how Validate() already mutates the
+// per-region singular fields on the same Request.
+func validateParentDomains(pds *[]ParentDomain) error {
+	if pds == nil || len(*pds) == 0 {
+		return errors.New("parent domains list is empty (migration path failed to synthesise an entry — check SovereignFQDN / SovereignPoolDomain)")
+	}
+	primaryCount := 0
+	seen := make(map[string]struct{}, len(*pds))
+	for i := range *pds {
+		pd := &(*pds)[i]
+		name := strings.ToLower(strings.TrimSpace(pd.Name))
+		if name == "" {
+			return fmt.Errorf("parent domain[%d] name is required", i)
+		}
+		if !parentDomainNamePattern.MatchString(name) {
+			return fmt.Errorf("parent domain[%d] name %q is not a valid FQDN (must be lowercase, ≥ 2 labels, RFC 1035)", i, pd.Name)
+		}
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf("parent domain[%d] name %q is a duplicate of an earlier entry", i, pd.Name)
+		}
+		seen[name] = struct{}{}
+		// Normalise in-place so downstream consumers see the
+		// canonical lowercase form.
+		pd.Name = name
+
+		switch pd.Role {
+		case ParentDomainRolePrimary:
+			primaryCount++
+		case ParentDomainRoleSMEPool:
+			// OK — zero-or-more allowed.
+		case "":
+			return fmt.Errorf("parent domain[%d] role is required (one of %q | %q)", i, ParentDomainRolePrimary, ParentDomainRoleSMEPool)
+		default:
+			return fmt.Errorf("parent domain[%d] role %q is not recognised (one of %q | %q)", i, pd.Role, ParentDomainRolePrimary, ParentDomainRoleSMEPool)
+		}
+	}
+	if primaryCount != 1 {
+		return fmt.Errorf("parent domains must contain exactly one entry with role=%q (found %d)", ParentDomainRolePrimary, primaryCount)
+	}
+	return nil
+}
+
+// PrimaryParentDomain returns the single entry in r.ParentDomains
+// carrying ParentDomainRolePrimary, or nil if the slice has not yet
+// been validated/synthesised. Callers use this to read the primary
+// domain name when threading it through the OpenTofu module without
+// duplicating the "find the primary" loop at every call site. After
+// Validate() has run successfully, this is guaranteed non-nil.
+func (r Request) PrimaryParentDomain() *ParentDomain {
+	for i := range r.ParentDomains {
+		if r.ParentDomains[i].Role == ParentDomainRolePrimary {
+			return &r.ParentDomains[i]
+		}
+	}
+	return nil
+}
+
+// SMEPoolParentDomains returns every entry in r.ParentDomains carrying
+// ParentDomainRoleSMEPool. Day-1 always returns an empty slice; Day-2
+// add-domain (issue #829) populates the result.
+//
+// The order matches r.ParentDomains so callers iterating with the
+// catalyst-api's "add-order" semantics (oldest first) get a stable
+// list — useful for the admin console's "added 3 days ago" rendering
+// + for the SME wizard's parent-domain dropdown choosing the most
+// recently added pool domain when nothing is selected.
+func (r Request) SMEPoolParentDomains() []ParentDomain {
+	out := make([]ParentDomain, 0, len(r.ParentDomains))
+	for _, pd := range r.ParentDomains {
+		if pd.Role == ParentDomainRoleSMEPool {
+			out = append(out, pd)
+		}
+	}
+	return out
+}
+
+// defaultRegistrarKindFromEnv returns the registrar adapter id used
+// when synthesising a Day-1 ParentDomain entry from the legacy
+// single-FQDN payload. Reads CATALYST_DEFAULT_REGISTRAR_KIND with
+// fallback to defaultRegistrarKind ("dynadot"). Inviolable Principle
+// #4: never hardcode the registrar kind in a code path; let
+// operators on registrars other than Dynadot override via env.
+func defaultRegistrarKindFromEnv() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_DEFAULT_REGISTRAR_KIND")); v != "" {
+		return strings.ToLower(v)
+	}
+	return defaultRegistrarKind
+}
+
 // coalesceRegions normalises a nil RegionSpec slice to an empty slice so
 // JSON marshalling emits `[]` instead of `null`. The OpenTofu module's
 // `variable "regions"` validator runs `for r in var.regions` which fails
@@ -1076,4 +1470,15 @@ func coalesceRegions(rs []RegionSpec) []RegionSpec {
 		return []RegionSpec{}
 	}
 	return rs
+}
+
+// coalesceParentDomains is the parent-domain analogue of coalesceRegions.
+// Mirrors the same nil → empty slice contract so future OpenTofu
+// modules iterating `var.parent_domains` get `[]` (validator-friendly)
+// instead of `null` (validator-fatal). Issue #826.
+func coalesceParentDomains(pds []ParentDomain) []ParentDomain {
+	if pds == nil {
+		return []ParentDomain{}
+	}
+	return pds
 }
