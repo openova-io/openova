@@ -1,0 +1,39 @@
+{{- /*
+ReferenceGrant for cross-namespace HTTPRoute → Service backend refs.
+
+The marketplace and tenant-wildcard HTTPRoutes
+(templates/sme-services/marketplace-routes.yaml) live in
+{{ .Release.Namespace }} (catalyst-system) and reference Services in the
+`sme` namespace (admin, marketplace, console). Gateway API requires an
+explicit ReferenceGrant in the TARGET namespace authorising that
+cross-namespace access.
+
+Same {{ if }} guard as the routes — only renders when marketplace mode
+is enabled, so non-marketplace Sovereigns don't need any sme-namespace
+RBAC for catalyst-system.
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: marketplace-routes-to-sme
+  namespace: sme
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: marketplace-reference-grant
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: {{ .Release.Namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: marketplace
+    - group: ""
+      kind: Service
+      name: admin
+    - group: ""
+      kind: Service
+      name: console
+{{- end }}

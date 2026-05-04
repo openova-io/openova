@@ -1,3 +1,4 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -116,3 +117,4 @@ spec:
   ports:
     - port: 8085
       targetPort: 8085
+{{- end }}
