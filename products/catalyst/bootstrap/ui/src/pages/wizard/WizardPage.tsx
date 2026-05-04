@@ -18,8 +18,10 @@ import { StepNSDelegation } from './steps/StepNSDelegation'
 // Step order (must match WIZARD_STEPS in WizardLayout.tsx exactly):
 //
 //   1. StepOrg          — org profile (industry / size / HQ / compliance).
-//                         The admin email lives in StepDomain (it pairs
-//                         naturally with the Sovereign's external surface).
+//                         The admin-email field was decommissioned in
+//                         #762; orgEmail is now stamped from
+//                         session.email by the catalyst-api on
+//                         POST /v1/deployments (PR #759).
 //   2. StepTopology     — template, region count, HA flag, AIR-GAP add-on.
 //                         Decides how many region rows the next step needs.
 //   3. StepProvider     — per-region: cloud provider + provider's region +
@@ -32,7 +34,8 @@ import { StepNSDelegation } from './steps/StepNSDelegation'
 //                         The toggle decides whether the Sovereign exposes
 //                         a per-tenant SaaS storefront at
 //                         marketplace.<sovereign-fqdn>.
-//   7. StepDomain       — pool subdomain or BYO domain + admin email.
+//   7. StepDomain       — pool subdomain or BYO domain (admin email
+//                         decommissioned in #762).
 //   8. StepReview       — single source of truth for the POST body.
 //   9. StepSuccess      — provisioning result.
 //  10. StepNSDelegation — post-handover parent-zone NS delegation

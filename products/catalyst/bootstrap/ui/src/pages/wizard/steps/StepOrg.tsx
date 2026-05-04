@@ -14,10 +14,11 @@ import { StepShell, useStepNav } from './_shared'
  *
  * What is NOT captured here:
  *   - Sovereign DNS surface (pool / BYO) — lives in StepDomain.
- *   - Admin contact email — also moved to StepDomain. The admin email
- *     pairs naturally with the deployment's external surface (cert
- *     issuance, registration notifications) and asking for it on the
- *     opening screen made the org profile feel like a sign-up form.
+ *   - Admin contact email — was moved to StepDomain in #169 and then
+ *     decommissioned from the wizard entirely in #762. The
+ *     catalyst-api stamps orgEmail from session.email at submit time
+ *     (PR #759 enforces `req.OrgEmail == session.email`), so the
+ *     wizard never asks for it again.
  *   - "Org domain" free-text field — removed entirely. The Sovereign FQDN
  *     captured in StepDomain replaces it; the orgDomain store slot is
  *     preserved for backwards-compat with persisted state but is no
