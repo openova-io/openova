@@ -1,0 +1,35 @@
+apiVersion: v2
+name: bp-cluster-autoscaler-hcloud
+description: |
+  Catalyst Blueprint umbrella chart for Kubernetes cluster-autoscaler with
+  the Hetzner Cloud cloud-provider. Depends on the upstream
+  `cluster-autoscaler` chart (kubernetes/autoscaler) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `cluster-autoscaler:` key in values.yaml.
+
+  This blueprint adds and removes Hetzner Cloud workers in response to
+  `FailedScheduling` events on a Sovereign's k3s cluster, bounded by the
+  per-Sovereign `min`/`max` node-group config the operator picked at
+  launch. Pairs with VPA (right-sizing pods) and HPA / KEDA (right-sizing
+  workload replicas) on the workload axis. See
+  `platform/cluster-autoscaler-hcloud/README.md` for the rationale and
+  ADR-0001 §13 for the cloud-direct architecture rule.
+type: application
+version: 1.0.0
+appVersion: "1.32.0"
+keywords: [catalyst, blueprint, cluster-autoscaler, hetzner, autoscaling]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to kubernetes/autoscaler cluster-autoscaler 9.46.6 (appVersion
+# 1.32.0). cluster-autoscaler 1.32.x is upstream-tested against k8s 1.31
+# (k3s 1.31.x apiserver on every Sovereign) per the autoscaler
+# compatibility matrix. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) the version is operator-bumpable via PR + Blueprint release;
+# mirrors bp-vpa / bp-trivy / bp-external-dns wrapper shape.
+dependencies:
+  - name: cluster-autoscaler
+    version: "9.46.6"
+    repository: "https://kubernetes.github.io/autoscaler"

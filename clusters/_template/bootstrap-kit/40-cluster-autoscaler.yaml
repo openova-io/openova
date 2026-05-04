@@ -1,0 +1,117 @@
+# bp-cluster-autoscaler-hcloud — Catalyst bootstrap-kit Blueprint #40
+# (W2.K3, Tier 5 — Scaling/Resilience).
+#
+# Adds and removes Hetzner Cloud worker nodes on demand in response to
+# `FailedScheduling` events on the Sovereign's k3s cluster. Bounded by
+# the `min`/`max` node-group config the operator picked at launch.
+#
+# Live evidence motivating this blueprint (issue #767):
+#   otech92 — 2× cpx32 workers couldn't fit external-secrets-webhook
+#   because the bootstrap-kit's RAM aggregate (~14 GB across 35
+#   HelmReleases) exceeded the 2× 8 GB pool the operator chose. With
+#   cluster-autoscaler the Sovereign would have grown the pool to a
+#   third worker automatically.
+#
+# Wrapper chart: platform/cluster-autoscaler-hcloud/chart/ — umbrella
+# over upstream kubernetes/autoscaler cluster-autoscaler chart 9.46.6
+# (appVersion 1.32.0). Catalyst-curated values flow under the
+# `cluster-autoscaler:` key + a vendor-agnostic
+# `clusterAutoscalerHcloud.*` block that ships the namespace-local
+# Hetzner-API-token Secret (`hcloud-token`).
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Hetzner-token wiring (mirrors the velero/harbor object-storage pattern
+# in 19-harbor.yaml + 34-velero.yaml):
+#   - cloud-init writes `flux-system/cloud-credentials` Secret with the
+#     `hcloud-token` key (see infra/hetzner/cloudinit-control-plane.tftpl
+#     §"cloud-credentials-secret"). That Secret is the canonical Hetzner-
+#     API-token holder for every Day-2 mutation seam (Crossplane provider-
+#     hcloud, this autoscaler, future hcloud Floating-IP claims).
+#   - This HelmRelease lifts the `hcloud-token` value into the umbrella
+#     chart's `clusterAutoscalerHcloud.hcloudToken` value via Flux
+#     `valuesFrom`. The umbrella chart then synthesises a namespace-local
+#     `cluster-autoscaler/hcloud-token` Secret (templates/hetzner-token-
+#     secret.yaml) the upstream chart's `extraEnvSecrets.HCLOUD_TOKEN`
+#     wiring binds as the deployment's HCLOUD_TOKEN env var.
+#
+# dependsOn: (none) — cluster-autoscaler is independent of every other
+# bootstrap-kit blueprint at install time. The cloud-credentials Secret
+# is provisioned by cloud-init BEFORE Flux installs anything.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-autoscaler
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cluster-autoscaler-hcloud
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cluster-autoscaler-hcloud
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: cluster-autoscaler
+  targetNamespace: cluster-autoscaler
+  chart:
+    spec:
+      chart: bp-cluster-autoscaler-hcloud
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cluster-autoscaler-hcloud
+        namespace: flux-system
+  # Event-driven install: cluster-autoscaler is a single Deployment +
+  # ServiceAccount + RBAC. Helm install completes when manifests apply;
+  # the binary's Hetzner-API connectivity check is a runtime concern,
+  # not a Helm-wait concern. disableWait keeps Flux's Ready signal
+  # aligned with manifest apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # ── Hetzner-token wiring ────────────────────────────────────────────
+  # Pulls the `hcloud-token` key from the canonical
+  # `flux-system/cloud-credentials` Secret cloud-init writes at Phase 0
+  # (infra/hetzner/cloudinit-control-plane.tftpl §"cloud-credentials-
+  # secret"). Flux dereferences `valuesFrom` at HelmRelease apply time,
+  # so the plaintext token never appears in this committed manifest.
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-token
+      targetPath: clusterAutoscalerHcloud.hcloudToken
+  # Per-Sovereign baseline values. clusters/<sovereign>/bootstrap-kit/
+  # 40-cluster-autoscaler.yaml MAY override `autoscalingGroups` to set
+  # the actual instanceType + region + min/max + name the Tofu module
+  # provisioned at Phase 0. The defaults below match the canonical
+  # otechN topology (cpx32 in fsn1, min 2 / max 10) so a vanilla
+  # Sovereign that forgets to patch this still gets a sensible
+  # autoscaler.
+  values:
+    cluster-autoscaler:
+      autoscalingGroups:
+        - name: workers
+          instanceType: cpx32
+          region: fsn1
+          minSize: 2
+          maxSize: 10
