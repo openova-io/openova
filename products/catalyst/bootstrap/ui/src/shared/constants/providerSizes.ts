@@ -127,22 +127,37 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
       category: 'shared-intel', description: 'Intel shared vCPU — high-memory' },
 
     // CPX — AMD shared (Regular Performance lineup)
+    { id: 'cpx11', label: 'CPX11', vcpu: 2, ram: 2, disk: 40, priceHour: 0.0072, priceMonth: 4.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — minimum, dev/POC' },
+    // CPX21 — recommended cost-optimised CONTROL-PLANE default. The
+    // canonical Sovereign default is now 1× CPX21 control plane +
+    // 2× CPX31 workers = ~€20.5/mo (38% cheaper than 3× CPX32 at €33/mo).
+    // The CP carries only k3s + cilium-operator + flux controllers +
+    // cert-manager + sealed-secrets — RAM budget fits in 4 GB. Heavy
+    // stack (bp-keycloak/cnpg/harbor/openbao/grafana) schedules to
+    // workers because the bootstrap-kit tolerates away from the CP
+    // taint. If the CP exhibits RAM pressure under load, the next
+    // safe stop UP is cpx31 (8 GB), not cpx32. Operators picking
+    // SOLO mode (worker_count=0) should still pick CPX52 explicitly;
+    // the wizard's StepProvider surfaces all SKUs.
+    { id: 'cpx21', label: 'CPX21', vcpu: 3, ram: 4, disk: 80, priceHour: 0.0088, priceMonth: 5.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised CP default (3 vCPU / 4 GB) — paired with cpx31 workers for ~€20.5/mo total Sovereign',
+      recommended: true },
     { id: 'cpx22', label: 'CPX22', vcpu: 2, ram: 4, disk: 80, priceHour: 0.0128, priceMonth: 7.99,
       category: 'shared-amd', description: 'AMD shared vCPU — entry compute' },
-    // CPX32 — recommended HORIZONTAL-scale starter (issue #733). The
-    // canonical Sovereign default is 1× CPX32 control plane + 2× CPX32
-    // workers (3 nodes × 4 vCPU/8 GB = 12 vCPU / 24 GB total — same
-    // aggregate footprint as a single CPX52 vertical-scale node, but
-    // with multi-node fault tolerance and the architectural shape
-    // `clusters/_template/` was designed for). The previous "CPX32 is
-    // too small for solo" warning was a single-node observation —
-    // multi-node spreads the bootstrap-kit's load across 3 schedulable
-    // hosts so per-node CPU never saturates the way otech26 hit.
-    // Operators picking SOLO mode (worker_count=0) should still pick
-    // CPX52 explicitly; the wizard's StepProvider surfaces both.
+    // CPX31 — recommended cost-optimised WORKER default. 4 vCPU /
+    // 8 GB AMD shared at ~€7.5/mo. RAM (8 GB) is the binding
+    // constraint for the bootstrap-kit's worker pods, not vCPU.
+    { id: 'cpx31', label: 'CPX31', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0120, priceMonth: 7.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised worker default (4 vCPU / 8 GB) — paired with cpx21 CP for the canonical Sovereign topology' },
+    // CPX32 — formerly the canonical horizontal-scale default; kept
+    // in the catalog for operators who want the higher per-node CPU
+    // budget (e.g. CPU-heavy DP workloads). 1× CPX32 CP + 2× CPX32
+    // workers totals ~€33/mo — 60% more expensive than the cost-
+    // optimised cpx21+cpx31 combo and only valuable when the workload
+    // mix is CPU-bound at the worker.
     { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0232, priceMonth: 14.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — multi-node default (4 vCPU / 8 GB) — pair with worker_count ≥ 2 for full Sovereign bootstrap-kit',
-      recommended: true },
+      category: 'shared-amd', description: 'AMD shared vCPU — Helsinki-tier (4 vCPU / 8 GB) — opt-in upgrade over cpx31 worker for CPU-heavy data plane' },
     // CPX42 — fits a TRIMMED bootstrap-kit but otech29 showed 8 vCPU
     // is too tight for the full 35-component default — keycloak-config-cli
     // post-upgrade Job sits Pending forever with "Insufficient cpu".
@@ -436,9 +451,36 @@ export function findNodeSize(provider: CloudProvider, id: string): NodeSize | un
 /**
  * The "starter default" SKU for a provider — first one flagged
  * `recommended: true`, falling back to the first entry.
+ *
+ * For Hetzner this resolves to CPX21 (cost-optimised control-plane
+ * default, 3 vCPU / 4 GB AMD shared). The worker-default SKU is
+ * picked separately via `defaultWorkerSizeId` because the
+ * cost-optimised topology pairs CPX21 (CP) with CPX31 (worker) —
+ * a single `recommended: true` flag can't express that asymmetry.
  */
 export function defaultNodeSizeId(provider: CloudProvider): string {
   const list = PROVIDER_NODE_SIZES[provider]
   const recommended = list.find((s) => s.recommended)
   return (recommended ?? list[0]!).id
+}
+
+/**
+ * Per-provider worker-default SKU. Hetzner pairs the CPX21 control
+ * plane with CPX31 workers (4 vCPU / 8 GB) — RAM is the binding
+ * constraint for bp-keycloak / bp-cnpg / bp-harbor / bp-openbao /
+ * bp-grafana so the worker keeps 8 GB while the CP drops to 4 GB.
+ * Other providers fall back to the same SKU as the CP default
+ * (symmetric topology) until their per-provider asymmetry is
+ * profiled.
+ */
+const PROVIDER_WORKER_DEFAULTS: Partial<Record<CloudProvider, string>> = {
+  hetzner: 'cpx31',
+}
+
+export function defaultWorkerSizeId(provider: CloudProvider): string {
+  const explicit = PROVIDER_WORKER_DEFAULTS[provider]
+  if (explicit && PROVIDER_NODE_SIZES[provider].some((s) => s.id === explicit)) {
+    return explicit
+  }
+  return defaultNodeSizeId(provider)
 }
