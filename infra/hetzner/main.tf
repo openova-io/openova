@@ -170,6 +170,7 @@ locals {
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     sovereign_subdomain        = var.sovereign_subdomain
+    marketplace_enabled        = var.marketplace_enabled
     org_name                   = var.org_name
     org_email                  = var.org_email
     region                     = var.region

@@ -23,6 +23,16 @@ variable "sovereign_subdomain" {
   default     = ""
 }
 
+variable "marketplace_enabled" {
+  type        = string
+  description = "When 'true', bp-catalyst-platform 1.3.0+ renders the marketplace + tenant-wildcard HTTPRoutes exposing marketplace.<sov> + *.<sov>. Operator opt-in (issue #710). Default 'false' for non-marketplace Sovereigns."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.marketplace_enabled)
+    error_message = "marketplace_enabled must be the string 'true' or 'false'."
+  }
+}
+
 variable "org_name" {
   type        = string
   description = "Organisation name for resource labels + initial sovereign-admin Org name"

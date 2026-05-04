@@ -786,6 +786,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Marketplace mode toggle (issue #710). Default "false" so a
+            # zero-touch provision lands a non-marketplace Sovereign. The
+            # operator (or the wizard's "Enable Marketplace" component
+            # checkbox) flips this to "true" via per-Sovereign overlay
+            # patch — bp-catalyst-platform 1.3.0 then renders the
+            # marketplace + tenant-wildcard HTTPRoutes.
+            MARKETPLACE_ENABLED: ${marketplace_enabled}
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
@@ -816,6 +823,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Marketplace mode toggle (issue #710). Default "false" so a
+            # zero-touch provision lands a non-marketplace Sovereign. The
+            # operator (or the wizard's "Enable Marketplace" component
+            # checkbox) flips this to "true" via per-Sovereign overlay
+            # patch — bp-catalyst-platform 1.3.0 then renders the
+            # marketplace + tenant-wildcard HTTPRoutes.
+            MARKETPLACE_ENABLED: ${marketplace_enabled}
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
@@ -841,6 +855,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Marketplace mode toggle (issue #710). Default "false" so a
+            # zero-touch provision lands a non-marketplace Sovereign. The
+            # operator (or the wizard's "Enable Marketplace" component
+            # checkbox) flips this to "true" via per-Sovereign overlay
+            # patch — bp-catalyst-platform 1.3.0 then renders the
+            # marketplace + tenant-wildcard HTTPRoutes.
+            MARKETPLACE_ENABLED: ${marketplace_enabled}
 
 runcmd:
   - swapoff -a

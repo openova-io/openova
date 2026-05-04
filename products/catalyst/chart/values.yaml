@@ -86,3 +86,40 @@ ingress:
       host: ""
     marketplace:
       host: ""
+  # Marketplace mode toggle (issue #710). When enabled, the chart renders
+  # templates/sme-services/marketplace-routes.yaml exposing
+  # marketplace.<sov>/{,api/,back-office/} and *.<sov> (tenant wildcard)
+  # via Cilium Gateway. Default OFF — non-marketplace Sovereigns get the
+  # SME workloads but no public ingress.
+  marketplace:
+    enabled: false
+
+# Marketplace operator branding + payment + signup config (issue #710).
+# Operator-supplied at provision time; rendered into ConfigMaps consumed
+# by templates/sme-services/marketplace.yaml + admin.yaml. Defaults are
+# safe placeholders so non-marketplace Sovereigns render without input.
+marketplace:
+  brand:
+    name: ""              # Display name in storefront header (e.g. "Otech Cloud")
+    tagline: ""           # Sub-headline (e.g. "Cloud + SaaS for Oman")
+    logo: ""              # Logo URL (data: or remote)
+    primaryColor: ""      # Hex (#RRGGBB) — falls back to chart default if empty
+  currency: "USD"          # ISO-4217 (OMR / USD / EUR / SAR / AED / ...)
+  paymentProvider:
+    stripe:
+      enabled: false
+      publishableKey: ""              # safe to render in storefront JS
+      secretKeyRef:                   # Secret + key holding STRIPE_SECRET_KEY
+        name: ""                      # default: "" — disabled
+        key: "secret-key"
+      webhookSecretRef:
+        name: ""
+        key: "webhook-secret"
+  signupPolicy:
+    requireVoucher: false             # if true, /redeem must succeed before signup
+    googleOAuth:
+      enabled: false
+      clientId: ""
+      clientSecretRef:
+        name: ""
+        key: "client-secret"

@@ -156,16 +156,17 @@ func TestChildZoneName(t *testing.T) {
 
 func TestCanonicalRecordSet(t *testing.T) {
 	rrsets := canonicalRecordSet("acme.openova.io", "1.2.3.4")
-	if len(rrsets) != 6 {
-		t.Fatalf("expected 6 RRsets, got %d", len(rrsets))
+	if len(rrsets) != 7 {
+		t.Fatalf("expected 7 RRsets, got %d", len(rrsets))
 	}
 	wantNames := map[string]bool{
-		"acme.openova.io":         false,
-		"*.acme.openova.io":       false,
-		"console.acme.openova.io": false,
-		"api.acme.openova.io":     false,
-		"gitea.acme.openova.io":   false,
-		"harbor.acme.openova.io":  false,
+		"acme.openova.io":             false,
+		"*.acme.openova.io":           false,
+		"console.acme.openova.io":     false,
+		"api.acme.openova.io":         false,
+		"gitea.acme.openova.io":       false,
+		"harbor.acme.openova.io":      false,
+		"marketplace.acme.openova.io": false,
 	}
 	for _, r := range rrsets {
 		if r.Type != "A" {
@@ -250,8 +251,8 @@ func TestCommitDNSShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := dns.rrsets["omantel.omani.works"]
-	if len(got) != 6 {
-		t.Fatalf("expected 6 RRsets recorded, got %d", len(got))
+	if len(got) != 7 {
+		t.Fatalf("expected 7 RRsets recorded, got %d", len(got))
 	}
 }
 

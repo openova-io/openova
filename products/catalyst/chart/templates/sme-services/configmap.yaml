@@ -1,3 +1,4 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -47,3 +48,4 @@ data:
   # ---- checkout redirect targets --------------------------------------------
   CHECKOUT_SUCCESS_URL: "https://sme.openova.io/checkout/success"
   CHECKOUT_CANCEL_URL: "https://sme.openova.io/checkout/cancel"
+{{- end }}

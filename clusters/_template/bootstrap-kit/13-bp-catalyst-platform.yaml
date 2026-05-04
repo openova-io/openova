@@ -58,7 +58,7 @@ spec:
   chart:
     spec:
       chart: bp-catalyst-platform
-      version: 1.2.7
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -91,6 +91,14 @@ spec:
         admin:
           host: admin.${SOVEREIGN_FQDN}
         marketplace:
-          host: ${SOVEREIGN_FQDN}
+          host: marketplace.${SOVEREIGN_FQDN}
         api:
           host: api.${SOVEREIGN_FQDN}
+      # Marketplace mode (issue #710). Toggle to true via envsubst
+      # MARKETPLACE_ENABLED in the per-Sovereign overlay (catalyst-api
+      # writes this when the wizard's "Enable Marketplace" component is
+      # checked). When true, bp-catalyst-platform 1.3.0+ renders the
+      # marketplace + tenant-wildcard HTTPRoutes and the cross-namespace
+      # ReferenceGrant.
+      marketplace:
+        enabled: ${MARKETPLACE_ENABLED:-false}

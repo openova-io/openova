@@ -99,6 +99,14 @@ type Request struct {
 
 	HAEnabled bool `json:"haEnabled"`
 
+	// MarketplaceEnabled — when true, bp-catalyst-platform 1.3.0+ renders the
+	// marketplace + tenant-wildcard HTTPRoutes (issue #710). Threaded into
+	// tofu via var.marketplace_enabled, then into the cloud-init Flux
+	// Kustomization postBuild.substitute.MARKETPLACE_ENABLED. Default false
+	// — operator opts in via wizard's "Enable Marketplace" component
+	// checkbox.
+	MarketplaceEnabled bool `json:"marketplaceEnabled"`
+
 	// Per-region sizing payload — canonical from the per-provider rework
 	// onwards. The wizard always emits this. Multi-region tofu wiring is
 	// structural-correct (variables.tf and the cloud-init templates
@@ -823,6 +831,13 @@ func writeTfvars(deployDir string, req Request) error {
 		"sovereign_subdomain": req.SovereignSubdomain,
 		"org_name":            req.OrgName,
 		"org_email":           req.OrgEmail,
+
+		// Marketplace exposure toggle (issue #710). Stringified for the tofu
+		// var (declared as type string with "true"/"false" validation) so
+		// drone-envsubst can interpolate it directly into the Flux
+		// Kustomization postBuild.substitute block at cloud-init render
+		// time without quoting surprises.
+		"marketplace_enabled": map[bool]string{true: "true", false: "false"}[req.MarketplaceEnabled],
 
 		// Hetzner — token gets baked into the state file unless the operator
 		// configures a remote backend with encryption-at-rest. Per Catalyst

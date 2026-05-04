@@ -528,7 +528,7 @@ func childZoneName(poolDomain, subdomain string) string {
 // Per docs/PLATFORM-POWERDNS.md these names mirror the canonical-record
 // contract and use TTL 300 for fast failover.
 func canonicalRecordSet(childZone, lbIP string) []pdns.RRSet {
-	prefixes := []string{"", "*", "console", "api", "gitea", "harbor"}
+	prefixes := []string{"", "*", "console", "api", "gitea", "harbor", "marketplace"}
 	rrsets := make([]pdns.RRSet, 0, len(prefixes))
 	for _, p := range prefixes {
 		var name string
