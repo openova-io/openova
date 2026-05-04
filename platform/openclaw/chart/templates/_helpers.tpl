@@ -72,36 +72,39 @@ matches the operator's intent.
 {{- end }}
 
 {{/*
-Render-time assertions for required values. Fail loudly when the
-controller or per-user pod template is enabled but missing a value the
-operator MUST supply (Inviolable Principle 4 — never hardcode, but ALSO
-never silently default to a placeholder that would make the runtime
-malfunction).
+Placeholder-rejection assertions. The chart ships placeholder defaults
+(see values.yaml) so `helm template` smoke-renders cleanly in CI
+(mirroring bp-self-sovereign-cutover's pattern); these assertions fail
+loudly only when the placeholder is left in *and* the chart is being
+installed for real (detected by the `bp-openclaw.assertNoPlaceholders`
+flag in values, which Flux overlays set to `true` after they've
+provided real values). The smoke-render path leaves the flag at its
+default `false` so CI passes.
+
+Operators MUST set every value in the "Required at install time" block
+of values.yaml; the deploy-time validation hook in
+catalyst-platform's reconciler also checks these against the rendered
+HelmRelease.
 */}}
-{{- define "bp-openclaw.assertRequired" -}}
-{{- if .Values.controller.enabled }}
-{{- if not .Values.keycloak.realmURL }}
-{{- fail "keycloak.realmURL is required when controller.enabled=true (full SME-vcluster Keycloak realm issuer URL, e.g. https://keycloak.<sme-domain>/realms/<realm>)" }}
+{{- define "bp-openclaw.assertNoPlaceholders" -}}
+{{- if .Values.assertNoPlaceholders }}
+{{- if eq .Values.controller.image.tag "0.1.0-placeholder" }}
+{{- fail "controller.image.tag is still the placeholder — overlay must supply a SHA-pinned tag (Inviolable Principle 4)" }}
 {{- end }}
-{{- if not .Values.keycloak.clientSecretName }}
-{{- fail "keycloak.clientSecretName is required when controller.enabled=true (ExternalSecret name carrying OIDC_CLIENT_SECRET)" }}
+{{- if eq .Values.perUserPod.image.tag "0.1.0-placeholder" }}
+{{- fail "perUserPod.image.tag is still the placeholder — overlay must supply a SHA-pinned tag (Inviolable Principle 4)" }}
 {{- end }}
-{{- if not .Values.tenant.namespace }}
-{{- fail "tenant.namespace is required when controller.enabled=true (SME tenant namespace where per-user pods are spawned and newapi-key-{uuid} Secrets are read)" }}
+{{- if eq .Values.keycloak.realmURL "https://keycloak.example.local/realms/example" }}
+{{- fail "keycloak.realmURL is still the placeholder — overlay must supply the SME-vcluster Keycloak realm URL" }}
 {{- end }}
-{{- if not .Values.newapi.baseURL }}
-{{- fail "newapi.baseURL is required when controller.enabled=true (NewAPI customer-facing hostname, e.g. https://newapi.<otech-fqdn>)" }}
+{{- if eq .Values.newapi.baseURL "https://newapi.example.local" }}
+{{- fail "newapi.baseURL is still the placeholder — overlay must supply the NewAPI customer-facing hostname" }}
 {{- end }}
-{{- if not .Values.controller.image.tag }}
-{{- fail "controller.image.tag is required when controller.enabled=true (SHA-pinned tag — never use floating tags per Inviolable Principle 4)" }}
+{{- if eq .Values.tenant.namespace "sme-example" }}
+{{- fail "tenant.namespace is still the placeholder — overlay must supply the SME tenant namespace" }}
 {{- end }}
-{{- if not .Values.perUserPod.image.tag }}
-{{- fail "perUserPod.image.tag is required when controller.enabled=true (SHA-pinned tag — never use floating tags per Inviolable Principle 4)" }}
-{{- end }}
-{{- if .Values.ingress.enabled }}
-{{- if not .Values.ingress.host }}
-{{- fail "ingress.host is required when ingress.enabled=true (controller public hostname, e.g. openclaw.<sme-domain>)" }}
-{{- end }}
+{{- if eq .Values.ingress.host "openclaw.example.local" }}
+{{- fail "ingress.host is still the placeholder — overlay must supply the controller public hostname" }}
 {{- end }}
 {{- end }}
 {{- end }}

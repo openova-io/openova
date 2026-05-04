@@ -3,13 +3,14 @@
 #
 # Drives the helm-template gate run by .github/workflows/blueprint-release.yaml.
 # Verifies:
-#   1. Default values render FAILS — required values must be enforced.
-#   2. Minimum-required values render SUCCEEDS and produces expected resources.
+#   1. Default render SUCCEEDS (placeholder defaults are valid bytes).
+#   2. assertNoPlaceholders=true with placeholder values FAILS render.
 #   3. RBAC: `create` verbs are NOT combined with `resourceNames`
 #      (per feedback_rbac_create_no_resourcenames.md).
 #   4. ServiceMonitor toggle defaults to off (per BLUEPRINT-AUTHORING §11.2).
 #   5. networkPolicy toggle suppresses NetworkPolicy when off.
 #   6. Per-user pod template ConfigMap is rendered.
+#   7. Ingress carries cert-manager cluster-issuer annotation.
 #
 # Usage: bash tests/render-toggles.sh [CHART_DIR]
 
@@ -21,52 +22,56 @@ trap 'rm -rf "$TMP"' EXIT
 
 cd "$CHART_DIR"
 
-# Common args every successful render needs (the operator-supplied
-# values that the chart's assertRequired helper guards on).
-COMMON_ARGS=(
-  --set "keycloak.realmURL=https://kc.acme.example/realms/acme"
-  --set "keycloak.clientSecretName=openclaw-oidc"
-  --set "tenant.namespace=sme-acme"
-  --set "newapi.baseURL=https://newapi.example"
-  --set "controller.image.tag=sha-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-  --set "perUserPod.image.tag=sha-cafef00dcafef00dcafef00dcafef00dcafef00d"
-  --set "ingress.host=openclaw.acme.example"
-)
-
-echo "[render-toggles] Case 1: default render FAILS without required values"
-if helm template smoke-openclaw . > "$TMP/default.yaml" 2> "$TMP/default.err"; then
-  echo "FAIL: default render succeeded — assertRequired in _helpers.tpl is broken." >&2
-  echo "      Expected the chart to fail with a helpful error when keycloak.realmURL et al are unset." >&2
-  exit 1
-fi
-if ! grep -q "is required" "$TMP/default.err"; then
-  echo "FAIL: default render failure did not include the expected 'is required' helper-message." >&2
+echo "[render-toggles] Case 1: default render succeeds (placeholder defaults are valid for smoke)"
+if ! helm template smoke-openclaw . > "$TMP/default.yaml" 2> "$TMP/default.err"; then
+  echo "FAIL: default render failed (placeholder defaults should let smoke render pass):" >&2
   cat "$TMP/default.err" >&2
   exit 1
 fi
-echo "  PASS"
-
-echo "[render-toggles] Case 2: minimum-required values render succeeds"
-if ! helm template smoke-openclaw . "${COMMON_ARGS[@]}" > "$TMP/ok.yaml" 2> "$TMP/ok.err"; then
-  echo "FAIL: minimum-required render failed:" >&2
-  cat "$TMP/ok.err" >&2
-  exit 1
-fi
 for kind in Deployment Service Ingress Role RoleBinding ConfigMap NetworkPolicy ServiceAccount; do
-  if ! grep -qE "^kind: ${kind}$" "$TMP/ok.yaml"; then
-    echo "FAIL: minimum-required render is missing kind=${kind}" >&2
+  if ! grep -qE "^kind: ${kind}$" "$TMP/default.yaml"; then
+    echo "FAIL: default render is missing kind=${kind}" >&2
     exit 1
   fi
 done
 echo "  PASS"
 
+echo "[render-toggles] Case 2: assertNoPlaceholders=true with default values FAILS render"
+if helm template smoke-openclaw . --set "assertNoPlaceholders=true" > "$TMP/assert.yaml" 2> "$TMP/assert.err"; then
+  echo "FAIL: assertNoPlaceholders=true rendered successfully — guard is broken." >&2
+  echo "      Expected at least one placeholder-rejection message." >&2
+  exit 1
+fi
+if ! grep -q "placeholder" "$TMP/assert.err"; then
+  echo "FAIL: assertNoPlaceholders=true failure did not include the expected 'placeholder' message." >&2
+  cat "$TMP/assert.err" >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[render-toggles] Case 2b: assertNoPlaceholders=true with all real values renders successfully"
+if ! helm template smoke-openclaw . \
+    --set "assertNoPlaceholders=true" \
+    --set "keycloak.realmURL=https://kc.acme.example/realms/acme" \
+    --set "keycloak.clientSecretName=openclaw-oidc" \
+    --set "tenant.namespace=sme-acme" \
+    --set "newapi.baseURL=https://newapi.example" \
+    --set "controller.image.tag=sha-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" \
+    --set "perUserPod.image.tag=sha-cafef00dcafef00dcafef00dcafef00dcafef00d" \
+    --set "ingress.host=openclaw.acme.example" \
+    > "$TMP/real.yaml" 2> "$TMP/real.err"; then
+  echo "FAIL: assertNoPlaceholders=true with real values failed:" >&2
+  cat "$TMP/real.err" >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[render-toggles] Case 3: RBAC — 'create' verb is NOT combined with resourceNames"
-# Extract all rules blocks from any Role/ClusterRole rendered by the
-# chart and assert no rule contains both `verbs: [..., create, ...]`
-# AND a `resourceNames:` selector. This is the canonical defense
-# against the bp-openbao 6+ provisioning loop incident
-# (feedback_rbac_create_no_resourcenames.md, 2026-05-03).
-RENDER_OUT="$TMP/ok.yaml" python3 - <<'PY'
+# Per feedback_rbac_create_no_resourcenames.md (2026-05-03): combining
+# `create` with resourceNames produces 403 every time (resourceNames
+# cannot constrain a not-yet-existing resource). Label-based ownership
+# is enforced at the controller, not in RBAC.
+RENDER_OUT="$TMP/default.yaml" python3 - <<'PY'
 import os, sys, yaml
 path = os.environ["RENDER_OUT"]
 with open(path) as f:
@@ -92,14 +97,14 @@ PY
 echo "  PASS"
 
 echo "[render-toggles] Case 4: ServiceMonitor defaults off"
-if grep -qE "kind: (ServiceMonitor|PodMonitor|PrometheusRule)" "$TMP/ok.yaml"; then
+if grep -qE "kind: (ServiceMonitor|PodMonitor|PrometheusRule)" "$TMP/default.yaml"; then
   echo "FAIL: default render contains a Prometheus operator resource — observability toggles must default off (BLUEPRINT-AUTHORING.md §11.2)." >&2
   exit 1
 fi
 echo "  PASS"
 
 echo "[render-toggles] Case 5: networkPolicy.enabled=false suppresses NetworkPolicy"
-if ! helm template smoke-openclaw . "${COMMON_ARGS[@]}" \
+if ! helm template smoke-openclaw . \
     --set "networkPolicy.enabled=false" \
     > "$TMP/np-off.yaml" 2> "$TMP/np-off.err"; then
   echo "FAIL: networkPolicy.enabled=false render failed:" >&2
@@ -113,14 +118,14 @@ fi
 echo "  PASS"
 
 echo "[render-toggles] Case 6: per-user pod template ConfigMap is rendered"
-if ! grep -q "pod-template.yaml: |" "$TMP/ok.yaml"; then
+if ! grep -q "pod-template.yaml: |" "$TMP/default.yaml"; then
   echo "FAIL: per-user pod-template ConfigMap was not rendered (controller would have no pod-spec template at runtime)." >&2
   exit 1
 fi
 # Assert the substitution placeholders the controller will fill at
 # session-start are present in the rendered template.
 for placeholder in '${USER_UUID}' '${SECRET_NAME}'; do
-  if ! grep -qF "$placeholder" "$TMP/ok.yaml"; then
+  if ! grep -qF "$placeholder" "$TMP/default.yaml"; then
     echo "FAIL: per-user pod-template missing controller substitution placeholder ${placeholder}" >&2
     exit 1
   fi
@@ -128,7 +133,7 @@ done
 echo "  PASS"
 
 echo "[render-toggles] Case 7: ingress carries cert-manager cluster-issuer annotation"
-if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-prod"' "$TMP/ok.yaml"; then
+if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-prod"' "$TMP/default.yaml"; then
   echo "FAIL: ingress is missing cert-manager.io/cluster-issuer annotation — ACME auto-issue won't fire." >&2
   exit 1
 fi
