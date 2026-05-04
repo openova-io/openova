@@ -39,6 +39,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
 import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
 import { useNotifications } from '@/shared/ui/notifications'
+import { isDeploymentID } from '@/shared/types/deployment'
 
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -51,7 +52,15 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const params = useParams({ from: '/provision/$deploymentId' as never }) as {
     deploymentId: string
   }
-  const deploymentId = params.deploymentId
+  // The route param is a `string` from TanStack — validate it against
+  // the branded `DeploymentID` shape at the boundary so a 15-char
+  // truncation OR a 17-char overflow is impossible to thread further
+  // down. We use `isDeploymentID` (rather than throwing parse) so the
+  // page can render its own malformed-id banner without crashing the
+  // route. Closes issues #749 + #754.
+  const rawDeploymentId = params.deploymentId
+  const deploymentIdValid = isDeploymentID(rawDeploymentId)
+  const deploymentId = rawDeploymentId
   const router = useRouter()
   const store = useWizardStore()
 
@@ -152,6 +161,38 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     notify,
     dismiss,
   ])
+
+  // Malformed-id banner (issues #749 + #754). When the URL carries a
+  // value that isn't a 16-char lowercase hex id, surface it
+  // immediately so the operator sees the FULL invalid value rather
+  // than a misleading "deployment <truncated> is unknown to the
+  // backend" message that hides the truncation. Uses a `notify` (not
+  // `throw`) so the rest of the page still renders — preserves the
+  // canonical empty-grid + Cancel-and-Wipe affordance.
+  useEffect(() => {
+    const id = `deployment-id-malformed:${rawDeploymentId}`
+    if (deploymentIdValid) {
+      dismiss(id)
+      return
+    }
+    notify({
+      id,
+      level: 'error',
+      title: 'Deployment id in the URL is malformed',
+      body:
+        `The path segment "${rawDeploymentId}" is not a valid deployment id ` +
+        `(expected 16 lowercase hex characters; got ${rawDeploymentId.length}). ` +
+        `Re-check the link you opened or return to the wizard.`,
+      actions: [
+        {
+          label: 'Back to wizard',
+          variant: 'primary',
+          testId: 'sov-malformed-id-back',
+          onClick: () => router.navigate({ to: '/wizard' }),
+        },
+      ],
+    })
+  }, [deploymentIdValid, rawDeploymentId, notify, dismiss, router])
 
   // Catalog = every Application this deployment knows about (canonical
   // calls this "every app in the org's catalog"; for the wizard surface

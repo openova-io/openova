@@ -11,6 +11,7 @@ import {
   type ProvisionResult,
   type MarketplaceBrand,
 } from './model'
+import { parseDeploymentID } from '@/shared/types/deployment'
 import {
   findComponent,
   findProduct,
@@ -56,6 +57,16 @@ function computeInitialComponentSelection(): string[] {
 interface WizardActions {
   setStep: (step: number) => void
   markStepComplete: (step: number) => void
+  /**
+   * Set / clear the wizard's current deployment id. Accepts a raw
+   * `string` for ergonomic call-sites (e.g. the StepReview launch
+   * handler reading `data.id` from the catalyst-api response), but
+   * routes EVERY non-null value through `parseDeploymentID()` so the
+   * persisted value is guaranteed to be a real 16-char hex id. A
+   * malformed id throws synchronously — the wizard surfaces this as
+   * a launch failure rather than persisting an invalid state.
+   * Closes #749 + #754.
+   */
   setDeploymentId: (id: string | null) => void
   reset: () => void
 
@@ -213,7 +224,19 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/markStepComplete'
           ),
-        setDeploymentId: (deploymentId) => set({ deploymentId }, false, 'wizard/setDeploymentId'),
+        setDeploymentId: (deploymentId) =>
+          set(
+            {
+              // Branded-type guard — a raw string from anywhere
+              // (catalyst-api response, Storybook, test fixture) is
+              // re-validated here so the persisted state can never hold
+              // a malformed id. Issues #749 + #754.
+              deploymentId:
+                deploymentId === null ? null : parseDeploymentID(deploymentId),
+            },
+            false,
+            'wizard/setDeploymentId',
+          ),
         reset: () => set(INITIAL_WIZARD_STATE, false, 'wizard/reset'),
 
         setOrgName: (orgName) => set({ orgName }, false, 'wizard/setOrgName'),
@@ -812,6 +835,27 @@ export const useWizardStore = create<WizardStore>()(
               if (!findComponent(id)) present.delete(id)
             }
             p.selectedComponents = [...present].sort()
+          }
+          // Re-validate the persisted deploymentId against the branded
+          // shape (issues #749 + #754). A legacy localStorage payload
+          // could carry a malformed value (truncated id, uppercased,
+          // legacy uuid shape) — drop it rather than re-pollute the
+          // active session. Falls back to null so the wizard's
+          // first-run state is the same as a fresh install.
+          {
+            const persistedId = (p as { deploymentId?: unknown }).deploymentId
+            if (persistedId == null) {
+              p.deploymentId = null
+            } else {
+              try {
+                p.deploymentId = parseDeploymentID(persistedId)
+              } catch {
+                // Bad payload — wipe it. Better to lose a stale id
+                // than to render the misleading 15-char error this
+                // PR exists to prevent.
+                p.deploymentId = null
+              }
+            }
           }
           // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
           const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']

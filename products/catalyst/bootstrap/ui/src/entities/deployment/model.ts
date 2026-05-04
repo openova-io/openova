@@ -1,5 +1,12 @@
 import { computeDefaultSelection } from '@/pages/wizard/steps/componentGroups'
 
+// Re-export the branded `DeploymentID` (and helpers) so existing
+// imports from `@/entities/deployment/model` continue to work and
+// new call sites can reach for the brand without a second import.
+// Closes #749 + #754.
+export type { DeploymentID } from '@/shared/types/deployment'
+export { parseDeploymentID, isDeploymentID } from '@/shared/types/deployment'
+
 export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
 /**
  * NodeSize is a free-form string — the native instance-type id the chosen
@@ -274,7 +281,15 @@ export interface WizardState {
    */
   selectedComponents: string[]
   airgap: boolean
-  currentStep: number; completedSteps: number[]; deploymentId: string | null
+  /**
+   * Stable per-deployment identifier minted by catalyst-api's `newID()`
+   * (16 lowercase hex chars from `crypto/rand.Read(8)` →
+   * `hex.EncodeToString`). Branded via `DeploymentID` so the compiler
+   * rejects any raw `string` assignment that hasn't been routed through
+   * `parseDeploymentID()` — closes the recurring 1-char truncation bug
+   * (issues #749 + #754).
+   */
+  currentStep: number; completedSteps: number[]; deploymentId: import('@/shared/types/deployment').DeploymentID | null
   /**
    * Provisioner result captured by StepProvisioning when the SSE stream
    * emits the terminal `event: done` with a result payload. Consumed by
