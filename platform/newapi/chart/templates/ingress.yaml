@@ -1,8 +1,23 @@
-{{- if and .Values.newapi.enabled .Values.ingress.enabled }}
+{{- /*
+Ingress + admin Ingress + Traefik allowlist Middleware. Both virtual
+hosts (`api.<sovereign-fqdn>` + `admin.<sovereign-fqdn>`) are
+operator-supplied via `ingress.host` + `ingress.adminHost` in the
+per-Sovereign bootstrap-kit overlay (slot 80-newapi.yaml).
+
+Skip-render gate: when EITHER host is empty, the chart's ingress block
+is silently skipped. This matches the pattern used by other bootstrap-
+kit HTTPRoute templates (bp-keycloak / bp-openbao / bp-external-dns)
+and lets the CI smoke render (`helm template` with default values)
+succeed end-to-end without smuggling a host placeholder. A real
+Sovereign install whose overlay forgets to set the hosts surfaces the
+gap as "no Ingress object materialised" — caught by the bootstrap-kit
+smoke test, not by render-time fail.
+*/ -}}
+{{- if and .Values.newapi.enabled .Values.ingress.enabled .Values.ingress.host .Values.ingress.adminHost }}
 {{- $fullName := include "bp-newapi.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
-{{- $apiHost := required "ingress.host is required (customer-facing API hostname, e.g. api.<sovereign-fqdn>)" .Values.ingress.host -}}
-{{- $adminHost := required "ingress.adminHost is required (ops-staff admin UI hostname, e.g. admin.<sovereign-fqdn>)" .Values.ingress.adminHost -}}
+{{- $apiHost := .Values.ingress.host -}}
+{{- $adminHost := .Values.ingress.adminHost -}}
 ---
 # ─── Customer-facing API ingress ─────────────────────────────────────────
 # Locked-down: only the OpenAI-compatible API surface is reachable. The

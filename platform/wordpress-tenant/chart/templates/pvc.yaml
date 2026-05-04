@@ -1,0 +1,31 @@
+{{- if and .Values.wordpress.enabled .Values.persistence.wpContent.enabled }}
+{{- /*
+Persistent volume for /var/www/html/wp-content. Carries the WordPress
+themes, plugins, mu-plugins, and uploaded media across pod restarts and
+image upgrades. Bound at first install; the wp-content-bootstrap
+initContainer in the Deployment seeds the freshly-bound PVC from the
+official image's baked-in wp-content directory (idempotent).
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-wp-content
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+  annotations:
+    # Helm resource-policy keep — do not delete on `helm uninstall`
+    # (the PVC carries customer content; operator must explicitly
+    # delete via `kubectl delete pvc` after data export).
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- range .Values.persistence.wpContent.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.wpContent.size | quote }}
+  {{- if .Values.persistence.wpContent.storageClass }}
+  storageClassName: {{ .Values.persistence.wpContent.storageClass | quote }}
+  {{- end }}
+{{- end }}

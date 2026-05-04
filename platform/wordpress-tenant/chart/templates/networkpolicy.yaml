@@ -1,0 +1,82 @@
+{{- if and .Values.wordpress.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-wordpress-tenant.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traffic from the SME's ingress namespace (default: traefik).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingress.fromNamespaceLabels | nindent 14 }}
+      ports:
+        - port: {{ .Values.wordpress.port }}
+          protocol: TCP
+  egress:
+    # ── bp-cnpg Postgres ──────────────────────────────────────────
+    # Default: same namespace as the WordPress release. Operator may
+    # point this to a shared cnpg-tenants namespace via overlay.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- if .Values.networkPolicy.egress.cnpgNamespaceLabel }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.egress.cnpgNamespaceLabel }}
+              {{- else }}
+              kubernetes.io/metadata.name: {{ include "bp-wordpress-tenant.cnpgNamespace" . }}
+              {{- end }}
+      ports:
+        - port: {{ .Values.networkPolicy.egress.cnpgPort }}
+          protocol: TCP
+    # ── bp-keycloak (OIDC discovery + token endpoints) ────────────
+    # Tenant Keycloak realm in the SME vcluster. WordPress's PHP
+    # backchannel hits the token endpoint at install time (auto-
+    # discovery) and on every login refresh.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.egress.keycloakNamespaceLabel }}
+      ports:
+        - port: {{ .Values.networkPolicy.egress.keycloakPort }}
+          protocol: TCP
+        # Some Sovereigns expose Keycloak on http :8080 inside the
+        # mesh (TLS terminates at the gateway). Allow both.
+        - port: 8080
+          protocol: TCP
+    # ── DNS resolution ────────────────────────────────────────────
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # ── HTTPS egress (Keycloak realm URL if external, plugin/theme
+    #    fetches at first install) ────────────────────────────────
+    # The cluster's egress-gateway enforces destination policy
+    # globally; this rule just opens the wire. Used by the WP plugin
+    # installer initContainer to pull `openid-connect-generic` +
+    # `pg4wp` zips from wordpress.org / GitHub. Cloud-egress IPs
+    # only — internal RFC1918 ranges are excluded so this rule
+    # cannot accidentally reach intra-cluster services on :443.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+{{- end }}

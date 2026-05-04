@@ -1,0 +1,48 @@
+apiVersion: v2
+name: bp-openclaw
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst Blueprint chart for the OpenClaw workspace controller pattern
+  — a multi-tenant controller deployment in an SME tenant namespace plus
+  per-user runtime pods spawned on demand. Implements decision [A] of
+  epic #795 (locked) and the user-side of ADR-0003 (consumes the
+  `newapi-key-{user-uuid}` Secrets rendered by the unified-rbac hook).
+
+  Deployment shape:
+    - One controller Deployment per SME tenant namespace. Authenticates
+      end users via the SME-vcluster Keycloak realm (OIDC) and validates
+      the JWT signature + sub claim before spawning a per-user pod.
+    - Per-user pods carry only two env vars (NEWAPI_BASE_URL, NEWAPI_KEY)
+      mounted from the per-user Secret labelled
+      `catalyst.openova.io/sme-user-uuid=<uuid>`. The runtime image is
+      identity-blind: no Keycloak code, no key-management code.
+
+  This chart ships ZERO upstream Helm subchart bytes — there is no
+  upstream OpenClaw Helm chart. The runtime image
+  (ghcr.io/openova-io/openova/openclaw-runtime) is built by the existing
+  event-driven CI workflow off platform/openclaw/runtime/ and pinned by
+  SHA in the consuming overlay (per Inviolable Principle 4 — never use
+  floating tags in production manifests).
+
+  Pairs with bp-newapi (Sovereign-level metered LLM gateway), bp-keycloak
+  (SME-vcluster realm), bp-cert-manager (per-host TLS).
+
+type: application
+keywords: [catalyst, blueprint, openclaw, sme, workspace-controller, per-user-pod, llm, agent]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# No upstream Helm chart — every byte of this Blueprint is Catalyst-
+# authored. The blueprint-release workflow's hollow-chart guard
+# (issue #181) requires either a `dependencies:` block OR this
+# annotation; we use the annotation. The runtime container image is a
+# separate OCI artifact built via .github/workflows/openclaw-runtime.yaml
+# (event-driven on push to platform/openclaw/runtime/**), not a Helm
+# subchart.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-newapi,bp-keycloak,bp-cert-manager"
+  catalyst.openova.io/owner-epic: "795"
+  catalyst.openova.io/adr: "0003"

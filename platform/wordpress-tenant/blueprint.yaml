@@ -1,0 +1,142 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-wordpress-tenant
+  labels:
+    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/section: pts-7-sme-tenant
+spec:
+  version: 0.1.0
+  card:
+    title: WordPress Tenant
+    summary: |
+      Turnkey, SSO-pre-wired WordPress per SME tenant. Runs in the SME's
+      vcluster, namespace = SME tenant namespace. SSO via the SME-vcluster
+      Keycloak realm (openid-connect-generic plugin), Postgres via bp-cnpg
+      (Cluster CR in tenant ns), persistent /var/www/html/wp-content via
+      PVC (default 10Gi), ingress at https://wordpress.<sme-domain> with
+      cert-manager TLS. Default theme + admin user pre-seeded at install
+      time so the SME admin's first browser hit lands on /wp-admin
+      authenticated. No install wizard, no manual config.
+    icon: wordpress.svg
+    category: tenant-app
+    tags: [wordpress, cms, sme, tenant, sso, keycloak, oidc, postgres]
+    documentation: https://wordpress.org/documentation/
+    license: GPL-2.0-or-later
+  visibility: listed
+  owner:
+    team: platform
+    contact: catalyst@openova.io
+  configSchema:
+    type: object
+    required: [smeDomain, keycloak, adminUser]
+    properties:
+      smeDomain:
+        type: string
+        description: |
+          The SME tenant's domain (e.g. `acme.<otech-fqdn>` for free-
+          subdomain tenants, or `acme.com` for BYO). Used to derive the
+          default ingress host as `wordpress.<smeDomain>`. Per
+          docs/INVIOLABLE-PRINCIPLES.md #4 there is no default — the
+          tenant-provisioning pipeline supplies this at install time.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      keycloak:
+        type: object
+        required: [realmURL, clientSecretName]
+        properties:
+          realmURL:
+            type: string
+            description: |
+              Discovery URL of the SME-vcluster Keycloak realm. Example:
+              `https://auth.acme.<otech-fqdn>/realms/sme`. The
+              openid-connect-generic plugin uses this to derive the
+              token / userinfo / authorization / end-session endpoints.
+          clientID:
+            type: string
+            default: wordpress
+            description: OIDC client ID registered in the SME realm.
+          clientSecretName:
+            type: string
+            description: |
+              ExternalSecret carrying the OIDC client secret (key
+              `client-secret`). Provisioned by the tenant-provisioning
+              pipeline before this chart installs.
+      database:
+        type: object
+        properties:
+          cnpgClusterName:
+            type: string
+            default: wordpress-db
+            description: |
+              Name of the `Cluster.postgresql.cnpg.io` provisioned for
+              this WordPress instance. Per-tenant unique within the SME
+              namespace.
+      adminUser:
+        type: object
+        required: [email]
+        properties:
+          email:
+            type: string
+            description: |
+              Email of the SME admin (must match the `email` claim
+              Keycloak issues). The admin-user Job pre-seeds a wp_user
+              row with this email and the administrator role.
+          displayName:
+            type: string
+            description: Display name shown in the WP admin bar. Defaults to the local-part of the email.
+      defaultTheme:
+        type: string
+        default: twentytwentyfive
+        description: WordPress theme slug installed + activated at first install.
+      persistence:
+        type: object
+        properties:
+          wpContent:
+            type: object
+            properties:
+              size:
+                type: string
+                default: 10Gi
+              storageClass:
+                type: string
+                default: local-path
+      ingress:
+        type: object
+        properties:
+          host:
+            type: string
+            description: Override the derived `wordpress.<smeDomain>` ingress host.
+          tls:
+            type: object
+            properties:
+              issuer:
+                type: string
+                default: letsencrypt-prod
+                description: cert-manager ClusterIssuer name.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cnpg
+      version: ^1.0
+      alias: db
+    - blueprint: bp-keycloak
+      version: ^1.0
+      alias: idp
+    - blueprint: bp-reflector
+      version: ^1.0
+      alias: reflector
+    - blueprint: bp-cert-manager
+      version: ^1.0
+      alias: tls
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout

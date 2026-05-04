@@ -1,0 +1,68 @@
+{{- if and .Values.controller.enabled .Values.networkPolicy.enabled }}
+{{- $fullName := include "bp-openclaw.fullname" . -}}
+---
+# ─── Controller NetworkPolicy ────────────────────────────────────────────
+# Ingress: traefik (public-facing) → controller :8080
+# Egress:  controller → kube-system (api-server + DNS), keycloak (OIDC),
+#          per-user pods in tenant namespace (proxy traffic)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}-controller
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+    catalyst.openova.io/component: controller
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-openclaw.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/component: controller
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.controller.ingress.fromNamespaceLabels | nindent 14 }}
+      ports:
+        - port: {{ .Values.controller.port }}
+          protocol: TCP
+  egress:
+    # K8s api-server (pod create/delete + Secret list/get).
+    # The kubernetes.default Service ClusterIP route is not always
+    # selectable by namespaceSelector — operators may add a more
+    # specific egress rule via overlay if their CNI needs it. We keep
+    # the kube-system DNS rule below; the api-server rule itself is
+    # commonly handled by the CNI's default-allow for kubernetes-api.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 443
+          protocol: TCP
+        # DNS resolution.
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # SME-vcluster Keycloak (OIDC discovery + JWKS).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.controller.egress.keycloakNamespaceLabel }}
+      ports:
+        - port: {{ .Values.networkPolicy.controller.egress.keycloakPort }}
+          protocol: TCP
+    # Per-user pod range — the controller proxies WebSocket/SSE traffic
+    # to the runtime container in the tenant namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "bp-openclaw.tenantNamespace" . }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: per-user-pod
+              catalyst.openova.io/blueprint: bp-openclaw
+{{- end }}

@@ -49,3 +49,9 @@ resources:
   - 35-coraza.yaml
   - 49-bp-cert-manager-powerdns-webhook.yaml
   - 50-cluster-autoscaler.yaml
+  # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
+  # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
+  # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
+  # See clusters/_template/bootstrap-kit/80-newapi.yaml for full
+  # dependsOn rationale and per-Sovereign override surface.
+  - 80-newapi.yaml

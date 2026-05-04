@@ -1,0 +1,396 @@
+# Catalyst Blueprint scratch chart for per-SME (per-vcluster) Stalwart mail.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is operator-supplied at install time; cluster overlays
+# in clusters/<sovereign>/sme-overlays/<tenant>/ may override any of these
+# without rebuilding the Blueprint OCI artifact. The SME's domain, the
+# Keycloak realm URL, the admin secret name, and the webmail/SMTP hosts are
+# all required values surfaced by configSchema in blueprint.yaml.
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      stalwart: "docker.io/stalwartlabs/stalwart"
+
+# ─── Stalwart application ──────────────────────────────────────────────────
+# Single replica per tenant (footprint trade-off registered in #795).
+# Stalwart stores all state in RocksDB on a PVC — no horizontal-scale
+# requirement at the SME tier. Resource requests are sized for a small
+# SME (≤ 50 mailboxes, ≤ 5 GB mail spool); operators may bump per-tenant.
+stalwart:
+  enabled: true
+  replicas: 1
+
+  # Pin upstream image — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md #4. Sovereign-local Harbor proxy-cache
+  # mirrors `docker.io/stalwartlabs/stalwart` so runtime pulls don't
+  # traverse the public internet (issue #560 + ADR-0001 §11.5). The
+  # `global.imageRegistry` value (when set by the per-Sovereign overlay
+  # post-handover) rewrites the registry on every pull.
+  #
+  # Digest below is `docker.io/stalwartlabs/stalwart:v0.16.3` linux/amd64
+  # (verified via Docker Hub API on 2026-05-04).
+  image:
+    registry: docker.io
+    repository: stalwartlabs/stalwart
+    tag: "v0.16.3"
+    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    pullPolicy: IfNotPresent
+    # Per-Sovereign Harbor pull secret. Empty by default — Sovereign
+    # bootstrap-kit overlay supplies the tenant-namespace dockercfg
+    # secret name once Harbor proxy-cache is wired (ADR-0001 §11.5).
+    pullSecrets: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+  # SecurityContext — non-root. Stalwart's official image runs as
+  # `stalwart-mail` (UID 65534 on the upstream image). Container
+  # restricts elevated capabilities; SMTP port 25 inside the container
+  # is bound by the upstream entrypoint without CAP_NET_BIND_SERVICE
+  # because Stalwart binds AFTER the entrypoint demotes (it uses a
+  # listener offset configurable via `server.listener.smtp.bind`).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness/readiness via stalwart-cli healthcheck. The CLI authenticates
+  # against the local management API using the admin credentials the chart
+  # mounts from `admin.secretName` (key ADMIN_PASSWORD). NEVER hardcode
+  # the password in the probe (per global CLAUDE.md credential hygiene).
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 5
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# ─── Domain configuration ────────────────────────────────────────────────
+# `domain.primary` is the SME's mail domain — every mailbox is
+# `<user>@<domain.primary>`. Two modes:
+#   - Free subdomain (default): operator overlay sets
+#     `acme.<otech-fqdn>` (e.g. acme.omantel.omani.works). The chart
+#     emits `stalwart-dns-records-required` ConfigMap and a follow-up
+#     Job posts MX/SPF/DKIM/DMARC to the otech PowerDNS API.
+#   - BYO domain: operator overlay sets the SME's own domain
+#     (e.g. acme.com). The ConfigMap is still emitted; the SME admin
+#     pastes the records into their public DNS provider. Smoke test
+#     in #804 asserts the records are reachable post-creation.
+domain:
+  # REQUIRED — no default per Inviolable Principle #4.
+  # Example: "acme.omantel.omani.works" (free-sub) or "acme.com" (BYO).
+  primary: ""
+
+  # mode: "free-subdomain" | "byo"
+  # When "free-subdomain", the dns-records-job.yaml hook attempts a
+  # PowerDNS API call (operator-supplied creds via dns.powerdns.*).
+  # When "byo", the chart only renders the records ConfigMap and the
+  # job no-ops (records become the SME admin's responsibility).
+  mode: "free-subdomain"
+
+# ─── Keycloak OIDC integration (SME-vcluster Keycloak) ─────────────────
+#
+# Stalwart's webmail and admin API authenticate against the SME's
+# vcluster-local Keycloak realm. The clientID is registered as a
+# confidential OIDC client during vcluster provisioning (#804); the
+# chart consumes the client secret from `keycloak.clientSecretName`.
+keycloak:
+  # REQUIRED — SME-vcluster Keycloak realm issuer URL.
+  # Example: "https://auth.acme.<otech-fqdn>/realms/sme"
+  realmURL: ""
+  # OIDC client ID registered in the SME realm. Convention: "stalwart".
+  clientID: "stalwart"
+  # ExternalSecret/Secret name carrying the OIDC client secret.
+  # Required key: OIDC_CLIENT_SECRET.
+  clientSecretName: "stalwart-oidc"
+  # Scope set requested. `email` and `profile` map Keycloak claims to
+  # Stalwart principal fields; `groups` allows future role-based ACLs.
+  scopes:
+    - openid
+    - email
+    - profile
+    - groups
+
+  # ExternalSecret render gate for the OIDC client secret. When true
+  # (default), the chart emits an ExternalSecret that pulls the OIDC
+  # client secret from OpenBao at the canonical path
+  # `sovereign/<sovereign-fqdn>/stalwart/<tenant>/oidc` (property
+  # OIDC_CLIENT_SECRET). Operator overlay supplies the per-tenant
+  # `remoteRef.key`. EMPTY at chart level — render fails closed if
+  # `enabled=true` and `remoteRef.key` is unset (Inviolable Principle #4).
+  oidcExternalSecret:
+    enabled: true
+    refreshInterval: "1h"
+    secretStoreRef:
+      kind: "ClusterSecretStore"
+      name: "vault-region1"
+    remoteRef:
+      key: ""
+      property: "OIDC_CLIENT_SECRET"
+
+# ─── Mail-spool persistence ────────────────────────────────────────────
+# Stalwart RocksDB lives on a PVC. Resize via volumeClaimTemplates
+# (StatefulSet) — accessModes ReadWriteOnce per-replica is sufficient
+# given replicas: 1.
+persistence:
+  spool:
+    size: 20Gi
+    # storageClassName: empty = cluster default. Sovereign overlay sets
+    # the per-Sovereign default (e.g. "hcloud-volumes" on Hetzner,
+    # "local-path" on k3s) — Inviolable Principle #4.
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+# ─── Admin credentials ─────────────────────────────────────────────────
+# `admin.secretName` carries the Stalwart admin (initial superuser)
+# password. Two resolution paths, in order:
+#   1. operator-supplied SealedSecret named `<secretName>` already
+#      present in Release.Namespace — chart references it as-is
+#      (`existingSecret` semantics).
+#   2. ExternalSecret rendered by templates/admin-externalsecret.yaml
+#      sourcing from the operator's OpenBao at the canonical path
+#      `kv/sovereign/<sov-fqdn>/stalwart/<tenant>/admin` (property
+#      ADMIN_PASSWORD), via a ClusterSecretStore (default `vault-region1`,
+#      shipped by bp-external-secrets-stores).
+admin:
+  # Default name; per-tenant overlay overrides if naming convention
+  # differs (Inviolable Principle #4).
+  secretName: "stalwart-admin"
+  # Local admin user name baked into the bootstrap config. Stalwart's
+  # initial superuser. Webmail SSO covers regular users (Keycloak); this
+  # account is for the rescue-shell admin path only.
+  username: "admin"
+  # ExternalSecret render gate — when true (default), the chart emits an
+  # ExternalSecret that pulls the admin password from OpenBao. Disable
+  # when the operator pre-creates the SealedSecret and wants no churn.
+  externalSecret:
+    enabled: true
+    refreshInterval: "1h"
+    secretStoreRef:
+      kind: "ClusterSecretStore"
+      name: "vault-region1"
+    # `key` is the OpenBao path under the ClusterSecretStore base mount.
+    # Convention per docs/INVIOLABLE-PRINCIPLES.md #4:
+    #   sovereign/<sovereign-fqdn>/stalwart/<tenant>/admin
+    # Operator overlay supplies the per-tenant value. EMPTY at the chart
+    # level — render fails closed if `externalSecret.enabled=true` and
+    # `remoteRef.key` is unset.
+    remoteRef:
+      key: ""
+      property: "ADMIN_PASSWORD"
+
+# ─── Service exposure ──────────────────────────────────────────────────
+# SMTP (25), submission (587), submissions (465), IMAPS (993), and HTTP
+# (8080 webmail/JMAP) — split across two Services:
+#   - service.mail   : LoadBalancer for SMTP/IMAP (public mail traffic)
+#   - service.web    : ClusterIP for webmail/JMAP (front by Cilium
+#                      Gateway HTTPRoute, NOT a public LB — TLS
+#                      termination at the gateway).
+service:
+  # LoadBalancer (mail traffic — externally routable for MX delivery).
+  smtp:
+    type: LoadBalancer
+    # externalTrafficPolicy=Local preserves source IP for IP-based
+    # reputation/RBL policy in Stalwart. k3s ServiceLB and Hetzner
+    # cloud-controller-manager both honour this.
+    externalTrafficPolicy: Local
+    # annotations: per-Sovereign overlay supplies cloud-LB hints
+    # (e.g. load-balancer.hetzner.cloud/location: nbg1).
+    annotations: {}
+    ports:
+      smtp: 25
+      submission: 587
+      submissions: 465
+  # IMAP and submission share the SMTP LoadBalancer above; this block is
+  # intentionally a thin alias to keep the values surface explicit.
+  imap:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations: {}
+    ports:
+      imaps: 993
+      imap: 143
+  # ClusterIP for webmail UI + JMAP — fronted by Cilium Gateway HTTPRoute
+  # (per ADR-0001 + bp-keycloak gateway pattern). NEVER a public LB —
+  # gateway terminates TLS via cert-manager.
+  web:
+    type: ClusterIP
+    ports:
+      http: 8080
+      https: 443
+
+# ─── Webmail Ingress / HTTPRoute ───────────────────────────────────────
+# Two backends in front of the chart:
+#   - Cilium Gateway HTTPRoute (ADR-0001 §"gateway") at
+#     `mail.<domain.primary>`, parentRef the per-Sovereign cilium-gateway
+#     in kube-system. This is the canonical Sovereign exposure.
+#   - Optional `traefik` Ingress fallback (kept for sandbox/k3s setups
+#     where the Cilium Gateway is not yet provisioned).
+ingress:
+  webmail:
+    # mode: "gateway" | "ingress"
+    # "gateway" (DEFAULT) renders an HTTPRoute against cilium-gateway.
+    # "ingress" renders a networking.k8s.io/v1 Ingress with the supplied
+    # ingressClassName.
+    mode: "gateway"
+    # Default host: mail.<domain.primary>. Operator overlay overrides
+    # for vanity hosts (Inviolable Principle #4 — empty here triggers
+    # the helper to compose mail.<domain.primary>; an explicit string
+    # wins).
+    host: ""
+    path: "/"
+    # Gateway parentRef — per-Sovereign cilium-gateway from
+    # bootstrap-kit/01-cilium.yaml.
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: https
+    # cert-manager Certificate (mode=ingress only). Gateway mode relies
+    # on the gateway's wildcard cert.
+    tls:
+      enabled: true
+      issuer: "letsencrypt-prod"
+      secretName: "stalwart-webmail-tls"
+    # ingress fallback (mode=ingress)
+    ingressClassName: "traefik"
+    annotations: {}
+
+# ─── Mailbox provisioning hook (event-driven, ADR-0003 §3) ─────────────
+# When the unified-rbac service in the OTECH control plane creates an
+# SME user, it publishes a `sme.user.created` event to NATS. The
+# subscriber that lives alongside this Stalwart calls Stalwart's
+# `/api/principal` admin API to provision the mailbox.
+#
+# Two delivery shapes (operator chooses):
+#   - Inline subscriber (default OFF): the chart ships a Deployment
+#     `mailbox-provisioner` that subscribes to NATS and calls Stalwart.
+#     Disabled by default to keep first-install footprint small;
+#     #804 (tenant provisioning pipeline) flips it on per-tenant.
+#   - One-shot Job (default ON): the chart ships a Job that runs at
+#     install time to seed the admin principal in Stalwart and create
+#     the OIDC client config inside Stalwart's RocksDB so OIDC login
+#     works from t=0.
+mailboxProvisioner:
+  # Run-once setup Job (admin principal + OIDC client config in
+  # Stalwart). ALWAYS true on a fresh install; idempotent on upgrade.
+  setupJob:
+    enabled: true
+    image:
+      repository: ghcr.io/openova-io/openova/stalwart-cli
+      tag: "0.16.3"
+      digest: ""
+      pullPolicy: IfNotPresent
+    # Job timeout — the Stalwart pod must be Ready before the Job's
+    # API calls succeed. 10 min is generous for cold starts on small
+    # nodes.
+    activeDeadlineSeconds: 600
+    backoffLimit: 6
+  # Continuous NATS subscriber Deployment. OFF by default at chart
+  # level — turned on by the per-tenant overlay in #804 once the SME
+  # vcluster's NATS subject is known.
+  natsSubscriber:
+    enabled: false
+    natsURL: ""
+    subject: "sme.user.created"
+
+# ─── DKIM/SPF/DMARC records ────────────────────────────────────────────
+# Two paths:
+#   - Free-subdomain (default): the chart emits the required record set
+#     (MX, SPF, DKIM-pubkey, DMARC) to a ConfigMap
+#     `stalwart-dns-records-required` AND ships a Job that POSTs them
+#     to the operator's PowerDNS API (creds via secret reference). The
+#     unified-rbac console UI reads the ConfigMap to display "DNS
+#     setup complete" status to the SME admin.
+#   - BYO: the same ConfigMap is emitted; the Job no-ops (mode flag);
+#     SME admin copies the records into their own DNS provider.
+dns:
+  # PowerDNS API endpoint (free-subdomain mode only). Empty for BYO.
+  powerdns:
+    enabled: false
+    apiURL: ""                           # e.g. https://pdns.<otech-fqdn>/api
+    # ExternalSecret name carrying the PowerDNS API key. Required key:
+    # PDNS_API_KEY. Sourced from the otech-level PowerDNS bootstrap
+    # secret (ADR-0001).
+    apiKeySecretName: ""
+    zone: ""                             # parent zone, e.g. "<otech-fqdn>"
+  # DKIM key generation — Stalwart handles this internally on first boot
+  # and exposes the public key via the admin API. The setup Job reads
+  # it back and records it in the ConfigMap. Selector default `dkim`.
+  dkim:
+    selector: "dkim"
+    algorithm: "ed25519-sha256"
+  # SPF record content (rendered into the ConfigMap). The mx + ip4 hints
+  # are filled at render time from the LoadBalancer external IP (post
+  # service-ready) — the bootstrap Job runs after the LB IP is known.
+  spf:
+    policy: "-all"                       # -all = hard fail; ~all = soft
+  # DMARC policy.
+  dmarc:
+    policy: "reject"                     # reject | quarantine | none
+    rua: ""                              # operator-supplied (e.g. dmarc@<domain>)
+
+# ─── ServiceAccount ────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── NetworkPolicy ─────────────────────────────────────────────────────
+# Default-deny posture at the namespace level (per ADR-0001 multi-tenant
+# isolation). Explicit allows:
+#   Ingress  — webmail traffic from the gateway namespace; SMTP/IMAP
+#              from anywhere (public mail traffic via LoadBalancer).
+#   Egress   — Keycloak (OIDC), DNS, NATS (provisioner subscriber),
+#              public SMTP for outbound delivery (port 25 to anywhere).
+networkPolicy:
+  enabled: true
+  ingress:
+    fromGatewayNamespaceLabels:
+      kubernetes.io/metadata.name: kube-system
+  egress:
+    # bp-keycloak (OIDC discovery + token endpoint)
+    - namespaceLabel: keycloak
+      port: 8443
+    # bp-nats-jetstream (mailbox-provisioner subscriber)
+    - namespaceLabel: nats
+      port: 4222
+    # PowerDNS (otech-level) for DKIM/SPF/DMARC publishing
+    - namespaceLabel: powerdns
+      port: 8081
+
+# ─── ServiceMonitor ────────────────────────────────────────────────────
+# Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+# toggles must default false). Operator opts in via per-cluster overlay.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  port: "http"
+
+# ─── Global registry override (post-handover Harbor) ───────────────────
+global:
+  imageRegistry: ""

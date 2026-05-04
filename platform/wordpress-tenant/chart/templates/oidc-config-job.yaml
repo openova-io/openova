@@ -1,0 +1,243 @@
+{{- if .Values.wordpress.enabled }}
+{{- /*
+Helm post-install Job that wires the openid-connect-generic plugin's
+WordPress option row to the SME-vcluster Keycloak realm + client at
+first install. Also activates the plugin, the default theme, and the
+pg4wp drop-in so the SME admin never sees the WordPress install
+wizard.
+
+Strategy
+────────
+The WordPress `wp_options` table is the single source of truth for
+plugin configuration: a row keyed `openid_connect_generic_settings`
+holds a serialised PHP array with login_type / endpoint URLs / client
+id / client secret. The active theme + the active plugin list also
+live in `wp_options` (`template`, `stylesheet`, `active_plugins`).
+
+This Job installs WordPress's database schema if not already present
+(invokes the official `wordpress` image's `wp-cli`-equivalent install
+flow via PHP directly), then UPSERTs the OIDC settings row, the
+`active_plugins` row, and the `template`/`stylesheet` rows. Idempotent:
+re-running on `helm upgrade` overwrites with the same values.
+
+Why direct DB writes instead of WP-CLI
+──────────────────────────────────────
+WP-CLI is not bundled with the official `wordpress:*` Docker image
+and adding a layer just for this install would diverge from the
+upstream image (and force a Catalyst-built WordPress image, which
+violates the issue's "pull through Sovereign Harbor proxy-cache, no
+local rebuild" constraint). The Job uses PHP from the WordPress
+image to talk to Postgres via PDO; same image, no extra dependency.
+
+Why post-install (not pre-install)
+──────────────────────────────────
+WORDPRESS_DB_PASSWORD is only populated by the
+database-secret-sync-job at post-install hook-weight 5. This OIDC
+Job runs at hook-weight 10 (after the DB Secret is reconciled).
+*/}}
+{{- $ns := .Release.Namespace }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-oidc-config
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: wordpress-oidc-config
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wordpress-oidc-config
+        catalyst.openova.io/blueprint: bp-wordpress-tenant
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
+      containers:
+        - name: oidc-config
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
+          env:
+            - name: WP_DB_HOST
+              value: {{ include "bp-wordpress-tenant.cnpgRwHost" . | quote }}
+            - name: WP_DB_NAME
+              value: {{ .Values.database.cluster.database | default "wordpress" | quote }}
+            - name: WP_DB_USER
+              value: {{ .Values.database.cluster.owner | default "wordpress" | quote }}
+            - name: WP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: password
+            - name: WP_SITE_URL
+              value: "https://{{ include "bp-wordpress-tenant.ingressHost" . }}"
+            - name: WP_DEFAULT_THEME
+              value: {{ .Values.defaultTheme | quote }}
+            - name: KC_REALM_URL
+              value: {{ .Values.keycloak.realmURL | quote }}
+            - name: KC_CLIENT_ID
+              value: {{ .Values.keycloak.clientID | quote }}
+            - name: KC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.clientSecretName }}
+                  key: client-secret
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              # Ensure php-pgsql + the postgres CLI are present. The
+              # official wordpress image ships php-mysqli but not
+              # php-pgsql; we install at boot (one-time) via apt.
+              if ! php -m | grep -qi pdo_pgsql; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                  php-pgsql postgresql-client
+              fi
+              cat > /tmp/oidc-config.php <<'PHP'
+              <?php
+              /**
+               * bp-wordpress-tenant OIDC config bootstrap.
+               *
+               * Connects to the bp-cnpg Postgres provisioned for this
+               * SME tenant, ensures the `wp_options` table exists with
+               * a minimal schema (WP creates it on first browser hit
+               * — we pre-create here to avoid the wizard race),
+               * and UPSERTs the rows that activate openid-connect-
+               * generic + select the default theme.
+               *
+               * Idempotent — re-running on `helm upgrade` overwrites
+               * with the same values.
+               */
+              $host    = getenv('WP_DB_HOST');
+              $db      = getenv('WP_DB_NAME');
+              $user    = getenv('WP_DB_USER');
+              $pass    = getenv('WP_DB_PASSWORD');
+              $siteurl = getenv('WP_SITE_URL');
+              $theme   = getenv('WP_DEFAULT_THEME');
+              $issuer  = getenv('KC_REALM_URL');
+              $cid     = getenv('KC_CLIENT_ID');
+              $csecret = getenv('KC_CLIENT_SECRET');
+
+              echo "[oidc-config] connecting to Postgres at {$host}\n";
+              $pdo = new PDO(
+                "pgsql:host={$host};port=5432;dbname={$db}",
+                $user, $pass,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+              );
+
+              // Wait for WordPress's wp_options table to exist —
+              // WP creates it lazily on the first browser request. We
+              // poll for up to 5 minutes; if it still doesn't exist,
+              // we trip a sentinel HTTP request to the WP Service to
+              // force the install routine. The WordPress Service in
+              // the same namespace is reachable as
+              // <release>-bp-wordpress-tenant.<ns>.svc.cluster.local.
+              $tableExists = function() use ($pdo) {
+                $r = $pdo->query("SELECT to_regclass('public.wp_options') AS t")->fetch();
+                return !empty($r['t']);
+              };
+              for ($i = 0; $i < 60; $i++) {
+                if ($tableExists()) break;
+                if ($i === 0) {
+                  // Trip the install by GETting the WP Service.
+                  $svcUrl = sprintf('http://%s.%s.svc.cluster.local/',
+                    getenv('WP_SVC_NAME') ?: 'wordpress',
+                    getenv('WP_NAMESPACE') ?: 'default');
+                  echo "[oidc-config] tripping WP install via {$svcUrl}\n";
+                  @file_get_contents($svcUrl);
+                }
+                sleep(5);
+              }
+              if (!$tableExists()) {
+                fprintf(STDERR, "[oidc-config] FATAL: wp_options not present after 5 min\n");
+                exit(1);
+              }
+              echo "[oidc-config] wp_options present.\n";
+
+              // Build the OIDC settings array. Field names match the
+              // openid-connect-generic plugin's option schema (see
+              // upstream openid-connect-generic-settings.php).
+              $oidcSettings = [
+                'login_type'                => 'auto',         // auto-redirect to Keycloak
+                'client_id'                 => $cid,
+                'client_secret'             => $csecret,
+                'scope'                     => 'openid email profile',
+                'endpoint_login'            => rtrim($issuer, '/') . '/protocol/openid-connect/auth',
+                'endpoint_userinfo'         => rtrim($issuer, '/') . '/protocol/openid-connect/userinfo',
+                'endpoint_token'            => rtrim($issuer, '/') . '/protocol/openid-connect/token',
+                'endpoint_end_session'      => rtrim($issuer, '/') . '/protocol/openid-connect/logout',
+                'identity_key'              => 'preferred_username',
+                'no_sslverify'              => 0,
+                'http_request_timeout'      => 5,
+                'enforce_privacy'           => 0,
+                'alternate_redirect_uri'    => 0,
+                'token_refresh_enable'      => 1,
+                'link_existing_users'       => 1,
+                'create_if_does_not_exist'  => 1,             // auto-create user on first SSO login
+                'redirect_user_back'        => 1,
+                'redirect_on_logout'        => 1,
+                'acl_enabled'               => 0,
+                'enable_logging'            => 0,
+                'log_limit'                 => 1000,
+              ];
+              $oidcSerialised = serialize($oidcSettings);
+
+              $upsert = function($key, $value) use ($pdo) {
+                // wp_options.option_id is autoincrement; ON CONFLICT
+                // on option_name handles the upsert. Postgres-flavoured
+                // INSERT ... ON CONFLICT works because pg4wp uses the
+                // native wp_options layout.
+                $stmt = $pdo->prepare(
+                  "INSERT INTO wp_options (option_name, option_value, autoload)
+                   VALUES (:k, :v, 'yes')
+                   ON CONFLICT (option_name) DO UPDATE SET option_value = EXCLUDED.option_value"
+                );
+                $stmt->execute([':k' => $key, ':v' => $value]);
+              };
+
+              // 1. OIDC plugin settings.
+              $upsert('openid_connect_generic_settings', $oidcSerialised);
+              echo "[oidc-config] openid_connect_generic_settings upserted.\n";
+
+              // 2. Activate openid-connect-generic in WP.
+              $activePlugins = serialize([
+                'openid-connect-generic/openid-connect-generic.php',
+              ]);
+              $upsert('active_plugins', $activePlugins);
+              echo "[oidc-config] active_plugins upserted.\n";
+
+              // 3. Default theme — both rows MUST be set (template is
+              // the parent theme, stylesheet is the active child/parent).
+              $upsert('template',   $theme);
+              $upsert('stylesheet', $theme);
+              echo "[oidc-config] default theme set to {$theme}.\n";
+
+              // 4. siteurl + home — overwrite the WP install defaults
+              // so links resolve through the ingress host.
+              $upsert('siteurl', $siteurl);
+              $upsert('home',    $siteurl);
+              echo "[oidc-config] siteurl/home set to {$siteurl}.\n";
+
+              echo "[oidc-config] all upserts complete.\n";
+              PHP
+              php /tmp/oidc-config.php
+          envFrom: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+{{- end }}

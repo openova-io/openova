@@ -1,0 +1,151 @@
+# bp-newapi — Catalyst Application Blueprint, bootstrap-kit slot 80.
+# Multi-tenant LLM marketplace gateway. Ships in backend-only mode: the
+# OpenAI-compatible API at api.<sovereign-fqdn>/v1/* is customer-facing;
+# the upstream's portal UI is disabled at ingress; Catalyst replaces it
+# as the customer surface; NewAPI's admin UI at admin.<sovereign-fqdn>
+# is exposed only to ops staff (Keycloak-gated).
+#
+# This slot enables the SME-tenant turnkey experience (epic #795). The
+# Catalyst signup hook (delivered by unified-rbac in #802 against the
+# contract recorded in ADR-0003) reads the `catalyst-newapi-admin-token`
+# Secret rendered by this chart's ExternalSecret to issue per-user API
+# keys against NewAPI's admin API at `http://newapi.newapi.svc`.
+#
+# Wrapper chart: platform/newapi/chart/
+# Catalyst-curated values: platform/newapi/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: newapi
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-newapi
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-newapi
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: newapi
+  targetNamespace: newapi
+  # bp-newapi depends on:
+  #   - bp-openbao(08): the secret backend the chart's ExternalSecret
+  #     pulls `ADMIN_API_TOKEN` from. Without OpenBao Ready, the
+  #     ExternalSecret never resolves and the Catalyst signup hook can't
+  #     reach the NewAPI admin API.
+  #   - bp-keycloak(09): the OIDC issuer for the ops-staff admin UI at
+  #     admin.<sovereign-fqdn>. Without Keycloak Ready, the OIDC
+  #     middleware can't redirect ops-staff requests.
+  #   - bp-cnpg(16): operator provisions the Postgres cluster for users,
+  #     credits, channels, and audit log via a Crossplane
+  #     PostgresqlInstance claim once cnpg is Ready. The DSN is mounted
+  #     into NewAPI via `database.existingSecret` (operator-set).
+  dependsOn:
+    - name: bp-openbao
+    - name: bp-keycloak
+    - name: bp-cnpg
+  chart:
+    spec:
+      chart: bp-newapi
+      version: 1.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-newapi
+        namespace: flux-system
+  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3 (Flux
+  # dependsOn is the gate, not Helm timeout). NewAPI itself starts in
+  # ~10 s once the Postgres DSN Secret is present; the long pole is
+  # waiting for the operator's Crossplane claim to materialise the DB.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overrides — the operator MUST supply at install time:
+  #   - ingress.host           = api.${SOVEREIGN_FQDN}
+  #   - ingress.adminHost      = admin.${SOVEREIGN_FQDN}
+  #   - auth.adminUI.keycloak.issuer = https://auth.${SOVEREIGN_FQDN}/realms/ops
+  #   - database.existingSecret      = Postgres DSN Secret (from the
+  #                                    Crossplane PostgresqlInstance claim)
+  #   - credentials.existingSecret   = SESSION_SECRET + CRYPTO_SECRET
+  #                                    (rotated via OpenBao)
+  #   - catalystIntegration.externalSecret.remoteRef.key
+  #                                  = sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+  #   - defaultChannels.vllm.enabled = true (first-otech)
+  #   - defaultChannels.vllm.endpoint
+  #     + defaultChannels.vllm.attestation.owner
+  #
+  # Defaults below wire the first-otech provider channel to the same
+  # upstream the OpenOva marketing site uses (Qwen via Axon →
+  # `llm-api.omtd.bankdhofar.com`, model `qwen3-coder`); the operator
+  # overlay overrides any of these by setting them in this HelmRelease's
+  # spec.values.
+  values:
+    sovereignFQDN: ${SOVEREIGN_FQDN}
+    ingress:
+      host: api.${SOVEREIGN_FQDN}
+      adminHost: admin.${SOVEREIGN_FQDN}
+      tls:
+        enabled: true
+        issuer: letsencrypt-prod
+    auth:
+      adminUI:
+        mode: keycloak
+        keycloak:
+          issuer: https://auth.${SOVEREIGN_FQDN}/realms/ops
+          clientId: newapi-admin
+          existingSecret: newapi-oidc
+      customerAPI:
+        keyIssuer: catalyst
+    catalystIntegration:
+      enabled: true
+      existingSecret: catalyst-newapi-admin-token
+      externalSecret:
+        enabled: true
+        refreshInterval: "1h"
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: vault-region1
+        remoteRef:
+          # Canonical OpenBao path per docs/INVIOLABLE-PRINCIPLES.md #4.
+          # Under the `vault-region1` store's `secret/` mount the full
+          # path is `secret/sovereign/<fqdn>/newapi/admin-token`.
+          key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+          property: ADMIN_API_TOKEN
+    # Default vLLM channel — disabled in the template so a fresh
+    # Sovereign does not silently wire customers to a third-party
+    # endpoint. Per-Sovereign overlays (e.g.
+    # `clusters/<sovereign>/bootstrap-kit/80-newapi.yaml`) enable this
+    # block and supply a concrete `endpoint`, `models`, and
+    # `attestation.owner`. The first-otech canonical reference is
+    # `https://llm-api.omtd.bankdhofar.com` with `qwen3-coder` (the same
+    # relay Axon uses on the OpenOva marketing deployment).
+    defaultChannels:
+      vllm:
+        enabled: false
+        name: qwen
+        endpoint: ""
+        models:
+          - qwen3-coder
+        attestation:
+          kind: in-cluster
+          owner: ${SOVEREIGN_FQDN}

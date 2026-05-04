@@ -1,0 +1,65 @@
+apiVersion: v2
+name: bp-stalwart-tenant
+version: 0.1.0
+appVersion: "0.16.3"
+description: |
+  Catalyst Blueprint scratch chart for a per-SME (per-vcluster) dedicated
+  Stalwart mail server. Implements locked decision [Q3] of EPIC #795
+  (SME-tenant turnkey experience) — every SME on a Sovereign gets its
+  OWN Stalwart instance in its tenant namespace, with its OWN domain,
+  OWN MTA reputation, and OWN queue. NOT a shared otech-level multi-
+  domain Stalwart.
+
+  Footprint trade-off (registered in #795): per-SME Stalwart multiplies
+  mail-server resources by N tenants. The trade buys stronger isolation,
+  per-customer DKIM/SPF/DMARC posture, and clean blast-radius separation
+  on outbound IP reputation.
+
+  Connects to:
+    - bp-keycloak           (per-SME-vcluster Keycloak realm — OIDC SSO
+                             for webmail and admin API)
+    - bp-external-secrets   (admin password + JMAP/IMAP signing material;
+                             remoteRef under
+                             kv/sovereign/<sov>/stalwart/<tenant>/admin)
+    - bp-cert-manager       (TLS for mail.<sme-domain> webmail Ingress
+                             via cert-manager ClusterIssuer)
+    - bp-powerdns           (free-subdomain mode: chart records DKIM/SPF/
+                             DMARC required values in a ConfigMap; the
+                             unified-rbac console UI surfaces them OR a
+                             follow-up Job posts them to PowerDNS API)
+
+  Customer surface: webmail UI at https://mail.<domain.primary>
+  (Stalwart's built-in webadmin/JMAP); plus SMTP/IMAP via LoadBalancer.
+
+  Per-tenant mailbox provisioning is event-driven (ADR-0003 §3): the
+  unified-rbac service POSTs Stalwart's `/api/principal` admin API when
+  the SME admin creates a new user. The chart ships an ExternalSecret
+  binding the admin API token a follow-up controller mints during install.
+
+  Stalwart expression-language gotcha (per stalwart_expression_syntax.md
+  memory, 2026-04-14): equality matchers MUST use `==` not `=` — a
+  single `=` is assignment and silently never matches. The bootstrap
+  config.toml in templates/config-configmap.yaml audits clean for this.
+
+  See platform/stalwart-tenant/README.md for DKIM/SPF/DMARC setup,
+  free-subdomain vs BYO domain mode, and the SME admin runbook.
+type: application
+keywords: [catalyst, blueprint, stalwart, mail, smtp, imap, jmap, sme, multi-tenant, vcluster]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — Stalwart upstream does not publish a first-party Helm
+# chart (contabo-mkt apps/stalwart/* in openova-private is hand-rolled
+# Kustomize, not a chart). The Catalyst overlay templates (StatefulSet,
+# Services, Ingress, ConfigMap, NetworkPolicy, ExternalSecret consumers,
+# mailbox-provision Job) are entirely in templates/ in this chart. The
+# `sigstore/common` library subchart below is included ONLY to satisfy
+# the platform-wide blueprint-release.yaml hollow-chart gate (issue #181)
+# — every umbrella MUST declare at least one dependency. `common` is a
+# tiny library chart (helper templates only, zero runtime resources) and
+# contributes nothing to the rendered manifests of bp-stalwart-tenant.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"
