@@ -34,6 +34,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -509,33 +510,102 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 
 // HandleAuthLogout handles DELETE /api/v1/auth/session.
 //
-// Clears the session cookie and returns 204 No Content.
-// The Catalyst-Zero UI calls this when the operator clicks Sign Out.
+// Clears the session cookie AND returns a JSON body containing the
+// Keycloak end_session_endpoint URL so the UI can hard-navigate there
+// to also drop the upstream KC SSO session. Without that second hop,
+// the OIDC PKCE auth-guard on next page load silently re-authenticates
+// against the still-active KC session and the operator ends up
+// logged in as the same identity — the "sign-out is broken" symptom
+// caught live 2026-05-04.
+//
+// Cookie-clear MUST mirror the EXACT same Path / Domain / Secure /
+// SameSite the cookie was set with. Browsers require an exact-match
+// Set-Cookie to delete; a mismatched Domain creates a NEW empty cookie
+// scoped to the current host while the original cookie scoped to the
+// shared parent domain stays alive (and continues to authenticate
+// every request via Cookie ordering).
 func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	cfg := h.authConfig
 	if cfg != nil {
 		cfg.ClearSessionCookie(w)
 	}
-	// Also clear the raw cookie set by the PIN-verify path (no HMAC wrap).
+	// Mirror the exact attributes used in the PIN-verify SetCookie at
+	// line 478-487: Domain from CATALYST_SESSION_COOKIE_DOMAIN, Secure
+	// derived from request scheme, SameSite=Lax (NOT Strict — Strict
+	// blocks the cookie on cross-site navigations including the KC
+	// post-logout redirect back to this origin, defeating the second
+	// hop).
+	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   cookieDomain,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "catalyst_refresh",
 		Value:    "",
 		Path:     "/",
+		Domain:   cookieDomain,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-	w.WriteHeader(http.StatusNoContent)
+
+	// Build the Keycloak end_session_endpoint URL. Returns "" when KC
+	// is not wired (CATALYST_KC_ADDR unset, e.g. CI / contabo bring-up).
+	// In that case the UI just clears local state and stays on /login.
+	logoutURL := buildKeycloakLogoutURL(r)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"keycloakLogoutURL": logoutURL,
+	})
+}
+
+// buildKeycloakLogoutURL composes the OIDC RP-Initiated Logout URL from
+// the live env. Returns empty when KC isn't configured.
+//
+// Format (Keycloak v19+, RP-initiated logout draft):
+//
+//	{kc-addr}/realms/{realm}/protocol/openid-connect/logout?
+//	  client_id=<catalyst-zero-ui>
+//	  &post_logout_redirect_uri=<console-origin>/login
+//
+// post_logout_redirect_uri MUST be in the catalyst-zero-ui client's
+// `validRedirectUris` (set by the realm import) — bp-keycloak's realm
+// JSON includes `https://console.<sov>/*` so /login is covered.
+func buildKeycloakLogoutURL(r *http.Request) string {
+	kcAddr := strings.TrimRight(os.Getenv("CATALYST_KC_ADDR"), "/")
+	if kcAddr == "" {
+		return ""
+	}
+	realm := os.Getenv("CATALYST_KC_REALM")
+	if realm == "" {
+		realm = "openova"
+	}
+	clientID := os.Getenv("CATALYST_KC_CLIENT_ID")
+	if clientID == "" {
+		clientID = "catalyst-zero-ui"
+	}
+	scheme := "https"
+	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+		scheme = "http"
+	}
+	host := r.Host
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		host = fwd
+	}
+	postLogout := scheme + "://" + host + "/login"
+	q := url.Values{}
+	q.Set("client_id", clientID)
+	q.Set("post_logout_redirect_uri", postLogout)
+	return kcAddr + "/realms/" + realm + "/protocol/openid-connect/logout?" + q.Encode()
 }
 
 // HandleWhoami handles GET /api/v1/whoami.

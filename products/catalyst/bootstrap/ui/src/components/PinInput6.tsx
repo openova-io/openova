@@ -226,31 +226,50 @@ export function PinInput6({
     <div
       role="group"
       aria-label="Sign-in code"
-      className="flex items-center justify-between gap-2"
+      className="flex items-center justify-center gap-2.5 sm:gap-3"
       data-testid={testId}
     >
-      {Array.from({ length: N }).map((_, i) => (
-        <input
-          key={i}
-          ref={(el) => {
-            refs.current[i] = el
-          }}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete={i === 0 ? 'one-time-code' : 'off'}
-          maxLength={1}
-          value={digits[i]}
-          disabled={disabled}
-          onChange={handleChange(i)}
-          onKeyDown={handleKeyDown(i)}
-          onPaste={handlePaste(i)}
-          onFocus={handleFocus(i)}
-          data-testid={`${testId}-${i}`}
-          aria-label={`Digit ${i + 1}`}
-          className="w-12 h-14 text-center text-xl font-semibold tabular-nums rounded-lg border border-[--color-surface-border] bg-[--color-surface-1] text-[--color-text-primary] focus:border-[--color-brand-500] focus:outline-none focus:ring-2 focus:ring-[--color-brand-500]/40 transition-colors disabled:opacity-50"
-        />
-      ))}
+      {Array.from({ length: N }).map((_, i) => {
+        const filled = digits[i] !== ''
+        return (
+          <input
+            key={i}
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete={i === 0 ? 'one-time-code' : 'off'}
+            maxLength={1}
+            value={digits[i]}
+            disabled={disabled}
+            onChange={handleChange(i)}
+            onKeyDown={handleKeyDown(i)}
+            onPaste={handlePaste(i)}
+            onFocus={handleFocus(i)}
+            data-testid={`${testId}-${i}`}
+            aria-label={`Digit ${i + 1}`}
+            className={[
+              // iCloud-style: 56×64 box, 1.5px border, soft shadow,
+              // larger digit, smooth focus ring, slight scale on focus.
+              'w-14 h-16 sm:w-16 sm:h-[72px]',
+              'text-center text-2xl sm:text-3xl font-semibold tabular-nums tracking-tight',
+              'rounded-xl border-[1.5px] bg-[--color-surface-1] text-[--color-text-primary]',
+              'shadow-[0_1px_0_oklch(100%_0_0/0.04),_inset_0_-1px_0_oklch(100%_0_0/0.02)]',
+              filled
+                ? 'border-[--color-brand-500]/70'
+                : 'border-[--color-surface-border]',
+              'focus:border-[--color-brand-500] focus:outline-none focus:ring-[3px] focus:ring-[--color-brand-500]/30 focus:scale-[1.04]',
+              'transition-[border-color,box-shadow,transform] duration-150 ease-out',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              'caret-transparent', // hide caret — the digit IS the caret
+              // Reduce browser autofill background flash on Chrome / Safari
+              '[&:-webkit-autofill]:bg-[--color-surface-1]',
+            ].join(' ')}
+          />
+        )
+      })}
     </div>
   )
 }
