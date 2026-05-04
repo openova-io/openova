@@ -22,6 +22,37 @@ After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the pu
 
 ---
 
+## Why `cpx21` / `cpx31` are NOT the default (issue #752)
+
+Both `cpx21` (3 vCPU / 4 GB / €10.99/mo) and `cpx31` (4 vCPU / 8 GB / €20.49/mo) appear cheaper than the chosen `cpx22` / `cpx32` defaults and are LISTED in Hetzner's `GET /v1/server_types` response with full EU pricing (`fsn1`, `nbg1`, `hel1`). They are NOT orderable.
+
+```bash
+$ HCLOUD_TOKEN=...
+$ for SKU in cpx21 cpx31; do for LOC in fsn1 nbg1 hel1; do
+    curl -sH "Authorization: Bearer $HCLOUD_TOKEN" -X POST \
+      "https://api.hetzner.cloud/v1/servers" \
+      -H "Content-Type: application/json" \
+      -d "{\"name\":\"probe-$SKU-$LOC\",\"server_type\":\"$SKU\",\"image\":\"ubuntu-24.04\",\"location\":\"$LOC\",\"start_after_create\":false}" \
+      | jq -r '.error.message // "ORDERED"'
+  done; done
+unsupported location for server type   # cpx21/fsn1
+unsupported location for server type   # cpx21/nbg1
+unsupported location for server type   # cpx21/hel1
+unsupported location for server type   # cpx31/fsn1
+unsupported location for server type   # cpx31/nbg1
+unsupported location for server type   # cpx31/hel1
+```
+
+`cpx22` and `cpx32` return `ORDERED` (verified 2026-05-04 against a real project — server IDs cleaned up immediately after provisioning).
+
+The `/v1/server_types` price entry is misleading: Hetzner advertises a price for every (SKU, location) pair regardless of whether new orders are accepted. The authoritative source for "can I order this?" is `POST /v1/servers` itself. The cpx (no-letter) generation is being phased out in favour of the cpx22/cpx32/cpx52 generation across EU DCs; `cpx11`/`cpx21`/`cpx31`/`cpx41` are NOT orderable in `fsn1`/`nbg1`/`hel1` as of 2026-05-04.
+
+PR #741 attempted a default of `cpx21` CP + `cpx31` workers based on the listed prices and got blocked at `tofu apply` time with the same "unsupported location" error. PR #744 reverted to the orderable `cpx22` + `cpx32`. Issue #752 documented the gap between the listed prices and the orderability constraint; this section is the durable record so future engineers don't re-attempt.
+
+If Hetzner ever opens cpx21/cpx31 ordering in EU DCs (re-probe with the script above), the saving is ~€4/mo per Sovereign on CP + ~€11/mo per Sovereign per worker. Until then, `cpx22`/`cpx32` is the floor.
+
+---
+
 ## Sizing rationale — why `cpx32 × 3` is the default (issue #733)
 
 `docs/PLATFORM-TECH-STACK.md` §7.1 sets the RAM budget for a Catalyst-only mgt cluster at **~11.3 GB**, and §7.4 adds **~8.8 GB** for per-host-cluster infrastructure that runs on every host cluster including mgt (Cilium, Flux, Crossplane, cert-manager, ESO, Kyverno, Trivy Operator, Falco, Harbor, SeaweedFS, Velero, plus small operators).
