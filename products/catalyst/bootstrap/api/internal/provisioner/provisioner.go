@@ -852,10 +852,17 @@ func writeTfvars(deployDir string, req Request) error {
 		// to the OpenTofu module's for_each iteration when the multi-
 		// region wiring is activated; collapsing it back to single-SKU
 		// here would break the architectural shape the wizard intends.
-		"control_plane_size": req.ControlPlaneSize,
-		"worker_size":        req.WorkerSize,
-		"worker_count":       req.WorkerCount,
-		"ha_enabled":         req.HAEnabled,
+		//
+		// IMPORTANT: control_plane_size / worker_size are conditionally
+		// inserted below (after the literal map) when non-empty. An empty
+		// string written to tofu.auto.tfvars.json OVERRIDES the variables.tf
+		// default ("cpx21" / "cpx31") with "" — and "" fails the SKU regex
+		// validator at plan time ("control_plane_size must match Hetzner
+		// server-type naming"). Writing the keys only when set lets the
+		// default-cost-optimized variables.tf defaults take effect for
+		// zero-override request bodies.
+		"worker_count": req.WorkerCount,
+		"ha_enabled":   req.HAEnabled,
 
 		// Per-region payload — emitted as a list of objects so the
 		// OpenTofu module can iterate (variable "regions" in
@@ -957,6 +964,18 @@ func writeTfvars(deployDir string, req Request) error {
 		"object_storage_access_key":  req.ObjectStorageAccessKey,
 		"object_storage_secret_key":  req.ObjectStorageSecretKey,
 		"object_storage_bucket_name": req.ObjectStorageBucket,
+	}
+
+	// Conditionally include singular SKU fields. variables.tf in
+	// infra/hetzner/ declares "cpx21" / "cpx31" defaults for the
+	// cost-optimized 1× CP + 2× worker topology; writing an empty
+	// string here would override the default with "" and fail the
+	// SKU regex validator at `tofu plan`. Only emit when set.
+	if strings.TrimSpace(req.ControlPlaneSize) != "" {
+		vars["control_plane_size"] = req.ControlPlaneSize
+	}
+	if strings.TrimSpace(req.WorkerSize) != "" {
+		vars["worker_size"] = req.WorkerSize
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")
