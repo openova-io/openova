@@ -16,9 +16,13 @@
 //     warn event and still calls markPhase1Done so Status doesn't
 //     stay "phase1-watching" forever.
 //  5. Pod-restart resume — a deployment loaded from disk with
-//     Status="phase1-watching" gets rewritten to "failed" by
-//     fromRecord (existing contract) so a Pod kill mid-watch
-//     surfaces as the wizard's FailureCard, not a stuck pill.
+//     Status="phase1-watching" KEEPS that status (issue #830 Bug 3:
+//     Phase 1 is observational and resumable across Pod restarts —
+//     the helmwatch informer is re-attached on the new Pod and the
+//     deployment record reflects the truth: the watch is in-flight,
+//     not abandoned). Phase-0 in-flight statuses still rewrite to
+//     "failed" because tofu workdir lives on /tmp emptyDir and dies
+//     with the Pod.
 //  6. CATALYST_PHASE1_WATCH_TIMEOUT env var parses through
 //     phase1WatchConfigForDeployment.
 //  7. The on-disk store record JSON includes ComponentStates +
@@ -609,12 +613,25 @@ func TestPodRestart_ResumeRehydratesComponentStates(t *testing.T) {
 	}
 }
 
-// TestPodRestart_StuckPhase1WatchingRewrittenToFailed proves the
-// existing in-flight-status rewrite covers the "phase1-watching"
-// case the Phase-1 watch introduced. A Pod kill mid-watch must NOT
-// leave a deployment stuck at phase1-watching; the wizard's
-// FailureCard renders instead.
-func TestPodRestart_StuckPhase1WatchingRewrittenToFailed(t *testing.T) {
+// TestPodRestart_Phase1WatchingPreservedNotRewrittenToFailed proves
+// the issue #830 Bug 3 fix: a deployment loaded from disk with
+// Status="phase1-watching" but no kubeconfig file (so no resume
+// happens) PRESERVES the phase1-watching status — it does NOT get
+// rewritten to "failed" the way Phase-0 in-flight states do.
+//
+// Why this matters: a transient catalyst-api roll mid-Phase-1
+// (image bump, OOM, node maintenance) used to latch the deployment
+// record to status=failed even though the Sovereign cluster was
+// reaching Ready=True for every HelmRelease seconds later. The
+// auto-fire handover then never triggered and the operator was
+// stranded on the wizard page. Phase 1 is purely observational —
+// the on-disk record stays phase1-watching until the resumed
+// watcher's markPhase1Done flips it to ready/failed.
+//
+// This test exercises the no-kubeconfig branch (status preserved,
+// resume skipped). The companion test below exercises the
+// with-kubeconfig branch where resume IS triggered.
+func TestPodRestart_Phase1WatchingPreservedNotRewrittenToFailed(t *testing.T) {
 	tmp := t.TempDir()
 	st1, err := store.New(tmp)
 	if err != nil {
@@ -622,8 +639,8 @@ func TestPodRestart_StuckPhase1WatchingRewrittenToFailed(t *testing.T) {
 	}
 
 	rec := store.Record{
-		ID:        "rehydrate-stuck-phase1",
-		Status:    "phase1-watching", // in-flight at restart
+		ID:        "rehydrate-phase1-watching",
+		Status:    "phase1-watching",
 		StartedAt: time.Now().Add(-5 * time.Minute).UTC(),
 		Request: store.RedactedRequest{
 			SovereignFQDN: "test.example",
@@ -631,6 +648,7 @@ func TestPodRestart_StuckPhase1WatchingRewrittenToFailed(t *testing.T) {
 		},
 		Result: &provisioner.Result{
 			SovereignFQDN: "test.example",
+			// KubeconfigPath empty so resumePhase1Watch is skipped.
 		},
 	}
 	if err := st1.Save(rec); err != nil {
@@ -645,11 +663,123 @@ func TestPodRestart_StuckPhase1WatchingRewrittenToFailed(t *testing.T) {
 
 	val, _ := h.deployments.Load(rec.ID)
 	dep := val.(*Deployment)
-	if dep.Status != "failed" {
-		t.Errorf("Status = %q, want %q (in-flight phase1-watching must rewrite to failed)", dep.Status, "failed")
+	if dep.Status != "phase1-watching" {
+		t.Errorf("Status = %q, want %q (Phase-1 watching is resumable, must NOT be rewritten to failed)", dep.Status, "phase1-watching")
 	}
-	if dep.Error == "" {
-		t.Errorf("Error empty — operator wouldn't know why this deployment failed")
+}
+
+// TestPodRestart_Phase1WatchingResumesWithKubeconfig proves the
+// happy-path of issue #830 Bug 3: a deployment loaded from disk
+// with Status="phase1-watching" + Result.KubeconfigPath pointing at
+// a real file triggers shouldResumePhase1=true and the new Pod
+// re-attaches the helmwatch goroutine.
+//
+// We don't drive the watcher to completion here — that's covered
+// by the runPhase1Watch happy-path tests above. The test asserts
+// the gating decision: the rehydrated deployment is a resume
+// candidate (shouldResumePhase1 returns true on the rec the store
+// loads back).
+func TestPodRestart_Phase1WatchingResumesWithKubeconfig(t *testing.T) {
+	tmp := t.TempDir()
+	st, err := store.New(tmp)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+
+	kcPath := filepath.Join(tmp, "kubeconfigs", "resume-phase1.yaml")
+	if err := os.MkdirAll(filepath.Dir(kcPath), 0o700); err != nil {
+		t.Fatalf("mkdir kubeconfigs: %v", err)
+	}
+	if err := os.WriteFile(kcPath, []byte("fake-kubeconfig: yaml"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+
+	rec := store.Record{
+		ID:        "resume-phase1",
+		Status:    "phase1-watching",
+		StartedAt: time.Now().Add(-5 * time.Minute).UTC(),
+		Request: store.RedactedRequest{
+			SovereignFQDN: "test.example",
+			Region:        "fsn1",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN:  "test.example",
+			KubeconfigPath: kcPath,
+			// Phase1FinishedAt nil → watcher had not yet terminated
+			// when the previous Pod died.
+		},
+	}
+	if err := st.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Build a handler against the on-disk store. We do NOT exercise
+	// runPhase1Watch end-to-end here (that's covered above); we only
+	// assert the gating decision (shouldResumePhase1=true) and the
+	// preserved Status value, both of which are the load-bearing
+	// pieces of the issue #830 Bug 3 fix.
+	h := NewWithStore(silentLogger(), &fakePDM{}, st)
+
+	// Confirm the gating decision matches expectation.
+	dep := fromRecord(rec)
+	if !h.shouldResumePhase1(dep, rec) {
+		t.Errorf("shouldResumePhase1 = false, want true (Status=phase1-watching + KubeconfigPath set + Phase1FinishedAt nil)")
+	}
+
+	// Confirm the loaded deployment preserves the phase1-watching
+	// status (issue #830 Bug 3 — fromRecord must NOT rewrite it to
+	// failed).
+	if dep.Status != "phase1-watching" {
+		t.Errorf("dep.Status = %q, want %q after fromRecord", dep.Status, "phase1-watching")
+	}
+}
+
+// TestPodRestart_Phase0InFlightStillRewrittenToFailed proves the
+// Phase-0 in-flight statuses (pending/provisioning/tofu-applying/
+// flux-bootstrapping) are still rewritten to "failed" on Pod
+// restart — these are unrecoverable because the OpenTofu workdir
+// lives on /tmp emptyDir and dies with the Pod.
+//
+// Carved out from the earlier "everything in-flight → failed" rule
+// which was overly broad and was breaking the durable Phase-1
+// watcher (issue #830 Bug 3).
+func TestPodRestart_Phase0InFlightStillRewrittenToFailed(t *testing.T) {
+	for _, status := range []string{"pending", "provisioning", "tofu-applying", "flux-bootstrapping"} {
+		t.Run(status, func(t *testing.T) {
+			tmp := t.TempDir()
+			st1, err := store.New(tmp)
+			if err != nil {
+				t.Fatalf("store.New: %v", err)
+			}
+
+			rec := store.Record{
+				ID:        "rehydrate-phase0-" + status,
+				Status:    status,
+				StartedAt: time.Now().Add(-5 * time.Minute).UTC(),
+				Request: store.RedactedRequest{
+					SovereignFQDN: "test.example",
+					Region:        "fsn1",
+				},
+			}
+			if err := st1.Save(rec); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+
+			st2, err := store.New(tmp)
+			if err != nil {
+				t.Fatalf("store.New (restart): %v", err)
+			}
+			h := NewWithStore(silentLogger(), &fakePDM{}, st2)
+
+			val, _ := h.deployments.Load(rec.ID)
+			dep := val.(*Deployment)
+			if dep.Status != "failed" {
+				t.Errorf("Status = %q, want %q (Phase-0 in-flight must rewrite to failed — tofu workdir died with Pod)", dep.Status, "failed")
+			}
+			if dep.Error == "" {
+				t.Errorf("Error empty — operator wouldn't know why this deployment failed")
+			}
+		})
 	}
 }
 

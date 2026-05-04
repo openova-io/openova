@@ -724,9 +724,21 @@ func TestShouldResumePhase1_GatesProperly(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "in-flight-rewritten-to-failed",
+			// Issue #830 Bug 3 — phase1-watching is now RESUMABLE.
+			// Phase 0 already committed its tofu state; the watcher
+			// is the only thing that needs re-attaching across a Pod
+			// restart, and it's idempotent.
+			name: "phase1-watching-resumes",
 			dep:  &Deployment{Result: &provisioner.Result{KubeconfigPath: existingFile}},
 			rec:  store.Record{Status: "phase1-watching"},
+			want: true,
+		},
+		{
+			// Phase-0 in-flight statuses remain non-resumable (tofu
+			// workdir on /tmp emptyDir died with the previous Pod).
+			name: "phase0-tofu-applying-not-resumable",
+			dep:  &Deployment{Result: &provisioner.Result{KubeconfigPath: existingFile}},
+			rec:  store.Record{Status: "tofu-applying"},
 			want: false,
 		},
 		{
