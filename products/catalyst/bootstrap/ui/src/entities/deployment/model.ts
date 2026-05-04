@@ -87,6 +87,24 @@ export interface SovereignPoolDomain {
   description: string
 }
 
+/**
+ * Marketplace brand — purely cosmetic per-Sovereign theming for the
+ * `marketplace.<sovereign-fqdn>` storefront when the operator opts into
+ * Marketplace mode (issue #710 wave 3a). All three fields are optional;
+ * the chart only consumes `marketplaceEnabled` today, but the brand
+ * fields persist on the wizard state so a future settings page can
+ * surface them without re-prompting on every wizard run. Values that are
+ * empty strings mean "use the platform default" — never "unset".
+ */
+export interface MarketplaceBrand {
+  /** Display name shown in the storefront header (e.g. "Acme Marketplace"). */
+  name: string
+  /** Short tagline rendered under the storefront name. */
+  tagline: string
+  /** CSS-style hex colour (e.g. "#38BDF8") used for the storefront accent. */
+  primaryColor: string
+}
+
 export interface WizardState {
   orgName: string; orgDomain: string; orgEmail: string; orgIndustry: string
   orgSize: string; orgHeadquarters: string; orgCompliance: string[]
@@ -211,6 +229,24 @@ export interface WizardState {
   selectedBlueprints: string[]
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
+  /**
+   * Marketplace mode toggle (issue #710 wave 3a). When true, the
+   * provisioner sets `marketplace_enabled=true` on the OpenTofu var that
+   * cloud-init substitutes into the bp-catalyst-platform HelmRelease,
+   * which in turn renders the marketplace HTTPRoutes (storefront +
+   * per-tenant subdomain shells). The backend Request struct
+   * (`provisioner.Request.MarketplaceEnabled`) and the chart values
+   * (`ingress.marketplace.enabled`) are already wired — this flag is the
+   * UI seam.
+   */
+  marketplaceEnabled: boolean
+  /**
+   * Optional brand fields shown on `marketplace.<sovereign-fqdn>` when
+   * Marketplace mode is on. Never required — empty strings mean "use the
+   * platform default banner". Persisted in the wizard store so a return
+   * visit (or a future settings page) doesn't lose them.
+   */
+  marketplaceBrand: MarketplaceBrand
   /**
    * Selected platform components from the corporate StepComponents grid
    * (the 60+ catalog defined in pages/wizard/steps/componentGroups.ts).
@@ -434,6 +470,12 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // literal that won't pass validation against a non-hetzner provider.
   regions: [], controlPlaneSize: '', workerSize: '', workerCount: 0,
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
+  // Marketplace mode (issue #710 wave 3a) — opt-in. Defaults off so a
+  // first-run wizard provisions a private Sovereign; the operator can
+  // flip the toggle on StepMarketplace before launch, and a future
+  // settings page can flip it post-launch without touching the wizard.
+  marketplaceEnabled: false,
+  marketplaceBrand: { name: '', tagline: '', primaryColor: '' },
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
   lastProvisionResult: null,

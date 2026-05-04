@@ -14,8 +14,9 @@
  *   • The OpenOva logo lives inside the header (anchored on the brand
  *     `Link`).
  *
- *   • Exactly seven step indicators render (StepOrg → StepReview),
- *     matching the wizard's seven-step waterfall.
+ *   • Exactly eight step indicators render (StepOrg → StepReview),
+ *     matching the wizard's eight-step waterfall (Marketplace step
+ *     was inserted between Components and Domain — issue #710 wave 3a).
  *
  *   • The active step gets the `active` class and `aria-current="step"`,
  *     so screen readers and visual regression tests both confirm the
@@ -107,14 +108,15 @@ describe('WizardLayout — page-header refactor (#174)', () => {
     expect(within(header).getByText('OpenOva')).toBeTruthy()
   })
 
-  it('renders exactly seven step indicators inside the header', async () => {
+  it('renders exactly eight step indicators inside the header', async () => {
     renderLayout()
     const header = await screen.findByTestId('wizard-header')
     const stepper = within(header).getByTestId('wizard-stepper')
-    // Each step is a button — 7 buttons match WIZARD_STEPS.length.
+    // Each step is a button — 8 buttons match WIZARD_STEPS.length
+    // (Marketplace step inserted between Components and Domain — #710).
     const stepButtons = within(stepper).getAllByRole('button')
     expect(stepButtons).toHaveLength(WIZARD_STEPS.length)
-    expect(WIZARD_STEPS.length).toBe(7)
+    expect(WIZARD_STEPS.length).toBe(8)
     // Every step exposes a stable testid so visual regression tests can
     // pin to it without relying on text content.
     for (const step of WIZARD_STEPS) {
