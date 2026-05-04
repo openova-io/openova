@@ -1,0 +1,102 @@
+{{- /*
+Run-once setup Job — bootstraps the Stalwart admin principal and seeds
+the SME's primary domain. Runs as a Helm post-install hook so it fires
+exactly once per fresh release; the upstream Stalwart instance is
+expected to be Ready before the Job's API calls succeed
+(activeDeadlineSeconds covers the cold-start window).
+
+Per ADR-0003 §3, ongoing per-user mailbox provisioning is event-driven:
+unified-rbac POSTs `/api/principal` against this Stalwart's HTTP admin
+API when the SME admin creates a user. The continuous subscriber
+(natsSubscriber.enabled below) is OFF by default; the Job here covers
+ONLY the bootstrap admin principal so the OIDC login path works from
+t=0.
+
+The Job uses a thin `stalwart-cli` image (operator-supplied via
+mailboxProvisioner.setupJob.image) that ships with curl + the Stalwart
+admin CLI. Operations performed:
+  1. wait until Stalwart's HTTP admin API at $STALWART_URL/api is
+     reachable (60s ceiling, exits non-zero past that)
+  2. PATCH the admin principal with `email-receive` + `oidc-bypass`
+     permissions (the latter required for non-OIDC rescue access)
+  3. PATCH `lookup.sender-allow.<admin>|<admin>@<domain>` so the admin
+     can send-as the postmaster address (per stalwart_send_as.md)
+  4. exit 0
+
+The script is intentionally minimal — full mailbox lifecycle lives in
+unified-rbac and the natsSubscriber subscriber. This Job ONLY covers
+"is the admin principal addressable on day 0".
+*/}}
+{{- if and .Values.stalwart.enabled .Values.mailboxProvisioner.setupJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-setup
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  activeDeadlineSeconds: {{ .Values.mailboxProvisioner.setupJob.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.mailboxProvisioner.setupJob.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: mailbox-provisioner-setup
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "bp-stalwart-tenant.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.stalwart.podSecurityContext | nindent 8 }}
+      containers:
+        - name: setup
+          image: "{{ .Values.mailboxProvisioner.setupJob.image.repository }}:{{ .Values.mailboxProvisioner.setupJob.image.tag }}"
+          imagePullPolicy: {{ .Values.mailboxProvisioner.setupJob.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.stalwart.containerSecurityContext | nindent 12 }}
+          env:
+            {{- include "bp-stalwart-tenant.adminPasswordEnv" . | nindent 12 }}
+            - name: STALWART_URL
+              value: "http://{{ include "bp-stalwart-tenant.fullname" . }}-web:{{ .Values.service.web.ports.http }}"
+            - name: ADMIN_USER
+              value: {{ .Values.admin.username | quote }}
+            - name: STALWART_DOMAIN
+              value: {{ .Values.domain.primary | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # Wait for Stalwart admin API.
+              for i in $(seq 1 60); do
+                if curl -fsS -u "${ADMIN_USER}:${ADMIN_PASSWORD}" \
+                       "${STALWART_URL}/api/principal/${ADMIN_USER}" \
+                       -o /dev/null; then
+                  break
+                fi
+                sleep 5
+              done
+              # Grant email-receive on the admin principal (groups
+              # without explicit email-receive silently bounce inbound;
+              # documented gotcha in stalwart_send_as.md). Stalwart's
+              # PATCH endpoint accepts the upstream JSON-Patch shape:
+              # [{"action":"addItem","field":"enabledPermissions","value":"email-receive"}]
+              curl -fsS -u "${ADMIN_USER}:${ADMIN_PASSWORD}" \
+                   -H 'Content-Type: application/json' \
+                   -X PATCH \
+                   "${STALWART_URL}/api/principal/${ADMIN_USER}" \
+                   -d '[{"action":"addItem","field":"enabledPermissions","value":"email-receive"}]' \
+                   || echo "warn: PATCH email-receive returned non-2xx"
+              # Add send-allow row so admin can send as postmaster@domain
+              # (per stalwart_send_as.md memory). lookup.* tables update
+              # live without restart.
+              curl -fsS -u "${ADMIN_USER}:${ADMIN_PASSWORD}" \
+                   -H 'Content-Type: application/json' \
+                   -X POST \
+                   "${STALWART_URL}/api/settings" \
+                   -d "[{\"assert_empty\":false,\"key\":\"lookup.sender-allow.${ADMIN_USER}|postmaster@${STALWART_DOMAIN}\",\"value\":\"1\"}]" \
+                   || echo "warn: POST sender-allow returned non-2xx"
+              echo "Setup complete: admin principal seeded, send-allow row written."
+{{- end }}

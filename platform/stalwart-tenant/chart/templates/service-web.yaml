@@ -1,0 +1,45 @@
+{{- /*
+Webmail / JMAP Service — ClusterIP. Fronted by Cilium Gateway HTTPRoute
+(see ingress-webmail.yaml) terminating TLS via cert-manager. NEVER
+LoadBalancer — gateway pattern per ADR-0001 + bp-keycloak.
+
+Headless Service (-headless) is the StatefulSet's serviceName for stable
+DNS records (per StatefulSet semantics).
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-web
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.web.type }}
+  selector:
+    {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.web.ports.http }}
+      targetPort: http
+      protocol: TCP
+    - name: https
+      port: {{ .Values.service.web.ports.https }}
+      targetPort: https
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-headless
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.web.ports.http }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,40 @@
+{{- /*
+SMTP / submission Service — LoadBalancer for inbound MX delivery and
+submitted-mail (STARTTLS port 587 + implicit-TLS port 465). External
+sources include other MTAs (port 25) and authenticated user clients
+(587/465). Per ADR-0001, the operator's cloud-LB controller (k3s
+ServiceLB on contabo, hcloud-cloud-controller-manager on Hetzner)
+provisions a public IP. externalTrafficPolicy=Local preserves source
+IPs for IP-based reputation policy in Stalwart.
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-smtp
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/exposure: public-mail
+  {{- with .Values.service.smtp.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.smtp.type }}
+  externalTrafficPolicy: {{ .Values.service.smtp.externalTrafficPolicy }}
+  selector:
+    {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: smtp
+      port: {{ .Values.service.smtp.ports.smtp }}
+      targetPort: smtp
+      protocol: TCP
+    - name: submission
+      port: {{ .Values.service.smtp.ports.submission }}
+      targetPort: submission
+      protocol: TCP
+    - name: submissions
+      port: {{ .Values.service.smtp.ports.submissions }}
+      targetPort: submissions
+      protocol: TCP
+{{- end }}

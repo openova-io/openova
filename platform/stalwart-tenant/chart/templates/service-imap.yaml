@@ -1,0 +1,35 @@
+{{- /*
+IMAP / IMAPS Service — LoadBalancer for authenticated mail-client
+access (Thunderbird, Apple Mail, mobile clients). For SMEs that prefer
+to keep IMAP behind the gateway / VPN, the operator overlay can switch
+.Values.service.imap.type to ClusterIP and add a separate Tailscale-
+fronted route. Default = LoadBalancer (mail clients usually expect
+direct public reachability for IMAPS port 993).
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-imap
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/exposure: public-mail
+  {{- with .Values.service.imap.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.imap.type }}
+  externalTrafficPolicy: {{ .Values.service.imap.externalTrafficPolicy }}
+  selector:
+    {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: imaps
+      port: {{ .Values.service.imap.ports.imaps }}
+      targetPort: imaps
+      protocol: TCP
+    - name: imap
+      port: {{ .Values.service.imap.ports.imap }}
+      targetPort: imap
+      protocol: TCP
+{{- end }}
