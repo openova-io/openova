@@ -7,21 +7,21 @@ export function AuthLayout() {
 }
 
 export function AuthShell({ children }: { children: React.ReactNode }) {
-  // min-h-dvh + items-stretch on the outer flex makes the LEFT panel
-  // fill viewport height. The RIGHT panel uses overflow-y-auto so the
-  // form card NEVER truncates at small viewport heights (laptops at
-  // 1366×650, browsers with dev tools open, mobile landscape) — the
-  // card stays visible by scrolling its own column instead of the
-  // whole document. min-h-full + items-center on the right panel
-  // anchors the card vertically; if content fits, it's centered, if
-  // it doesn't, the user can scroll within the column. Caught live
-  // 2026-05-04: at certain heights the card sat at the top of the
-  // right panel because the parent was min-h-dvh but the inner
-  // wrapper had no flex-grow.
+  // Outer pinned to exactly viewport height (h-dvh, not min-h-dvh)
+  // so the right column inherits a bounded height — that's what makes
+  // overflow-y-auto on the column actually trigger column-scoped
+  // scrolling instead of letting the document grow and scroll as a
+  // whole. The card is then centered within the bounded column when
+  // it fits and scrolls inside the column when it doesn't.
+  // Caught live 2026-05-04: previous min-h-dvh let the outer grow
+  // with content, so on small viewport heights (1366×650, mobile
+  // landscape, browser with dev tools open) the card visually
+  // overflowed the top of the viewport with no scrollable container
+  // pinning it.
   return (
-    <div className="min-h-dvh flex items-stretch">
+    <div className="h-dvh flex items-stretch overflow-hidden">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-[420px] xl:w-[480px] shrink-0 flex-col justify-between bg-[--color-surface-1] border-r border-[--color-surface-border] p-10">
+      <div className="hidden lg:flex lg:w-[420px] xl:w-[480px] shrink-0 flex-col justify-between bg-[--color-surface-1] border-r border-[--color-surface-border] p-10 overflow-y-auto">
         <div className="flex items-center gap-2.5">
           {/* Canonical OpenOva mark — see /brand/logo-mark.svg in openova-private */}
           <OOLogo h={22} id="auth-left-logo" />
@@ -64,11 +64,17 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center overflow-y-auto p-6 sm:p-8 bg-[--color-surface-0]">
-        {/* py-8 inside the card column gives the card breathing room
-            top + bottom even when overflow-y-auto kicks in, so the
-            "scroll inside the column" path stays comfortable. */}
-        <div className="w-full max-w-sm py-8">{children}</div>
+      {/* The column itself is the scroll container (overflow-y-auto)
+          so when the card is taller than the viewport, scrolling
+          stays scoped here instead of growing the whole page. The
+          inner wrapper uses min-h-full + flex items-center to center
+          when the card fits — when it doesn't, items-center degrades
+          gracefully (browsers respect overflow start when content
+          exceeds container) and py-8 keeps top/bottom breathing room. */}
+      <div className="flex-1 overflow-y-auto bg-[--color-surface-0]">
+        <div className="min-h-full flex items-center justify-center p-6 sm:p-8">
+          <div className="w-full max-w-sm py-8">{children}</div>
+        </div>
       </div>
     </div>
   )
