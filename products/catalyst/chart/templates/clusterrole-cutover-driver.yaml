@@ -1,0 +1,80 @@
+{{- /*
+ClusterRole granting catalyst-api the verbs needed to drive the
+self-sovereignty cutover endpoint (issue #792, #830 P0 Bug 1).
+
+CRITICAL — feedback_rbac_create_no_resourcenames.md (auto-memory anchor):
+Kubernetes RBAC forbids combining `create` verbs with `resourceNames`.
+A POST request has no resource name yet; the apiserver MUST evaluate
+the rule against the request without a name match, and a `resourceNames`
+set with `create` produces a 403 every time. This caused the bp-openbao
+6+ provisioning loop. We split `create` into its own Rule with NO
+`resourceNames` and keep `update/patch/get/delete` in a separate Rule.
+
+What catalyst-api needs to do across namespaces (cutover sequence):
+  - read configmaps in the cutover namespace (default `catalyst`):
+    cutover-step PodSpec ConfigMaps + the self-sovereign-cutover-status
+    ConfigMap
+  - patch the status ConfigMap on every step transition
+  - create batchv1.Job from each PodSpec ConfigMap
+  - watch jobs to completion / Failed
+  - delete completed jobs after status capture (housekeeping)
+  - read daemonsets/deployments status for daemonset-wait + deployment-
+    targeted steps (step 04 registry-pivot DaemonSet readiness, step 07
+    catalyst-api Deployment env patch)
+  - emit Events as steps complete (operator-visible kube events)
+
+ClusterRole (not Role) because the cutover handler today is namespace-
+configurable via env CATALYST_CUTOVER_NAMESPACE — defaulting to
+`catalyst` but operators may relocate. A namespaced Role would couple
+the chart to a single namespace forever.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: catalyst-api-cutover-driver
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: cutover-driver-rbac
+rules:
+  # ───────────────────────────────────────────────────────────────
+  # CREATE verbs — MUST be in their own Rule WITHOUT resourceNames.
+  # Per feedback_rbac_create_no_resourcenames.md this split is
+  # load-bearing: combining `create` with resourceNames produces a 403
+  # at every POST because the apiserver has no resource name to match
+  # the rule against on the create path.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create"]
+
+  # ───────────────────────────────────────────────────────────────
+  # READ verbs — get/list/watch on the resources the handler reads.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # UPDATE / PATCH / DELETE — separate from create per RBAC rule.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["delete", "patch", "update"]

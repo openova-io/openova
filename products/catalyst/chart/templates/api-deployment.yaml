@@ -119,6 +119,20 @@ spec:
       labels:
         app.kubernetes.io/name: catalyst-api
     spec:
+      # serviceAccountName — bind the Pod to the dedicated cutover-driver
+      # ServiceAccount so the /api/v1/sovereign/cutover/start handler can
+      # read/patch the cutover ConfigMaps + create/watch Jobs in the
+      # `catalyst` namespace. See serviceaccount-cutover-driver.yaml +
+      # clusterrole-cutover-driver.yaml + clusterrolebinding-cutover-
+      # driver.yaml for the full RBAC graph (issue #830 P0 Bug 1).
+      #
+      # The SA is created by THIS chart in the same namespace catalyst-api
+      # runs in (catalyst-system) and bound at cluster scope (the cutover
+      # endpoint is namespace-configurable via CATALYST_CUTOVER_NAMESPACE).
+      # Without this, the Pod runs as system:serviceaccount:catalyst-
+      # system:default and every cutover-status read returns 502
+      # "configmaps is forbidden" (caught live on otech102, 2026-05-04).
+      serviceAccountName: catalyst-api-cutover-driver
       imagePullSecrets:
         - name: ghcr-pull
       # fsGroup applies to the volumes mounted into the Pod so the
