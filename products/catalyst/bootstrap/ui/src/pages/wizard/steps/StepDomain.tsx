@@ -36,7 +36,7 @@
  *       break-glass private key.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -45,6 +45,7 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Lock,
   RefreshCw,
   Sparkles,
 } from 'lucide-react'
@@ -60,6 +61,7 @@ import {
   type RegistrarType,
 } from '@/entities/deployment/model'
 import { useSubdomainAvailability } from '@/shared/lib/useSubdomainAvailability'
+import { useSession } from '@/shared/lib/useSession'
 import { API_BASE } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 
@@ -173,6 +175,30 @@ function isValidAdminEmail(value: string): boolean {
 
 function AdminEmailField() {
   const store = useWizardStore()
+  // Issue #748 — orgEmail is the Sovereign owner's identity, and the
+  // server enforces orgEmail == session.email on POST /deployments.
+  // Pre-fill from the session and render the field READ-ONLY so the
+  // operator sees up-front that the value is non-negotiable; the
+  // server-side check is the load-bearing fix per
+  // docs/INVIOLABLE-PRINCIPLES.md #1 (never trust the client) — this
+  // is defense-in-depth UX. The Lock icon + tooltip explain why the
+  // field can't be edited so a confused operator doesn't hunt for a
+  // way around it.
+  const session = useSession()
+  const sessionEmail = session.email ?? ''
+
+  // Mirror session.email into the wizard store on first render and
+  // on any subsequent session change (browser focus may refresh the
+  // session via useSession's refetchOnWindowFocus). The store value
+  // drives the wire payload that POSTs to /deployments — keeping it
+  // in lockstep with the session prevents a stale orgEmail from a
+  // previous sign-in surviving into the current session.
+  useEffect(() => {
+    if (sessionEmail && sessionEmail !== store.orgEmail) {
+      store.setOrgEmail(sessionEmail)
+    }
+  }, [sessionEmail, store])
+
   const valid = !store.orgEmail || isValidAdminEmail(store.orgEmail)
   return (
     <fieldset
@@ -187,23 +213,52 @@ function AdminEmailField() {
       }}
     >
       <legend style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)', marginBottom: 4 }}>
-        Admin contact email <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>required</span>
+        Admin contact email <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>required · locked to your sign-in</span>
       </legend>
-      <input
-        type="email"
-        data-testid="admin-email-input"
-        placeholder="platform@acme.io"
-        value={store.orgEmail}
-        onChange={e => store.setOrgEmail(e.target.value)}
-        aria-invalid={!valid}
-        autoComplete="email"
-        spellCheck={false}
-        style={inputStyle(valid ? 'idle' : 'error')}
-      />
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="email"
+          data-testid="admin-email-input"
+          placeholder={sessionEmail ? '' : 'sign in to provision a Sovereign'}
+          value={store.orgEmail}
+          // Read-only — the server REJECTS POST /deployments when
+          // req.OrgEmail != session.email (issue #748), so any client-
+          // side edit would just produce a 403. Surface that constraint
+          // up-front by disabling the input rather than letting the
+          // operator type and then fail at submit.
+          readOnly
+          aria-readonly="true"
+          aria-invalid={!valid}
+          autoComplete="email"
+          spellCheck={false}
+          title="Sovereigns are owned by the email you signed in with."
+          style={{
+            ...inputStyle(valid ? 'idle' : 'error'),
+            paddingRight: 36,
+            cursor: 'not-allowed',
+            opacity: sessionEmail ? 0.95 : 0.7,
+          }}
+        />
+        <span
+          aria-hidden="true"
+          title="Sovereigns are owned by the email you signed in with."
+          style={{
+            position: 'absolute',
+            right: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--wiz-text-hint)',
+            pointerEvents: 'none',
+          }}
+        >
+          <Lock size={14} />
+        </span>
+      </div>
       <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', lineHeight: 1.5 }}>
-        Used as the Let's Encrypt account email for TLS issuance, and as the
-        deployment-completion notification address. We do not send marketing
-        from this address.
+        Sovereigns are owned by the email you signed in with. This address is the Let's
+        Encrypt account email for TLS issuance and the deployment-completion notification
+        target. To use a different identity, sign out and sign back in.
       </span>
     </fieldset>
   )

@@ -44,19 +44,24 @@ func newDepListEntry(h *Handler, id, owner, status string, adopted bool) {
 }
 
 // TestListDeployments_FilterBySessionEmail proves that when a session
-// header is set, the list is scoped to that email regardless of the
-// ?owner= query string. The query param is an attacker hint — it must
-// not let one signed-in user see another's rows.
+// header is set, the list is scoped to that email. The original #747
+// implementation silently overrode a mismatching ?owner= param to the
+// session.email; #748 tightened the policy: a cross-tenant ?owner=
+// returns 200 + empty rather than collapsing to session-only rows so
+// the security boundary is explicit (TestListDeployments_OwnerQueryParam
+// covers the cross-tenant case).
+//
+// This test now exercises the "no ?owner= or matching ?owner=" path —
+// alice's session sees only her two rows, bob's row never leaks.
 func TestListDeployments_FilterBySessionEmail(t *testing.T) {
 	h := &Handler{log: slog.Default()}
 	newDepListEntry(h, "dep-mine-1", "alice@example.com", "phase1-watching", false)
 	newDepListEntry(h, "dep-mine-2", "alice@example.com", "ready", false)
 	newDepListEntry(h, "dep-other", "bob@example.com", "phase1-watching", false)
 
-	// Attacker sends ?owner=bob@example.com but their session is alice@.
-	// The session header MUST override.
+	// alice's session, no ?owner= → her rows only.
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/deployments?owner=bob@example.com", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/deployments", nil)
 	r.Header.Set("X-User-Email", "alice@example.com")
 	h.ListDeployments(w, r)
 
@@ -74,8 +79,38 @@ func TestListDeployments_FilterBySessionEmail(t *testing.T) {
 	}
 	for _, d := range body.Deployments {
 		if d["ownerEmail"] != "alice@example.com" {
-			t.Fatalf("session-email override failed: leaked %v", d)
+			t.Fatalf("session-email filter failed: leaked %v", d)
 		}
+	}
+}
+
+// Issue #748 — ?owner=<other-email> while session is alice@example.com
+// MUST return an empty list (200 + []), NOT silently collapse to
+// alice's rows. The response shape itself must NOT differentiate
+// "exists but not yours" from "doesn't exist" — same posture as the
+// issue #689 404-not-403 rule on /deployments/{id}. This is the
+// "more secure of the two" option the issue spec offered.
+func TestListDeployments_CrossTenantOwnerQueryReturnsEmpty(t *testing.T) {
+	h := &Handler{log: slog.Default()}
+	newDepListEntry(h, "dep-mine", "alice@example.com", "phase1-watching", false)
+	newDepListEntry(h, "dep-theirs", "bob@example.com", "phase1-watching", false)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/deployments?owner=bob@example.com", nil)
+	r.Header.Set("X-User-Email", "alice@example.com")
+	h.ListDeployments(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("cross-tenant ?owner MUST be 200 (not 403 — never leak existence); got %d", w.Code)
+	}
+	var body struct {
+		Deployments []map[string]any `json:"deployments"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Deployments) != 0 {
+		t.Fatalf("cross-tenant ?owner MUST return empty list; got %d (%+v)", len(body.Deployments), body.Deployments)
 	}
 }
 
