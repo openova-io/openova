@@ -13,10 +13,13 @@ data:
   # customer-facing portal UI when set to "catalyst".
   CUSTOMER_KEY_ISSUER: {{ .Values.auth.customerAPI.keyIssuer | quote }}
 
-  # OIDC for ops-staff admin UI.
-  {{- if eq .Values.auth.adminUI.mode "keycloak" }}
+  # OIDC for ops-staff admin UI. Skip-render gate: when
+  # `auth.adminUI.mode=keycloak` but the issuer is not yet wired (e.g.
+  # CI smoke render with default values), emit `OIDC_ENABLED=false` and
+  # let the per-Sovereign overlay set the real issuer at install time.
+  {{- if and (eq .Values.auth.adminUI.mode "keycloak") .Values.auth.adminUI.keycloak.issuer }}
   OIDC_ENABLED: "true"
-  OIDC_ISSUER: {{ required "auth.adminUI.keycloak.issuer is required when auth.adminUI.mode=keycloak" .Values.auth.adminUI.keycloak.issuer | quote }}
+  OIDC_ISSUER: {{ .Values.auth.adminUI.keycloak.issuer | quote }}
   OIDC_CLIENT_ID: {{ .Values.auth.adminUI.keycloak.clientId | quote }}
   OIDC_CALLBACK_PATH: {{ .Values.auth.adminUI.keycloak.callbackPath | quote }}
   {{- else }}
@@ -41,11 +44,12 @@ data:
   # Reseller disclosure assertion.
   RESELLER_DISCLOSURE_REQUIRED: {{ .Values.reseller.disclosureRequired | quote }}
 
-  # Channel definitions (operator-supplied; full attestation enforced by
-  # the assertChannelAttestation helper). Loaded by NewAPI at boot via
+  # Channel definitions (operator-supplied + first-otech `defaultChannels`
+  # composition; full attestation enforced by the
+  # assertChannelAttestation helper). Loaded by NewAPI at boot via
   # /etc/newapi/channels.yaml.
   channels.yaml: |
-{{- range .Values.channels }}
+{{- range (include "bp-newapi.effectiveChannels" . | fromYamlArray) }}
     - name: {{ .name | quote }}
       type: {{ .type | quote }}
       {{- if .endpoint }}

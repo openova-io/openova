@@ -63,12 +63,41 @@ ConfigMap name (channel + policy config).
 {{- end }}
 
 {{/*
+Effective channel list — `.Values.channels` plus the composed
+`defaultChannels.vllm` channel when enabled. Centralised so configmap.yaml
+and assertChannelAttestation operate on the same materialised list.
+*/}}
+{{- define "bp-newapi.effectiveChannels" -}}
+{{- $channels := default (list) .Values.channels -}}
+{{- $dc := .Values.defaultChannels | default dict -}}
+{{- $vllm := $dc.vllm | default dict -}}
+{{- if $vllm.enabled -}}
+  {{- if not $vllm.endpoint -}}
+    {{- fail "defaultChannels.vllm.enabled=true but defaultChannels.vllm.endpoint is empty — supply the upstream vLLM relay URL in the per-Sovereign bootstrap-kit overlay (e.g. https://llm-api.omtd.bankdhofar.com)" -}}
+  {{- end -}}
+  {{- $composed := dict
+        "name"      (default "qwen" $vllm.name)
+        "type"      "vllm"
+        "endpoint"  $vllm.endpoint
+        "models"    (default (list "qwen3-coder") $vllm.models)
+        "attestation" (default (dict "kind" "in-cluster") $vllm.attestation) -}}
+  {{- if $vllm.existingSecret -}}
+    {{- $_ := set $composed "existingSecret" $vllm.existingSecret -}}
+  {{- end -}}
+  {{- $channels = append $channels $composed -}}
+{{- end -}}
+{{- toYaml $channels -}}
+{{- end -}}
+
+{{/*
 Channel attestation gate — refuses to render if any enabled channel
 lacks attestation. Compliance posture defined in
-platform/newapi/README.md and blueprint.yaml configSchema.
+platform/newapi/README.md and blueprint.yaml configSchema. Operates on
+the EFFECTIVE channel list (`.Values.channels` + composed defaults).
 */}}
 {{- define "bp-newapi.assertChannelAttestation" -}}
-{{- range $idx, $ch := .Values.channels }}
+{{- $effective := include "bp-newapi.effectiveChannels" . | fromYamlArray -}}
+{{- range $idx, $ch := $effective }}
 {{- if not $ch.attestation }}
 {{- fail (printf "channel[%d] (%s): missing required attestation block — see platform/newapi/README.md compliance posture" $idx (default "<unnamed>" $ch.name)) }}
 {{- end }}
