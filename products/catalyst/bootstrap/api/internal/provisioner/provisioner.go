@@ -517,6 +517,33 @@ type Result struct {
 	// right operator-actionable diagnostic instead of an opaque
 	// "stuck" pill.
 	Phase1Outcome string `json:"phase1Outcome,omitempty"`
+
+	// HandoverFiredAt — UTC timestamp the catalyst-api auto-fired the
+	// handover JWT mint after the Phase-1 watch terminated with
+	// OutcomeReady (issues #764 + #768). Nil until the auto-fire
+	// happens; non-nil afterward. Tests + the wizard's provision page
+	// gate on (status=="ready" && HandoverURL != "" && HandoverFiredAt
+	// != nil) to render the "Open your Sovereign console →" button +
+	// the 5-second auto-redirect timer.
+	HandoverFiredAt *time.Time `json:"handoverFiredAt,omitempty"`
+
+	// HandoverURL — fully-qualified handover redirect URL (issues
+	// #764 + #768). Shape:
+	//
+	//   https://console.<sovereignFqdn>/auth/handover?token=<jwt>
+	//
+	// The token is RS256-signed by catalyst-api's handoverjwt.Signer
+	// (claims contract documented in internal/handoverjwt/signer.go);
+	// the Sovereign-side /auth/handover handler validates it, mints a
+	// session, and 302s to /console/dashboard. The URL is durable on
+	// the deployment record so a Pod restart between the mint and the
+	// browser-side redirect still surfaces the same URL on the next
+	// /deployments/{id} poll. Empty until the auto-fire happens; the
+	// JWT inside expires after 5 minutes per
+	// handoverjwt.DefaultTTL — re-mint is the operator's manual
+	// "Open Sovereign console" path (POST
+	// /deployments/{id}/mint-handover-token).
+	HandoverURL string `json:"handoverURL,omitempty"`
 }
 
 // Provisioner runs `tofu init && tofu apply` against the canonical

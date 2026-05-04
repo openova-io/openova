@@ -710,6 +710,19 @@ func (d *Deployment) State() map[string]any {
 		if d.Result.Phase1Outcome != "" {
 			out["phase1Outcome"] = d.Result.Phase1Outcome
 		}
+		// Issues #764 + #768 — lift the handover-fire surface to the
+		// top level so the wizard's provision-page reducer can drive
+		// the "Open your Sovereign console →" button + auto-redirect
+		// without unwrapping result. handoverURL is the canonical
+		// post-mint redirect; handoverFiredAt is the proof-of-fire
+		// timestamp the UI uses to render the toast exactly once
+		// even on a poll-after-SSE-reconnect.
+		if d.Result.HandoverURL != "" {
+			out["handoverURL"] = d.Result.HandoverURL
+		}
+		if d.Result.HandoverFiredAt != nil {
+			out["handoverFiredAt"] = d.Result.HandoverFiredAt.UTC().Format(time.RFC3339)
+		}
 	}
 	// adoptedAt — handover-finalisation flag (issue #317) lifted to the
 	// top level so the UI's beforeLoad redirect (issue #319) reads it
@@ -1158,7 +1171,7 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	// of an empty shell — a browser that connects after `event: done`
 	// arrived at an already-closed channel previously got nothing.
 	for _, ev := range dep.snapshotEvents() {
-		fmt.Fprintf(w, "data: %s\n\n", mustJSON(ev))
+		writeSSEEvent(w, ev)
 	}
 	flusher.Flush()
 
@@ -1186,10 +1199,63 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", mustJSON(ev))
+			writeSSEEvent(w, ev)
 			flusher.Flush()
 		}
 	}
+}
+
+// PhaseHandoverReady — Phase value set on a synthesized provisioner.Event
+// when catalyst-api auto-fires the handover JWT mint after the Phase-1
+// watch terminates with OutcomeReady (issues #764 + #768). The event's
+// Message carries a JSON object `{"handoverURL": "...", "expiresAt":
+// "..."}` (RFC 3339 expiry, RS256 token contract — see
+// internal/handoverjwt/signer.go).
+//
+// StreamLogs renders this Event as a typed SSE event:
+//
+//	event: handover-ready
+//	data: {"handoverURL": "...", "expiresAt": "..."}
+//
+// The wizard's useDeploymentEvents hook listens via
+// EventSource.addEventListener('handover-ready', ...) so the typed
+// channel is independent of the default `message` event reducer.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is built from the
+// Sovereign FQDN persisted on the deployment record + the JWT minted
+// by handoverjwt.Signer.MintToken — no hardcoded host.
+const PhaseHandoverReady = "handover-ready"
+
+// writeSSEEvent renders a single provisioner.Event onto an SSE stream.
+//
+// Default rendering is the legacy shape:
+//
+//	data: <json-of-event>
+//
+// (no `event:` prefix → the browser dispatches it as the default
+// `message` event, which the existing reducer consumes).
+//
+// The single typed-event branch is `Phase == PhaseHandoverReady`,
+// which renders:
+//
+//	event: handover-ready
+//	data: <Event.Message verbatim>
+//
+// Event.Message for the handover-ready event is already a JSON object
+// — see Handler.fireHandover in phase1_watch.go. The wizard's
+// addEventListener('handover-ready', ...) parses it directly without
+// the Event wrapper.
+func writeSSEEvent(w http.ResponseWriter, ev provisioner.Event) {
+	if ev.Phase == PhaseHandoverReady {
+		// The Message field is the canonical JSON payload —
+		// emit it verbatim under the typed event channel. No
+		// double-wrapping in the Event struct, so the Sovereign UI's
+		// addEventListener handler receives the exact shape #768
+		// specifies: {"handoverURL": "...", "expiresAt": "..."}.
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", PhaseHandoverReady, ev.Message)
+		return
+	}
+	fmt.Fprintf(w, "data: %s\n\n", mustJSON(ev))
 }
 
 // GetDeploymentEvents returns the buffered event history + state JSON for

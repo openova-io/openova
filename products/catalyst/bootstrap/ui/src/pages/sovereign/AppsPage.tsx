@@ -70,7 +70,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   )
   const applicationIds = useMemo(() => applications.map((a) => a.id), [applications])
 
-  const { state, snapshot, streamStatus, streamError, retry } = useDeploymentEvents({
+  const { state, snapshot, streamStatus, streamError, retry, handoverReady } = useDeploymentEvents({
     deploymentId,
     applicationIds,
     disableStream,
@@ -194,6 +194,96 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     })
   }, [deploymentIdValid, rawDeploymentId, notify, dismiss, router])
 
+  // Issues #764 + #768 — Sovereign-is-ready handover surface. Once
+  // catalyst-api auto-fires the JWT mint (markPhase1Done →
+  // fireHandover, gated on Phase-1 OutcomeReady), the SSE stream
+  // delivers a typed `handover-ready` event AND the
+  // /deployments/{id} record acquires `handoverURL` +
+  // `handoverFiredAt`. This effect drives:
+  //
+  //   1. A persistent global toast "Sovereign is ready —
+  //      redirecting…" with an "Open Sovereign console →" action
+  //      (founder feedback 2026-05-04: the operator must see the
+  //      affordance immediately, not wait silently).
+  //   2. A 5-second window before the browser auto-redirects via
+  //      window.location.href = handoverURL. The countdown is
+  //      managed by the second effect below; this effect just
+  //      records the URL on the toast so the operator can click
+  //      sooner.
+  //   3. A document-title flip to "✓ Sovereign ready — <fqdn>" so
+  //      a backgrounded tab surfaces the completion in the OS task
+  //      switcher.
+  const isHandoverReady = handoverReady !== null && handoverReady.handoverURL !== ''
+  const handoverURL = handoverReady?.handoverURL ?? ''
+  useEffect(() => {
+    const id = `handover-ready:${deploymentId}`
+    if (!isHandoverReady) {
+      dismiss(id)
+      return
+    }
+    const target = sovereignFQDN ?? 'your new Sovereign'
+    notify({
+      id,
+      level: 'success',
+      title: 'Sovereign is ready — redirecting…',
+      body: `${target} provisioned. Opening the Sovereign console in 5 seconds.`,
+      actions: [
+        {
+          label: 'Open your Sovereign console →',
+          variant: 'primary',
+          testId: 'sov-handover-open-now',
+          onClick: () => {
+            window.location.href = handoverURL
+          },
+          dismissOnClick: false,
+        },
+        {
+          label: 'Stay on this page',
+          variant: 'ghost',
+          testId: 'sov-handover-stay',
+          onClick: () => {
+            // Marker — see the redirect-timer effect below; the
+            // dismiss IS the cancel signal because the timer reads
+            // the toast presence.
+            dismiss(id)
+          },
+        },
+      ],
+    })
+  }, [isHandoverReady, handoverURL, sovereignFQDN, deploymentId, notify, dismiss])
+
+  // Auto-redirect timer — 5 seconds from the moment handoverReady
+  // arrives. We capture the URL into a stable ref so a re-render
+  // mid-countdown doesn't reset the timer; the cleanup callback
+  // runs only on unmount or URL change.
+  useEffect(() => {
+    if (!isHandoverReady) return
+    const target = handoverURL
+    const timeoutMs = 5000
+    const timer = window.setTimeout(() => {
+      // Final navigation — this leaves the SPA. The Sovereign-side
+      // /auth/handover handler validates the JWT, mints a session,
+      // and 302s to /console/dashboard. No SPA-side state survives.
+      window.location.href = target
+    }, timeoutMs)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [isHandoverReady, handoverURL])
+
+  // Document-title flip on handover-ready (founder feedback
+  // 2026-05-04 — a backgrounded tab must surface the completion in
+  // the OS task switcher).
+  useEffect(() => {
+    if (!isHandoverReady) return
+    const previous = document.title
+    const target = sovereignFQDN ?? 'Sovereign'
+    document.title = `✓ Sovereign ready — ${target}`
+    return () => {
+      document.title = previous
+    }
+  }, [isHandoverReady, sovereignFQDN])
+
   // Catalog = every Application this deployment knows about (canonical
   // calls this "every app in the org's catalog"; for the wizard surface
   // it's the union of bootstrap-kit + transitive deps + selected). Same
@@ -298,6 +388,40 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           onClose={() => setShowWipeModal(false)}
           onWiped={onWipeComplete}
         />
+      ) : null}
+
+      {/*
+       * Issues #764 + #768 — Sovereign-is-ready handover banner. Always
+       * rendered the moment catalyst-api auto-fires the JWT mint
+       * (handoverReady != null), in addition to the global toast. The
+       * banner is a redundant affordance per the founder's
+       * 2026-05-04 feedback ("the operator must SEE the redirection
+       * link"): a wide green panel directly above the apps grid that
+       * cannot be missed even if the toast tray is collapsed.
+       *
+       * The button is a plain anchor (not a SPA Link) — clicking it
+       * fires a real browser navigation to the cross-domain Sovereign
+       * console, which is exactly what the auto-redirect timer does
+       * after 5 seconds.
+       */}
+      {isHandoverReady ? (
+        <div className="handover-ready-banner" data-testid="sov-handover-ready-banner">
+          <div className="handover-ready-body">
+            <span className="handover-ready-title">
+              ✓ Sovereign is ready{sovereignFQDN ? ` — ${sovereignFQDN}` : ''}
+            </span>
+            <span className="handover-ready-sub" data-testid="sov-handover-ready-sub">
+              Redirecting to your Sovereign console in a moment. You can open it now:
+            </span>
+          </div>
+          <a
+            className="handover-ready-cta"
+            href={handoverURL}
+            data-testid="sov-handover-ready-cta"
+          >
+            Open your Sovereign console →
+          </a>
+        </div>
       ) : null}
 
       {/* Tabs */}
@@ -455,6 +579,63 @@ function AppCard({ app, status, deploymentId, isService }: AppCardProps) {
  * that React injects via <style> rather than a Svelte scoped block.
  */
 const APPS_PAGE_CSS = `
+/*
+ * Issues #764 + #768 — handover-ready banner. Spans the full width of
+ * the page surface, sits above the tabs, and uses the success-token
+ * gradient so the affordance is impossible to miss. The CTA is a real
+ * <a> link styled as a primary button.
+ */
+.handover-ready-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  margin: 0.75rem 0 1rem;
+  border: 1.5px solid color-mix(in srgb, var(--color-success) 55%, var(--color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+}
+.handover-ready-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.handover-ready-title {
+  color: var(--color-success);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.handover-ready-sub {
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.handover-ready-cta {
+  flex: 0 0 auto;
+  background: var(--color-success);
+  color: #fff;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+.handover-ready-cta:hover {
+  filter: brightness(0.92);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.handover-ready-cta:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .apps-toolbar { display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0 0.75rem; }
 .search-wrap { position: relative; flex: 1; }
 .search-icon {
