@@ -91,10 +91,13 @@ variable "control_plane_size" {
     MB = ~3.5 GB on CPX22's 4 GB.
 
     Smaller SKUs in the cpx family (cpx21 — 3 vCPU / 4 GB / €10.99/mo)
-    are LISTED but not orderable for new servers in fsn1/nbg1/hel1 as
-    of 2026-05 (Hetzner returns "Server Type cpx21 is unavailable in
-    fsn1 and can no longer be ordered" at apply time). cpx22 is the
-    smallest orderable AMD shared SKU with ≥ 4 GB RAM in EU DCs.
+    are LISTED in /v1/server_types with EU prices but POST /v1/servers
+    returns {"error":{"code":"invalid_input","message":"unsupported
+    location for server type"}} for cpx11/cpx21/cpx31/cpx41 in any of
+    fsn1/nbg1/hel1 (verified 2026-05-04, see issue #752 + the README
+    §"Why cpx21/cpx31 are NOT the default" for the curl reproducer).
+    cpx22 is the smallest orderable AMD shared SKU with ≥ 4 GB RAM in
+    EU DCs.
 
     Operators picking SOLO mode (worker_count=0) should still pick
     CPX52 explicitly so all Blueprints can fit on a single node.
@@ -126,11 +129,14 @@ variable "worker_size" {
 
     Default cpx32 (4 vCPU / 8 GB AMD shared) — the smallest AMD shared
     SKU with 8 GB RAM that is orderable for new servers in fsn1/nbg1/
-    hel1 as of 2026-05. RAM is the binding constraint for the bootstrap-
-    kit's worker pods (cnpg, harbor, keycloak, openbao, grafana stack);
-    8 GB per worker is the sweet spot. The smaller cpx31 (also 4 vCPU
-    / 8 GB at ~€20.49/mo published) is listed but not orderable in EU
-    DCs.
+    hel1 as of 2026-05-04. RAM is the binding constraint for the
+    bootstrap-kit's worker pods (cnpg, harbor, keycloak, openbao,
+    grafana stack); 8 GB per worker is the sweet spot. The smaller
+    cpx31 (also 4 vCPU / 8 GB at ~€20.49/mo published) is LISTED in
+    /v1/server_types with EU prices but POST /v1/servers rejects every
+    cpx11/cpx21/cpx31/cpx41 order in fsn1/nbg1/hel1 with "unsupported
+    location for server type" (issue #752 — see infra/hetzner/README.md
+    §"Why cpx21/cpx31 are NOT the default" for the curl reproducer).
 
     Per docs/INVIOLABLE-PRINCIPLES.md #4 every workload pod is
     reschedulable across nodes; once worker_count ≥ 2 the per-host
