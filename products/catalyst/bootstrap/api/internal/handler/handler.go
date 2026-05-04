@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -234,6 +236,29 @@ type Handler struct {
 	// emitter, OTECH FQDN). Wired from main.go at startup; tests
 	// inject stubs.
 	smeTenantDeps SMETenantDeps
+
+	// ── Multi-zone PowerDNS (issue #827, parent epic #825) ──────────────────
+	// powerdnsZoneClient — narrow client for runtime parent-zone creation.
+	// The bootstrap-kit's bp-powerdns Helm hook Job creates the operator's
+	// initial parent zones at install time; this client is the catalyst-api
+	// side of the SAME contract for runtime zone additions via the admin
+	// console "Add another parent domain" flow (#829).
+	//
+	// Nil-tolerant: when CATALYST_POWERDNS_API_URL +
+	// CATALYST_POWERDNS_API_KEY are unset (local dev, CI), the parent-zone
+	// handler returns 503 "powerdns client not wired" so callers can
+	// distinguish "config gap" from "powerdns down".
+	powerdnsZoneClient powerdnsZoneClient
+}
+
+// powerdnsZoneClient is the narrow interface the parent-zone handler
+// needs from internal/powerdns.Client. Defined as an interface (rather
+// than a *powerdns.Client field) so tests can inject a stub without
+// pulling httptest into every test file. The production binding is
+// SetPowerDNSZoneClient(powerdns.New(...)) from main.go.
+type powerdnsZoneClient interface {
+	CreateZone(ctx context.Context, spec powerdns.ZoneSpec) error
+	ZoneExists(ctx context.Context, name string) (bool, error)
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
@@ -438,6 +463,12 @@ func (h *Handler) GetHandoverSigner() *handoverjwt.Signer { return h.handoverSig
 // SetOpenovaKC wires the openova-realm Keycloak client (PIN auth, #688).
 // Called by main.go at startup when CATALYST_OPENOVA_KC_SA_CLIENT_SECRET is set.
 func (h *Handler) SetOpenovaKC(kc keycloakClient) { h.openovaKC = kc }
+
+// SetPowerDNSZoneClient wires the multi-zone PowerDNS client used by the
+// runtime add-parent-zone endpoint (issue #827). Called by main.go at
+// startup when CATALYST_POWERDNS_API_URL + CATALYST_POWERDNS_API_KEY are
+// set. Tests inject a stub directly via this setter.
+func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneClient = c }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

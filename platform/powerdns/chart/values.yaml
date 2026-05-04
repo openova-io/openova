@@ -440,3 +440,87 @@ crossplane:
     enabled: false                # gap: XHetznerFloatingIP composition not yet authored
     name: pdns-public-ns          # name used when the XR is created
     region: fsn1                  # initial region; multi-region added as the composition matures
+
+# ─── Multi-zone bootstrap (issue #827, parent epic #825) ──────────────────
+# A Sovereign supports N parent zones, NOT one. The operator brings 1+
+# parent domains at signup (`omani.works` for own use, `omani.trade` for
+# the SME pool, etc.) and may add more post-handover via the admin
+# console (#829). Each zone listed below is created in PowerDNS at
+# install time by a Helm post-install/post-upgrade hook Job
+# (templates/zone-bootstrap-job.yaml) which POSTs each zone to
+# /api/v1/servers/localhost/zones via the REST API. The Job is
+# idempotent: an HTTP 409 (zone already exists) is treated as success
+# so re-runs after upgrades or chart upgrades do not fail.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the zones list
+# is fully data-driven. Default empty: a fresh-Sovereign install with
+# no zones configured renders the bootstrap Job as a no-op (Job
+# exits 0 on the first iteration of an empty list — see template).
+# Per-Sovereign overlays in clusters/<sovereign>/bootstrap-kit/
+# 11-powerdns.yaml populate this from ${PARENT_DOMAINS_YAML} via
+# Flux postBuild.substitute.
+#
+# Each zone entry:
+#   - name (required): apex domain, no trailing dot. The Job appends
+#     the trailing dot at API call time per the PowerDNS contract.
+#   - role (optional): operator-meaningful tag — "primary" for the
+#     operator's own console/api hostnames, "sme-pool" for zones
+#     offered to SME tenants. Not consumed by PowerDNS itself; carried
+#     in the Job's audit ConfigMap so the admin console can show role
+#     per zone without an extra source of truth.
+#   - kind (optional, default "Native"): PowerDNS zone kind. "Native"
+#     is the only mode supported by the gpgsql backend without
+#     additional configuration; "Master" / "Slave" require axfr peer
+#     setup we don't run.
+#   - nameservers (optional): list of NS records. Defaults to
+#     [ns1.<name>., ns2.<name>., ns3.<name>.] if empty so a fresh
+#     install delegates back to the Sovereign's own PowerDNS.
+#   - dnssec (optional, default true): enable DNSSEC at zone create
+#     time. The Job calls POST /zones/<zone>/cryptokeys with
+#     algorithm=ecdsa256 immediately after the zone is created.
+#
+# Example (per-Sovereign overlay):
+#   zones:
+#     - name: omani.works
+#       role: primary
+#     - name: omani.trade
+#       role: sme-pool
+zones: []
+
+# ─── Zone bootstrap Job ───────────────────────────────────────────────────
+# Helm hook Job that creates every entry in `zones` above against the
+# in-cluster PowerDNS REST API. Renders as a Helm post-install,post-upgrade
+# hook so the powerdns Deployment is Ready before the Job calls the API.
+zoneBootstrap:
+  # Toggle the Job render. Default true so a Sovereign with `zones`
+  # populated creates them automatically. Operators that load zones
+  # via an external pool-domain-manager service can flip this off
+  # to suppress the Job entirely.
+  enabled: true
+  # Image used by the Job — needs curl + sh. Alpine is the smallest
+  # well-known option. Pinned by digest in production overlays per
+  # INVIOLABLE-PRINCIPLES #4a; tag here is the upstream-mutable default.
+  image:
+    repository: docker.io/curlimages/curl
+    tag: "8.10.1"
+    pullPolicy: IfNotPresent
+  # Resource budget — small. Each zone is a single HTTPS POST against
+  # the in-cluster PowerDNS Service.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  # Hook delete policy — keep the most recent Job around for operator
+  # forensics (`kubectl logs job/powerdns-zone-bootstrap`) but delete
+  # the previous one before each new install/upgrade so we don't pile
+  # up immutable Jobs across upgrades.
+  hookDeletePolicy: "before-hook-creation"
+  # backoffLimit — retries on transient API errors (powerdns Pod still
+  # warming up, etc.) before the Job marks itself Failed.
+  backoffLimit: 6
+  # activeDeadlineSeconds — upper bound on Job runtime. 5 minutes is
+  # ample for N=10 zones at a few hundred ms per zone API call.
+  activeDeadlineSeconds: 300

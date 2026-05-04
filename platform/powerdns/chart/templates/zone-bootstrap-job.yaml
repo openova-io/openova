@@ -1,0 +1,313 @@
+{{- /*
+Multi-zone bootstrap Job (issue #827, parent epic #825).
+
+A franchised Sovereign supports N parent zones, NOT one. The operator
+brings 1+ parent domains at signup (`omani.works` for own use,
+`omani.trade` for the SME pool, etc.). Each zone listed under
+.Values.zones is created in PowerDNS at install time by this Job
+which POSTs to /api/v1/servers/localhost/zones via the in-cluster
+PowerDNS REST API.
+
+Idempotency: a zone that already exists returns HTTP 409 from
+PowerDNS — the Job treats 409 as success so re-runs after upgrades
+or chart upgrades do not fail. This is the same contract that the
+post-provision /api/v1/sovereign/parent-domains/<name>/zone endpoint
+in catalyst-api enforces (handler/parent_domains.go) for runtime
+zone additions via the admin console (#829).
+
+Helm hook semantics:
+  - hook: post-install,post-upgrade — runs after Helm has applied
+    every other manifest in this chart, so the powerdns Deployment +
+    Service exist by the time the Job's first iteration probes them.
+  - hook-weight: "10" — runs after any "5"-weighted hooks in
+    sibling charts; nothing in this chart claims a pre-Job hook
+    weight today, but the explicit value documents the ordering
+    contract.
+  - hook-delete-policy: before-hook-creation — keep the most recent
+    Job around for operator forensics ('kubectl logs') but delete
+    the previous one before each new install/upgrade so we do not
+    accumulate immutable Job objects across releases.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every
+operationally-meaningful value flows from values.yaml — image,
+resources, backoff, deadline, and the zones list itself are all
+operator-overridable.
+
+Skip-render: when .Values.zoneBootstrap.enabled is false OR
+.Values.zones is empty, the entire Job + RBAC bundle is skipped.
+A fresh Sovereign install with no zones configured renders a no-op.
+*/}}
+{{- if and .Values.zoneBootstrap.enabled (gt (len .Values.zones) 0) }}
+---
+{{- /*
+ServiceAccount + Role for the Job.
+
+The Job needs read access to the powerdns-api-credentials Secret so
+it can pull the X-API-Key into the curl call. We give it a dedicated
+SA + Role pair (NOT the powerdns Deployment's SA) so the bootstrap
+posture is clearly bounded — the SA can read ONE Secret in ONE
+namespace and nothing else.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: powerdns-zone-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: zone-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ .Values.zoneBootstrap.hookDeletePolicy | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: powerdns-zone-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: zone-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ .Values.zoneBootstrap.hookDeletePolicy | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["powerdns-api-credentials"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: powerdns-zone-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: zone-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ .Values.zoneBootstrap.hookDeletePolicy | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: powerdns-zone-bootstrap
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: powerdns-zone-bootstrap
+  apiGroup: rbac.authorization.k8s.io
+---
+{{- /*
+ConfigMap of zone definitions (audit pointer).
+
+The list rendered into data.zones.json is the operator-visible
+audit trail of "what zones did the Sovereign think it should
+bootstrap on this install/upgrade?". It is a side-channel — the
+Job reads the same list directly out of its template-rendered
+shell script. The admin console (#829) reads this ConfigMap to
+populate the parent-domains list page WITHOUT calling PowerDNS.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: powerdns-zone-bootstrap-spec
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: zone-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ .Values.zoneBootstrap.hookDeletePolicy | quote }}
+    catalyst.openova.io/comment: |
+      Audit pointer for the zones bootstrapped on this install/upgrade.
+      Consumed by the admin console's parent-domains page (#829) so
+      the UI can render the list without re-querying PowerDNS.
+data:
+  zones.json: |
+    {{ .Values.zones | toJson }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: powerdns-zone-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: zone-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": {{ .Values.zoneBootstrap.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: {{ .Values.zoneBootstrap.backoffLimit | default 6 }}
+  activeDeadlineSeconds: {{ .Values.zoneBootstrap.activeDeadlineSeconds | default 300 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-powerdns.labels" . | nindent 8 }}
+        catalyst.openova.io/component: zone-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: powerdns-zone-bootstrap
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: zone-bootstrap
+          image: {{ printf "%s%s:%s" (default "" .Values.global.imageRegistry) .Values.zoneBootstrap.image.repository .Values.zoneBootstrap.image.tag | quote }}
+          imagePullPolicy: {{ .Values.zoneBootstrap.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.zoneBootstrap.resources | nindent 12 }}
+          env:
+            - name: POWERDNS_API
+              # In-cluster PowerDNS webserver — exposed by the upstream
+              # subchart's Service on port 8081 (see values.yaml
+              # powerdns.powerdns.webserver.bindPort). The Job runs in
+              # the powerdns namespace, so the bare Service name resolves.
+              value: "http://powerdns:8081"
+            - name: POWERDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: powerdns-api-credentials
+                  key: api-key
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # Idempotent zone-creation loop.
+              #
+              # For each entry in .Values.zones (rendered into the
+              # heredoc below as one shell variable per zone), POST
+              # the zone to /api/v1/servers/localhost/zones. PowerDNS
+              # returns:
+              #   201 Created      — zone now exists, fresh
+              #   409 Conflict     — zone already existed, idempotent OK
+              #   any other 4xx/5xx — fail the iteration so the Job
+              #                       backs off and retries (via
+              #                       restartPolicy=OnFailure +
+              #                       backoffLimit on the Job spec)
+              #
+              # We tolerate 409 as success because:
+              #   - operator may add the same zone to .Values.zones
+              #     across upgrades; we never want a re-render to
+              #     fail the install
+              #   - the same Job serves the post-provision admin-
+              #     console "Add another domain" path (#829), which
+              #     legitimately calls this same API path on a
+              #     pre-existing zone during a retry
+              #
+              # The shell script does NOT pre-check existence with a
+              # GET /zones/<zone> probe — POST-then-handle-409 is
+              # one round trip; GET-then-POST is two. Same outcome,
+              # half the cost.
+
+              api="${POWERDNS_API}"
+              key="${POWERDNS_API_KEY}"
+
+              create_zone() {
+                local name="$1"
+                local kind="$2"
+                local nameservers_json="$3"
+                local dnssec="$4"
+
+                # Trailing dot is REQUIRED by the PowerDNS API.
+                local fqdn="${name}."
+
+                # Build the JSON body. nameservers is already an array
+                # of trailing-dot strings; kind is "Native" by default.
+                # dnssec is a bool ("true"/"false" string from values
+                # → JSON literal).
+                local body
+                body=$(printf '{"name":"%s","kind":"%s","masters":[],"nameservers":%s,"dnssec":%s,"api_rectify":true}' \
+                  "${fqdn}" "${kind}" "${nameservers_json}" "${dnssec}")
+
+                # Capture both status code and body in a single curl
+                # invocation so we can switch on the status without
+                # racing against a follow-up GET.
+                local response
+                response=$(curl --silent --show-error --output /tmp/zone-resp \
+                  --write-out '%{http_code}' \
+                  --max-time 10 \
+                  --retry 3 --retry-delay 2 --retry-connrefused \
+                  -X POST \
+                  -H "X-API-Key: ${key}" \
+                  -H "Content-Type: application/json" \
+                  --data "${body}" \
+                  "${api}/api/v1/servers/localhost/zones")
+
+                case "${response}" in
+                  201)
+                    echo "  [OK]  zone ${name} created"
+                    ;;
+                  409|412)
+                    # 409 — zone already exists. PowerDNS occasionally
+                    # returns 412 Precondition Failed when the gpgsql
+                    # backend is mid-bootstrap; treat both as idempotent.
+                    echo "  [OK]  zone ${name} already exists (HTTP ${response})"
+                    ;;
+                  422)
+                    # 422 — semantic error (e.g. "DNSSEC requires
+                    # gpgsql-dnssec=yes"). Surface the body so the
+                    # operator can fix the values overlay; fail the
+                    # iteration so the Job's backoff retries (the
+                    # operator typically responds by editing values
+                    # + re-running, not by waiting).
+                    echo "  [FAIL] zone ${name} HTTP 422:"
+                    cat /tmp/zone-resp
+                    return 1
+                    ;;
+                  *)
+                    echo "  [FAIL] zone ${name} HTTP ${response}:"
+                    cat /tmp/zone-resp
+                    return 1
+                    ;;
+                esac
+              }
+
+              echo "Bootstrapping {{ len .Values.zones }} zone(s) at ${api}"
+              {{- range $i, $z := .Values.zones }}
+              echo "[{{ add $i 1 }}/{{ len $.Values.zones }}] {{ $z.name }} (role={{ default "primary" $z.role }})"
+              create_zone \
+                {{ $z.name | quote }} \
+                {{ default "Native" $z.kind | quote }} \
+                {{- /*
+                Build a JSON array of nameservers. Default to ns1/2/3.<zone>.
+                so a fresh install delegates back to the Sovereign's own
+                PowerDNS.
+                */}}
+                {{- if $z.nameservers }}
+                {{ $z.nameservers | toJson | quote }} \
+                {{- else }}
+                {{ printf "[\"ns1.%s.\",\"ns2.%s.\",\"ns3.%s.\"]" $z.name $z.name $z.name | quote }} \
+                {{- end }}
+                {{- /*
+                dnssec: default true. PowerDNS contract is bool, not string —
+                use the literal value, not quote.
+                */}}
+                {{- if hasKey $z "dnssec" }}
+                {{ ternary "true" "false" $z.dnssec | quote }}
+                {{- else }}
+                "true"
+                {{- end }}
+              {{- end }}
+
+              echo "Zone bootstrap complete."
+{{- end }}

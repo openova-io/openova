@@ -390,6 +390,26 @@ spec:
                   name: powerdns-api-credentials
                   key: api-key
                   optional: true
+            # CATALYST_POWERDNS_API_URL — base URL of the per-Sovereign
+            # PowerDNS REST API (issue #827). Used by:
+            #   - the SME-tenant pipeline's PATCH-RRset writer
+            #     (sme_tenant_dns.go) for free-subdomain provisioning
+            #   - the multi-zone parent-domain handler
+            #     (parent_domains.go) for runtime add-zone
+            # Default is the in-cluster Service FQDN of the Sovereign's
+            # own PowerDNS (the Helm chart targets namespace `powerdns`
+            # with default release name `powerdns`). Operators in
+            # non-standard layouts override via the Helm values overlay
+            # at clusters/<sovereign>/bootstrap-kit/13-bp-catalyst-
+            # platform.yaml.
+            - name: CATALYST_POWERDNS_API_URL
+              value: {{ default "http://powerdns.powerdns.svc.cluster.local:8081" .Values.catalystApi.powerdnsURL | quote }}
+            # CATALYST_POWERDNS_SERVER_ID — virtually always "localhost"
+            # per the PowerDNS REST API contract. Operator-overridable
+            # for multi-tenant PowerDNS deployments where a single
+            # PowerDNS instance hosts multiple servers.
+            - name: CATALYST_POWERDNS_SERVER_ID
+              value: {{ default "localhost" .Values.catalystApi.powerdnsServerID | quote }}
             # ── /auth/handover Keycloak service-account (issue #606) ──────────
             # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
             # service FQDN in code; override here for non-standard Sovereign

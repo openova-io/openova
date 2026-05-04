@@ -33,6 +33,28 @@ variable "marketplace_enabled" {
   }
 }
 
+# ── Multi-domain Sovereign (issue #827, parent epic #825) ─────────────────
+#
+# The Sovereign supports N parent zones, NOT one. The wizard captures the
+# operator's parent-domain list (one for own use, optionally one per SME
+# pool, etc.) and serialises it as a YAML inline-array literal. The
+# string is interpolated into Flux's postBuild.substitute as
+# PARENT_DOMAINS_YAML, then consumed by:
+#   - bootstrap-kit slot 11 (bp-powerdns)        — values.zones
+#   - bootstrap-kit slot 13 (bp-catalyst-platform) — values.parentZones
+# in lockstep so the two slots agree on what the Sovereign considers a
+# parent zone.
+#
+# The default below renders a single-entry array derived from
+# sovereign_fqdn so legacy single-zone provisioning paths keep working
+# without per-overlay edits. The wizard / catalyst-api populates this
+# explicitly when the operator brings 2+ parent zones at signup.
+variable "parent_domains_yaml" {
+  type        = string
+  description = "Parent-domain list for the Sovereign as a YAML inline-array literal. Each entry: {name: <apex>, role: <primary|sme-pool>, ...}. Empty = single-zone fallback derived from sovereign_fqdn."
+  default     = ""
+}
+
 variable "org_name" {
   type        = string
   description = "Organisation name for resource labels + initial sovereign-admin Org name"

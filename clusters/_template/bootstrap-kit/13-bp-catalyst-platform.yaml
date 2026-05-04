@@ -58,7 +58,14 @@ spec:
   chart:
     spec:
       chart: bp-catalyst-platform
-      version: 1.3.1
+      # 1.4.0 (issue #827): adds per-zone wildcard Certificate template.
+      # When `parentZones` is populated the chart renders one
+      # cert-manager.io/v1.Certificate per zone in kube-system; the
+      # Cilium Gateway listeners reference the per-zone Secrets. When
+      # `parentZones` is empty (legacy single-zone Sovereign) the chart
+      # falls back to a single Certificate covering `*.<sovereignFQDN>`
+      # so existing provisioning paths keep working.
+      version: 1.4.0
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -102,3 +109,14 @@ spec:
       # ReferenceGrant.
       marketplace:
         enabled: ${MARKETPLACE_ENABLED:-false}
+    # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────
+    # One wildcard Certificate per parent zone, rendered by chart 1.4.0+
+    # into kube-system. Each cert renews independently; a stalled
+    # DNS-01 challenge on one zone never blocks another zone's renewal.
+    # Source of truth is the same ${PARENT_DOMAINS_YAML} variable used
+    # by bootstrap-kit slot 11 (bp-powerdns) so the two slots stay in
+    # lockstep on what the Sovereign considers a parent zone.
+    # When the operator brings only one parent domain (default
+    # zero-touch flow), cloud-init pre-renders this variable to a
+    # single-entry array derived from ${sovereign_fqdn}.
+    parentZones: ${PARENT_DOMAINS_YAML}

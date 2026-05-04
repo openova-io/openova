@@ -1,19 +1,29 @@
 apiVersion: v2
 name: bp-powerdns
-version: 1.1.8
+version: 1.2.0
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
-  companion, Traefik api-ingress, placeholder anycast endpoint) on top of
-  the upstream Helm chart. The bootstrap-kit installer
-  (products/catalyst/bootstrap/api/internal/bootstrap/) reads the upstream
-  chart reference from values.yaml's catalystBlueprint metadata block and
-  applies the values overlay at helm install time.
+  companion, Traefik api-ingress, placeholder anycast endpoint, multi-zone
+  bootstrap Job) on top of the upstream Helm chart. The bootstrap-kit
+  installer (products/catalyst/bootstrap/api/internal/bootstrap/) reads
+  the upstream chart reference from values.yaml's catalystBlueprint
+  metadata block and applies the values overlay at helm install time.
 
   Mirrors the bp-cilium / bp-keycloak / bp-cert-manager wrapper shape:
   Chart.yaml lists the upstream chart as a Helm dependency so
   `helm dependency build` resolves it; values.yaml carries both the
   catalystBlueprint metadata block and the upstream subchart values.
+
+  Bumped to 1.2.0 — multi-zone bootstrap (issue #827, parent epic #825).
+  A franchised Sovereign now supports N parent zones, NOT one. New
+  values key `zones: []` declares the parent domains the operator
+  brings to the Sovereign at signup; a Helm post-install/post-upgrade
+  hook Job (templates/zone-bootstrap-job.yaml) creates each one in
+  PowerDNS via the REST API. Idempotent on HTTP 409. Pairs with the
+  per-zone wildcard Certificate templates in bp-catalyst-platform 1.4.0+
+  and the post-provision /api/v1/sovereign/parent-domains/<name>/zone
+  endpoint in catalyst-api (issue #829).
 type: application
 keywords: [catalyst, blueprint, powerdns, dns, dnssec, lua-records, dnsdist]
 maintainers:

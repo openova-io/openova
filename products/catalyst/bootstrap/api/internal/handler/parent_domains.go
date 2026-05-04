@@ -59,6 +59,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -70,6 +71,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 )
 
 // ParentDomainRole names the two purposes a parent domain can serve in
@@ -727,20 +730,56 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 	return nil
 }
 
-// pdmCreatePowerDNSZone — stub for #827. When #827 lands this calls
-// PDM's (or directly the Sovereign-cluster's) PowerDNS API to bootstrap
-// a new zone. Until then we return nil so AddParentDomain proceeds; the
-// admin UI surfaces "zone-creating" → "ready" against the stub but no
-// real zone is created.
+// pdmCreatePowerDNSZone — runtime PowerDNS zone-create for the
+// admin-console "Add another parent domain" flow.
 //
-// Production ENV trigger: when CATALYST_PDM_ZONES_ENABLED=true the call
-// fires for real; otherwise the stub no-op is returned. This way #829
-// can ship before #827 without baking a known-broken call into the
-// hot path.
+// As of issue #827 this function uses the typed
+// internal/powerdns.Client (CreateZone) when the catalyst-api Pod is
+// configured with the in-cluster PowerDNS API endpoint via
+// SetPowerDNSZoneClient (wired in main.go from
+// CATALYST_POWERDNS_API_URL + CATALYST_POWERDNS_API_KEY). The call is
+// idempotent on HTTP 409 — re-runs after a failed pipeline step never
+// break the orchestrator.
+//
+// Backward-compat fallback when the typed client is NOT wired: we keep
+// the legacy CATALYST_PDM_ZONES_ENABLED env-trigger path that POSTs to
+// PDM's /api/v1/zones. Catalyst-Zero (contabo) leaves both unset and
+// the function returns nil + an audit log line so the UI surfaces
+// "zone-creating" → "ready" without a real zone create — same shape as
+// before #827.
 func (h *Handler) pdmCreatePowerDNSZone(ctx context.Context, domain string) error {
+	// Preferred path (issue #827): typed PowerDNS client wired to the
+	// Sovereign's own PowerDNS REST API. Idempotent on 409.
+	if h.powerdnsZoneClient != nil {
+		err := h.powerdnsZoneClient.CreateZone(ctx, powerdns.ZoneSpec{
+			Name:       domain,
+			Kind:       "Native",
+			DNSSEC:     true,
+			APIRectify: true,
+		})
+		switch {
+		case err == nil:
+			h.log.Info("parent-domain zone-create: PowerDNS 201 Created",
+				"domain", domain,
+			)
+			return nil
+		case errors.Is(err, powerdns.ErrZoneAlreadyExists):
+			h.log.Info("parent-domain zone-create: PowerDNS 409 (idempotent)",
+				"domain", domain,
+			)
+			return nil
+		default:
+			return fmt.Errorf("powerdns-create-zone: %w", err)
+		}
+	}
+
+	// Legacy fallback path (pre-#827). Honours the
+	// CATALYST_PDM_ZONES_ENABLED env-trigger contract documented in
+	// #829's original implementation: when unset, the function returns
+	// nil + a stub-log so the UI flow doesn't block in environments
+	// (CI, local dev, contabo) that have no PowerDNS to reach.
 	if os.Getenv("CATALYST_PDM_ZONES_ENABLED") != "true" {
-		// Stub path — log so an operator can see we'd have called PDM.
-		h.log.Info("parent-domain zone-create: stub (CATALYST_PDM_ZONES_ENABLED not set)",
+		h.log.Info("parent-domain zone-create: stub (no powerdns client wired and CATALYST_PDM_ZONES_ENABLED not set)",
 			"domain", domain,
 		)
 		return nil

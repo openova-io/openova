@@ -21,6 +21,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -135,6 +136,31 @@ func main() {
 		log.Info("pin-auth: openova KC client ready",
 			"addr", addr,
 			"realm", realm,
+		)
+	}
+
+	// Multi-zone PowerDNS client (issue #827, parent epic #825). Wired
+	// only on Sovereign-side catalyst-api Pods that have
+	// CATALYST_POWERDNS_API_URL + CATALYST_POWERDNS_API_KEY set. Used
+	// by POST /api/v1/sovereign/parent-domains/{name}/zone (the
+	// admin-console add-domain flow #829). Catalyst-Zero (contabo)
+	// leaves both env vars unset; the endpoint then returns 503
+	// "powerdns_not_wired" and the admin console UI hides the
+	// add-domain button.
+	//
+	// CATALYST_POWERDNS_API_URL — defaults to the in-cluster Service
+	// FQDN of the Sovereign's own PowerDNS so a stock catalyst-api Pod
+	// running in catalyst-system reaches powerdns.powerdns.svc:8081
+	// without per-pod URL configuration. CATALYST_POWERDNS_API_KEY
+	// MUST come from the Reflector-mirrored powerdns-api-credentials
+	// Secret (see clusters/_template/bootstrap-kit/05a-reflector.yaml).
+	if pdnsKey := os.Getenv("CATALYST_POWERDNS_API_KEY"); pdnsKey != "" {
+		pdnsURL := env("CATALYST_POWERDNS_API_URL", "http://powerdns.powerdns.svc.cluster.local:8081")
+		pdnsServerID := env("CATALYST_POWERDNS_SERVER_ID", "localhost")
+		h.SetPowerDNSZoneClient(powerdns.New(pdnsURL, pdnsKey, pdnsServerID))
+		log.Info("powerdns: zone client ready",
+			"addr", pdnsURL,
+			"serverID", pdnsServerID,
 		)
 	}
 
@@ -591,7 +617,13 @@ func main() {
 		// + live DNS propagation status panel (issue #829, parent #825).
 		// LIST returns the operator's parent-domain pool (primary +
 		// sme-pool entries). POST queues a new domain through the
-		// NS-flip → PowerDNS-zone-create → cert-issue pipeline.
+		// NS-flip → PowerDNS-zone-create → cert-issue pipeline. Per
+		// issue #827 (this PR) the zone-create step now invokes the
+		// real PowerDNS REST API via internal/powerdns.Client when the
+		// catalyst-api Pod has CATALYST_POWERDNS_API_URL +
+		// CATALYST_POWERDNS_API_KEY wired (Sovereign-side); otherwise
+		// the call falls back to the stub no-op so contabo-side
+		// installs stay green.
 		// /propagation fans out to 5 public DNS resolvers via Go's
 		// net.Resolver and reports per-resolver convergence so the
 		// operator can see the gTLD 48h NS TTL window settle.

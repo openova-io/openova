@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.3.2
-appVersion: 1.3.2
+version: 1.4.0
+appVersion: 1.4.0
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -262,6 +262,35 @@ description: |
       configurable via CATALYST_CUTOVER_NAMESPACE).
   Plus api-deployment.yaml: spec.serviceAccountName set to
   catalyst-api-cutover-driver. Issue #830, 2026-05-04.
+
+  Bumped to 1.4.0 — multi-zone parent-domain support (issue #827,
+  parent epic #825). A franchised Sovereign now supports N parent
+  zones, NOT one. New values:
+    - parentZones: []           — list of parent domains (`omani.works`,
+                                   `omani.trade`, ...)
+    - wildcardCert.enabled       — toggle the per-zone Cert render
+    - wildcardCert.namespace     — kube-system (Cilium Gateway home)
+    - wildcardCert.issuerName    — letsencrypt-dns01-prod-powerdns
+    - catalystApi.powerdnsURL    — base URL of the Sovereign's
+                                   in-cluster PowerDNS REST API,
+                                   threaded into the catalyst-api Pod
+                                   as CATALYST_POWERDNS_API_URL so the
+                                   admin-console "Add another parent
+                                   domain" flow (#829) can call the
+                                   real PowerDNS for runtime zone
+                                   creation. Empty = in-code default
+                                   (powerdns.powerdns.svc:8081).
+  New template templates/sovereign-wildcard-certs.yaml renders one
+  cert-manager.io/v1.Certificate per parentZone. Each cert renews
+  independently; a stalled DNS-01 challenge on one zone does not
+  block another. The chart skips render entirely when parentZones
+  is empty so the legacy single-zone path
+  (clusters/_template/sovereign-tls/cilium-gateway-cert.yaml) keeps
+  ownership of `sovereign-wildcard-tls` without helm-vs-kustomize
+  ownership flap. Pairs with bp-powerdns 1.2.0 (which now creates
+  N zones at install time via a Helm hook Job) and the
+  /api/v1/sovereign/parent-domains catalyst-api endpoint (the
+  admin-console add-domain flow #829). 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
