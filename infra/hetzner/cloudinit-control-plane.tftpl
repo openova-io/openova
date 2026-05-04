@@ -545,7 +545,17 @@ write_files:
       # comment block immediately above this write_files entry, and
       # cilium_values_parity_test.go for the regression guard.
       kubeProxyReplacement: true
-      k8sServiceHost: 127.0.0.1
+      # k8sServiceHost: the CP's stable private IP on the 10.0.1.0/24
+      # subnet (cp1=10.0.1.2 per main.tf network block). Was previously
+      # 127.0.0.1 which works on the CP (k3s server listens on
+      # localhost:6443) but FAILS on workers (k3s agent does NOT expose
+      # apiserver on localhost — only the supervisor port on :6444).
+      # When worker_count>0 (issue #733 multi-node default), the Cilium
+      # DaemonSet on workers used to crashloop with "127.0.0.1:6443:
+      # connect: connection refused" forever. Routing every Cilium agent
+      # to the CP private IP fixes the worker path and is a no-op on
+      # the CP itself (10.0.1.2 IS its own private IP).
+      k8sServiceHost: 10.0.1.2
       k8sServicePort: 6443
       tunnelProtocol: vxlan
       bpf:
