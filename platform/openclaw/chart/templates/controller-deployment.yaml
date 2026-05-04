@@ -36,13 +36,13 @@ spec:
           env:
             # ── Identity: SME-vcluster Keycloak realm ─────────────────
             - name: KEYCLOAK_REALM_URL
-              value: {{ required "keycloak.realmURL is required" .Values.keycloak.realmURL | quote }}
+              value: {{ .Values.keycloak.realmURL | quote }}
             - name: KEYCLOAK_CLIENT_ID
               value: {{ .Values.keycloak.clientID | quote }}
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "keycloak.clientSecretName is required" .Values.keycloak.clientSecretName }}
+                  name: {{ .Values.keycloak.clientSecretName }}
                   key: OIDC_CLIENT_SECRET
 
             # ── Tenant placement for per-user pods ────────────────────
@@ -55,7 +55,7 @@ spec:
             # reads that field; this env is the chart-render-time
             # fallback for overlays that haven't yet been migrated.
             - name: NEWAPI_BASE_URL_DEFAULT
-              value: {{ required "newapi.baseURL is required" .Values.newapi.baseURL | quote }}
+              value: {{ .Values.newapi.baseURL | quote }}
 
             # ── Per-user pod template ConfigMap reference ─────────────
             - name: POD_TEMPLATE_CONFIGMAP
