@@ -73,6 +73,29 @@ func FilterByLabel(key, value string) string {
 	return key + "=" + value
 }
 
+// NamePrefixForSovereign returns the deterministic Hetzner-resource name
+// prefix that the OpenTofu module at infra/hetzner/main.tf uses for every
+// resource it provisions for the given Sovereign FQDN. Pattern:
+//
+//	catalyst-<fqdn-with-dots-replaced-by-dashes>
+//
+// e.g. `omantel.omani.works` → `catalyst-omantel-omani-works`. The Tofu
+// module then suffixes per-resource shapes: `-net`, `-fw`, `-lb`,
+// `-cp1` … `-w1` …, and the SSH key uses the bare prefix.
+//
+// Exposed so the name-prefix fallback in Purge() can scan unlabeled
+// resources without re-deriving the string at every call site, and so
+// the regression test can pin both halves of the contract from one place.
+//
+// Issue #732: the label-based sweep alone is not sufficient because
+// Hetzner resources can land in production without their canonical
+// label (partial `tofu apply`, out-of-band edits, fresh PVCs that lose
+// tfstate). The name prefix is deterministic at module render time and
+// survives every state-loss scenario.
+func NamePrefixForSovereign(fqdn string) string {
+	return "catalyst-" + strings.ReplaceAll(fqdn, ".", "-")
+}
+
 // Purge enumerates and deletes every Hetzner resource tagged with the
 // canonical label `catalyst.openova.io/sovereign=<sovereignFQDN>`. The
 // OpenTofu module at infra/hetzner/main.tf is responsible for setting
@@ -177,7 +200,226 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 		progress(fmt.Sprintf("deleted ssh-key %s", r.Name))
 	}
 
+	// Second pass — name-prefix fallback (issue #732).
+	//
+	// The label-based sweep above is the canonical path. But it depends on
+	// every Hetzner resource carrying the
+	// `catalyst.openova.io/sovereign=<fqdn>` label that the OpenTofu module
+	// stamps at create time. In production we observed (otech83, 2026-05-04)
+	// the wipe ran cleanly but left LB / network / firewall / SSH-key
+	// behind because:
+	//
+	//   - tofu state is lost when the catalyst-api Pod's PVC is recreated
+	//     (PR #715 narrows but does not eliminate this)
+	//   - a partial `tofu apply` can create the resource without setting
+	//     the label block (e.g. cancelled mid-create)
+	//   - operators may edit a resource via Hetzner Console and strip the
+	//     label by accident
+	//
+	// The Tofu module names every resource off the deterministic prefix
+	// `catalyst-<fqdn-with-dashes>` (see NamePrefixForSovereign). That
+	// prefix survives every state-loss path because it is render-time
+	// fixed, not API-roundtrip-derived.
+	//
+	// This pass lists every resource without a label filter, then deletes
+	// any whose name starts with the canonical prefix. Order matches the
+	// label pass (servers → LBs → firewalls → networks → SSH keys) so
+	// dependents go first.
+	//
+	// We dedupe against the label pass (a resource that was already deleted
+	// up there returns 404 here, which deleteResource treats as success
+	// and which we skip from the report so the totals don't double-count).
+	prefix := NamePrefixForSovereign(sovereignFQDN)
+	purgeByNamePrefix(ctx, token, prefix, &report, progress)
+
 	return report, nil
+}
+
+// purgeByNamePrefix is the unlabeled fallback half of Purge. Lists every
+// resource (no selector) and deletes any whose name begins with the
+// deterministic per-Sovereign prefix, e.g. `catalyst-otech83-omani-works`.
+// Idempotent against the label-pass (404 = already gone = success).
+//
+// Resources already counted in report (by name) are NOT re-counted, so
+// the totals reflect actual unique deletions across both passes.
+func purgeByNamePrefix(ctx context.Context, token, prefix string, report *PurgeReport, progress func(string)) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+
+	already := make(map[string]map[string]struct{})
+	already["servers"] = sliceToSet(report.Servers)
+	already["load_balancers"] = sliceToSet(report.LoadBalancers)
+	already["firewalls"] = sliceToSet(report.Firewalls)
+	already["networks"] = sliceToSet(report.Networks)
+	already["ssh_keys"] = sliceToSet(report.SSHKeys)
+
+	// Servers — delete first so LBs / firewalls / networks they reference
+	// can be cleaned up after.
+	servers, err := listAllResources(ctx, token, "/v1/servers", "servers")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list servers: "+err.Error())
+	}
+	for _, r := range servers {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["servers"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/servers/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete server %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.Servers = append(report.Servers, r.Name)
+		progress(fmt.Sprintf("deleted server %s (name-prefix fallback)", r.Name))
+	}
+
+	// Load balancers — typically reference the network. Hetzner LB delete
+	// is synchronous; no retry loop needed beyond the standard 4xx surface.
+	lbs, err := listAllResources(ctx, token, "/v1/load_balancers", "load_balancers")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list load_balancers: "+err.Error())
+	}
+	for _, r := range lbs {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["load_balancers"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/load_balancers/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete lb %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.LoadBalancers = append(report.LoadBalancers, r.Name)
+		progress(fmt.Sprintf("deleted load balancer %s (name-prefix fallback)", r.Name))
+	}
+
+	// Firewalls — same async-detach problem as the labelled path; reuse the
+	// retry helper so the unlabeled fallback survives the same Hetzner
+	// 422 resource_in_use window.
+	firewalls, err := listAllResources(ctx, token, "/v1/firewalls", "firewalls")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list firewalls: "+err.Error())
+	}
+	for _, r := range firewalls {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["firewalls"][r.Name]; seen {
+			continue
+		}
+		retried, err := deleteFirewallWithRetry(ctx, token, r.ID, progress, r.Name)
+		if retried > 0 {
+			report.FirewallsRetried += retried
+		}
+		if err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete firewall %s (id=%d, name-prefix): %s", r.Name, r.ID, err.Error()))
+			continue
+		}
+		report.Firewalls = append(report.Firewalls, r.Name)
+		progress(fmt.Sprintf("deleted firewall %s (name-prefix fallback)", r.Name))
+	}
+
+	// Networks — must be after LB + servers detach (Hetzner returns 409
+	// "still in use" otherwise). The label pass + servers/LBs above handle
+	// the dependency ordering.
+	networks, err := listAllResources(ctx, token, "/v1/networks", "networks")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list networks: "+err.Error())
+	}
+	for _, r := range networks {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["networks"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/networks/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete network %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.Networks = append(report.Networks, r.Name)
+		progress(fmt.Sprintf("deleted network %s (name-prefix fallback)", r.Name))
+	}
+
+	// SSH keys — independent; any order works.
+	sshkeys, err := listAllResources(ctx, token, "/v1/ssh_keys", "ssh_keys")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list ssh_keys: "+err.Error())
+	}
+	for _, r := range sshkeys {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["ssh_keys"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/ssh_keys/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete ssh_key %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.SSHKeys = append(report.SSHKeys, r.Name)
+		progress(fmt.Sprintf("deleted ssh-key %s (name-prefix fallback)", r.Name))
+	}
+}
+
+// sliceToSet returns a set view of a string slice. Used by purgeByNamePrefix
+// to skip resources the labelled pass already deleted.
+func sliceToSet(in []string) map[string]struct{} {
+	s := make(map[string]struct{}, len(in))
+	for _, v := range in {
+		s[v] = struct{}{}
+	}
+	return s
+}
+
+// listAllResources is the no-selector variant of listResources used by the
+// name-prefix fallback. Pages until exhausted (Hetzner caps at 50/page,
+// 50 pages = up to 2500 resources, well above any realistic per-account
+// surface). Errors are surfaced to the caller for inclusion in
+// PurgeReport.Errors so an outage on one kind doesn't silently skip
+// the others.
+func listAllResources(ctx context.Context, token, path, listKey string) ([]hetznerResource, error) {
+	var out []hetznerResource
+	page := 1
+	for {
+		q := url.Values{}
+		q.Set("page", strconv.Itoa(page))
+		q.Set("per_page", "50")
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			"https://api.hetzner.cloud"+path+"?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := purgeHTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body := decodeBody(resp)
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf("hetzner auth failed (status %d) — token may have been rotated or scope revoked", resp.StatusCode)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("hetzner list-all %s: unexpected status %d: %s", path, resp.StatusCode, body.errMsg())
+		}
+
+		entries, _ := body.list(listKey)
+		out = append(out, entries...)
+		if !body.hasNextPage() {
+			break
+		}
+		page++
+		if page > 50 {
+			break // sanity bound
+		}
+	}
+	return out, nil
 }
 
 // hetznerResource is the minimum shape we need from each Hetzner list

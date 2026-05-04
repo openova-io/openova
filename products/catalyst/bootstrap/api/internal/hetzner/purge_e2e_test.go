@@ -71,6 +71,23 @@ func (f *fakeHetzner) handler() http.Handler {
 			switch r.Method {
 			case http.MethodGet:
 				selector := r.URL.Query().Get("label_selector")
+				// The label-pass MUST send the canonical selector. The
+				// no-selector pass (issue #732 name-prefix fallback) sends
+				// an empty selector and returns an empty list because
+				// every resource has already been deleted by the label
+				// pass — verifying the prefix path is exercised but
+				// finds nothing to do.
+				if selector == "" {
+					body := map[string]interface{}{
+						"meta": map[string]interface{}{
+							"pagination": map[string]interface{}{"next_page": nil},
+						},
+						e.key: []any{},
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(body)
+					return
+				}
 				if selector != f.wantSelector {
 					f.t.Errorf("%s: label_selector wire format drift — got %q, want %q",
 						e.path, selector, f.wantSelector)
