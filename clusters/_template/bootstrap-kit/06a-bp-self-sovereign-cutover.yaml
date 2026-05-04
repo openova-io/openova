@@ -109,7 +109,7 @@ spec:
   values:
     sovereign:
       fqdn: ${SOVEREIGN_FQDN}
-      harborInternalURL: http://harbor-harbor-core.harbor.svc.cluster.local
+      harborInternalURL: http://harbor-core.harbor.svc.cluster.local
       harborPublicURL: https://harbor.${SOVEREIGN_FQDN}
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
