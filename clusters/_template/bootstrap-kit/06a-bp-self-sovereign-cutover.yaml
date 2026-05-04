@@ -110,7 +110,12 @@ spec:
       # 0.1.10: catalystAPI.namespace `catalyst-platform` → `catalyst-
       # system` (the actual Sovereign-side namespace). Caught live
       # otech103 — Step-7 `deployment catalyst-api not found`.
-      version: 0.1.10
+      # 0.1.11: Step-8 egress-block-test pivoted from CiliumNetworkPolicy
+      # (egressDeny + toFQDNs unsupported in Cilium 1.16) to a passive
+      # architectural-state assertion + ${durationSeconds}s survival
+      # window. Same proof shape, valid Cilium policy. Caught live
+      # otech103 — strict-decoding error 'unknown field toFQDNs'.
+      version: 0.1.11
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
