@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.0
-appVersion: 1.4.0
+version: 1.4.1
+appVersion: 1.4.1
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -291,6 +291,38 @@ description: |
   N zones at install time via a Helm hook Job) and the
   /api/v1/sovereign/parent-domains catalyst-api endpoint (the
   admin-console add-domain flow #829). 2026-05-04.
+
+  Bumped to 1.4.1 — Day-2 cutover RBAC dual-mode fix (issue #830 Bug 1
+  follow-up, 2026-05-04). Chart 1.3.2 shipped serviceaccount-cutover-
+  driver.yaml + clusterrole-cutover-driver.yaml + clusterrolebinding-
+  cutover-driver.yaml with `{{ .Release.Namespace }}` directives that
+  rendered fine via Helm on Sovereigns but BROKE the Kustomize-mode
+  contabo-mkt deploy: the directives made Kustomize parse the files as
+  invalid YAML and silently skip them. Worse, the new files were never
+  added to templates/kustomization.yaml's resources list, so even if
+  the YAML had been valid Kustomize would not have rendered them.
+  Result on contabo: catalyst-api Pod's spec.serviceAccountName
+  references a non-existent SA — the Pod fails ContainerCreating with
+  the same RBAC forbidden error #830 was meant to fix.
+  Fix:
+    - Strip all `{{ .Release.Namespace }}` directives from the SA +
+      ClusterRole files. metadata.namespace auto-fills from Helm's
+      --namespace flag and from Kustomize's `namespace:` directive.
+    - Split ClusterRoleBinding into Helm-only +
+      Kustomize-only sibling files because Helm does NOT auto-inject
+      subjects[0].namespace the way it does metadata.namespace, and the
+      apiserver rejects bindings without it. clusterrolebinding-
+      cutover-driver.yaml uses {{ .Release.Namespace }} (Helm-only,
+      excluded from .helmignore for Sovereigns); clusterrolebinding-
+      cutover-driver-kustomize.yaml omits subjects[0].namespace and
+      relies on Kustomize's native injection (contabo-only).
+    - Add the three new files to templates/kustomization.yaml's
+      resources list so Kustomize-mode (contabo-mkt) actually renders
+      them.
+  This fix mirrors the same dual-mode contract documented in api-
+  deployment.yaml comments. Verified with `helm template` (subjects[0].
+  namespace=catalyst-system) AND `kubectl kustomize` (subjects[0].
+  namespace=catalyst). 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
