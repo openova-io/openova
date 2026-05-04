@@ -137,21 +137,26 @@ type Resolver interface {
 }
 
 // ProvisionFreeSubdomain implements SMETenantDNSProvisioner. Writes
-// A record for `console.<subdomain>.<otech-fqdn>` plus the standard
-// app-host A records (wordpress, openclaw, mail) so the per-tenant
-// overlay's ingress hostnames resolve as soon as Flux finishes
-// reconciling.
-func (p DefaultSMETenantDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, otechFQDN, ingressIPv4 string) error {
+// A record for `console.<subdomain>.<parentZone>` plus the standard
+// app-host A records (wordpress, openclaw, mail, keycloak) under the
+// chosen parent zone so the per-tenant overlay's ingress hostnames
+// resolve as soon as Flux finishes reconciling. Per epic #825 the
+// parentZone is operator-supplied (one of the Sovereign's
+// role:sme-pool entries) — never inferred from a hardcoded OTECHFQDN.
+func (p DefaultSMETenantDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error {
 	if p.Writer == nil {
 		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_URL / CATALYST_POWERDNS_API_KEY)")
 	}
 	if strings.TrimSpace(ingressIPv4) == "" {
 		return errors.New("otech ingress IPv4 unconfigured")
 	}
-	zone := otechFQDN
+	if strings.TrimSpace(parentZone) == "" {
+		return errors.New("parent zone unconfigured (multi-domain Sovereign requires a sme-pool parent_domain)")
+	}
+	zone := parentZone
 	rrsets := []pdnsRRSet{}
 	for _, prefix := range []string{"console", "wordpress", "openclaw", "mail", "keycloak"} {
-		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, otechFQDN)
+		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,
 			Type:       "A",
@@ -166,9 +171,12 @@ func (p DefaultSMETenantDNSProvisioner) ProvisionFreeSubdomain(ctx context.Conte
 }
 
 // ValidateBYOCNAME implements SMETenantDNSProvisioner. Resolves
-// `console.<byo_domain>` and confirms its CNAME target ends with the
-// otech FQDN.
-func (p DefaultSMETenantDNSProvisioner) ValidateBYOCNAME(ctx context.Context, byoDomain, otechFQDN string) error {
+// `console.<byo_domain>` and confirms its CNAME target ends with one
+// of the operator-supplied accepted targets (or, with no targets, the
+// legacy single-target path). The multi-target shape backs epic #825
+// (multi-domain Sovereign) where any parent in the role:sme-pool list
+// is a valid CNAME target.
+func (p DefaultSMETenantDNSProvisioner) ValidateBYOCNAME(ctx context.Context, byoDomain, legacyTarget string, acceptedTargets ...string) error {
 	resolver := p.Resolver
 	if resolver == nil {
 		resolver = net.DefaultResolver
@@ -178,12 +186,29 @@ func (p DefaultSMETenantDNSProvisioner) ValidateBYOCNAME(ctx context.Context, by
 	if err != nil {
 		return fmt.Errorf("resolve CNAME for %s: %w", host, err)
 	}
-	target = strings.Trim(target, ".")
-	expected := strings.Trim(otechFQDN, ".")
-	if !strings.HasSuffix(strings.ToLower(target), strings.ToLower(expected)) {
-		return fmt.Errorf("%w (got %q, expected suffix %q)", errBYOCNAMEMismatch, target, expected)
+	target = strings.Trim(strings.ToLower(target), ".")
+	// Build the candidate list: the supplied accepted targets (multi-
+	// domain pool) plus the legacy single target as a fallback.
+	candidates := make([]string, 0, len(acceptedTargets)+1)
+	for _, c := range acceptedTargets {
+		c = strings.Trim(strings.ToLower(c), ".")
+		if c != "" {
+			candidates = append(candidates, c)
+		}
 	}
-	return nil
+	if len(candidates) == 0 {
+		legacy := strings.Trim(strings.ToLower(legacyTarget), ".")
+		if legacy == "" {
+			return errors.New("no accepted CNAME targets supplied")
+		}
+		candidates = append(candidates, legacy)
+	}
+	for _, expected := range candidates {
+		if strings.HasSuffix(target, expected) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w (got %q, expected suffix from %v)", errBYOCNAMEMismatch, target, candidates)
 }
 
 // NoopSMETenantDNSProvisioner satisfies SMETenantDNSProvisioner with
@@ -200,6 +225,6 @@ func (NoopSMETenantDNSProvisioner) ProvisionFreeSubdomain(_ context.Context, _, 
 }
 
 // ValidateBYOCNAME is a no-op (returns nil — accepts any domain).
-func (NoopSMETenantDNSProvisioner) ValidateBYOCNAME(_ context.Context, _, _ string) error {
+func (NoopSMETenantDNSProvisioner) ValidateBYOCNAME(_ context.Context, _, _ string, _ ...string) error {
 	return nil
 }

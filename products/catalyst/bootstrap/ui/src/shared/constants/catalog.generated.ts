@@ -90,7 +90,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "section": "pts-3-3-security-and-policy",
     "depends": []
   },
@@ -166,7 +166,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "section": "pts-3-2-gitops-and-iac",
     "depends": []
   },
@@ -227,7 +227,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "section": "pts-3-2-gitops-and-iac",
     "depends": []
   },
@@ -255,7 +255,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.1",
+    "version": "1.2.4",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -269,7 +269,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -391,7 +391,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -421,7 +421,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -441,9 +441,27 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "1.2.14",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-openclaw",
+    "slug": "openclaw",
+    "title": "OpenClaw",
+    "summary": "|",
+    "icon": "openclaw.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-4-7-agentic-workspace",
+    "depends": [
+      "bp-newapi",
+      "bp-keycloak",
+      "bp-cert-manager"
+    ]
   },
   {
     "id": "bp-openmeter",
@@ -489,9 +507,26 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "section": "pts-3-3-security-and-policy",
     "depends": []
+  },
+  {
+    "id": "bp-self-sovereign-cutover",
+    "slug": "self-sovereign-cutover",
+    "title": "self-sovereignty-cutover",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-2-3-per-sovereign-supporting-services",
+    "depends": [
+      "bp-gitea",
+      "bp-harbor"
+    ]
   },
   {
     "id": "bp-spire",
@@ -503,9 +538,28 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.4",
+    "version": "1.1.7",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-stalwart-tenant",
+    "slug": "stalwart-tenant",
+    "title": "Stalwart (per-tenant)",
+    "summary": "|",
+    "icon": "stalwart.svg",
+    "category": "communication",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-4-5-communication",
+    "depends": [
+      "bp-keycloak",
+      "bp-external-secrets",
+      "bp-cert-manager",
+      "bp-powerdns"
+    ]
   },
   {
     "id": "bp-stunner",
@@ -572,6 +626,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [
       "bp-kserve"
     ]
+  },
+  {
+    "id": "bp-wordpress-tenant",
+    "slug": "wordpress-tenant",
+    "title": "WordPress Tenant",
+    "summary": "|",
+    "icon": "wordpress.svg",
+    "category": "tenant-app",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-7-sme-tenant",
+    "depends": [
+      "bp-cnpg",
+      "bp-keycloak",
+      "bp-reflector",
+      "bp-cert-manager"
+    ]
   }
 ] as const
 
@@ -615,14 +688,18 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/nemo-guardrails/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
+  "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
+  "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/spire/blueprint.yaml",
+  "platform/stalwart-tenant/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/temporal/blueprint.yaml",
   "platform/valkey/blueprint.yaml",
-  "platform/vllm/blueprint.yaml"
+  "platform/vllm/blueprint.yaml",
+  "platform/wordpress-tenant/blueprint.yaml"
 ] as const
 
 /**
@@ -890,5 +967,12 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "cluster-autoscaler",
     "file": "50-cluster-autoscaler.yaml",
     "order": 50
+  },
+  {
+    "id": "bp-newapi",
+    "slug": "newapi",
+    "label": "newapi",
+    "file": "80-newapi.yaml",
+    "order": 80
   }
 ] as const

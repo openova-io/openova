@@ -312,7 +312,13 @@ func main() {
 				TenantRegistry:   nil, // overwritten below from h.tenantRegistry
 				OTECHFQDN:        os.Getenv("CATALYST_OTECH_FQDN"),
 				OTECHIngressIPv4: os.Getenv("CATALYST_OTECH_INGRESS_IPV4"),
-				MaxRetryCount:    5,
+				// Multi-domain Sovereign pool (epic #825 / MD-3 #828).
+				// Sourced from CATALYST_SME_POOL_DOMAINS env (stub) until
+				// MD-1 (#826) lands the Deployment.ParentDomains[] field
+				// — at which point this wiring switches to read from the
+				// deployment record. The data shape is forward-compatible.
+				ParentDomains: handler.LoadSMETenantParentDomainsFromEnv(),
+				MaxRetryCount: 5,
 			}
 			// GitOps overlay writer — chart versions read from env
 			// per Inviolable Principle 4. Empty values fall back to "*".

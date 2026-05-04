@@ -227,6 +227,11 @@ type smeTenantTemplateData struct {
 	Namespace     string
 	VClusterName  string
 	OTECHFQDN     string
+	// ParentDomain — the chosen sme-pool parent (multi-domain
+	// Sovereign per epic #825). Falls back to OTECHFQDN for
+	// single-domain back-compat. The console/wordpress/openclaw/
+	// mail/keycloak hosts are all derived from this zone.
+	ParentDomain  string
 	ConsoleHost   string
 	WordPressHost string
 	OpenClawHost  string
@@ -254,11 +259,18 @@ func renderSMETenantOverlay(rec store.SMETenantProvisionRecord, versions SMETena
 		return nil, errors.New("render: subdomain required")
 	}
 	versions = withVersionDefaults(versions)
+	// Multi-domain Sovereign (#825): the chosen sme-pool parent zone
+	// drives every derived host. Falls back to OTECHFQDN for single-
+	// domain back-compat (#804).
+	parentZone := strings.TrimSpace(rec.ParentDomain)
+	if parentZone == "" {
+		parentZone = rec.OTECHFQDN
+	}
 	host := ""
 	if rec.DomainMode == store.SMEDomainBYO {
 		host = "console." + rec.BYODomain
 	} else {
-		host = "console." + rec.Subdomain + "." + rec.OTECHFQDN
+		host = "console." + rec.Subdomain + "." + parentZone
 	}
 	wpHost := strings.Replace(host, "console.", "wordpress.", 1)
 	owHost := strings.Replace(host, "console.", "openclaw.", 1)
@@ -270,6 +282,7 @@ func renderSMETenantOverlay(rec store.SMETenantProvisionRecord, versions SMETena
 		Namespace:     rec.TenantNamespace,
 		VClusterName:  rec.VClusterName,
 		OTECHFQDN:     rec.OTECHFQDN,
+		ParentDomain:  parentZone,
 		ConsoleHost:   host,
 		WordPressHost: wpHost,
 		OpenClawHost:  owHost,
@@ -427,7 +440,7 @@ spec:
       name: sme-{{.Subdomain}}
       displayName: {{.CompanyName}}
     ingress:
-      host: keycloak.{{.Subdomain}}.{{.OTECHFQDN}}
+      host: keycloak.{{.Subdomain}}.{{.ParentDomain}}
       tls:
         issuer: letsencrypt-prod
     bootstrap:
@@ -452,6 +465,7 @@ spec:
           publicClient: false
           redirectURIs:
             - https://{{.MailHost}}/*
+    parentDomain: {{.ParentDomain}}
 `
 
 const smeTenantBPCNPG = `# bp-cnpg in the SME tenant namespace — Postgres for WordPress
@@ -499,9 +513,9 @@ spec:
     - name: bp-cnpg
       namespace: {{.Namespace}}
   values:
-    smeDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.OTECHFQDN}}{{end}}
+    smeDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.OTECHFQDN}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
       clientID: wordpress
       clientSecretName: wordpress-oidc-client-secret
     adminUser:
@@ -535,10 +549,13 @@ spec:
       namespace: {{.Namespace}}
   values:
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.OTECHFQDN}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
       clientID: openclaw
       clientSecretName: openclaw-oidc-client-secret
     newapi:
+      # newapi runs on the otech (Sovereign) ingress regardless of the
+      # SME's chosen parent zone — there's exactly one NewAPI per
+      # Sovereign and it's anchored to OTECHFQDN.
       baseURL: https://newapi.{{.OTECHFQDN}}
     tenant:
       namespace: {{.Namespace}}
@@ -565,7 +582,7 @@ spec:
         name: openova-blueprints
         namespace: flux-system
   values:
-    domain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.OTECHFQDN}}{{end}}
+    domain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
     ingress:
       host: {{.MailHost}}
       tls:
@@ -575,8 +592,9 @@ spec:
 
 const smeTenantCertificate = `{{- if .IsBYO}}
 # Per-host Certificate (BYO mode only). Free-subdomain SMEs are
-# covered by the otech-wide wildcard *.{{.OTECHFQDN}} already
-# managed by the cert-manager + powerdns-webhook DNS-01 issuer.
+# covered by the per-parent-zone wildcard *.{{.ParentDomain}} that
+# cert-manager + powerdns-webhook issues per epic #825 sub-2 (one
+# wildcard per parent in the role:sme-pool list).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -593,18 +611,21 @@ spec:
     - {{.OpenClawHost}}
     - {{.MailHost}}
 {{- else}}
-# Free-subdomain mode — wildcard *.{{.OTECHFQDN}} already covers
-# every SME's console.<sub>.<otech>; this file is intentionally a
-# placeholder so kustomization.yaml's resource list stays static.
+# Free-subdomain mode — wildcard *.{{.ParentDomain}} already covers
+# every SME's console.<sub>.<parent_domain>; this file is intentionally
+# a placeholder so kustomization.yaml's resource list stays static.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cert-strategy-{{.Subdomain}}
   namespace: {{.Namespace}}
 data:
-  strategy: wildcard-otech
+  strategy: wildcard-parent-zone
+  parentDomain: {{.ParentDomain}}
   notes: |
-    Free-subdomain SMEs use the otech-wide wildcard certificate.
+    Free-subdomain SMEs use the per-parent-zone wildcard certificate
+    issued by cert-manager + powerdns-webhook. The parent zone is
+    one of the Sovereign's role:sme-pool entries (epic #825).
     No per-tenant Certificate resource is required.
 {{- end}}
 `

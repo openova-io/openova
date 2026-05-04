@@ -109,3 +109,154 @@ export async function deleteSMEUser(uuid: string): Promise<void> {
     throw new Error(`delete sme user: HTTP ${res.status}`)
   }
 }
+
+/* ── SME tenant pipeline (issue #804) + multi-domain (#828) ─────── */
+
+export type SMETenantDomainMode = 'free-subdomain' | 'byo'
+
+export type SMETenantStepState = 'pending' | 'done' | 'failed'
+
+export interface SMETenantSteps {
+  vcluster: SMETenantStepState
+  bp_charts: SMETenantStepState
+  dns: SMETenantStepState
+  certs: SMETenantStepState
+  keycloak_clients: SMETenantStepState
+  registry: SMETenantStepState
+}
+
+export interface SMETenant {
+  sme_tenant_id: string
+  state: string
+  subdomain: string
+  domain_mode: SMETenantDomainMode
+  byo_domain?: string
+  parent_domain?: string
+  admin_email: string
+  company_name?: string
+  otech_fqdn: string
+  vcluster_name: string
+  tenant_namespace: string
+  console_host: string
+  commit_sha?: string
+  last_error?: string
+  steps: SMETenantSteps
+  created_at: string
+  updated_at: string
+}
+
+export interface SMETenantCreateRequest {
+  subdomain: string
+  domain_mode: SMETenantDomainMode
+  /** Required when domain_mode === 'byo'. */
+  byo_domain?: string
+  /** Required when domain_mode === 'free-subdomain' AND the Sovereign
+   *  has more than one entry in its sme-pool. Backend defaults to the
+   *  first NS-flip-ready entry when omitted on a multi-entry pool. */
+  parent_domain?: string
+  admin_email: string
+  company_name?: string
+}
+
+/** Wire shape mirrors the canonical issue #829 endpoint
+ *  (parent_domains.go ListParentDomains). Re-exported here so the
+ *  CreateTenantPage can consume the same shape without depending on
+ *  the admin-page module. */
+export type ParentDomainFlipStatus =
+  | 'queued'
+  | 'flipping'
+  | 'flipped'
+  | 'failed'
+  | 'zone-creating'
+  | 'cert-issuing'
+  | 'ready'
+
+export interface SovereignParentDomain {
+  name: string
+  /** "primary" | "sme-pool" — only sme-pool entries are valid SME
+   *  tenant parents. */
+  role: 'primary' | 'sme-pool'
+  /** Pipeline state of the NS-flip + zone-create + cert-issue chain.
+   *  Operators MUST NOT bind a tenant under a not-yet-ready parent —
+   *  the back end returns 503 Retry-After. */
+  flipStatus: ParentDomainFlipStatus
+  flipMessage?: string
+  addedAt?: string
+  flippedAt?: string
+  registrarKind?: string
+}
+
+/** A parent is bookable for SME tenants once its NS records are
+ *  authoritative on this Sovereign's PowerDNS. Anything past `flipped`
+ *  is acceptable (the wildcard cert may still be issuing but the
+ *  authoritative NS resolution is in place). */
+export function isParentDomainReady(p: SovereignParentDomain): boolean {
+  return p.flipStatus === 'ready' || p.flipStatus === 'flipped'
+}
+
+const SME_TENANTS_PATH = '/v1/sme/tenants'
+const SOVEREIGN_PARENT_DOMAINS_PATH = '/v1/sovereign/parent-domains'
+
+/**
+ * listSovereignParentDomains — GET /api/v1/sovereign/parent-domains.
+ *
+ * Backs the CreateTenantPage parent-domain dropdown. The endpoint is
+ * the integration seam to MD-1 (#826) — until that lands, the back end
+ * sources from the CATALYST_SME_POOL_DOMAINS env stub, hardcoded to
+ * `omani.works + omani.trade` per the #828 constraint.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is composed via
+ * apiUrl(); never hardcode the prefix.
+ */
+export async function listSovereignParentDomains(
+  role?: 'primary' | 'sme-pool',
+): Promise<SovereignParentDomain[]> {
+  const qs = role ? `?role=${encodeURIComponent(role)}` : ''
+  const res = await fetch(apiUrl(`${SOVEREIGN_PARENT_DOMAINS_PATH}${qs}`), {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`list parent domains: HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as { items?: SovereignParentDomain[] }
+  return body.items ?? []
+}
+
+/**
+ * createSMETenant — POST /api/v1/sme/tenants.
+ *
+ * The pipeline is event-driven (NATS reconciler): the response is the
+ * latest persisted record, even when the pipeline has only just kicked
+ * off. The 202 response carries a steps[] map the SPA renders as a
+ * progress timeline.
+ */
+export async function createSMETenant(
+  req: SMETenantCreateRequest,
+): Promise<SMETenant> {
+  const res = await fetch(apiUrl(SME_TENANTS_PATH), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!res.ok && res.status !== 202) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`create sme tenant: HTTP ${res.status} ${detail}`)
+  }
+  return (await res.json()) as SMETenant
+}
+
+export async function listSMETenants(): Promise<SMETenant[]> {
+  const res = await fetch(apiUrl(SME_TENANTS_PATH), {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`list sme tenants: HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as { items?: SMETenant[] }
+  return body.items ?? []
+}
