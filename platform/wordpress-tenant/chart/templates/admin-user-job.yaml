@@ -1,0 +1,173 @@
+{{- if and .Values.wordpress.enabled .Values.adminUser.email }}
+{{- /*
+Helm post-install Job that pre-seeds the SME admin WP user with the
+SSO email mapping, so on first SSO login from Keycloak the
+openid-connect-generic plugin matches the email claim back to a
+pre-existing wp_users row with `administrator` role.
+
+Pattern
+───────
+We INSERT an `administrator` user with:
+  - user_login = the local-part of `adminUser.email`
+  - user_email = `adminUser.email`
+  - user_pass  = a long random hash (the user can never log in via
+    password — only via Keycloak SSO)
+  - display_name = `adminUser.displayName` or local-part of email
+And the standard WP usermeta rows that mark the user as an
+administrator.
+
+Idempotent: if a user with the same email already exists, the Job
+no-ops (still ensures the user has the administrator capability).
+
+Hook weight 15 — runs AFTER the OIDC config Job (10) which itself
+runs after the DB secret sync Job (5).
+*/}}
+{{- $ns := .Release.Namespace }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-admin-user
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: wordpress-admin-user
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wordpress-admin-user
+        catalyst.openova.io/blueprint: bp-wordpress-tenant
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
+      containers:
+        - name: admin-user
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
+          env:
+            - name: WP_DB_HOST
+              value: {{ include "bp-wordpress-tenant.cnpgRwHost" . | quote }}
+            - name: WP_DB_NAME
+              value: {{ .Values.database.cluster.database | default "wordpress" | quote }}
+            - name: WP_DB_USER
+              value: {{ .Values.database.cluster.owner | default "wordpress" | quote }}
+            - name: WP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: password
+            - name: ADMIN_EMAIL
+              value: {{ .Values.adminUser.email | quote }}
+            - name: ADMIN_DISPLAY_NAME
+              value: {{ .Values.adminUser.displayName | default "" | quote }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              if ! php -m | grep -qi pdo_pgsql; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                  php-pgsql
+              fi
+              cat > /tmp/admin-user.php <<'PHP'
+              <?php
+              /**
+               * bp-wordpress-tenant admin user pre-seed.
+               *
+               * Inserts (or upgrades) the SME admin into wp_users +
+               * wp_usermeta with administrator capability. Login is
+               * via SSO only — the password hash is unguessable.
+               */
+              $host  = getenv('WP_DB_HOST');
+              $db    = getenv('WP_DB_NAME');
+              $user  = getenv('WP_DB_USER');
+              $pass  = getenv('WP_DB_PASSWORD');
+              $email = getenv('ADMIN_EMAIL');
+              $disp  = getenv('ADMIN_DISPLAY_NAME');
+              $login = strtolower(strtok($email, '@'));
+              if (!$disp) $disp = $login;
+
+              $pdo = new PDO(
+                "pgsql:host={$host};port=5432;dbname={$db}",
+                $user, $pass,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+              );
+
+              // Check that wp_users exists. The OIDC config Job (hook
+              // weight 10) tripped install of WP earlier; we just
+              // confirm here.
+              $r = $pdo->query("SELECT to_regclass('public.wp_users') AS t")->fetch();
+              if (empty($r['t'])) {
+                fprintf(STDERR, "[admin-user] FATAL: wp_users not present — OIDC config Job failed?\n");
+                exit(1);
+              }
+
+              // Upsert the user row.
+              $stmt = $pdo->prepare("SELECT ID FROM wp_users WHERE user_email = :e LIMIT 1");
+              $stmt->execute([':e' => $email]);
+              $existing = $stmt->fetchColumn();
+
+              if ($existing) {
+                $userId = (int)$existing;
+                echo "[admin-user] user {$email} already exists (ID={$userId}); ensuring admin role.\n";
+              } else {
+                // 64-char random hash, salted via WP's phpass; the
+                // user will never use this — Keycloak is the only
+                // login path. We use a wp_hash_password-equivalent
+                // bcrypt because phpass is not exposed without
+                // loading wp-includes; bcrypt is accepted by WP
+                // since 4.x.
+                $rand = bin2hex(random_bytes(32));
+                $hash = password_hash($rand, PASSWORD_BCRYPT);
+                $stmt = $pdo->prepare(
+                  "INSERT INTO wp_users
+                     (user_login, user_pass, user_nicename, user_email,
+                      user_registered, user_status, display_name)
+                   VALUES (:l, :p, :n, :e, NOW(), 0, :d)
+                   RETURNING ID"
+                );
+                $stmt->execute([
+                  ':l' => $login,
+                  ':p' => $hash,
+                  ':n' => $login,
+                  ':e' => $email,
+                  ':d' => $disp,
+                ]);
+                $userId = (int)$stmt->fetchColumn();
+                echo "[admin-user] created user {$email} (ID={$userId}).\n";
+              }
+
+              // Usermeta: wp_capabilities = a:1:{s:13:"administrator";b:1;}
+              $caps = serialize(['administrator' => true]);
+              $upsertMeta = function($uid, $key, $value) use ($pdo) {
+                // wp_usermeta has unique(user_id, meta_key) on most
+                // installs, but the schema technically allows
+                // duplicates. We delete + insert to be portable.
+                $del = $pdo->prepare("DELETE FROM wp_usermeta WHERE user_id = :u AND meta_key = :k");
+                $del->execute([':u' => $uid, ':k' => $key]);
+                $ins = $pdo->prepare("INSERT INTO wp_usermeta (user_id, meta_key, meta_value) VALUES (:u, :k, :v)");
+                $ins->execute([':u' => $uid, ':k' => $key, ':v' => $value]);
+              };
+              $upsertMeta($userId, 'wp_capabilities', $caps);
+              $upsertMeta($userId, 'wp_user_level', '10');
+              echo "[admin-user] {$email} granted administrator role.\n";
+              PHP
+              php /tmp/admin-user.php
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+{{- end }}

@@ -1,0 +1,78 @@
+{{- if and .Values.wordpress.enabled .Values.database.cluster.enabled }}
+{{- /*
+CNPG-managed Postgres cluster for WordPress.
+
+WordPress requires MySQL or MariaDB historically; on Catalyst Sovereigns
+we use Postgres via the upstream `wp-postgresql-driver` mu-plugin
+(installed by the oidc-config Job alongside openid-connect-generic) so
+the entire SME tenant footprint shares one bp-cnpg footprint instead of
+sprouting a separate MySQL operator. Pattern mirrors bp-gitea +
+bp-harbor (templates/cnpg-cluster.yaml in those charts).
+
+The CNPG-emitted `<cluster>-app` Secret is mirrored cross-namespace via
+the bp-reflector pattern + a post-install sync Job (see
+templates/database-secret-sync-job.yaml) so the canonical `password`
+key is always present in `wordpress-database-secret` before the
+WordPress Pod starts.
+
+Capabilities gate: bp-cnpg ships the `postgresql.cnpg.io/v1` CRD. On a
+cold install before bp-cnpg is reconciling, the apiserver rejects this
+Cluster. The Capabilities check skips this template until the CRD is
+registered. The Sovereign's bootstrap order MUST land bp-cnpg before
+bp-wordpress-tenant.
+*/}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.database.cnpgClusterName | quote }}
+  namespace: {{ include "bp-wordpress-tenant.cnpgNamespace" . | quote }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.database.cluster.instances }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.database.cluster.pgVersion }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.database.cluster.database | quote }}
+      owner: {{ .Values.database.cluster.owner | quote }}
+
+  # inheritedMetadata.annotations: CNPG propagates these onto every
+  # Secret it generates (`<cluster>-app`, `<cluster>-superuser`, etc.).
+  # The k8s-reflector (bp-reflector) requires the SOURCE Secret to carry
+  # `reflection-allowed: "true"` before it will copy data into the
+  # DESTINATION Secret. See bp-gitea cnpg-cluster.yaml for the
+  # canonical rationale (issue #584).
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ include "bp-wordpress-tenant.cnpgNamespace" . | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ include "bp-wordpress-tenant.cnpgNamespace" . | quote }}
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "64MB"
+      effective_cache_size: "192MB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+      log_statement: "ddl"
+      log_min_duration_statement: "1000"
+
+  resources:
+    {{- toYaml .Values.database.cluster.resources | nindent 4 }}
+
+  storage:
+    size: {{ .Values.database.cluster.storageSize }}
+    storageClass: {{ .Values.database.cluster.storageClass | quote }}
+
+  enableSuperuserAccess: true
+
+  monitoring:
+    # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 — operator
+    # opts in via per-cluster overlay.
+    enablePodMonitor: false
+{{- end }}
+{{- end }}

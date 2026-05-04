@@ -1,0 +1,260 @@
+# Catalyst Blueprint scratch chart for bp-wordpress-tenant — in-vcluster
+# turnkey WordPress per SME tenant, SSO-pre-wired against the SME's
+# vcluster-local Keycloak realm.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value (image tag, ingress host, Keycloak realm
+# URL, CNPG cluster name, default theme, admin email) is configurable.
+# Per-Sovereign cluster overlays in clusters/<sovereign>/.../wordpress/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+#
+# Image-pull strategy
+# ───────────────────
+# `global.imageRegistry` (rendered as a prefix on `image.repository`)
+# routes pulls through the Sovereign's own Harbor proxy-cache once
+# bp-harbor reconciles. Empty default = pull directly from Docker Hub
+# (only used during pre-Harbor bootstrap; production overlays always
+# set this). See bp-cnpg / bp-keycloak / bp-gitea values.yaml for the
+# canonical pattern.
+
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). Per-Sovereign overlays
+  # wire this at install time. Tracked under #560.
+  imageRegistry: ""
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      wordpress: "wordpress"
+
+# ─── SME tenant identity ────────────────────────────────────────────────
+# `smeDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
+# OR BYO domain (e.g. acme.com); supplied by the tenant-provisioning
+# pipeline. Used to derive the default ingress host. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 the value MUST be passed in at
+# install — there is no sensible default.
+smeDomain: ""
+
+# ─── WordPress application ──────────────────────────────────────────────
+wordpress:
+  enabled: true
+  # Solo-tenant minimum — single replica. Per-Sovereign overlays bump
+  # to 2+ once HA is needed (WordPress is stateless once Postgres + the
+  # wp-content PVC carry the persistent state; with ReadWriteOnce
+  # storage classes the PVC pins replicas to 1 — operators that need
+  # >1 must switch to ReadWriteMany on persistence.wpContent.storageClass).
+  replicas: 1
+
+  image:
+    # Official WordPress image. SHA-pinned per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 — the manifest-list digest below
+    # corresponds to `wordpress:6-php8.3-apache` as published on Docker
+    # Hub; the human-readable tag is kept alongside for forensics.
+    repository: wordpress
+    tag: "6-php8.3-apache"
+    # Multi-arch manifest-list digest for `wordpress:6-php8.3-apache`
+    # (verified against registry-1.docker.io 2026-05-04).
+    digest: "sha256:054e611334390d547c732a38b41b8f42feeb8606a29f0a934deba44e0f17b196"
+    pullPolicy: IfNotPresent
+
+  port: 80
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  # SecurityContext — the official WordPress image runs Apache as
+  # `www-data` (UID 33). Keep readOnlyRootFilesystem=false because the
+  # WP boot script writes `wp-config.php` and Apache touches /run.
+  podSecurityContext:
+    fsGroup: 33
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 33
+    runAsGroup: 33
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  # Liveness / readiness — WordPress's default `/wp-admin/install.php`
+  # responds 200/302 once the Apache + PHP stack is up. We hit `/`
+  # which redirects to `/wp-admin/install.php` on first boot and to
+  # the homepage afterwards; either way Apache returns < 500.
+  probes:
+    liveness:
+      path: /
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    readiness:
+      path: /
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+
+# ─── Database (bp-cnpg in tenant namespace) ─────────────────────────────
+# Per the bp-gitea / bp-harbor pattern (templates/cnpg-cluster.yaml):
+# this chart provisions a dedicated `Cluster.postgresql.cnpg.io` for
+# WordPress. The CNPG-emitted `<cluster>-app` Secret is mirrored into
+# `wordpress-database-secret` by reflector + a post-install sync Job
+# so the canonical `password` key is always populated before the
+# WordPress Pod starts.
+#
+# The pattern matches what bp-gitea uses; see
+# platform/gitea/chart/templates/database-secret-sync-job.yaml for
+# the rationale on Reflector vs. post-install Job.
+database:
+  # CNPG Cluster name & topology — operator-overridable via cluster
+  # overlay. Defaults to a tenant-isolated cluster sized for SME usage.
+  cnpgClusterName: "wordpress-db"
+  cluster:
+    enabled: true
+    # CNPG namespace defaults to .Release.Namespace (tenant ns) so the
+    # Cluster lives next to WordPress. Operator may move it to a
+    # shared `cnpg-tenants` namespace via overlay.
+    namespace: ""
+    instances: 1
+    pgVersion: "16"
+    database: "wordpress"
+    owner: "wordpress"
+    storageSize: "10Gi"
+    storageClass: "local-path"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+  # The reflector-managed wrapper Secret WordPress reads. Always carries
+  # at minimum the `password` key (mirrored from `<cluster>-app`).
+  secretName: "wordpress-database-secret"
+
+# ─── SSO via SME-vcluster Keycloak (openid-connect-generic plugin) ──────
+# The plugin is pre-installed by the WordPress entrypoint (initContainer)
+# from the wordpress.org plugin registry, then registered + configured
+# at first install via templates/oidc-config-job.yaml so the SME admin
+# never sees the WP setup wizard.
+keycloak:
+  # Discovery endpoint of the SME's realm — operator-supplied (no
+  # default per docs/INVIOLABLE-PRINCIPLES.md #4). Example shape:
+  #   https://auth.acme.<otech-fqdn>/realms/sme
+  realmURL: ""
+  # OIDC client registered in the SME realm — provisioned by the
+  # tenant-provisioning pipeline (#804) before this chart installs.
+  clientID: "wordpress"
+  # ExternalSecret name carrying the OIDC client secret. Required
+  # key: client-secret. Provisioned by the tenant-provisioning
+  # pipeline at the same time as the Keycloak client registration.
+  clientSecretName: "wordpress-oidc"
+  # Keycloak group → WP role mapping. Default mirrors the SME unified-
+  # RBAC tier names. Operator may extend per their RBAC posture.
+  roleMapping:
+    administrator: "administrator"
+    editor: "editor"
+    author: "author"
+    contributor: "contributor"
+    subscriber: "subscriber"
+
+# ─── First-install admin user (created via SSO mapping) ─────────────────
+# The admin-user-job pre-seeds a wp_users row with `user_login = email`
+# and the SSO email mapping so the SME admin's first Keycloak login
+# logs them in as the WP administrator without seeing the install wizard.
+adminUser:
+  # Operator-supplied, e.g. `admin@acme.com`. Same email as the SME
+  # admin's Keycloak account — that's how openid-connect-generic
+  # matches the Keycloak `email` claim back to a wp_user.
+  email: ""
+  # Display name shown in the WP admin bar. Defaults to the local-part
+  # of the email (job-side) if left empty.
+  displayName: ""
+
+# ─── Default theme ──────────────────────────────────────────────────────
+# The theme slug installed + activated by oidc-config-job. Operator-
+# overridable. Default ships the latest WordPress yearly theme.
+defaultTheme: "twentytwentyfive"
+
+# ─── Persistence ────────────────────────────────────────────────────────
+# /var/www/html/wp-content carries themes, plugins, uploads. Persists
+# across pod restarts and image upgrades. PVC bound at first install.
+persistence:
+  wpContent:
+    enabled: true
+    size: "10Gi"
+    storageClass: "local-path"
+    accessModes:
+      - ReadWriteOnce
+
+# ─── Service ────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+# ─── ServiceAccount ─────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── Ingress + cert-manager TLS ─────────────────────────────────────────
+# Default host is `wordpress.<smeDomain>`; operator may override
+# `ingress.host` directly when BYO domain shapes differ.
+ingress:
+  enabled: true
+  className: "traefik"
+  # Empty string → templates derive `wordpress.{{ .Values.smeDomain }}`.
+  # Operator may set explicitly when BYO requires a non-derived host.
+  host: ""
+  tls:
+    enabled: true
+    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    secretName: "wordpress-tls"
+  annotations: {}
+
+# ─── NetworkPolicy ──────────────────────────────────────────────────────
+# Restrict egress to: cnpg cluster (Postgres :5432), Keycloak realm
+# (HTTPS :443 — discovery + token endpoints), DNS (kube-dns :53),
+# and ingress traffic (gateway namespace). External egress is allowed
+# on :443 so WordPress can fetch the `openid-connect-generic` plugin
+# zip + theme from wordpress.org during initContainer boot; the
+# cluster's egress-gateway enforces destination policy globally.
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceLabels:
+      kubernetes.io/metadata.name: traefik
+  egress:
+    # bp-cnpg — defaults; namespace label may be overridden if the
+    # tenant cluster lives in a non-default cnpg namespace.
+    cnpgNamespaceLabel: ""        # empty → match Release.Namespace
+    cnpgPort: 5432
+    # bp-keycloak — same as cnpg, defaults to .Release.Namespace
+    # because the tenant Keycloak runs in the SME vcluster's keycloak
+    # namespace; operator overrides if it lives elsewhere.
+    keycloakNamespaceLabel: "keycloak"
+    keycloakPort: 8443
+
+# ─── ServiceMonitor ─────────────────────────────────────────────────────
+# Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+# toggles must default false). Operator opts in via per-cluster overlay
+# once kube-prometheus-stack reconciles. WordPress itself doesn't expose
+# /metrics — operator must layer a wp-prometheus exporter plugin or
+# nginx/php-fpm sidecar before enabling this.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
