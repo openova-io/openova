@@ -803,6 +803,16 @@ write_files:
             # patch — bp-catalyst-platform 1.3.0 then renders the
             # marketplace + tenant-wildcard HTTPRoutes.
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            # Multi-domain Sovereign (issue #827, parent epic #825).
+            # Parent-zone list as a YAML inline-array literal. Threads
+            # into bootstrap-kit slot 11 (bp-powerdns) for zone creation
+            # AND slot 13 (bp-catalyst-platform) for per-zone wildcard
+            # Certificate rendering — both consumers see the same string
+            # so they stay in lockstep on what the Sovereign considers a
+            # parent zone. Default when the wizard doesn't supply an
+            # explicit list: single-zone array derived from
+            # sovereign_fqdn (rendered in main.tf via coalesce()).
+            PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
@@ -840,6 +850,11 @@ write_files:
             # patch — bp-catalyst-platform 1.3.0 then renders the
             # marketplace + tenant-wildcard HTTPRoutes.
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            # Multi-domain Sovereign (issue #827) — same value threaded
+            # in here so a future cert resource that gets moved out of
+            # bp-catalyst-platform into clusters/_template/sovereign-tls/
+            # has access to the parent-zone list without a config copy.
+            PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization

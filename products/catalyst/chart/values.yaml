@@ -6,6 +6,72 @@ global:
   # use `images.registry` / `images.organization` defaults below). Tracked
   # under #560.
   imageRegistry: ""
+  # Sovereign FQDN — populated by the bootstrap-kit slot
+  # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml) from
+  # the ${SOVEREIGN_FQDN} envsubst. Consumed by api-deployment.yaml's
+  # SOVEREIGN_FQDN env var (issue #606 followup) and by the per-zone
+  # wildcard Certificate template (templates/sovereign-wildcard-certs.yaml,
+  # issue #827) when parentZones is empty (single-zone fallback).
+  sovereignFQDN: ""
+
+# ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
+# A franchised Sovereign supports N parent zones, NOT one. The operator
+# brings 1+ parent domains at signup (`omani.works` for own use,
+# `omani.trade` for the SME pool, etc.) and may add more post-handover
+# via the admin console (#829). The wildcard Certificate template
+# (templates/sovereign-wildcard-certs.yaml) renders ONE Certificate
+# resource per entry below, each requesting `*.<zone>` + apex from the
+# `letsencrypt-dns01-prod-powerdns` ClusterIssuer (shipped by
+# bp-cert-manager-powerdns-webhook). Each cert renews independently;
+# a stalled DNS-01 challenge on `omani.trade` does not block the
+# `omani.works` cert from rolling.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the zones list
+# is fully data-driven. Default empty: when parentZones is empty the
+# chart renders ZERO per-zone Certificates and the legacy
+# clusters/_template/sovereign-tls/cilium-gateway-cert.yaml owns the
+# single-zone wildcard cert. This avoids the helm-controller vs
+# kustomize-controller ownership flap on `sovereign-wildcard-tls`.
+# Once every active Sovereign has migrated to multi-zone overlays the
+# legacy file is deletable.
+#
+# Each entry:
+#   - name (required): apex domain. The Certificate is requested for
+#     `*.<name>` + `<name>` (apex).
+#   - role (optional): operator-meaningful tag — "primary" or
+#     "sme-pool". Carried in resource labels for ops visibility.
+#   - secretName (optional): K8s Secret name the Cert is written to.
+#     Defaults to `sovereign-wildcard-tls-<sanitised-name>` when
+#     unset. The Cilium Gateway listener for that zone references
+#     this secret in its certificateRefs block.
+parentZones: []
+
+# ─── Per-zone wildcard Certificate (issue #827) ───────────────────────
+# Rendered into templates/sovereign-wildcard-certs.yaml. One Certificate
+# per entry in `parentZones` (or single fallback from
+# global.sovereignFQDN). Each Certificate uses the
+# `letsencrypt-dns01-prod-powerdns` ClusterIssuer shipped by
+# bp-cert-manager-powerdns-webhook (bootstrap-kit slot 49).
+wildcardCert:
+  # Toggle the entire render. Default true so a Sovereign install
+  # gets its wildcard certs out of the box. Operators that wire certs
+  # via an external mechanism (e.g. a centralised cert-manager in a
+  # different namespace) flip this off.
+  enabled: true
+  # Namespace the Certificate(s) land in. MUST match the namespace
+  # the Cilium Gateway lives in so the resulting Secret is readable
+  # by the Gateway's listener. kube-system is the canonical home of
+  # cilium-gateway (clusters/_template/sovereign-tls/cilium-gateway.yaml).
+  namespace: kube-system
+  # ClusterIssuer to request from. `letsencrypt-dns01-prod-powerdns`
+  # is shipped by bp-cert-manager-powerdns-webhook. Operators may
+  # override to a per-cluster issuer (e.g. a private ACME) via
+  # cluster overlay.
+  issuerName: letsencrypt-dns01-prod-powerdns
+  # Cert renew window. cert-manager defaults are conservative; we
+  # match the per-Sovereign cilium-gateway-cert.yaml legacy values.
+  duration: ""        # empty = cert-manager default (90d for LE)
+  renewBefore: ""     # empty = cert-manager default (~1/3 of duration)
 
 # ─── Catalyst image coordinates ───────────────────────────────────────────────
 # Default registry + org point at ghcr.io/openova-io/openova. Per-Sovereign
@@ -58,6 +124,22 @@ provisioningState:
     # mechanism (test envtest harness, sibling Catalyst instance) and a
     # second install would conflict.
     enabled: true
+
+# ─── catalyst-api runtime config ──────────────────────────────────────────
+# Knobs the api-deployment.yaml template threads as env vars. Empty values
+# fall back to in-code defaults (see the deployment template). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every URL is
+# operator-overridable from the per-Sovereign overlay without rebuilding
+# the chart.
+catalystApi:
+  # PowerDNS REST API base URL used by:
+  #   - SME-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
+  #   - Multi-zone parent-domain handler (parent_domains.go, issue #827)
+  # Empty = in-code default (in-cluster Service FQDN of the Sovereign's
+  # own PowerDNS, http://powerdns.powerdns.svc.cluster.local:8081).
+  powerdnsURL: ""
+  # PowerDNS server identifier per the REST API contract. Empty = "localhost".
+  powerdnsServerID: ""
 
 # ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
 # Renders templates/httproute.yaml when `ingress.gateway.enabled=true`

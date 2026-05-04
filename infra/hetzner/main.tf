@@ -171,6 +171,16 @@ locals {
     sovereign_fqdn             = var.sovereign_fqdn
     sovereign_subdomain        = var.sovereign_subdomain
     marketplace_enabled        = var.marketplace_enabled
+
+    # Multi-domain Sovereign (issue #827). When the wizard supplies an
+    # explicit parent-domain list, use it verbatim. Otherwise default to a
+    # single-zone array derived from sovereign_fqdn so legacy single-zone
+    # provisioning paths render an identical Helm values shape (one zone,
+    # one wildcard cert) — no special-casing in the chart templates.
+    parent_domains_yaml = coalesce(
+      var.parent_domains_yaml,
+      format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
+    )
     org_name                   = var.org_name
     org_email                  = var.org_email
     region                     = var.region

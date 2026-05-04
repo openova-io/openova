@@ -28,6 +28,26 @@
 # delegation has propagated. Replaces the previous letsencrypt-dns01-prod
 # (dynadot-webhook-backed) — Dynadot is not the API-level authority for
 # omani.works subdomains. Caught live on otech43–46.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Multi-zone Sovereign (issue #827, parent epic #825) coexistence note
+# ──────────────────────────────────────────────────────────────────────────
+# bp-catalyst-platform 1.4.0+ ships templates/sovereign-wildcard-certs.yaml
+# which renders one Certificate PER ENTRY in `.Values.parentZones`, each
+# named `sovereign-wildcard-tls-<sanitised-zone>` (e.g.
+# `sovereign-wildcard-tls-omani-trade`). Those resource names are DISTINCT
+# from this file's `sovereign-wildcard-tls` so the two paths never collide:
+#   - Single-zone Sovereigns (parentZones empty) — this file owns the only
+#     wildcard cert.
+#   - Multi-zone Sovereigns (parentZones populated) — this file STILL owns
+#     `sovereign-wildcard-tls` (covering the operator's primary parent
+#     zone) AND the chart adds N additional zone-specific certs. The
+#     Cilium Gateway listener is updated in the per-cluster overlay to
+#     reference the appropriate Secret per zone listener.
+#
+# Once issue #831 lands a multi-listener Gateway template in
+# bp-catalyst-platform itself, this file becomes redundant and is
+# deletable.
 
 apiVersion: cert-manager.io/v1
 kind: Certificate

@@ -90,7 +90,15 @@ spec:
   chart:
     spec:
       chart: bp-powerdns
-      version: 1.1.8
+      # 1.2.0 (issue #827): adds multi-zone bootstrap Job. Sovereign
+      # parent zones (`omani.works`, `omani.trade`, ...) are POSTed to
+      # /api/v1/servers/localhost/zones at Helm post-install/post-upgrade
+      # time, idempotent on HTTP 409. The list below is populated from
+      # ${PARENT_DOMAINS_YAML} via Flux postBuild.substitute (see
+      # infra/hetzner/cloudinit-control-plane.tftpl); a single-zone
+      # fallback derived from ${SOVEREIGN_FQDN} keeps legacy
+      # provisioning paths operative.
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -147,3 +155,20 @@ spec:
           targetPort: 5353
           nodePort: 30053
           protocol: TCP
+    # ─── Multi-zone bootstrap (issue #827, parent epic #825) ───────────
+    # The Sovereign creates one PowerDNS zone per parent domain at Helm
+    # post-install/post-upgrade time via the chart's zone-bootstrap Job
+    # (templates/zone-bootstrap-job.yaml). Idempotent on HTTP 409 so
+    # re-applies after upgrades or chart bumps never fail.
+    #
+    # Source of truth: ${PARENT_DOMAINS_YAML} is a Flux
+    # postBuild.substitute variable containing the operator-supplied
+    # parent-domain list rendered as a YAML inline-array literal, e.g.
+    #   PARENT_DOMAINS_YAML='[{name: "omani.works", role: "primary"}, {name: "omani.trade", role: "sme-pool"}]'
+    # When the operator brings only one parent domain (default
+    # zero-touch flow), cloud-init pre-renders this variable to a
+    # single-entry array derived from ${sovereign_fqdn} so the
+    # Sovereign still owns its own apex zone. See
+    # infra/hetzner/cloudinit-control-plane.tftpl for the substitute
+    # block that materialises the default.
+    zones: ${PARENT_DOMAINS_YAML}

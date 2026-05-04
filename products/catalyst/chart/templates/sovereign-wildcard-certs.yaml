@@ -1,0 +1,124 @@
+{{- /*
+Per-zone wildcard Certificate(s) for the Cilium Gateway listener.
+
+Issue #827 (parent epic #825): a franchised Sovereign now supports
+N parent zones, NOT one. The operator brings 1+ parent domains at
+signup (`omani.works` for own use, `omani.trade` for the SME pool,
+etc.) and may add more post-handover via the admin console (#829).
+This template renders one cert-manager.io/v1.Certificate resource
+per entry in `.Values.parentZones`, each requesting `*.<zone>` plus
+the apex from the `letsencrypt-dns01-prod-powerdns` ClusterIssuer
+(shipped by bp-cert-manager-powerdns-webhook, bootstrap-kit slot
+49). Each Certificate renews independently — a stalled DNS-01
+challenge on one zone does not block another zone's renewal.
+
+Single-zone fallback: when `parentZones` is empty AND
+`global.sovereignFQDN` is non-empty, render exactly ONE Certificate
+covering `*.<sovereignFQDN>` + apex. This preserves backward
+compatibility with the legacy clusters/_template/sovereign-tls/
+cilium-gateway-cert.yaml path so single-zone Sovereigns keep working
+without per-overlay edits during the cutover window. (That legacy
+file remains in place for clusters that have not yet adopted the
+multi-zone overlay; both paths produce a Certificate named
+`sovereign-wildcard-tls`, so the legacy file's resource is
+overwritten by Helm's owner reference once this chart starts
+rendering it. The legacy file is kept until every active Sovereign
+has been re-templated through bp-catalyst-platform 1.4.0+.)
+
+Skip-render guards (per the chart-default-render contract used
+across bp-* — see e.g. bp-cert-manager-powerdns-webhook's
+clusterissuer.yaml skip-render pattern):
+  1. .Values.wildcardCert.enabled — operator opt-out
+  2. parentZones non-empty OR global.sovereignFQDN non-empty —
+     never emit a Certificate with an empty hostname; cert-manager
+     would reject it at admission anyway.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every
+operationally-meaningful value flows from values.yaml — issuer,
+namespace, duration, renewBefore, secret-name, and the zones list
+itself are all operator-overridable.
+
+Resource naming:
+  - When parentZones is non-empty: each Certificate is named
+    `sovereign-wildcard-tls-<sanitised-name>` (default) or the
+    explicit `secretName` from the entry. The Secret name MUST
+    match the resource name so the Gateway listener's
+    certificateRefs block can resolve it.
+  - When falling back to single-zone (parentZones empty,
+    global.sovereignFQDN populated): named `sovereign-wildcard-tls`
+    to preserve the legacy contract referenced by
+    clusters/_template/sovereign-tls/cilium-gateway.yaml's
+    `certificateRefs[0].name: sovereign-wildcard-tls`.
+*/}}
+{{- if .Values.wildcardCert.enabled }}
+{{- $ns := .Values.wildcardCert.namespace | default "kube-system" }}
+{{- $issuer := .Values.wildcardCert.issuerName | default "letsencrypt-dns01-prod-powerdns" }}
+{{- $duration := .Values.wildcardCert.duration }}
+{{- $renewBefore := .Values.wildcardCert.renewBefore }}
+
+{{- /* Determine the effective zone list.
+
+       Render policy (avoids conflict with the legacy
+       clusters/_template/sovereign-tls/cilium-gateway-cert.yaml which
+       is still owned by Kustomization/sovereign-tls):
+         - parentZones populated  → render N Certificates here, each
+                                    named sovereign-wildcard-tls-<sanitised-zone>.
+                                    These are NEW resources, not collisions.
+         - parentZones empty      → render NOTHING. The legacy
+                                    sovereign-tls Kustomization owns the
+                                    single-zone Certificate. Once every
+                                    active Sovereign moves to multi-zone
+                                    overlays, the legacy file is
+                                    deletable.
+*/}}
+{{- $zones := list }}
+{{- if gt (len .Values.parentZones) 0 }}
+  {{- $zones = .Values.parentZones }}
+{{- end }}
+
+{{- range $i, $z := $zones }}
+{{- /* Sanitise the zone name into a DNS-1123-compatible label suffix.
+       PowerDNS zone names contain dots; K8s resource names cannot.
+       `sovereign-wildcard-tls-omani.works` -> `sovereign-wildcard-tls-omani-works`.
+
+       Each per-zone Certificate uses a UNIQUE secret name (sanitised
+       zone) so the chart NEVER collides with the legacy
+       sovereign-tls Kustomization's `sovereign-wildcard-tls` resource.
+       The Cilium Gateway listener for each zone references the
+       corresponding sovereign-wildcard-tls-<sanitised-zone> Secret in
+       its certificateRefs block — operators that ship a multi-zone
+       Sovereign update the Gateway listener config in their per-cluster
+       overlay (or rely on the chart's Gateway template once issue #831
+       lands a multi-listener Gateway). */}}
+{{- $sanitised := replace "." "-" $z.name }}
+{{- $secretName := default (printf "sovereign-wildcard-tls-%s" $sanitised) $z.secretName }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $secretName }}
+  namespace: {{ $ns }}
+  labels:
+    catalyst.openova.io/component: sovereign-wildcard-cert
+    catalyst.openova.io/parent-zone: {{ $z.name | quote }}
+    catalyst.openova.io/parent-zone-role: {{ default "primary" $z.role | quote }}
+    {{- if $.Values.global.sovereignFQDN }}
+    catalyst.openova.io/sovereign: {{ $.Values.global.sovereignFQDN | quote }}
+    {{- end }}
+spec:
+  secretName: {{ $secretName }}
+  issuerRef:
+    name: {{ $issuer }}
+    kind: ClusterIssuer
+  commonName: "*.{{ $z.name }}"
+  dnsNames:
+    - "*.{{ $z.name }}"
+    - {{ $z.name | quote }}
+  {{- with $duration }}
+  duration: {{ . }}
+  {{- end }}
+  {{- with $renewBefore }}
+  renewBefore: {{ . }}
+  {{- end }}
+{{- end }}
+{{- end }}
