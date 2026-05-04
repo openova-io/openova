@@ -8,10 +8,31 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if .Values.meteringSidecar.enabled }}
+    # When the metering sidecar (#798) is enabled, the canonical
+    # http port routes to the sidecar so /v1/* traffic is observed
+    # before reaching NewAPI. The sidecar forwards to NewAPI on the
+    # same pod's loopback. The admin Ingress allow-list (api.* host)
+    # still flows through this Service; admin paths skip sidecar
+    # billing per pathLooksLikeLLM in core/services/metering-sidecar.
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.meteringSidecar.port }}
+      protocol: TCP
+    # Direct port to NewAPI for the bp-catalyst-platform admin API
+    # (`http://newapi.newapi.svc:3000/api/v1/admin/users` per
+    # ADR-0003 §3.2). Keeps the admin trust boundary off the
+    # observed proxy path.
+    - name: http-newapi-direct
+      port: {{ add .Values.service.port 1 }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+    {{- else }}
     - name: http
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
+    {{- end }}
   selector:
     {{- include "bp-newapi.selectorLabels" . | nindent 4 }}
 {{- end }}

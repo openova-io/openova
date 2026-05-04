@@ -20,7 +20,26 @@ spec:
       ports:
         - port: {{ .Values.newapi.port }}
           protocol: TCP
+        {{- if .Values.meteringSidecar.enabled }}
+        # Metering sidecar (#798) exposes its observed-proxy port
+        # to the same caller set as NewAPI itself; the Service
+        # routes /v1/* traffic through it.
+        - port: {{ .Values.meteringSidecar.port }}
+          protocol: TCP
+        {{- end }}
   egress:
+    {{- if .Values.meteringSidecar.enabled }}
+    # Metering sidecar emits to NATS JetStream (#798 + #795
+    # [Q-mine-3]). The bp-nats-jetstream Service lives in
+    # nats-system and listens on the standard nats-io port.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nats-system
+      ports:
+        - port: 4222
+          protocol: TCP
+    {{- end }}
     # In-cluster service egress.
     {{- range .Values.networkPolicy.egress }}
     - to:

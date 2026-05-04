@@ -46,5 +46,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /billing/admin/revenue", h.AdminRevenue)
 	mux.HandleFunc("GET /billing/admin/orders", h.AdminOrders)
 
+	// Metering — synchronous "validate → INSERT credit_ledger →
+	// return balance_after" path (#798 §C). Same payload + idempotency
+	// guard as the NATS subscriber on `catalyst.usage.recorded`. Auth:
+	// superadmin OR sovereign-admin per requireVoucherIssuer (the
+	// operator-admin model). End-user LLM traffic flows through
+	// NewAPI → metering sidecar → NATS — never this HTTP path.
+	mux.HandleFunc("POST /billing/metering/record", h.RecordMetering)
+
 	return mux
 }
