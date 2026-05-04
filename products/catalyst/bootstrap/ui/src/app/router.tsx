@@ -77,6 +77,7 @@ import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPa
 import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
 import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
+import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -547,6 +548,19 @@ const legacyProvisionRoute = createRoute({
 
 // Design showcase
 const designsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/designs', component: DesignShowcase })
+
+/**
+ * Layout-free preview surface for the SovereigntyCard widget (#793).
+ * Mounted outside the SovereignConsoleLayout so the Playwright spec
+ * can render the card deterministically without reproducing the
+ * full OIDC + sovereign-hostname auth shell. The PRODUCTION mount is
+ * inside ConsoleDashboardPage; this route is the test harness.
+ */
+const sovereigntyPreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sovereignty/preview',
+  component: SovereigntyPreviewPage,
+})
 const designsJobsDepsVizRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/designs/jobs-deps-viz',
@@ -691,6 +705,7 @@ const routeTree = rootRoute.addChildren([
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,
+  sovereigntyPreviewRoute,
   marketplaceFamilyRoute,
   marketplaceProductRoute,
   consoleLayoutRoute.addChildren([

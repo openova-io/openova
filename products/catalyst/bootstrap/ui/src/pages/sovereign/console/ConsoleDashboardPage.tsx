@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { Activity, CheckCircle, Shield } from 'lucide-react'
 import { API_BASE } from '@/shared/config/urls'
 import { loadTokens } from '@/shared/lib/oidc'
+import { SovereigntyCard } from '@/widgets/sovereignty'
 
 interface SovereignStatus {
   helmReleasesReady: number
@@ -112,6 +113,15 @@ export function ConsoleDashboardPage() {
           Live status unavailable ({state.message}) — API integration pending.
         </p>
       ) : null}
+
+      {/* Sovereignty cutover surface — see openova-io/openova#790 / #793.
+          The card is self-contained: it owns its own GET /status fetch
+          + SSE /events stream + POST /start trigger via useCutoverEvents.
+          Mounting here puts the "Achieve True Sovereignty" CTA on the
+          first surface a freshly-handed-over operator lands on. */}
+      <div className="mt-6">
+        <SovereigntyCard />
+      </div>
     </div>
   )
 }
