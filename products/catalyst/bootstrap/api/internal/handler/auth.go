@@ -287,23 +287,14 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 // via Stalwart per smtpAddr().
 var sendPinEmail = sendPinEmailDefault
 
-// sendPinEmailDefault sends a plaintext email containing the 6-digit
-// code and no clickable URL.
+// sendPinEmailDefault sends a multipart MIME email (text + HTML) with
+// the 6-digit code rendered as a polished one-time-code card. iCloud /
+// Stripe parity — large monospaced digit groups, brand mark, expiration
+// notice. The plaintext alternative covers email clients that block HTML.
 //
-// Format (per founder spec on #688):
-//
-//	Your OpenOva sign-in code:
-//
-//	    3 7 2 4 5 8
-//
-//	Enter this code at https://console.openova.io/sovereign/login.
-//	The code expires in 10 minutes.
-//
-//	If you didn't request this, you can ignore this email.
-//
-// The bare URL on line 4 is informational only — operators must type
-// the code, not click anything. Per founder rule on #688 there must be
-// NO magic-link URL (no token, no auto-login query string).
+// Per founder rule on #688: NO magic-link URL (no token, no auto-login
+// query string). The login URL is shown only as informational text so
+// the operator pastes the code into the on-screen 6-box input.
 func sendPinEmailDefault(to, pin string) error {
 	from := smtpFrom()
 	addr := smtpAddr()
@@ -311,22 +302,38 @@ func sendPinEmailDefault(to, pin string) error {
 	if len(pin) != 6 {
 		return errors.New("sendPinEmail: pin must be 6 digits")
 	}
-	// "3 7 2 4 5 8" — single ASCII space between digits keeps the layout
-	// stable across every plaintext client.
-	spaced := strings.Join(strings.Split(pin, ""), " ")
-	subject := fmt.Sprintf("Your OpenOva sign-in code: %s", pin)
-	body := fmt.Sprintf(
-		"Your OpenOva sign-in code:\r\n\r\n    %s\r\n\r\n"+
-			"Enter this code at https://console.openova.io/sovereign/login.\r\n"+
-			"The code expires in 10 minutes.\r\n\r\n"+
-			"If you didn't request this, you can ignore this email.",
-		spaced,
-	)
 
-	msg := fmt.Sprintf(
-		"From: OpenOva Platform <%s>\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
-		from, to, subject, body,
-	)
+	subject := fmt.Sprintf("Your OpenOva sign-in code: %s", pin)
+	plain := pinEmailPlainText(pin)
+	html := pinEmailHTML(pin)
+
+	// RFC 2046 multipart/alternative — clients render HTML when they
+	// support it, fall back to plain otherwise. Boundary is a UUID so it
+	// can never collide with body content.
+	boundary := strings.ReplaceAll(uuid.NewString(), "-", "")
+	headers := strings.Join([]string{
+		"From: OpenOva Platform <" + from + ">",
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"",
+	}, "\r\n")
+	body := strings.Join([]string{
+		"",
+		"--" + boundary,
+		"Content-Type: text/plain; charset=utf-8",
+		"Content-Transfer-Encoding: 7bit",
+		"",
+		plain,
+		"--" + boundary,
+		"Content-Type: text/html; charset=utf-8",
+		"Content-Transfer-Encoding: 7bit",
+		"",
+		html,
+		"--" + boundary + "--",
+		"",
+	}, "\r\n")
+	msg := headers + "\r\n" + body
 
 	smtpUser := os.Getenv("CATALYST_SMTP_USER")
 	smtpPass := os.Getenv("CATALYST_SMTP_PASS")
@@ -338,6 +345,64 @@ func sendPinEmailDefault(to, pin string) error {
 	}
 
 	return smtp.SendMail(addr, authMethod, from, []string{to}, []byte(msg))
+}
+
+// pinEmailPlainText is the text/plain alternative — terse, copy-friendly,
+// single-shot copy of the 6-digit code.
+func pinEmailPlainText(pin string) string {
+	return "Your OpenOva sign-in code is:\r\n\r\n" +
+		"  " + pin + "\r\n\r\n" +
+		"Enter it at https://console.openova.io/sovereign/login\r\n" +
+		"This code expires in 10 minutes.\r\n\r\n" +
+		"If you didn't request this, you can ignore this email."
+}
+
+// pinEmailHTML renders the polished verification-code email. Inline
+// styles only — no <style> blocks, no external assets — Gmail and
+// Outlook web both strip <head>/<style>. Width pinned at 480px so the
+// card looks correct in narrow webmail panes and on phones.
+//
+// Visual pattern (Apple iCloud / Stripe):
+//   - White card on neutral background
+//   - Brand mark + "OpenOva" wordmark at the top
+//   - Headline "Your sign-in code"
+//   - Big monospaced 6-digit code in a tinted box (one-tap copy on iOS)
+//   - Expiration line + ignore-if-not-you safety line below
+//   - Footer credit line
+func pinEmailHTML(pin string) string {
+	const (
+		bg      = "#f5f6f8"
+		card    = "#ffffff"
+		border  = "#e3e6eb"
+		textPri = "#0b0d12"
+		textSec = "#5f6470"
+		brand   = "#3357ff"
+		codeBg  = "#f0f3ff"
+		codeFg  = "#0b0d12"
+	)
+	return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your OpenOva sign-in code</title></head>
+<body style="margin:0;padding:32px 16px;background:` + bg + `;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:` + textPri + `;">
+  <table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" width="480" style="max-width:480px;margin:0 auto;">
+    <tr><td style="padding:0 0 20px 0;text-align:center;">
+      <span style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:` + textPri + `;letter-spacing:-0.01em;">
+        <span style="display:inline-block;width:22px;height:22px;border-radius:6px;background:` + brand + `;line-height:22px;color:#fff;font-weight:700;">∞</span>
+        OpenOva
+      </span>
+    </td></tr>
+    <tr><td style="background:` + card + `;border:1px solid ` + border + `;border-radius:14px;padding:32px 32px 28px 32px;">
+      <h1 style="margin:0 0 6px 0;font-size:20px;font-weight:600;letter-spacing:-0.01em;color:` + textPri + `;">Your sign-in code</h1>
+      <p style="margin:0 0 24px 0;font-size:14px;line-height:1.55;color:` + textSec + `;">Enter this 6-digit code at <a href="https://console.openova.io/sovereign/login" style="color:` + brand + `;text-decoration:none;font-weight:500;">console.openova.io</a> to finish signing in.</p>
+      <div style="background:` + codeBg + `;border:1px solid ` + border + `;border-radius:12px;padding:18px 0;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:34px;font-weight:600;letter-spacing:10px;color:` + codeFg + `;">` + pin + `</div>
+      <p style="margin:18px 0 0 0;font-size:13px;line-height:1.5;color:` + textSec + `;">This code expires in 10 minutes. If you didn't request this, you can safely ignore this email — your account stays secure.</p>
+    </td></tr>
+    <tr><td style="padding:18px 0 0 0;text-align:center;font-size:12px;color:#8e94a3;">
+      Sent by OpenOva Platform · <a href="https://openova.io" style="color:#8e94a3;text-decoration:underline;">openova.io</a>
+    </td></tr>
+  </table>
+</body>
+</html>`
 }
 
 // ── Step 2: POST /api/v1/auth/pin/verify ─────────────────────────────────────

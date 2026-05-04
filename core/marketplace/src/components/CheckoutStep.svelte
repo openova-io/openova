@@ -51,6 +51,126 @@
   function togglePayMethod(m: PayMethod) {
     payMethod = payMethod === m ? null : m;
   }
+
+  // ── 6-box PIN UX (issue #721) ─────────────────────────────────────────
+  // Each digit is a separate <input maxlength=1>. Auto-advance, paste-fan-
+  // out, backspace-back. Mirrors the React PinInput6 component on the
+  // catalyst-zero side so the operator gets the same experience whether
+  // they sign into the Sovereign console or the marketplace storefront.
+  let codeDigits = $state<string[]>(['', '', '', '', '', '']);
+  let codeRefs: (HTMLInputElement | null)[] = $state([null, null, null, null, null, null]);
+  // Mirror digits → existing `code` field so the rest of the form (verify
+  // submit) keeps working unchanged.
+  $effect(() => {
+    code = codeDigits.join('');
+  });
+  function focusBox(i: number) {
+    const el = codeRefs[i];
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }
+  function setDigitAt(i: number, v: string) {
+    if (codeDigits[i] === v) return;
+    const next = codeDigits.slice();
+    next[i] = v;
+    codeDigits = next;
+  }
+  function onDigitInput(i: number, ev: Event) {
+    const el = ev.target as HTMLInputElement;
+    const cleaned = (el.value.match(/\d/g) ?? []).join('');
+    if (cleaned.length === 0) {
+      setDigitAt(i, '');
+      return;
+    }
+    if (cleaned.length === 1) {
+      setDigitAt(i, cleaned);
+      el.value = cleaned;
+      if (i < 5) focusBox(i + 1);
+      return;
+    }
+    // Multiple digits typed/autofilled — fan out across remaining boxes.
+    const next = codeDigits.slice();
+    let idx = i;
+    for (const d of cleaned.split('')) {
+      if (idx >= 6) break;
+      next[idx] = d;
+      idx += 1;
+    }
+    codeDigits = next;
+    queueMicrotask(() => focusBox(Math.min(idx, 5)));
+  }
+  function onDigitKeyDown(i: number, ev: KeyboardEvent) {
+    const k = ev.key;
+    if (k === 'Backspace') {
+      if (codeDigits[i] === '' && i > 0) {
+        ev.preventDefault();
+        setDigitAt(i - 1, '');
+        focusBox(i - 1);
+      }
+      return;
+    }
+    if (k === 'ArrowLeft' && i > 0) {
+      ev.preventDefault();
+      focusBox(i - 1);
+      return;
+    }
+    if (k === 'ArrowRight' && i < 5) {
+      ev.preventDefault();
+      focusBox(i + 1);
+      return;
+    }
+    if (k === 'Enter') {
+      if (codeDigits.every((d) => d !== '')) {
+        handleVerify();
+      }
+      return;
+    }
+    if (k.length === 1 && (k < '0' || k > '9')) {
+      ev.preventDefault();
+    }
+  }
+  function onDigitPaste(ev: ClipboardEvent) {
+    ev.preventDefault();
+    const text = ev.clipboardData?.getData('text') ?? '';
+    const cleaned = (text.match(/\d/g) ?? []).join('').slice(0, 6);
+    if (!cleaned) return;
+    const next = ['', '', '', '', '', ''];
+    for (let i = 0; i < cleaned.length; i += 1) {
+      next[i] = cleaned.charAt(i);
+    }
+    codeDigits = next;
+    const last = Math.min(cleaned.length, 5);
+    queueMicrotask(() => focusBox(last));
+    if (cleaned.length === 6) {
+      queueMicrotask(() => handleVerify());
+    }
+  }
+
+  // Email pill — copy-on-click for one-shot copy of the address the code
+  // was sent to, so the operator can pivot to their email client and
+  // paste it into the search bar.
+  let emailCopied = $state(false);
+  let emailCopyTimer: ReturnType<typeof setTimeout> | null = null;
+  async function copyEmail() {
+    try {
+      await navigator.clipboard.writeText(email);
+      emailCopied = true;
+      if (emailCopyTimer) clearTimeout(emailCopyTimer);
+      emailCopyTimer = setTimeout(() => { emailCopied = false; }, 1500);
+    } catch {
+      // Fallback: select the pill text so the user can Cmd-C.
+      const sel = window.getSelection();
+      const range = document.createRange();
+      const tgt = document.getElementById('checkout-email-pill-text');
+      if (tgt && sel) {
+        range.selectNodeContents(tgt);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  }
   let slugStatus = $state<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   let slugChecked = $state('');
   let slugTimer: ReturnType<typeof setTimeout> | null = null;
@@ -347,6 +467,14 @@
 </script>
 
 <div class="py-4">
+  <!-- Wayfinding: back link sits top-left where users instinctively look,
+       not bottom-left of the form (issue #721). -->
+  <div class="mb-4">
+    <a href="/review" class="inline-flex items-center gap-1 text-sm text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+      Back to Review
+    </a>
+  </div>
   <div class="mb-8 text-center">
     <h1 class="text-3xl font-bold text-[var(--color-text-strong)]">Checkout</h1>
     <p class="mt-2 text-[var(--color-text-dim)]">
@@ -462,31 +590,66 @@
           </form>
         {:else}
           <form onsubmit={(e) => { e.preventDefault(); handleVerify(); }}>
-            <p class="mb-3 text-sm text-[var(--color-text-dim)]">
-              We sent a 6-digit code to <span class="font-medium text-[var(--color-text)]">{email}</span>
+            <p class="mb-2 text-center text-sm text-[var(--color-text-dim)]">
+              A 6-digit code was sent to
             </p>
-            <input
-              type="text"
-              bind:value={code}
-              placeholder="Enter 6-digit code"
-              maxlength={6}
-              required
-              class="mb-3 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-[var(--color-text)] placeholder-[var(--color-text-dimmer)] focus:border-[var(--color-accent)] focus:outline-none"
-            />
+            <div class="mb-5 flex justify-center">
+              <button
+                type="button"
+                onclick={copyEmail}
+                title={emailCopied ? 'Copied' : 'Copy email'}
+                class="group inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-3.5 py-1.5 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-accent)]/60 hover:bg-[var(--color-surface)] transition-colors"
+              >
+                <span id="checkout-email-pill-text" class="select-all">{email}</span>
+                {#if emailCopied}
+                  <svg class="h-3.5 w-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Copied"><polyline points="20 6 9 17 4 12"/></svg>
+                {:else}
+                  <svg class="h-3.5 w-3.5 text-[var(--color-text-dim)] group-hover:text-[var(--color-accent)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Copy email"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                {/if}
+              </button>
+            </div>
+
+            <div class="mb-5 flex items-center justify-center gap-2 sm:gap-2.5" role="group" aria-label="Sign-in code" data-testid="checkout-pin-row">
+              {#each codeDigits as digit, i}
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete={i === 0 ? 'one-time-code' : 'off'}
+                  maxlength={1}
+                  bind:this={codeRefs[i]}
+                  value={digit}
+                  disabled={authLoading}
+                  oninput={(e) => onDigitInput(i, e)}
+                  onkeydown={(e) => onDigitKeyDown(i, e)}
+                  onpaste={onDigitPaste}
+                  data-testid={`checkout-pin-${i}`}
+                  aria-label={`Digit ${i + 1}`}
+                  class={[
+                    'w-12 h-14 sm:w-14 sm:h-16',
+                    'text-center text-2xl sm:text-3xl font-semibold tabular-nums tracking-tight',
+                    'rounded-xl border-[1.5px] bg-[var(--color-bg)] text-[var(--color-text)]',
+                    'shadow-[0_1px_0_rgba(255,255,255,0.04),_inset_0_-1px_0_rgba(255,255,255,0.02)]',
+                    digit !== '' ? 'border-[var(--color-accent)]/70' : 'border-[var(--color-border)]',
+                    'focus:border-[var(--color-accent)] focus:outline-none focus:ring-[3px] focus:ring-[var(--color-accent)]/30 focus:scale-[1.04]',
+                    'transition-[border-color,transform] duration-150 ease-out',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                    'caret-transparent',
+                  ].join(' ')}
+                />
+              {/each}
+            </div>
+
             <button
               type="submit"
-              disabled={authLoading}
+              disabled={authLoading || code.length !== 6}
               class="flex w-full items-center justify-center rounded-xl bg-[var(--color-accent)] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
             >
               {authLoading ? 'Verifying...' : 'Verify & Continue'}
             </button>
-            <button
-              type="button"
-              onclick={() => { authMode = 'login'; code = ''; authError = ''; }}
-              class="mt-2 w-full text-center text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-            >
-              Use a different email
-            </button>
+            <p class="mt-3 text-center text-xs text-[var(--color-text-dimmer)]">
+              Codes expire after 10 minutes — check your spam folder.
+            </p>
           </form>
         {/if}
 
@@ -708,9 +871,6 @@
     {/if}
   </div>
 
-  <div class="mt-8">
-    <a href="/review" class="text-sm text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline">
-      &larr; Back to Review
-    </a>
-  </div>
+  <!-- Bottom-left "Back to Review" removed (issue #721) — moved to top-left
+       above the Checkout heading where wayfinding belongs. -->
 </div>
