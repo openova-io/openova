@@ -19,7 +19,9 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
 func main() {
@@ -197,6 +199,78 @@ func main() {
 		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
 	})
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
+
+	// Unauthenticated tenant-discovery endpoint (issue #802) — the SPA
+	// calls this on bootstrap to learn which Keycloak realm to OIDC
+	// against for the current `window.location.host`. Returns 404 for
+	// unknown hosts (the SPA renders a generic landing) and never
+	// exposes admin URLs or credentials. Wired BEFORE the session-cookie
+	// gate because the SPA hasn't authenticated yet at the moment it
+	// calls this.
+	r.Get("/api/v1/tenant/discover", h.HandleTenantDiscover)
+
+	// Wire the tenant registry — flat-file store at
+	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
+	// the catalyst-api is the host process for the unified-rbac slice
+	// until it is split out as its own deployable unit.
+	{
+		dir := os.Getenv("CATALYST_DEPLOYMENTS_DIR")
+		if dir == "" {
+			dir = "/var/lib/catalyst/deployments"
+		}
+		if reg, err := store.NewTenantRegistry(dir); err != nil {
+			log.Warn("tenant-registry: init failed; /tenant/discover will return 503",
+				"err", err,
+			)
+		} else {
+			h.SetTenantRegistry(reg)
+			log.Info("tenant-registry: loaded",
+				"hosts", len(reg.List()),
+			)
+		}
+
+		// User-provision-state store (ADR-0003 §3.4). Hosted in the
+		// same directory; a missing dir is non-fatal — the SME user
+		// endpoints surface 503 instead.
+		if ups, err := store.NewUserProvisionStore(dir); err != nil {
+			log.Warn("user-provision-store: init failed; /sme/users will return 503",
+				"err", err,
+			)
+		} else {
+			deps := handler.SMEDeps{
+				UserProvisionStore: ups,
+				SecretBaseURLTemplate: env(
+					"CATALYST_SME_NEWAPI_BASE_URL_TEMPLATE",
+					"https://newapi.{otech_fqdn}",
+				),
+				OTECHFQDN: os.Getenv("CATALYST_OTECH_FQDN"),
+			}
+			// NewAPI admin client — wired only when both env vars are
+			// present (the bp-newapi blueprint provisions the
+			// catalyst-newapi-admin-token ExternalSecret per #799).
+			if addr := env("CATALYST_NEWAPI_ADDR", "http://newapi.newapi.svc"); addr != "" {
+				if token := os.Getenv("CATALYST_NEWAPI_ADMIN_TOKEN"); token != "" {
+					deps.NewAPIClient = newapi.New(addr, token)
+					log.Info("sme-users: NewAPI admin client wired", "addr", addr)
+				} else {
+					log.Info("sme-users: CATALYST_NEWAPI_ADMIN_TOKEN unset; NewAPI hook step 2 will fail-closed")
+				}
+			}
+			// SME-realm Keycloak client — uses the SA token from the
+			// existing bp-keycloak ExternalSecret pipeline.
+			if saToken := os.Getenv("CATALYST_SME_KC_SA_TOKEN"); saToken != "" {
+				deps.KeycloakClient = handler.SMEKeycloakDirectClient{SAToken: saToken}
+				log.Info("sme-users: SME-realm Keycloak client wired")
+			}
+			// K8s Secret applier — uses the catalyst-api Pod's own
+			// in-cluster client. main.go already builds homeCore above.
+			if homeCore != nil {
+				deps.SecretApplier = handler.K8sSecretApplier{Client: homeCore}
+				log.Info("sme-users: K8s SSA Secret applier wired")
+			}
+			h.SetSMEDeps(deps)
+		}
+	}
 
 	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
 	// The new Sovereign's control plane PUTs its rewritten kubeconfig
@@ -409,6 +483,19 @@ func main() {
 		rg.Post("/api/v1/deployments/{depId}/admin/user-access", h.CreateUserAccess)
 		rg.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
 		rg.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
+
+		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
+		// Owned by the unified-rbac slice of catalyst-api. Tenant
+		// scoping is by X-Tenant-Host header (sent by the SPA from
+		// window.location.host); the tenant must be registered with
+		// tenant_kind=sme. Each create fires the 3-step user-create
+		// hook (Keycloak → NewAPI → K8s Secret) per ADR-0003 §3.
+		// State is persisted in a flat-file user_provision_state
+		// store; on partial failure the response carries the partial
+		// state and the steps[] field so the SPA can render progress.
+		rg.Post("/api/v1/sme/users", h.HandleCreateSMEUser)
+		rg.Get("/api/v1/sme/users", h.HandleListSMEUsers)
+		rg.Delete("/api/v1/sme/users/{uuid}", h.HandleDeleteSMEUser)
 
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining
