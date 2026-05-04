@@ -252,7 +252,11 @@ export function PinSignInModal({
           aria-modal="true"
           aria-labelledby="pin-modal-title"
           style={{
-            width: 'min(420px, calc(100vw - 32px))',
+            // 480px wide so 6 PIN boxes (each 56px) + 5 gaps (12px)
+            // = 396px content fits with 28px internal padding on each
+            // side. Was 420px which clipped the last box on smaller
+            // viewports — caught live 2026-05-04.
+            width: 'min(480px, calc(100vw - 32px))',
             background: 'var(--wiz-bg-input, #0f172a)',
             border: '1px solid var(--wiz-border, rgba(255,255,255,0.12))',
             borderRadius: 12,
