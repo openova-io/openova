@@ -74,6 +74,7 @@ import { ConsoleJobsPage } from '@/pages/sovereign/console/ConsoleJobsPage'
 import { ConsoleCloudPage } from '@/pages/sovereign/console/ConsoleCloudPage'
 import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
 import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
+import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -624,6 +625,15 @@ const consoleSettingsRoute = createRoute({
   component: ConsoleSettingsPage,
 })
 
+// /console/catalog — Sovereign-console operator's per-row marketplace
+// publishing toggle (issue #710 wave 2.5). Backend support shipped in
+// PR #724: GET /catalog/apps + PATCH /catalog/admin/apps/{slug}/publish.
+const consoleCatalogRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/catalog',
+  component: CatalogAdminPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -664,6 +674,7 @@ const routeTree = rootRoute.addChildren([
     consoleJobsRoute,
     consoleCloudRoute,
     consoleUsersRoute,
+    consoleCatalogRoute,
     consoleSettingsRoute,
   ]),
 ])
