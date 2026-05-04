@@ -1,0 +1,121 @@
+# Build openclaw-runtime — per-user pod image consumed by bp-openclaw.
+#
+# Per Inviolable Principle 1 (event-driven, never schedule:cron) and per
+# Inviolable Principle 4 (never floating tags in production), this
+# workflow:
+#   - Triggers on push to platform/openclaw/runtime/** on main.
+#   - Tags the image with the short SHA of the triggering commit.
+#   - Provides workflow_dispatch ONLY for re-running an existing commit
+#     without a code change (per the 2026-05-01 lesson in CLAUDE.md).
+#
+# Output: ghcr.io/openova-io/openova/openclaw-runtime:<sha>
+#
+# Tracking: openova-io/openova#803 (SME-4 bp-openclaw)
+
+name: Build openclaw-runtime
+
+on:
+  push:
+    paths:
+      - 'platform/openclaw/runtime/**'
+      - '.github/workflows/openclaw-runtime.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/openclaw-runtime
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image (load for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: platform/openclaw/runtime
+          file: platform/openclaw/runtime/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}:test
+
+      - name: Smoke test (FATAL when env vars missing)
+        run: |
+          # The runtime is contractually required to refuse to start
+          # without NEWAPI_BASE_URL + NEWAPI_KEY. Verify the FATAL
+          # message fires.
+          if docker run --rm ${{ env.IMAGE }}:test 2>&1 | grep -q "FATAL: NEWAPI_BASE_URL and NEWAPI_KEY"; then
+            echo "Runtime correctly refuses to start without env vars."
+          else
+            echo "FAIL: runtime did NOT print FATAL when env vars missing"
+            docker run --rm ${{ env.IMAGE }}:test || true
+            exit 1
+          fi
+
+      - name: Smoke test (runs with env vars)
+        run: |
+          # Verify the runtime starts cleanly and serves /healthz when
+          # env vars are present.
+          docker run -d --name openclaw-smoke \
+            -p 18080:8080 \
+            -e NEWAPI_BASE_URL=http://localhost:9999 \
+            -e NEWAPI_KEY=sk-smoke-test \
+            ${{ env.IMAGE }}:test
+          # Wait for listener.
+          for i in $(seq 1 10); do
+            if curl -sf http://127.0.0.1:18080/healthz > /dev/null; then
+              echo "healthz OK"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://127.0.0.1:18080/healthz > /dev/null; then
+            echo "FAIL: /healthz did not respond"
+            docker logs openclaw-smoke
+            docker stop openclaw-smoke
+            exit 1
+          fi
+          # Exercise the index page.
+          curl -sf http://127.0.0.1:18080/ | grep -q "OpenClaw runtime" || {
+            echo "FAIL: index page missing expected marker"
+            docker stop openclaw-smoke
+            exit 1
+          }
+          docker stop openclaw-smoke
+          echo "Smoke OK: container starts, /healthz responds, / serves landing."
+
+      - name: Push image (SHA-pinned tag only)
+        uses: docker/build-push-action@v6
+        with:
+          context: platform/openclaw/runtime
+          file: platform/openclaw/runtime/Dockerfile
+          push: true
+          # SHA-pinned tag ONLY. Per Inviolable Principle 4, do NOT
+          # publish a `:latest` for production-consumed images — every
+          # consumer pins to a specific SHA.
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+
+      - name: Summary
+        run: |
+          echo "openclaw-runtime built and pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"

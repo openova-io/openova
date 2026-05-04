@@ -1,0 +1,107 @@
+{{- if .Values.controller.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-openclaw.fullname" . }}-controller
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+    catalyst.openova.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-openclaw.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "bp-openclaw.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: controller
+      annotations:
+        # Roll the pod when the per-user pod-spec template changes so
+        # newly-spawned per-user pods always reflect overlay edits.
+        checksum/pod-template: {{ include (print $.Template.BasePath "/per-user-pod-template.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-openclaw.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.controller.securityContext | nindent 8 }}
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controller.port }}
+              protocol: TCP
+          env:
+            # ── Identity: SME-vcluster Keycloak realm ─────────────────
+            - name: KEYCLOAK_REALM_URL
+              value: {{ required "keycloak.realmURL is required" .Values.keycloak.realmURL | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.keycloak.clientID | quote }}
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "keycloak.clientSecretName is required" .Values.keycloak.clientSecretName }}
+                  key: OIDC_CLIENT_SECRET
+
+            # ── Tenant placement for per-user pods ────────────────────
+            - name: TENANT_NAMESPACE
+              value: {{ include "bp-openclaw.tenantNamespace" . | quote }}
+
+            # ── NewAPI customer-facing base URL (fallback default) ───
+            # Authoritative value per ADR-0003 §3.3 lives on each
+            # `newapi-key-{uuid}` Secret as `base-url`. The controller
+            # reads that field; this env is the chart-render-time
+            # fallback for overlays that haven't yet been migrated.
+            - name: NEWAPI_BASE_URL_DEFAULT
+              value: {{ required "newapi.baseURL is required" .Values.newapi.baseURL | quote }}
+
+            # ── Per-user pod template ConfigMap reference ─────────────
+            - name: POD_TEMPLATE_CONFIGMAP
+              value: {{ include "bp-openclaw.podTemplateConfigMapName" . | quote }}
+            - name: POD_TEMPLATE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+
+            # ── Idle-session reaper interval ──────────────────────────
+            - name: IDLE_TIMEOUT_MINUTES
+              value: {{ .Values.perUserPod.idleTimeoutMinutes | quote }}
+
+            # ── Listen port ───────────────────────────────────────────
+            - name: PORT
+              value: {{ .Values.controller.port | quote }}
+
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.controller.probes.liveness.path }}
+              port: {{ .Values.controller.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.controller.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controller.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.controller.probes.readiness.path }}
+              port: {{ .Values.controller.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.controller.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controller.probes.readiness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: pod-template
+              mountPath: /etc/openclaw
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: pod-template
+          configMap:
+            name: {{ include "bp-openclaw.podTemplateConfigMapName" . }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

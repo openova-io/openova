@@ -1,0 +1,77 @@
+{{- if .Values.controller.enabled }}
+{{- $tenantNs := include "bp-openclaw.tenantNamespace" . -}}
+# ─── Per-user pod template (consumed by the controller) ──────────────────
+# This ConfigMap holds the pod-spec template the controller renders per
+# session. The controller reads it from /etc/openclaw/pod-template.yaml,
+# substitutes ${USER_UUID} and ${SECRET_NAME}, and submits the resulting
+# Pod to the K8s api-server.
+#
+# Substitution variables (filled by the controller at session-start):
+#   ${USER_UUID}    — the SME user UUID (= JWT `sub` claim)
+#   ${SECRET_NAME}  — `newapi-key-${USER_UUID}` (per ADR-0003 §3.3)
+#
+# Per [A] of #795: the runtime image reads ONLY two env vars
+# (NEWAPI_BASE_URL + NEWAPI_KEY). It carries NO Keycloak code, NO key-
+# management code, NO knowledge of the SME tenant model. Identity-blind
+# by construction.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-openclaw.podTemplateConfigMapName" . }}
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      # The controller post-processes this name to be unique-per-session
+      # (e.g. openclaw-user-${USER_UUID}-${SESSION_ID}).
+      name: openclaw-user-${USER_UUID}
+      namespace: {{ $tenantNs }}
+      labels:
+        app.kubernetes.io/name: {{ include "bp-openclaw.name" . }}
+        app.kubernetes.io/component: per-user-pod
+        catalyst.openova.io/blueprint: bp-openclaw
+        catalyst.openova.io/openclaw-user: ${USER_UUID}
+        # Ownership label — the controller's RBAC scope (Role rules 2/3
+        # in controller-rbac.yaml) is enforced at the application layer
+        # by selecting only pods that carry this label.
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.perUserPod.securityContext | nindent 8 }}
+      containers:
+        - name: runtime
+          image: "{{ .Values.perUserPod.image.repository }}:{{ .Values.perUserPod.image.tag }}"
+          imagePullPolicy: {{ .Values.perUserPod.image.pullPolicy }}
+          env:
+            - name: NEWAPI_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ${SECRET_NAME}
+                  key: base-url
+            - name: NEWAPI_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${SECRET_NAME}
+                  key: api-key
+            {{- range .Values.perUserPod.extraEnv }}
+            - {{- toYaml . | nindent 14 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.perUserPod.resources | nindent 12 }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

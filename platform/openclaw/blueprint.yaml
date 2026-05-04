@@ -1,0 +1,124 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-openclaw
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-7-agentic-workspace
+spec:
+  version: 0.1.0
+  card:
+    title: OpenClaw
+    summary: |
+      Per-user agentic workspace for SME tenants. A multi-tenant
+      controller deployment in the SME tenant namespace authenticates
+      end users via the SME-vcluster Keycloak realm and spawns one
+      runtime pod per active session. Each runtime pod reads ONLY two
+      env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
+      `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
+      hook (ADR-0003). Identity-blind by construction.
+    icon: openclaw.svg
+    category: ai-runtime
+    tags: [openclaw, agentic, workspace, sme, keycloak, newapi, multi-tenant, per-user-pod]
+    documentation: https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    required: [keycloak, tenant, newapi, ingress]
+    properties:
+      controller:
+        type: object
+        properties:
+          replicas:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 5
+          image:
+            type: object
+            required: [tag]
+            properties:
+              tag:
+                type: string
+                description: SHA-pinned tag for the controller image (operator-supplied).
+      keycloak:
+        type: object
+        required: [realmURL, clientSecretName]
+        properties:
+          realmURL:
+            type: string
+            description: Full SME-vcluster Keycloak realm issuer URL (e.g. https://keycloak.acme.example/realms/acme).
+          clientID:
+            type: string
+            default: openclaw
+          clientSecretName:
+            type: string
+            description: ExternalSecret name carrying OIDC_CLIENT_SECRET.
+      newapi:
+        type: object
+        required: [baseURL]
+        properties:
+          baseURL:
+            type: string
+            description: NewAPI customer-facing hostname (e.g. https://newapi.<otech-fqdn>).
+      tenant:
+        type: object
+        required: [namespace]
+        properties:
+          namespace:
+            type: string
+            description: SME tenant namespace where per-user pods are spawned and newapi-key-{uuid} Secrets are read.
+      perUserPod:
+        type: object
+        properties:
+          image:
+            type: object
+            required: [tag]
+            properties:
+              tag:
+                type: string
+                description: SHA-pinned tag for the runtime image (operator-supplied).
+          idleTimeoutMinutes:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 480
+            description: Reaper deletes per-user pods idle for longer than this.
+      ingress:
+        type: object
+        required: [host]
+        properties:
+          host:
+            type: string
+            description: Controller public hostname (e.g. openclaw.<sme-domain>).
+          tls:
+            type: object
+            properties:
+              issuer:
+                type: string
+                default: letsencrypt-prod
+                description: cert-manager ClusterIssuer.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-newapi
+      version: ^1.0
+      alias: gateway
+    - blueprint: bp-keycloak
+      version: ^1.0
+      alias: idp
+    - blueprint: bp-cert-manager
+      version: ^1.0
+      alias: tls
+  upgrades:
+    from: []
+  observability:
+    metrics: prometheus
+    logs: stdout

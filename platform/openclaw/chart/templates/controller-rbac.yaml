@@ -1,0 +1,89 @@
+{{- if .Values.controller.enabled }}
+{{- $fullName := include "bp-openclaw.fullname" . -}}
+{{- $tenantNs := include "bp-openclaw.tenantNamespace" . -}}
+---
+# ─── Controller Role (namespaced — tenant ns only) ───────────────────────
+# Minimum-RBAC scoping per ADR-0003 §3.3 + Inviolable Principle 7
+# (tenancy is K8s-native; no cluster-scoped roles for tenant work).
+#
+# Per feedback_rbac_create_no_resourcenames.md (2026-05-03 root cause of
+# bp-openbao 6+ provisioning loops): the K8s authorizer REJECTS Roles
+# that combine the `create` verb with a `resourceNames` selector — POSTs
+# return 403 because resourceNames cannot apply to a not-yet-existing
+# resource. We therefore split the rules:
+#
+#   Rule 1 — read user-key Secrets (get/list/watch ONLY, with a label
+#            selector enforced at controller side, NOT in RBAC).
+#   Rule 2 — get/list/watch/delete pods labelled
+#            catalyst.openova.io/openclaw-user (no create here).
+#   Rule 3 — CREATE pods (NO resourceNames).
+#   Rule 4 — CREATE secrets (NO resourceNames) — needed if the
+#            controller ever materialises a runtime-side Secret; kept
+#            narrow.
+#
+# resourceNames CANNOT be used to constrain `create` regardless; the
+# controller enforces label-based ownership at the application layer
+# when reading Secrets and when deleting Pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullName }}-controller
+  namespace: {{ $tenantNs }}
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+rules:
+  # Rule 1 — read per-user NewAPI key Secrets.
+  # The controller selects by label
+  # `catalyst.openova.io/sme-user-uuid=<uuid>` at the API call boundary
+  # (via List with a labelSelector); RBAC permits get/list/watch on all
+  # secrets in the namespace, but the controller code path NEVER reads
+  # an unlabelled Secret.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+
+  # Rule 2 — manage existing per-user pods (no create).
+  # The controller deletes a pod when its owning session ends or the
+  # idle-timeout fires.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+
+  # Rule 3 — CREATE pods. SPLIT INTO ITS OWN RULE WITHOUT resourceNames.
+  # Per feedback_rbac_create_no_resourcenames.md (2026-05-03):
+  # combining `create` with resourceNames produces a 403 every time —
+  # resourceNames cannot constrain a not-yet-existing resource. Label-
+  # based ownership is enforced at the controller, not in RBAC.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create"]
+
+  # Rule 4 — CREATE pods/exec subresource (used to proxy the user's
+  # interactive shell into the runtime container). Split per the same
+  # rule as Rule 3.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+  # Rule 5 — read pod logs (for the controller's log-streaming endpoint
+  # when the per-user runtime is non-interactive).
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullName }}-controller
+  namespace: {{ $tenantNs }}
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullName }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-openclaw.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

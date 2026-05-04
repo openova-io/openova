@@ -1,0 +1,191 @@
+# bp-openclaw values.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/bootstrap-kit/ may override any of these without
+# rebuilding the Blueprint OCI artifact.
+#
+# Required at install time (overlay MUST set):
+#   - keycloak.realmURL          (SME-vcluster Keycloak realm OIDC issuer)
+#   - keycloak.clientSecretName  (ExternalSecret with OIDC client_secret)
+#   - tenant.namespace           (SME tenant namespace where per-user pods run)
+#   - ingress.host               (controller public hostname)
+#   - newapi.baseURL             (NewAPI customer-facing hostname)
+#
+# The chart will fail to render with a helpful error if any of these are
+# missing — see _helpers.tpl :: bp-openclaw.assertRequired.
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      controller: "ghcr.io/openova-io/openova/openclaw-controller"
+      runtime: "ghcr.io/openova-io/openova/openclaw-runtime"
+
+# ─── Controller (multi-tenant) ───────────────────────────────────────────
+controller:
+  enabled: true
+  replicas: 1
+  image:
+    # Operator-supplied SHA tag; the chart's default placeholder is
+    # rejected by an assertion in _helpers.tpl when controller.enabled=true.
+    repository: ghcr.io/openova-io/openova/openclaw-controller
+    tag: ""                       # operator-supplied — SHA-pinned per Inviolable Principle 4
+    pullPolicy: IfNotPresent
+  port: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  probes:
+    liveness:
+      path: /healthz
+      port: 8080
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /readyz
+      port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# ─── Auth: SME-vcluster Keycloak (OIDC) ──────────────────────────────────
+# The controller validates inbound end-user JWTs against the SME's own
+# Keycloak realm. It NEVER uses the OTECH-ops realm, NEVER trusts a JWT
+# from outside the SME vcluster.
+keycloak:
+  # Required: full realm issuer URL.
+  # e.g. "https://keycloak.<sme-domain>/realms/<sme-realm>"
+  realmURL: ""
+  # OIDC client registered in the SME's Keycloak realm for OpenClaw.
+  clientID: "openclaw"
+  # ExternalSecret name carrying the OIDC client_secret. Required key:
+  # OIDC_CLIENT_SECRET. Provisioned by the SME-tenant onboarding pipeline
+  # (epic #795 ticket #804).
+  clientSecretName: ""
+
+# ─── NewAPI integration ──────────────────────────────────────────────────
+# Per-user pods talk to NewAPI via its CUSTOMER-FACING hostname (egress
+# through the OTECH ingress with TLS), NEVER the in-cluster admin URL.
+# Per ADR-0003 §3.3 the per-user Secret carries `base-url` matching this
+# value; we read the value from the Secret at pod-spawn time so this
+# field acts as a fallback default for overlays that don't yet set
+# `base-url` on the Secret.
+newapi:
+  baseURL: ""                     # operator-supplied (e.g. https://newapi.<otech-fqdn>)
+
+# ─── Tenant namespace ────────────────────────────────────────────────────
+# SME tenant namespace where:
+#   - per-user pods are created and deleted
+#   - newapi-key-{uuid} Secrets are read by the controller's ServiceAccount
+tenant:
+  namespace: ""                   # operator-supplied (e.g. sme-acme)
+
+# ─── Per-user pod template ───────────────────────────────────────────────
+# These values are baked into a ConfigMap; the controller renders the
+# pod-spec at session-start time, substituting NEWAPI_KEY (Secret ref)
+# and NEWAPI_BASE_URL (env value).
+perUserPod:
+  image:
+    repository: ghcr.io/openova-io/openova/openclaw-runtime
+    tag: ""                       # operator-supplied — SHA-pinned per Inviolable Principle 4
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  # Idle-session reaper — controller deletes the per-user pod after
+  # this many minutes without inbound traffic. Default 30 minutes.
+  idleTimeoutMinutes: 30
+  # Optional extra env vars baked into every per-user pod (operator
+  # overlay may extend, e.g. for HTTP proxy, telemetry endpoint, etc.).
+  extraEnv: []
+
+# ─── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+
+# ─── Ingress + cert-manager TLS ──────────────────────────────────────────
+# Public hostname for the controller. Per Q-mine-1 of #795:
+# `openclaw.<sme-domain-or-subdomain>`. cert-manager auto-issues a
+# per-host certificate via the operator's ACME issuer.
+ingress:
+  enabled: true
+  className: "traefik"
+  host: ""                        # operator-supplied (e.g. openclaw.<sme-domain>)
+  tls:
+    enabled: true
+    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    secretName: "openclaw-tls"
+  annotations: {}
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Default-allow ingress from the platform's gateway namespace (traefik).
+# Egress from CONTROLLER:
+#   - SME-vcluster Keycloak (OIDC discovery + JWKS)
+#   - K8s api-server (pod create/delete; goes to kube-system endpoint)
+#   - per-user pod range in tenant namespace (proxy WebSocket/SSE)
+#   - DNS
+# Egress from PER-USER pod (separate NetworkPolicy applied at pod-spawn
+# time by the controller, NOT by this chart's render — see
+# README.md §"per-user-pod NetworkPolicy"):
+#   - NewAPI Service (cluster-internal hostname or external ingress)
+#   - DNS
+# This chart's NetworkPolicy template covers the controller pod only;
+# per-user pods receive their NetworkPolicy from a controller-rendered
+# template at session-start.
+networkPolicy:
+  enabled: true
+  controller:
+    ingress:
+      fromNamespaceLabels:
+        kubernetes.io/metadata.name: traefik
+    # Egress targets — operator may extend if SME-vcluster Keycloak
+    # reaches the controller via a different namespace label.
+    egress:
+      keycloakNamespaceLabel: "keycloak"
+      keycloakPort: 8443
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
+# toggles must default false). Operator opts in via per-cluster overlay
+# once kube-prometheus-stack reconciles.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
