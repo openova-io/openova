@@ -12,7 +12,7 @@ description: |
   bp-mimir (metrics), bp-tempo (traces). Default controller is DaemonSet
   (one pod per node) so node + pod metrics + container logs are collected.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "v1.16.0"
 keywords: [catalyst, blueprint, alloy, observability, otlp, telemetry, collector]
 maintainers:

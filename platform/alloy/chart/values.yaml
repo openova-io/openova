@@ -55,6 +55,17 @@ alloy:
   controller:
     type: daemonset
     replicas: 1
+    # Tolerations — Alloy is a DaemonSet; one pod MUST land on every node
+    # including the control plane so CP-local kubelet logs + node metrics
+    # are collected. PR #755 added a NoSchedule taint on the CP in multi-
+    # node Sovereigns; without this toleration Alloy sits at desired=N-1
+    # ready=N-1 and CP telemetry is silently lost (issue #769 audit). On
+    # solo Sovereigns (worker_count=0) the CP is untainted, so this
+    # toleration is a no-op.
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
 
   # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
   serviceMonitor:
