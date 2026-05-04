@@ -126,38 +126,41 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
     { id: 'cx53', label: 'CX53', vcpu: 16, ram: 32, disk: 320, priceHour: 0.0360, priceMonth: 22.49,
       category: 'shared-intel', description: 'Intel shared vCPU — high-memory' },
 
-    // CPX — AMD shared (Regular Performance lineup)
-    { id: 'cpx11', label: 'CPX11', vcpu: 2, ram: 2, disk: 40, priceHour: 0.0072, priceMonth: 4.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — minimum, dev/POC' },
-    // CPX21 — recommended cost-optimised CONTROL-PLANE default. The
-    // canonical Sovereign default is now 1× CPX21 control plane +
-    // 2× CPX31 workers = ~€20.5/mo (38% cheaper than 3× CPX32 at €33/mo).
-    // The CP carries only k3s + cilium-operator + flux controllers +
-    // cert-manager + sealed-secrets — RAM budget fits in 4 GB. Heavy
-    // stack (bp-keycloak/cnpg/harbor/openbao/grafana) schedules to
-    // workers because the bootstrap-kit tolerates away from the CP
-    // taint. If the CP exhibits RAM pressure under load, the next
-    // safe stop UP is cpx31 (8 GB), not cpx32. Operators picking
-    // SOLO mode (worker_count=0) should still pick CPX52 explicitly;
-    // the wizard's StepProvider surfaces all SKUs.
-    { id: 'cpx21', label: 'CPX21', vcpu: 3, ram: 4, disk: 80, priceHour: 0.0088, priceMonth: 5.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised CP default (3 vCPU / 4 GB) — paired with cpx31 workers for ~€20.5/mo total Sovereign',
+    // CPX — AMD shared (Regular Performance lineup).
+    // Pricing source: Hetzner API /v1/server_types prices_monthly.gross
+    // for fsn1, snapshot 2026-05-04. Smaller SKUs (cpx21, cpx31) are
+    // listed in the catalog but NOT orderable for new servers in
+    // EU DCs (fsn1/nbg1/hel1) — Hetzner returns "Server Type
+    // cpx21 is unavailable in fsn1 and can no longer be ordered"
+    // at `tofu apply` time. The wizard surfaces them so existing
+    // Sovereigns provisioned on those SKUs can still be referenced,
+    // but they are NOT defaults and not listed as recommended.
+    { id: 'cpx11', label: 'CPX11', vcpu: 2, ram: 2, disk: 40, priceHour: 0.0096, priceMonth: 5.99,
+      category: 'shared-amd', description: 'AMD shared vCPU — minimum, dev/POC (orderable in fsn1)' },
+    { id: 'cpx21', label: 'CPX21', vcpu: 3, ram: 4, disk: 80, priceHour: 0.0176, priceMonth: 10.99,
+      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable in EU DCs (fsn1/nbg1/hel1)' },
+    // CPX22 — recommended cost-optimised CONTROL-PLANE default. 2 vCPU /
+    // 4 GB AMD shared, ~€9.49/mo fsn1. The smallest AMD shared SKU
+    // with ≥ 4 GB RAM that is orderable for new servers in EU DCs
+    // (fsn1/nbg1/hel1) as of 2026-05. The CP carries only k3s +
+    // cilium-operator + flux controllers + cert-manager +
+    // sealed-secrets — RAM budget fits in 4 GB. Heavy stack
+    // (bp-keycloak/cnpg/harbor/openbao/grafana) schedules to workers.
+    // 1× CPX22 + 2× CPX32 = €9.49 + €32.98 = €42.47/mo Sovereign,
+    // 14% cheaper than the previous all-CPX32 default at €49.47/mo.
+    // Operators picking SOLO mode (worker_count=0) should still pick
+    // CPX52 explicitly. If the CP exhibits RAM pressure under load,
+    // bump to cpx32.
+    { id: 'cpx22', label: 'CPX22', vcpu: 2, ram: 4, disk: 80, priceHour: 0.0152, priceMonth: 9.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised CP default (2 vCPU / 4 GB) — paired with cpx32 workers for ~€42.5/mo total Sovereign',
       recommended: true },
-    { id: 'cpx22', label: 'CPX22', vcpu: 2, ram: 4, disk: 80, priceHour: 0.0128, priceMonth: 7.99,
-      category: 'shared-amd', description: 'AMD shared vCPU — entry compute' },
-    // CPX31 — recommended cost-optimised WORKER default. 4 vCPU /
-    // 8 GB AMD shared at ~€7.5/mo. RAM (8 GB) is the binding
-    // constraint for the bootstrap-kit's worker pods, not vCPU.
-    { id: 'cpx31', label: 'CPX31', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0120, priceMonth: 7.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised worker default (4 vCPU / 8 GB) — paired with cpx21 CP for the canonical Sovereign topology' },
-    // CPX32 — formerly the canonical horizontal-scale default; kept
-    // in the catalog for operators who want the higher per-node CPU
-    // budget (e.g. CPU-heavy DP workloads). 1× CPX32 CP + 2× CPX32
-    // workers totals ~€33/mo — 60% more expensive than the cost-
-    // optimised cpx21+cpx31 combo and only valuable when the workload
-    // mix is CPU-bound at the worker.
-    { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0232, priceMonth: 14.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — Helsinki-tier (4 vCPU / 8 GB) — opt-in upgrade over cpx31 worker for CPU-heavy data plane' },
+    { id: 'cpx31', label: 'CPX31', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0328, priceMonth: 20.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable in EU DCs (fsn1/nbg1/hel1)' },
+    // CPX32 — recommended WORKER default. 4 vCPU / 8 GB AMD shared
+    // at ~€16.49/mo fsn1. Smallest AMD shared SKU with 8 GB RAM
+    // orderable for new servers in EU DCs as of 2026-05.
+    { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0264, priceMonth: 16.49,
+      category: 'shared-amd', description: 'AMD shared vCPU — multi-node worker default (4 vCPU / 8 GB) — paired with cpx22 CP for the canonical Sovereign topology' },
     // CPX42 — fits a TRIMMED bootstrap-kit but otech29 showed 8 vCPU
     // is too tight for the full 35-component default — keycloak-config-cli
     // post-upgrade Job sits Pending forever with "Insufficient cpu".
@@ -465,16 +468,17 @@ export function defaultNodeSizeId(provider: CloudProvider): string {
 }
 
 /**
- * Per-provider worker-default SKU. Hetzner pairs the CPX21 control
- * plane with CPX31 workers (4 vCPU / 8 GB) — RAM is the binding
+ * Per-provider worker-default SKU. Hetzner pairs the CPX22 control
+ * plane with CPX32 workers (4 vCPU / 8 GB) — RAM is the binding
  * constraint for bp-keycloak / bp-cnpg / bp-harbor / bp-openbao /
  * bp-grafana so the worker keeps 8 GB while the CP drops to 4 GB.
- * Other providers fall back to the same SKU as the CP default
- * (symmetric topology) until their per-provider asymmetry is
- * profiled.
+ * cpx32 is the smallest AMD shared SKU with 8 GB RAM that is
+ * orderable in EU DCs (fsn1/nbg1/hel1) as of 2026-05. Other
+ * providers fall back to the same SKU as the CP default (symmetric
+ * topology) until their per-provider asymmetry is profiled.
  */
 const PROVIDER_WORKER_DEFAULTS: Partial<Record<CloudProvider, string>> = {
-  hetzner: 'cpx31',
+  hetzner: 'cpx32',
 }
 
 export function defaultWorkerSizeId(provider: CloudProvider): string {

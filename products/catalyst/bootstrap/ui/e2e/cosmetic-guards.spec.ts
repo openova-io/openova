@@ -562,8 +562,8 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     ).not.toBeNull()
     expect(
       recommendedId,
-      `Recommended Hetzner SKU set drifted: got [${(recommendedId ?? []).join(', ')}], must be exactly ['cpx21']. See src/shared/constants/providerSizes.ts and the recommended:true flag on the Hetzner CPX21 entry — the cost-optimised control-plane default paired with cpx31 workers (~€20.5/mo Sovereign total).`,
-    ).toEqual(['cpx21'])
+      `Recommended Hetzner SKU set drifted: got [${(recommendedId ?? []).join(', ')}], must be exactly ['cpx22']. See src/shared/constants/providerSizes.ts and the recommended:true flag on the Hetzner CPX22 entry — the cost-optimised control-plane default (smallest AMD shared SKU with ≥ 4 GB RAM that is orderable in EU DCs as of 2026-05) paired with cpx32 workers (~€42.5/mo Sovereign total).`,
+    ).toEqual(['cpx22'])
   })
 
   test('switching provider switches the SKU catalog (Huawei vs Hetzner)', async ({ page }) => {

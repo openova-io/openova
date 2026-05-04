@@ -357,16 +357,18 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
      wizard never lands on the step with empty SKU dropdowns — the operator can
      change them, but a sensible default is preselected.
 
-     Per-provider CP defaults: CPX21 (hetzner), c7n.xlarge.2 (huawei),
+     Per-provider CP defaults: CPX22 (hetzner), c7n.xlarge.2 (huawei),
      VM.Standard.E5.Flex.2.16 (oci), m6i.xlarge (aws), Standard_D4s_v5
      (azure) — each provider's recommended:true SKU from PROVIDER_NODE_SIZES.
 
-     Per-provider WORKER defaults: CPX31 (hetzner), same-as-CP elsewhere —
-     see defaultWorkerSizeId in providerSizes.ts. Hetzner pairs CPX21 CP
-     with CPX31 workers because RAM (8 GB per worker) is the binding
+     Per-provider WORKER defaults: CPX32 (hetzner), same-as-CP elsewhere —
+     see defaultWorkerSizeId in providerSizes.ts. Hetzner pairs CPX22 CP
+     with CPX32 workers because RAM (8 GB per worker) is the binding
      constraint for the bootstrap-kit's worker pods, but the CP's RAM
-     budget fits in 4 GB. Total per Sovereign: ~€20.5/mo — 38% cheaper
-     than the prior all-CPX32 default at €33/mo, while preserving the
+     budget fits in 4 GB. Smaller AMD-shared SKUs (cpx21, cpx31) are
+     listed but NOT orderable for new servers in EU DCs (fsn1/nbg1/hel1)
+     as of 2026-05. Total per Sovereign: ~€42.5/mo — 14% cheaper
+     than the prior all-CPX32 default at €49.5/mo, while preserving the
      multi-node horizontal-scale agreement (issue #733).
 
      Worker count default 2 — restores the horizontal-scale agreement
@@ -409,8 +411,8 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
     const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
     store.setRegionCloudRegion(i, hintRegion ?? regions[0].id)
     // Per-provider CP / worker defaults — see the first-visit useEffect
-    // above for rationale. Hetzner pairs CPX21 CP with CPX31 workers
-    // (~€20.5/mo Sovereign total); other providers fall through to the
+    // above for rationale. Hetzner pairs CPX22 CP with CPX32 workers
+    // (~€42.5/mo Sovereign total); other providers fall through to the
     // symmetric same-as-CP default until their per-provider asymmetry
     // is profiled.
     store.setRegionControlPlaneSize(i, defaultNodeSizeId(provider))
