@@ -25,9 +25,11 @@
  *     /cloud/* route OR any legacy /infrastructure/* route (covered
  *     by the redirect-only routes in app/router.tsx).
  *
- *   • Operator card at the bottom — analog of the canonical "User"
- *     card; the wizard runs unauthenticated so we show "Operator ·
- *     Provisioning session".
+ * Issue #750: the bespoke bottom-left "Operator / Provisioning session"
+ * card was removed. Identity placement is now consistent with the rest
+ * of the application — the signed-in user's email-initial avatar +
+ * sign-out menu live in the top-right of the PortalShell header via
+ * <ProfileMenu />, mirroring the wizard + Sovereign-console surfaces.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every label,
  * href and color comes from runtime data + canonical token names —
@@ -229,18 +231,17 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
         })()}
       </nav>
 
-      {/* Operator card at the bottom — analog of canonical "User" card */}
-      <div className="border-t border-[var(--color-border)] p-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)]/20 text-xs font-bold text-[var(--color-accent)]">
-            O
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-[var(--color-text)]">Operator</p>
-            <p className="truncate text-[10px] text-[var(--color-text-dimmer)]">Provisioning session</p>
-          </div>
-        </div>
-      </div>
+      {/*
+        Issue #750: the bespoke "Operator / Provisioning session" card
+        used to live here. It was removed because:
+          1. Identity belongs top-right (matches WizardLayout +
+             SovereignConsoleLayout + marketplace header — this surface
+             was the lone outlier).
+          2. The label "Operator" was hard-coded and never reflected the
+             actual signed-in user's email; the canonical <ProfileMenu />
+             reads useSession() and renders the email-initial avatar.
+        The replacement now lives in PortalShell.tsx's top-right slot.
+      */}
     </aside>
   )
 }

@@ -13,7 +13,8 @@
  *   • Cloud highlight applies whenever the operator is on any
  *     /cloud/* path (including the legacy P3 sub-routes that now
  *     redirect to /cloud?view=… queries)
- *   • Operator card at the bottom (analog of canonical "User" card)
+ *   • No bespoke operator/identity card — issue #750 moved identity
+ *     to the canonical <ProfileMenu /> in PortalShell's top-right.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -239,11 +240,14 @@ describe('Sidebar — Cloud entry (issue #350: accordion dropped)', () => {
   })
 })
 
-describe('Sidebar — operator card', () => {
-  it('renders Operator + "Provisioning session" footer text', async () => {
+describe('Sidebar — identity placement (issue #750)', () => {
+  it('does NOT render the bespoke "Operator / Provisioning session" card', async () => {
     renderSidebarAt('/provision/d-test-1234')
     const sidebar = await screen.findByTestId('admin-sidebar')
-    expect(within(sidebar).getByText('Operator')).toBeTruthy()
-    expect(within(sidebar).getByText('Provisioning session')).toBeTruthy()
+    // The bespoke widget was removed — identity now lives in the
+    // top-right of PortalShell via <ProfileMenu />, mirroring the
+    // wizard + Sovereign-console surfaces.
+    expect(within(sidebar).queryByText('Operator')).toBeNull()
+    expect(within(sidebar).queryByText('Provisioning session')).toBeNull()
   })
 })
