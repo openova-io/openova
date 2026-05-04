@@ -61,6 +61,21 @@ type App struct {
 	// See issue #102 — before this flag, unknown slugs silently deployed an
 	// nginx placeholder that the UI reported as "installed".
 	Deployable      bool      `bson:"deployable,omitempty" json:"deployable"`
+	// Published=true means marketplace storefront customers see this app on
+	// `marketplace.<sov>`. The Sovereign-console operator owns this flag —
+	// flipping it to false hides the app from marketplace customers while
+	// existing tenant deployments keep running unaffected (per founder rule
+	// 2026-05-04: unpublish is a marketplace-visibility toggle, not a
+	// deployment-lifecycle action). Backing services (System=true) and apps
+	// with Deployable=false are NEVER shown in marketplace regardless of
+	// this flag — Published is the operator-facing curation knob, not the
+	// internal-eligibility gate.
+	//
+	// Default true on existing rows via seed.go's published-migration so the
+	// flag introduction doesn't silently hide every app on the day Catalyst
+	// 1.3.x ships. Operators opt OUT of marketplace visibility per app, not
+	// IN — matches how a SaaS team curates a real storefront.
+	Published       bool      `bson:"published,omitempty" json:"published"`
 	RamMB           int       `bson:"ram_mb" json:"ram_mb"`
 	CpuMilli        int       `bson:"cpu_milli" json:"cpu_milli"`
 	DiskGB          int       `bson:"disk_gb" json:"disk_gb"`
@@ -151,7 +166,11 @@ func New(client *mongo.Client, dbName string) *Store {
 
 func (s *Store) apps() *mongo.Collection { return s.db.Collection("apps") }
 
-// ListApps returns all apps sorted by name.
+// ListApps returns all apps sorted by name. The catalog is the SINGLE
+// SOURCE OF TRUTH (#710) — both the Sovereign-console operator view AND
+// the marketplace storefront read from this store. Filtering for the
+// marketplace-customer subset is layered on top of this raw list, see
+// ListPublishedApps.
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	opts := options.Find().SetSort(bson.D{{Key: "name", Value: 1}})
 	cursor, err := s.apps().Find(ctx, bson.D{}, opts)
@@ -161,6 +180,49 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	var apps []App
 	if err := cursor.All(ctx, &apps); err != nil {
 		return nil, fmt.Errorf("store: decode apps: %w", err)
+	}
+	if apps == nil {
+		apps = []App{}
+	}
+	return apps, nil
+}
+
+// ListPublishedApps returns the marketplace-storefront subset:
+// Published=true AND System=false AND Deployable=true. The three
+// predicates compose:
+//
+//   - Published — the operator's curation knob (#710): "this app may be
+//     advertised to marketplace customers"
+//   - System    — internal exclude for backing services (mysql,
+//     postgres, redis) that are dependencies, never first-class apps
+//   - Deployable — the day-2 install gate (#102): if false, the
+//     provisioning template can't actually create a tenant of this app,
+//     so showing it on the storefront would lie to the customer
+//
+// Operators control Published via the Sovereign console; System and
+// Deployable are catalog-team-controlled. A marketplace storefront fetch
+// does NOT have to know about all three — it just calls
+// ListPublishedApps and renders what comes back.
+func (s *Store) ListPublishedApps(ctx context.Context) ([]App, error) {
+	opts := options.Find().SetSort(bson.D{{Key: "name", Value: 1}})
+	filter := bson.D{
+		{Key: "published", Value: true},
+		// `system: false` and `system: <missing>` both qualify (legacy
+		// rows without the field). $ne false would exclude legacy
+		// rows on some Mongo versions; the OR-with-missing pattern is safer.
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "system", Value: bson.D{{Key: "$exists", Value: false}}}},
+			bson.D{{Key: "system", Value: false}},
+		}},
+		{Key: "deployable", Value: true},
+	}
+	cursor, err := s.apps().Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("store: list published apps: %w", err)
+	}
+	var apps []App
+	if err := cursor.All(ctx, &apps); err != nil {
+		return nil, fmt.Errorf("store: decode published apps: %w", err)
 	}
 	if apps == nil {
 		apps = []App{}
@@ -220,6 +282,7 @@ func (s *Store) UpdateApp(ctx context.Context, id string, app *App) error {
 		{Key: "shareable", Value: app.Shareable},
 		{Key: "config_schema", Value: app.ConfigSchema},
 		{Key: "deployable", Value: app.Deployable}, // #102
+		{Key: "published", Value: app.Published},   // #710 wave 2
 		{Key: "updated_at", Value: app.UpdatedAt},
 	}}}
 	res, err := s.apps().UpdateOne(ctx, bson.D{{Key: "_id", Value: id}}, update)
@@ -228,6 +291,32 @@ func (s *Store) UpdateApp(ctx context.Context, id string, app *App) error {
 	}
 	if res.MatchedCount == 0 {
 		return fmt.Errorf("store: app %s not found", id)
+	}
+	return nil
+}
+
+// SetAppPublished flips the Published flag on a single app by slug — the
+// hot path the Sovereign console hits when an operator toggles
+// "Publish on marketplace" for an app row. Cheaper than a full UpdateApp
+// and avoids the operator UI needing to round-trip the entire App
+// document for a one-bit change.
+//
+// Caller is the Sovereign-console operator (per #710); the marketplace
+// storefront NEVER hits this path. Returns nil with MatchedCount=0 mapped
+// to a "not found" error to keep handler error-mapping uniform with
+// UpdateApp.
+func (s *Store) SetAppPublished(ctx context.Context, slug string, published bool) error {
+	now := time.Now().UTC()
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "published", Value: published},
+		{Key: "updated_at", Value: now},
+	}}}
+	res, err := s.apps().UpdateOne(ctx, bson.D{{Key: "slug", Value: slug}}, update)
+	if err != nil {
+		return fmt.Errorf("store: set app %s published: %w", slug, err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("store: app %s not found", slug)
 	}
 	return nil
 }

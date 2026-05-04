@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/openova-io/openova/core/services/catalog/store"
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -71,9 +72,32 @@ func buildAppResponses(apps []store.App) []appResponse {
 	return out
 }
 
-// ListApps returns all apps. Response is cache-friendly (5 min).
+// ListApps returns apps from the unified catalog. The catalog is the
+// SINGLE SOURCE OF TRUTH (#710); both the Sovereign-console operator
+// view and the marketplace storefront read from this endpoint, distinguished
+// by the `published` query param:
+//
+//   - GET /catalog/apps                  → operator view: every app, regardless
+//     of Published / System / Deployable. Sovereign console renders the
+//     publish/unpublish toggle from this set.
+//   - GET /catalog/apps?published=true   → marketplace storefront view: only
+//     Published=true AND System=false AND Deployable=true. Returned set is
+//     what end users actually see + can buy.
+//
+// Default (no query param) is operator view — the catalog has been an
+// operator surface since pre-#710, and changing the default would break
+// every existing internal consumer.
+//
+// Response is cache-friendly (5 min) for both filters.
 func (h *Handler) ListApps(w http.ResponseWriter, r *http.Request) {
-	apps, err := h.Store.ListApps(r.Context())
+	publishedOnly := r.URL.Query().Get("published") == "true"
+	var apps []store.App
+	var err error
+	if publishedOnly {
+		apps, err = h.Store.ListPublishedApps(r.Context())
+	} else {
+		apps, err = h.Store.ListApps(r.Context())
+	}
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to list apps")
 		return
@@ -253,6 +277,50 @@ func (h *Handler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.OK(w, app)
+}
+
+// SetAppPublished is the hot path the Sovereign console hits when the
+// operator flips "Publish on marketplace" for a single app row (#710).
+// Slug-keyed (one-bit change, one round-trip), no body — published
+// state comes in as a query param.
+//
+//	PATCH /catalog/admin/apps/{slug}/publish?value=true
+//	PATCH /catalog/admin/apps/{slug}/publish?value=false
+//
+// Existing tenant deployments of an unpublished app keep running per
+// founder rule 2026-05-04 — unpublish is a marketplace-visibility
+// toggle, not a deployment-lifecycle action.
+func (h *Handler) SetAppPublished(w http.ResponseWriter, r *http.Request) {
+	if err := requireAdmin(r); err != nil {
+		respond.Error(w, http.StatusForbidden, err.Error())
+		return
+	}
+	slug := r.PathValue("slug")
+	if slug == "" {
+		respond.Error(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+	rawValue := r.URL.Query().Get("value")
+	var published bool
+	switch rawValue {
+	case "true":
+		published = true
+	case "false":
+		published = false
+	default:
+		respond.Error(w, http.StatusBadRequest, "value query param must be 'true' or 'false'")
+		return
+	}
+	if err := h.Store.SetAppPublished(r.Context(), slug, published); err != nil {
+		// SetAppPublished surfaces "not found" for unknown slugs.
+		if strings.Contains(err.Error(), "not found") {
+			respond.Error(w, http.StatusNotFound, "app not found")
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "failed to set published flag")
+		return
+	}
+	respond.OK(w, map[string]any{"slug": slug, "published": published})
 }
 
 // DeleteApp deletes an app (superadmin only).
