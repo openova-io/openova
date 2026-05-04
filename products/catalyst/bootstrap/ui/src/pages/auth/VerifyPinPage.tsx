@@ -11,9 +11,9 @@
  * (/sovereign/api/...) and Sovereign clusters (/api/...).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Check, Copy } from 'lucide-react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
@@ -33,6 +33,28 @@ export function VerifyPinPage() {
   const [state, setState] = useState<State>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [resetCounter, setResetCounter] = useState(0) // bumps to clear PinInput6
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function copyEmail() {
+    try {
+      await navigator.clipboard.writeText(email)
+      setCopied(true)
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Fallback for browsers without clipboard API: select the text so
+      // the user can Cmd-C / Ctrl-C themselves.
+      const sel = window.getSelection()
+      const range = document.createRange()
+      const target = document.getElementById('verify-email-pill-text')
+      if (target && sel) {
+        range.selectNodeContents(target)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+    }
+  }
 
   // If the user landed here without going through /login (refresh after
   // bookmarking, etc.), kick them back so they can request a new code.
@@ -107,15 +129,32 @@ export function VerifyPinPage() {
         transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
         className="flex flex-col gap-9"
       >
-        <div className="flex flex-col gap-2 text-center">
+        <div className="flex flex-col items-center gap-3 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-[oklch(94%_0.01_250)]">
             Enter the verification code
           </h1>
           <p className="text-[15px] text-[oklch(58%_0.01_250)] leading-snug">
             A 6-digit code was sent to
-            <br />
-            <span className="font-medium text-[oklch(80%_0.01_250)]">{email}</span>.
           </p>
+          <button
+            type="button"
+            onClick={copyEmail}
+            data-testid="verify-email-pill"
+            title="Copy email"
+            className="group inline-flex items-center gap-2 rounded-full border border-[--color-surface-border] bg-[--color-surface-1] px-3.5 py-1.5 text-sm font-medium text-[oklch(85%_0.01_250)] hover:border-[--color-brand-500]/60 hover:bg-[--color-surface-2] transition-colors"
+          >
+            <span id="verify-email-pill-text" className="select-all">
+              {email}
+            </span>
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-[--color-success]" aria-label="Copied" />
+            ) : (
+              <Copy
+                className="h-3.5 w-3.5 text-[oklch(50%_0.01_250)] group-hover:text-[--color-brand-400] transition-colors"
+                aria-label="Copy email"
+              />
+            )}
+          </button>
         </div>
 
         <form
@@ -156,7 +195,7 @@ export function VerifyPinPage() {
           </Button>
         </form>
 
-        <div className="flex flex-col items-center gap-2 text-center">
+        <div className="flex flex-col items-center gap-1.5 text-center">
           <button
             type="button"
             onClick={() =>
@@ -171,7 +210,7 @@ export function VerifyPinPage() {
             Didn't get a code? Send a new one
           </button>
           <p className="text-xs text-[oklch(40%_0.01_250)]">
-            Check your spam folder — codes expire after 10 minutes.
+            Codes expire after 10 minutes — check your spam folder.
           </p>
         </div>
       </motion.div>
