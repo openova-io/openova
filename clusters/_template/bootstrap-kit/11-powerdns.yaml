@@ -98,7 +98,9 @@ spec:
       # infra/hetzner/cloudinit-control-plane.tftpl); a single-zone
       # fallback derived from ${SOVEREIGN_FQDN} keeps legacy
       # provisioning paths operative.
-      version: 1.2.0
+      # 1.2.1: zone-bootstrap Job needs /tmp emptyDir (readOnlyRootFS+
+      # curl -o /tmp/zone-resp). Caught live on otech103 2026-05-04.
+      version: 1.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
