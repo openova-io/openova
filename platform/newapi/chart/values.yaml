@@ -287,3 +287,84 @@ hpa:
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
+
+# ─── Metering sidecar (#798) ─────────────────────────────────────────────
+# Per-pod sidecar that:
+#   1. Front-ends NewAPI as a transparent reverse proxy on its own port.
+#   2. Observes successful /v1/* responses for OpenAI-style usage data.
+#   3. Emits one envelope per completed LLM request on NATS subject
+#      `catalyst.usage.recorded` (per #795 [Q-mine-3] + ADR-0001 §6).
+#   4. Persists envelopes to disk + retries on NATS unreachable; the
+#      customer-facing LLM call is NEVER blocked on metering.
+#
+# Architecture decision: NewAPI is consumed as upstream
+# `ghcr.io/openova-io/openova/newapi-mirror` — a pinned mirror, NOT a
+# fork we own. Patching the upstream binary to emit NATS would create
+# rebase debt for every release. Observing the request/response pair at
+# the network edge produces the same envelopes without forking; the
+# OpenAI-compatible /v1/* response carries `usage.{prompt_tokens,
+# completion_tokens, total_tokens}` that we project into the canonical
+# envelope shape per `core/services/shared/events/nats.go`.
+#
+# The sidecar is enabled by default — a deployed bp-newapi without
+# metering would silently drop billing data. Operators that explicitly
+# do NOT want metering set `meteringSidecar.enabled: false` in the per-
+# Sovereign overlay (only valid in regulated environments where every
+# channel carries its own out-of-band ledger).
+meteringSidecar:
+  enabled: true
+
+  image:
+    # services-build CI publishes this image alongside the SME services
+    # on every push to core/services/metering-sidecar/**.
+    repository: ghcr.io/openova-io/openova/services-metering-sidecar
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # The sidecar listens on this port; the Service routes traffic
+  # (port 3000) → sidecar → newapi:3000-on-127.0.0.1. We expose the
+  # sidecar at the same external port (3000) and have it forward
+  # locally to NewAPI on a per-pod loopback address.
+  port: 8086
+
+  # Per-token price in micro-OMR. 1 OMR = 1,000,000 micro-OMR;
+  # priceMicroOMRPerToken=156 means each token costs 0.000156 OMR
+  # (~ 0.156 baisa per token). Operator overlays per region/channel.
+  priceMicroOMRPerToken: 156
+
+  # NATS broker URL. Empty → in-cluster default
+  # (`nats://nats-jetstream.nats-system.svc.cluster.local:4222`). Per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 the sidecar accepts an explicit
+  # override for cross-namespace or external-broker deployments.
+  natsURL: ""
+  natsPublishTimeout: "5s"
+
+  # Spool directory for envelopes generated during a NATS outage. The
+  # sidecar's background drain loop republishes once NATS recovers, so
+  # persistence across pod restarts is unnecessary; an emptyDir is the
+  # right shape (a pod restart during a NATS outage is rare, and on
+  # the rare occasion it happens, NewAPI's own ledger backstops
+  # reconciliation per #795 [Q-mine-4]).
+  spoolDir: "/var/lib/metering-sidecar/spool"
+
+  # HTTP header names the proxy reads for customer + tenant
+  # identification. The cluster ingress / NewAPI's customer-API admin
+  # layer is expected to inject these on every authenticated request.
+  customerIDHeader: "X-Customer-Id"
+  tenantIDHeader:   "X-Tenant-Id"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]

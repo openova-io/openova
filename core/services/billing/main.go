@@ -26,6 +26,13 @@ func main() {
 	cancelURL := getEnv("CANCEL_URL", "https://sme.openova.io/checkout")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
+	// NATS_URL — JetStream broker URL for the catalyst.usage.recorded
+	// metering stream (#798). Empty disables the metering subscriber so
+	// developer environments without NATS can still run the legacy
+	// RedPanda consumer + HTTP API. Per #795 [Q-mine-3] this is the
+	// canonical event spine going forward; per ADR-0001 §6 we never
+	// fall back to RedPanda for new metering subjects.
+	natsURL := getEnv("NATS_URL", "")
 
 	pg := db.MustConnect(databaseURL)
 	defer pg.Close()
@@ -79,6 +86,59 @@ func main() {
 	}()
 	slog.Info("billing tenant-events consumer started",
 		"topic", "sme.tenant.events", "group", "billing-tenant-events")
+
+	// NATS metering consumer (#798 §B). Per #795 [Q-mine-3] +
+	// ADR-0001 §6, NATS JetStream is the canonical bus for new
+	// subjects; the RedPanda consumer above is legacy and intentionally
+	// left in place for sme.tenant.events. When NATS_URL is unset the
+	// subscriber is skipped — the synchronous HTTP path
+	// (POST /billing/metering/record) still works against the same
+	// store schema, so unit tests + dev loops keep functioning.
+	if natsURL != "" {
+		natsConn, err := events.ConnectNATS(natsURL)
+		if err != nil {
+			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			os.Exit(1)
+		}
+		// EnsureUsageStream is idempotent — safe to call on every
+		// startup. sme-billing owns the Stream lifecycle because it is
+		// the canonical consumer; publishers (the NewAPI metering
+		// sidecar) rely on the Stream existing.
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := natsConn.EnsureUsageStream(ensureCtx); err != nil {
+			ensureCancel()
+			slog.Error("failed to ensure JetStream catalyst.usage stream", "error", err)
+			os.Exit(1)
+		}
+		ensureCancel()
+		defer natsConn.Close()
+		slog.Info("connected to NATS JetStream", "url", natsURL,
+			"stream", events.StreamCatalystUsage,
+			"subject", events.SubjectUsageRecorded)
+
+		subCtx := context.Background()
+		usageSub, err := natsConn.SubscribeUsageRecorded(subCtx)
+		if err != nil {
+			slog.Error("failed to subscribe to catalyst.usage.recorded", "error", err)
+			os.Exit(1)
+		}
+		defer usageSub.Close()
+
+		meteringConsumer := &handlers.MeteringConsumer{
+			Store:            billingStore,
+			CustomerResolver: handlers.DefaultCustomerResolver{Store: billingStore},
+		}
+		go func() {
+			if err := meteringConsumer.Start(subCtx, usageSub); err != nil {
+				slog.Error("billing metering consumer stopped", "error", err)
+			}
+		}()
+		slog.Info("billing metering consumer started",
+			"subject", events.SubjectUsageRecorded,
+			"durable", events.ConsumerSMEBillingMetering)
+	} else {
+		slog.Warn("NATS_URL is empty — metering consumer disabled (HTTP path still active)")
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", health.Handler())

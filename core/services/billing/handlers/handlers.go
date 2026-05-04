@@ -32,6 +32,13 @@ type Handler struct {
 	CancelURL  string
 	CatalogURL string // internal URL to catalog service, e.g. http://catalog.sme.svc.cluster.local:8082
 	TenantURL  string // internal URL to tenant service (to dispatch provisioning without broker)
+
+	// MeteringCustomerResolver is the resolver POST
+	// /billing/metering/record uses to map NewAPI external_id (the SME-
+	// vcluster Keycloak user UUID) to the billing customer row. Tests
+	// substitute a fake; production leaves it nil so RecordMetering
+	// falls back to DefaultCustomerResolver wired against h.Store.
+	MeteringCustomerResolver CustomerResolver
 }
 
 // ---------------------------------------------------------------------------

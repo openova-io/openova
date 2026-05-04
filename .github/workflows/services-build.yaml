@@ -18,7 +18,12 @@ jobs:
       packages: write
     strategy:
       matrix:
-        service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification]
+        # `metering-sidecar` (#798) builds on the same Containerfile
+        # convention as the SME services but its image is consumed by
+        # the bp-newapi chart (chart/values.yaml `meteringSidecar.image`),
+        # NOT by products/catalyst/chart/templates/sme-services. The
+        # deploy job below skips it for that reason.
+        service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification, metering-sidecar]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

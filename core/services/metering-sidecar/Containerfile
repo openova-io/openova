@@ -1,0 +1,15 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY shared/ shared/
+COPY metering-sidecar/go.mod metering-sidecar/go.sum metering-sidecar/
+WORKDIR /src/metering-sidecar
+RUN go mod download
+COPY metering-sidecar/ .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /metering-sidecar .
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /metering-sidecar /metering-sidecar
+EXPOSE 8086
+USER 65534
+ENTRYPOINT ["/metering-sidecar"]

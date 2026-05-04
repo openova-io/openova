@@ -275,6 +275,26 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// preserving the audit trail for financial reporting. New entries
 		// default to 'active'. See issue #94.
 		`ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`,
+		// #798 — NewAPI metering integration. Per-LLM-request charges land
+		// here at sub-baisa precision. amount_micro_omr is the canonical
+		// signed amount in micro-OMR (1 OMR = 1,000,000 micro-OMR; 1 baisa
+		// = 1,000 micro-OMR). Existing whole-OMR rows continue to carry 0
+		// in this column and are summed via amount_omr * 1,000,000 in
+		// GetCreditBalanceMicroOMR. external_ref is the deduplication key
+		// (NewAPI request_id) — UNIQUE so at-least-once redelivery from
+		// the NATS metering subscriber AND a retry of the synchronous
+		// HTTP handler both converge to a single ledger row. metadata
+		// JSONB carries the full envelope (model, tokens_used, latency_ms,
+		// tenant_id, completed_at) for downstream analytics without
+		// requiring a separate audit table. Per ADR-0001 §6 + #795
+		// [Q-mine-4], this ledger is authoritative; NewAPI's own ledger is
+		// an in-flight cache only.
+		`ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS amount_micro_omr BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS external_ref TEXT`,
+		`ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS metadata JSONB`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS credit_ledger_external_ref_uniq
+		   ON credit_ledger (external_ref)
+		   WHERE external_ref IS NOT NULL`,
 		`CREATE TABLE IF NOT EXISTS promo_redemptions (
 			customer_id UUID NOT NULL REFERENCES customers(id),
 			code TEXT NOT NULL REFERENCES promo_codes(code),
@@ -1004,16 +1024,43 @@ func (s *Store) RedeemPromoCode(ctx context.Context, customerID, code string) (i
 // ---------------------------------------------------------------------------
 
 // GetCreditBalance returns a customer's current credit balance in OMR.
+//
+// #798 — sub-baisa metering rows store their value in amount_micro_omr
+// (1 OMR = 1,000,000 micro-OMR). The whole-OMR view returned here MUST
+// reflect the running total of both shapes, so we project the micro-OMR
+// rows down to whole OMR with truncation toward zero (negative spends
+// stay negative). For accounting precision use GetCreditBalanceMicroOMR.
 func (s *Store) GetCreditBalance(ctx context.Context, customerID string) (int, error) {
 	var balance sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_omr), 0) FROM credit_ledger WHERE customer_id = $1`,
+		`SELECT COALESCE(SUM(amount_omr) + (SUM(amount_micro_omr) / 1000000), 0)
+		 FROM credit_ledger WHERE customer_id = $1`,
 		customerID,
 	).Scan(&balance)
 	if err != nil {
 		return 0, fmt.Errorf("store: credit balance: %w", err)
 	}
 	return int(balance.Int64), nil
+}
+
+// GetCreditBalanceMicroOMR returns the canonical balance in micro-OMR
+// (1 OMR = 1,000,000 micro-OMR). Per #798, NewAPI metering writes
+// fractional-baisa amounts into amount_micro_omr; the legacy whole-OMR
+// rows are projected upward via amount_omr * 1,000,000. The sum is what
+// the synchronous HTTP handler returns as `balance_after_micro_omr` so
+// SME-admin pre-flight checks have full precision. Negative balances are
+// permitted (post-paid SME tier may be charged before top-up).
+func (s *Store) GetCreditBalanceMicroOMR(ctx context.Context, customerID string) (int64, error) {
+	var balance sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount_omr) * 1000000 + SUM(amount_micro_omr), 0)
+		 FROM credit_ledger WHERE customer_id = $1`,
+		customerID,
+	).Scan(&balance)
+	if err != nil {
+		return 0, fmt.Errorf("store: credit balance micro: %w", err)
+	}
+	return balance.Int64, nil
 }
 
 // CreditEntry is a single row of the credit ledger.
@@ -1050,6 +1097,97 @@ func (s *Store) ListCreditEntries(ctx context.Context, customerID string, limit 
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// UsageEntry captures one ledger insert produced by NewAPI metering. Per
+// #798 + ADR-0001 §6, the sub-baisa amount is stored in amount_micro_omr
+// (1 OMR = 1,000,000 micro-OMR; -0.000234 OMR = -234 micro-OMR — exact),
+// the reason follows the convention `usage:newapi:<model>`, the
+// external_ref is the NewAPI request_id (idempotency key), and metadata
+// is the raw envelope (model, tokens_used, tenant_id, latency_ms,
+// completed_at) preserved for downstream analytics.
+type UsageEntry struct {
+	CustomerID    string
+	AmountMicroOMR int64
+	Reason        string
+	ExternalRef   string
+	Metadata      json.RawMessage
+}
+
+// RecordUsage inserts a metering ledger row and returns the new balance
+// in micro-OMR. Idempotent on ExternalRef — a duplicate key returns the
+// existing row's id and the unchanged balance, NOT an error. This is the
+// at-least-once contract for both the NATS subscriber and the synchronous
+// HTTP handler: a redelivered envelope with the same request_id collapses
+// into a single ledger row.
+//
+// AmountMicroOMR MUST be negative for usage spend (the convention matches
+// SpendCredit's negative-on-spend posture). A zero amount short-circuits
+// to a no-op for free-tier callouts (some upstreams emit usage events
+// with zero tokens on health-checks).
+//
+// Returns:
+//   - ledgerID: id of the new (or pre-existing-on-duplicate) row
+//   - balanceAfterMicroOMR: post-insert balance for the caller to surface
+//   - duplicate: true when the row already existed (ExternalRef collision)
+func (s *Store) RecordUsage(ctx context.Context, entry UsageEntry) (ledgerID string, balanceAfterMicroOMR int64, duplicate bool, err error) {
+	if entry.CustomerID == "" {
+		return "", 0, false, fmt.Errorf("store: record usage: customer_id required")
+	}
+	if entry.ExternalRef == "" {
+		return "", 0, false, fmt.Errorf("store: record usage: external_ref required for idempotency")
+	}
+	if entry.Reason == "" {
+		return "", 0, false, fmt.Errorf("store: record usage: reason required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("store: record usage: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Insert with ON CONFLICT on the partial unique index over external_ref.
+	// The DO UPDATE … SET external_ref = EXCLUDED.external_ref is a no-op
+	// that lets us use RETURNING uniformly: a fresh INSERT and a duplicate
+	// hit both produce the row's id, and the (xmax = 0) trick distinguishes
+	// the two paths so callers can surface "duplicate" without a follow-up
+	// SELECT.
+	var metadata any = entry.Metadata
+	if len(entry.Metadata) == 0 {
+		metadata = nil
+	}
+	var existed bool
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, external_ref, metadata)
+		 VALUES ($1, 0, $2, $3, $4, $5)
+		 ON CONFLICT (external_ref)
+		   WHERE external_ref IS NOT NULL
+		 DO UPDATE SET external_ref = EXCLUDED.external_ref
+		 RETURNING id, (xmax <> 0) AS existed`,
+		entry.CustomerID, entry.AmountMicroOMR, entry.Reason, entry.ExternalRef, metadata,
+	).Scan(&ledgerID, &existed)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("store: record usage: insert: %w", err)
+	}
+
+	// Sum the running balance INSIDE the same tx so concurrent writers see
+	// a consistent snapshot. Negative balances are permitted (post-paid SME
+	// tier; balance enforcement is a policy decision at a higher layer).
+	var bal sql.NullInt64
+	err = tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount_omr) * 1000000 + SUM(amount_micro_omr), 0)
+		 FROM credit_ledger WHERE customer_id = $1`,
+		entry.CustomerID,
+	).Scan(&bal)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("store: record usage: balance: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", 0, false, fmt.Errorf("store: record usage: commit: %w", err)
+	}
+	return ledgerID, bal.Int64, existed, nil
 }
 
 // SpendCredit records a negative credit entry against a customer, tied to an order.
