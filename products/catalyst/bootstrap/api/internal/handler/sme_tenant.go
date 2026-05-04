@@ -87,17 +87,29 @@ type SMETenantGitOpsWriter interface {
 // SMETenantDNSProvisioner provisions DNS for the SME's
 // `console.<host>` either via PowerDNS (free-subdomain) or by
 // validating an operator-supplied CNAME (BYO).
+//
+// The free-subdomain method takes a `parentZone` parameter so the
+// multi-domain Sovereign (epic #825) can write records under any of
+// its role:sme-pool zones; on a single-domain Sovereign the wired
+// caller supplies OTECHFQDN, preserving #804 behaviour.
+//
+// The BYO method takes an `acceptedTargets` slice so the validator
+// accepts a CNAME pointing at ANY parent in the pool, not just the
+// primary OTECHFQDN. The slice MUST be non-empty; nil/empty falls
+// back to the legacy single-target path for backward compat.
 type SMETenantDNSProvisioner interface {
 	// ProvisionFreeSubdomain creates A/CNAME records for
-	// `console.<subdomain>.<otech-fqdn>`. Idempotent; returns nil on
-	// "record already exists with the same RDATA" outcomes.
-	ProvisionFreeSubdomain(ctx context.Context, subdomain, otechFQDN, ingressIPv4 string) error
+	// `console.<subdomain>.<parentZone>` plus the per-app sister
+	// hostnames. Idempotent; returns nil on "record already exists
+	// with the same RDATA" outcomes.
+	ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error
 	// ValidateBYOCNAME resolves `console.<byo_domain>` and confirms
-	// it CNAMEs to `<otech-fqdn>`. Returns a structured error when
-	// the lookup fails or the target doesn't match — the orchestrator
+	// it CNAMEs to one of acceptedTargets (or, when nil/empty, to
+	// the supplied legacyTarget). Returns a structured error when the
+	// lookup fails or the target doesn't match — the orchestrator
 	// surfaces those in the wizard UI so the customer can fix their
 	// own DNS before the pipeline can advance.
-	ValidateBYOCNAME(ctx context.Context, byoDomain, otechFQDN string) error
+	ValidateBYOCNAME(ctx context.Context, byoDomain, legacyTarget string, acceptedTargets ...string) error
 }
 
 // SMETenantKeycloakClientProvisioner pre-creates OIDC clients +
@@ -116,6 +128,27 @@ type SMETenantEventEmitter interface {
 	EmitSMETenantDeleted(ctx context.Context, rec store.SMETenantProvisionRecord) error
 }
 
+// SMETenantParentDomain describes one parent domain the Sovereign
+// brought at signup (epic #825 / MD-1 #826) that is offered to SMEs.
+// One Sovereign typically holds several: a `primary` parent (the one
+// hosting `console.<sovereign>`) plus zero-or-more `sme-pool` parents
+// the SME tenant pipeline (this file) writes free-subdomains under.
+//
+// Per Inviolable Principle 4 the pool is fully data-driven; #828
+// neither hardcodes nor caps the count.
+type SMETenantParentDomain struct {
+	// Name — the FQDN itself, e.g. "omani.trade".
+	Name string `json:"name"`
+	// Role — "primary" | "sme-pool". The SME tenant create endpoint
+	// only accepts entries with role=sme-pool.
+	Role string `json:"role"`
+	// NSFlipReady — true once the registrar's NS records point at
+	// the Sovereign's PowerDNS (set by the Sovereign provisioning
+	// pipeline / MD-1). The SME create endpoint refuses to write a
+	// free-subdomain into a parent that isn't NS-flip-ready yet.
+	NSFlipReady bool `json:"ns_flip_ready"`
+}
+
 // SMETenantDeps bundles the dependencies the SME tenant handlers
 // need. Wired at startup; nil values turn the corresponding gate
 // into a no-op (see runSMETenantPipeline below) so the handler
@@ -129,9 +162,49 @@ type SMETenantDeps struct {
 	TenantRegistry   *store.TenantRegistry
 	OTECHFQDN        string
 	OTECHIngressIPv4 string
+	// ParentDomains — the multi-domain pool config (epic #825 / MD-1
+	// #826). Wired at startup from MD-1's data-model output (or, while
+	// MD-1 is in flight, from CATALYST_SME_POOL_DOMAINS env stub).
+	// Empty/nil means "single-domain Sovereign": the only parent is
+	// OTECHFQDN itself with role=sme-pool, ns_flip_ready=true.
+	ParentDomains []SMETenantParentDomain
 	// MaxRetryCount — promoted to STSFailed at this many transient
 	// failures of the same step. Per ADR-0003 §3.8 = 5.
 	MaxRetryCount int
+}
+
+// PoolDomains returns the subset of ParentDomains with role=sme-pool.
+// Includes the implicit OTECHFQDN entry when the wired list is empty
+// (single-domain Sovereign — backward-compat with #804).
+func (d SMETenantDeps) PoolDomains() []SMETenantParentDomain {
+	if len(d.ParentDomains) == 0 {
+		if strings.TrimSpace(d.OTECHFQDN) == "" {
+			return nil
+		}
+		return []SMETenantParentDomain{
+			{Name: d.OTECHFQDN, Role: "sme-pool", NSFlipReady: true},
+		}
+	}
+	out := make([]SMETenantParentDomain, 0, len(d.ParentDomains))
+	for _, p := range d.ParentDomains {
+		if strings.EqualFold(p.Role, "sme-pool") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// FindParentDomain looks up a parent by name (case-insensitive) in the
+// wired pool. Returns the matching entry + true on hit. Used by the
+// create handler to validate operator-supplied parent_domain values.
+func (d SMETenantDeps) FindParentDomain(name string) (SMETenantParentDomain, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, p := range d.PoolDomains() {
+		if strings.ToLower(p.Name) == name {
+			return p, true
+		}
+	}
+	return SMETenantParentDomain{}, false
 }
 
 // SetSMETenantDeps wires the SME-tenant pipeline dependencies. Called
@@ -155,6 +228,15 @@ type smeTenantCreateRequest struct {
 	// BYODomain — required when DomainMode == "byo". The orchestrator
 	// derives the host as `console.<byo_domain>`.
 	BYODomain string `json:"byo_domain,omitempty"`
+	// ParentDomain — required when DomainMode == "free-subdomain"
+	// and the Sovereign has more than one entry in its sme-pool. When
+	// omitted with a multi-entry pool the orchestrator defaults to the
+	// first NS-flip-ready entry. Must match (case-insensitive) one of
+	// the entries returned by GET /api/v1/sovereign/parent-domains
+	// with role=sme-pool. Per epic #825 the resulting host becomes
+	// `console.<subdomain>.<parent_domain>` — never inferred from
+	// OTECHFQDN.
+	ParentDomain string `json:"parent_domain,omitempty"`
 	// AdminEmail — the SME's first user (chart admin email + welcome
 	// recipient). Required.
 	AdminEmail string `json:"admin_email"`
@@ -168,6 +250,7 @@ type smeTenantResponse struct {
 	Subdomain       string                        `json:"subdomain"`
 	DomainMode      store.SMEDomainMode           `json:"domain_mode"`
 	BYODomain       string                        `json:"byo_domain,omitempty"`
+	ParentDomain    string                        `json:"parent_domain,omitempty"`
 	AdminEmail      string                        `json:"admin_email"`
 	CompanyName     string                        `json:"company_name,omitempty"`
 	OTECHFQDN       string                        `json:"otech_fqdn"`
@@ -276,6 +359,7 @@ func smeTenantRecordToResponse(rec store.SMETenantProvisionRecord) smeTenantResp
 		Subdomain:       rec.Subdomain,
 		DomainMode:      rec.DomainMode,
 		BYODomain:       rec.BYODomain,
+		ParentDomain:    rec.ParentDomain,
 		AdminEmail:      rec.AdminEmail,
 		CompanyName:     rec.CompanyName,
 		OTECHFQDN:       rec.OTECHFQDN,
@@ -291,13 +375,17 @@ func smeTenantRecordToResponse(rec store.SMETenantProvisionRecord) smeTenantResp
 }
 
 // deriveConsoleHost returns the SPA-facing host:
-//   - free-subdomain: console.<subdomain>.<otech-fqdn>
-//   - byo:            console.<byo_domain>
+//   - free-subdomain (multi-domain Sovereign):
+//     console.<subdomain>.<parent_domain>
+//   - free-subdomain (single-domain back-compat, ParentDomain empty):
+//     console.<subdomain>.<otech-fqdn>
+//   - byo: console.<byo_domain>
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 the leading `console.` prefix
 // is conventional but configurable via the gitops template; the
 // runtime SPA reads its tenant from the registry, not from string
-// parsing.
+// parsing. Per epic #825 the parent zone is data-driven — never
+// hardcoded to OTECHFQDN.
 func deriveConsoleHost(rec store.SMETenantProvisionRecord) string {
 	switch rec.DomainMode {
 	case store.SMEDomainBYO:
@@ -308,10 +396,17 @@ func deriveConsoleHost(rec store.SMETenantProvisionRecord) string {
 	case store.SMEDomainFreeSubdomain:
 		fallthrough
 	default:
-		if strings.TrimSpace(rec.Subdomain) == "" || strings.TrimSpace(rec.OTECHFQDN) == "" {
+		if strings.TrimSpace(rec.Subdomain) == "" {
 			return ""
 		}
-		return "console." + strings.TrimSpace(rec.Subdomain) + "." + strings.TrimSpace(rec.OTECHFQDN)
+		parent := strings.TrimSpace(rec.ParentDomain)
+		if parent == "" {
+			parent = strings.TrimSpace(rec.OTECHFQDN)
+		}
+		if parent == "" {
+			return ""
+		}
+		return "console." + strings.TrimSpace(rec.Subdomain) + "." + parent
 	}
 }
 
@@ -352,6 +447,7 @@ func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) 
 	email := strings.TrimSpace(body.AdminEmail)
 	mode := strings.TrimSpace(strings.ToLower(body.DomainMode))
 	byo := strings.ToLower(strings.TrimSpace(body.BYODomain))
+	parent := strings.ToLower(strings.TrimSpace(body.ParentDomain))
 
 	if subdomain == "" {
 		writeBadRequest(w, "subdomain-required", "subdomain is required")
@@ -391,6 +487,62 @@ func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Multi-domain Sovereign (epic #825 / MD-3 #828): for free-subdomain
+	// mode the operator may pick which sme-pool parent domain hosts the
+	// new tenant. When omitted with a non-empty pool we default to the
+	// first NS-flip-ready entry (or, on a single-domain Sovereign, the
+	// implicit OTECHFQDN entry — see Handler.ParentDomainsForSMECreate).
+	//
+	// The pool is composed live (admin store from #829 + implicit
+	// primary + env stub) so an operator who adds a new sme-pool entry
+	// via the #829 admin surface can bind tenants under it immediately,
+	// without restarting catalyst-api. The same composition is what
+	// the front-end's GET /api/v1/sovereign/parent-domains shows.
+	if mode == string(store.SMEDomainFreeSubdomain) {
+		pool := h.poolDomainsForSMECreate(deps)
+		if len(pool) == 0 {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "sme-pool-empty",
+				"detail": "this Sovereign has no role:sme-pool parent domains; ask the operator to add one via the admin console or configure CATALYST_SME_POOL_DOMAINS",
+			})
+			return
+		}
+		if parent == "" {
+			// Default to the first NS-flip-ready entry; otherwise the
+			// first entry (the orchestrator surfaces a retry-after below
+			// when the chosen entry isn't ready).
+			chosen := pool[0]
+			for _, p := range pool {
+				if p.NSFlipReady {
+					chosen = p
+					break
+				}
+			}
+			parent = strings.ToLower(chosen.Name)
+		}
+		match, ok := findParentInPool(parent, pool)
+		if !ok {
+			writeBadRequest(w, "parent-domain-invalid",
+				"parent_domain must be one of this Sovereign's role:sme-pool parent domains")
+			return
+		}
+		if !match.NSFlipReady {
+			// Per #828 §C: NS-flip incomplete → return retry-after.
+			w.Header().Set("Retry-After", "300")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "parent-domain-ns-flip-pending",
+				"detail": "the chosen parent_domain is not yet NS-flip-ready; retry once the Sovereign provisioning state machine reports the flip complete",
+			})
+			return
+		}
+		parent = strings.ToLower(match.Name)
+	} else {
+		// BYO mode — no parent_domain is captured on the record (the
+		// BYO domain is the canonical key), but we still validate the
+		// CNAME against any parent in the pool below at the DNS step.
+		parent = ""
+	}
+
 	smeTenantID := uuid.New().String()
 	rec := store.SMETenantProvisionRecord{
 		SMETenantID:     smeTenantID,
@@ -398,6 +550,7 @@ func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) 
 		Subdomain:       subdomain,
 		DomainMode:      store.SMEDomainMode(mode),
 		BYODomain:       byo,
+		ParentDomain:    parent,
 		AdminEmail:      email,
 		CompanyName:     strings.TrimSpace(body.CompanyName),
 		OTECHFQDN:       otech,
@@ -649,11 +802,25 @@ func (h *Handler) runSMETenantPipeline(ctx context.Context, rec store.SMETenantP
 		if deps.DNS != nil {
 			switch rec.DomainMode {
 			case store.SMEDomainFreeSubdomain:
-				if err := deps.DNS.ProvisionFreeSubdomain(ctx, rec.Subdomain, rec.OTECHFQDN, deps.OTECHIngressIPv4); err != nil {
+				// Multi-domain Sovereign (#825): use the chosen parent
+				// zone, falling back to OTECHFQDN for single-domain
+				// back-compat (#804).
+				parentZone := strings.TrimSpace(rec.ParentDomain)
+				if parentZone == "" {
+					parentZone = rec.OTECHFQDN
+				}
+				if err := deps.DNS.ProvisionFreeSubdomain(ctx, rec.Subdomain, parentZone, deps.OTECHIngressIPv4); err != nil {
 					return failTransient(rec, "dns", err)
 				}
 			case store.SMEDomainBYO:
-				if err := deps.DNS.ValidateBYOCNAME(ctx, rec.BYODomain, rec.OTECHFQDN); err != nil {
+				// BYO mode (#828 §C generalisation): the operator's
+				// CNAME may point at ANY parent in the pool. Build the
+				// accepted-targets list from the live pool composition.
+				accepted := []string{rec.OTECHFQDN}
+				for _, p := range h.poolDomainsForSMECreate(deps) {
+					accepted = append(accepted, p.Name)
+				}
+				if err := deps.DNS.ValidateBYOCNAME(ctx, rec.BYODomain, rec.OTECHFQDN, accepted...); err != nil {
 					return failTerminal(rec, "dns", "BYO CNAME validation failed: "+err.Error())
 				}
 			}
@@ -699,16 +866,15 @@ func (h *Handler) runSMETenantPipeline(ctx context.Context, rec store.SMETenantP
 			if host == "" {
 				return failTerminal(rec, "registry", "could not derive console host")
 			}
-			realmURL := fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
-				rec.Subdomain, rec.OTECHFQDN, "sme-"+rec.Subdomain)
-			if rec.DomainMode == store.SMEDomainBYO {
-				// BYO realm URL still resolves through the SME-vcluster
-				// Keycloak (no per-customer Keycloak hostname); the SPA
-				// uses its OIDC discovery doc which carries the issuer
-				// the realm itself was minted with.
-				realmURL = fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
-					rec.Subdomain, rec.OTECHFQDN, "sme-"+rec.Subdomain)
+			// Realm URL — uses the same parent zone as the console host
+			// (multi-domain Sovereign per #825). Falls back to
+			// OTECHFQDN for single-domain back-compat (#804).
+			realmZone := strings.TrimSpace(rec.ParentDomain)
+			if realmZone == "" {
+				realmZone = rec.OTECHFQDN
 			}
+			realmURL := fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
+				rec.Subdomain, realmZone, "sme-"+rec.Subdomain)
 			reg := store.TenantRegistration{
 				Host:                 host,
 				TenantID:             rec.SMETenantID,
@@ -769,3 +935,69 @@ func (h *Handler) ReconcileAllPending(ctx context.Context) {
 // otech ingress. Surfaced verbatim through the wizard UI so the
 // customer can fix their own DNS without contacting support.
 var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingress")
+
+// poolDomainsForSMECreate returns the live sme-pool list used to
+// validate the operator-supplied parent_domain. Precedence:
+//
+//  1. SMETenantDeps.ParentDomains — explicit operator wiring at
+//     startup (post-MD-1 Deployment record OR test seed). Always wins
+//     when present so tests get deterministic behaviour and the
+//     production wiring is the authoritative source.
+//  2. Admin store from #829 — entries added via the operator console
+//     after handover. Only consulted when (1) is empty.
+//  3. Env stub from CATALYST_SME_POOL_DOMAINS — used while #826's
+//     data model is still in flight. Only consulted when (1) and (2)
+//     are both empty.
+//  4. OTECHFQDN — single-domain back-compat last-resort.
+//
+// Returns sme-pool entries only — primary domains are not bookable
+// for SME tenants per epic #825.
+func (h *Handler) poolDomainsForSMECreate(deps SMETenantDeps) []SMETenantParentDomain {
+	merged := make([]SMETenantParentDomain, 0)
+	seen := map[string]struct{}{}
+	addIf := func(p SMETenantParentDomain) {
+		key := strings.ToLower(p.Name)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		if !strings.EqualFold(p.Role, "sme-pool") {
+			return
+		}
+		p.Name = key
+		merged = append(merged, p)
+		seen[key] = struct{}{}
+	}
+	// (1) Explicit deps seed wins.
+	for _, p := range deps.ParentDomains {
+		addIf(p)
+	}
+	if len(merged) > 0 {
+		return merged
+	}
+	// (2) Admin store from #829.
+	for _, p := range h.ParentDomainsForSMECreate() {
+		addIf(p)
+	}
+	if len(merged) > 0 {
+		return merged
+	}
+	// (3) + (4) — single-domain back-compat.
+	if strings.TrimSpace(deps.OTECHFQDN) != "" {
+		merged = append(merged, SMETenantParentDomain{
+			Name: strings.ToLower(deps.OTECHFQDN), Role: "sme-pool", NSFlipReady: true,
+		})
+	}
+	return merged
+}
+
+// findParentInPool looks up `name` (case-insensitive) in `pool`.
+// Returns the entry + true on hit.
+func findParentInPool(name string, pool []SMETenantParentDomain) (SMETenantParentDomain, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, p := range pool {
+		if strings.ToLower(p.Name) == name {
+			return p, true
+		}
+	}
+	return SMETenantParentDomain{}, false
+}

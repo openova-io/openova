@@ -58,17 +58,18 @@ type fakeDNS struct {
 	cnameErr       error
 }
 
-func (f *fakeDNS) ProvisionFreeSubdomain(_ context.Context, sub, otech, ip string) error {
+func (f *fakeDNS) ProvisionFreeSubdomain(_ context.Context, sub, parent, ip string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.provisionCalls = append(f.provisionCalls, sub+":"+otech+":"+ip)
+	f.provisionCalls = append(f.provisionCalls, sub+":"+parent+":"+ip)
 	return f.provisionErr
 }
 
-func (f *fakeDNS) ValidateBYOCNAME(_ context.Context, byo, otech string) error {
+func (f *fakeDNS) ValidateBYOCNAME(_ context.Context, byo, legacy string, accepted ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cnameCalls = append(f.cnameCalls, byo+"->"+otech)
+	tail := strings.Join(accepted, ",")
+	f.cnameCalls = append(f.cnameCalls, byo+"->"+legacy+"|"+tail)
 	return f.cnameErr
 }
 
@@ -220,7 +221,11 @@ func TestCreateSMETenant_BYOValidationSuccess(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
 	}
-	if got := dns.cnameCalls; len(got) != 1 || got[0] != "acme.com->otech.example" {
+	// Multi-domain Sovereign: the call now carries legacy=otech.example
+	// AND the accepted-targets list (which on a single-domain Sovereign
+	// degenerates to OTECHFQDN). The "|" separator is the test harness
+	// shape — see fakeDNS.ValidateBYOCNAME.
+	if got := dns.cnameCalls; len(got) != 1 || !strings.HasPrefix(got[0], "acme.com->otech.example|") {
 		t.Errorf("byo cname call shape: %v", got)
 	}
 	if _, ok := registry.Get("console.acme.com"); !ok {
@@ -600,6 +605,29 @@ func TestValidateBYOCNAME_Mismatch(t *testing.T) {
 	}
 }
 
+// Multi-domain Sovereign (#828): a CNAME pointing at any parent in
+// the role:sme-pool list MUST validate, not just OTECHFQDN.
+func TestValidateBYOCNAME_MultiDomainAccepted(t *testing.T) {
+	// Resolver returns a CNAME ending in omani.trade — one of the
+	// pool entries, not the legacy primary OTECHFQDN.
+	p := DefaultSMETenantDNSProvisioner{Resolver: stubResolver{cname: "ingress.omani.trade."}}
+	err := p.ValidateBYOCNAME(context.Background(), "acme.com", "otech.example",
+		"otech.example", "omani.works", "omani.trade")
+	if err != nil {
+		t.Errorf("expected nil err for multi-domain match got %v", err)
+	}
+}
+
+// And: a CNAME pointing at NONE of the parents in the pool fails.
+func TestValidateBYOCNAME_MultiDomainRejected(t *testing.T) {
+	p := DefaultSMETenantDNSProvisioner{Resolver: stubResolver{cname: "ingress.attacker.invalid."}}
+	err := p.ValidateBYOCNAME(context.Background(), "acme.com", "otech.example",
+		"otech.example", "omani.works", "omani.trade")
+	if err == nil {
+		t.Errorf("expected mismatch error when CNAME doesn't match any pool entry")
+	}
+}
+
 // Quick sanity that the PowerDNS writer returns a graceful error
 // when the upstream PATCH 4xx's (no panic, useful detail).
 func TestPowerDNSWriter_PATCH_NonOK(t *testing.T) {
@@ -627,3 +655,214 @@ func readAll(r io.Reader) string {
 
 // keep readAll unused-warning at bay for some builds.
 var _ = readAll
+
+/* ── Multi-domain Sovereign tests (epic #825 / MD-3 #828) ─────────── */
+
+// newTestHandlerWithMultiDomainPool spins up a Handler whose SME-tenant
+// deps include a 2-entry sme-pool (omani.works ready + omani.trade
+// ready) plus a primary OTECHFQDN — exercising the full #828 path.
+func newTestHandlerWithMultiDomainPool(t *testing.T, pool []SMETenantParentDomain) (*Handler, *fakeGitOps, *fakeDNS, *fakeKCClients, *fakeTenantEmitter, *store.TenantRegistry) {
+	t.Helper()
+	dir := t.TempDir()
+	tenantStore, err := store.NewSMETenantProvisionStore(dir)
+	if err != nil {
+		t.Fatalf("tenant store: %v", err)
+	}
+	registry, err := store.NewTenantRegistry(dir)
+	if err != nil {
+		t.Fatalf("tenant registry: %v", err)
+	}
+	gitops := &fakeGitOps{}
+	dns := &fakeDNS{}
+	kc := &fakeKCClients{}
+	emitter := &fakeTenantEmitter{}
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	h.SetTenantRegistry(registry)
+	h.SetSMETenantDeps(SMETenantDeps{
+		Store:            tenantStore,
+		GitOps:           gitops,
+		DNS:              dns,
+		KeycloakClients:  kc,
+		Events:           emitter,
+		TenantRegistry:   registry,
+		OTECHFQDN:        "otech.example",
+		OTECHIngressIPv4: "192.0.2.10",
+		ParentDomains:    pool,
+		MaxRetryCount:    5,
+	})
+	return h, gitops, dns, kc, emitter, registry
+}
+
+// TestCreateSMETenant_MultiDomain_OperatorPicksPool — the operator
+// sets parent_domain=omani.trade. The resulting console host is
+// console.acme.omani.trade and the DNS provisioner writes under that
+// zone (NOT the primary OTECHFQDN).
+func TestCreateSMETenant_MultiDomain_OperatorPicksPool(t *testing.T) {
+	h, _, dns, _, _, registry := newTestHandlerWithMultiDomainPool(t, []SMETenantParentDomain{
+		{Name: "otech.example", Role: "primary", NSFlipReady: true},
+		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/tenants",
+		bytes.NewReader([]byte(`{
+			"subdomain":     "acme",
+			"admin_email":   "admin@acme.test",
+			"domain_mode":   "free-subdomain",
+			"parent_domain": "omani.trade"
+		}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandleCreateSMETenant(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got smeTenantResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ParentDomain != "omani.trade" {
+		t.Errorf("parent_domain in response: %q want omani.trade", got.ParentDomain)
+	}
+	if got.ConsoleHost != "console.acme.omani.trade" {
+		t.Errorf("console_host: %q want console.acme.omani.trade", got.ConsoleHost)
+	}
+	if len(dns.provisionCalls) != 1 || dns.provisionCalls[0] != "acme:omani.trade:192.0.2.10" {
+		t.Errorf("dns provision call shape: %v", dns.provisionCalls)
+	}
+	if _, ok := registry.Get("console.acme.omani.trade"); !ok {
+		t.Errorf("registry lookup miss for console.acme.omani.trade")
+	}
+}
+
+// TestCreateSMETenant_MultiDomain_DefaultsToFirstReady — when the
+// operator omits parent_domain on a multi-entry pool the orchestrator
+// picks the first NS-flip-ready sme-pool entry.
+func TestCreateSMETenant_MultiDomain_DefaultsToFirstReady(t *testing.T) {
+	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []SMETenantParentDomain{
+		{Name: "otech.example", Role: "primary", NSFlipReady: true},
+		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/tenants",
+		bytes.NewReader([]byte(`{
+			"subdomain":   "acme",
+			"admin_email": "admin@acme.test",
+			"domain_mode": "free-subdomain"
+		}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandleCreateSMETenant(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got smeTenantResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.ParentDomain != "omani.works" {
+		t.Errorf("default parent_domain: %q want omani.works (first ready sme-pool entry)", got.ParentDomain)
+	}
+}
+
+// TestCreateSMETenant_MultiDomain_RejectsUnknownParent — picking a
+// parent that isn't in the sme-pool list = 400.
+func TestCreateSMETenant_MultiDomain_RejectsUnknownParent(t *testing.T) {
+	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []SMETenantParentDomain{
+		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/tenants",
+		bytes.NewReader([]byte(`{
+			"subdomain":     "acme",
+			"admin_email":   "admin@acme.test",
+			"domain_mode":   "free-subdomain",
+			"parent_domain": "evil.example"
+		}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandleCreateSMETenant(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d body=%s want 400", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "parent-domain-invalid") {
+		t.Errorf("body: %s", w.Body.String())
+	}
+}
+
+// TestCreateSMETenant_MultiDomain_RejectsNotReady — picking a parent
+// whose NS-flip is still pending returns 503 + Retry-After.
+func TestCreateSMETenant_MultiDomain_RejectsNotReady(t *testing.T) {
+	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []SMETenantParentDomain{
+		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: false},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/tenants",
+		bytes.NewReader([]byte(`{
+			"subdomain":     "acme",
+			"admin_email":   "admin@acme.test",
+			"domain_mode":   "free-subdomain",
+			"parent_domain": "omani.trade"
+		}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandleCreateSMETenant(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body=%s want 503", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Errorf("Retry-After header missing")
+	}
+	if !strings.Contains(w.Body.String(), "ns-flip-pending") {
+		t.Errorf("body: %s", w.Body.String())
+	}
+}
+
+// TestLoadSMETenantParentDomainsFromEnv_StubFallback — when the env
+// knob is unset and OTECH_FQDN is set, the env loader returns the
+// hardcoded 2-domain stub (omani.works + omani.trade) per the #828
+// constraint while MD-1 (#826) is in flight.
+func TestLoadSMETenantParentDomainsFromEnv_StubFallback(t *testing.T) {
+	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "otech.example")
+	got := LoadSMETenantParentDomainsFromEnv()
+
+	primary := 0
+	pool := 0
+	for _, p := range got {
+		switch p.Role {
+		case "primary":
+			primary++
+		case "sme-pool":
+			pool++
+		}
+	}
+	if primary != 1 {
+		t.Errorf("primary: want 1 got %d (%v)", primary, got)
+	}
+	if pool != 2 {
+		t.Errorf("sme-pool: want 2 got %d (%v)", pool, got)
+	}
+}
+
+// TestLoadSMETenantParentDomainsFromEnv_Custom — operator-supplied
+// CATALYST_SME_POOL_DOMAINS overrides the stub.
+func TestLoadSMETenantParentDomainsFromEnv_Custom(t *testing.T) {
+	t.Setenv("CATALYST_SME_POOL_DOMAINS", "acme.io:primary,acme.shop,acme.cloud")
+	got := LoadSMETenantParentDomainsFromEnv()
+	if len(got) != 3 {
+		t.Fatalf("items: want 3 got %d (%v)", len(got), got)
+	}
+	if got[0].Name != "acme.io" || got[0].Role != "primary" {
+		t.Errorf("primary entry: %+v", got[0])
+	}
+	for _, p := range got[1:] {
+		if p.Role != "sme-pool" {
+			t.Errorf("non-primary entry should be sme-pool: %+v", p)
+		}
+	}
+}

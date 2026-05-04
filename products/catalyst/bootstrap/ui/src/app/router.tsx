@@ -80,6 +80,7 @@ import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
+import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 
 // Root
@@ -726,6 +727,18 @@ const consoleParentDomainsRoute = createRoute({
   component: ParentDomainsPage,
 })
 
+// /console/sme/tenants/new — multi-domain SME tenant onboarding form
+// (issue #828, parent epic #825). The page renders the parent-domain
+// dropdown on free-subdomain mode and a CNAME-validation hint on BYO
+// mode. Mounted under the same SovereignConsoleLayout so it's
+// reachable from the operator-tier sidebar (decided at runtime by the
+// SME-tenant-aware nav, see SovereignSidebar.tsx).
+const consoleSMECreateTenantRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sme/tenants/new',
+  component: SMECreateTenantPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -774,6 +787,7 @@ const routeTree = rootRoute.addChildren([
     consoleSMEUsersRoute,
     consoleSMERolesRoute,
     consoleParentDomainsRoute,
+    consoleSMECreateTenantRoute,
   ]),
 ])
 

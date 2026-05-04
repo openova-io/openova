@@ -140,6 +140,15 @@ type SMETenantProvisionRecord struct {
 	// have to re-read env. Used to build derived hostnames + the cert
 	// issuer ClusterRef and to scope the GitOps overlay path.
 	OTECHFQDN string `json:"otech_fqdn"`
+	// ParentDomain — the parent zone the SME's free-subdomain hangs
+	// under (multi-domain Sovereign per epic #825). For
+	// free-subdomain mode this is one of the Sovereign's
+	// `role: sme-pool` parent domains (e.g. "omani.trade") and the
+	// SPA host becomes `console.<subdomain>.<parent_domain>`. For
+	// BYO mode this is empty (the BYO domain is the canonical key).
+	// Per Inviolable Principle 4 the value is operator-supplied at
+	// create time, never inferred from OTECHFQDN.
+	ParentDomain string `json:"parent_domain,omitempty"`
 	// VClusterName — derived as `vc-<subdomain>`. Captured at create
 	// so the orchestrator can reference it in GitOps manifest paths
 	// without re-deriving on every reconcile.
