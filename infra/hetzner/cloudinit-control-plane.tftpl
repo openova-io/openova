@@ -1274,13 +1274,25 @@ runcmd:
   # → Crossplane handover seam. Tofu provisions Phase 0 exactly once;
   # everything else flows through XRC writes against this Provider.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider-hcloud.yaml'
+  # IMPORTANT: the Provider CRD (`pkg.crossplane.io/v1`) is registered by
+  # bp-crossplane via Flux AFTER flux-bootstrap.yaml is applied below.
+  # Apply with `|| true` so the failure here doesn't propagate into
+  # cloud-init's exit status. The Provider CR is re-applied below in a
+  # background retry once Crossplane core CRDs land.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider-hcloud.yaml || true'
 
   # Apply the Flux bootstrap GitRepository + Kustomization. From here, Flux
   # owns the cluster: pulls clusters/_template/ (with $${SOVEREIGN_FQDN}
   # substituted to ${sovereign_fqdn} via postBuild), installs Cilium
   # via bp-cilium, cert-manager via bp-cert-manager, etc., then bp-catalyst-platform.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml'
+
+  # Background retry of the Crossplane Provider CR apply. Polls every
+  # 30s up to 30m for the Crossplane Provider CRD to be registered
+  # (i.e. bp-crossplane reconciled by Flux), then `kubectl apply`
+  # succeeds and the loop exits. Detached via `&` so cloud-init runcmd
+  # completes without waiting for Crossplane to be Ready.
+  - 'nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider-hcloud.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &'
 
   # Marker for the catalyst-api provisioner to detect cloud-init is done.
   - mkdir -p /var/lib/catalyst
