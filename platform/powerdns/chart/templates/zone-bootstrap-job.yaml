@@ -153,6 +153,11 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: powerdns-zone-bootstrap
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -172,6 +177,14 @@ spec:
             runAsGroup: 65532
             capabilities:
               drop: ["ALL"]
+          # Curl writes the response body to /tmp/zone-resp via -o; with
+          # readOnlyRootFilesystem the container's / is RO so /tmp must
+          # be backed by an emptyDir or curl exits 23 ("write error"
+          # caught live on otech103.omani.works 2026-05-04). The empty-
+          # dir is in-memory + automatically cleaned up after the Job.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.zoneBootstrap.resources | nindent 12 }}
           env:
