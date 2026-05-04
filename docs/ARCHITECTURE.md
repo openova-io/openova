@@ -460,6 +460,54 @@ Installing `bp-catalyst-platform` once gives you a working Sovereign. Same Bluep
 
 OpenOva's own customer Applications (Cortex, Fingate, Fabric, Relay, Specter, Axon) are similarly composite Blueprints that run **on top of** Catalyst — they are Applications inside the `openova-public` Environment of the openova Sovereign.
 
+### 11.1 Phase 2 — Self-Sovereignty Cutover
+
+A franchised Sovereign emerging from Phase-1 is operationally tethered to the OpenOva mothership in eight places (audit per [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md) §2.1 and umbrella issue #790): Flux GitRepository url, containerd registry rewrites, 38 OCI HelmRepositories, `catalyst-api` upstream fallback, GHCR pull Secret, Crossplane provider packages, Catalyst-authored image refs, OS package mirrors. Six of these are operationally hot (P0/P1) and must be pivoted before the customer can claim sovereignty.
+
+The cutover follows a **30/70 model**:
+
+- **OpenTofu provisions ~30%** — k3s install, Cilium, the cold-start `registries.yaml` v1 (routing pulls through `harbor.openova.io` to absorb docker.io rate limits), Flux pointed at `github.com/openova-io/openova`, and bootstrap-kit slots 01–15 + 19. The dormant `bp-self-sovereign-cutover` blueprint is installed at slot 06a — JobTemplate ConfigMaps + RBAC + status ConfigMap are present, but the eight cutover Jobs are NOT created during Phase 1.
+- **The Sovereign's own ecosystem provisions the remaining ~70%** post-cutover. Once the customer's local Gitea and local Harbor have absorbed the mothership tether, every subsequent reconcile (slots 16–50, day-2 Crossplane operations, Catalyst-platform updates, customer Application installs) flows through the Sovereign's own infrastructure.
+
+The seam between the two halves is a single Helm chart with eight sequential Jobs, triggered POST-HANDOVER by an operator click on **"Achieve True Sovereignty"** in the admin console (or, optionally, by `catalyst-api` auto-fire on first login). The eight Jobs are the canonical implementation of the eight-tether map:
+
+| # | Job | Pivots tether |
+|---|---|---|
+| 1 | `gitea-mirror` | Mirrors `github.com/openova-io/openova` → local Gitea |
+| 2 | `harbor-projects` | Creates 7 proxy-cache projects on local Harbor |
+| 3 | `harbor-prewarm` | Pre-pulls all bootstrap-kit images through local Harbor |
+| 4 | `registry-pivot` | DaemonSet rewrites `/etc/rancher/k3s/registries.yaml` (mothership Harbor → local Harbor) |
+| 5 | `flux-gitrepository-patch` | Flips Flux source to local Gitea |
+| 6 | `helmrepo-patches` | Flips 38 HelmRepositories to local Harbor |
+| 7 | `catalyst-api-env-patch` | Removes upstream fallback in `catalyst-api` |
+| 8 | `egress-block-test` | NetworkPolicy deny-egress hold for 10 min — DoD proof |
+
+```mermaid
+flowchart LR
+  P0[Phase 0<br/>OpenTofu<br/>k3s + cold-start] --> P1[Phase 1<br/>Bootstrap-kit<br/>slots 01-15+19]
+  P1 --> H[Handover<br/>JWT redirect<br/>operator lands]
+  H --> P2[Phase 2<br/>Cutover<br/>8 Jobs + DoD]
+  P2 --> D2[Day-2<br/>local Gitea<br/>local Harbor<br/>Crossplane]
+
+  classDef phase fill:#1e3a8a,stroke:#3b82f6,color:#fff,stroke-width:2px;
+  classDef seam fill:#7c2d12,stroke:#ea580c,color:#fff,stroke-width:2px;
+  classDef ops fill:#14532d,stroke:#22c55e,color:#fff,stroke-width:2px;
+  class P0,P1 phase;
+  class H,P2 seam;
+  class D2 ops;
+```
+
+The cutover is delivered across four issues under umbrella #790:
+
+| Issue | Deliverable |
+|---|---|
+| #791 | `bp-self-sovereign-cutover` chart — the eight Jobs + DaemonSet + status ConfigMap |
+| #792 | `catalyst-api` POST `/sovereign/cutover/start` + GET `/status` + GET `/events` (SSE) |
+| #793 | console-ui "Achieve True Sovereignty" button + cutover progress card on admin console |
+| #794 | This documentation set (ADR-0002 + ARCHITECTURE.md §11 + Inviolable #11) |
+
+After Phase 2, the Sovereign survives `github.com`, `ghcr.io`, and `harbor.openova.io` being unreachable — and that survival is the DoD proof of franchise independence. The full architectural reasoning, alternatives considered (Phase-1.5 mid-provision cutover, sovereign-built-in mirror, manual runbook, Crossplane composition) and consequence analysis live in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The non-negotiable rule is recorded as Principle #11 in [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md).
+
 ---
 
 ## 12. State-of-the-art principles applied
