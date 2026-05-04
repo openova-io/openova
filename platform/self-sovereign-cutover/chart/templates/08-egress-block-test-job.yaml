@@ -1,0 +1,116 @@
+{{- /*
+Step 08 — egress-block-test.
+
+The proof-of-sovereignty step. Applies a CiliumNetworkPolicy denying
+egress to upstream domains for .Values.egressTest.durationSeconds, then
+asserts every HelmRelease + Kustomization stays Ready throughout. The
+policy is removed at end-of-test regardless of pass/fail.
+
+Image phase: post.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-08-egress-block-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "8"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: egress-block-test
+  cilium-policy.yaml: |
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    metadata:
+      name: cutover-egress-block
+      namespace: {{ .Release.Namespace }}
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cutover-egress-policy
+    spec:
+      endpointSelector: {}
+      egressDeny:
+        - toFQDNs:
+        {{- range .Values.egressTest.blockedDomains }}
+            - matchPattern: {{ . | quote }}
+            - matchPattern: {{ printf "*.%s" . | quote }}
+        {{- end }}
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.egressBlockTestSeconds }}
+    containers:
+      - name: egress-block-test
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: DURATION_SECONDS
+            value: {{ .Values.egressTest.durationSeconds | quote }}
+          - name: NAMESPACE
+            value: {{ .Release.Namespace | quote }}
+        volumeMounts:
+          - name: cilium-policy
+            mountPath: /work
+            readOnly: true
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            cleanup() {
+              echo "[egress-block-test] removing CiliumNetworkPolicy"
+              kubectl delete -f /work/cilium-policy.yaml --ignore-not-found
+            }
+            trap cleanup EXIT INT TERM
+
+            echo "[egress-block-test] applying CiliumNetworkPolicy for ${DURATION_SECONDS}s"
+            kubectl apply -f /work/cilium-policy.yaml
+
+            start=$(date +%s)
+            deadline=$((start + DURATION_SECONDS))
+            poll_interval=30
+            failures=0
+
+            while [ "$(date +%s)" -lt "${deadline}" ]; do
+              hr_not_ready=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+                | grep -E '=False$' || true)
+              ks_not_ready=$(kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+                | grep -E '=False$' || true)
+
+              if [ -n "${hr_not_ready}${ks_not_ready}" ]; then
+                echo "[egress-block-test] NotReady detected at $(($(date +%s) - start))s:"
+                [ -n "${hr_not_ready}" ] && echo "${hr_not_ready}" | sed 's/^/  HR /'
+                [ -n "${ks_not_ready}" ] && echo "${ks_not_ready}" | sed 's/^/  KS /'
+                failures=$((failures+1))
+              fi
+
+              sleep "${poll_interval}"
+            done
+
+            echo "[egress-block-test] window complete; observed-failure-cycles=${failures}"
+            if [ "${failures}" -gt 0 ]; then
+              echo "[egress-block-test] cluster did NOT survive egress block — sovereignty proof FAILED"
+              exit 1
+            fi
+            echo "[egress-block-test] cluster survived ${DURATION_SECONDS}s egress block — sovereignty proof PASSED"
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits:   { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+    volumes:
+      - name: cilium-policy
+        configMap:
+          name: cutover-step-08-egress-block-test
+          items:
+            - key: cilium-policy.yaml
+              path: cilium-policy.yaml

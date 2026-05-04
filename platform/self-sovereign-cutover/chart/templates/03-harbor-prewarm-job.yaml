@@ -1,0 +1,96 @@
+{{- /*
+Step 03 — harbor-prewarm.
+
+For each image in .Values.prewarm.images, issues a HEAD against the
+local Harbor proxy-cache so the upstream image lands in the cache
+BEFORE the cluster's first reconcile reaches for it.
+
+Image phase: pre.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-03-harbor-prewarm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "3"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: harbor-prewarm
+  prewarm.list: |
+    {{- range .Values.prewarm.images }}
+    {{ . }}
+    {{- end }}
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.harborPrewarmSeconds }}
+    containers:
+      - name: harbor-prewarm
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.curl.repository "tag" .Values.images.curl.tag "cutoverPhase" "pre" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HARBOR_INTERNAL_URL
+            value: {{ .Values.sovereign.harborInternalURL | quote }}
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+        volumeMounts:
+          - name: prewarm
+            mountPath: /work
+            readOnly: true
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            : "${HARBOR_USERNAME:=admin}"
+            base="${HARBOR_INTERNAL_URL}/v2"
+            ok=0
+            fail=0
+            while IFS= read -r line; do
+              ref=$(printf '%s' "${line}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              [ -z "${ref}" ] && continue
+              path=${ref%:*}
+              tag=${ref##*:}
+              code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                -I "${base}/${path}/manifests/${tag}")
+              case "${code}" in
+                200|301|302) ok=$((ok+1)); echo "[harbor-prewarm] OK ${ref}" ;;
+                *)           fail=$((fail+1)); echo "[harbor-prewarm] MISS ${ref} (${code})" ;;
+              esac
+            done < /work/prewarm.list
+            echo "[harbor-prewarm] primed=${ok} failed=${fail}"
+            total=$((ok+fail))
+            if [ "${total}" -gt 0 ] && [ "${fail}" -gt $((total/4)) ]; then
+              echo "[harbor-prewarm] failure rate exceeds 25% — failing step"
+              exit 1
+            fi
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits:   { memory: 512Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]
+    volumes:
+      - name: prewarm
+        configMap:
+          name: cutover-step-03-harbor-prewarm
+          items:
+            - key: prewarm.list
+              path: prewarm.list

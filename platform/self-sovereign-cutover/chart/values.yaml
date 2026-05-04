@@ -1,0 +1,273 @@
+# bp-self-sovereign-cutover — default values.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally
+# meaningful value flows in via per-Sovereign Flux HelmRelease values; the
+# placeholder defaults below let `helm template` smoke-render cleanly in CI
+# without --set. Per-Sovereign overlays
+# (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml)
+# supply real values via envsubst on `${SOVEREIGN_FQDN}` exactly the way
+# 19-harbor.yaml + 10-gitea.yaml do.
+#
+# This chart installs DORMANT. Job PodSpecs are emitted as ConfigMaps;
+# catalyst-api reads them at cutover trigger time and stamps real batch/v1
+# Jobs. NO helm.sh/hook annotations on any Job manifests in this chart.
+
+global:
+  # When set, post-pivot step ConfigMaps render image references through
+  # this prefix (so catalyst-api stamps Jobs that pull from the local
+  # Harbor proxy-cache). Pre-pivot steps (gitea-mirror, harbor-projects,
+  # harbor-prewarm, registry-pivot) MUST use upstream-public images
+  # because they run BEFORE the local Harbor proxy-cache + containerd
+  # registries.yaml v2 are in place. Default empty = upstream-public for
+  # all steps (safe default for smoke render).
+  imageRegistry: ""
+
+# Sovereign coordinates. The HelmRelease in
+# clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
+# substitutes ${SOVEREIGN_FQDN} from cluster overlays.
+sovereign:
+  # REQUIRED at install time — overlay supplies a real FQDN. The
+  # placeholder below lets `helm template` smoke-render in CI; runtime
+  # use with the placeholder is non-functional by design.
+  fqdn: "example.local"
+  # Local Harbor URL (in-cluster Service form). Used by step 02
+  # (harbor-projects) and step 03 (harbor-prewarm). The PUBLIC
+  # harbor.<sovereign.fqdn> URL is what registries.yaml v2 + step 06
+  # (helmrepository-patches) rewrite to (since containerd + Flux
+  # source-controller resolve through public DNS, not in-cluster
+  # CoreDNS).
+  harborInternalURL: "http://harbor-harbor-core.harbor.svc.cluster.local"
+  # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
+  harborPublicURL: "https://harbor.example.local"
+  giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+  # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
+  giteaPublicURL: "https://gitea.example.local"
+
+# Upstream openova-io read-only public clone — the source for the
+# cutover step 01 git push --mirror into local Gitea. Overrideable so a
+# Sovereign that ships from a fork can rebase the seed.
+upstream:
+  repoURL: "https://github.com/openova-io/openova"
+  branch: "main"
+  # Mothership Harbor — the soft-tethered cold-start registry. Step 08
+  # egress-block test asserts the cluster can survive without this URL.
+  mothershipHarborURL: "https://harbor.openova.io"
+
+# Local Gitea target — the org + repo created by step 01 (gitea-mirror).
+gitea:
+  org: "openova"
+  repo: "openova"
+  # Shape of the admin secret created by bp-gitea's templates.
+  # Keys: username, password, token (optional). Job uses BasicAuth
+  # username:password against /api/v1 + git push.
+  adminSecretRef:
+    name: "gitea-admin-secret"
+    namespace: "gitea"
+    usernameKey: "username"
+    passwordKey: "password"
+
+# Local Harbor target — admin credentials + proxy_cache projects to create.
+harbor:
+  # Shape of the admin secret created by bp-harbor's templates
+  # (HARBOR_ADMIN_PASSWORD per upstream chart). Keys:
+  # HARBOR_ADMIN_USERNAME (optional, falls back to "admin"),
+  # HARBOR_ADMIN_PASSWORD.
+  adminSecretRef:
+    name: "harbor-core"
+    namespace: "harbor"
+    usernameKey: "HARBOR_ADMIN_USERNAME"
+    passwordKey: "HARBOR_ADMIN_PASSWORD"
+  # GHCR upstream credential (operator-issued, written by cloud-init at
+  # /var/lib/catalyst/ghcr-pull-secret.yaml). Used as the credential the
+  # proxy-ghcr registry attaches when pulling from ghcr.io.
+  ghcrSecretRef:
+    name: "ghcr-pull"
+    namespace: "flux-system"
+    # Secrets of dockerconfigjson type carry their value under
+    # `.dockerconfigjson`; step 02 parses it for username/password.
+    dockerConfigKey: ".dockerconfigjson"
+  # Seven proxy-cache projects + their upstream registry endpoints.
+  # Names are stable because step 06 (helmrepository-patches) +
+  # registries.yaml v2 (registry-pivot) rewrite paths against these
+  # literal project names.
+  proxyProjects:
+    - name: "proxy-ghcr"
+      upstreamURL: "https://ghcr.io"
+      registryType: "github"
+      authMode: "credential"      # uses harbor.ghcrSecretRef
+    - name: "proxy-docker"
+      upstreamURL: "https://registry-1.docker.io"
+      registryType: "docker-hub"
+      authMode: "anonymous"
+    - name: "proxy-k8s"
+      upstreamURL: "https://registry.k8s.io"
+      registryType: "docker-registry"
+      authMode: "anonymous"
+    - name: "proxy-gcr"
+      upstreamURL: "https://gcr.io"
+      registryType: "docker-registry"
+      authMode: "anonymous"
+    - name: "proxy-quay"
+      upstreamURL: "https://quay.io"
+      registryType: "quay"
+      authMode: "anonymous"
+    - name: "proxy-xpkg"
+      upstreamURL: "https://xpkg.upbound.io"
+      registryType: "docker-registry"
+      authMode: "anonymous"
+    - name: "proxy-ecr"
+      upstreamURL: "https://public.ecr.aws"
+      registryType: "docker-registry"
+      authMode: "anonymous"
+
+# Pre-warm list — images to HEAD-pull through Harbor proxy-cache before
+# the cluster reconciles against local Harbor, so first-reconcile pulls
+# hit a warm cache. The list is intentionally narrow (the heaviest
+# charts). Operators can extend via overlay; an empty list is also valid.
+prewarm:
+  images:
+    - "proxy-docker/library/redis:7"
+    - "proxy-docker/library/postgres:16"
+    - "proxy-quay/cilium/cilium:v1.16.5"
+    - "proxy-quay/jetstack/cert-manager-controller:v1.16.1"
+    - "proxy-quay/kyverno/kyverno:v1.13.4"
+    - "proxy-docker/grafana/loki:3.3.2"
+    - "proxy-docker/grafana/grafana:11.4.0"
+    - "proxy-docker/grafana/alloy:v1.5.1"
+    - "proxy-docker/falcosecurity/falco:0.39.2"
+    - "proxy-ghcr/fluxcd/source-controller:v1.4.1"
+    - "proxy-ghcr/fluxcd/helm-controller:v1.1.0"
+
+# GitOps source — Flux GitRepository in flux-system namespace that step
+# 05 (flux-gitrepository-patch) patches to point at local Gitea.
+gitopsRepository:
+  name: "openova"
+  namespace: "flux-system"
+
+# HelmRepository patch list — step 06 (helmrepository-patches) iterates
+# this list and replaces oci://ghcr.io/openova-io →
+# oci://harbor.<sov-fqdn>/openova-io for every entry. Default is
+# materialised by listing the bp-* HelmRepositories the bootstrap-kit
+# ships; per-Sovereign overlays may extend the list with operator-added
+# Application Blueprints.
+helmRepositories:
+  namespace: "flux-system"
+  upstreamPrefix: "oci://ghcr.io/openova-io"
+  # Local prefix is computed at runtime from sovereign.harborPublicURL
+  # so we don't double-encode the FQDN here. Step 06 PodSpec carries
+  # the pivot script that does the substitution.
+  names:
+    - "bp-cilium"
+    - "bp-gateway-api"
+    - "bp-cert-manager"
+    - "bp-flux"
+    - "bp-crossplane"
+    - "bp-sealed-secrets"
+    - "bp-reflector"
+    - "bp-nats-jetstream"
+    - "bp-openbao"
+    - "bp-keycloak"
+    - "bp-gitea"
+    - "bp-powerdns"
+    - "bp-external-dns"
+    - "bp-catalyst-platform"
+    - "bp-crossplane-claims"
+    - "bp-external-secrets"
+    - "bp-external-secrets-stores"
+    - "bp-cnpg"
+    - "bp-valkey"
+    - "bp-seaweedfs"
+    - "bp-harbor"
+    - "bp-opentelemetry"
+    - "bp-alloy"
+    - "bp-loki"
+    - "bp-mimir"
+    - "bp-tempo"
+    - "bp-grafana"
+    - "bp-kyverno"
+    - "bp-reloader"
+    - "bp-vpa"
+    - "bp-trivy"
+    - "bp-falco"
+    - "bp-sigstore"
+    - "bp-syft-grype"
+    - "bp-velero"
+    - "bp-coraza"
+    - "bp-cert-manager-powerdns-webhook"
+    - "bp-cluster-autoscaler-hcloud"
+
+# catalyst-api Deployment to patch in step 07 (catalyst-api-env-patch).
+catalystAPI:
+  deploymentName: "catalyst-api"
+  namespace: "catalyst-platform"
+  # The env var that catalyst-api reads for its GitOps source URL.
+  envVar: "CATALYST_GITOPS_REPO_URL"
+
+# Step container images. The first three steps (01..03) + the
+# registry-pivot DaemonSet use upstream-public images because they run
+# BEFORE registries.yaml v2 takes effect on the node containerd.
+# Post-pivot steps (≥ 05) MAY use the local Harbor copy via
+# global.imageRegistry — defaulted off so smoke render is clean.
+images:
+  kubectl:
+    repository: "bitnami/kubectl"
+    tag: "1.31"
+  git:
+    repository: "alpine/git"
+    tag: "v2.45.2"
+  curl:
+    repository: "curlimages/curl"
+    tag: "8.10.1"
+  # registry-pivot writes to /etc/rancher/k3s/registries.yaml on every
+  # node. Uses bitnami/kubectl (already present in the platform fleet)
+  # plus a `chroot /host` invocation pattern.
+  hostExec:
+    repository: "alpine"
+    tag: "3.20"
+
+# registry-pivot DaemonSet — runs from chart install to converge
+# /etc/rancher/k3s/registries.yaml on every node. The DaemonSet starts
+# DORMANT (writes the v1 cold-start file) and only flips to v2 when
+# catalyst-api updates the cutover-status ConfigMap key
+# `registriesYamlActive` to "v2" — see template 04-registry-pivot-daemonset.yaml.
+# Operators can disable the always-on DaemonSet shape via overlay; in
+# that case catalyst-api stamps the DaemonSet on demand at trigger time.
+registryPivot:
+  enabled: true
+
+# CiliumNetworkPolicy for step 08 (egress-block-test). Operator
+# overrides duration via overlay if 10 min isn't enough.
+egressTest:
+  durationSeconds: 600
+  blockedDomains:
+    - "github.com"
+    - "ghcr.io"
+    - "harbor.openova.io"
+
+# Status sentinel ConfigMap — initial state machine state. catalyst-api
+# updates the per-step fields as each Job completes.
+status:
+  configMapName: "self-sovereign-cutover-status"
+
+# Per-step Job-stamp tuning. Each value lands inside the corresponding
+# PodSpec ConfigMap; catalyst-api copies it onto the stamped Job.
+stepTimeouts:
+  giteaMirrorSeconds: 1200
+  harborProjectsSeconds: 600
+  harborPrewarmSeconds: 1800
+  fluxGitRepositoryPatchSeconds: 600
+  helmRepositoryPatchesSeconds: 600
+  catalystAPIEnvPatchSeconds: 600
+  egressBlockTestSeconds: 900   # 600 deny + buffer for assert sweep
+
+# Trigger configuration — surface here so operators see it in
+# `helm get values`. The chart itself does NOT auto-fire; catalyst-api
+# reads .Values.trigger.auto and either waits for operator click or
+# auto-fires after first successful operator login.
+trigger:
+  # default false: operator must explicitly click "Achieve True
+  # Sovereignty" in admin console.
+  auto: false
+  # When auto=true, fire N seconds after the first successful operator
+  # login on the new Sovereign. Ignored when auto=false.
+  autoDelaySeconds: 0

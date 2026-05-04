@@ -1,0 +1,255 @@
+{{- /*
+Step 04 — registry-pivot.
+
+This step is a DaemonSet, not a Job. The consumer (catalyst-api,
+issue #792) handles this via mode=daemonset-wait: when the cutover
+hits this step, it waits for the DaemonSet's
+`status.numberReady == status.desiredNumberScheduled` and treats that
+as step success. The DaemonSet is shipped HERE by the chart so it is
+already running by the time catalyst-api stamps the wait.
+
+What the DaemonSet actually does
+────────────────────────────────
+A reconcile loop on every node. Reads the `registriesYamlActive` key
+on the cutover-status ConfigMap via the in-cluster K8s API; when it
+sees "v2", atomically replaces /etc/rancher/k3s/registries.yaml with
+the v2 form (rewrites every upstream registry through harbor.<sov-fqdn>).
+"v1" or "rollback" restores the cold-start file (mothership Harbor).
+Idempotent across restarts.
+
+The daemonset-wait completion condition is "all node Pods Ready" — by
+the time every Pod is Running and reporting Ready, the reconcile loop
+has done its first sync. Because the chart ships registriesYamlActive=v1
+in the initial status ConfigMap, the FIRST sync writes v1 (no-op rollover).
+catalyst-api's runCutover sets registriesYamlActive=v2 BEFORE stamping
+step 05 — the next reconcile sweep then converges every node to v2
+within the 15s poll interval (well under the daemonset-wait timeout).
+
+Image phase: pre.
+*/ -}}
+{{- if .Values.registryPivot.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-daemonset
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cutover-daemonset
+      catalyst.openova.io/blueprint: bp-self-sovereign-cutover
+  template:
+    metadata:
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cutover-daemonset
+    spec:
+      serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: pivot
+          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.hostExec.repository "tag" .Values.images.hostExec.tag "cutoverPhase" "pre" "Values" .Values) }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          env:
+            - name: HARBOR_PUBLIC_URL
+              value: {{ .Values.sovereign.harborPublicURL | quote }}
+            - name: STATUS_CONFIGMAP_NAME
+              value: {{ .Values.status.configMapName | quote }}
+            - name: STATUS_CONFIGMAP_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          # readinessProbe: the script touches /tmp/ready after its first
+          # successful reconcile pass. catalyst-api's daemonset-wait
+          # then sees numberReady=desired and proceeds.
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: registries-d
+              mountPath: /host/etc/rancher/k3s
+            - name: pivot-script
+              mountPath: /usr/local/bin/pivot.sh
+              subPath: pivot.sh
+              readOnly: true
+            - name: registries-yaml-tpl
+              mountPath: /etc/registry-pivot/registries.yaml.v2
+              subPath: registries.yaml.v2
+              readOnly: true
+            - name: registries-yaml-tpl
+              mountPath: /etc/registry-pivot/registries.yaml.v1
+              subPath: registries.yaml.v1
+              readOnly: true
+          command: ["/bin/sh", "/usr/local/bin/pivot.sh"]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+      volumes:
+        - name: registries-d
+          hostPath:
+            path: /etc/rancher/k3s
+            type: DirectoryOrCreate
+        - name: pivot-script
+          configMap:
+            name: registry-pivot-script
+            defaultMode: 0755
+        - name: registries-yaml-tpl
+          configMap:
+            name: registry-pivot-registries-yaml
+---
+# Step ConfigMap for catalyst-api consumer (mode=daemonset-wait).
+# The handler resolves the DaemonSet name from the `bp.openova.io/cutover-daemonset`
+# label; we set it explicitly so the lookup is stable even if the cm
+# name convention changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-04-registry-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "4"
+    bp.openova.io/cutover-mode: "daemonset-wait"
+    bp.openova.io/cutover-daemonset: "registry-pivot"
+data:
+  stepName: registry-pivot
+  # podSpec is intentionally absent — mode=daemonset-wait does NOT use it.
+  # Catalyst-api's parser tolerates absent podSpec when mode!=job.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-pivot-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-daemonset
+data:
+  pivot.sh: |
+    #!/bin/sh
+    # registry-pivot reconcile loop. Reads registriesYamlActive from the
+    # cutover-status ConfigMap; when the value changes, atomically
+    # replaces the host registries.yaml with v1 or v2.
+    set -eu
+
+    apk add --no-cache curl jq >/dev/null 2>&1 || true
+
+    api="https://kubernetes.default.svc"
+    token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    cacert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    cm_url="${api}/api/v1/namespaces/${STATUS_CONFIGMAP_NAMESPACE}/configmaps/${STATUS_CONFIGMAP_NAME}"
+
+    target=/host/etc/rancher/k3s/registries.yaml
+    src_v1=/etc/registry-pivot/registries.yaml.v1
+    src_v2=/etc/registry-pivot/registries.yaml.v2
+    last_state=""
+
+    apply_state() {
+      desired="$1"
+      case "${desired}" in
+        v2)
+          harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
+          sed -e "s,__HARBOR_PUBLIC_URL__,${harbor_host},g" "${src_v2}" > "${target}.new"
+          mv "${target}.new" "${target}"
+          chmod 600 "${target}"
+          echo "[registry-pivot]   wrote v2 to ${target} on ${NODE_NAME}"
+          ;;
+        v1|rollback|*)
+          cp "${src_v1}" "${target}.new"
+          mv "${target}.new" "${target}"
+          chmod 600 "${target}"
+          echo "[registry-pivot]   wrote v1 to ${target} on ${NODE_NAME}"
+          ;;
+      esac
+    }
+
+    while true; do
+      desired=$(curl -fsS --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
+        | jq -r '.data.registriesYamlActive // "v1"' 2>/dev/null \
+        || echo "v1")
+      desired=${desired:-v1}
+
+      if [ "${desired}" != "${last_state}" ]; then
+        echo "[registry-pivot] state change ${last_state:-<none>} -> ${desired} on ${NODE_NAME}"
+        apply_state "${desired}"
+        last_state="${desired}"
+        # Mark Pod ready after the first successful sync.
+        touch /tmp/ready
+      fi
+
+      sleep 15
+    done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-pivot-registries-yaml
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-daemonset
+data:
+  # Cold-start registries.yaml v1 — soft-tethered to mothership Harbor.
+  registries.yaml.v1: |
+    mirrors:
+      ghcr.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-ghcr"
+      docker.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-docker"
+      registry.k8s.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-k8s"
+      gcr.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-gcr"
+      quay.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-quay"
+      xpkg.upbound.io:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-xpkg"
+      public.ecr.aws:
+        endpoint:
+          - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-ecr"
+  # Hot-state registries.yaml v2 — independent. __HARBOR_PUBLIC_URL__
+  # placeholder is replaced in-pod by the pivot script.
+  registries.yaml.v2: |
+    mirrors:
+      ghcr.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-ghcr"
+      docker.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-docker"
+      registry.k8s.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-k8s"
+      gcr.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-gcr"
+      quay.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-quay"
+      xpkg.upbound.io:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-xpkg"
+      public.ecr.aws:
+        endpoint:
+          - "https://__HARBOR_PUBLIC_URL__/v2/proxy-ecr"
+{{- end }}

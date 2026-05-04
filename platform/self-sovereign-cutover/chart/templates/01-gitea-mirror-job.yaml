@@ -1,0 +1,114 @@
+{{- /*
+Step 01 — gitea-mirror.
+
+Mirrors the upstream openova-io public repo into the local Sovereign
+Gitea so subsequent Flux GitRepository pivots resolve against in-cluster
+DNS. This step is the canonical seam: catalyst-api stamps a Job from
+this PodSpec exactly once per cutover.
+
+Consumer contract (catalyst-api cutover endpoint, issue #792):
+  - Discovered by labels app.kubernetes.io/part-of=self-sovereign-cutover
+    + app.kubernetes.io/component=cutover-step.
+  - Order = bp.openova.io/cutover-order label (integer, ascending).
+  - Mode = bp.openova.io/cutover-mode label ("job" here).
+  - Required data keys:
+      stepName  short slug used in status ConfigMap + Job naming
+      podSpec   YAML of corev1.PodSpec; catalyst-api wraps it in
+                PodTemplateSpec + batchv1.Job.
+
+Image phase: pre — runs BEFORE registries.yaml v2 is active.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-01-gitea-mirror
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "1"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: gitea-mirror
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.giteaMirrorSeconds }}
+    containers:
+      - name: gitea-mirror
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: UPSTREAM_REPO_URL
+            value: {{ .Values.upstream.repoURL | quote }}
+          - name: UPSTREAM_BRANCH
+            value: {{ .Values.upstream.branch | quote }}
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            # Credential hygiene: never echo $GITEA_PASSWORD. We feed it
+            # to git via URL embedding only inside the redirected http
+            # call below; stdout shows just the redacted form.
+            redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
+            echo "[gitea-mirror] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
+            echo "[gitea-mirror] target=${redacted_url}"
+
+            # 1. Ensure the repo exists in the local Gitea (idempotent).
+            #    Gitea returns 201 on create / 409 on exists — both OK.
+            api_url="${GITEA_INTERNAL_URL}/api/v1"
+            repo_check=$(wget -q -O - --header="Content-Type: application/json" \
+              --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
+              "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "missing")
+            if [ "${repo_check}" = "missing" ]; then
+              echo "[gitea-mirror] creating ${GITEA_ORG}/${GITEA_REPO}"
+              wget -q -O /dev/null --post-data="{\"name\":\"${GITEA_REPO}\",\"private\":false,\"auto_init\":false}" \
+                --header="Content-Type: application/json" \
+                --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
+                "${api_url}/orgs/${GITEA_ORG}/repos" || \
+                wget -q -O /dev/null --post-data="{\"name\":\"${GITEA_REPO}\",\"private\":false,\"auto_init\":false}" \
+                  --header="Content-Type: application/json" \
+                  --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
+                  "${api_url}/user/repos"
+            else
+              echo "[gitea-mirror] repo already present"
+            fi
+
+            # 2. Mirror clone from upstream and push --mirror to local Gitea.
+            #    --mirror preserves all refs, branches, tags, notes; matches
+            #    the desired "lift the upstream wholesale into local" shape.
+            workdir=$(mktemp -d)
+            cd "${workdir}"
+            git clone --mirror "${UPSTREAM_REPO_URL}" upstream.git
+            cd upstream.git
+            # Embed credentials in the push URL only (never in stdout).
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -e "s,://,://${GITEA_USERNAME}:${GITEA_PASSWORD}@,")
+            git remote set-url --push origin "${push_url}/${GITEA_ORG}/${GITEA_REPO}.git"
+            git push --mirror
+            echo "[gitea-mirror] mirror complete"
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits:   { memory: 1Gi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]

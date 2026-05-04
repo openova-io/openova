@@ -1,0 +1,98 @@
+# bp-self-sovereign-cutover — Catalyst bootstrap-kit Blueprint, slot 06a.
+#
+# Post-handover Self-Sovereignty Cutover. Installs DORMANT — see chart
+# README + ADR-0002. Eight step PodSpec ConfigMaps + the registry-pivot
+# DaemonSet land on the new Sovereign at HelmRelease apply time; the
+# catalyst-api cutover endpoint (issue #792) reads them by label
+# selector and stamps Jobs only on operator action.
+#
+# Slot 06a sits between the existing post-handover slots in the
+# bootstrap-kit ordering. It depends on bp-gitea + bp-harbor so the
+# step ConfigMaps reference real, healthy local Gitea + Harbor
+# Services at trigger time.
+#
+# Wrapper chart: platform/self-sovereign-cutover/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Why disableWait: true
+#   The chart is dormant — no Job is created at install time. The only
+#   workload that actually runs is the registry-pivot DaemonSet, which
+#   never converges on its own (it waits for the cutover-status
+#   ConfigMap to flip registriesYamlActive=v2). disableWait: true makes
+#   Helm exit when the manifests apply rather than waiting on a Ready
+#   condition that never fires.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-self-sovereign-cutover
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  # Pre-cutover (Phase-1) — sources from openova-io GHCR, identical to
+  # every other bootstrap-kit slot. The cutover itself (step 06,
+  # helmrepository-patches) is what flips this URL to the local Harbor
+  # post-handover; until then this Sovereign is soft-tethered like the
+  # rest of the kit.
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-self-sovereign-cutover
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: self-sovereign-cutover
+  # targetNamespace = catalyst because the catalyst-api cutover endpoint
+  # defaults its discovery namespace to "catalyst"
+  # (CATALYST_CUTOVER_NAMESPACE in
+  # products/catalyst/bootstrap/api/internal/handler/cutover.go). Keeping
+  # the chart resources colocated with catalyst-api avoids a cross-
+  # namespace selector + a CATALYST_CUTOVER_NAMESPACE env override on
+  # every Sovereign.
+  targetNamespace: catalyst
+  dependsOn:
+    # Both bp-gitea and bp-harbor must be Ready before the chart's
+    # PodSpec ConfigMaps reference real Services. The chart itself is
+    # dormant so an early apply is benign — but operator workflow
+    # ordering puts cutover after these two come up.
+    - name: bp-gitea
+    - name: bp-harbor
+  chart:
+    spec:
+      chart: bp-self-sovereign-cutover
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-self-sovereign-cutover
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overrides — the chart's values.yaml carries
+  # placeholders so smoke renders pass; the real coordinates land
+  # here via Flux postBuild ${SOVEREIGN_FQDN} substitution.
+  values:
+    sovereign:
+      fqdn: ${SOVEREIGN_FQDN}
+      harborInternalURL: http://harbor-harbor-core.harbor.svc.cluster.local
+      harborPublicURL: https://harbor.${SOVEREIGN_FQDN}
+      giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
+      giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}

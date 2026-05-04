@@ -1,0 +1,136 @@
+{{- /*
+Step 02 — harbor-projects.
+
+Creates seven proxy_cache projects in the local Sovereign Harbor.
+Names are stable: registry-pivot DaemonSet (step 04) and step 06
+(helmrepository-patches) rewrite paths against these literal project
+names.
+
+Image phase: pre.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-02-harbor-projects
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "2"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: harbor-projects
+  proxyProjects.json: |
+    {{ .Values.harbor.proxyProjects | toJson }}
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.harborProjectsSeconds }}
+    containers:
+      - name: harbor-projects
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.curl.repository "tag" .Values.images.curl.tag "cutoverPhase" "pre" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HARBOR_INTERNAL_URL
+            value: {{ .Values.sovereign.harborInternalURL | quote }}
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+          - name: GHCR_DOCKERCONFIG
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.ghcrSecretRef.name }}
+                key: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey }}
+        volumeMounts:
+          - name: proxy-projects
+            mountPath: /work
+            readOnly: true
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            : "${HARBOR_USERNAME:=admin}"
+            base="${HARBOR_INTERNAL_URL}/api/v2.0"
+
+            # 1. Decode GHCR creds (used by proxy-ghcr registry, authMode=credential).
+            if [ -n "${GHCR_DOCKERCONFIG:-}" ]; then
+              dc_decoded=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}")
+              auth_b64=$(printf '%s' "${dc_decoded}" | tr -d ' \n\r\t' | awk -F'"auth":"' '{print $2}' | awk -F'"' '{print $1}')
+              ghcr_user=$(printf '%s' "${auth_b64}" | base64 -d | awk -F: '{print $1}')
+              ghcr_pass=$(printf '%s' "${auth_b64}" | base64 -d | awk -F: '{print $2}')
+            else
+              ghcr_user=""
+              ghcr_pass=""
+            fi
+
+            # 2. Iterate the proxy-projects spec from the mounted ConfigMap.
+            proj_file=/work/proxyProjects.json
+            entries=$(awk 'BEGIN{RS="{"; FS="\""} /name/{name=""; up=""; rt=""; am="";
+              for(i=1;i<=NF;i++){
+                if($i=="name"){ name=$(i+2) }
+                if($i=="upstreamURL"){ up=$(i+2) }
+                if($i=="registryType"){ rt=$(i+2) }
+                if($i=="authMode"){ am=$(i+2) }
+              }
+              if(name!=""){print name"|"up"|"rt"|"am}
+            }' "${proj_file}")
+
+            echo "${entries}" | while IFS='|' read -r name upstream rtype amode; do
+              [ -z "${name}" ] && continue
+              echo "[harbor-projects] ensuring proxy-cache project ${name} → ${upstream} (${rtype}, ${amode})"
+
+              reg_payload="{\"name\":\"${name}-upstream\",\"type\":\"${rtype}\",\"url\":\"${upstream}\""
+              if [ "${amode}" = "credential" ] && [ -n "${ghcr_user}" ]; then
+                reg_payload="${reg_payload},\"credential\":{\"type\":\"basic\",\"access_key\":\"${ghcr_user}\",\"access_secret\":\"${ghcr_pass}\"}"
+              fi
+              reg_payload="${reg_payload}}"
+              code=$(curl -s -o /tmp/reg.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+                -H "Content-Type: application/json" \
+                "${base}/registries" --data "${reg_payload}")
+              case "${code}" in
+                201|409) echo "[harbor-projects]   registry ${name}-upstream OK (${code})" ;;
+                *)       echo "[harbor-projects]   registry ${name}-upstream FAILED (${code})"; cat /tmp/reg.out; exit 1 ;;
+              esac
+
+              reg_id=$(curl -s -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" "${base}/registries?name=${name}-upstream" | tr ',' '\n' | grep -o '"id":[0-9]*' | head -1 | awk -F: '{print $2}')
+              if [ -z "${reg_id}" ]; then
+                echo "[harbor-projects]   could not resolve registry id for ${name}-upstream"
+                exit 1
+              fi
+
+              proj_payload="{\"project_name\":\"${name}\",\"public\":true,\"registry_id\":${reg_id},\"metadata\":{\"public\":\"true\"}}"
+              code=$(curl -s -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+                -H "Content-Type: application/json" \
+                "${base}/projects" --data "${proj_payload}")
+              case "${code}" in
+                201|409) echo "[harbor-projects]   project ${name} OK (${code})" ;;
+                *)       echo "[harbor-projects]   project ${name} FAILED (${code})"; cat /tmp/proj.out; exit 1 ;;
+              esac
+            done
+
+            echo "[harbor-projects] all proxy-cache projects ensured"
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits:   { memory: 512Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]
+    volumes:
+      - name: proxy-projects
+        configMap:
+          name: cutover-step-02-harbor-projects
+          items:
+            - key: proxyProjects.json
+              path: proxyProjects.json

@@ -1,0 +1,61 @@
+{{- /*
+Step 05 — flux-gitrepository-patch.
+
+Patches `flux-system/<gitopsRepository.name>` GitRepository.spec.url
+to the local Sovereign Gitea URL. After this patch source-controller
+reconciles against the in-cluster Gitea Service.
+
+Image phase: post.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-05-flux-gitrepository-patch
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "5"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: flux-gitrepository-patch
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.fluxGitRepositoryPatchSeconds }}
+    containers:
+      - name: flux-gitrepository-patch
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: GITREPO_NAME
+            value: {{ .Values.gitopsRepository.name | quote }}
+          - name: GITREPO_NAMESPACE
+            value: {{ .Values.gitopsRepository.namespace | quote }}
+          - name: LOCAL_GITEA_URL
+            value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
+          - name: BRANCH
+            value: {{ .Values.upstream.branch | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            echo "[flux-gitrepository-patch] target=${GITREPO_NAMESPACE}/${GITREPO_NAME} -> ${LOCAL_GITEA_URL} (branch=${BRANCH})"
+            patch=$(printf '{"spec":{"url":"%s","ref":{"branch":"%s"}}}' "${LOCAL_GITEA_URL}" "${BRANCH}")
+            kubectl patch gitrepository "${GITREPO_NAME}" \
+              -n "${GITREPO_NAMESPACE}" \
+              --type=merge --patch "${patch}"
+            kubectl annotate --overwrite gitrepository "${GITREPO_NAME}" \
+              -n "${GITREPO_NAMESPACE}" \
+              "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+            echo "[flux-gitrepository-patch] done"
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits:   { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

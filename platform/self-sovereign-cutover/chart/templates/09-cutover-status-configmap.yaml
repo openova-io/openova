@@ -1,0 +1,85 @@
+{{- /*
+Status ConfigMap — initial state for the cutover state machine.
+
+Keys consumed by the catalyst-api cutover endpoint (issue #792,
+products/catalyst/bootstrap/api/internal/handler/cutover.go):
+
+  cutoverComplete          "true" | "false"
+  cutoverStartedAt         RFC3339, set by /start
+  cutoverFinishedAt        RFC3339, set when last step succeeds
+  currentStep              <stepName> | "" when idle
+  currentStepIndex         "0" .. "N"
+  totalSteps               "N"
+  progressPercent          "0" .. "100"
+  failedStep               <stepName> | "" when no failure
+  lastError                operator-actionable string | ""
+  step.<stepName>.startedAt
+  step.<stepName>.finishedAt
+  step.<stepName>.result   "success" | "failed" | "skipped"
+  step.<stepName>.jobName  Job/DaemonSet name (audit pointer)
+
+Plus this chart's own:
+  registriesYamlActive     "v1" | "v2" | "rollback"
+                           Read by the registry-pivot DaemonSet's
+                           reconcile loop; written by catalyst-api
+                           between step 03 success and step 05.
+
+helm.sh/resource-policy: keep ensures Helm leaves this ConfigMap in
+place on chart uninstall so a re-install doesn't lose state mid-cutover.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.status.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-status
+  annotations:
+    helm.sh/resource-policy: keep
+data:
+  cutoverComplete: "false"
+  cutoverStartedAt: ""
+  cutoverFinishedAt: ""
+  currentStep: ""
+  currentStepIndex: "0"
+  totalSteps: "8"
+  progressPercent: "0"
+  failedStep: ""
+  lastError: ""
+  registriesYamlActive: "v1"
+  # Per-step keys are populated lazily by catalyst-api as steps run.
+  # Initial empty placeholders included so a UI rendering this ConfigMap
+  # before /start has been called has something to bind to.
+  step.gitea-mirror.startedAt: ""
+  step.gitea-mirror.finishedAt: ""
+  step.gitea-mirror.result: ""
+  step.gitea-mirror.jobName: ""
+  step.harbor-projects.startedAt: ""
+  step.harbor-projects.finishedAt: ""
+  step.harbor-projects.result: ""
+  step.harbor-projects.jobName: ""
+  step.harbor-prewarm.startedAt: ""
+  step.harbor-prewarm.finishedAt: ""
+  step.harbor-prewarm.result: ""
+  step.harbor-prewarm.jobName: ""
+  step.registry-pivot.startedAt: ""
+  step.registry-pivot.finishedAt: ""
+  step.registry-pivot.result: ""
+  step.registry-pivot.jobName: ""
+  step.flux-gitrepository-patch.startedAt: ""
+  step.flux-gitrepository-patch.finishedAt: ""
+  step.flux-gitrepository-patch.result: ""
+  step.flux-gitrepository-patch.jobName: ""
+  step.helmrepository-patches.startedAt: ""
+  step.helmrepository-patches.finishedAt: ""
+  step.helmrepository-patches.result: ""
+  step.helmrepository-patches.jobName: ""
+  step.catalyst-api-env-patch.startedAt: ""
+  step.catalyst-api-env-patch.finishedAt: ""
+  step.catalyst-api-env-patch.result: ""
+  step.catalyst-api-env-patch.jobName: ""
+  step.egress-block-test.startedAt: ""
+  step.egress-block-test.finishedAt: ""
+  step.egress-block-test.result: ""
+  step.egress-block-test.jobName: ""
