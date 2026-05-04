@@ -21,11 +21,13 @@
  * email is fine to log — it's not a secret.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Mail, KeyRound, ArrowRight } from 'lucide-react'
+import { X, Mail, KeyRound, ArrowRight, Check, Copy } from 'lucide-react'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
+import { PinInput6 } from '@/components/PinInput6'
 import { API_BASE } from '@/shared/config/urls'
 
 export interface PinSignInModalProps {
@@ -59,6 +61,27 @@ export function PinSignInModal({
   const [email, setEmail] = useState(initialEmail)
   const [pin, setPin] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [pinResetCounter, setPinResetCounter] = useState(0)
+  const [emailCopied, setEmailCopied] = useState(false)
+  const emailCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function copyEmailToClipboard() {
+    try {
+      await navigator.clipboard.writeText(email.trim())
+      setEmailCopied(true)
+      if (emailCopyTimer.current) clearTimeout(emailCopyTimer.current)
+      emailCopyTimer.current = setTimeout(() => setEmailCopied(false), 1500)
+    } catch {
+      const sel = window.getSelection()
+      const tgt = document.getElementById('pin-modal-email-pill-text')
+      if (sel && tgt) {
+        const range = document.createRange()
+        range.selectNodeContents(tgt)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+    }
+  }
 
   // Reset on open/close so a closed-then-reopened modal starts fresh.
   useEffect(() => {
@@ -68,8 +91,18 @@ export function PinSignInModal({
       setPin('')
       setErrorMsg('')
       setEmail(initialEmail)
+      setPinResetCounter((n) => n + 1)
     }
   }, [open, initialEmail])
+
+  // Auto-submit when 6 digits are filled by the PinInput6 component —
+  // matches Apple iCloud / Stripe verification flows where the user
+  // never has to click Verify after typing the final digit.
+  async function maybeAutoVerify(value: string) {
+    if (value.length === 6 && stage === 'pin' && status !== 'submitting') {
+      await submitPinValue(value)
+    }
+  }
 
   // ESC closes the modal.
   useEffect(() => {
@@ -141,7 +174,12 @@ export function PinSignInModal({
 
   async function submitPin(e: React.FormEvent) {
     e.preventDefault()
-    if (pin.trim().length !== 6) return
+    await submitPinValue(pin)
+  }
+
+  async function submitPinValue(value: string) {
+    const trimmed = value.trim()
+    if (trimmed.length !== 6) return
     setStatus('submitting')
     setErrorMsg('')
     try {
@@ -149,7 +187,7 @@ export function PinSignInModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), pin: pin.trim() }),
+        body: JSON.stringify({ email: email.trim(), pin: trimmed }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -163,12 +201,25 @@ export function PinSignInModal({
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Invalid PIN')
       setStatus('error')
+      // Clear the boxes so the user can retype without backspace-chasing.
+      setPin('')
+      setPinResetCounter((n) => n + 1)
     }
   }
 
   if (!open) return null
 
-  return (
+  // Render through createPortal into document.body. Without the portal
+  // the modal is positioned fixed within whatever ancestor has a
+  // CSS `transform`, `filter`, or `will-change: transform` (the
+  // framer-motion animated topbar that hosts ProfileMenu does — every
+  // motion.div applies a transform during animation). Per CSS spec,
+  // a transformed ancestor becomes the containing block for fixed-
+  // position descendants, so the backdrop covers ONLY the topbar
+  // region, not the viewport — exactly the bug reported live
+  // 2026-05-04 (popup tucked top-right of the wizard instead of
+  // dimming the whole page).
+  const modal = (
     <AnimatePresence>
       <motion.div
         key="backdrop"
@@ -310,21 +361,69 @@ export function PinSignInModal({
 
           {/* Stage 2 — PIN entry */}
           {stage === 'pin' && (
-            <form onSubmit={submitPin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} noValidate>
-              <Input
-                label="6-digit PIN"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                placeholder="123456"
-                autoComplete="one-time-code"
-                autoFocus
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                error={status === 'error' ? errorMsg : undefined}
-                data-testid="pin-modal-pin-input"
+            <form onSubmit={submitPin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }} noValidate>
+              {/* Copyable email pill — mirrors VerifyPinPage so the
+                  inline modal and the standalone page feel like the
+                  same product. Click copies, icon flips to check. */}
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  onClick={copyEmailToClipboard}
+                  data-testid="pin-modal-email-pill"
+                  title={emailCopied ? 'Copied' : 'Copy email'}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '5px 12px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: 'var(--wiz-text-md, #e2e8f0)',
+                    background: 'var(--wiz-bg-soft, rgba(255,255,255,0.04))',
+                    border: '1px solid var(--wiz-border, rgba(255,255,255,0.12))',
+                    borderRadius: 999,
+                    cursor: 'pointer',
+                    transition: 'background 120ms, border-color 120ms',
+                  }}
+                >
+                  <span id="pin-modal-email-pill-text" style={{ userSelect: 'all' }}>
+                    {email}
+                  </span>
+                  {emailCopied ? (
+                    <Check size={14} style={{ color: '#22c55e' }} aria-label="Copied" />
+                  ) : (
+                    <Copy size={14} style={{ color: 'var(--wiz-text-sub, #94a3b8)' }} aria-label="Copy email" />
+                  )}
+                </button>
+              </div>
+
+              {/* 6-box PIN input. Paste a 6-digit code anywhere on the
+                  row and all 6 boxes fill — fan-out via PinInput6's
+                  wrapper-level onPaste. Auto-submits on the 6th digit
+                  (Apple iCloud / Stripe parity). */}
+              <PinInput6
+                key={pinResetCounter}
+                disabled={status === 'submitting'}
+                onChange={setPin}
+                onComplete={(value) => void maybeAutoVerify(value)}
+                testId="pin-modal-pin"
               />
+
+              {status === 'error' && errorMsg && (
+                <p
+                  role="alert"
+                  data-testid="pin-modal-error"
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    color: '#ef4444',
+                    textAlign: 'center',
+                  }}
+                >
+                  {errorMsg}
+                </p>
+              )}
+
               <Button
                 type="submit"
                 loading={status === 'submitting'}
@@ -336,25 +435,17 @@ export function PinSignInModal({
                 Verify
                 <ArrowRight className="h-4 w-4" />
               </Button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStage('email')
-                  setStatus('idle')
-                  setPin('')
-                }}
+              <p
                 style={{
-                  background: 'transparent',
-                  border: 'none',
+                  margin: '2px 0 0',
+                  fontSize: 11,
                   color: 'var(--wiz-text-sub, #94a3b8)',
-                  fontSize: 12,
-                  cursor: 'pointer',
                   textAlign: 'center',
-                  padding: '4px 0',
+                  lineHeight: 1.5,
                 }}
               >
-                Use a different email
-              </button>
+                Codes expire after 10 minutes — check your spam folder.
+              </p>
             </form>
           )}
 
@@ -387,4 +478,10 @@ export function PinSignInModal({
       </motion.div>
     </AnimatePresence>
   )
+
+  // SSR safety: in Vitest happy-dom and Node SSR, document is undefined.
+  // Fall back to inline render — the test asserts on data-testid, not
+  // the portal'd DOM tree.
+  if (typeof document === 'undefined') return modal
+  return createPortal(modal, document.body)
 }

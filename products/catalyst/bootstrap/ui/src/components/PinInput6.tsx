@@ -222,12 +222,34 @@ export function PinInput6({
     [],
   )
 
+  // Wrapper-level paste handler — fires when the user pastes anywhere
+  // inside the row, including the gaps between boxes. Same fan-out
+  // logic as the per-input handler.
+  const handleWrapperPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData.getData('text')
+    const cleaned = extractDigits(text).slice(0, N)
+    if (cleaned.length === 0) return
+    e.preventDefault()
+    setDigits(() => {
+      const next = Array<string>(N).fill('')
+      for (let i = 0; i < cleaned.length; i += 1) {
+        next[i] = cleaned.charAt(i)
+      }
+      const last = Math.min(cleaned.length, N) - 1
+      queueMicrotask(() =>
+        focusBox(Math.min(last + (cleaned.length < N ? 1 : 0), N - 1)),
+      )
+      return next
+    })
+  }, [focusBox])
+
   return (
     <div
       role="group"
       aria-label="Sign-in code"
       className="flex items-center justify-center gap-2.5 sm:gap-3"
       data-testid={testId}
+      onPaste={handleWrapperPaste}
     >
       {Array.from({ length: N }).map((_, i) => {
         const filled = digits[i] !== ''
@@ -240,8 +262,18 @@ export function PinInput6({
             type="text"
             inputMode="numeric"
             pattern="[0-9]*"
+            // Only the first box gets one-time-code so iOS SMS autofill
+            // works without Chrome intercepting paste events on every
+            // box (caught live 2026-05-04: pasting a 6-digit string
+            // into any box silently dropped digits because Chrome's
+            // SMS-autofill intercepted the paste event).
             autoComplete={i === 0 ? 'one-time-code' : 'off'}
-            maxLength={1}
+            // maxLength=6 (NOT 1) so a paste of "123456" into any box
+            // arrives intact in onChange — handleChange fans the chars
+            // across the remaining boxes. With maxLength=1 the browser
+            // truncated to a single char BEFORE handleChange ran, so
+            // paste only ever filled one box.
+            maxLength={6}
             value={digits[i]}
             disabled={disabled}
             onChange={handleChange(i)}
