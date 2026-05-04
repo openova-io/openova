@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.3.1
-appVersion: 1.3.1
+version: 1.3.2
+appVersion: 1.3.2
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -236,6 +236,32 @@ description: |
   OAuth client_credentials calls switch to the Service URL.
   Catalyst-Zero (contabo) uses keycloak-zero (separate chart) and
   is unaffected. 2026-05-04.
+
+  Bumped to 1.3.2 — Day-2 cutover RBAC P0 fix (otech102 incident,
+  2026-05-04, issue #830 Bug 1). The /api/v1/sovereign/cutover/start
+  endpoint returned 502 status-read-failed: "User
+  \"system:serviceaccount:catalyst-system:default\" cannot get resource
+  \"configmaps\" in API group \"\" in the namespace \"catalyst\"". The
+  catalyst-api Pod was running under the catalyst-system/default
+  ServiceAccount with no Role/ClusterRole binding to read or patch the
+  cutover ConfigMaps + create/watch Jobs in the `catalyst` namespace
+  where bp-self-sovereign-cutover ships its step ConfigMaps.
+  Fix: add a dedicated ServiceAccount + ClusterRole + ClusterRoleBinding
+  shipped by THIS chart:
+    - serviceaccount-cutover-driver.yaml — ServiceAccount
+      catalyst-api-cutover-driver in catalyst-system
+    - clusterrole-cutover-driver.yaml — ClusterRole granting
+      get/list/watch + patch on configmaps; create/get/list/watch/
+      delete/patch on batch/jobs; get/list/watch on pods + apps/
+      deployments + apps/daemonsets; create on events. Per
+      feedback_rbac_create_no_resourcenames.md the `create` verbs are
+      split into their own Rule WITHOUT resourceNames (combining
+      create + resourceNames produces 403 every POST).
+    - clusterrolebinding-cutover-driver.yaml — bind the SA to the
+      ClusterRole at cluster scope (cutover namespace is runtime-
+      configurable via CATALYST_CUTOVER_NAMESPACE).
+  Plus api-deployment.yaml: spec.serviceAccountName set to
+  catalyst-api-cutover-driver. Issue #830, 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
