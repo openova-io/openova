@@ -107,7 +107,10 @@ spec:
       # public Docker Hub in 2025). Switched to alpine/k8s:1.31.4 —
       # canonical alpine-based image with kubectl + helm + k8s CLI
       # surface, actively maintained.
-      version: 0.1.9
+      # 0.1.10: catalystAPI.namespace `catalyst-platform` → `catalyst-
+      # system` (the actual Sovereign-side namespace). Caught live
+      # otech103 — Step-7 `deployment catalyst-api not found`.
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
