@@ -950,7 +950,33 @@ runcmd:
   # provisioned hcloud-csi. Result on a fresh Sovereign: every PVC stuck
   # Pending forever, bootstrap-kit deadlocked. Keeping local-path solves
   # the circularity by giving the cluster a default StorageClass at boot.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=10.0.1.2 --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+  # ── k3s server install ───────────────────────────────────────────────────
+  #
+  # --node-taint node-role.kubernetes.io/control-plane=true:NoSchedule
+  # ─────────────────────────────────────────────────────────────────────────
+  # CONDITIONAL: applied ONLY when worker_count > 0 (multi-node Sovereign).
+  #
+  # Why: by k3s default, the server (control-plane) node is fully
+  # schedulable — the kube-scheduler distributes pods by resource fit. On
+  # a 1-CP + N-worker Sovereign with the 37-HelmRelease bootstrap-kit +
+  # guest workloads (bp-keycloak, bp-cnpg, bp-harbor, bp-catalyst-platform,
+  # SME microservices), the scheduler happily lands guest workloads on the
+  # CP. They eat its memory, crowd kubelet/etcd/apiserver, and the whole
+  # cluster degrades: kubectl flakes, Helm post-install hooks time out,
+  # HelmReleases get stuck mid-reconcile. This is the root cause of the
+  # "apiserver flake / cpx22 too small / 8 stuck HRs" symptom chain
+  # (issue #751). The taint reserves the CP for system + bootstrap
+  # controllers (cilium agent + cilium-operator + flux + cert-manager +
+  # kube-system pods, all of which tolerate this taint by upstream chart
+  # convention), and pushes guest workloads to workers where they belong.
+  #
+  # Why CONDITIONAL on worker_count > 0: a Catalyst-Zero / solo Sovereign
+  # (worker_count=0) has only the CP — tainting NoSchedule there leaves
+  # NO node for any deployment to schedule onto, the cluster never
+  # becomes ready. Skip the taint when there are no workers; fall back
+  # to k3s default (CP fully schedulable) so the solo node carries
+  # everything.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=10.0.1.2 --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
