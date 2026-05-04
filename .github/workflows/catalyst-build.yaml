@@ -339,6 +339,7 @@ jobs:
           grep "image:" "${UI_DEP}"
 
       - name: Commit and push manifest updates
+        id: deploy_commit
         env:
           SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
         run: |
@@ -347,6 +348,33 @@ jobs:
           git add products/catalyst/chart/values.yaml \
                   products/catalyst/chart/templates/api-deployment.yaml \
                   products/catalyst/chart/templates/ui-deployment.yaml
-          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git commit -m "deploy: update catalyst images to ${SHA_SHORT}"
           git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # Closes #712. The push above is made by GITHUB_TOKEN; per GitHub
+      # Actions design, commits authored by GITHUB_TOKEN do NOT re-trigger
+      # workflows. Without this dispatch step, blueprint-release.yaml
+      # never fires for deploy commits and the bp-catalyst-platform OCI
+      # artifact stays stuck on whatever catalyst-api SHA was current at
+      # the last manual chart-touching PR (e.g. otech62-66, 2026-05-03,
+      # were stuck installing catalyst-api:74d08eb six PRs after that
+      # SHA was superseded). Explicit workflow_dispatch reliably re-runs
+      # blueprint-release on every deploy commit, picking up the new
+      # values.yaml SHA tags.
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products
+          echo "blueprint-release dispatched for products/catalyst @ main"
