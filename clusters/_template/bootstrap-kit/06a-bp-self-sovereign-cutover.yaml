@@ -76,7 +76,11 @@ spec:
       # 0.1.1: Step-1 gitea-mirror script uses BusyBox-wget-compatible
       # Authorization: Basic <b64> header instead of --user/--password
       # which alpine/git's BusyBox wget does not support.
-      version: 0.1.1
+      # 0.1.2: Step-1 explicitly creates the Gitea org BEFORE the repo —
+      # POST /orgs/<org>/repos returns 404 if the org is missing, the
+      # /user/repos fallback would create under gitea_admin (wrong path
+      # for the subsequent push). Caught live on otech103 2026-05-04.
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
