@@ -1,0 +1,53 @@
+apiVersion: v2
+name: bp-wordpress-tenant
+version: 0.1.0
+appVersion: "6"
+description: |
+  Catalyst Blueprint scratch chart for in-vcluster WordPress, one
+  instance per SME tenant. Pre-wires:
+
+    - SSO via the SME-vcluster Keycloak realm using the
+      `openid-connect-generic` plugin (auto-create-on-first-login,
+      Keycloak-group → WP-role mapping).
+    - Postgres provisioned by bp-cnpg (Cluster CR) in the SME tenant
+      namespace; password mirrored via reflector + post-install Job.
+    - PVC-backed `/var/www/html/wp-content/` for theme/plugin/upload
+      persistence.
+    - Ingress at `wordpress.<sme-domain>` routed via the SME's ingress
+      with cert-manager TLS.
+    - Idempotent post-install Jobs that (a) install + activate the
+      `openid-connect-generic` plugin and write its option row pointing
+      at the operator-supplied Keycloak realm + client, (b) pre-seed
+      the SME admin WP user with the SSO email mapping.
+
+  This is a scratch chart — there is no first-party Helm chart for
+  WordPress (the upstream WordPress project ships only a Docker image at
+  `wordpress:6-php8.3-apache`). The `common` library subchart is
+  declared as a Helm dependency so the BLUEPRINT-AUTHORING.md hollow-
+  chart guard (issue #181) is satisfied; bp-newapi follows the same
+  pattern.
+
+  Pairs with bp-cnpg (Postgres), bp-keycloak (SME-vcluster IdP),
+  bp-reflector (Secret mirror), bp-cert-manager (ACME TLS).
+type: application
+keywords:
+  - catalyst
+  - blueprint
+  - wordpress
+  - cms
+  - sme
+  - tenant
+  - sso
+  - keycloak
+  - oidc
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — see comments in bp-newapi/chart/Chart.yaml for the
+# rationale on the `common` library subchart dependency (issue #181
+# hollow-chart gate).
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"
