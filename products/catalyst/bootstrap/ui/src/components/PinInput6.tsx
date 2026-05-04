@@ -191,20 +191,35 @@ export function PinInput6({
     [digits, setDigitAt, focusBox, onComplete],
   )
 
+  // Paste handler — fan out a multi-digit clipboard payload across all
+  // 6 boxes regardless of which box was the paste target. We do this in
+  // ONE place (here on each input) instead of dual per-box + wrapper
+  // handlers because the dual approach raced: the per-box handler's
+  // preventDefault prevented the native paste, AND the bubbled
+  // wrapper-level handler ran on the same event, both calling
+  // setDigits — non-deterministic merge order in React 18 batched
+  // updates left some boxes empty.
+  //
+  // Single path: per-box handler reads the clipboard text, fans out to
+  // the digits array starting at the paste index, calls preventDefault
+  // so the native paste doesn't ALSO write to the input. onChange is
+  // unchanged and still handles single-character typing.
   const handlePaste = useCallback(
-    (_index: number) => (e: ClipboardEvent<HTMLInputElement>) => {
-      e.preventDefault()
+    (index: number) => (e: ClipboardEvent<HTMLInputElement>) => {
       const text = e.clipboardData.getData('text')
-      const cleaned = extractDigits(text).slice(0, N)
+      const cleaned = extractDigits(text)
       if (cleaned.length === 0) return
-      setDigits(() => {
-        const next = Array<string>(N).fill('')
-        for (let i = 0; i < cleaned.length; i += 1) {
-          next[i] = cleaned.charAt(i)
+      e.preventDefault()
+      setDigits((prev) => {
+        const next = prev.slice()
+        let i = index
+        for (const d of cleaned.slice(0, N - index).split('')) {
+          if (i >= N) break
+          next[i] = d
+          i += 1
         }
-        // Focus the last box that got a digit, or the next empty.
-        const last = Math.min(cleaned.length, N) - 1
-        queueMicrotask(() => focusBox(Math.min(last + (cleaned.length < N ? 1 : 0), N - 1)))
+        const target = Math.min(i, N - 1)
+        queueMicrotask(() => focusBox(target))
         return next
       })
     },
@@ -222,34 +237,12 @@ export function PinInput6({
     [],
   )
 
-  // Wrapper-level paste handler — fires when the user pastes anywhere
-  // inside the row, including the gaps between boxes. Same fan-out
-  // logic as the per-input handler.
-  const handleWrapperPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
-    const text = e.clipboardData.getData('text')
-    const cleaned = extractDigits(text).slice(0, N)
-    if (cleaned.length === 0) return
-    e.preventDefault()
-    setDigits(() => {
-      const next = Array<string>(N).fill('')
-      for (let i = 0; i < cleaned.length; i += 1) {
-        next[i] = cleaned.charAt(i)
-      }
-      const last = Math.min(cleaned.length, N) - 1
-      queueMicrotask(() =>
-        focusBox(Math.min(last + (cleaned.length < N ? 1 : 0), N - 1)),
-      )
-      return next
-    })
-  }, [focusBox])
-
   return (
     <div
       role="group"
       aria-label="Sign-in code"
       className="flex items-center justify-center gap-2.5 sm:gap-3"
       data-testid={testId}
-      onPaste={handleWrapperPaste}
     >
       {Array.from({ length: N }).map((_, i) => {
         const filled = digits[i] !== ''
