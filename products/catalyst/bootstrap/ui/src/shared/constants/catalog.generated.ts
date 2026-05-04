@@ -878,17 +878,17 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 35
   },
   {
-    "id": "bp-cluster-autoscaler",
-    "slug": "cluster-autoscaler",
-    "label": "cluster-autoscaler",
-    "file": "40-cluster-autoscaler.yaml",
-    "order": 40
-  },
-  {
     "id": "bp-bp-cert-manager-powerdns-webhook",
     "slug": "bp-cert-manager-powerdns-webhook",
     "label": "bp-cert-manager-powerdns-webhook",
     "file": "49-bp-cert-manager-powerdns-webhook.yaml",
     "order": 49
+  },
+  {
+    "id": "bp-cluster-autoscaler",
+    "slug": "cluster-autoscaler",
+    "label": "cluster-autoscaler",
+    "file": "50-cluster-autoscaler.yaml",
+    "order": 50
   }
 ] as const
