@@ -94,7 +94,12 @@ spec:
       # canonical Harbor adapter name for GHCR proxy-cache, per Harbor
       # 2.x docs). Caught live otech103 — Harbor 500 "adapter factory
       # for github not found".
-      version: 0.1.6
+      # 0.1.7: proxy-quay registryType "quay" → "docker-registry" —
+      # Harbor's "quay" adapter rejects project metadata.proxy_cache
+      # with HTTP 400. Quay speaks plain v2 so generic docker-registry
+      # is correct. Caught live otech103 — 4/7 proxy-cache projects
+      # were created OK, blocked at proxy-quay.
+      version: 0.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
