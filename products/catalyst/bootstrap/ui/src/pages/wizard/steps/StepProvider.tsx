@@ -360,8 +360,12 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
      Per-provider defaults: CPX32 (hetzner), c7n.xlarge.2 (huawei),
      VM.Standard.E5.Flex.2.16 (oci), m6i.xlarge (aws), Standard_D4s_v5
      (azure) — each provider's recommended:true SKU from PROVIDER_NODE_SIZES.
-     Worker count starts at 0 (solo mode) — the operator bumps it explicitly
-     to add workers. */
+
+     Worker count default 2 — restores the horizontal-scale agreement
+     (issue #733): every Sovereign provisioned through the wizard lands
+     with a TRULY multi-node cluster (1 CP + 2 workers) so the operator
+     sees a real fault-tolerant topology from day one. Operators can
+     dial it back to 0 explicitly for solo dev/POC. */
   useEffect(() => {
     if (Object.keys(store.regionProviders).length > 0) return
     const provider = hint?.provider ?? PROVIDERS[0].id
@@ -374,7 +378,7 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
       const cp = defaultNodeSizeId(provider)
       store.setRegionControlPlaneSize(i, cp)
       store.setRegionWorkerSize(i, cp)
-      store.setRegionWorkerCount(i, 0)
+      store.setRegionWorkerCount(i, 2)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -400,7 +404,11 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
     const cp = defaultNodeSizeId(provider)
     store.setRegionControlPlaneSize(i, cp)
     store.setRegionWorkerSize(i, cp)
-    store.setRegionWorkerCount(i, 0)
+    // Default worker count = 2 (issue #733) — same rationale as the
+    // first-visit useEffect above: every fresh provider selection lands
+    // a horizontal-scale 1 CP + 2 worker topology. Operators dial to 0
+    // explicitly for solo.
+    store.setRegionWorkerCount(i, 2)
   }
 
   /* Total estimated cost across all regions — each at its OWN provider's

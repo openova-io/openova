@@ -344,6 +344,30 @@ resource "hcloud_load_balancer_target" "control_plane" {
   depends_on = [hcloud_load_balancer_network.main]
 }
 
+# ── LB targets: workers ────────────────────────────────────────────────
+# Cilium Gateway runs as a DaemonSet on every node
+# (clusters/_template/sovereign-tls/cilium-gateway.yaml), so any node can
+# serve ingress traffic on its NodePort. Adding workers as LB targets
+# gives the Hetzner LB N+1 healthy endpoints (1 CP + N workers) for the
+# public 80/443/53 services — node failure on any single node no longer
+# breaks the front door, and inbound traffic is round-robin'd across
+# every node for genuine horizontal scale (issue #733). use_private_ip
+# routes through the 10.0.1.0/24 subnet; the worker's public IP is not
+# used for this path. Worker count > 0 means at least one extra LB
+# endpoint; worker_count=0 (solo dev/POC) leaves only the CP target.
+resource "hcloud_load_balancer_target" "workers" {
+  count            = var.worker_count
+  type             = "server"
+  load_balancer_id = hcloud_load_balancer.main.id
+  server_id        = hcloud_server.worker[count.index].id
+  use_private_ip   = true
+
+  depends_on = [
+    hcloud_load_balancer_network.main,
+    hcloud_server.worker,
+  ]
+}
+
 resource "hcloud_load_balancer_service" "http" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"

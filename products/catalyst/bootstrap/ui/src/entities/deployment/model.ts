@@ -468,7 +468,11 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // controlPlaneSize / workerSize default to '' so a first-load that
   // hasn't visited StepProvider yet doesn't synthesize a hetzner-only
   // literal that won't pass validation against a non-hetzner provider.
-  regions: [], controlPlaneSize: '', workerSize: '', workerCount: 0,
+  // workerCount defaults to 2 so the first-time operator lands a
+  // 1×CP + 2×worker multi-node Sovereign — restores the horizontal-
+  // scale agreement (issue #733). Operators can dial it back to 0
+  // explicitly for solo dev/POC topologies.
+  regions: [], controlPlaneSize: '', workerSize: '', workerCount: 2,
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
   // Marketplace mode (issue #710 wave 3a) — opt-in. Defaults off so a
   // first-run wizard provisions a private Sovereign; the operator can

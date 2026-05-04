@@ -80,14 +80,20 @@ variable "control_plane_size" {
   description = <<-EOT
     Hetzner server type for the control plane node.
 
-    Default cx42 (16 GB / 8 vCPU) is the SMALLEST viable size for a solo
-    Sovereign per docs/PLATFORM-TECH-STACK.md §7.1: ~11.3 GB Catalyst
-    control-plane RAM + ~8.8 GB per-host-cluster overhead = ~20 GB
-    minimum. cx32 (8 GB) is INSUFFICIENT and will OOM during the bootstrap
-    kit install. See infra/hetzner/README.md §"Sizing rationale" for the
-    full breakdown and the upgrade path to cax41/ccx33 for production.
+    Default cpx32 (4 vCPU / 8 GB AMD shared) is the canonical horizontal-
+    scale Sovereign default: 1× CPX32 control plane + N× CPX32 workers
+    (default N=2) gives the operator 12 vCPU / 24 GB across 3 nodes from
+    day one — same aggregate footprint as a CPX52 vertical-scale single
+    node, but with real multi-node fault tolerance and the architectural
+    shape `clusters/_template/` was designed for. Restoring this is
+    issue #733 — the previous cx42 single-node default discarded the
+    horizontal-scale agreement.
+
+    Operators can still pick CPX52 for solo dev/POC topologies (then set
+    worker_count=0 explicitly) or larger SKUs (cax41/ccx33) for
+    production-grade dedicated-vCPU control planes.
   EOT
-  default     = "cx42"
+  default     = "cpx32"
   validation {
     # Accepted families per Hetzner Cloud (https://www.hetzner.com/cloud/):
     #   cx*   — shared-vCPU Intel
@@ -107,13 +113,15 @@ variable "worker_size" {
   description = <<-EOT
     Hetzner server type for worker nodes.
 
-    Default cx32 (8 GB / 4 vCPU). Workers run only application Blueprints
-    and per-host-cluster infra (~8.8 GB nominal, but per-host overhead
-    is amortised across nodes once you have 3+ workers). Solo Sovereigns
-    use worker_count=0 and run all workloads on the control plane —
-    in that mode this variable is unused.
+    Default cpx32 (4 vCPU / 8 GB AMD shared) — matches the control-plane
+    SKU so the cluster is symmetric (any workload reschedulable across
+    any node). Workers run only application Blueprints and per-host
+    infra; per-host overhead is amortised across nodes once you have
+    2+ workers. Solo Sovereigns set worker_count=0 explicitly and run
+    all workloads on the control plane — in that mode this variable
+    is unused.
   EOT
-  default     = "cx32"
+  default     = "cpx32"
   validation {
     # Empty string is valid — solo Sovereigns set worker_count = 0 and
     # never read worker_size; the wizard surfaces the empty-SKU state as
@@ -126,8 +134,21 @@ variable "worker_size" {
 
 variable "worker_count" {
   type        = number
-  description = "Number of worker nodes. 0 = single-node solo Sovereign (control plane handles all workloads)."
-  default     = 0
+  description = <<-EOT
+    Number of worker nodes joined to the k3s control plane.
+
+    Default 2 — restores the horizontal-scale agreement (issue #733):
+    every Sovereign should land with at least 1 CP + 2 workers so the
+    operator sees a TRULY multi-node cluster from handover. Workloads
+    requiring `replicas: 2` (catalyst-api, catalyst-ui, marketplace-api)
+    can spread across nodes; node failure no longer takes the whole
+    Sovereign down.
+
+    0 = single-node solo Sovereign (control plane handles all workloads;
+    used for dev/POC). Operators opt into solo mode explicitly via the
+    wizard's worker count picker.
+  EOT
+  default     = 2
   validation {
     condition     = var.worker_count >= 0 && var.worker_count <= 50
     error_message = "Worker count must be between 0 and 50."
