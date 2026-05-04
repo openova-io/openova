@@ -1,6 +1,6 @@
 # Inviolable Principles
 
-**Status:** Authoritative. Non-negotiable. **Updated:** 2026-04-28.
+**Status:** Authoritative. Non-negotiable. **Updated:** 2026-05-04.
 
 This document records the principles that **cannot be compromised** during Catalyst development, regardless of context budget, time pressure, perceived complexity, or session-internal judgment about feasibility. Each entry exists because it has been violated at least once and the violation cost real time, real tokens, or real architectural integrity.
 
@@ -147,6 +147,22 @@ If your in-context reasoning says "I should compromise principle N for reason R"
 2. Stop and ask the user explicitly, before shipping anything that violates a principle
 
 The principles have been violated by past sessions in moments of pressure. Each violation cost real time and real trust. The accumulated cost is why this file exists. Do not add to it.
+
+---
+
+## 11. Sovereigns must be independent of openova-io after handover
+
+A franchised Sovereign cannot be operationally tethered to the OpenOva mothership after handover. The whole franchise model collapses if every customer cluster keeps pulling images through `harbor.openova.io`, reconciling Flux from `github.com/openova-io/openova`, fetching HelmRepositories from `oci://ghcr.io/openova-io`, or carrying `catalyst-api` env defaults that fall back to OpenOva-owned URLs. A customer that retains those tethers is hosting an OpenOva replica, not running their own Sovereign — and we cannot truthfully market it as franchised.
+
+**Trigger phrase that means you're about to violate this:** "for now, the Sovereign can keep using `harbor.openova.io`" → STOP. Same for "for now, Flux can stay pointed at `github.com/openova-io/openova`," "we'll mirror to local Gitea later," or "the helm-repo URLs can be swapped in a follow-up." Every one of those is a compromise that turns a franchise into a managed replica.
+
+**The only acceptable temporary tether is the cold-start window.** During Phase 0 + Phase 1 provisioning, routing image pulls through the mothership Harbor proxy is acceptable (and intentional) — it absorbs docker.io's 100-pull/6h anonymous rate limit, which would otherwise produce flaky `ImagePullBackOff` failures during the 10–30 minute provisioning window. That cold-start tether is the only sanctioned exception.
+
+**How:** Every Sovereign runs `bp-self-sovereign-cutover` after handover. The chart is installed dormant at bootstrap-kit slot 06a during Phase 1 and triggered post-handover by the operator's "Achieve True Sovereignty" button (or by `catalyst-api` auto-fire on first login if explicitly enabled per-customer). Eight sequential Jobs pivot the eight tethers in dependency order; the final step is a 10-minute deny-egress NetworkPolicy hold against `github.com`, `ghcr.io`, and `harbor.openova.io` — **the only condition under which `cutoverComplete=true` is set is that the cluster reconciles green during this hold.** No cutover claim without the egress-block proof.
+
+The full architecture, alternatives considered, and consequences are in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The eight-tether map is in `ARCHITECTURE.md` §11.1 (the Phase-2 Self-Sovereignty Cutover subsection of Catalyst-on-Catalyst). Implementation is split across issues #790 (umbrella), #791 (chart), #792 (API), #793 (UI), #794 (this docs set).
+
+If a future ticket, agent, or operator session tries to ship a Sovereign without the cutover wired up, that ticket is wrong by definition until it is amended to comply. There is no "Sovereign-lite" tier where independence is optional.
 
 ---
 
