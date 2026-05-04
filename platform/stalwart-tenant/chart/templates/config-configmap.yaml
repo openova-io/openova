@@ -1,0 +1,134 @@
+{{- /*
+Stalwart bootstrap config.toml — applied when RocksDB is empty (first
+install). Subsequent runtime config edits via webadmin / stalwart-cli are
+persisted in RocksDB and NOT reflected back to this ConfigMap (per the
+contabo-mkt apps/stalwart pattern + stalwart_expression_syntax.md memory).
+
+Stalwart expression-language gotcha (incident 2026-04-14): equality
+matchers MUST use `==` not `=`. A single `=` is assignment and silently
+never matches — see stalwart_expression_syntax.md. Every comparison in
+this template uses `==`.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-stalwart-tenant.configMapName" . }}
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+data:
+  config.toml: |
+    [server]
+    hostname = {{ include "bp-stalwart-tenant.webmailHost" . | quote }}
+
+    [server.listener.smtp]
+    bind = ["0.0.0.0:25"]
+    protocol = "smtp"
+
+    [server.listener.submission]
+    bind = ["0.0.0.0:587"]
+    protocol = "smtp"
+    tls.implicit = false
+
+    [server.listener.submissions]
+    bind = ["0.0.0.0:465"]
+    protocol = "smtp"
+    tls.implicit = true
+
+    [server.listener.imap]
+    bind = ["0.0.0.0:143"]
+    protocol = "imap"
+    tls.implicit = false
+
+    [server.listener.imaps]
+    bind = ["0.0.0.0:993"]
+    protocol = "imap"
+    tls.implicit = true
+
+    [server.listener.https]
+    bind = ["0.0.0.0:8443"]
+    protocol = "http"
+    tls.implicit = true
+
+    [server.listener.http]
+    bind = ["0.0.0.0:8080"]
+    protocol = "http"
+    tls.implicit = false
+
+    [certificate.default]
+    cert = "%{file:/etc/stalwart/tls/tls.crt}%"
+    private-key = "%{file:/etc/stalwart/tls/tls.key}%"
+
+    [storage]
+    data = "rocksdb"
+    blob = "rocksdb"
+    fts = "rocksdb"
+    lookup = "rocksdb"
+    directory = "internal"
+
+    [store.rocksdb]
+    type = "rocksdb"
+    path = "/opt/stalwart/data"
+
+    [directory.internal]
+    type = "internal"
+    store = "rocksdb"
+
+    # ─── OIDC against SME-vcluster Keycloak ─────────────────────────────
+    # Stalwart's webmail authenticates users via OpenID Connect against
+    # the SME's per-vcluster Keycloak realm. The clientID is registered
+    # at vcluster provisioning time (#804); the client secret is mounted
+    # from the OIDC secret at runtime.
+    [directory.keycloak]
+    type = "oidc"
+    url = {{ .Values.keycloak.realmURL | quote }}
+    client-id = {{ .Values.keycloak.clientID | quote }}
+    client-secret = "%{env:OIDC_CLIENT_SECRET}%"
+    scopes = [{{- range $i, $s := .Values.keycloak.scopes }}{{ if $i }}, {{ end }}{{ $s | quote }}{{- end }}]
+    # Map Keycloak claims to Stalwart principal fields. `email_verified`
+    # is required to short-circuit the Stalwart account-creation flow on
+    # first login (otherwise Stalwart would prompt for password setup).
+    fields.email = "email"
+    fields.name = "name"
+    fields.username = "preferred_username"
+
+    [auth.dkim]
+    sign = [{if = "is_local_domain('*')", then = true}, {else = false}]
+
+    [signature.dkim]
+    domain = {{ .Values.domain.primary | quote }}
+    selector = {{ .Values.dns.dkim.selector | quote }}
+    algorithm = {{ .Values.dns.dkim.algorithm | quote }}
+    canonicalization = "relaxed/relaxed"
+    set-body-length = false
+    report = true
+
+    # Per-recipient-domain TLS — default profile only at install time;
+    # the operator may add per-domain overrides via webadmin runtime
+    # config (NOT this bootstrap configmap). Stalwart expression syntax
+    # requires `==` (comparison), not `=` (assignment) — a single `=`
+    # silently never matches (incident 2026-04-14, openova.io/huawei.com).
+    [tls.default]
+    allow-invalid-certs = false
+    description = "Default TLS settings"
+
+    [[queue.outbound.tls]]
+    else = "'default'"
+
+    # Inbound spam filtering. Per ~/.claude/projects/-home-openova-repos-
+    # openova-private/memory/feedback_no_spam_filtering.md and the
+    # founder directive on the shared openova.io Stalwart, NEVER reject
+    # inbound mail on spam scoring — accept everything, filter at the
+    # client. Per-tenant deployments inherit the same posture by default;
+    # individual SMEs may opt in via webadmin (NOT this configmap).
+    [spam-filter]
+    enable = false
+
+    [spam-filter.score]
+    spam = 999.0
+    reject = 999.0
+    discard = 9999.0
+
+    # Local domains — the SME's primary domain (and any aliases the
+    # operator adds via webadmin runtime).
+    [config.local-domain]
+    {{ printf "%q" .Values.domain.primary }} = true

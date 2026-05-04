@@ -1,0 +1,97 @@
+{{- /*
+NetworkPolicy — default-deny posture at the namespace level (per ADR-0001
+multi-tenant isolation). Explicit allows only.
+
+INGRESS:
+  - SMTP/IMAP from anywhere (mail traffic on the public LoadBalancer)
+  - Webmail/JMAP only from the gateway namespace (Cilium Gateway is in
+    kube-system in the bootstrap-kit; configurable via
+    .Values.networkPolicy.ingress.fromGatewayNamespaceLabels)
+
+EGRESS:
+  - bp-keycloak (OIDC discovery + token endpoint)
+  - bp-nats-jetstream (mailbox-provisioner subscriber, when enabled)
+  - PowerDNS otech-level (DKIM/SPF/DMARC publishing in free-subdomain mode)
+  - DNS resolution
+  - Outbound SMTP to anywhere (port 25) for mail delivery — public
+    internet egress is enforced by the cluster egress gateway, not by
+    this NetworkPolicy.
+*/}}
+{{- if and .Values.stalwart.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # SMTP/IMAP — public mail traffic; allow from anywhere.
+    - ports:
+        - port: 25
+          protocol: TCP
+        - port: 587
+          protocol: TCP
+        - port: 465
+          protocol: TCP
+        - port: 993
+          protocol: TCP
+        - port: 143
+          protocol: TCP
+    # Webmail / JMAP — only from the gateway namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingress.fromGatewayNamespaceLabels | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+  egress:
+    # In-cluster service egress.
+    {{- range .Values.networkPolicy.egress }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespaceLabel }}
+      ports:
+        - port: {{ .port }}
+          protocol: TCP
+    {{- end }}
+    # DNS resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Outbound SMTP to anywhere (mail delivery). Cluster egress gateway
+    # enforces destination policy.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 25
+          protocol: TCP
+        - port: 587
+          protocol: TCP
+        - port: 465
+          protocol: TCP
+        # HTTPS for PowerDNS API + OIDC redirect callbacks.
+        - port: 443
+          protocol: TCP
+{{- end }}

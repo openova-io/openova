@@ -1,0 +1,83 @@
+{{- /*
+Webmail HTTP exposure. Two modes (operator chooses via
+.Values.ingress.webmail.mode):
+
+  1. "gateway" (DEFAULT) — Cilium Gateway API HTTPRoute. parentRef the
+     per-Sovereign cilium-gateway in kube-system (ADR-0001 +
+     bp-keycloak/templates/httproute.yaml pattern). TLS terminates at
+     the gateway via the gateway's wildcard cert.
+
+  2. "ingress" — networking.k8s.io/v1 Ingress. Useful in sandbox/k3s
+     setups where the Cilium Gateway is not yet provisioned. Pairs with
+     a cert-manager Certificate (rendered alongside).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 the host is composed from
+domain.primary by default; operator overlay may override.
+*/}}
+{{- if .Values.stalwart.enabled }}
+{{- $host := include "bp-stalwart-tenant.webmailHost" . -}}
+{{- $svc := printf "%s-web" (include "bp-stalwart-tenant.fullname" .) -}}
+{{- $port := .Values.service.web.ports.http -}}
+{{- /* Skip if host is empty (smoke-render-safe per default values). */ -}}
+{{- if $host }}
+
+{{- if eq .Values.ingress.webmail.mode "gateway" }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-webmail
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.webmail.parentRef.name | quote }}
+      namespace: {{ .Values.ingress.webmail.parentRef.namespace | quote }}
+      {{- with .Values.ingress.webmail.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.ingress.webmail.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ $svc | quote }}
+          port: {{ $port }}
+{{- else if eq .Values.ingress.webmail.mode "ingress" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-webmail
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.webmail.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.webmail.tls.issuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.webmail.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.webmail.ingressClassName | quote }}
+  {{- if .Values.ingress.webmail.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ .Values.ingress.webmail.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.webmail.path | default "/" | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc | quote }}
+                port:
+                  number: {{ $port }}
+{{- end }}
+{{- end }}
+{{- end }}
