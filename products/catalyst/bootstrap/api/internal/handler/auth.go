@@ -640,11 +640,27 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 //
 //	{kc-addr}/realms/{realm}/protocol/openid-connect/logout?
 //	  client_id=<catalyst-zero-ui>
-//	  &post_logout_redirect_uri=<console-origin>/login
+//	  &post_logout_redirect_uri=<console-origin><post-logout-path>
 //
 // post_logout_redirect_uri MUST be in the catalyst-zero-ui client's
-// `validRedirectUris` (set by the realm import) — bp-keycloak's realm
-// JSON includes `https://console.<sov>/*` so /login is covered.
+// `validRedirectUris` (set by the realm import).
+//
+// Path resolution (issue #721 followup, 2026-05-04):
+//   - Catalyst-Zero (contabo): catalyst-ui is mounted under /sovereign/*
+//     by Traefik (ingress `console-openova-tls` only proxies /sovereign/*
+//     to the UI, not /). So /login on the bare host returns 404 from
+//     the upstream Traefik. The correct post-logout target is
+//     /sovereign/login.
+//   - Sovereign clusters: catalyst-ui is mounted at root (the Cilium
+//     Gateway HTTPRoute routes / → catalyst-ui). The correct post-
+//     logout target is /login.
+//
+// Resolved by deriving from the existing CATALYST_POST_AUTH_REDIRECT
+// env var (already set per environment to /sovereign/wizard on
+// contabo, /wizard on Sovereigns): take its directory and append
+// /login. Falls back to /sovereign/login (the contabo default) when
+// the env var is unset, so the local-dev path (no ingress prefix)
+// can override via CATALYST_KC_POST_LOGOUT_PATH.
 func buildKeycloakLogoutURL(r *http.Request) string {
 	kcAddr := strings.TrimRight(os.Getenv("CATALYST_KC_ADDR"), "/")
 	if kcAddr == "" {
@@ -666,11 +682,37 @@ func buildKeycloakLogoutURL(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
 		host = fwd
 	}
-	postLogout := scheme + "://" + host + "/login"
+	postLogout := scheme + "://" + host + resolvePostLogoutPath()
 	q := url.Values{}
 	q.Set("client_id", clientID)
 	q.Set("post_logout_redirect_uri", postLogout)
 	return kcAddr + "/realms/" + realm + "/protocol/openid-connect/logout?" + q.Encode()
+}
+
+// resolvePostLogoutPath picks the correct path to redirect operators
+// back to after KC RP-initiated logout. See buildKeycloakLogoutURL for
+// the contabo-vs-Sovereign rationale.
+func resolvePostLogoutPath() string {
+	// Explicit override wins — useful for local dev or unusual ingress
+	// shapes (an operator running catalyst-ui on a different prefix).
+	if explicit := strings.TrimSpace(os.Getenv("CATALYST_KC_POST_LOGOUT_PATH")); explicit != "" {
+		return explicit
+	}
+	// Derive from the post-AUTH redirect already configured for this
+	// catalyst-api (the same path prefix applies — wizard and login are
+	// sibling routes inside the SPA).
+	if postAuth := strings.TrimSpace(os.Getenv("CATALYST_POST_AUTH_REDIRECT")); postAuth != "" {
+		// e.g. "/sovereign/wizard" → "/sovereign/login", "/wizard" → "/login"
+		idx := strings.LastIndex(postAuth, "/")
+		if idx > 0 {
+			return postAuth[:idx] + "/login"
+		}
+		// "/wizard" (no parent dir): drop the segment, fall back to /login
+		return "/login"
+	}
+	// Final fallback: the current production shape on contabo. Better
+	// to land on the Catalyst-Zero login screen by default than 404.
+	return "/sovereign/login"
 }
 
 // HandleWhoami handles GET /api/v1/whoami.
