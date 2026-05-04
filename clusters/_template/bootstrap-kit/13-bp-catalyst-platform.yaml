@@ -65,7 +65,9 @@ spec:
       # `parentZones` is empty (legacy single-zone Sovereign) the chart
       # falls back to a single Certificate covering `*.<sovereignFQDN>`
       # so existing provisioning paths keep working.
-      version: 1.4.0
+      # 1.4.1 (PR #839): RBAC dual-mode render fix (Helm + Kustomize).
+      # 1.4.2 (PR #841): POWERDNS env literal (no envsubst-mid-render).
+      version: 1.4.2
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -317,6 +317,14 @@ ingress:
     - "/v1/"
     - "/api/v1/"
     - "/api/status"
+  # Traefik Middleware (path allowlist) is OFF by default. Sovereigns run
+  # Cilium Gateway API which does not register the traefik.io/v1alpha1
+  # Middleware CRD; rendering this resource on a Cilium Sovereign causes
+  # a hard "no matches for kind Middleware" install failure. Enable only
+  # on contabo-style Traefik clusters; on Cilium Sovereigns, path-level
+  # locking down lives in the HTTPRoute layer (future work).
+  middleware:
+    enabled: false
   annotations: {}
 
 # ─── NetworkPolicy ───────────────────────────────────────────────────────

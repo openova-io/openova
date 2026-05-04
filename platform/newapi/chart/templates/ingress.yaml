@@ -18,11 +18,15 @@ smoke test, not by render-time fail.
 {{- $svcPort := .Values.service.port -}}
 {{- $apiHost := .Values.ingress.host -}}
 {{- $adminHost := .Values.ingress.adminHost -}}
+{{- if .Values.ingress.middleware.enabled }}
 ---
-# ─── Customer-facing API ingress ─────────────────────────────────────────
-# Locked-down: only the OpenAI-compatible API surface is reachable. The
-# upstream's React portal UI is denied — Catalyst is the customer
-# surface. Path allowlist is enforced via Traefik middleware.
+# ─── Customer-facing API ingress (Traefik Middleware allowlist) ──────────
+# Only rendered when running on a Traefik-Ingress cluster. Sovereigns use
+# Cilium Gateway API and don't have the traefik.io/v1alpha1 Middleware
+# CRD, so this entire resource is gated behind ingress.middleware.enabled
+# (default false). Path allowlist enforcement on Cilium Gateway is owned
+# by the HTTPRoute templates instead (see bp-self-sovereign-cutover for
+# the canonical pattern).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -38,6 +42,7 @@ spec:
       name: {{ $fullName }}
       port: {{ $svcPort }}
     query: "/notfound"
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
