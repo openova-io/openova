@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-gitea
-version: 1.2.3
+version: 1.2.4
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
@@ -9,6 +9,28 @@ description: |
   ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
   Helm renders both at install time. Catalyst-curated values flow into the
   upstream subchart under the `gitea:` key in values.yaml.
+
+  Bumped to 1.2.4 — Day-2 cutover gitea-admin-secret seam (issue #830
+  Bug 2, otech102 incident 2026-05-04). bp-self-sovereign-cutover Step 1
+  (gitea-mirror) was stuck in CreateContainerConfigError with
+  `secret "gitea-admin-secret" not found` because no chart materialised
+  the canonical `username` + `password`-keyed admin Secret the cutover
+  PodSpec was authored against. Worse, the upstream gitea chart fell
+  through to its hardcoded default password `r8sA8CPHD9!bt6d` when no
+  `existingSecret` was set — every fresh Sovereign would have shipped
+  with the same admin credentials.
+  Fix: ship templates/admin-secret.yaml — a Catalyst-curated Secret
+  named `gitea-admin-secret` with `username` (default `gitea_admin`) and
+  `password` (32-char random alphanumeric, generated on first install,
+  preserved across reconciles via Helm `lookup`). values.yaml wires
+  `gitea.gitea.admin.existingSecret: gitea-admin-secret` so the upstream
+  init container reads its admin creds from this Secret instead of the
+  hardcoded default. The same Secret is consumed by bp-self-sovereign-
+  cutover Step 1 — single source of truth on the Sovereign.
+  Resource-policy keep + lookup-based persistence guarantees the
+  password bytes are stable across `helm upgrade`, `helm rollback`,
+  Flux re-reconciliation, and even `helm uninstall + reinstall`.
+  2026-05-04.
 type: application
 keywords: [catalyst, blueprint, gitea]
 maintainers:

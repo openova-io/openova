@@ -28,6 +28,22 @@ gitea:
     admin:
       username: gitea_admin
       email: gitea-admin@catalyst.local
+      # existingSecret — point the upstream chart at the Catalyst-curated
+      # `gitea-admin-secret` (templates/admin-secret.yaml). The upstream
+      # chart reads `username` + `password` keys from this Secret to seed
+      # the admin user (init.yaml's `gitea admin user create`).
+      #
+      # Without this, the upstream chart falls back to its baked-in default
+      # password `r8sA8CPHD9!bt6d` on values:gitea.gitea.admin.password —
+      # every fresh Sovereign would ship the same admin credentials,
+      # which is a credential-hygiene catastrophe.
+      #
+      # The contract Secret shape (`username` + `password`) is also what
+      # bp-self-sovereign-cutover Step 1 (gitea-mirror) reads to push the
+      # upstream openova/openova mirror into the local Gitea (issue #830
+      # Bug 2). Sharing the contract here means there is exactly ONE
+      # source of truth for the admin credentials on the Sovereign.
+      existingSecret: gitea-admin-secret
     config:
       APP_NAME: Catalyst Gitea
       server:
@@ -88,6 +104,25 @@ gitea:
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:
     enabled: false
+
+# ─── Catalyst-curated admin Secret (issue #830 Bug 2) ────────────────────
+# Templated `gitea-admin-secret` lives in templates/admin-secret.yaml.
+# Created on first install with a randAlphaNum 32-char password; preserved
+# across reconciles via Helm `lookup`. Consumed by:
+#   - upstream gitea subchart via gitea.gitea.admin.existingSecret above
+#     (init container reads GITEA_ADMIN_USERNAME / GITEA_ADMIN_PASSWORD
+#     from this Secret to seed the Gitea admin user).
+#   - bp-self-sovereign-cutover Step 1 (gitea-mirror) via the per-step
+#     PodSpec ConfigMap (cutover-step-01-gitea-mirror) — the Job pushes
+#     the upstream openova/openova mirror into the local Gitea using
+#     these credentials.
+#
+# Per-Sovereign overrides are operationally meaningful only when the
+# operator has a documented reason to fork the username (default
+# gitea_admin matches the upstream chart's expected admin login).
+giteaAdmin:
+  secretName: "gitea-admin-secret"
+  username: "gitea_admin"
 
 # ─── CNPG-managed Postgres cluster for Gitea ──────────────────────────────
 # Per the Harbor pattern (templates/cnpg-cluster.yaml in bp-harbor), Gitea's
