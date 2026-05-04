@@ -193,6 +193,17 @@ type Handler struct {
 	// PINs are credentials and per docs/INVIOLABLE-PRINCIPLES.md #10 are
 	// NEVER persisted to disk — a Pod restart invalidates every code.
 	pinStore *pinStore
+
+	// ── Self-Sovereignty Cutover (issue #792) ───────────────────────────────
+	// cutoverBus — in-process broadcaster that fans cutover state-change
+	// events to every active SSE subscriber. Lazy-wired in cutoverBusFor();
+	// tests inject a deterministic instance via SetCutoverBroadcaster.
+	cutoverBus     *cutoverBroadcaster
+	cutoverBusOnce sync.Once
+	// cutoverDepsFactory — test-only override that builds the in-cluster
+	// kubernetes.Interface + namespace pair the cutover engine reads
+	// from. Production leaves this nil and cutoverDepsFromEnv runs.
+	cutoverDepsFactory CutoverDepsFactory
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
