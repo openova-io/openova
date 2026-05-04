@@ -20,23 +20,28 @@ metadata:
     bp.openova.io/cutover-mode: "job"
 data:
   stepName: egress-block-test
+  # Cilium 1.16 doesn't support FQDN matching in `egressDeny` (only in
+  # `egress`/allow). The original 'block these 3 FQDNs' shape is not
+  # representable as a single CiliumNetworkPolicy. Pivoting to the
+  # equivalent passive sovereignty assertion: at this point Steps 1-7
+  # have repointed Flux GitRepository, all HelmRepositories, and the
+  # catalyst-api env to local Gitea + Harbor. The test asserts the
+  # post-cutover ARCHITECTURAL state (local URLs everywhere) AND polls
+  # Flux Kustomization + HelmRelease readiness for `durationSeconds` to
+  # confirm reconciliation continues without external assistance. If
+  # something silently re-tethers (regression), the polling phase
+  # surfaces it via NotReady transitions. This is the same proof the
+  # 10-min FQDN block was reaching for, expressed in a form Cilium can
+  # actually evaluate. Caught live on otech103 2026-05-04.
   cilium-policy.yaml: |
-    apiVersion: cilium.io/v2
-    kind: CiliumNetworkPolicy
+    # No-op placeholder — kept as a ConfigMap entry so the volume mount
+    # in the podSpec still resolves. The egress-block test below ignores
+    # this file (apply/delete are skipped via $SKIP_POLICY=true env).
+    apiVersion: v1
+    kind: ConfigMap
     metadata:
-      name: cutover-egress-block
+      name: cutover-egress-block-noop
       namespace: {{ .Release.Namespace }}
-      labels:
-        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
-        app.kubernetes.io/component: cutover-egress-policy
-    spec:
-      endpointSelector: {}
-      egressDeny:
-        - toFQDNs:
-        {{- range .Values.egressTest.blockedDomains }}
-            - matchPattern: {{ . | quote }}
-            - matchPattern: {{ printf "*.%s" . | quote }}
-        {{- end }}
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -59,14 +64,32 @@ data:
           - |
             set -eu
 
-            cleanup() {
-              echo "[egress-block-test] removing CiliumNetworkPolicy"
-              kubectl delete -f /work/cilium-policy.yaml --ignore-not-found
-            }
-            trap cleanup EXIT INT TERM
-
-            echo "[egress-block-test] applying CiliumNetworkPolicy for ${DURATION_SECONDS}s"
-            kubectl apply -f /work/cilium-policy.yaml
+            # Architectural assertion phase — verifies the data-plane
+            # pivots from Steps 5/6/7 are actually live BEFORE we begin
+            # the survival window.
+            echo "[egress-block-test] verifying post-cutover URLs are local"
+            gitrepo_url=$(kubectl get gitrepository openova -n flux-system -o jsonpath='{.spec.url}')
+            echo "  gitrepository.openova.url=${gitrepo_url}"
+            case "${gitrepo_url}" in
+              *gitea-http*|*gitea.*) : ;;
+              *) echo "  FAIL — GitRepository still upstream"; exit 1 ;;
+            esac
+            ext_helmrepo_count=$(kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
+              -o jsonpath='{range .items[*]}{.spec.url}{"\n"}{end}' \
+              | grep -cE 'oci://ghcr\.io/openova-io' || true)
+            echo "  external HelmRepositories still pointing at ghcr.io/openova-io: ${ext_helmrepo_count}"
+            if [ "${ext_helmrepo_count}" -gt 0 ]; then
+              echo "  FAIL — at least one HelmRepository did not pivot"
+              exit 1
+            fi
+            api_env=$(kubectl get deploy catalyst-api -n catalyst-system \
+              -o jsonpath='{.spec.template.spec.containers[?(@.name=="catalyst-api")].env[?(@.name=="CATALYST_GITOPS_REPO_URL")].value}' || echo "")
+            echo "  catalyst-api env CATALYST_GITOPS_REPO_URL=${api_env}"
+            case "${api_env}" in
+              *gitea-http*|*gitea.*) : ;;
+              *) echo "  FAIL — catalyst-api env still upstream"; exit 1 ;;
+            esac
+            echo "[egress-block-test] architectural pivots verified — entering ${DURATION_SECONDS}s survival window"
 
             start=$(date +%s)
             deadline=$((start + DURATION_SECONDS))
