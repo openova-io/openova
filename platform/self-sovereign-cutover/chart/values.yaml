@@ -36,7 +36,10 @@ sovereign:
   # (helmrepository-patches) rewrite to (since containerd + Flux
   # source-controller resolve through public DNS, not in-cluster
   # CoreDNS).
-  harborInternalURL: "http://harbor-harbor-core.harbor.svc.cluster.local"
+  # Service name on bp-harbor is `harbor-core` (NOT `harbor-harbor-core`)
+  # — caught live on otech103 2026-05-04. Verified via
+  # `kubectl get svc -n harbor` returns harbor-core ClusterIP.
+  harborInternalURL: "http://harbor-core.harbor.svc.cluster.local"
   # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
   harborPublicURL: "https://harbor.example.local"
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
