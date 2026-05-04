@@ -223,7 +223,11 @@ catalystAPI:
 images:
   kubectl:
     repository: "bitnami/kubectl"
-    tag: "1.31"
+    # bitnami doesn't tag with :1.31 (only :1.31.X — patch-level). Caught
+    # live on otech103 — DockerHub returned 404 'not found' for :1.31
+    # and Pod hit DeadlineExceeded after 10m of pull retries. Pinning to
+    # the latest .X release for the 1.31 minor.
+    tag: "1.31.4"
   git:
     repository: "alpine/git"
     tag: "v2.45.2"
