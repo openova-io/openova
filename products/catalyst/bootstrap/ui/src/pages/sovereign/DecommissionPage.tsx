@@ -1,5 +1,5 @@
 /**
- * DecommissionPage — Sovereign self-decommission surface (issue #319).
+ * DecommissionPage — Sovereign self-decommission surface (issue #319, #766).
  *
  * Reached from:
  *   • Catalyst-Zero ops shell:  /sovereign/decommission/$deploymentId
@@ -19,16 +19,43 @@
  * SSE-progress-rendering) is reused. The post-handover-specific delta
  * is the optional backup-destination selector and the copy.
  *
+ * Issue #766 — verbose live exec-log view during the wipe.
+ *
+ * Until #766 the page rendered a static "Decommissioning…" button label
+ * with no progress signal — operators thought the page was stuck while
+ * tofu destroy + the Hetzner orphan purge were running for 30+ minutes.
+ *
+ * The wipe handler in api/internal/handler/wipe.go ALREADY emits a per-
+ * resource SSE event stream on the same `dep.eventsCh` channel that
+ * provisioning uses, surfaced at GET /api/v1/deployments/{id}/logs.
+ * Every "tofu destroy" tick, every Hetzner DELETE response, every S3
+ * bucket purge step, every PDM release call, every local-state cleanup
+ * is already a discrete event with phase="wipe".
+ *
+ * The fix is purely UI — subscribe to the same SSE the wipe emits via
+ * useDeploymentEvents (no new endpoint, no protocol change), flatten
+ * every recorded event into a LogLine, and feed the unified LogPane
+ * (the same component /provision/<id> JobDetail uses for per-job logs).
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall — target shape on
+ * first commit): full streaming view ships in this PR, with the
+ * scrollback, search, full-screen toggle, and final-state summary all
+ * threaded through the existing LogPane primitives. No "for now we'll
+ * just show a spinner" intermediate.
+ *
  * Scope contract with #317 (do NOT touch handover.go): #317 owns the
  * write side of `adoptedAt` (set by the handover handler). #319 owns
  * the read side (the redirect in router.tsx + this page) plus the
  * decommission flow that drains the minimum-retention surface.
  */
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter, Link } from '@tanstack/react-router'
 import { API_BASE } from '@/shared/config/urls'
+import { LogPane } from '@/components/LogPane'
+import type { LogLevel, LogLine } from '@/components/ExecutionLogs'
 import { useDeploymentEvents } from './useDeploymentEvents'
+import type { DeploymentEvent } from './eventReducer'
 import type { WipeReport } from '@/components/CrudModals/WipeDeploymentModal'
 
 /**
@@ -57,16 +84,37 @@ export interface BackupDestination {
   }
 }
 
+/**
+ * Map a raw catalyst-api event level to the LogLine vocabulary the
+ * unified ExecutionLogs / LogPane components understand. The wipe
+ * handler emits "info" and "warn" today; "error" is reserved for
+ * future fatal cases.
+ */
+function levelOf(ev: DeploymentEvent): LogLevel {
+  switch (ev.level) {
+    case 'error':
+      return 'ERROR'
+    case 'warn':
+      return 'WARN'
+    case 'info':
+    default:
+      return 'INFO'
+  }
+}
+
+/**
+ * Auto-redirect countdown (seconds) after a successful decommission
+ * before the page navigates back to /wizard. Operators can click the
+ * "Provision a new Sovereign" button at any point to skip the wait.
+ *
+ * Per #4 (never hardcode), this is exported as a named constant the
+ * test suite can reference rather than inlining a magic number.
+ */
+export const DECOMMISSION_REDIRECT_SECONDS = 10
+
 export function DecommissionPage() {
   const { deploymentId } = useParams({ strict: false }) as { deploymentId: string }
   const router = useRouter()
-  const { snapshot } = useDeploymentEvents({
-    deploymentId,
-    applicationIds: [],
-    disableStream: true,
-  })
-  const sovereignFQDN =
-    snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? 'unknown'
 
   const [confirmText, setConfirmText] = useState('')
   const [hetznerToken, setHetznerToken] = useState('')
@@ -75,6 +123,63 @@ export function DecommissionPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<WipeReport | null>(null)
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null)
+
+  // Subscribe to the live event stream:
+  //
+  //   • Pre-submit  — disable the EventSource so the form view is
+  //                   inert (matches existing test expectations and
+  //                   avoids holding an SSE connection open while the
+  //                   operator types their FQDN confirmation).
+  //   • Post-submit — open the stream so every wipe event the API
+  //                   emits (tofu destroy, Hetzner orphan purge per
+  //                   resource, S3 bucket purge, PDM release, local
+  //                   state cleanup) flows through the reducer and
+  //                   into the LogPane below.
+  //
+  // The `snapshot.sovereignFQDN` is also surfaced from this hook for
+  // the typed-confirmation hint, irrespective of whether the stream
+  // is attached.
+  const streaming = busy || report !== null
+  const { state: streamState, snapshot } = useDeploymentEvents({
+    deploymentId,
+    applicationIds: [],
+    disableStream: !streaming,
+  })
+  const sovereignFQDN =
+    snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? 'unknown'
+
+  // Flatten every event the reducer routed into ANY bucket
+  // (eventsByTarget keyed by HETZNER_INFRA / CLUSTER_BOOTSTRAP / per-
+  // app), de-duplicate by identity, and order by timestamp. The wipe
+  // handler emits all events under phase="wipe" today which the
+  // reducer fall-throughs route to CLUSTER_BOOTSTRAP_KEY — the
+  // pageful flatten below collects every bucket so we never silently
+  // drop an event because of a future reducer rule change.
+  const wipeLogLines: LogLine[] = useMemo(() => {
+    const collected: DeploymentEvent[] = []
+    const seen = new Set<DeploymentEvent>()
+    const buckets = streamState?.eventsByTarget ?? {}
+    for (const arr of Object.values(buckets)) {
+      if (!Array.isArray(arr)) continue
+      for (const ev of arr) {
+        if (seen.has(ev)) continue
+        seen.add(ev)
+        collected.push(ev)
+      }
+    }
+    collected.sort((a, b) => {
+      const at = a.time ? Date.parse(a.time) : 0
+      const bt = b.time ? Date.parse(b.time) : 0
+      return at - bt
+    })
+    return collected.map<LogLine>((ev, idx) => ({
+      lineNumber: idx + 1,
+      timestamp: ev.time ?? new Date().toISOString(),
+      level: levelOf(ev),
+      message: ev.message ?? '',
+    }))
+  }, [streamState])
 
   const fqdnConfirmed = confirmText.trim() === sovereignFQDN
   const hetznerOK = hetznerToken.trim().length > 20
@@ -88,6 +193,23 @@ export function DecommissionPage() {
       !!backup.s3?.secretKey)
 
   const ready = fqdnConfirmed && hetznerOK && acceptedDataLoss && backupOK && !busy
+
+  // Auto-redirect countdown — fires when the wipe POST resolves with
+  // a final report, ticks once per second, navigates to /wizard at 0.
+  useEffect(() => {
+    if (!report) return
+    setRedirectCountdown(DECOMMISSION_REDIRECT_SECONDS)
+    let remaining = DECOMMISSION_REDIRECT_SECONDS
+    const interval = setInterval(() => {
+      remaining -= 1
+      setRedirectCountdown(remaining)
+      if (remaining <= 0) {
+        clearInterval(interval)
+        router.navigate({ to: '/wizard' })
+      }
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [report, router])
 
   async function performDecommission() {
     setBusy(true)
@@ -124,54 +246,151 @@ export function DecommissionPage() {
     }
   }
 
-  if (report) {
+  // Streaming exec-log view — rendered while the wipe is in flight or
+  // after it completed (so the operator can scroll back through every
+  // deletion). Built around the same LogPane component the unified
+  // /provision/<id> JobDetail surface uses; passes the live event log
+  // via fallbackLines (no per-execution row exists for the wipe).
+  if (streaming) {
+    const summary = renderHetznerSummary(report)
     return (
       <main
-        data-testid="decommission-success"
-        className="mx-auto max-w-2xl p-8 text-[var(--color-text)]"
+        data-testid="decommission-page-streaming"
+        className="mx-auto max-w-4xl p-8 text-[var(--color-text)]"
       >
-        <h1 className="text-2xl font-semibold">Sovereign decommissioned</h1>
-        <p className="mt-2 text-sm text-[var(--color-text-dim)]">
-          {report.sovereignFQDN} has been wiped. Hetzner resources removed:{' '}
-          {(report.hetznerPurge.servers?.length ?? 0)} servers,{' '}
-          {(report.hetznerPurge.load_balancers?.length ?? 0)} load balancers,{' '}
-          {(report.hetznerPurge.networks?.length ?? 0)} networks,{' '}
-          {(report.hetznerPurge.firewalls?.length ?? 0)} firewalls,{' '}
-          {(report.hetznerPurge.ssh_keys?.length ?? 0)} ssh-keys,{' '}
-          {(report.hetznerPurge.s3_buckets?.length ?? 0)} S3 buckets.
-          {(report.hetznerPurge.firewalls_retried ?? 0) > 0 ? (
-            <>
-              {' '}
-              <span>
-                ({report.hetznerPurge.firewalls_retried} firewall delete retr
-                {report.hetznerPurge.firewalls_retried === 1 ? 'y' : 'ies'} while
-                server detach completed)
-              </span>
-            </>
-          ) : null}
+        <header className="mb-4 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold" data-testid="decommission-streaming-title">
+            {report ? 'Sovereign decommissioned' : 'Decommissioning Sovereign'}
+          </h1>
+          <span
+            data-testid="decommission-streaming-fqdn"
+            className="rounded bg-[var(--color-bg-2)] px-2 py-0.5 font-mono text-xs"
+          >
+            {sovereignFQDN}
+          </span>
+          {report ? (
+            <span
+              data-testid="decommission-streaming-checkmark"
+              aria-label="Decommission complete"
+              className="inline-flex h-7 items-center gap-1 rounded-full border border-emerald-400/50 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-300"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                <path
+                  d="M3 7.5 L6 10.5 L11 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Complete
+            </span>
+          ) : (
+            <span
+              data-testid="decommission-streaming-spinner"
+              className="inline-flex h-7 items-center gap-2 rounded-full border border-sky-400/50 bg-sky-500/10 px-3 text-xs font-semibold text-sky-300"
+            >
+              <span
+                aria-hidden
+                className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-300"
+              />
+              Streaming
+            </span>
+          )}
+        </header>
+
+        <p className="text-sm text-[var(--color-text-dim)]">
+          {report
+            ? 'Every Hetzner resource, the PDM allocation, and the local deployment record have been removed. The full event log below is preserved for audit — scroll back through every deletion.'
+            : 'Live progress streamed from catalyst-api. Every tofu destroy step, every Hetzner resource DELETE, every S3 bucket purge, every PDM release, and every local cleanup step appears below as it happens.'}
         </p>
-        <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-          PDM allocation released: {report.pdmReleased ? 'yes' : 'n/a (BYO)'} ·
-          tofu destroy: {report.tofuDestroyed ? '✓' : '✗'} · local state cleaned: {report.localCleaned ? '✓' : '✗'}
-        </p>
-        {report.errors && report.errors.length > 0 ? (
+
+        {summary ? (
+          <pre
+            data-testid="decommission-streaming-summary"
+            className="mt-3 whitespace-pre-wrap rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 text-xs text-[var(--color-text)]"
+          >
+            {summary}
+          </pre>
+        ) : null}
+
+        {error ? (
+          <pre
+            data-testid="decommission-error"
+            className="mt-3 whitespace-pre-wrap rounded-md bg-[var(--color-bg-2)] p-3 text-xs text-rose-300"
+          >
+            {error}
+          </pre>
+        ) : null}
+
+        {report ? (
+          <div
+            className="mt-4 flex flex-wrap items-center gap-3"
+            data-testid="decommission-redirect-row"
+          >
+            <button
+              type="button"
+              onClick={() => router.navigate({ to: '/wizard' })}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-4 py-2 text-sm hover:border-[var(--color-accent)]"
+              data-testid="decommission-finish"
+            >
+              Provision a new Sovereign
+            </button>
+            <span
+              className="text-xs text-[var(--color-text-dim)]"
+              data-testid="decommission-countdown"
+            >
+              Returning to wizard in {Math.max(0, redirectCountdown ?? DECOMMISSION_REDIRECT_SECONDS)}s…
+            </span>
+          </div>
+        ) : null}
+
+        {/*
+          Unified LogPane — same component /provision/<id> uses for
+          per-job ExecutionLogs. We have no Bridge-allocated execution
+          row for the wipe, so we feed events through the
+          fallbackLines surface (Bug #481 path). The LogPane provides
+          search, full-screen toggle, scrollback, and the same dark/
+          light themed presentation as every other exec-log surface.
+        */}
+        <div data-testid="decommission-log-host" className="relative mt-6">
+          <LogPane
+            executionId={null}
+            fallbackLines={wipeLogLines}
+            jobTitle={`Decommission · ${sovereignFQDN}`}
+            statusLabel={report ? 'COMPLETE' : 'STREAMING'}
+            statusTone={report ? 'succeeded' : 'running'}
+            onClose={() => {
+              if (report) router.navigate({ to: '/wizard' })
+            }}
+          />
+        </div>
+
+        {report && report.errors && report.errors.length > 0 ? (
           <pre
             data-testid="decommission-errors"
-            className="mt-4 rounded-md bg-[var(--color-bg-2)] p-3 text-xs text-amber-300 whitespace-pre-wrap"
+            className="mt-4 whitespace-pre-wrap rounded-md bg-[var(--color-bg-2)] p-3 text-xs text-amber-300"
           >
             {report.errors.join('\n')}
           </pre>
         ) : null}
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => router.navigate({ to: '/wizard' })}
-            className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-4 py-2 text-sm hover:border-[var(--color-accent)]"
-            data-testid="decommission-finish"
+
+        {report ? (
+          <div
+            data-testid="decommission-success"
+            aria-hidden
+            style={{ display: 'none' }}
           >
-            Provision a new Sovereign
-          </button>
-        </div>
+            {/*
+              Hidden marker preserved for the existing test that
+              awaits `decommission-success` after submit. The visible
+              UI is the streaming layout above; this marker keeps the
+              contract with DecommissionPage.test.tsx without forking
+              two render paths.
+            */}
+          </div>
+        ) : null}
       </main>
     )
   }
@@ -365,4 +584,42 @@ export function DecommissionPage() {
       </div>
     </main>
   )
+}
+
+/**
+ * Render a one-line-per-resource-kind summary of the final wipe report,
+ * mirroring the founder-verbatim shape from issue #766:
+ *
+ *     Hetzner sweep complete:
+ *       servers:        0
+ *       load_balancers: 0
+ *       networks:       0
+ *       firewalls:      0
+ *       ssh_keys:       0
+ *       s3_buckets:     0
+ *
+ * Returns null until the wipe report has actually arrived, so callers
+ * can `if (summary)` without a separate flag.
+ */
+function renderHetznerSummary(report: WipeReport | null): string | null {
+  if (!report) return null
+  const purge = report.hetznerPurge
+  const lines = [
+    `Hetzner sweep complete for ${report.sovereignFQDN}:`,
+    `  servers:        ${(purge.servers?.length ?? 0)} removed`,
+    `  load_balancers: ${(purge.load_balancers?.length ?? 0)} removed`,
+    `  networks:       ${(purge.networks?.length ?? 0)} removed`,
+    `  firewalls:      ${(purge.firewalls?.length ?? 0)} removed`,
+    `  ssh_keys:       ${(purge.ssh_keys?.length ?? 0)} removed`,
+    `  s3_buckets:     ${(purge.s3_buckets?.length ?? 0)} removed`,
+    `tofu destroy: ${report.tofuDestroyed ? '✓' : '✗'}` +
+      ` · PDM released: ${report.pdmReleased ? '✓' : 'n/a (BYO)'}` +
+      ` · local state cleaned: ${report.localCleaned ? '✓' : '✗'}`,
+  ]
+  if (purge.firewalls_retried && purge.firewalls_retried > 0) {
+    lines.push(
+      `  (firewall delete retr${purge.firewalls_retried === 1 ? 'y' : 'ies'}: ${purge.firewalls_retried} while server detach completed)`,
+    )
+  }
+  return lines.join('\n')
 }
