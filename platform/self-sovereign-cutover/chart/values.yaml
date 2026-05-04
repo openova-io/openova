@@ -116,7 +116,12 @@ harbor:
       authMode: "anonymous"
     - name: "proxy-quay"
       upstreamURL: "https://quay.io"
-      registryType: "quay"
+      # docker-registry adapter — Harbor's "quay" type is internal/legacy
+      # and rejects project metadata.proxy_cache=true with HTTP 400
+      # "unsupported registry type quay". Quay speaks plain v2 so the
+      # generic docker-registry adapter is the right shape. Caught live
+      # on otech103 2026-05-04.
+      registryType: "docker-registry"
       authMode: "anonymous"
     - name: "proxy-xpkg"
       upstreamURL: "https://xpkg.upbound.io"
