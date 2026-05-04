@@ -88,7 +88,7 @@ func TestRecordMetering_HappyPath(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO credit_ledger")).
 		WithArgs("cust-uuid", int64(-234), "usage:newapi:qwen3-coder", "req-http-1", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "existed"}).AddRow("ledger-http-1", false))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(amount_omr) * 1000000")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000")).
 		WithArgs("cust-uuid").
 		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(-234)))
 	mock.ExpectCommit()
@@ -142,7 +142,7 @@ func TestRecordMetering_DuplicateReturns200WithFlag(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO credit_ledger")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "existed"}).AddRow("ledger-existing", true))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(amount_omr) * 1000000")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000")).
 		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(-234)))
 	mock.ExpectCommit()
 

@@ -67,7 +67,7 @@ func expectInsertReturning(mock sqlmock.Sqlmock, customerID, ledgerID string, mi
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO credit_ledger")).
 		WithArgs(customerID, micro, "usage:newapi:qwen3-coder", requestID, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "existed"}).AddRow(ledgerID, existed))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(amount_omr) * 1000000")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000")).
 		WithArgs(customerID).
 		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(balanceMicro))
 	mock.ExpectCommit()

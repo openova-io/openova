@@ -1030,10 +1030,17 @@ func (s *Store) RedeemPromoCode(ctx context.Context, customerID, code string) (i
 // reflect the running total of both shapes, so we project the micro-OMR
 // rows down to whole OMR with truncation toward zero (negative spends
 // stay negative). For accounting precision use GetCreditBalanceMicroOMR.
+//
+// The CAST(... AS BIGINT) wrapper is required because Postgres returns
+// SUM(int) + SUM(bigint)/integer as `numeric`, which lib/pq presents as
+// a `[]uint8` decimal string that does not Scan directly into int64.
+// Casting at the SQL layer keeps the Go scan target uniform across
+// pre-#798 rows (whose only column was amount_omr) and post-#798 rows.
 func (s *Store) GetCreditBalance(ctx context.Context, customerID string) (int, error) {
 	var balance sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_omr) + (SUM(amount_micro_omr) / 1000000), 0)
+		`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)
+		                + CAST(SUM(amount_micro_omr) / 1000000 AS BIGINT), 0)
 		 FROM credit_ledger WHERE customer_id = $1`,
 		customerID,
 	).Scan(&balance)
@@ -1050,10 +1057,13 @@ func (s *Store) GetCreditBalance(ctx context.Context, customerID string) (int, e
 // the synchronous HTTP handler returns as `balance_after_micro_omr` so
 // SME-admin pre-flight checks have full precision. Negative balances are
 // permitted (post-paid SME tier may be charged before top-up).
+//
+// CAST(... AS BIGINT) — see GetCreditBalance comment.
 func (s *Store) GetCreditBalanceMicroOMR(ctx context.Context, customerID string) (int64, error) {
 	var balance sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_omr) * 1000000 + SUM(amount_micro_omr), 0)
+		`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000
+		                + CAST(SUM(amount_micro_omr) AS BIGINT), 0)
 		 FROM credit_ledger WHERE customer_id = $1`,
 		customerID,
 	).Scan(&balance)
@@ -1174,9 +1184,12 @@ func (s *Store) RecordUsage(ctx context.Context, entry UsageEntry) (ledgerID str
 	// Sum the running balance INSIDE the same tx so concurrent writers see
 	// a consistent snapshot. Negative balances are permitted (post-paid SME
 	// tier; balance enforcement is a policy decision at a higher layer).
+	// CAST(... AS BIGINT) so lib/pq scans a Go int64 instead of a numeric
+	// string — see GetCreditBalanceMicroOMR.
 	var bal sql.NullInt64
 	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_omr) * 1000000 + SUM(amount_micro_omr), 0)
+		`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000
+		                + CAST(SUM(amount_micro_omr) AS BIGINT), 0)
 		 FROM credit_ledger WHERE customer_id = $1`,
 		entry.CustomerID,
 	).Scan(&bal)
