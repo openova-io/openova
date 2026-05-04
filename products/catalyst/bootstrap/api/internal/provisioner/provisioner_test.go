@@ -403,3 +403,97 @@ func TestRequest_ObjectStorageSecretKey_Serialized(t *testing.T) {
 		t.Fatalf("ObjectStorageSecretKey must serialise to wire (wizard payload depends on it):\n%s", raw)
 	}
 }
+
+// TestWriteTfvars_OmitsEmptySingularSizes proves writeTfvars does NOT emit
+// "control_plane_size": "" / "worker_size": "" when the legacy singular
+// fields are empty. An empty string in tofu.auto.tfvars.json overrides the
+// variables.tf default ("cpx21" / "cpx31") with "" — which fails the SKU
+// regex validator at `tofu plan`. Live failure surfaced on otech85
+// (DID a3c32a2b82758007, 2026-05-04 11:04:27Z) when the autopilot launched
+// the cost-optimized-defaults verification cycle without per-request
+// SKU overrides.
+func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	// Zero-override request: every singular SKU field empty, WorkerCount
+	// set explicitly to 2 (the wizard default). Every required identity
+	// + secret field populated so writeTfvars can run.
+	req := Request{
+		SovereignFQDN:    "otech85.omani.works",
+		OrgName:          "Acme",
+		OrgEmail:         "ops@acme.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		// ControlPlaneSize / WorkerSize intentionally empty.
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read tfvars: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse tfvars: %v", err)
+	}
+	if _, ok := parsed["control_plane_size"]; ok {
+		t.Fatalf("control_plane_size MUST be omitted when empty (variables.tf default cpx21 takes effect). Got: %s", string(raw))
+	}
+	if _, ok := parsed["worker_size"]; ok {
+		t.Fatalf("worker_size MUST be omitted when empty (variables.tf default cpx31 takes effect). Got: %s", string(raw))
+	}
+	// worker_count is always emitted (zero is a valid solo-Sovereign
+	// choice; the wizard always sends 2 by default).
+	if v, ok := parsed["worker_count"]; !ok || v.(float64) != 2 {
+		t.Fatalf("worker_count must be emitted with the request value (2). Got: %v", parsed["worker_count"])
+	}
+}
+
+// TestWriteTfvars_EmitsSingularSizesWhenSet proves writeTfvars DOES emit
+// the singular SKU fields when the operator sets them explicitly. Guards
+// against a regression where an over-eager omission rule drops legitimate
+// operator overrides.
+func TestWriteTfvars_EmitsSingularSizesWhenSet(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "otech85.omani.works",
+		OrgName:          "Acme",
+		OrgEmail:         "ops@acme.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		ControlPlaneSize: "cpx52",
+		WorkerSize:       "cpx41",
+		WorkerCount:      3,
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read tfvars: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse tfvars: %v", err)
+	}
+	if v, _ := parsed["control_plane_size"].(string); v != "cpx52" {
+		t.Fatalf("control_plane_size must round-trip operator override: got %q want cpx52", v)
+	}
+	if v, _ := parsed["worker_size"].(string); v != "cpx41" {
+		t.Fatalf("worker_size must round-trip operator override: got %q want cpx41", v)
+	}
+}
