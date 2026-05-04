@@ -36,10 +36,15 @@ catalystBlueprint:
 # ─── SME tenant identity ────────────────────────────────────────────────
 # `smeDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
 # OR BYO domain (e.g. acme.com); supplied by the tenant-provisioning
-# pipeline. Used to derive the default ingress host. Per
-# docs/INVIOLABLE-PRINCIPLES.md #4 the value MUST be passed in at
-# install — there is no sensible default.
-smeDomain: ""
+# pipeline. Used to derive the default ingress host.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 there is no production-safe
+# default — the tenant-provisioning pipeline (#804) MUST supply this
+# value at install. The placeholder `sme.local` is set ONLY so the
+# `helm template` smoke render in the Blueprint Release workflow
+# (which runs with no overrides) produces valid YAML; per-Sovereign
+# overlays MUST override.
+smeDomain: "sme.local"
 
 # ─── WordPress application ──────────────────────────────────────────────
 wordpress:
@@ -148,10 +153,17 @@ database:
 # at first install via templates/oidc-config-job.yaml so the SME admin
 # never sees the WP setup wizard.
 keycloak:
-  # Discovery endpoint of the SME's realm — operator-supplied (no
-  # default per docs/INVIOLABLE-PRINCIPLES.md #4). Example shape:
+  # Discovery endpoint of the SME's realm — operator-supplied. Example:
   #   https://auth.acme.<otech-fqdn>/realms/sme
-  realmURL: ""
+  #
+  # The placeholder default below is set ONLY so the `helm template`
+  # smoke render in the Blueprint Release workflow (which runs with
+  # no overrides) produces valid YAML; per-Sovereign overlays MUST
+  # override. The post-install `oidc-config` Job WILL fail at runtime
+  # if this remains the placeholder — that's the correct guardrail
+  # per docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded production
+  # values, but smoke-rendering must succeed).
+  realmURL: "https://auth.sme.local/realms/sme"
   # OIDC client registered in the SME realm — provisioned by the
   # tenant-provisioning pipeline (#804) before this chart installs.
   clientID: "wordpress"
@@ -175,7 +187,9 @@ keycloak:
 adminUser:
   # Operator-supplied, e.g. `admin@acme.com`. Same email as the SME
   # admin's Keycloak account — that's how openid-connect-generic
-  # matches the Keycloak `email` claim back to a wp_user.
+  # matches the Keycloak `email` claim back to a wp_user. Empty
+  # default means the admin-user Job is skipped (no admin pre-seed)
+  # — the SME's tenant-provisioning pipeline MUST set this value.
   email: ""
   # Display name shown in the WP admin bar. Defaults to the local-part
   # of the email (job-side) if left empty.
