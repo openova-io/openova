@@ -3,7 +3,7 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
-import { PROVIDER_NODE_SIZES, defaultNodeSizeId, findNodeSize } from '@/shared/constants/providerSizes'
+import { PROVIDER_NODE_SIZES, defaultNodeSizeId, defaultWorkerSizeId, findNodeSize } from '@/shared/constants/providerSizes'
 import { StepShell, useStepNav } from './_shared'
 
 /* ── Provider definitions with logos ─────────────────────────────── */
@@ -353,13 +353,21 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
   const totalCards   = regionCount + (hasAirgap ? 1 : 0)
 
   /* On first visit: apply HQ hint, or fall back to first provider + first region.
-     Each region also gets the chosen provider's recommended starter SKU so the
+     Each region also gets the chosen provider's recommended starter SKUs so the
      wizard never lands on the step with empty SKU dropdowns — the operator can
      change them, but a sensible default is preselected.
 
-     Per-provider defaults: CPX32 (hetzner), c7n.xlarge.2 (huawei),
+     Per-provider CP defaults: CPX21 (hetzner), c7n.xlarge.2 (huawei),
      VM.Standard.E5.Flex.2.16 (oci), m6i.xlarge (aws), Standard_D4s_v5
      (azure) — each provider's recommended:true SKU from PROVIDER_NODE_SIZES.
+
+     Per-provider WORKER defaults: CPX31 (hetzner), same-as-CP elsewhere —
+     see defaultWorkerSizeId in providerSizes.ts. Hetzner pairs CPX21 CP
+     with CPX31 workers because RAM (8 GB per worker) is the binding
+     constraint for the bootstrap-kit's worker pods, but the CP's RAM
+     budget fits in 4 GB. Total per Sovereign: ~€20.5/mo — 38% cheaper
+     than the prior all-CPX32 default at €33/mo, while preserving the
+     multi-node horizontal-scale agreement (issue #733).
 
      Worker count default 2 — restores the horizontal-scale agreement
      (issue #733): every Sovereign provisioned through the wizard lands
@@ -375,9 +383,8 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
       const regions = PROVIDER_REGIONS[provider]
       const region  = hint?.regions[i % hint.regions.length] ?? regions[i % regions.length].id
       store.setRegionCloudRegion(i, region)
-      const cp = defaultNodeSizeId(provider)
-      store.setRegionControlPlaneSize(i, cp)
-      store.setRegionWorkerSize(i, cp)
+      store.setRegionControlPlaneSize(i, defaultNodeSizeId(provider))
+      store.setRegionWorkerSize(i, defaultWorkerSizeId(provider))
       store.setRegionWorkerCount(i, 2)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -401,9 +408,13 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
     const regions = PROVIDER_REGIONS[provider]
     const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
     store.setRegionCloudRegion(i, hintRegion ?? regions[0].id)
-    const cp = defaultNodeSizeId(provider)
-    store.setRegionControlPlaneSize(i, cp)
-    store.setRegionWorkerSize(i, cp)
+    // Per-provider CP / worker defaults — see the first-visit useEffect
+    // above for rationale. Hetzner pairs CPX21 CP with CPX31 workers
+    // (~€20.5/mo Sovereign total); other providers fall through to the
+    // symmetric same-as-CP default until their per-provider asymmetry
+    // is profiled.
+    store.setRegionControlPlaneSize(i, defaultNodeSizeId(provider))
+    store.setRegionWorkerSize(i, defaultWorkerSizeId(provider))
     // Default worker count = 2 (issue #733) — same rationale as the
     // first-visit useEffect above: every fresh provider selection lands
     // a horizontal-scale 1 CP + 2 worker topology. Operators dial to 0

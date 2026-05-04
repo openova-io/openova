@@ -80,31 +80,39 @@ variable "control_plane_size" {
   description = <<-EOT
     Hetzner server type for the control plane node.
 
-    Default cpx32 (4 vCPU / 8 GB AMD shared) is the canonical horizontal-
-    scale Sovereign default: 1× CPX32 control plane + N× CPX32 workers
-    (default N=2) gives the operator 12 vCPU / 24 GB across 3 nodes from
-    day one — same aggregate footprint as a CPX52 vertical-scale single
-    node, but with real multi-node fault tolerance and the architectural
-    shape `clusters/_template/` was designed for. Restoring this is
-    issue #733 — the previous cx42 single-node default discarded the
-    horizontal-scale agreement.
+    Default cpx21 (3 vCPU / 4 GB AMD shared) — cost-optimised default
+    for the Phase-8a CP working set. The control plane carries ONLY
+    k3s (apiserver/etcd/scheduler/controller-manager) + cilium-operator
+    + flux controllers + cert-manager + sealed-secrets. Heavy stack
+    (bp-keycloak / bp-cnpg / bp-harbor / bp-openbao / bp-grafana)
+    schedules to workers because the bootstrap-kit explicitly tolerates
+    away from the CP taint. RAM budget: etcd ~512 MB + control plane
+    ~1.5 GB + cilium/flux/cert-manager/sealed-secrets ~1 GB + OS ~512
+    MB = ~3.5 GB on CPX21's 4 GB. Drops €5.5/mo (CPX32 → CPX21)
+    without breaking the multi-node horizontal-scale agreement
+    (issue #733): still 1 CP + 2 workers from day one.
 
-    Operators can still pick CPX52 for solo dev/POC topologies (then set
-    worker_count=0 explicitly) or larger SKUs (cax41/ccx33) for
-    production-grade dedicated-vCPU control planes.
+    Operators picking SOLO mode (worker_count=0) should still pick
+    CPX52 explicitly so all Blueprints can fit on a single node.
+    Operators picking large/HA topologies still pick larger SKUs
+    (cax41/ccx33) for dedicated-vCPU control planes.
+
+    If a Sovereign experiences CP RAM pressure with this default,
+    the next step UP is cpx31 (4 vCPU / 8 GB, ~€7.5/mo) — NOT back
+    to cpx32. cpx21 is the floor; cpx31 is the next safe stop.
   EOT
-  default     = "cpx32"
+  default     = "cpx21"
   validation {
     # Accepted families per Hetzner Cloud (https://www.hetzner.com/cloud/):
     #   cx*   — shared-vCPU Intel
-    #   cpx*  — shared-vCPU AMD (the wizard's recommended CPX32 is here)
+    #   cpx*  — shared-vCPU AMD (the wizard's recommended CPX21 is here)
     #   ccx*  — dedicated-vCPU Intel
     #   cax*  — Ampere Arm
     # Earlier rule omitted the CPX family entirely, which rejected the
     # wizard's default selection at plan-time before the operator could
     # ever provision.
     condition     = can(regex("^(cx[0-9]+|cpx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.control_plane_size))
-    error_message = "control_plane_size must match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN). Minimum recommended: cpx32 (8 GB AMD) or cx42 (16 GB Intel) for solo Sovereign."
+    error_message = "control_plane_size must match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN). Minimum recommended: cpx21 (4 GB AMD) for the Phase-8a CP working set; cpx31 (8 GB AMD) when the CP exhibits RAM pressure."
   }
 }
 
@@ -113,15 +121,22 @@ variable "worker_size" {
   description = <<-EOT
     Hetzner server type for worker nodes.
 
-    Default cpx32 (4 vCPU / 8 GB AMD shared) — matches the control-plane
-    SKU so the cluster is symmetric (any workload reschedulable across
-    any node). Workers run only application Blueprints and per-host
-    infra; per-host overhead is amortised across nodes once you have
-    2+ workers. Solo Sovereigns set worker_count=0 explicitly and run
-    all workloads on the control plane — in that mode this variable
-    is unused.
+    Default cpx31 (4 vCPU / 8 GB AMD shared) — RAM is the binding
+    constraint for the bootstrap-kit's worker pods (cnpg, harbor,
+    keycloak, openbao, grafana stack), and 8 GB per worker is the
+    sweet spot. cpx31 trims €3.5 per worker (€11/mo CPX32 → €7.5/mo
+    cpx31) while keeping the same 8 GB RAM budget; vCPU drops 4 → 4
+    (cpx31 has 4 vCPU AMD shared) — wait, identical vCPU count. The
+    win is purely on €. Per docs/INVIOLABLE-PRINCIPLES.md #4 every
+    workload pod is reschedulable across nodes; once worker_count ≥ 2
+    the per-host overhead is amortised across nodes. Solo Sovereigns
+    set worker_count=0 explicitly and run all workloads on the control
+    plane — in that mode this variable is unused.
+
+    If a worker exhibits CPU pressure under load, scale by adding a
+    third worker (worker_count=3) before bumping the SKU.
   EOT
-  default     = "cpx32"
+  default     = "cpx31"
   validation {
     # Empty string is valid — solo Sovereigns set worker_count = 0 and
     # never read worker_size; the wizard surfaces the empty-SKU state as
