@@ -103,6 +103,78 @@ export function kubeconfigAPIPath(deploymentId: string | null): string | null {
   return `${API_BASE}/v1/deployments/${deploymentId}/kubeconfig`
 }
 
+/**
+ * Resolve the kubeconfig context name the same way the catalyst-api
+ * does on the GET /kubeconfig path (issue #765). Order:
+ *
+ *   1. SovereignSubdomain — when set by the wizard for pool-mode.
+ *   2. First label of FQDN — for BYO-domain deployments.
+ *   3. The literal "sovereign" — last-resort fallback.
+ *
+ * Used to label the download filename + the `k9s --context=...`
+ * snippet in the merge command so the operator's mental model
+ * matches what's actually in the file.
+ *
+ * The sanitiser is RFC-1123-ish (lowercase alnum + dash) to mirror
+ * the backend's `sanitiseContextName` so both sides agree.
+ */
+export function sovereignContextName(subdomain: string, fqdn: string): string {
+  const fromSubdomain = sanitiseLabel(subdomain)
+  if (fromSubdomain) return fromSubdomain
+  const trimmed = (fqdn ?? '').trim()
+  if (trimmed) {
+    const firstLabel = trimmed.split('.')[0]
+    const fromFqdn = sanitiseLabel(firstLabel)
+    if (fromFqdn) return fromFqdn
+  }
+  return 'sovereign'
+}
+
+function sanitiseLabel(input: string): string {
+  const lower = (input ?? '').trim().toLowerCase()
+  if (!lower) return ''
+  let out = ''
+  for (const ch of lower) {
+    if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '-') {
+      out += ch
+    }
+  }
+  // Trim leading/trailing dashes per RFC-1123 label rules.
+  return out.replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Build the one-liner the operator pastes into a shell to merge the
+ * downloaded kubeconfig into `$HOME/.kube/config` and immediately
+ * launch k9s on the new context (issue #765).
+ *
+ * The command:
+ *   - Uses `KUBECONFIG=$HOME/.kube/config:<path>` to compose the
+ *     existing config with the freshly-downloaded one.
+ *   - Pipes through `kubectl config view --flatten` so the CA / token
+ *     bytes inline (output is self-contained — no path references).
+ *   - Writes back to a temp file then atomically moves it onto
+ *     $HOME/.kube/config so a Ctrl-C mid-pipe never truncates the
+ *     operator's existing config.
+ *   - Sets mode 0600 (kubectl warns if perms are looser).
+ *   - Uses `k9s --context=<name>` so the operator lands in the new
+ *     cluster the same second they run the command.
+ *
+ * The operator drops their downloaded kubeconfig into
+ * `~/Downloads/<contextName>.yaml` (the default browser-download
+ * location matching the Content-Disposition filename the API sets).
+ */
+export function buildKubeconfigMergeCommand(downloadFilename: string, contextName: string): string {
+  const path = `$HOME/Downloads/${downloadFilename}`
+  return [
+    `KUBECONFIG=$HOME/.kube/config:${path}`,
+    `kubectl config view --flatten > $HOME/.kube/config.tmp`,
+    `&& mv $HOME/.kube/config.tmp $HOME/.kube/config`,
+    `&& chmod 600 $HOME/.kube/config`,
+    `&& k9s --context=${contextName}`,
+  ].join(' ')
+}
+
 /* ── Small UI helpers ─────────────────────────────────────────────── */
 
 function CopyChip({ text, label = 'Copy' }: { text: string; label?: string }) {
@@ -269,10 +341,28 @@ export function StepSuccess({
     }
   }
 
-  /* ── kubeconfig download — fetches the binary YAML from catalyst-api. ── */
+  /* ── kubeconfig download + merge command (issue #765) ──────────────
+   *
+   * The catalyst-api GET /kubeconfig endpoint rewrites the cluster /
+   * context / user names from k3s's hardcoded `default` to the
+   * Sovereign's subdomain (e.g. `otech94`), so the operator can run
+   *
+   *   KUBECONFIG=$HOME/.kube/config:~/Downloads/otech94.yaml \
+   *     kubectl config view --flatten > $HOME/.kube/config && \
+   *     chmod 600 $HOME/.kube/config && k9s --context=otech94
+   *
+   * after a single click. The "Copy merge command" button below
+   * copies that one-liner so the operator pastes it directly into a
+   * shell — no manual sed pipeline.
+   */
+
+  const contextName = sovereignContextName(store.sovereignSubdomain, fqdn)
+  const downloadFilename = contextName + '.yaml'
+  const mergeCommand = buildKubeconfigMergeCommand(downloadFilename, contextName)
 
   const [kubeconfigError, setKubeconfigError] = useState<string | null>(null)
   const [downloadingKubeconfig, setDownloadingKubeconfig] = useState(false)
+  const [mergeCopied, setMergeCopied] = useState(false)
 
   async function downloadKubeconfig() {
     const path = kubeconfigAPIPath(deploymentId)
@@ -297,13 +387,25 @@ export function StepSuccess({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${fqdn || 'sovereign'}-kubeconfig.yaml`
+      a.download = downloadFilename
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
       setKubeconfigError(`Network error: ${String(err)}`)
     } finally {
       setDownloadingKubeconfig(false)
+    }
+  }
+
+  async function copyMergeCommand() {
+    try {
+      await navigator.clipboard.writeText(mergeCommand)
+      setMergeCopied(true)
+      setTimeout(() => setMergeCopied(false), 2500)
+    } catch {
+      // Air-gap browser without clipboard permission — fall through
+      // silently. The command stays visible in the inline <code>
+      // block so the operator can select-copy.
     }
   }
 
@@ -471,34 +573,94 @@ export function StepSuccess({
           } />
         </Section>
 
-        {/* ── Cluster access — kubeconfig ── */}
+        {/* ── Cluster access — kubeconfig + merge command (issue #765) ── */}
         <Section title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Terminal size={11} />Cluster access
           </span>
         }>
-          <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              type="button"
-              onClick={downloadKubeconfig}
-              disabled={downloadingKubeconfig || !deploymentId}
-              data-testid="download-kubeconfig"
-              style={{
-                alignSelf: 'flex-start',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: 6,
-                border: '1px solid var(--wiz-border)',
-                background: 'var(--wiz-bg-sub)',
-                color: 'var(--wiz-text-hi)',
-                fontSize: 11, fontWeight: 600,
-                cursor: deploymentId ? 'pointer' : 'not-allowed',
-                opacity: deploymentId ? 1 : 0.55,
-                fontFamily: 'Inter, sans-serif',
-              }}
-            >
-              <Download size={11} />
-              {downloadingKubeconfig ? 'Downloading…' : 'Download kubeconfig'}
-            </button>
+          <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{
+              fontSize: 10.5, color: 'var(--wiz-text-sub)', lineHeight: 1.55,
+              fontFamily: 'Inter, sans-serif',
+            }}>
+              Step 1 — Download the kubeconfig (saves as
+              {' '}<code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--wiz-text-md)' }}>
+                {downloadFilename}
+              </code> with context name
+              {' '}<code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--wiz-text-md)' }}>
+                {contextName}
+              </code>).
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={downloadKubeconfig}
+                disabled={downloadingKubeconfig || !deploymentId}
+                data-testid="download-kubeconfig"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', borderRadius: 6,
+                  border: '1px solid var(--wiz-border)',
+                  background: 'var(--wiz-bg-sub)',
+                  color: 'var(--wiz-text-hi)',
+                  fontSize: 11, fontWeight: 600,
+                  cursor: deploymentId ? 'pointer' : 'not-allowed',
+                  opacity: deploymentId ? 1 : 0.55,
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                <Download size={11} />
+                {downloadingKubeconfig ? 'Downloading…' : 'Download kubeconfig'}
+              </button>
+            </div>
+
+            <span style={{
+              fontSize: 10.5, color: 'var(--wiz-text-sub)', lineHeight: 1.55,
+              fontFamily: 'Inter, sans-serif', marginTop: 4,
+            }}>
+              Step 2 — Paste this one-liner into a shell to merge the new
+              context into <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>$HOME/.kube/config</code>
+              {' '}and launch k9s on it:
+            </span>
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              padding: '8px 10px', borderRadius: 6,
+              border: '1px solid var(--wiz-border-sub)',
+              background: 'var(--wiz-bg-xs)',
+            }}>
+              <code
+                data-testid="kubeconfig-merge-command"
+                style={{
+                  flex: 1,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 10.5, lineHeight: 1.55,
+                  color: 'var(--wiz-text-md)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}
+              >{mergeCommand}</code>
+              <button
+                type="button"
+                onClick={copyMergeCommand}
+                aria-label="Copy merge command"
+                data-testid="copy-merge-command"
+                style={{
+                  flexShrink: 0,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 9px', borderRadius: 5,
+                  border: '1px solid var(--wiz-border-sub)',
+                  background: 'transparent',
+                  color: 'var(--wiz-text-md)',
+                  fontSize: 10, fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                {mergeCopied ? <Check size={11} /> : <Copy size={11} />}
+                {mergeCopied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
             {kubeconfigError === 'not-implemented' && (
               <div role="alert" data-testid="kubeconfig-fallback" style={{
                 fontSize: 10.5, color: 'var(--wiz-text-sub)',

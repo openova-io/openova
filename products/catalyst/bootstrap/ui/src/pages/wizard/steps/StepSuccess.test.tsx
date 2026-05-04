@@ -18,6 +18,8 @@ import {
   sovereignSubURL,
   adminLoginAPIPath,
   kubeconfigAPIPath,
+  sovereignContextName,
+  buildKubeconfigMergeCommand,
   DEFAULT_FIRST_LOGIN_DOCS_URL,
   DEFAULT_KUBECONFIG_DOCS_URL,
 } from './StepSuccess'
@@ -95,6 +97,38 @@ describe('URL helpers', () => {
     expect(kubeconfigAPIPath('abc')).toMatch(
       /\/api\/v1\/deployments\/abc\/kubeconfig$/,
     )
+  })
+
+  /* Issue #765 — context-name + merge-command helpers. The backend
+   * picks the same name with a Go-side mirror of this logic; the two
+   * implementations agreeing is the load-bearing invariant. */
+  it('sovereignContextName prefers the subdomain', () => {
+    expect(sovereignContextName('otech94', 'otech94.omantel.omani.works')).toBe('otech94')
+  })
+
+  it('sovereignContextName falls back to the first FQDN label', () => {
+    expect(sovereignContextName('', 'k8s.byo.example')).toBe('k8s')
+  })
+
+  it('sovereignContextName lowercases + strips invalid chars', () => {
+    expect(sovereignContextName('OTECH-Beta!', '')).toBe('otech-beta')
+  })
+
+  it('sovereignContextName returns "sovereign" when both inputs are empty', () => {
+    expect(sovereignContextName('', '')).toBe('sovereign')
+  })
+
+  it('buildKubeconfigMergeCommand emits a one-liner with KUBECONFIG + flatten + k9s', () => {
+    const cmd = buildKubeconfigMergeCommand('otech94.yaml', 'otech94')
+    expect(cmd).toMatch(/^KUBECONFIG=\$HOME\/\.kube\/config:\$HOME\/Downloads\/otech94\.yaml /)
+    expect(cmd).toContain('kubectl config view --flatten')
+    expect(cmd).toContain('chmod 600 $HOME/.kube/config')
+    expect(cmd).toContain('k9s --context=otech94')
+    // Atomic move pattern — we never write directly to ~/.kube/config
+    // mid-pipe (a Ctrl-C would otherwise corrupt the operator's
+    // existing config).
+    expect(cmd).toContain('$HOME/.kube/config.tmp')
+    expect(cmd).toContain('mv $HOME/.kube/config.tmp $HOME/.kube/config')
   })
 })
 
@@ -192,6 +226,50 @@ describe('kubeconfig fallback when endpoint is not implemented', () => {
     expect(fallback.textContent).toMatch(/Coming soon — fetch via SSH/)
     const docsLink = screen.getByTestId('kubeconfig-docs') as HTMLAnchorElement
     expect(docsLink.href).toBe(DEFAULT_KUBECONFIG_DOCS_URL)
+  })
+})
+
+/* ── kubeconfig merge command (issue #765) ─────────────────────── */
+
+describe('kubeconfig merge command surface', () => {
+  it('renders the merge one-liner with the right context name + filename', () => {
+    render(<StepSuccess />)
+    const cmd = screen.getByTestId('kubeconfig-merge-command')
+    // Subdomain in fixture is "omantel" → context name omantel, filename omantel.yaml.
+    expect(cmd.textContent).toContain('$HOME/Downloads/omantel.yaml')
+    expect(cmd.textContent).toContain('k9s --context=omantel')
+    expect(cmd.textContent).toContain('kubectl config view --flatten')
+  })
+
+  it('"Copy" button copies the command to clipboard and flips to Copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+    render(<StepSuccess />)
+    const btn = screen.getByTestId('copy-merge-command')
+    expect(btn.textContent).toMatch(/Copy/)
+    fireEvent.click(btn)
+    // writeText invoked with a string containing the full pipeline.
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const written = String(writeText.mock.calls[0][0])
+    expect(written).toContain('KUBECONFIG=$HOME/.kube/config:$HOME/Downloads/omantel.yaml')
+    expect(written).toContain('k9s --context=omantel')
+    // Wait for state flip to "Copied".
+    await screen.findByText(/Copied/)
+  })
+
+  it('uses a different filename + context when subdomain changes', () => {
+    useWizardStore.setState({
+      sovereignSubdomain: 'otech94',
+      sovereignPoolDomain: 'omani-works',
+      lastProvisionResult: {
+        ...FIXTURE_RESULT,
+        sovereignFQDN: 'otech94.omani.works',
+      },
+    })
+    render(<StepSuccess />)
+    const cmd = screen.getByTestId('kubeconfig-merge-command')
+    expect(cmd.textContent).toContain('$HOME/Downloads/otech94.yaml')
+    expect(cmd.textContent).toContain('k9s --context=otech94')
   })
 })
 

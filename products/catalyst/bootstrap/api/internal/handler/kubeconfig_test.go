@@ -462,8 +462,28 @@ func TestGetKubeconfig_ReadsFromPathPointer(t *testing.T) {
 	if wGet.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200; body=%s", wGet.Code, wGet.Body.String())
 	}
-	if got := wGet.Body.String(); got != validKubeconfigYAML {
-		t.Errorf("GET body drift: got %q want %q", got, validKubeconfigYAML)
+	// Issue #765 — GET response is the on-disk YAML with the
+	// context names rewritten from `default` to the Sovereign's
+	// subdomain (or first label of FQDN when subdomain is empty).
+	// The fixture's FQDN is "test.<id>.example" and Subdomain is
+	// empty, so the expected context name is "test". Sensitive
+	// payload (CA, token) MUST be preserved verbatim — that's the
+	// load-bearing invariant of the rewriter.
+	got := wGet.Body.String()
+	if strings.Contains(got, "name: default") {
+		t.Errorf("rewritten kubeconfig still contains `name: default`:\n%s", got)
+	}
+	if !strings.Contains(got, "name: test") {
+		t.Errorf("rewritten kubeconfig missing rewritten context `name: test`:\n%s", got)
+	}
+	if !strings.Contains(got, "current-context: test") {
+		t.Errorf("rewritten kubeconfig missing `current-context: test`:\n%s", got)
+	}
+	if !strings.Contains(got, "TEST-CA-MARKER") {
+		t.Errorf("rewriter dropped certificate-authority-data sentinel:\n%s", got)
+	}
+	if !strings.Contains(got, "TEST-USER-TOKEN-MARKER") {
+		t.Errorf("rewriter dropped user-token sentinel:\n%s", got)
 	}
 	if ct := wGet.Header().Get("Content-Type"); ct != "application/yaml" {
 		t.Errorf("Content-Type = %q, want application/yaml", ct)
@@ -806,5 +826,249 @@ func TestExtractBearer_RFC6750(t *testing.T) {
 				t.Errorf("extractBearer(%q) = %q, want %q", c.header, got, c.want)
 			}
 		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Issue #765 — context-rewrite helpers + GET behaviour
+// ─────────────────────────────────────────────────────────────────
+
+func TestPreferredContextName(t *testing.T) {
+	cases := []struct {
+		name string
+		req  provisioner.Request
+		want string
+	}{
+		{
+			name: "subdomain-wins",
+			req:  provisioner.Request{SovereignSubdomain: "otech94", SovereignFQDN: "otech94.omantel.omani.works"},
+			want: "otech94",
+		},
+		{
+			name: "subdomain-uppercase-normalised",
+			req:  provisioner.Request{SovereignSubdomain: "OTECH-Beta", SovereignFQDN: "otech-beta.foo.example"},
+			want: "otech-beta",
+		},
+		{
+			name: "fqdn-fallback-when-subdomain-empty",
+			req:  provisioner.Request{SovereignFQDN: "k8s.byo.example.com"},
+			want: "k8s",
+		},
+		{
+			name: "all-empty-fallback",
+			req:  provisioner.Request{},
+			want: "sovereign",
+		},
+		{
+			name: "subdomain-with-junk-stripped",
+			req:  provisioner.Request{SovereignSubdomain: "  otech_99!  "},
+			want: "otech99",
+		},
+		{
+			name: "subdomain-all-junk-falls-through-to-fqdn",
+			req:  provisioner.Request{SovereignSubdomain: "@@@", SovereignFQDN: "abc.example"},
+			want: "abc",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := preferredContextName(&c.req)
+			if got != c.want {
+				t.Errorf("preferredContextName(%+v) = %q, want %q", c.req, got, c.want)
+			}
+		})
+	}
+	// Nil-request safety net so callers can pass &dep.Request unchecked.
+	if got := preferredContextName(nil); got != "sovereign" {
+		t.Errorf("preferredContextName(nil) = %q, want sovereign", got)
+	}
+}
+
+func TestKubeconfigDownloadFilename(t *testing.T) {
+	cases := []struct {
+		name string
+		req  provisioner.Request
+		want string
+	}{
+		{"subdomain", provisioner.Request{SovereignSubdomain: "otech94"}, "otech94.yaml"},
+		{"fqdn-fallback", provisioner.Request{SovereignFQDN: "test.example"}, "test.example-kubeconfig.yaml"},
+		{"empty", provisioner.Request{}, "sovereign-kubeconfig.yaml"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := kubeconfigDownloadFilename(&c.req)
+			if got != c.want {
+				t.Errorf("kubeconfigDownloadFilename(%+v) = %q, want %q", c.req, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRewriteKubeconfigContext_K3sDefault is the load-bearing
+// rewriter test. Given a k3s-style kubeconfig with `name: default`
+// in cluster, context, user, and current-context, the rewriter
+// MUST replace every occurrence with the target context name and
+// preserve the certificate-authority-data + token bytes verbatim.
+func TestRewriteKubeconfigContext_K3sDefault(t *testing.T) {
+	out, err := rewriteKubeconfigContext([]byte(validKubeconfigYAML), "otech94")
+	if err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	got := string(out)
+	if strings.Contains(got, "name: default") {
+		t.Errorf("rewriter left `name: default` in output:\n%s", got)
+	}
+	if !strings.Contains(got, "name: otech94") {
+		t.Errorf("rewriter missing `name: otech94`:\n%s", got)
+	}
+	if !strings.Contains(got, "cluster: otech94") {
+		t.Errorf("rewriter missing `cluster: otech94` in context block:\n%s", got)
+	}
+	if !strings.Contains(got, "user: otech94") {
+		t.Errorf("rewriter missing `user: otech94` in context block:\n%s", got)
+	}
+	if !strings.Contains(got, "current-context: otech94") {
+		t.Errorf("rewriter missing `current-context: otech94`:\n%s", got)
+	}
+	if !strings.Contains(got, "TEST-CA-MARKER") {
+		t.Errorf("rewriter dropped certificate-authority-data sentinel:\n%s", got)
+	}
+	if !strings.Contains(got, "TEST-USER-TOKEN-MARKER") {
+		t.Errorf("rewriter dropped user-token sentinel:\n%s", got)
+	}
+
+	// Idempotency — re-running the rewriter on the already-renamed
+	// output must be a no-op (no further `default` matches; output
+	// is byte-stable enough that downstream consumers see no diff).
+	out2, err := rewriteKubeconfigContext(out, "otech94")
+	if err != nil {
+		t.Fatalf("idempotent rewrite: %v", err)
+	}
+	if string(out2) != string(out) {
+		t.Errorf("rewriter is not idempotent:\nfirst:\n%s\nsecond:\n%s", out, out2)
+	}
+}
+
+func TestRewriteKubeconfigContext_LeavesNonDefaultEntriesAlone(t *testing.T) {
+	const yamlWithMixedNames = `apiVersion: v1
+kind: Config
+clusters:
+- cluster: { server: https://1.2.3.4:6443 }
+  name: default
+- cluster: { server: https://5.6.7.8:6443 }
+  name: other-cluster
+contexts:
+- context: { cluster: default, user: default }
+  name: default
+- context: { cluster: other-cluster, user: other-user }
+  name: other
+current-context: default
+users:
+- name: default
+  user: { token: abc }
+- name: other-user
+  user: { token: xyz }
+`
+	out, err := rewriteKubeconfigContext([]byte(yamlWithMixedNames), "otech94")
+	if err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	got := string(out)
+	// "default" entries renamed.
+	if !strings.Contains(got, "name: otech94") {
+		t.Errorf("missing renamed `name: otech94`:\n%s", got)
+	}
+	// "other" entries untouched.
+	if !strings.Contains(got, "name: other-cluster") {
+		t.Errorf("rewriter clobbered `name: other-cluster`:\n%s", got)
+	}
+	if !strings.Contains(got, "name: other-user") {
+		t.Errorf("rewriter clobbered `name: other-user`:\n%s", got)
+	}
+	if !strings.Contains(got, "name: other") {
+		t.Errorf("rewriter clobbered context `name: other`:\n%s", got)
+	}
+}
+
+func TestRewriteKubeconfigContext_RejectsEmptyTarget(t *testing.T) {
+	_, err := rewriteKubeconfigContext([]byte(validKubeconfigYAML), "")
+	if err == nil {
+		t.Error("expected error for empty target, got nil")
+	}
+}
+
+func TestRewriteKubeconfigContext_RejectsBadYAML(t *testing.T) {
+	_, err := rewriteKubeconfigContext([]byte("not: : a valid: ::: yaml"), "otech94")
+	if err == nil {
+		t.Error("expected parse error for malformed YAML")
+	}
+}
+
+func TestRewriteKubeconfigContext_NotAKubeconfig(t *testing.T) {
+	// A valid YAML doc that is NOT a kubeconfig (kind: Pod) — must
+	// be rejected so the GET handler serves the raw bytes rather
+	// than mutating an unrelated file.
+	const podYAML = `apiVersion: v1
+kind: Pod
+metadata:
+  name: example
+`
+	_, err := rewriteKubeconfigContext([]byte(podYAML), "otech94")
+	if err == nil {
+		t.Error("expected error for non-kubeconfig document")
+	}
+}
+
+// TestGetKubeconfig_UsesSubdomainAsContextName drives the GET
+// handler with a deployment whose SovereignSubdomain is set, and
+// asserts the served body has the context names rewritten to that
+// subdomain — the canonical "operator can `k9s --context=otech94`
+// after merge" flow from issue #765.
+func TestGetKubeconfig_UsesSubdomainAsContextName(t *testing.T) {
+	deploymentsDir := t.TempDir()
+	kubeconfigsDir := t.TempDir()
+	st, _ := store.New(deploymentsDir)
+	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
+
+	id := "kc-subdomain-rewrite"
+	kcPath := filepath.Join(kubeconfigsDir, id+".yaml")
+	if err := os.WriteFile(kcPath, []byte(validKubeconfigYAML), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	dep := &Deployment{
+		ID:        id,
+		Status:    "ready",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignSubdomain: "otech94",
+			SovereignFQDN:      "otech94.omantel.omani.works",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN:  "otech94.omantel.omani.works",
+			KubeconfigPath: kcPath,
+		},
+	}
+	h.deployments.Store(id, dep)
+
+	w := httptest.NewRecorder()
+	r := getReq(t, id)
+	h.GetKubeconfig(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	got := w.Body.String()
+	if !strings.Contains(got, "name: otech94") {
+		t.Errorf("served kubeconfig missing `name: otech94`:\n%s", got)
+	}
+	if strings.Contains(got, "name: default") {
+		t.Errorf("served kubeconfig still has `name: default`:\n%s", got)
+	}
+	// Filename in Content-Disposition should be the subdomain.
+	cd := w.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, `filename="otech94.yaml"`) {
+		t.Errorf("Content-Disposition = %q, want filename=otech94.yaml", cd)
 	}
 }
