@@ -96,7 +96,11 @@ harbor:
   proxyProjects:
     - name: "proxy-ghcr"
       upstreamURL: "https://ghcr.io"
-      registryType: "github"
+      # Harbor adapter "github-ghcr" (the canonical GHCR proxy-cache
+      # adapter), with `docker-registry` fallback for older Harbor
+      # versions. Caught live on otech103 2026-05-04 (was "github" →
+      # "adapter factory for github not found"). Per Harbor 2.x docs.
+      registryType: "github-ghcr"
       authMode: "credential"      # uses harbor.ghcrSecretRef
     - name: "proxy-docker"
       upstreamURL: "https://registry-1.docker.io"

@@ -90,7 +90,11 @@ spec:
       # 0.1.5: harborInternalURL fix — bp-harbor service is `harbor-core`
       # not `harbor-harbor-core` (release name doesn't double-prefix).
       # Caught live otech103 — Step-2 curl exit 6 (couldn't resolve).
-      version: 0.1.5
+      # 0.1.6: proxy-ghcr registryType "github" → "github-ghcr" (the
+      # canonical Harbor adapter name for GHCR proxy-cache, per Harbor
+      # 2.x docs). Caught live otech103 — Harbor 500 "adapter factory
+      # for github not found".
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
