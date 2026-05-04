@@ -90,6 +90,42 @@ describe('wizard store — registrar credentials', () => {
   })
 })
 
+describe('wizard store — marketplace mode (#710 wave 3a)', () => {
+  it('defaults marketplaceEnabled to false and brand to empty strings', () => {
+    const s = useWizardStore.getState()
+    expect(s.marketplaceEnabled).toBe(false)
+    expect(s.marketplaceBrand).toEqual({ name: '', tagline: '', primaryColor: '' })
+  })
+
+  it('setMarketplaceEnabled flips the flag without touching the brand', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      marketplaceBrand: { name: 'Acme', tagline: 'Apps for the regulated cloud', primaryColor: '#38BDF8' },
+    })
+    useWizardStore.getState().setMarketplaceEnabled(true)
+    const s = useWizardStore.getState()
+    expect(s.marketplaceEnabled).toBe(true)
+    expect(s.marketplaceBrand).toEqual({
+      name: 'Acme',
+      tagline: 'Apps for the regulated cloud',
+      primaryColor: '#38BDF8',
+    })
+  })
+
+  it('setMarketplaceBrand merges partial updates into the existing brand', () => {
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      marketplaceBrand: { name: 'Acme', tagline: 'old tagline', primaryColor: '#000000' },
+    })
+    useWizardStore.getState().setMarketplaceBrand({ tagline: 'new tagline' })
+    expect(useWizardStore.getState().marketplaceBrand).toEqual({
+      name: 'Acme',
+      tagline: 'new tagline',
+      primaryColor: '#000000',
+    })
+  })
+})
+
 describe('wizard store — persistence hygiene', () => {
   it('drops registrarToken and registrarTokenValidated from the persist payload', () => {
     useWizardStore.setState({

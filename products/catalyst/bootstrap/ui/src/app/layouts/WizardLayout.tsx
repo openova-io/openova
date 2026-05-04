@@ -10,7 +10,7 @@ import { ProfileMenu } from '@/widgets/auth/ProfileMenu'
 import { consumeProvisionFlashBanner } from '@/shared/lib/flashBanner'
 
 /**
- * Wizard step list — seven progress stops in dependency order. StepSuccess
+ * Wizard step list — eight progress stops in dependency order. StepSuccess
  * and StepNSDelegation are post-provisioning destinations after StepReview
  * launches provisioning; they are not part of the visible progress, so
  * they are not in this list.
@@ -27,13 +27,23 @@ import { consumeProvisionFlashBanner } from '@/shared/lib/flashBanner'
  *   4. Credentials  — once each region has a provider, collect the API
  *                     token each chosen provider needs, plus the SSH key.
  *   5. Components   — platform building-block selection.
- *   6. Domain       — pool subdomain or BYO domain + admin email.
- *   7. Review       — POST body preview + launch.
+ *   6. Marketplace  — opt into Marketplace mode (issue #710 wave 3a). The
+ *                     toggle decides whether the Sovereign exposes a
+ *                     per-tenant SaaS storefront at
+ *                     marketplace.<sovereign-fqdn>.
+ *   7. Domain       — pool subdomain or BYO domain + admin email.
+ *   8. Review       — POST body preview + launch.
  *
  * Topology BEFORE Provider is the dependency-correct order: a provider is
  * a per-region property, picked AFTER topology decides how many regions
  * exist. SKU choices belong INSIDE the provider step because every cloud
  * has its own instance-type vocabulary (see shared/constants/providerSizes.ts).
+ *
+ * Marketplace is positioned AFTER Components and BEFORE Domain on purpose:
+ * the operator has just curated the apps that will populate the storefront,
+ * and the next step (Domain) names the Sovereign — making the marketplace
+ * URL preview (`marketplace.<fqdn>`) meaningful in either order without a
+ * forward-reference.
  *
  * After Review, the post-provisioning steps (StepSuccess, StepNSDelegation)
  * run on the same wizard state machine but live OUTSIDE the visible
@@ -46,8 +56,9 @@ export const WIZARD_STEPS = [
   { id: 3, label: 'Provider',     desc: 'Cloud + region + sizing per slot' },
   { id: 4, label: 'Credentials',  desc: 'API tokens + SSH key'             },
   { id: 5, label: 'Components',   desc: 'Platform building blocks'         },
-  { id: 6, label: 'Domain',       desc: 'Pool or BYO + admin email'        },
-  { id: 7, label: 'Review',       desc: 'Confirm and provision'            },
+  { id: 6, label: 'Marketplace',  desc: 'Multi-tenant SaaS storefront'     },
+  { id: 7, label: 'Domain',       desc: 'Pool or BYO + admin email'        },
+  { id: 8, label: 'Review',       desc: 'Confirm and provision'            },
 ]
 
 /**

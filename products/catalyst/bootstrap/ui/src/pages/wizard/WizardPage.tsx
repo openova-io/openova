@@ -7,6 +7,7 @@ import { StepTopology }    from './steps/StepTopology'
 import { StepProvider }    from './steps/StepProvider'
 import { StepCredentials } from './steps/StepCredentials'
 import { StepComponents }  from './steps/StepComponents'
+import { StepMarketplace } from './steps/StepMarketplace'
 import { StepReview }      from './steps/StepReview'
 import { StepSuccess }     from './steps/StepSuccess'
 import { StepNSDelegation } from './steps/StepNSDelegation'
@@ -24,10 +25,14 @@ import { StepNSDelegation } from './steps/StepNSDelegation'
 //                         why sizing lives here, not in topology.
 //   4. StepCredentials  — API tokens (per chosen provider) + SSH key.
 //   5. StepComponents   — unified marketplace catalog.
-//   6. StepDomain       — pool subdomain or BYO domain + admin email.
-//   7. StepReview       — single source of truth for the POST body.
-//   8. StepSuccess      — provisioning result.
-//   9. StepNSDelegation — post-handover parent-zone NS delegation
+//   6. StepMarketplace  — opt into Marketplace mode (issue #710 wave 3a).
+//                         The toggle decides whether the Sovereign exposes
+//                         a per-tenant SaaS storefront at
+//                         marketplace.<sovereign-fqdn>.
+//   7. StepDomain       — pool subdomain or BYO domain + admin email.
+//   8. StepReview       — single source of truth for the POST body.
+//   9. StepSuccess      — provisioning result.
+//  10. StepNSDelegation — post-handover parent-zone NS delegation
 //                         (omantel.omani.works → Sovereign-owned PowerDNS).
 //                         Closes #374. Pure runbook-emitter by default;
 //                         "auto-apply" toggle gates a stub catalyst-api
@@ -38,6 +43,7 @@ const STEPS = [
   StepProvider,
   StepCredentials,
   StepComponents,
+  StepMarketplace,
   StepDomain,
   StepReview,
   StepSuccess,

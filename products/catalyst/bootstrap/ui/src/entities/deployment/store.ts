@@ -9,6 +9,7 @@ import {
   type NodeSize,
   type TopologyTemplate,
   type ProvisionResult,
+  type MarketplaceBrand,
 } from './model'
 import {
   findComponent,
@@ -182,6 +183,13 @@ interface WizardActions {
   setWorkerSize: (size: NodeSize) => void
   setWorkerCount: (count: number) => void
   setHaEnabled: (enabled: boolean) => void
+
+  // Step — Marketplace (issue #710 wave 3a). Both setters are simple
+  // mirrors of the setHaEnabled pattern; the brand setter takes a
+  // partial so callers can edit one field at a time.
+  setMarketplaceEnabled: (enabled: boolean) => void
+  setMarketplaceBrand: (brand: Partial<MarketplaceBrand>) => void
+
   toggleComponent: (component: SelectedComponent) => void
   setComponents: (components: SelectedComponent[]) => void
 }
@@ -491,6 +499,19 @@ export const useWizardStore = create<WizardStore>()(
         setWorkerSize: (workerSize) => set({ workerSize }, false, 'wizard/setWorkerSize'),
         setWorkerCount: (workerCount) => set({ workerCount }, false, 'wizard/setWorkerCount'),
         setHaEnabled: (haEnabled) => set({ haEnabled }, false, 'wizard/setHaEnabled'),
+
+        // Marketplace mode — issue #710 wave 3a. Toggle persists via the
+        // existing deploy-request → tofu var → cloud-init → Flux substitute
+        // → chart render path; no ConfigMap shortcut.
+        setMarketplaceEnabled: (marketplaceEnabled) =>
+          set({ marketplaceEnabled }, false, 'wizard/setMarketplaceEnabled'),
+        setMarketplaceBrand: (brand) =>
+          set(
+            (s) => ({ marketplaceBrand: { ...s.marketplaceBrand, ...brand } }),
+            false,
+            'wizard/setMarketplaceBrand',
+          ),
+
         toggleComponent: (component) =>
           // Legacy action — kept for back-compat with any old call site that
           // hands a SelectedComponent record. Internally we just toggle the
@@ -736,6 +757,24 @@ export const useWizardStore = create<WizardStore>()(
           }
           if (p.lastProvisionResult === undefined) {
             p.lastProvisionResult = null
+          }
+          // Marketplace fields added in #710 wave 3a — coerce missing
+          // values on a legacy persisted payload so StepMarketplace and
+          // StepReview never crash on undefined.
+          if (typeof p.marketplaceEnabled !== 'boolean') {
+            p.marketplaceEnabled = false
+          }
+          if (
+            !p.marketplaceBrand ||
+            typeof p.marketplaceBrand !== 'object'
+          ) {
+            p.marketplaceBrand = { name: '', tagline: '', primaryColor: '' }
+          } else {
+            p.marketplaceBrand = {
+              name: typeof p.marketplaceBrand.name === 'string' ? p.marketplaceBrand.name : '',
+              tagline: typeof p.marketplaceBrand.tagline === 'string' ? p.marketplaceBrand.tagline : '',
+              primaryColor: typeof p.marketplaceBrand.primaryColor === 'string' ? p.marketplaceBrand.primaryColor : '',
+            }
           }
           // SSH-key fields added after first install (#160) — coerce missing
           // values so the StepCredentials SSH section renders cleanly on a

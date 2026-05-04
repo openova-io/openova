@@ -667,6 +667,17 @@ export function StepReview() {
           objectStorageRegion:    store.objectStorageRegion,
           objectStorageAccessKey: store.objectStorageAccessKey,
           objectStorageSecretKey: store.objectStorageSecretKey,
+          // Marketplace mode (issue #710 wave 3a) — captured by
+          // StepMarketplace. The catalyst-api Request struct already
+          // accepts `marketplaceEnabled` and threads it through to
+          // OpenTofu via var.marketplace_enabled (PR #719); from there
+          // cloud-init substitutes it into the bp-catalyst-platform
+          // HelmRelease values (`ingress.marketplace.enabled`). The
+          // brand fields are captured for forward-compat with the
+          // post-launch settings page (companion PR) and ignored by
+          // the chart for now.
+          marketplaceEnabled: store.marketplaceEnabled,
+          marketplaceBrand:   store.marketplaceBrand,
         }),
       })
       const data = await res.json()
@@ -934,7 +945,110 @@ export function StepReview() {
           `}</style>
         </Section>
 
-        {/* ── 6. Domain ────────────────────────────────────────── */}
+        {/* ── 6. Marketplace (issue #710 wave 3a) ──────────────── */}
+        <Section
+          title={
+            <>
+              <span>Marketplace</span>
+              <span
+                data-testid="review-marketplace-state"
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  color: store.marketplaceEnabled ? '#4ADE80' : 'var(--wiz-text-sub)',
+                  background: store.marketplaceEnabled
+                    ? 'rgba(74,222,128,0.12)'
+                    : 'rgba(148,163,184,0.12)',
+                  border: store.marketplaceEnabled
+                    ? '1px solid rgba(74,222,128,0.25)'
+                    : '1px solid var(--wiz-border-sub)',
+                  borderRadius: 3,
+                  padding: '1px 6px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {store.marketplaceEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </>
+          }
+          testId="review-section-marketplace"
+        >
+          {store.marketplaceEnabled ? (
+            <FieldGrid minColumnWidth={200}>
+              <Field
+                label="Storefront URL"
+                fullWidth
+                value={
+                  sovereignFQDN ? (
+                    <code
+                      style={{
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 11,
+                        color: '#38BDF8',
+                      }}
+                    >
+                      marketplace.{sovereignFQDN}
+                    </code>
+                  ) : (
+                    <span style={{ color: 'var(--wiz-text-hint)' }}>
+                      — resolved from Domain step —
+                    </span>
+                  )
+                }
+              />
+              <Field
+                label="Brand name"
+                value={dimIfMissing(store.marketplaceBrand.name, '— platform default —')}
+              />
+              <Field
+                label="Tagline"
+                value={dimIfMissing(store.marketplaceBrand.tagline, '— platform default —')}
+              />
+              <Field
+                label="Primary colour"
+                value={
+                  store.marketplaceBrand.primaryColor ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 3,
+                          border: '1px solid var(--wiz-border-sub)',
+                          background: store.marketplaceBrand.primaryColor.startsWith('#')
+                            ? store.marketplaceBrand.primaryColor
+                            : `#${store.marketplaceBrand.primaryColor}`,
+                        }}
+                      />
+                      <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                        {store.marketplaceBrand.primaryColor}
+                      </code>
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--wiz-text-hint)' }}>— platform default —</span>
+                  )
+                }
+              />
+            </FieldGrid>
+          ) : (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                color: 'var(--wiz-text-sub)',
+                lineHeight: 1.5,
+              }}
+            >
+              Single-tenant private Sovereign. No storefront, no per-tenant subdomains. You can
+              flip Marketplace mode on later from the post-launch Settings page without
+              re-provisioning.
+            </p>
+          )}
+        </Section>
+
+        {/* ── 7. Domain ────────────────────────────────────────── */}
         <Section title="Domain" testId="review-section-domain">
           <FieldGrid minColumnWidth={200}>
             <Field label="Mode" value={DOMAIN_MODE_LABELS[store.sovereignDomainMode]} />
