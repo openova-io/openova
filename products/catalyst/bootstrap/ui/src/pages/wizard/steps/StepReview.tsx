@@ -60,8 +60,17 @@ import { StepShell, useStepNav } from './_shared'
 import {
   GROUPS,
   findComponent,
+  ALL_COMPONENTS,
+  isMandatory,
   type ComponentEntry,
 } from './componentGroups'
+import {
+  CONTROL_PLANE_OVERHEAD,
+  recommendedWorkers,
+  sumFootprints,
+  workerCapacity,
+  type ComponentFootprint,
+} from './componentFootprints'
 import { getLogoToneStyle } from './logoTone'
 
 /* ── Provider logos ──────────────────────────────────────────────── */
@@ -515,6 +524,26 @@ function dimIfMissing(value: string | null | undefined, fallback = '— not conf
   return value
 }
 
+/* ── Footprint formatters (issue #767) ───────────────────────────────
+   The wizard's footprint estimate surfaces RAM in GB (with one decimal
+   when the value is below 10 GB so a single-digit-MB shift on an
+   optional component does not flicker the rollup) and CPU in whole
+   vCPU. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
+   conversion divisors live in componentFootprints.ts; the formatters
+   here are display-only. */
+function formatRam(ramMb: number): string {
+  if (ramMb === 0) return '0 GB'
+  const gb = ramMb / 1024
+  if (gb < 10) return `${gb.toFixed(1)} GB`
+  return `${Math.round(gb)} GB`
+}
+function formatCpu(cpuMilli: number): string {
+  if (cpuMilli === 0) return '0 vCPU'
+  const cpu = cpuMilli / 1000
+  if (cpu < 10) return `${cpu.toFixed(1)} vCPU`
+  return `${Math.round(cpu)} vCPU`
+}
+
 /* ── StepReview ──────────────────────────────────────────────────── */
 export function StepReview() {
   const store = useWizardStore()
@@ -607,6 +636,63 @@ export function StepReview() {
     }
     return out
   })()
+
+  /* ── Footprint estimate (issue #767) ─────────────────────────────
+     Two rollups feed the StepReview "Footprint estimate" Section:
+
+       1. BOOTSTRAP-KIT BASELINE — sum of footprints across every
+          mandatory-tier component in the catalog (post-transitive
+          promotion). This is the floor every Sovereign carries
+          regardless of operator selection — bp-cilium, bp-cert-
+          manager, bp-flux, bp-crossplane, bp-openbao, bp-keycloak,
+          bp-cnpg, etc.
+
+       2. SELECTED COMPONENTS DELTA — sum of footprints across every
+          recommended/optional component the operator actively picked
+          (i.e. component ids in the wizard store's componentGroups
+          map that are NOT mandatory).
+
+     The TOTAL footprint = baseline + delta + control-plane overhead
+     (k3s itself). We compute that against the OPERATOR'S worker SKU
+     for Region 1 to derive a "minimum workers" recommendation that
+     surfaces a WARN row when the operator picked fewer workers than
+     the rollup needs. */
+  const selectedIds = new Set<string>()
+  for (const ids of Object.values(store.componentGroups)) {
+    for (const id of ids) selectedIds.add(id)
+  }
+  const mandatoryIds = ALL_COMPONENTS.filter(c => isMandatory(c.id)).map(c => c.id)
+  const baselineFootprint: ComponentFootprint = sumFootprints(mandatoryIds)
+  const selectedDeltaIds = [...selectedIds].filter(id => !isMandatory(id))
+  const selectedDeltaFootprint: ComponentFootprint = sumFootprints(selectedDeltaIds)
+  const totalFootprint: ComponentFootprint = {
+    ramMb: baselineFootprint.ramMb + selectedDeltaFootprint.ramMb + CONTROL_PLANE_OVERHEAD.ramMb,
+    cpuMilli:
+      baselineFootprint.cpuMilli + selectedDeltaFootprint.cpuMilli + CONTROL_PLANE_OVERHEAD.cpuMilli,
+  }
+  // Per-worker capacity for Region 1's chosen worker SKU. When the
+  // operator hasn't picked a worker SKU yet we fall back to a sensible
+  // floor (cpx32-equivalent: 4 vCPU / 8 GiB) so the footprint section
+  // still surfaces a useful estimate before they touch the Provider step.
+  const r0Provider = regionRows[0]?.provider ?? null
+  const r0WorkerId = regionRows[0]?.workerSize ?? ''
+  const r0Worker = r0Provider && r0WorkerId ? findNodeSize(r0Provider, r0WorkerId) : undefined
+  const perWorkerCapacity: ComponentFootprint = r0Worker
+    ? workerCapacity(r0Worker.vcpu, r0Worker.ram)
+    : workerCapacity(4, 8)
+  const recommendedWorkerCount = recommendedWorkers(perWorkerCapacity, {
+    // The recommendation accounts for the work that lands on workers —
+    // i.e. baseline + selected delta. The CP overhead lives on the
+    // control-plane node, not workers, so it's excluded from the
+    // worker-pool sizing math.
+    ramMb: baselineFootprint.ramMb + selectedDeltaFootprint.ramMb,
+    cpuMilli: baselineFootprint.cpuMilli + selectedDeltaFootprint.cpuMilli,
+  })
+  const operatorWorkerCount = regionRows[0]?.workerCount ?? 0
+  const workerShortfall = operatorWorkerCount > 0 && operatorWorkerCount < recommendedWorkerCount
+  const r0WorkerLabel = r0Worker?.label ?? '—'
+  const r0WorkerVcpu = r0Worker?.vcpu ?? 0
+  const r0WorkerRam = r0Worker?.ram ?? 0
 
   /* ── Submission ─────────────────────────────────────────────── */
   // Issue #689 — anonymous launch: if the user is not signed in, open
@@ -911,6 +997,130 @@ export function StepReview() {
               }
             />
           </FieldGrid>
+        </Section>
+
+        {/* ── 4b. Footprint estimate (issue #767) ─────────────────
+            Pre-launch RAM / CPU floor across the bootstrap-kit + the
+            operator's selected components, paired with a "minimum
+            workers" recommendation against Region 1's chosen worker
+            SKU. WARN row surfaces when the operator picked fewer
+            workers than the rollup needs — live evidence (otech92):
+            two cpx32 workers couldn't fit external-secrets-webhook
+            because the bootstrap-kit ate the full 16 GB. Per
+            componentFootprints.ts, the values are install-time
+            REQUESTS (NOT limits, NOT actual usage), aggregated
+            across every Pod each chart instantiates. */}
+        <Section
+          title="Footprint estimate"
+          testId="review-section-footprint"
+          headerExtra={
+            <span
+              data-testid="review-footprint-total"
+              style={{ fontSize: 10, fontWeight: 700, color: 'var(--wiz-accent)' }}
+            >
+              {formatRam(totalFootprint.ramMb)} · {formatCpu(totalFootprint.cpuMilli)}
+            </span>
+          }
+        >
+          <FieldGrid minColumnWidth={210}>
+            <Field
+              label="Bootstrap-kit baseline"
+              value={
+                <span data-testid="review-footprint-baseline">
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatRam(baselineFootprint.ramMb)}
+                  </strong>{' '}
+                  RAM ·{' '}
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatCpu(baselineFootprint.cpuMilli)}
+                  </strong>
+                </span>
+              }
+            />
+            <Field
+              label="Selected components add"
+              value={
+                <span data-testid="review-footprint-selected">
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatRam(selectedDeltaFootprint.ramMb)}
+                  </strong>{' '}
+                  RAM ·{' '}
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatCpu(selectedDeltaFootprint.cpuMilli)}
+                  </strong>
+                </span>
+              }
+            />
+            <Field
+              label="Control-plane overhead"
+              value={
+                <span data-testid="review-footprint-cp-overhead">
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatRam(CONTROL_PLANE_OVERHEAD.ramMb)}
+                  </strong>{' '}
+                  RAM ·{' '}
+                  <strong style={{ color: 'var(--wiz-text-md)' }}>
+                    {formatCpu(CONTROL_PLANE_OVERHEAD.cpuMilli)}
+                  </strong>
+                </span>
+              }
+            />
+            <Field
+              label="Recommended workers"
+              fullWidth
+              value={
+                r0Worker ? (
+                  <span data-testid="review-footprint-recommended">
+                    <strong
+                      style={{ color: workerShortfall ? '#F59E0B' : 'var(--wiz-text-md)' }}
+                    >
+                      {recommendedWorkerCount}× {r0WorkerLabel}
+                    </strong>{' '}
+                    <span style={{ color: 'var(--wiz-text-sub)' }}>
+                      ({recommendedWorkerCount * r0WorkerRam} GB / {recommendedWorkerCount * r0WorkerVcpu} vCPU available)
+                    </span>
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--wiz-text-hint)' }}>
+                    — pick a worker SKU on the Provider step to see a recommendation —
+                  </span>
+                )
+              }
+            />
+          </FieldGrid>
+          {workerShortfall && (
+            <div
+              data-testid="review-footprint-shortfall"
+              style={{
+                marginTop: 8,
+                borderRadius: 6,
+                padding: '6px 10px',
+                background: 'rgba(245,158,11,0.08)',
+                border: '1px solid rgba(245,158,11,0.25)',
+                fontSize: 11,
+                color: '#F59E0B',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>You picked {operatorWorkerCount} worker
+              {operatorWorkerCount === 1 ? '' : 's'}</strong> ({operatorWorkerCount * r0WorkerRam} GB / {operatorWorkerCount * r0WorkerVcpu} vCPU) —
+              the rollup needs at least {recommendedWorkerCount}. Bump the worker count on the Provider step
+              or the cluster-autoscaler will need to scale up immediately after launch
+              (live evidence: otech92 ran out of RAM on bootstrap and FailedScheduling-blocked external-secrets-webhook).
+            </div>
+          )}
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 10,
+              color: 'var(--wiz-text-sub)',
+              lineHeight: 1.5,
+            }}
+          >
+            Floor of <code>resources.requests</code> across every Pod each blueprint installs — not the limit,
+            not steady-state usage. The runtime cluster-autoscaler scales workers up or down within the
+            min/max bounds you set on the Provider step.
+          </p>
         </Section>
 
         {/* ── 5. Components ──────────────────────────────────────

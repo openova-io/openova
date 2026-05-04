@@ -111,6 +111,22 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ]
   },
   {
+    "id": "bp-cert-manager-powerdns-webhook",
+    "slug": "cert-manager-powerdns-webhook",
+    "title": "cert-manager-powerdns-webhook",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [
+      "bp-cert-manager"
+    ]
+  },
+  {
     "id": "bp-cilium",
     "slug": "cilium",
     "title": "Cilium",
@@ -120,7 +136,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": []
   },
@@ -164,7 +180,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
@@ -180,12 +196,26 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-openbao",
       "bp-cert-manager"
     ]
+  },
+  {
+    "id": "bp-external-secrets-stores",
+    "slug": "external-secrets-stores",
+    "title": "External Secrets — Stores",
+    "summary": "|",
+    "icon": "external-secrets.svg",
+    "category": "security",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": []
   },
   {
     "id": "bp-flux",
@@ -197,8 +227,22 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "section": "pts-3-2-gitops-and-iac",
+    "depends": []
+  },
+  {
+    "id": "bp-gateway-api",
+    "slug": "gateway-api",
+    "title": "Gateway API",
+    "summary": "|",
+    "icon": "kubernetes.svg",
+    "category": "infrastructure",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.1.0",
+    "section": "pts-3-1-networking-and-service-mesh",
     "depends": []
   },
   {
@@ -211,7 +255,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.2.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -225,7 +269,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.3.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -368,6 +412,26 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ]
   },
   {
+    "id": "bp-newapi",
+    "slug": "newapi",
+    "title": "NewAPI",
+    "summary": "|",
+    "icon": "newapi.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "1.0.0",
+    "section": "pts-4-6-llm-serving",
+    "depends": [
+      "bp-cnpg",
+      "bp-keycloak",
+      "bp-external-secrets",
+      "bp-valkey",
+      "bp-vllm"
+    ]
+  },
+  {
     "id": "bp-openbao",
     "slug": "openbao",
     "title": "openbao",
@@ -377,7 +441,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -409,7 +473,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.3",
+    "version": "1.1.8",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -529,13 +593,16 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
   "platform/cert-manager-dynadot-webhook/blueprint.yaml",
+  "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
+  "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
   "platform/flux/blueprint.yaml",
+  "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
@@ -546,6 +613,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/matrix/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
+  "platform/newapi/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
@@ -612,13 +680,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "sealed-secrets",
     "file": "05-sealed-secrets.yaml",
     "order": 5
-  },
-  {
-    "id": "bp-spire",
-    "slug": "spire",
-    "label": "spire",
-    "file": "06-spire.yaml",
-    "order": 6
   },
   {
     "id": "bp-nats-jetstream",
@@ -754,13 +815,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 25
   },
   {
-    "id": "bp-langfuse",
-    "slug": "langfuse",
-    "label": "langfuse",
-    "file": "26-langfuse.yaml",
-    "order": 26
-  },
-  {
     "id": "bp-kyverno",
     "slug": "kyverno",
     "label": "kyverno",
@@ -822,5 +876,19 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "coraza",
     "file": "35-coraza.yaml",
     "order": 35
+  },
+  {
+    "id": "bp-cluster-autoscaler",
+    "slug": "cluster-autoscaler",
+    "label": "cluster-autoscaler",
+    "file": "40-cluster-autoscaler.yaml",
+    "order": 40
+  },
+  {
+    "id": "bp-bp-cert-manager-powerdns-webhook",
+    "slug": "bp-cert-manager-powerdns-webhook",
+    "label": "bp-cert-manager-powerdns-webhook",
+    "file": "49-bp-cert-manager-powerdns-webhook.yaml",
+    "order": 49
   }
 ] as const

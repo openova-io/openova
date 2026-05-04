@@ -1,0 +1,170 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the `cluster-autoscaler:`
+#      key (umbrella-chart convention — the dependency name from Chart.yaml
+#      is the values namespace).
+#   3. Catalyst overlay values (templates/secret.yaml, NetworkPolicy)
+#      consumed by templates/ in this chart.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value is configurable; cluster overlays in clusters/<sovereign>/
+# may override any of these without rebuilding the Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: cluster-autoscaler
+    version: "9.46.6"
+    repo: "https://kubernetes.github.io/autoscaler"
+    # Catalyst rationale for this upstream:
+    # - kubernetes/autoscaler is the canonical publisher (kubernetes-sigs).
+    # - Chart 9.46.x ships appVersion 1.32.0 — upstream-tested against
+    #   k8s 1.31 (the k3s 1.31.x apiserver shipping on every Sovereign).
+    # - Hetzner cloud-provider is built into the upstream container image.
+    # - Apache-2.0 licence.
+
+# ─── Upstream chart values (subchart key: cluster-autoscaler) ────────────
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `cluster-autoscaler:` key flow into that subchart unchanged.
+cluster-autoscaler:
+  # Hetzner Cloud cloud-provider — built into the upstream image. Selecting
+  # `hetzner` here switches the deployment template's --nodes argument to
+  # the Hetzner-specific shape (minSize:maxSize:instanceType:region:name)
+  # per the upstream chart's deployment.yaml.
+  cloudProvider: hetzner
+
+  # autoDiscovery is irrelevant for the Hetzner provider — Hetzner has no
+  # native ASG/MIG concept; the autoscaler manages servers directly via
+  # the Cloud API. Disable to silence the lint warning the upstream chart
+  # emits when autoDiscovery is partially set.
+  autoDiscovery:
+    clusterName: ""
+
+  # autoscalingGroups — the Hetzner provider's "node groups". Each entry
+  # becomes a `--nodes=min:max:instanceType:region:name` flag rendered by
+  # the upstream deployment template (see chart templates/deployment.yaml
+  # eq cloudProvider "hetzner" branch). The default below MUST be
+  # overridden per-Sovereign via clusters/<sovereign>/.../bootstrap-kit/
+  # so the autoscaler creates servers of the SAME SKU + region the Tofu
+  # module provisioned at Phase 0. Per-Sovereign overlays write the
+  # actual instanceType / region / counts at HelmRelease apply time.
+  #
+  # Defaults below match the canonical otechN topology (cpx32 worker SKU
+  # in fsn1, min 2 / max 10) so a vanilla Sovereign that forgets to
+  # patch this still gets a sensible autoscaler.
+  autoscalingGroups:
+    - name: workers
+      instanceType: cpx32
+      region: fsn1
+      minSize: 2
+      maxSize: 10
+
+  # extraArgs — operational tuning. These flags are independent of the
+  # cloud-provider and match the upstream defaults except where called
+  # out below.
+  extraArgs:
+    # Scale-down idle interval — workers must remain underutilised for
+    # N minutes before being removed. 10m is the cost-saving Catalyst
+    # default; per-Sovereign overlays MAY raise this for spiky workloads.
+    scale-down-unneeded-time: 10m
+    scale-down-delay-after-add: 10m
+    scale-down-delay-after-failure: 3m
+    # Run on the control plane only — the autoscaler must NEVER schedule
+    # onto a node it could itself terminate (race during scale-down).
+    # The k3s control-plane node carries the
+    # `node-role.kubernetes.io/control-plane=` taint; the toleration +
+    # nodeSelector below pin the pod there.
+    expander: least-waste
+    skip-nodes-with-local-storage: false
+    skip-nodes-with-system-pods: false
+    balance-similar-node-groups: true
+
+  # ─── Pin to the k3s control plane ────────────────────────────────────
+  # The autoscaler must never run on a worker (it could terminate itself).
+  # k3s control-plane nodes carry both labels — the selector + toleration
+  # below match either. Per-Sovereign overlays MAY override this when the
+  # Sovereign is multi-CP and the operator wants the pod elsewhere.
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+
+  # Single replica — leader election is built into the autoscaler binary
+  # (–leader-elect=true is the default for v1.32). Two replicas is
+  # support-friendly but not required for correctness.
+  replicaCount: 1
+
+  # ─── Hetzner credentials (HCLOUD_TOKEN) ──────────────────────────────
+  # Wired via `extraEnvSecrets`: the upstream deployment template lifts
+  # each `name → {name, key}` entry into a regular env var with a
+  # secretKeyRef. The Secret itself is rendered by templates/
+  # hetzner-token-secret.yaml in this umbrella chart, sourced from the
+  # canonical flux-system/cloud-credentials.hcloud-token via Flux
+  # `valuesFrom` at HelmRelease apply time (matches the velero / harbor
+  # object-storage pattern — see clusters/_template/bootstrap-kit/
+  # 34-velero.yaml).
+  #
+  # Per-Sovereign overlays MAY override `name:` to point at a different
+  # Secret (e.g. an ExternalSecret materialised from OpenBao once the
+  # Sovereign reaches Phase 2+).
+  extraEnvSecrets:
+    HCLOUD_TOKEN:
+      name: hcloud-token
+      key: token
+
+  # Resources — modest defaults for a controller-pattern workload that
+  # mainly polls the apiserver + Hetzner API.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+  # ServiceMonitor / PodDisruptionBudget — DEFAULT FALSE per the
+  # observability-toggle rule for the bp-* family
+  # (docs/BLUEPRINT-AUTHORING.md §11.2). Per-Sovereign overlays MAY flip
+  # them on once Prometheus Operator + PDB-aware drainers are present.
+  serviceMonitor:
+    enabled: false
+  prometheusRule:
+    enabled: false
+  podDisruptionBudget: {}
+
+  # RBAC + service account — chart manages its own. Cluster-scoped
+  # reads on Pods/Nodes/Replicasets/StatefulSets/DaemonSets are required
+  # for scheduling-decision visibility.
+  rbac:
+    create: true
+    serviceAccount:
+      create: true
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Knobs for the Catalyst-curated Secret + NetworkPolicy rendered by
+# templates/. Per INVIOLABLE-PRINCIPLES #4 everything here is runtime-
+# configurable; cluster overlays MAY override without rebuilding the
+# Blueprint OCI artifact.
+clusterAutoscalerHcloud:
+  # Hetzner API token — rendered into a namespace-local Secret from the
+  # canonical flux-system/cloud-credentials.hcloud-token via Flux
+  # `valuesFrom`. The HelmRelease in clusters/_template/bootstrap-kit/
+  # 26-cluster-autoscaler.yaml writes the value into
+  # `clusterAutoscalerHcloud.hcloudToken` at apply time so it never
+  # appears in the committed manifest.
+  hcloudToken: ""
+
+  # NetworkPolicy — locks the autoscaler pod down to: egress to the
+  # apiserver + DNS + Hetzner API (api.hetzner.cloud). DEFAULT FALSE
+  # because the apiserver/Hetzner-API allowlist needs cluster-specific
+  # CIDRs the umbrella chart does not know in advance; per-Sovereign
+  # overlays flip this on with the Sovereign's apiserver Service CIDR.
+  networkPolicy:
+    enabled: false

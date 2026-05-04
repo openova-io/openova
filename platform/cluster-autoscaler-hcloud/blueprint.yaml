@@ -1,0 +1,43 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: cluster-autoscaler-hcloud
+  labels:
+    catalyst.openova.io/section: pts-3-2-scaling-and-resilience
+spec:
+  version: 1.0.0
+  card:
+    title: Cluster Autoscaler (Hetzner)
+    family: surge
+    description: Adds and removes Hetzner Cloud workers in response to FailedScheduling events. Bounded by the per-Sovereign min/max node-group config the operator picked at launch. Pairs with VPA (vertical) and HPA/KEDA (horizontal pod) on the workload axis.
+    docs: https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/hetzner
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      minWorkers:
+        type: integer
+        default: 2
+        minimum: 0
+        maximum: 100
+        description: Minimum number of worker nodes the autoscaler will keep online. Tofu Phase 0 provisions exactly this many — the autoscaler never scales BELOW this count.
+      maxWorkers:
+        type: integer
+        default: 10
+        minimum: 1
+        maximum: 100
+        description: Maximum number of worker nodes the autoscaler may add to the project. Caps blast radius for runaway scale-ups.
+      scaleDownIdleMinutes:
+        type: integer
+        default: 10
+        minimum: 1
+        maximum: 60
+        description: Minutes a worker must remain underutilised before the autoscaler removes it. Cost-saving default.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # one autoscaler per host cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # cloud-credentials Secret is provisioned by cloud-init before Flux installs anything
+  upgrades:
+    from: ["0.x"]

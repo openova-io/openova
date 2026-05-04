@@ -499,7 +499,63 @@ We are not a strict OAM implementation. We borrow the layered composition idea b
 
 ---
 
-## 14. Read further
+## 14. Autoscaling
+
+Catalyst layers four orthogonal autoscalers, each addressing a different
+dimension of "make this Sovereign fit its workload." None of them
+substitute for any of the others; they compose.
+
+| Dimension | Component | Blueprint | Where it lives | Decides |
+|---|---|---|---|---|
+| **Workload (vertical)** — right-size pod requests/limits | VPA | `bp-vpa` | bootstrap-kit slot 29 | "Pod X actually uses N MB / M mC, change its requests" |
+| **Workload (horizontal, metric-driven)** — replicas of a Deployment from CPU/memory | Kubernetes built-in | (HPA is a kube primitive — no blueprint needed) | every Sovereign | "Service Y is hot, run 5 replicas instead of 2" |
+| **Workload (horizontal, event-driven)** — replicas from queue depth, NATS lag, cron | KEDA | `bp-keda` | bootstrap-kit slot 28a | "JetStream subject Z has 50k pending msgs, scale consumer to 8" |
+| **Node (cluster-wide)** — add/remove cloud machines | cluster-autoscaler | `bp-cluster-autoscaler-hcloud` | bootstrap-kit slot 40 | "5 pods are FailedScheduling on the current pool, add a worker" |
+
+The wizard's pre-launch StepReview surfaces an *estimated* footprint
+(sum of `resources.requests` across the bootstrap-kit baseline +
+operator-selected components) so the operator picks an initial worker
+count that fits without immediately triggering cluster-autoscaler. The
+runtime cluster-autoscaler then handles drift and steady-state
+fluctuation within the operator's `min`/`max` bounds.
+
+**Why not a single autoscaler?**
+
+- HPA without VPA scales replicas of pods that may themselves be
+  starved or oversized — wasted capacity OR throttled latency.
+- VPA without HPA right-sizes pods but cannot redistribute load.
+- Neither moves the node-pool boundary; both will jam the scheduler
+  when the project quota is reached. cluster-autoscaler is the only
+  layer that touches the cloud API to change node count.
+- KEDA covers async-workload-driven scale (event log pressure, cron
+  windows, job queues) that HPA's CPU/memory model cannot express.
+
+**Bounds and safety:**
+
+- cluster-autoscaler is bounded by per-Sovereign `min`/`max` set in the
+  HelmRelease overlay (and surfaced on the wizard's Provider step).
+  `min` ≤ Tofu Phase 0's worker_count ≤ `max`.
+- Scale-down idle: 10 minutes default — workers must remain
+  underutilised for the full 10m before being removed (cost-saving
+  default; per-Sovereign overlays MAY raise this for spiky workloads).
+- The autoscaler runs on the control-plane node only — it is never
+  scheduled onto a worker it could itself terminate.
+- Hetzner project quota is the ultimate cap: when `max` is reached or
+  the project quota is exhausted, FailedScheduling persists until an
+  operator raises one or the other.
+
+**Why we did not pick KEDA for cluster scaling:**
+
+KEDA scales workloads (replicas), not nodes — different problem space
+even though both speak "autoscaler." When KEDA's scaler pushes a
+Deployment to N replicas the kube-scheduler still has to find Nodes for
+those replicas to land on; cluster-autoscaler is the only component
+that can grow the node pool to make room. They compose: KEDA decides
+*how many replicas*, cluster-autoscaler decides *how many nodes*.
+
+---
+
+## 15. Read further
 
 - [`GLOSSARY.md`](GLOSSARY.md) — every term defined.
 - [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) — every name's pattern.
