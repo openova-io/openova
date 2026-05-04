@@ -950,7 +950,7 @@ runcmd:
   # provisioned hcloud-csi. Result on a fresh Sovereign: every PVC stuck
   # Pending forever, bootstrap-kit deadlocked. Keeping local-path solves
   # the circularity by giving the cluster a default StorageClass at boot.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=10.0.1.2 --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
