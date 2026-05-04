@@ -270,6 +270,67 @@ func main() {
 			}
 			h.SetSMEDeps(deps)
 		}
+
+		// SME tenant provisioning pipeline (issue #804) — same
+		// directory as the user-provision store. Wires the GitOps
+		// overlay writer (uses CATALYST_GITOPS_* env), DNS provisioner
+		// (PowerDNS for free-subdomain, net.LookupCNAME for BYO), and
+		// the chart-bootstrap-aware Keycloak client verifier.
+		if smeTenantStore, err := store.NewSMETenantProvisionStore(dir); err != nil {
+			log.Warn("sme-tenant-store: init failed; /sme/tenants will return 503",
+				"err", err,
+			)
+		} else {
+			tdeps := handler.SMETenantDeps{
+				Store:            smeTenantStore,
+				TenantRegistry:   nil, // overwritten below from h.tenantRegistry
+				OTECHFQDN:        os.Getenv("CATALYST_OTECH_FQDN"),
+				OTECHIngressIPv4: os.Getenv("CATALYST_OTECH_INGRESS_IPV4"),
+				MaxRetryCount:    5,
+			}
+			// GitOps overlay writer — chart versions read from env
+			// per Inviolable Principle 4. Empty values fall back to "*".
+			tdeps.GitOps = handler.DefaultSMETenantGitOpsWriter{
+				Log: log,
+				ChartVersions: handler.SMETenantChartVersions{
+					Keycloak:  os.Getenv("CATALYST_SME_BP_KEYCLOAK_VER"),
+					CNPG:      os.Getenv("CATALYST_SME_BP_CNPG_VER"),
+					WordPress: os.Getenv("CATALYST_SME_BP_WORDPRESS_VER"),
+					OpenClaw:  os.Getenv("CATALYST_SME_BP_OPENCLAW_VER"),
+					Stalwart:  os.Getenv("CATALYST_SME_BP_STALWART_VER"),
+				},
+			}
+			// DNS provisioner — wraps PowerDNS for free-subdomain
+			// writes; falls back to a no-op when env unset.
+			pdnsURL := os.Getenv("CATALYST_POWERDNS_URL")
+			pdnsKey := os.Getenv("CATALYST_POWERDNS_API_KEY")
+			if writer := handler.NewPowerDNSWriter(pdnsURL, pdnsKey); writer != nil {
+				tdeps.DNS = handler.DefaultSMETenantDNSProvisioner{Writer: writer}
+				log.Info("sme-tenant: powerdns writer wired", "url", pdnsURL)
+			} else {
+				tdeps.DNS = handler.NoopSMETenantDNSProvisioner{}
+				log.Info("sme-tenant: powerdns env unset; using no-op DNS provisioner")
+			}
+			// Keycloak client verifier — uses the same SA token as the
+			// user-create hook (CATALYST_SME_KC_SA_TOKEN).
+			tdeps.KeycloakClients = handler.ChartBootstrapKeycloakProvisioner{
+				Log:     log,
+				SAToken: os.Getenv("CATALYST_SME_KC_SA_TOKEN"),
+			}
+			// Pull the tenant registry the SME-user wiring just set so
+			// the pipeline can register console.<host> on completion.
+			h.SetSMETenantDeps(tdeps)
+			// Re-wire registry now that the Handler has it.
+			if reg, err := store.NewTenantRegistry(dir); err == nil {
+				tdeps.TenantRegistry = reg
+				h.SetTenantRegistry(reg)
+				h.SetSMETenantDeps(tdeps)
+			}
+			log.Info("sme-tenant: pipeline wired",
+				"otech_fqdn", tdeps.OTECHFQDN,
+				"max_retry", tdeps.MaxRetryCount,
+			)
+		}
 	}
 
 	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
@@ -496,6 +557,21 @@ func main() {
 		rg.Post("/api/v1/sme/users", h.HandleCreateSMEUser)
 		rg.Get("/api/v1/sme/users", h.HandleListSMEUsers)
 		rg.Delete("/api/v1/sme/users/{uuid}", h.HandleDeleteSMEUser)
+
+		// SME tenant provisioning pipeline (issue #804). Marketplace
+		// signup → vCluster + bp-* charts + DNS + cert + SSO clients
+		// + tenant registry. State machine surfaced as steps[] in the
+		// response so the SPA can render a progress timeline. The
+		// reconciler is event-driven (NATS heartbeat-to-self per
+		// ADR-0003 §3.5) so a Pod restart never strands a half-
+		// provisioned tenant. See sme_tenant.go for the full state
+		// machine and sme_tenant_gitops.go for the GitOps overlay
+		// generator.
+		rg.Post("/api/v1/sme/tenants", h.HandleCreateSMETenant)
+		rg.Get("/api/v1/sme/tenants", h.HandleListSMETenants)
+		rg.Get("/api/v1/sme/tenants/{id}", h.HandleGetSMETenant)
+		rg.Post("/api/v1/sme/tenants/{id}/reconcile", h.HandleReconcileSMETenant)
+		rg.Delete("/api/v1/sme/tenants/{id}", h.HandleDeleteSMETenant)
 
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining

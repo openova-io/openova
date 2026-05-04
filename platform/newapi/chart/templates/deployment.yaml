@@ -130,6 +130,68 @@ spec:
           resources:
             {{- toYaml .Values.newapi.resources | nindent 12 }}
 
+        {{- if .Values.meteringSidecar.enabled }}
+        # ── Metering sidecar (#798) ─────────────────────────────
+        # Transparent reverse proxy in front of NewAPI. Observes
+        # successful /v1/* responses, emits one envelope per
+        # completed LLM request on NATS subject
+        # `catalyst.usage.recorded`. NewAPI itself is unmodified —
+        # see values.yaml `meteringSidecar` for the architecture
+        # rationale.
+        - name: metering-sidecar
+          image: "{{ .Values.meteringSidecar.image.repository }}:{{ .Values.meteringSidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.meteringSidecar.image.pullPolicy }}
+          ports:
+            - name: metering
+              containerPort: {{ .Values.meteringSidecar.port }}
+              protocol: TCP
+          env:
+            - name: LISTEN_PORT
+              value: {{ .Values.meteringSidecar.port | quote }}
+            # NewAPI forwards on the same pod's loopback. NewAPI's
+            # `newapi.port` is the upstream container port — use
+            # 127.0.0.1 (NOT the Service DNS) so the sidecar's
+            # response observation does not loop through the
+            # cluster-fronting Service.
+            - name: NEWAPI_UPSTREAM_URL
+              value: "http://127.0.0.1:{{ .Values.newapi.port }}"
+            - name: NATS_URL
+              value: {{ .Values.meteringSidecar.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" | quote }}
+            - name: NATS_PUBLISH_TIMEOUT
+              value: {{ .Values.meteringSidecar.natsPublishTimeout | quote }}
+            - name: PRICE_MICRO_OMR_PER_TOKEN
+              value: {{ .Values.meteringSidecar.priceMicroOMRPerToken | quote }}
+            - name: SPOOL_DIR
+              value: {{ .Values.meteringSidecar.spoolDir | quote }}
+            - name: CUSTOMER_ID_HEADER
+              value: {{ .Values.meteringSidecar.customerIDHeader | quote }}
+            - name: TENANT_ID_HEADER
+              value: {{ .Values.meteringSidecar.tenantIDHeader | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.meteringSidecar.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.meteringSidecar.port }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.meteringSidecar.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.meteringSidecar.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: metering-spool
+              mountPath: {{ .Values.meteringSidecar.spoolDir }}
+        {{- end }}
+
       volumes:
         - name: channels
           configMap:
@@ -137,4 +199,12 @@ spec:
             items:
               - key: channels.yaml
                 path: channels.yaml
+        {{- if .Values.meteringSidecar.enabled }}
+        # emptyDir is intentional: the sidecar's drain loop
+        # republishes spooled envelopes once NATS recovers, so
+        # persistence across pod restarts is unnecessary.
+        - name: metering-spool
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- end }}
 {{- end }}

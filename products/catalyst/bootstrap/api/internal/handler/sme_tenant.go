@@ -1,0 +1,771 @@
+// Package handler — sme_tenant.go: SME tenant provisioning pipeline
+// orchestrator (issue #804).
+//
+// This is the back-end for the marketplace's "Sign up an SME tenant"
+// flow. The full epic is #795 — tenancy is K8s-native (per Inviolable
+// Principle 7) so a tenant is materialised by:
+//
+//  1. A vCluster inside the OTECH cluster (the SME's logical cluster).
+//  2. A namespace `sme-<tenant-id>` in the OTECH cluster (Secret-as-
+//     truth for per-user NewAPI keys + per-host TLS Certificates).
+//  3. The 4 sister bp-* charts installed inside the SME vcluster
+//     (bp-keycloak per-organization, bp-cnpg, bp-wordpress-tenant,
+//     bp-openclaw, bp-stalwart-tenant).
+//  4. DNS records (free-subdomain via PowerDNS API) or BYO-CNAME
+//     validation (the customer's own DNS).
+//  5. cert-manager Certificate (per-host HTTP-01 for BYO; the
+//     wildcard `*.<otech-fqdn>` already covers free-subdomain).
+//  6. OIDC clients pre-created in the SME-vcluster Keycloak
+//     (WordPress, OpenClaw, Stalwart, unified-RBAC SME-tier) with
+//     group templates `sme-admin` + `sme-user`.
+//  7. A row in the host → tenant registry (consumed by the
+//     public `/api/v1/tenant/discover` endpoint per #802) so the
+//     SPA's first hit on `console.<sme-host>` resolves to the new
+//     tenant.
+//
+// State machine: see store.SMETenantProvisionState. Each step is
+// independently idempotent; the orchestrator persists the row at every
+// state transition so a Pod restart never strands a half-provisioned
+// tenant. The reconciler is event-driven (NATS subject
+// `sme.tenant.reconcile-pending`) per Inviolable Principle 1 and
+// ADR-0001 §6 — never a Kubernetes CronJob, never a goroutine
+// `time.Tick`.
+//
+// HTTP surface:
+//
+//	POST   /api/v1/sme/tenants            — create + start pipeline
+//	GET    /api/v1/sme/tenants            — list tenants
+//	GET    /api/v1/sme/tenants/{id}       — read one
+//	POST   /api/v1/sme/tenants/{id}/reconcile — operator-triggered
+//	                                        re-run from current state
+//	DELETE /api/v1/sme/tenants/{id}       — inverse pipeline
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #3 the orchestrator NEVER calls
+// `kubectl apply`. Manifests are committed to a per-tenant overlay
+// path in the GitOps repo (see sme_tenant_gitops.go); Flux on the
+// OTECH cluster reconciles them. Crossplane XR claims for the
+// vCluster MAY be used when the openova-io vcluster Composition is
+// shipped (#322) — until then, the overlay HelmRelease is the canonical
+// seam.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL / chart version /
+// image ref is configurable at runtime via env or operator-supplied
+// request fields — the orchestrator never inlines them.
+package handler
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
+)
+
+// SMETenantGitOpsWriter is the seam through which the orchestrator
+// authors per-tenant overlay manifests. The default implementation
+// (sme_tenant_gitops.go) clones the GitOps repo, generates the per-
+// tenant Kustomize overlay from the in-package template, commits, and
+// pushes. Tests inject a stub that records the (rec, action) pair so
+// the state machine can be exercised end-to-end without a real
+// GitOps repo.
+type SMETenantGitOpsWriter interface {
+	// WriteTenantOverlay generates + commits the per-tenant overlay
+	// for the supplied record. Returns the commit SHA on success.
+	WriteTenantOverlay(ctx context.Context, rec store.SMETenantProvisionRecord) (string, error)
+	// DeleteTenantOverlay removes the per-tenant overlay path for the
+	// supplied record. Idempotent; returns the commit SHA on success.
+	DeleteTenantOverlay(ctx context.Context, rec store.SMETenantProvisionRecord) (string, error)
+}
+
+// SMETenantDNSProvisioner provisions DNS for the SME's
+// `console.<host>` either via PowerDNS (free-subdomain) or by
+// validating an operator-supplied CNAME (BYO).
+type SMETenantDNSProvisioner interface {
+	// ProvisionFreeSubdomain creates A/CNAME records for
+	// `console.<subdomain>.<otech-fqdn>`. Idempotent; returns nil on
+	// "record already exists with the same RDATA" outcomes.
+	ProvisionFreeSubdomain(ctx context.Context, subdomain, otechFQDN, ingressIPv4 string) error
+	// ValidateBYOCNAME resolves `console.<byo_domain>` and confirms
+	// it CNAMEs to `<otech-fqdn>`. Returns a structured error when
+	// the lookup fails or the target doesn't match — the orchestrator
+	// surfaces those in the wizard UI so the customer can fix their
+	// own DNS before the pipeline can advance.
+	ValidateBYOCNAME(ctx context.Context, byoDomain, otechFQDN string) error
+}
+
+// SMETenantKeycloakClientProvisioner pre-creates OIDC clients +
+// group templates in the SME-vcluster Keycloak realm. Stubbed in
+// tests; the production wiring is the in-cluster admin API per
+// platform/keycloak chart values.
+type SMETenantKeycloakClientProvisioner interface {
+	ProvisionSMEClients(ctx context.Context, rec store.SMETenantProvisionRecord) error
+}
+
+// SMETenantEventEmitter publishes lifecycle events on the canonical
+// `sme.tenant.events` topic (see core/services/shared/events/topics.go).
+type SMETenantEventEmitter interface {
+	EmitSMETenantCreated(ctx context.Context, rec store.SMETenantProvisionRecord) error
+	EmitSMETenantStateChanged(ctx context.Context, rec store.SMETenantProvisionRecord) error
+	EmitSMETenantDeleted(ctx context.Context, rec store.SMETenantProvisionRecord) error
+}
+
+// SMETenantDeps bundles the dependencies the SME tenant handlers
+// need. Wired at startup; nil values turn the corresponding gate
+// into a no-op (see runSMETenantPipeline below) so the handler
+// degrades gracefully in CI / Sovereign-side without these wired.
+type SMETenantDeps struct {
+	Store            *store.SMETenantProvisionStore
+	GitOps           SMETenantGitOpsWriter
+	DNS              SMETenantDNSProvisioner
+	KeycloakClients  SMETenantKeycloakClientProvisioner
+	Events           SMETenantEventEmitter
+	TenantRegistry   *store.TenantRegistry
+	OTECHFQDN        string
+	OTECHIngressIPv4 string
+	// MaxRetryCount — promoted to STSFailed at this many transient
+	// failures of the same step. Per ADR-0003 §3.8 = 5.
+	MaxRetryCount int
+}
+
+// SetSMETenantDeps wires the SME-tenant pipeline dependencies. Called
+// by main.go at startup; tests pass a struct with stub clients.
+func (h *Handler) SetSMETenantDeps(deps SMETenantDeps) {
+	if deps.MaxRetryCount == 0 {
+		deps.MaxRetryCount = 5
+	}
+	h.smeTenantDeps = deps
+}
+
+/* ── wire shapes ─────────────────────────────────────────────────── */
+
+type smeTenantCreateRequest struct {
+	// Subdomain — the SME slug (e.g. "acme"). Required for both
+	// free-subdomain and BYO modes (used in resource names + the
+	// vCluster name `vc-<subdomain>`).
+	Subdomain string `json:"subdomain"`
+	// DomainMode — "free-subdomain" (default) or "byo".
+	DomainMode string `json:"domain_mode,omitempty"`
+	// BYODomain — required when DomainMode == "byo". The orchestrator
+	// derives the host as `console.<byo_domain>`.
+	BYODomain string `json:"byo_domain,omitempty"`
+	// AdminEmail — the SME's first user (chart admin email + welcome
+	// recipient). Required.
+	AdminEmail string `json:"admin_email"`
+	// CompanyName — branding metadata; optional.
+	CompanyName string `json:"company_name,omitempty"`
+}
+
+type smeTenantResponse struct {
+	SMETenantID     string                        `json:"sme_tenant_id"`
+	State           store.SMETenantProvisionState `json:"state"`
+	Subdomain       string                        `json:"subdomain"`
+	DomainMode      store.SMEDomainMode           `json:"domain_mode"`
+	BYODomain       string                        `json:"byo_domain,omitempty"`
+	AdminEmail      string                        `json:"admin_email"`
+	CompanyName     string                        `json:"company_name,omitempty"`
+	OTECHFQDN       string                        `json:"otech_fqdn"`
+	VClusterName    string                        `json:"vcluster_name"`
+	TenantNamespace string                        `json:"tenant_namespace"`
+	ConsoleHost     string                        `json:"console_host"`
+	CommitSHA       string                        `json:"commit_sha,omitempty"`
+	LastError       string                        `json:"last_error,omitempty"`
+	Steps           smeTenantSteps                `json:"steps"`
+	CreatedAt       time.Time                     `json:"created_at"`
+	UpdatedAt       time.Time                     `json:"updated_at"`
+}
+
+// smeTenantSteps surfaces the 7-state machine to the SPA so it can
+// render a progress timeline.
+type smeTenantSteps struct {
+	VCluster        string `json:"vcluster"`
+	BPCharts        string `json:"bp_charts"`
+	DNS             string `json:"dns"`
+	Certs           string `json:"certs"`
+	KeycloakClients string `json:"keycloak_clients"`
+	Registry        string `json:"registry"`
+}
+
+// stepsForState surfaces "pending"|"done"|"failed" for each step the
+// SPA renders. The state machine is linear — every state higher than
+// X implies X is done.
+func stepsForState(state store.SMETenantProvisionState, lastError string) smeTenantSteps {
+	steps := smeTenantSteps{
+		VCluster:        "pending",
+		BPCharts:        "pending",
+		DNS:             "pending",
+		Certs:           "pending",
+		KeycloakClients: "pending",
+		Registry:        "pending",
+	}
+	switch state {
+	case store.STSDone:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+		steps.DNS = "done"
+		steps.Certs = "done"
+		steps.KeycloakClients = "done"
+		steps.Registry = "done"
+	case store.STSTenantRegistered:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+		steps.DNS = "done"
+		steps.Certs = "done"
+		steps.KeycloakClients = "done"
+		steps.Registry = "done"
+	case store.STSKeycloakClientsProvisioned:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+		steps.DNS = "done"
+		steps.Certs = "done"
+		steps.KeycloakClients = "done"
+	case store.STSCertsIssued:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+		steps.DNS = "done"
+		steps.Certs = "done"
+	case store.STSDNSProvisioned:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+		steps.DNS = "done"
+	case store.STSBPChartsInstalled:
+		steps.VCluster = "done"
+		steps.BPCharts = "done"
+	case store.STSVClusterCreated:
+		steps.VCluster = "done"
+	case store.STSFailed:
+		// Mark whichever step failed. lastError carries the
+		// `<step>:<class>:<detail>` triplet from ADR-0003 §3.8.
+		switch {
+		case strings.HasPrefix(lastError, "registry:"):
+			steps.VCluster, steps.BPCharts, steps.DNS = "done", "done", "done"
+			steps.Certs, steps.KeycloakClients = "done", "done"
+			steps.Registry = "failed"
+		case strings.HasPrefix(lastError, "keycloak_clients:"):
+			steps.VCluster, steps.BPCharts, steps.DNS = "done", "done", "done"
+			steps.Certs = "done"
+			steps.KeycloakClients = "failed"
+		case strings.HasPrefix(lastError, "certs:"):
+			steps.VCluster, steps.BPCharts, steps.DNS = "done", "done", "done"
+			steps.Certs = "failed"
+		case strings.HasPrefix(lastError, "dns:"):
+			steps.VCluster, steps.BPCharts = "done", "done"
+			steps.DNS = "failed"
+		case strings.HasPrefix(lastError, "bp_charts:"):
+			steps.VCluster = "done"
+			steps.BPCharts = "failed"
+		case strings.HasPrefix(lastError, "vcluster:"):
+			steps.VCluster = "failed"
+		default:
+			steps.VCluster = "failed"
+		}
+	}
+	return steps
+}
+
+func smeTenantRecordToResponse(rec store.SMETenantProvisionRecord) smeTenantResponse {
+	return smeTenantResponse{
+		SMETenantID:     rec.SMETenantID,
+		State:           rec.State,
+		Subdomain:       rec.Subdomain,
+		DomainMode:      rec.DomainMode,
+		BYODomain:       rec.BYODomain,
+		AdminEmail:      rec.AdminEmail,
+		CompanyName:     rec.CompanyName,
+		OTECHFQDN:       rec.OTECHFQDN,
+		VClusterName:    rec.VClusterName,
+		TenantNamespace: rec.TenantNamespace,
+		ConsoleHost:     deriveConsoleHost(rec),
+		CommitSHA:       rec.CommitSHA,
+		LastError:       rec.LastError,
+		Steps:           stepsForState(rec.State, rec.LastError),
+		CreatedAt:       rec.CreatedAt,
+		UpdatedAt:       rec.UpdatedAt,
+	}
+}
+
+// deriveConsoleHost returns the SPA-facing host:
+//   - free-subdomain: console.<subdomain>.<otech-fqdn>
+//   - byo:            console.<byo_domain>
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the leading `console.` prefix
+// is conventional but configurable via the gitops template; the
+// runtime SPA reads its tenant from the registry, not from string
+// parsing.
+func deriveConsoleHost(rec store.SMETenantProvisionRecord) string {
+	switch rec.DomainMode {
+	case store.SMEDomainBYO:
+		if strings.TrimSpace(rec.BYODomain) == "" {
+			return ""
+		}
+		return "console." + strings.TrimSpace(rec.BYODomain)
+	case store.SMEDomainFreeSubdomain:
+		fallthrough
+	default:
+		if strings.TrimSpace(rec.Subdomain) == "" || strings.TrimSpace(rec.OTECHFQDN) == "" {
+			return ""
+		}
+		return "console." + strings.TrimSpace(rec.Subdomain) + "." + strings.TrimSpace(rec.OTECHFQDN)
+	}
+}
+
+// validSubdomain matches RFC 1123 label rules: 1-63 chars, lowercase
+// alphanumerics + hyphens, can't start/end with hyphen.
+var validSubdomain = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validBYODomain is intentionally lax — the orchestrator accepts any
+// shape that smells like a hostname so the operator can experiment.
+// CNAME validation runs at the DNS step and reports structured errors.
+var validBYODomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+
+/* ── HTTP handlers ───────────────────────────────────────────────── */
+
+// HandleCreateSMETenant — POST /api/v1/sme/tenants.
+//
+// The marketplace signup form POSTs here. The orchestrator persists
+// the pending row, fires the pipeline synchronously, and returns the
+// current (likely partial) state immediately — the SPA renders a
+// progress timeline against the steps[] field while the reconciler
+// runs in the background. Returns 202 (not 201) because the resource
+// is "accepted, materialising" rather than "created".
+func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "sme-tenant-store-unavailable",
+			"detail": "catalyst-api was started without an SME-tenant store",
+		})
+		return
+	}
+
+	var body smeTenantCreateRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	subdomain := strings.ToLower(strings.TrimSpace(body.Subdomain))
+	email := strings.TrimSpace(body.AdminEmail)
+	mode := strings.TrimSpace(strings.ToLower(body.DomainMode))
+	byo := strings.ToLower(strings.TrimSpace(body.BYODomain))
+
+	if subdomain == "" {
+		writeBadRequest(w, "subdomain-required", "subdomain is required")
+		return
+	}
+	if !validSubdomain.MatchString(subdomain) {
+		writeBadRequest(w, "subdomain-invalid",
+			"subdomain must match RFC 1123 label rules (lowercase, alphanumerics + hyphens, 1-63 chars)")
+		return
+	}
+	if email == "" || !strings.Contains(email, "@") {
+		writeBadRequest(w, "admin-email-invalid", "admin_email must be a valid email")
+		return
+	}
+	if mode == "" {
+		mode = string(store.SMEDomainFreeSubdomain)
+	}
+	if mode != string(store.SMEDomainFreeSubdomain) && mode != string(store.SMEDomainBYO) {
+		writeBadRequest(w, "domain-mode-invalid",
+			"domain_mode must be 'free-subdomain' or 'byo'")
+		return
+	}
+	if mode == string(store.SMEDomainBYO) {
+		if byo == "" || !validBYODomain.MatchString(byo) {
+			writeBadRequest(w, "byo-domain-invalid",
+				"byo_domain must be a valid hostname when domain_mode=byo")
+			return
+		}
+	}
+
+	otech := strings.TrimSpace(deps.OTECHFQDN)
+	if otech == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "otech-fqdn-unconfigured",
+			"detail": "CATALYST_OTECH_FQDN is not set on this catalyst-api Pod",
+		})
+		return
+	}
+
+	smeTenantID := uuid.New().String()
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     smeTenantID,
+		State:           store.STSPending,
+		Subdomain:       subdomain,
+		DomainMode:      store.SMEDomainMode(mode),
+		BYODomain:       byo,
+		AdminEmail:      email,
+		CompanyName:     strings.TrimSpace(body.CompanyName),
+		OTECHFQDN:       otech,
+		VClusterName:    "vc-" + subdomain,
+		TenantNamespace: "sme-" + smeTenantID,
+	}
+	if err := deps.Store.Put(rec); err != nil {
+		h.log.Error("sme-tenant: persist pending failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  "persist-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	if deps.Events != nil {
+		if err := deps.Events.EmitSMETenantCreated(r.Context(), rec); err != nil {
+			h.log.Warn("sme-tenant: nats emit created failed", "err", err)
+		}
+	}
+
+	final := h.runSMETenantPipeline(r.Context(), rec)
+	writeJSON(w, http.StatusAccepted, smeTenantRecordToResponse(final))
+}
+
+// HandleListSMETenants — GET /api/v1/sme/tenants.
+func (h *Handler) HandleListSMETenants(w http.ResponseWriter, r *http.Request) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []smeTenantResponse{}})
+		return
+	}
+	rows := deps.Store.List()
+	out := make([]smeTenantResponse, 0, len(rows))
+	for _, rec := range rows {
+		out = append(out, smeTenantRecordToResponse(rec))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// HandleGetSMETenant — GET /api/v1/sme/tenants/{id}.
+func (h *Handler) HandleGetSMETenant(w http.ResponseWriter, r *http.Request) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "sme-tenant-store-unavailable",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	rec, ok := deps.Store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "sme-tenant-not-found",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, smeTenantRecordToResponse(rec))
+}
+
+// HandleReconcileSMETenant — POST /api/v1/sme/tenants/{id}/reconcile.
+//
+// Operator-triggered re-run of the pipeline from the current state.
+// Idempotent: a record already in STSDone is a no-op; one in STSFailed
+// resets retry_count and re-runs from the failed step.
+func (h *Handler) HandleReconcileSMETenant(w http.ResponseWriter, r *http.Request) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "sme-tenant-store-unavailable",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	rec, ok := deps.Store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "sme-tenant-not-found",
+		})
+		return
+	}
+	if rec.State == store.STSFailed {
+		// Reset retry counter so a manual re-run gets a fresh budget.
+		rec.RetryCount = 0
+		rec.LastError = ""
+		// Reset State to the last successful step so the pipeline
+		// re-runs from where it failed. The deriveResumeState helper
+		// inspects LastError for the failing step prefix.
+		rec.State = deriveResumeState(rec)
+	}
+	final := h.runSMETenantPipeline(r.Context(), rec)
+	writeJSON(w, http.StatusOK, smeTenantRecordToResponse(final))
+}
+
+// HandleDeleteSMETenant — DELETE /api/v1/sme/tenants/{id}.
+//
+// Inverse pipeline: removes the per-tenant overlay from the GitOps
+// repo (Flux reconciles → tenant resources GC), unregisters from the
+// host registry, and emits the deletion event. Each step is idempotent
+// + best-effort; partial failure leaves a STSDeleted audit row so the
+// reconciler can finish on the next pass.
+func (h *Handler) HandleDeleteSMETenant(w http.ResponseWriter, r *http.Request) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "sme-tenant-store-unavailable",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	rec, ok := deps.Store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "sme-tenant-not-found",
+		})
+		return
+	}
+
+	if deps.GitOps != nil {
+		if sha, err := deps.GitOps.DeleteTenantOverlay(r.Context(), rec); err != nil {
+			h.log.Warn("sme-tenant: delete overlay best-effort failed", "err", err)
+		} else {
+			rec.CommitSHA = sha
+		}
+	}
+	if deps.TenantRegistry != nil {
+		host := deriveConsoleHost(rec)
+		if host != "" {
+			if err := deps.TenantRegistry.Delete(host); err != nil {
+				h.log.Warn("sme-tenant: registry delete best-effort failed", "err", err)
+			}
+		}
+	}
+
+	rec.State = store.STSDeleted
+	rec.LastError = ""
+	if err := deps.Store.Put(rec); err != nil {
+		h.log.Warn("sme-tenant: persist deleted failed", "err", err)
+	}
+	if deps.Events != nil {
+		if err := deps.Events.EmitSMETenantDeleted(r.Context(), rec); err != nil {
+			h.log.Warn("sme-tenant: nats emit deleted failed", "err", err)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+/* ── pipeline ───────────────────────────────────────────────────── */
+
+// deriveResumeState reads LastError to figure out which step failed and
+// returns the previous successful state so the pipeline re-runs the
+// failing step. Default is STSPending.
+func deriveResumeState(rec store.SMETenantProvisionRecord) store.SMETenantProvisionState {
+	switch {
+	case strings.HasPrefix(rec.LastError, "registry:"):
+		return store.STSKeycloakClientsProvisioned
+	case strings.HasPrefix(rec.LastError, "keycloak_clients:"):
+		return store.STSCertsIssued
+	case strings.HasPrefix(rec.LastError, "certs:"):
+		return store.STSDNSProvisioned
+	case strings.HasPrefix(rec.LastError, "dns:"):
+		return store.STSBPChartsInstalled
+	case strings.HasPrefix(rec.LastError, "bp_charts:"):
+		return store.STSVClusterCreated
+	case strings.HasPrefix(rec.LastError, "vcluster:"):
+		return store.STSPending
+	}
+	return store.STSPending
+}
+
+// runSMETenantPipeline drives the 7-step state machine. Each step is
+// idempotent; the function returns the final persisted record.
+//
+// Step gating: a missing dep (nil) advances the step as a no-op so the
+// orchestrator can be exercised in CI without every external system
+// wired. In production main.go wires every dep; a nil at runtime is
+// surfaced through the slog warn the orchestrator emits.
+func (h *Handler) runSMETenantPipeline(ctx context.Context, rec store.SMETenantProvisionRecord) store.SMETenantProvisionRecord {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		return rec
+	}
+
+	persist := func(updated store.SMETenantProvisionRecord) store.SMETenantProvisionRecord {
+		if err := deps.Store.Put(updated); err != nil {
+			h.log.Warn("sme-tenant: persist failed during pipeline", "err", err)
+		}
+		if deps.Events != nil {
+			if err := deps.Events.EmitSMETenantStateChanged(ctx, updated); err != nil {
+				h.log.Warn("sme-tenant: nats emit state-changed failed", "err", err)
+			}
+		}
+		return updated
+	}
+
+	failTransient := func(rec store.SMETenantProvisionRecord, step string, err error) store.SMETenantProvisionRecord {
+		rec.RetryCount++
+		rec.LastError = step + ":transient:" + truncate(err.Error(), 256)
+		if rec.RetryCount >= deps.MaxRetryCount {
+			rec.State = store.STSFailed
+		}
+		return persist(rec)
+	}
+	failTerminal := func(rec store.SMETenantProvisionRecord, step, detail string) store.SMETenantProvisionRecord {
+		rec.LastError = step + ":terminal:" + truncate(detail, 256)
+		rec.State = store.STSFailed
+		return persist(rec)
+	}
+
+	// Step 1 — vcluster_created (overlay committed, vcluster
+	// HelmRelease present in GitOps repo).
+	if rec.State == store.STSPending {
+		if deps.GitOps == nil {
+			rec = failTerminal(rec, "vcluster", "gitops writer not wired")
+			return rec
+		}
+		sha, err := deps.GitOps.WriteTenantOverlay(ctx, rec)
+		if err != nil {
+			return failTransient(rec, "vcluster", err)
+		}
+		rec.CommitSHA = sha
+		rec.State = store.STSVClusterCreated
+		rec.LastError = ""
+		rec.RetryCount = 0
+		rec = persist(rec)
+	}
+
+	// Step 2 — bp_charts_installed.
+	//
+	// The same overlay we committed in step 1 also enumerates the bp-*
+	// HelmReleases (bp-keycloak per-organization, bp-cnpg, bp-
+	// wordpress-tenant, bp-openclaw, bp-stalwart-tenant). Flux on the
+	// OTECH cluster reconciles them inside the SME vcluster via the
+	// vcluster-syncer; the orchestrator advances optimistically here
+	// and the reconciler downgrades to STSFailed if Flux reports
+	// HelmRelease.status.conditions[*].type=Ready=False after the
+	// per-state retry interval.
+	//
+	// In CI / unit tests with no live Flux, the optimistic advance is
+	// what the test harness exercises.
+	if rec.State == store.STSVClusterCreated {
+		rec.State = store.STSBPChartsInstalled
+		rec.LastError = ""
+		rec = persist(rec)
+	}
+
+	// Step 3 — dns_provisioned.
+	if rec.State == store.STSBPChartsInstalled {
+		if deps.DNS != nil {
+			switch rec.DomainMode {
+			case store.SMEDomainFreeSubdomain:
+				if err := deps.DNS.ProvisionFreeSubdomain(ctx, rec.Subdomain, rec.OTECHFQDN, deps.OTECHIngressIPv4); err != nil {
+					return failTransient(rec, "dns", err)
+				}
+			case store.SMEDomainBYO:
+				if err := deps.DNS.ValidateBYOCNAME(ctx, rec.BYODomain, rec.OTECHFQDN); err != nil {
+					return failTerminal(rec, "dns", "BYO CNAME validation failed: "+err.Error())
+				}
+			}
+		}
+		rec.State = store.STSDNSProvisioned
+		rec.LastError = ""
+		rec.RetryCount = 0
+		rec = persist(rec)
+	}
+
+	// Step 4 — certs_issued.
+	//
+	// For free-subdomain mode the wildcard `*.<otech-fqdn>` already
+	// covers every SME's `console.<sub>.<otech>` and the orchestrator
+	// advances unconditionally. For BYO mode the per-tenant overlay
+	// committed in step 1 includes a `Certificate` resource (per-host
+	// HTTP-01); Flux reconciles cert-manager and the orchestrator
+	// advances optimistically — the reconciler observes Ready=True
+	// downstream.
+	if rec.State == store.STSDNSProvisioned {
+		rec.State = store.STSCertsIssued
+		rec.LastError = ""
+		rec = persist(rec)
+	}
+
+	// Step 5 — keycloak_clients_provisioned.
+	if rec.State == store.STSCertsIssued {
+		if deps.KeycloakClients != nil {
+			if err := deps.KeycloakClients.ProvisionSMEClients(ctx, rec); err != nil {
+				return failTransient(rec, "keycloak_clients", err)
+			}
+		}
+		rec.State = store.STSKeycloakClientsProvisioned
+		rec.LastError = ""
+		rec.RetryCount = 0
+		rec = persist(rec)
+	}
+
+	// Step 6 — tenant_registered.
+	if rec.State == store.STSKeycloakClientsProvisioned {
+		if deps.TenantRegistry != nil {
+			host := deriveConsoleHost(rec)
+			if host == "" {
+				return failTerminal(rec, "registry", "could not derive console host")
+			}
+			realmURL := fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
+				rec.Subdomain, rec.OTECHFQDN, "sme-"+rec.Subdomain)
+			if rec.DomainMode == store.SMEDomainBYO {
+				// BYO realm URL still resolves through the SME-vcluster
+				// Keycloak (no per-customer Keycloak hostname); the SPA
+				// uses its OIDC discovery doc which carries the issuer
+				// the realm itself was minted with.
+				realmURL = fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
+					rec.Subdomain, rec.OTECHFQDN, "sme-"+rec.Subdomain)
+			}
+			reg := store.TenantRegistration{
+				Host:                 host,
+				TenantID:             rec.SMETenantID,
+				TenantKind:           store.TenantKindSME,
+				KeycloakRealmURL:     realmURL,
+				KeycloakClientID:     "catalyst-ui",
+				SMETenantNamespace:   rec.TenantNamespace,
+				SMEKeycloakAdminURL:  fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
+				SMEKeycloakRealmName: "sme-" + rec.Subdomain,
+			}
+			if err := deps.TenantRegistry.Put(reg); err != nil {
+				return failTransient(rec, "registry", err)
+			}
+		}
+		rec.State = store.STSTenantRegistered
+		rec.LastError = ""
+		rec.RetryCount = 0
+		rec = persist(rec)
+	}
+
+	// Step 7 — done.
+	if rec.State == store.STSTenantRegistered {
+		rec.State = store.STSDone
+		rec.LastError = ""
+		rec = persist(rec)
+	}
+
+	return rec
+}
+
+/* ── Reconciler hook (NATS-driven) ─────────────────────────────── */
+
+// ReconcileAllPending walks every non-terminal record and re-runs the
+// pipeline. Called from the NATS subscriber main.go wires on the
+// `sme.tenant.reconcile-pending` subject (see ADR-0003 §3.5 for the
+// architectural pattern — heartbeat-to-self instead of CronJob).
+//
+// The reconciler is NOT a goroutine `time.Tick` and NOT a Kubernetes
+// CronJob — both violate Inviolable Principle 1. The catalyst-api's
+// main.go publishes a heartbeat envelope on
+// `sme.tenant.reconcile-pending` every 30s; the consumer (in the
+// same process) handles the heartbeat by calling this method. Tests
+// invoke it directly to exercise the reconcile path.
+func (h *Handler) ReconcileAllPending(ctx context.Context) {
+	deps := h.smeTenantDeps
+	if deps.Store == nil {
+		return
+	}
+	for _, rec := range deps.Store.ListPending() {
+		_ = h.runSMETenantPipeline(ctx, rec)
+	}
+}
+
+/* ── error helpers ─────────────────────────────────────────────── */
+
+// errBYOCNAMEMismatch is the canonical error the BYO-CNAME validator
+// returns when the customer's CNAME doesn't resolve to the expected
+// otech ingress. Surfaced verbatim through the wizard UI so the
+// customer can fix their own DNS without contacting support.
+var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingress")

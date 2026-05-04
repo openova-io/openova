@@ -1,0 +1,23 @@
+{{- /*
+ClusterRoleBinding tying the catalyst-api-cutover-driver ServiceAccount
+to the same-named ClusterRole (issue #830, P0 Bug 1).
+
+This binding is what makes catalyst-api able to read/patch the cutover
+ConfigMaps + create/watch the cutover Jobs in the `catalyst` namespace
+when the operator hits POST /api/v1/sovereign/cutover/start.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: catalyst-api-cutover-driver
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: cutover-driver-rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: catalyst-api-cutover-driver
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-api-cutover-driver
+    namespace: {{ .Release.Namespace }}

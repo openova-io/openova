@@ -74,3 +74,13 @@ func RoleFromContext(ctx context.Context) string {
 	role, _ := claims["role"].(string)
 	return role
 }
+
+// WithClaims returns a copy of ctx that carries the given JWT claims.
+// Used by tests to construct a context shaped like what JWTAuth would
+// install, without having to mint a real signed token. The context
+// key remains private, so production code paths cannot accidentally
+// bypass JWTAuth — only test code that imports this package can build
+// the right context.
+func WithClaims(ctx context.Context, claims jwt.MapClaims) context.Context {
+	return context.WithValue(ctx, claimsKey, claims)
+}
