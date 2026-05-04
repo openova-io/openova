@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.1
-appVersion: 1.4.1
+version: 1.4.2
+appVersion: 1.4.2
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -323,6 +323,22 @@ description: |
   deployment.yaml comments. Verified with `helm template` (subjects[0].
   namespace=catalyst-system) AND `kubectl kustomize` (subjects[0].
   namespace=catalyst). 2026-05-04.
+
+  Bumped to 1.4.2 — dual-mode contract violation in 1.4.0
+  CATALYST_POWERDNS_API_URL block (issue #830 follow-up, 2026-05-04).
+  PR #838 introduced two `value: {{ default "..." .Values... | quote }}`
+  Helm directives in api-deployment.yaml's CATALYST_POWERDNS_API_URL +
+  CATALYST_POWERDNS_SERVER_ID env entries. Both broke the Kustomize-
+  mode contabo-mkt build with "yaml: invalid map key: map[string]
+  interface {}{...}", stalling every contabo reconciliation including
+  THIS chart's own RBAC fix from 1.4.1.
+  Same pattern as the SOVEREIGN_FQDN block right below in the same
+  file (extensively documented as a dual-mode hazard): replace the
+  Helm directive with a literal default. The in-cluster Service URL
+  is a non-secret constant on every Sovereign that ships bp-powerdns
+  at its canonical release name; per-Sovereign overrides are still
+  possible via the HelmRelease overlay's `catalystApi.env` additional-
+  env patch (which takes precedence). 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

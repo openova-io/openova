@@ -402,14 +402,37 @@ spec:
             # non-standard layouts override via the Helm values overlay
             # at clusters/<sovereign>/bootstrap-kit/13-bp-catalyst-
             # platform.yaml.
+            #
+            # NOTE — DUAL-MODE CONTRACT (see SOVEREIGN_FQDN block below
+            # for the canonical explanation): this file is consumed BOTH
+            # by Helm (per-Sovereign install) AND by Kustomize (contabo-
+            # mkt's flux Kustomization at path: ./products/catalyst/chart/
+            # templates). Helm template syntax (double-curly directives)
+            # in this file BREAKS the Kustomize build with
+            # "yaml: invalid map key" and stalls every contabo
+            # reconciliation. The 1.4.0 version of this block used
+            # {{ default "..." .Values.catalystApi.powerdnsURL }} — that
+            # broke contabo's catalyst-platform Kustomization until this
+            # follow-up landed. Issue #830 follow-up.
+            #
+            # Solution: the in-cluster Service URL is a non-secret
+            # constant on every Sovereign that ships bp-powerdns at its
+            # canonical release name (powerdns/powerdns). Hardcode the
+            # literal here so the Kustomize build stays clean. Per-
+            # Sovereign overrides are still possible via the per-
+            # Sovereign HelmRelease overlay's `catalystApi.env`
+            # additional-env patch that takes precedence over the
+            # default below.
             - name: CATALYST_POWERDNS_API_URL
-              value: {{ default "http://powerdns.powerdns.svc.cluster.local:8081" .Values.catalystApi.powerdnsURL | quote }}
+              value: "http://powerdns.powerdns.svc.cluster.local:8081"
             # CATALYST_POWERDNS_SERVER_ID — virtually always "localhost"
             # per the PowerDNS REST API contract. Operator-overridable
             # for multi-tenant PowerDNS deployments where a single
-            # PowerDNS instance hosts multiple servers.
+            # PowerDNS instance hosts multiple servers (override via the
+            # HelmRelease overlay env patch — same pattern as
+            # CATALYST_POWERDNS_API_URL above).
             - name: CATALYST_POWERDNS_SERVER_ID
-              value: {{ default "localhost" .Values.catalystApi.powerdnsServerID | quote }}
+              value: "localhost"
             # ── /auth/handover Keycloak service-account (issue #606) ──────────
             # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
             # service FQDN in code; override here for non-standard Sovereign
