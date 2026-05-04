@@ -113,23 +113,28 @@ data:
               echo "[gitea-mirror] repo already present"
             fi
 
-            # 3. Clone from upstream and push branches + tags to local Gitea.
-            #    We use --all + --tags rather than --mirror because Gitea
-            #    declines GitHub PR refs (refs/pull/<n>/head, /merge) via
-            #    its update hook — caught live on otech103 2026-05-04.
-            #    Branches and tags are sufficient for Flux GitRepository
-            #    reconciliation; PR refs are GitHub-specific metadata.
+            # 3. Clone from upstream then push branches + tags only to
+            #    local Gitea, explicitly skipping GitHub-specific
+            #    refs/pull/<n>/(head|merge) refs that Gitea's update
+            #    hook declines. We DO NOT use --mirror or --all here:
+            #    a mirror clone stores GitHub PR refs at the same
+            #    namespace as branches and `git push --all` in that
+            #    context tries to push them too — caught live on
+            #    otech103 2026-05-04. An explicit refspec is the
+            #    correct shape: refs/heads/* and refs/tags/* only.
             workdir=$(mktemp -d)
             cd "${workdir}"
-            git clone --mirror "${UPSTREAM_REPO_URL}" upstream.git
+            # Plain (non-mirror) clone keeps refs/pull/* out of the
+            # local refs entirely. We then fetch tags separately.
+            git clone --bare "${UPSTREAM_REPO_URL}" upstream.git
             cd upstream.git
+            git fetch --tags origin
             # Embed credentials in the push URL only (never in stdout).
             push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -e "s,://,://${GITEA_USERNAME}:${GITEA_PASSWORD}@,")
             git remote set-url --push origin "${push_url}/${GITEA_ORG}/${GITEA_REPO}.git"
-            # Push branches first (--all = all local branches), then
-            # tags. Filter out refs/pull/* by NOT using --mirror.
-            git push origin --all
-            git push origin --tags
+            # Explicit refspecs — branches and tags only, no PR refs.
+            git push origin 'refs/heads/*:refs/heads/*'
+            git push origin 'refs/tags/*:refs/tags/*'
             echo "[gitea-mirror] mirror complete"
         resources:
           requests: { cpu: 100m, memory: 256Mi }
