@@ -320,3 +320,17 @@ slots:
     name: bp-cluster-autoscaler-hcloud
     depends_on: []
     wave: present
+
+  # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
+  # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
+  # collides with the AI-runtime / observability / livekit cohort. The
+  # HelmRelease's dependsOn pins install order to AFTER bp-openbao(08),
+  # bp-keycloak(09), and bp-cnpg(16) Ready=True regardless of slot order:
+  #   - bp-openbao: backs the catalyst-newapi-admin-token ExternalSecret
+  #     consumed by unified-rbac (ADR-0003 §3.2 + §6).
+  #   - bp-keycloak: OIDC issuer for the ops-staff admin UI.
+  #   - bp-cnpg: Postgres for users/credits/channels/audit (claim-driven).
+  - slot: 80
+    name: bp-newapi
+    depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
+    wave: present
