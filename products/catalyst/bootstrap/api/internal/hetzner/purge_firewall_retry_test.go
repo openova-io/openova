@@ -75,6 +75,20 @@ func (f *fakeHetznerFirewallRetry) handler() http.Handler {
 			switch r.Method {
 			case http.MethodGet:
 				selector := r.URL.Query().Get("label_selector")
+				// Issue #732 — the no-selector pass (name-prefix fallback)
+				// sends an empty selector. This fake returns empty in
+				// that case so the second pass walks but finds nothing
+				// to delete (the firewall-retry tests are about the
+				// labelled-pass behaviour, not the prefix fallback).
+				if selector == "" {
+					body := map[string]any{
+						"meta": map[string]any{"pagination": map[string]any{"next_page": nil}},
+						e.key:  []any{},
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(body)
+					return
+				}
 				if selector != f.wantSelector {
 					f.t.Errorf("%s: label_selector got %q, want %q", e.path, selector, f.wantSelector)
 					http.Error(w, "wrong label selector", http.StatusBadRequest)
