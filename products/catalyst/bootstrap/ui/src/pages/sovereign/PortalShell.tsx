@@ -5,8 +5,8 @@
  *   • flex min-h-screen wrapper
  *   • left rail: <Sidebar /> w-56 fixed
  *   • main: ml-56 flex-1 with a 56px sticky header band hosting the
- *     NotificationBell + ThemeToggle (top-right) and the page title
- *     left-aligned at the start of the band.
+ *     NotificationBell + ThemeToggle + ProfileMenu (top-right) and the
+ *     page title left-aligned at the start of the band.
  *
  * Per founder mandate #531 (2026-05-02), the page title is left-aligned
  * (sat in the LEFT slot), and a NotificationBell is rendered to the
@@ -22,6 +22,14 @@
  *   • optional right slot         — `headerSlotRight` (FQDN switcher etc.)
  *   • <NotificationBell />        — global notifications affordance
  *   • <ThemeToggle />             — theme switcher
+ *   • <ProfileMenu />             — signed-in user identity (#750)
+ *
+ * Issue #750 — identity placement: the provisioning surface previously
+ * embedded a bespoke "Operator / Provisioning session" card in the
+ * bottom-left of the Sidebar. That widget is gone; the canonical
+ * <ProfileMenu /> (the same widget the wizard header uses) now lives
+ * in the top-right of this shell so identity placement is consistent
+ * across wizard + provisioning + Sovereign-console.
  *
  * The canonical shell handles auth + tenant resolution; in the
  * Sovereign-provision wizard context that's not relevant — the wizard
@@ -38,6 +46,7 @@ import type { ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { NotificationBell } from '@/shared/ui/notifications'
+import { ProfileMenu } from '@/widgets/auth/ProfileMenu'
 
 interface PortalShellProps {
   /** Stable deploymentId from the URL parameter. */
@@ -97,6 +106,10 @@ export function PortalShell({
             {headerSlotRight}
             <NotificationBell />
             <ThemeToggle />
+            {/* Issue #750 — signed-in user identity in the top-right
+                slot (anonymous renders [Sign in], signed-in renders the
+                email-initial avatar with a Sign-out dropdown). */}
+            <ProfileMenu />
           </div>
         </header>
         <main className="flex-1 p-8">{children}</main>
