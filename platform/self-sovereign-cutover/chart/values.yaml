@@ -209,9 +209,13 @@ helmRepositories:
     - "bp-cluster-autoscaler-hcloud"
 
 # catalyst-api Deployment to patch in step 07 (catalyst-api-env-patch).
+# Sovereign-side namespace is `catalyst-system`, NOT `catalyst-platform`
+# — caught live on otech103 2026-05-04 (Step-7 'deployment catalyst-api
+# not found' in catalyst-platform). Verified `kubectl get deploy -A` →
+# catalyst-system/catalyst-api.
 catalystAPI:
   deploymentName: "catalyst-api"
-  namespace: "catalyst-platform"
+  namespace: "catalyst-system"
   # The env var that catalyst-api reads for its GitOps source URL.
   envVar: "CATALYST_GITOPS_REPO_URL"
 
