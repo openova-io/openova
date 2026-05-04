@@ -41,5 +41,5 @@ resources:
   - 33-syft-grype.yaml
   - 34-velero.yaml
   - 35-coraza.yaml
-  - 40-cluster-autoscaler.yaml
   - 49-bp-cert-manager-powerdns-webhook.yaml
+  - 50-cluster-autoscaler.yaml

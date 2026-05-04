@@ -1,5 +1,9 @@
-# bp-cluster-autoscaler-hcloud — Catalyst bootstrap-kit Blueprint #40
-# (W2.K3, Tier 5 — Scaling/Resilience).
+# bp-cluster-autoscaler-hcloud — Catalyst bootstrap-kit Blueprint #50
+# (Tier 5 — Scaling/Resilience). Slot 40 was already forward-declared
+# for bp-llm-gateway in scripts/expected-bootstrap-deps.yaml; this
+# blueprint lands at slot 50 — after the W2.K4 cohort + slot 49
+# (bp-cert-manager-powerdns-webhook) — to preserve the existing
+# numbering plan.
 #
 # Adds and removes Hetzner Cloud worker nodes on demand in response to
 # `FailedScheduling` events on the Sovereign's k3s cluster. Bounded by

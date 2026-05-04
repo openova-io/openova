@@ -298,3 +298,16 @@ slots:
     name: bp-cert-manager-powerdns-webhook
     depends_on: [bp-cert-manager]
     wave: present
+
+  # ---- Slot 50 — Cluster Autoscaler (Hetzner). Issue #767.
+  # Adds/removes Hetzner workers in response to FailedScheduling events,
+  # bounded by per-Sovereign min/max node-group config the operator picks
+  # at launch. Hetzner token wired from flux-system/cloud-credentials —
+  # the same Secret Crossplane provider-hcloud reads, so no sibling-
+  # blueprint dep at install time. Lands AFTER slot 49 (the existing
+  # forward-declared cohort fills slots 36-49) to avoid colliding with
+  # the W2.K4 numbering plan.
+  - slot: 50
+    name: bp-cluster-autoscaler-hcloud
+    depends_on: []
+    wave: present
