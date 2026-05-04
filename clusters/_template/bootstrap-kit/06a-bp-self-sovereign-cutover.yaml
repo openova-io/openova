@@ -87,7 +87,10 @@ spec:
       # 0.1.4: Step-1 uses `git clone --bare` (not --mirror) + explicit
       # refspec push of refs/heads/* and refs/tags/* only. --all in a
       # mirror clone still pushed refs/pull/* — caught live otech103.
-      version: 0.1.4
+      # 0.1.5: harborInternalURL fix — bp-harbor service is `harbor-core`
+      # not `harbor-harbor-core` (release name doesn't double-prefix).
+      # Caught live otech103 — Step-2 curl exit 6 (couldn't resolve).
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
