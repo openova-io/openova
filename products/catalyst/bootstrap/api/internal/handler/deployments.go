@@ -369,12 +369,32 @@ func fromRecord(rec store.Record) *Deployment {
 		}
 	}
 
-	// In-flight at restart time → failed. The wizard's FailureCard is
-	// the right surface for this state — operator must purge the
-	// orphaned cloud resources by hand because catalyst-api can't
-	// resume an OpenTofu run mid-apply (state-lock + the workdir on
-	// /tmp emptyDir died with the previous Pod).
-	if isInFlightStatus(rec.Status) {
+	// Phase-0 in-flight at restart time → failed. The wizard's
+	// FailureCard is the right surface for this state — operator must
+	// purge the orphaned cloud resources by hand because catalyst-api
+	// can't resume an OpenTofu run mid-apply (state-lock + the workdir
+	// on /tmp emptyDir died with the previous Pod).
+	//
+	// "phase1-watching" is deliberately EXCLUDED from this rewrite (issue
+	// #830 Bug 3). Phase 1 is purely observational — Phase 0 has already
+	// committed its tofu state, the Hetzner resources exist and are
+	// reachable, the kubeconfig is on the PVC, and the bootstrap-kit
+	// HelmReleases keep reconciling on the Sovereign cluster regardless
+	// of whether catalyst-api's in-memory watcher is alive. The new Pod
+	// can re-attach the helmwatch informer and continue streaming
+	// per-component state. The on-disk record retains Status=
+	// "phase1-watching" so /deployments/{id} keeps reporting the truth
+	// (the watch is in-flight, not failed) until the resumed watcher
+	// terminates and markPhase1Done flips Status to ready/failed.
+	//
+	// Without this carve-out, a transient catalyst-api roll mid-Phase-1
+	// (image bump, OOM, node maintenance) latches the deployment record
+	// to status=failed even though the Sovereign cluster reaches Ready=
+	// True for every HelmRelease seconds later — the auto-fire handover
+	// then never triggers and the operator is stranded on the wizard
+	// page. otech102 incident, 2026-05-04. The downstream resume happens
+	// in restoreFromStore via shouldResumePhase1 + resumePhase1Watch.
+	if isPhase0InFlightStatus(rec.Status) {
 		dep.Status = "failed"
 		dep.Error = "catalyst-api restarted during provisioning — this deployment was abandoned mid-apply. Hetzner resources tagged with `catalyst-deployment-id=" + rec.ID + "` are orphans and must be purged manually (hcloud server, lb, network, firewall, ssh-key) before retrying. The wizard cannot resume — start a new deployment."
 		dep.FinishedAt = time.Now()
@@ -382,9 +402,28 @@ func fromRecord(rec store.Record) *Deployment {
 	return dep
 }
 
+// isInFlightStatus reports whether a deployment is operationally
+// still running. Used by the orphan-PDM-release decision logic to
+// avoid releasing a slot that's still active.
 func isInFlightStatus(s string) bool {
 	switch s {
 	case "pending", "provisioning", "tofu-applying", "flux-bootstrapping", "phase1-watching":
+		return true
+	}
+	return false
+}
+
+// isPhase0InFlightStatus reports whether a deployment was abandoned
+// mid-Phase-0 (a state catalyst-api cannot resume — tofu workdir lives
+// on /tmp emptyDir which dies with the Pod). These statuses get
+// rewritten to "failed" on restart so the wizard renders FailureCard.
+//
+// "phase1-watching" is deliberately EXCLUDED — Phase 1 is observational
+// and resumable across Pod restarts. See fromRecord's comment for the
+// full rationale (issue #830 Bug 3).
+func isPhase0InFlightStatus(s string) bool {
+	switch s {
+	case "pending", "provisioning", "tofu-applying", "flux-bootstrapping":
 		return true
 	}
 	return false
@@ -580,11 +619,18 @@ func (h *Handler) releaseOrphanedReservation(deploymentID, poolDomain, subdomain
 // criteria are:
 //   - Result.KubeconfigPath is non-empty AND points at a readable file
 //   - Phase 1 has NOT already terminated (Phase1FinishedAt == nil)
-//   - Status was not rewritten by fromRecord — i.e. the original
-//     status was NOT phase1-watching (which fromRecord rewrote to
-//     failed). A genuinely-finished "ready" or "failed" deployment
-//     is not resumed; only one that survived a restart with the
-//     watch still owing work.
+//   - Original on-disk status was NOT a Phase-0 in-flight state (those
+//     are unrecoverable — fromRecord rewrites them to "failed")
+//
+// Resume IS triggered for the following original statuses:
+//   - "phase1-watching" — the canonical durable-watcher case (issue
+//     #830 Bug 3). Phase 0 already committed its tofu state, the
+//     Sovereign cluster is healthy, and the new Pod re-attaches the
+//     helmwatch informer to continue streaming per-component events.
+//   - Terminal states ("ready", "failed", "adopted") with
+//     Phase1FinishedAt == nil — contract-violation residual; resume is
+//     the safer-default action because the helmwatch is idempotent
+//     (it just observes HelmRelease.status — no patches/applies).
 //
 // Why we resume even when rec.Status is "ready" but Phase1FinishedAt
 // is nil: that combination is a contract violation — markPhase1Done
@@ -599,9 +645,13 @@ func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
 	if dep.Result.Phase1FinishedAt != nil {
 		return false
 	}
-	// fromRecord rewrites in-flight statuses (including
-	// "phase1-watching") to "failed" — those are not resumable.
-	if isInFlightStatus(rec.Status) {
+	// Phase-0 in-flight statuses are rewritten to "failed" by
+	// fromRecord — those are not resumable (tofu workdir died with
+	// the previous Pod, Hetzner resources are orphaned).
+	// "phase1-watching" is NOT in this set per issue #830 Bug 3 — the
+	// watcher IS resumable, and resuming is the whole point of the
+	// durable-watcher fix.
+	if isPhase0InFlightStatus(rec.Status) {
 		return false
 	}
 	if _, err := os.Stat(dep.Result.KubeconfigPath); err != nil {
