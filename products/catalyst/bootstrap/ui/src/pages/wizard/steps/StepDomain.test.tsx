@@ -5,6 +5,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { StepDomain } from './StepDomain'
 import { useWizardStore } from '@/entities/deployment/store'
 import {
@@ -12,6 +14,28 @@ import {
   OPENOVA_NAMESERVERS,
   REGISTRAR_OPTIONS,
 } from '@/entities/deployment/model'
+
+// Issue #748 — StepDomain's AdminEmailField now consumes useSession
+// (TanStack Query) so the wizard's read-only orgEmail input can mirror
+// session.email. Wrap renders in a fresh QueryClientProvider per test
+// so cached query state doesn't leak across cases. Cases that need a
+// signed-in identity seed the cache directly via setQueryData.
+function makeWrapper(seedSessionEmail?: string | null) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  if (seedSessionEmail !== undefined) {
+    qc.setQueryData(
+      ['catalyst', 'session', 'whoami'],
+      seedSessionEmail === null
+        ? null
+        : { email: seedSessionEmail, sub: 'sub-test', verified: true },
+    )
+  }
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  )
+}
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
@@ -24,14 +48,14 @@ afterEach(() => {
 
 describe('StepDomain — mode toggle', () => {
   it('renders all three radio cards', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     expect(screen.getByTestId('domain-mode-pool')).toBeTruthy()
     expect(screen.getByTestId('domain-mode-byo-manual')).toBeTruthy()
     expect(screen.getByTestId('domain-mode-byo-api')).toBeTruthy()
   })
 
   it('starts in pool mode by default', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     expect(useWizardStore.getState().sovereignDomainMode).toBe('pool')
     expect(screen.getByTestId('pool-subdomain-input')).toBeTruthy()
   })
@@ -41,7 +65,7 @@ describe('StepDomain — mode toggle', () => {
       ...INITIAL_WIZARD_STATE,
       sovereignSubdomain: 'omantel-prod',
     })
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.click(screen.getByTestId('domain-mode-byo-manual'))
     expect(useWizardStore.getState().sovereignDomainMode).toBe('byo-manual')
     expect(useWizardStore.getState().sovereignSubdomain).toBe('')
@@ -50,7 +74,7 @@ describe('StepDomain — mode toggle', () => {
   })
 
   it('switches to byo-api and exposes registrar + token fields', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.click(screen.getByTestId('domain-mode-byo-api'))
     expect(useWizardStore.getState().sovereignDomainMode).toBe('byo-api')
     expect(screen.getByTestId('byo-api-registrar-select')).toBeTruthy()
@@ -66,7 +90,7 @@ describe('StepDomain — mode toggle', () => {
       registrarToken: 'secret-token-do-not-leak',
       registrarTokenValidated: true,
     })
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.click(screen.getByTestId('domain-mode-pool'))
     const s = useWizardStore.getState()
     expect(s.registrarType).toBeNull()
@@ -77,14 +101,14 @@ describe('StepDomain — mode toggle', () => {
 
 describe('StepDomain — pool mode', () => {
   it('writes the subdomain to the store as the user types', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     const input = screen.getByTestId('pool-subdomain-input') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Omantel-Prod' } })
     expect(useWizardStore.getState().sovereignSubdomain).toBe('omantel-prod')
   })
 
   it('renders the pool dropdown defaulted to omani-works', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     const select = screen.getByTestId('pool-domain-select') as HTMLSelectElement
     expect(select.value).toBe('omani-works')
   })
@@ -99,21 +123,21 @@ describe('StepDomain — byo-manual mode', () => {
   })
 
   it('writes the typed domain to the store', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     const input = screen.getByTestId('byo-domain-input') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'acme.com' } })
     expect(useWizardStore.getState().sovereignByoDomain).toBe('acme.com')
   })
 
   it('renders all OpenOva nameservers verbatim', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     for (const ns of OPENOVA_NAMESERVERS) {
       expect(screen.getByText(ns)).toBeTruthy()
     }
   })
 
   it('exposes a copy button for each nameserver', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     for (let i = 0; i < OPENOVA_NAMESERVERS.length; i++) {
       expect(screen.getByTestId(`byo-ns-copy-${i}`)).toBeTruthy()
     }
@@ -129,14 +153,14 @@ describe('StepDomain — byo-api mode', () => {
   })
 
   it('lists every supported registrar in the dropdown', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     const select = screen.getByTestId('byo-api-registrar-select') as HTMLSelectElement
     const optionValues = Array.from(select.options).map(o => o.value).filter(Boolean)
     expect(optionValues.sort()).toEqual([...REGISTRAR_OPTIONS.map(r => r.id)].sort())
   })
 
   it('disables the Validate button until domain + registrar + token are present', () => {
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     const btn = screen.getByTestId('byo-api-validate-button') as HTMLButtonElement
     expect(btn.disabled).toBe(true)
     fireEvent.change(screen.getByTestId('byo-api-domain-input'), { target: { value: 'acme.com' } })
@@ -160,7 +184,7 @@ describe('StepDomain — byo-api mode', () => {
       registrarType: 'cloudflare',
       registrarToken: 'cf-token-123',
     })
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.click(screen.getByTestId('byo-api-validate-button'))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
@@ -193,7 +217,7 @@ describe('StepDomain — byo-api mode', () => {
       registrarType: 'cloudflare',
       registrarToken: 'wrong-token',
     })
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.click(screen.getByTestId('byo-api-validate-button'))
 
     await waitFor(() => {
@@ -211,7 +235,7 @@ describe('StepDomain — byo-api mode', () => {
       registrarToken: 'old-token',
       registrarTokenValidated: true,
     })
-    render(<StepDomain />)
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.change(screen.getByTestId('byo-api-token-input'), { target: { value: 'new-token' } })
     expect(useWizardStore.getState().registrarTokenValidated).toBe(false)
   })

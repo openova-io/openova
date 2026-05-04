@@ -33,6 +33,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
@@ -729,6 +730,44 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Issue #748 — orgEmail MUST equal the authenticated session's email.
+	// Background: until this fix landed, a signed-in user could POST a
+	// deployment whose req.OrgEmail belonged to someone ELSE — the catalyst-
+	// api accepted the body verbatim and stamped the wrong identity onto
+	// the Sovereign-admin / Catalyst-Organization owner. Any subsequent
+	// session-scoped list (GET /deployments — issue #747) would then hide
+	// the deployment from its real creator and leak it to the typo'd
+	// recipient. The session JWT is the load-bearing identity claim; the
+	// request body's OrgEmail is no more trustworthy than any other
+	// client-provided field.
+	//
+	// Per docs/INVIOLABLE-PRINCIPLES.md #1 (never trust the client) the
+	// server-side check is the load-bearing fix. The wizard's read-only
+	// orgEmail input is defense-in-depth only.
+	//
+	// We use ClaimsFromContext (populated by auth.RequireSession) as the
+	// canonical source — when it's nil we fall back to the X-User-Email
+	// header so existing tests that build a Handler{} directly without
+	// the middleware in the chain still exercise the orgEmail-match
+	// check. When BOTH are absent (off-prod / Sovereign-side bootstrap
+	// with no auth wired), the check is skipped — the deployment row is
+	// stamped with empty OwnerEmail and the legacy passthrough applies.
+	claims := auth.ClaimsFromContext(r.Context())
+	sessionEmail := ""
+	if claims != nil {
+		sessionEmail = strings.TrimSpace(claims.Email)
+	} else {
+		sessionEmail = strings.TrimSpace(r.Header.Get("X-User-Email"))
+	}
+	if sessionEmail != "" {
+		if !strings.EqualFold(strings.TrimSpace(req.OrgEmail), sessionEmail) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": "orgEmail must match the authenticated session's email",
+			})
+			return
+		}
+	}
+
 	// Inject Dynadot credentials when the customer chose a pool domain so the
 	// OpenTofu module can write DNS records via the dynadot variables.
 	// Credentials come from environment variables mounted from the
@@ -825,11 +864,19 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 
 	// Stamp the owner email from the authenticated session (issue #689).
 	// auth.RequireSession sets X-User-Email after validating the session
-	// cookie; if the value is missing, the deployment was created on a
-	// catalyst-api instance running without the auth middleware (legacy
-	// CI / Sovereign-side bootstrap) and we leave the field empty. The
-	// ownership-check helper treats empty as "legacy — skip".
-	ownerEmail := strings.TrimSpace(r.Header.Get("X-User-Email"))
+	// cookie AND injects Claims into the context; if both are missing,
+	// the deployment was created on a catalyst-api instance running
+	// without the auth middleware (legacy CI / Sovereign-side bootstrap)
+	// and we leave the field empty. The ownership-check helper treats
+	// empty as "legacy — skip".
+	//
+	// Issue #748: the orgEmail-match check above already guaranteed
+	// req.OrgEmail equals the session email when a session is present,
+	// so OwnerEmail is necessarily the same identity. We persist the
+	// session-derived value (not req.OrgEmail) so a future client-side
+	// bug that bypasses the check still cannot poison the durable
+	// owner field.
+	ownerEmail := sessionEmail
 
 	dep := &Deployment{
 		ID:                   id,
@@ -949,13 +996,38 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 // operator opens the progress page.
 func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	ownerFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("owner")))
-	sessionEmail := strings.TrimSpace(strings.ToLower(r.Header.Get("X-User-Email")))
+	// Issue #748 — read the canonical session identity from the context
+	// claims first (auth.RequireSession injects them), falling back to
+	// X-User-Email so existing tests that build a Handler{} directly
+	// continue to exercise the session-bound filter without rewiring.
+	sessionEmail := ""
+	if c := auth.ClaimsFromContext(r.Context()); c != nil {
+		sessionEmail = strings.TrimSpace(strings.ToLower(c.Email))
+	}
+	if sessionEmail == "" {
+		sessionEmail = strings.TrimSpace(strings.ToLower(r.Header.Get("X-User-Email")))
+	}
 
-	// Effective owner filter — when the session header is set (production
-	// behind RequireSession), it always overrides the query param so
-	// ?owner=victim@example.com from a logged-in attacker silently
-	// collapses to their own email. In tests / CI without the middleware,
-	// fall back to whatever the caller passed.
+	// Issue #748 — when a session is present AND a ?owner= query param
+	// is also supplied AND ?owner != session.email, return an empty list
+	// rather than silently collapsing to session-only rows. Returning
+	// rows for a query that asked for a different identity is the kind
+	// of subtle UX bug that hides the security boundary; "200 + empty"
+	// makes the boundary explicit without leaking existence (we don't
+	// emit 403 — the response shape MUST NOT differentiate "exists but
+	// not yours" from "doesn't exist", same posture as the issue #689
+	// 404-not-403 rule on /deployments/{id}).
+	if sessionEmail != "" && ownerFilter != "" && ownerFilter != sessionEmail {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"deployments": []any{},
+		})
+		return
+	}
+
+	// Effective owner filter — when the session is set (production behind
+	// RequireSession), it always defines the boundary so the ?owner=
+	// query is at most a redundant assertion. In tests / CI without the
+	// middleware, fall back to whatever the caller passed.
 	effectiveOwner := sessionEmail
 	if effectiveOwner == "" {
 		effectiveOwner = ownerFilter
