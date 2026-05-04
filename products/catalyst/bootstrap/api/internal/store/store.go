@@ -135,6 +135,24 @@ type RedactedRequest struct {
 	SovereignPoolDomain string `json:"sovereignPoolDomain,omitempty"`
 	SovereignSubdomain  string `json:"sovereignSubdomain,omitempty"`
 
+	// ParentDomains — multi-domain pool persisted across the
+	// catalyst-api Pod restart boundary (issue #826, sub-1 of epic
+	// #825). The slice carries per-domain metadata only; per-domain
+	// registrar credentials are NEVER persisted on the deployment
+	// record — RegistrarCredsRef points at a SealedSecret in
+	// catalyst-system whose plaintext lives only in K8s, never on
+	// the catalyst-api PVC. See provisioner.ParentDomain for field
+	// semantics.
+	//
+	// Backward compatibility: a record persisted under the legacy
+	// single-FQDN shape (no `parentDomains` key in JSON) deserializes
+	// with the slice empty; ToProvisionerRequest re-runs the
+	// provisioner.Validate() migration path on the next read so the
+	// rehydrated request carries the synthesised primary entry. The
+	// next Save() that writes this record back to disk emits the
+	// array form — the migration is transparent to operators.
+	ParentDomains []provisioner.ParentDomain `json:"parentDomains,omitempty"`
+
 	HetznerToken     string `json:"hetznerToken,omitempty"`
 	HetznerProjectID string `json:"hetznerProjectID,omitempty"`
 
@@ -196,6 +214,12 @@ func Redact(req provisioner.Request) RedactedRequest {
 		HAEnabled:           req.HAEnabled,
 		Regions:             req.Regions,
 		SSHPublicKey:        req.SSHPublicKey,
+		// Multi-domain pool (issue #826). Persisted verbatim — the
+		// fields on ParentDomain are non-secret (Name + Role +
+		// RegistrarKind + RegistrarCredsRef + AddedAt). The
+		// RegistrarCredsRef points at a SealedSecret name; the
+		// plaintext registrar credentials are NEVER on this record.
+		ParentDomains: req.ParentDomains,
 		// Object Storage non-secret context — region + bucket are public
 		// in the sense that they appear in tofu outputs and the cluster's
 		// Secret stringData on every reconciliation. Persisted verbatim.
@@ -240,17 +264,22 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		SovereignDomainMode: r.SovereignDomainMode,
 		SovereignPoolDomain: r.SovereignPoolDomain,
 		SovereignSubdomain:  r.SovereignSubdomain,
-		HetznerToken:        r.HetznerToken, // <redacted> or ""
-		HetznerProjectID:    r.HetznerProjectID,
-		Region:              r.Region,
-		ControlPlaneSize:    r.ControlPlaneSize,
-		WorkerSize:          r.WorkerSize,
-		WorkerCount:         r.WorkerCount,
-		HAEnabled:           r.HAEnabled,
-		Regions:             r.Regions,
-		SSHPublicKey:        r.SSHPublicKey,
-		DynadotAPIKey:       r.DynadotAPIKey,    // <redacted> or ""
-		DynadotAPISecret:    r.DynadotAPISecret, // <redacted> or ""
+		// Multi-domain pool rehydrate (issue #826). Records persisted
+		// before the field was added deserialize with this empty;
+		// provisioner.Request.Validate() then synthesises the primary
+		// entry on the next call — the migration is transparent.
+		ParentDomains:    r.ParentDomains,
+		HetznerToken:     r.HetznerToken, // <redacted> or ""
+		HetznerProjectID: r.HetznerProjectID,
+		Region:           r.Region,
+		ControlPlaneSize: r.ControlPlaneSize,
+		WorkerSize:       r.WorkerSize,
+		WorkerCount:      r.WorkerCount,
+		HAEnabled:        r.HAEnabled,
+		Regions:          r.Regions,
+		SSHPublicKey:     r.SSHPublicKey,
+		DynadotAPIKey:    r.DynadotAPIKey,    // <redacted> or ""
+		DynadotAPISecret: r.DynadotAPISecret, // <redacted> or ""
 		// Object Storage rehydrate (issue #371) — region + bucket are
 		// the verbatim values; access + secret come back as the redacted
 		// marker so a Pod restart can render the wizard's failure card
