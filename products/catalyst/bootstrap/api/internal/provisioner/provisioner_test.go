@@ -457,6 +457,54 @@ func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
 	}
 }
 
+// TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull proves writeTfvars
+// emits an empty JSON array for `regions` when the request has no
+// per-region overrides — never JSON null. The OpenTofu module's
+// variables.tf has a validation block (`for r in var.regions`) that
+// fails on null with "Error: Iteration over null value" but accepts
+// an empty list. Live failure on otech86 (DID 103c52d08510006f,
+// 2026-05-04 11:12:43Z).
+func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "otech86.omani.works",
+		OrgName:          "Acme",
+		OrgEmail:         "ops@acme.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		// Regions intentionally nil — the legacy singular path.
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Must contain `"regions": []` — never `"regions": null`.
+	if strings.Contains(string(raw), `"regions": null`) {
+		t.Fatalf("regions must serialise as [] (not null) so OpenTofu's `for r in var.regions` validator accepts the input. Got:\n%s", string(raw))
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	regions, ok := parsed["regions"].([]any)
+	if !ok {
+		t.Fatalf("regions must be a JSON array, got %T (%v)", parsed["regions"], parsed["regions"])
+	}
+	if len(regions) != 0 {
+		t.Fatalf("regions must be empty when request has none, got %d entries", len(regions))
+	}
+}
+
 // TestWriteTfvars_EmitsSingularSizesWhenSet proves writeTfvars DOES emit
 // the singular SKU fields when the operator sets them explicitly. Guards
 // against a regression where an over-eager omission rule drops legitimate

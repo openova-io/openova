@@ -870,7 +870,15 @@ func writeTfvars(deployDir string, req Request) error {
 		// unused by main.tf; the for_each that consumes it lives behind
 		// the multi-region activation work). Structural-correct today;
 		// no-op at apply time for solo deployments where len(regions)<=1.
-		"regions": req.Regions,
+		//
+		// IMPORTANT: emit empty slice [] (not nil) when the request has
+		// no per-region overrides. Go's nil slice marshals as JSON null
+		// — and OpenTofu's validation block (`for r in var.regions`)
+		// chokes on null with "Error: Iteration over null value" at
+		// `tofu plan`. Live failure on otech86 (DID 103c52d08510006f,
+		// 2026-05-04 11:12:43Z). The variables.tf default = [] is what
+		// the validator expects; emit that shape explicitly.
+		"regions": coalesceRegions(req.Regions),
 
 		// SSH key — module creates an hcloud_ssh_key from this and attaches
 		// to all servers. We never generate keys here; sovereign-admin
@@ -1027,4 +1035,18 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// coalesceRegions normalises a nil RegionSpec slice to an empty slice so
+// JSON marshalling emits `[]` instead of `null`. The OpenTofu module's
+// `variable "regions"` validator runs `for r in var.regions` which fails
+// on null with "Error: Iteration over null value" but accepts an empty
+// list (the variables.tf default). Live failure on otech86 (DID
+// 103c52d08510006f, 2026-05-04 11:12:43Z) when the autopilot zero-touch
+// cycle launched without any per-region overrides.
+func coalesceRegions(rs []RegionSpec) []RegionSpec {
+	if rs == nil {
+		return []RegionSpec{}
+	}
+	return rs
 }
