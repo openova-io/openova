@@ -74,6 +74,7 @@ import { ConsoleJobsPage } from '@/pages/sovereign/console/ConsoleJobsPage'
 import { ConsoleCloudPage } from '@/pages/sovereign/console/ConsoleCloudPage'
 import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
 import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
+import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -624,6 +625,16 @@ const consoleSettingsRoute = createRoute({
   component: ConsoleSettingsPage,
 })
 
+// /console/settings/marketplace — operator toggles marketplace mode on a
+// live Sovereign (issue #710 wave 3b). The page POSTs to
+// /api/v1/sovereigns/{id}/marketplace which commits the per-Sovereign
+// overlay change to the GitOps repo so Flux reconciles the chart.
+const consoleSettingsMarketplaceRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/settings/marketplace',
+  component: MarketplaceSettings,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -665,6 +676,7 @@ const routeTree = rootRoute.addChildren([
     consoleCloudRoute,
     consoleUsersRoute,
     consoleSettingsRoute,
+    consoleSettingsMarketplaceRoute,
   ]),
 ])
 

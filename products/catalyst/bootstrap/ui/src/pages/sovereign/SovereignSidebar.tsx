@@ -78,6 +78,24 @@ const SETTINGS_ITEM: FlatNavItem = {
   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 
+// ── Settings sub-nav ──────────────────────────────────────────────────────────
+//
+// Settings expands into a small set of focused sub-pages (Marketplace mode
+// today, more to follow). The sub-nav renders only when the operator is
+// actively inside /console/settings/* so the sidebar stays tight by default.
+//
+// Issue #710 wave 3b: Marketplace toggle ships first; subsequent settings
+// children (DNS, branding, billing) extend the same array.
+interface SubNavItem {
+  id: string
+  label: string
+  to: string
+}
+
+const SETTINGS_SUB_NAV: SubNavItem[] = [
+  { id: 'marketplace', label: 'Marketplace', to: '/console/settings/marketplace' },
+]
+
 // ── Active-state derivation ───────────────────────────────────────────────────
 
 type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
@@ -93,11 +111,23 @@ function deriveActiveSection(pathname: string): ActiveSection {
   return 'apps'
 }
 
+// deriveActiveSettingsSubItem returns the id of the active settings
+// sub-nav entry, or null when no sub-page is active. Drives the
+// expanded sub-list rendering under the Settings nav item.
+function deriveActiveSettingsSubItem(pathname: string): string | null {
+  for (const sub of SETTINGS_SUB_NAV) {
+    if (pathname.startsWith(sub.to)) return sub.id
+  }
+  return null
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeSection = deriveActiveSection(pathname)
+  const activeSettingsSub = deriveActiveSettingsSubItem(pathname)
+  const settingsExpanded = activeSection === 'settings'
 
   // Read user info from the OIDC session for the footer card.
   const tokens = loadTokens()
@@ -191,6 +221,35 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             </Link>
           )
         })()}
+
+        {/* Settings sub-nav — visible only when the operator is inside
+            /console/settings/*. Keeps the sidebar compact by default and
+            mirrors the GitLab-style "category > sub-page" expansion. */}
+        {settingsExpanded ? (
+          <ul
+            className="mx-2 mt-0.5 flex flex-col gap-0.5"
+            data-testid="sov-console-settings-sub-nav"
+          >
+            {SETTINGS_SUB_NAV.map((sub) => {
+              const isActive = activeSettingsSub === sub.id
+              const cls = isActive
+                ? 'text-[var(--color-accent)]'
+                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
+              return (
+                <li key={sub.id}>
+                  <Link
+                    to={sub.to as never}
+                    className={`block rounded-md py-1.5 pl-10 pr-3 text-xs no-underline transition-colors ${cls}`}
+                    data-testid={`sov-console-nav-settings-${sub.id}`}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    {sub.label}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
       </nav>
 
       {/* User card at the bottom */}

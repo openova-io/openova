@@ -381,6 +381,17 @@ func main() {
 		rg.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
 		rg.Delete("/api/v1/deployments/{depId}/infrastructure/{kind}/{id}", h.DeleteInfrastructureResource)
 
+		// Marketplace mode toggle (issue #710 wave 3b). The Sovereign
+		// Settings → Marketplace page POSTs here to enable/disable the
+		// marketplace HTTPRoutes + storefront branding on a live
+		// Sovereign. The handler edits the per-Sovereign overlay file
+		// at clusters/<fqdn>/bootstrap-kit/13-bp-catalyst-platform.yaml
+		// in the GitOps repo and pushes the commit; Flux on the target
+		// Sovereign reconciles within ~1 min and the chart re-renders.
+		// Per the founder's 2026-05-04 GitOps rule, NO ConfigMap-shortcut
+		// path exists — every change is a git commit on the audit trail.
+		rg.Post("/api/v1/sovereigns/{id}/marketplace", h.HandleSetMarketplace)
+
 		// Sovereign IAM — UserAccess CR editor (issue #323). The UI's
 		// /sovereign/users page calls these endpoints to list / create /
 		// update / delete UserAccess CRs against the Sovereign cluster.
