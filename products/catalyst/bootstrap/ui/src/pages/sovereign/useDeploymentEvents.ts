@@ -83,6 +83,28 @@ export interface DeploymentSnapshot {
    * a producer-buffer overflow on the high-throughput tofu-apply burst.
    */
   phase1Outcome?: string
+  /**
+   * Issues #764 + #768 — fully-qualified handover redirect URL stamped
+   * by catalyst-api when the Phase-1 watch terminates with
+   * OutcomeReady. Shape:
+   *
+   *   https://console.<sovereignFqdn>/auth/handover?token=<jwt>
+   *
+   * The token is RS256-signed (5-minute TTL); the Sovereign-side
+   * /auth/handover handler validates it, mints a session, and 302s to
+   * /console/dashboard. Empty until catalyst-api auto-fires the
+   * mint; non-empty value triggers the wizard's "Open your Sovereign
+   * console →" button + the 5-second auto-redirect timer.
+   */
+  handoverURL?: string
+  /**
+   * Issues #764 + #768 — RFC 3339 UTC timestamp the catalyst-api
+   * auto-fired the handover JWT mint. Used by the wizard's
+   * notification effect to render the "Sovereign is ready —
+   * redirecting…" toast exactly once per deployment, even on a
+   * poll-after-SSE-reconnect.
+   */
+  handoverFiredAt?: string
   result?: {
     sovereignFQDN: string
     controlPlaneIP: string
@@ -95,7 +117,38 @@ export interface DeploymentSnapshot {
     phase1FinishedAt?: string
     /** Same as top-level `phase1Outcome`. */
     phase1Outcome?: string
+    /** Same as top-level `handoverURL`. */
+    handoverURL?: string
+    /** Same as top-level `handoverFiredAt`. */
+    handoverFiredAt?: string
   }
+}
+
+/**
+ * Payload of the `handover-ready` typed SSE event emitted by
+ * catalyst-api/internal/handler.fireHandover (issues #764 + #768).
+ *
+ * Wire shape:
+ *
+ *   event: handover-ready
+ *   data: {"handoverURL": "...", "expiresAt": "..."}
+ *
+ * The wizard's useDeploymentEvents hook listens via
+ * EventSource.addEventListener('handover-ready', …) so the typed
+ * channel is independent of the default-message reducer. Receiving
+ * this event is the live-stream signal to render the "Open your
+ * Sovereign console →" button + start the 5s auto-redirect timer.
+ *
+ * The same data is durable on the deployment record at
+ * /deployments/{id} (top-level handoverURL + handoverFiredAt) so a
+ * page that lands AFTER the event was emitted still picks up the
+ * redirect via the GET-replay path.
+ */
+export interface HandoverReadyEvent {
+  /** Same shape as DeploymentSnapshot.handoverURL. */
+  handoverURL: string
+  /** RFC 3339 UTC expiry of the JWT (mint-time + 5 minutes). */
+  expiresAt: string
 }
 
 export interface UseDeploymentEventsOptions {
@@ -119,6 +172,16 @@ export interface UseDeploymentEventsResult {
   startedAt: number | null
   finishedAt: number | null
   retry: () => void
+  /**
+   * Issues #764 + #768 — surfaces the handover-ready signal to the
+   * provision page. Non-null when EITHER the live SSE stream
+   * delivered a typed `handover-ready` event OR the GET /deployments/
+   * {id} poll observed a non-empty `handoverURL` on the record.
+   * Carries the canonical URL the provision page renders as the
+   * "Open your Sovereign console →" button + auto-redirect target.
+   * Null until catalyst-api has auto-fired the mint.
+   */
+  handoverReady: HandoverReadyEvent | null
 }
 
 export function useDeploymentEvents(
@@ -137,6 +200,12 @@ export function useDeploymentEvents(
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [finishedAt, setFinishedAt] = useState<number | null>(null)
   const [retryNonce, setRetryNonce] = useState(0)
+  // Issues #764 + #768 — handover-ready signal. Either the live SSE
+  // stream's typed `handover-ready` event sets this, or the GET-replay
+  // path observes `snapshot.handoverURL` non-empty and fills it. The
+  // provision page reads this to render the redirect button + start the
+  // 5s auto-redirect timer.
+  const [handoverReady, setHandoverReady] = useState<HandoverReadyEvent | null>(null)
 
   // Re-seed reducer when the application set changes (operator returned
   // to the wizard and adjusted before clicking retry).
@@ -182,6 +251,27 @@ export function useDeploymentEvents(
         if (body.done && body.state) {
           setSnapshot(body.state)
           setFinishedAt((prev) => prev ?? Date.now())
+          // Issues #764 + #768 — recover handover-ready from the
+          // durable record on a page that lands AFTER the live SSE
+          // event was emitted. Either the top-level lifted fields or
+          // the result-nested copy populates `handoverURL`; the
+          // setter is idempotent (no second toast / second redirect
+          // timer) because it sets state once.
+          const handoverURL =
+            body.state.handoverURL ?? body.state.result?.handoverURL ?? ''
+          if (handoverURL) {
+            setHandoverReady((prev) =>
+              prev ?? {
+                handoverURL,
+                // GET-replay path doesn't carry the JWT expiry — pass
+                // empty so the consumer's "expired?" check defaults to
+                // false. The token's actual expiry is on the JWT
+                // payload itself (5 minutes from mint); the
+                // Sovereign-side handler validates it on redirect.
+                expiresAt: '',
+              },
+            )
+          }
           if (body.state.status === 'ready') {
             // GROUNDING — pass the helmwatch componentStates map (if
             // any) into markAllReady so each card seeds from the
@@ -229,6 +319,7 @@ export function useDeploymentEvents(
     setStreamError(null)
     setSnapshot(null)
     setFinishedAt(null)
+    setHandoverReady(null)
     const url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/logs`
     const es = new EventSource(url)
     let seen = 0
@@ -281,6 +372,30 @@ export function useDeploymentEvents(
       es.close()
     }
     es.addEventListener('done', onDone as EventListener)
+
+    // Issues #764 + #768 — typed `handover-ready` SSE event. Carries
+    // {handoverURL, expiresAt}; the provision page renders the
+    // "Open your Sovereign console →" button + 5s auto-redirect timer
+    // off this signal. The default-message reducer never sees this
+    // event because the typed channel is dispatched separately.
+    const onHandoverReady = (msg: MessageEvent) => {
+      try {
+        const payload = JSON.parse(msg.data) as HandoverReadyEvent
+        if (payload && typeof payload.handoverURL === 'string' && payload.handoverURL !== '') {
+          // First-write-wins — a duplicate event from an SSE reconnect
+          // (same payload because durable buffer replays it) is a
+          // no-op. The provision page's redirect timer is keyed off
+          // the same identity, so a re-set with the same URL would
+          // also be a no-op there, but defending here keeps the
+          // contract clean.
+          setHandoverReady((prev) => prev ?? payload)
+        }
+      } catch {
+        /* malformed payload — drop, the GET-replay fallback recovers */
+      }
+    }
+    es.addEventListener('handover-ready', onHandoverReady as EventListener)
+
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
         setStreamStatus((prev) => {
@@ -292,6 +407,7 @@ export function useDeploymentEvents(
     }
     return () => {
       es.removeEventListener('done', onDone as EventListener)
+      es.removeEventListener('handover-ready', onHandoverReady as EventListener)
       es.close()
     }
   }, [deploymentId, retryNonce, disableStream])
@@ -311,5 +427,6 @@ export function useDeploymentEvents(
     startedAt,
     finishedAt,
     retry,
+    handoverReady,
   }
 }

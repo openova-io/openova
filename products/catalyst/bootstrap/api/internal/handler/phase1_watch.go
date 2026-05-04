@@ -29,10 +29,14 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -364,6 +368,155 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		"failedCount", failed,
 		"finalStatus", finalStatus,
 		"phase1Outcome", outcome,
+	)
+
+	// Issues #764 + #768 — auto-fire the handover JWT mint immediately
+	// after Phase-1 reaches OutcomeReady. Until this landed, the
+	// operator was stranded on the wizard's provision page after a
+	// successful provision: the page rendered the apps grid in
+	// terminal-completed state but the "Open your Sovereign console →"
+	// button + the auto-redirect never appeared because the JWT mint
+	// was a manual operator step (POST /deployments/{id}/mint-handover-
+	// token, called by a button the wizard never showed unless the SSE
+	// banner specifically prompted it).
+	//
+	// Auto-fire happens here, AFTER the lock is released and AFTER the
+	// terminal Status flip is persisted, so the SSE event the
+	// fireHandover helper emits is guaranteed to land on the durable
+	// buffer ordered AFTER the Phase-1 terminal events. Tests assert
+	// the buffer ordering invariant; the wizard's reducer relies on
+	// it.
+	if outcome == helmwatch.OutcomeReady && finalStatus == "ready" {
+		h.fireHandover(dep)
+	}
+}
+
+// fireHandover mints a handover JWT, persists handoverFiredAt +
+// handoverURL onto the deployment record, and emits a typed SSE event
+// `event: handover-ready, data: { handoverURL, expiresAt }` so the
+// wizard's provision page can render the "Open your Sovereign console
+// →" button + auto-redirect immediately (issues #764 + #768).
+//
+// The mint goes through h.handoverSigner — the same Signer that backs
+// the manual POST /deployments/{id}/mint-handover-token endpoint
+// (handover_jwt.go). Token claims contract is documented on
+// internal/handoverjwt/signer.go (RS256, 5-minute TTL,
+// aud=https://console.<sovereignFqdn>). The same private key the
+// manual endpoint uses signs the auto-fire token, so Sovereign-side
+// /auth/handover (already live on every otech9X provision) accepts it
+// without any new key distribution.
+//
+// Idempotency: the function checks dep.Result.HandoverFiredAt ==
+// nil under dep.mu before minting, so a double-fire from a helmwatch
+// flake (informer disconnect + reattach + re-emit terminal event)
+// does NOT mint a second JWT. The first mint wins; the second call
+// returns silently without emitting a duplicate SSE event.
+//
+// Failure modes:
+//   - h.handoverSigner is nil — log + skip. Production catalyst-api
+//     always has a wired Signer (cmd/api/main.go LoadOrGenerate's the
+//     keypair on first boot); a nil Signer is the test-only or
+//     misconfigured-CI path. The wizard falls back to the manual
+//     mint-handover-token endpoint that the operator can hit via the
+//     existing "Open Sovereign console" button on the AdminPage.
+//   - dep.Request.SovereignFQDN empty — log + skip. Same fallback.
+//   - h.handoverSigner.MintToken returns an error — log + skip. The
+//     UI's status=ready + handoverURL=="" branch renders a manual-
+//     mint button so the operator is never silently stranded.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the JWT itself is NEVER logged
+// — only the deployment id + the post-mint expiry timestamp lands in
+// structured logs.
+func (h *Handler) fireHandover(dep *Deployment) {
+	if h.handoverSigner == nil {
+		h.log.Warn("handover auto-fire: signer not configured; skipping mint",
+			"id", dep.ID,
+		)
+		return
+	}
+
+	dep.mu.Lock()
+	if dep.Result == nil || dep.Result.HandoverFiredAt != nil {
+		// Already fired (a duplicate markPhase1Done from an informer
+		// reattach raced this path) — leave it alone. The original
+		// handoverURL + handoverFiredAt remain on the record.
+		dep.mu.Unlock()
+		return
+	}
+	fqdn := dep.Request.SovereignFQDN
+	depID := dep.ID
+	owner := dep.OwnerEmail
+	if owner == "" {
+		// Fall back to OrgEmail — pre-#689 deployments may have an
+		// empty OwnerEmail but still carry a valid OrgEmail (e.g.
+		// the wizard's PIN-auth flow stamps both with the same
+		// session.email value at CreateDeployment time).
+		owner = dep.Request.OrgEmail
+	}
+	dep.mu.Unlock()
+
+	if strings.TrimSpace(fqdn) == "" {
+		h.log.Warn("handover auto-fire: deployment has no SovereignFQDN; skipping",
+			"id", depID,
+		)
+		return
+	}
+	if strings.TrimSpace(owner) == "" {
+		// Sub claim must be non-empty for the Sovereign-side handover
+		// handler to bind a session. Surface the misconfiguration
+		// loudly — a manual mint via the existing endpoint can recover
+		// once the operator re-authenticates.
+		h.log.Warn("handover auto-fire: deployment has no owner email; skipping (operator can manual-mint via /mint-handover-token)",
+			"id", depID,
+		)
+		return
+	}
+
+	tokenStr, err := h.handoverSigner.MintToken(fqdn, depID, owner, owner)
+	if err != nil {
+		h.log.Error("handover auto-fire: MintToken failed",
+			"id", depID,
+			"fqdn", fqdn,
+			"err", err,
+		)
+		return
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(handoverjwt.DefaultTTL)
+	handoverURL := "https://console." + fqdn + "/auth/handover?token=" + url.QueryEscape(tokenStr)
+
+	// Persist the URL + timestamp on the deployment record under the
+	// lock. Doing this BEFORE the SSE emit guarantees a /deployments/
+	// {id} GET that races the SSE event sees the same value the
+	// emit carries — no flap window where the typed event arrived
+	// but the durable record disagreed.
+	dep.mu.Lock()
+	if dep.Result != nil {
+		dep.Result.HandoverFiredAt = &now
+		dep.Result.HandoverURL = handoverURL
+	}
+	dep.mu.Unlock()
+	h.persistDeployment(dep)
+
+	// Emit the typed SSE event. The Message field IS the data payload
+	// (see writeSSEEvent in deployments.go) — a JSON object the
+	// wizard parses verbatim. Per #768's contract the payload is
+	// `{handoverURL, expiresAt}`.
+	payload, _ := json.Marshal(map[string]string{
+		"handoverURL": handoverURL,
+		"expiresAt":   expiresAt.Format(time.RFC3339),
+	})
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    now.Format(time.RFC3339),
+		Phase:   PhaseHandoverReady,
+		Level:   "info",
+		Message: string(payload),
+	})
+
+	h.log.Info("handover auto-fire: minted + staged",
+		"id", depID,
+		"fqdn", fqdn,
+		"expiresAt", expiresAt.Format(time.RFC3339),
 	)
 }
 
