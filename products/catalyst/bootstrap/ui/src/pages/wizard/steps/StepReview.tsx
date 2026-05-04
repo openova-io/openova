@@ -19,7 +19,11 @@
  *                           region's (cp + worker*count) into the total.
  *   4. Credentials        — Hetzner project ID + masked token + SSH key
  *   5. Components         — product-family overview + per-component cards
- *   6. Domain             — pool subdomain + FQDN OR BYO + admin email
+ *   6. Domain             — pool subdomain + FQDN OR BYO; Sovereign
+ *                            owner row reads from session.email since
+ *                            #762 dropped the wizard-captured admin
+ *                            email (PR #759 enforces the binding
+ *                            server-side).
  *
  * ── Layout density (#review-density) ──────────────────────────────────
  * Sections lay their content out as `auto-fill / minmax(...)` CSS grids
@@ -631,7 +635,18 @@ export function StepReview() {
         body: JSON.stringify({
           // Identity
           orgName:  store.orgName,
-          orgEmail: store.orgEmail,
+          // Issue #762 — orgEmail is no longer captured by the wizard
+          // (the "Admin contact email · locked to your sign-in" field
+          // was redundant — PR #759 enforces `req.OrgEmail ==
+          // session.email` on the catalyst-api). Stamp it here from
+          // `session.email` so the wire payload matches what the
+          // server expects. The PIN sign-in flow below mirrors the
+          // verified email into store.orgEmail on its onAuthenticated
+          // callback, so by the time we POST the session-bound email
+          // is the canonical value; the store fallback handles the
+          // brief moment between PIN-verify and the next session
+          // refetch.
+          orgEmail: session.email ?? store.orgEmail,
           // Sovereign domain — pool subdomain or BYO
           sovereignFQDN,
           sovereignDomainMode: store.sovereignDomainMode,
@@ -1116,7 +1131,13 @@ export function StepReview() {
                 )}
               </>
             )}
-            <Field label="Admin email" value={dimIfMissing(store.orgEmail)} />
+            {/* Issue #762 — Sovereign owner is stamped from the
+                signed-in session rather than a wizard-captured field.
+                Show the session email so the operator can see exactly
+                which identity the Sovereign will be owned by; fall
+                back to the store value (set on PIN-verify) for the
+                brief window before the session refetch lands. */}
+            <Field label="Sovereign owner" value={dimIfMissing(session.email ?? store.orgEmail)} />
             <Field
               label="Resolved FQDN"
               fullWidth

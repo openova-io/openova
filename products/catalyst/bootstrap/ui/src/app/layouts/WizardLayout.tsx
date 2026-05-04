@@ -31,7 +31,9 @@ import { consumeProvisionFlashBanner } from '@/shared/lib/flashBanner'
  *                     toggle decides whether the Sovereign exposes a
  *                     per-tenant SaaS storefront at
  *                     marketplace.<sovereign-fqdn>.
- *   7. Domain       — pool subdomain or BYO domain + admin email.
+ *   7. Domain       — pool subdomain or BYO domain. Admin email was
+ *                     decommissioned in #762; orgEmail is now stamped
+ *                     from session.email server-side (PR #759).
  *   8. Review       — POST body preview + launch.
  *
  * Topology BEFORE Provider is the dependency-correct order: a provider is
@@ -57,7 +59,7 @@ export const WIZARD_STEPS = [
   { id: 4, label: 'Credentials',  desc: 'API tokens + SSH key'             },
   { id: 5, label: 'Components',   desc: 'Platform building blocks'         },
   { id: 6, label: 'Marketplace',  desc: 'Multi-tenant SaaS storefront'     },
-  { id: 7, label: 'Domain',       desc: 'Pool or BYO + admin email'        },
+  { id: 7, label: 'Domain',       desc: 'Pool subdomain or BYO domain'     },
   { id: 8, label: 'Review',       desc: 'Confirm and provision'            },
 ]
 

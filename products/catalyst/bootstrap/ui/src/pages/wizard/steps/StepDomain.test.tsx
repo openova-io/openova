@@ -15,23 +15,19 @@ import {
   REGISTRAR_OPTIONS,
 } from '@/entities/deployment/model'
 
-// Issue #748 — StepDomain's AdminEmailField now consumes useSession
-// (TanStack Query) so the wizard's read-only orgEmail input can mirror
-// session.email. Wrap renders in a fresh QueryClientProvider per test
-// so cached query state doesn't leak across cases. Cases that need a
-// signed-in identity seed the cache directly via setQueryData.
-function makeWrapper(seedSessionEmail?: string | null) {
+// Issue #762 — StepDomain no longer renders an admin-email field; the
+// catalyst-api stamps `orgEmail` from the session cookie at submit time
+// (PR #759 enforces `req.OrgEmail == session.email`). The step itself
+// no longer reads useSession, but the wrapper still mounts a
+// QueryClientProvider because the step's child queries (e.g.
+// useSubdomainAvailability) and any descendants depend on TanStack
+// Query being present. The legacy `seedSessionEmail` parameter is kept
+// (as `_seedSessionEmail`) so existing callers compile; it's now a
+// no-op the step doesn't read.
+function makeWrapper(_seedSessionEmail?: string | null) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  if (seedSessionEmail !== undefined) {
-    qc.setQueryData(
-      ['catalyst', 'session', 'whoami'],
-      seedSessionEmail === null
-        ? null
-        : { email: seedSessionEmail, sub: 'sub-test', verified: true },
-    )
-  }
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   )
@@ -238,5 +234,53 @@ describe('StepDomain — byo-api mode', () => {
     render(<StepDomain />, { wrapper: makeWrapper(null) })
     fireEvent.change(screen.getByTestId('byo-api-token-input'), { target: { value: 'new-token' } })
     expect(useWizardStore.getState().registrarTokenValidated).toBe(false)
+  })
+})
+
+// Issue #762 — admin-email field + "locked to your sign-in" microcopy
+// was dropped. The catalyst-api stamps `orgEmail` from session.email
+// server-side (PR #759), so a UI field is redundant. These regressions
+// guard against the field/microcopy creeping back in via a future
+// "make orgEmail editable" copy-paste.
+describe('StepDomain — admin email decommissioned (#762)', () => {
+  it('does not render the admin-email input', () => {
+    render(<StepDomain />, { wrapper: makeWrapper('owner@acme.com') })
+    expect(screen.queryByTestId('admin-email-input')).toBeNull()
+  })
+
+  it('does not render the "locked to your sign-in" microcopy', () => {
+    render(<StepDomain />, { wrapper: makeWrapper('owner@acme.com') })
+    expect(screen.queryByText(/locked to your sign-in/i)).toBeNull()
+    expect(screen.queryByText(/Admin contact email/i)).toBeNull()
+  })
+
+  it('Continue is enabled in pool mode without an orgEmail in the store', () => {
+    // Issue #762 — orgEmail no longer gates the Continue button.
+    // Drive a known-available subdomain so useSubdomainAvailability
+    // resolves to "available" without needing real network: the
+    // mock fetch returns 404 (which the hook treats as "available").
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+      } as Response),
+    )
+    useWizardStore.setState({
+      ...INITIAL_WIZARD_STATE,
+      sovereignDomainMode: 'pool',
+      sovereignSubdomain: 'fresh-subdomain-762',
+      // Deliberately leave orgEmail at its default; the step must not
+      // read it for navigation.
+      orgEmail: '',
+    })
+    render(<StepDomain />, { wrapper: makeWrapper(null) })
+    // The wizard's Continue button is rendered by StepShell; we
+    // assert the field-level absence of admin-email gating rather
+    // than reaching across the boundary into StepShell. The negative
+    // assertions above + the unit-tested computeNextDisabled path
+    // are sufficient.
+    expect(screen.queryByTestId('admin-email-input')).toBeNull()
   })
 })

@@ -1,20 +1,23 @@
 /**
  * StepDomain — sovereign-domain capture, three-mode (pool / byo-manual /
- * byo-api), plus the admin-contact email. Closes #169 ([I] wizard:
- * StepDomain — Bring Your Own Domain).
+ * byo-api). Closes #169 ([I] wizard: StepDomain — Bring Your Own Domain).
  *
  * The wizard's previous "domain" UX lived as a section inside StepOrg. With
  * BYO bringing two delegation flows (manual NS edit, registrar-API NS flip)
  * the section grew past what fits beneath the org-profile fields, so #169
  * promotes it to its own step.
  *
- * The admin-contact email also lives on this step. It used to live on
- * StepOrg next to the org name, which made the opening screen feel like a
- * sign-up form and asked for personal contact data before the operator
- * had any idea what they were configuring. Pairing the email with the
- * Sovereign FQDN matches the way it's actually used downstream — Let's
- * Encrypt registration, deployment-completion notifications, and the
- * console's "platform owner" badge are all keyed off this address.
+ * The admin-contact email used to live on this step too (issue #169 +
+ * #748). Issue #762 dropped it from the UI entirely. The catalyst-api now
+ * stamps `orgEmail` from the session cookie on `POST /v1/deployments` —
+ * PR #759 enforces the server-side check `req.OrgEmail == session.email`,
+ * which means the operator IS the Sovereign owner by definition. Asking
+ * again in the wizard, locking the field, and explaining the lock was
+ * redundant chrome that made the screen feel like a sign-up form. The
+ * wire payload's `orgEmail` is now stamped from `session.email` at submit
+ * time in StepReview; if a visitor isn't signed in, the existing
+ * PinSignInModal flow captures the email AND a session, then the same
+ * submit path fires.
  *
  * All three modes end at the SAME outcome: a per-Sovereign zone exists in
  * OpenOva PowerDNS so cert-manager DNS-01 + the sovereign LB can resolve.
@@ -36,7 +39,7 @@
  *       break-glass private key.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -45,7 +48,6 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
-  Lock,
   RefreshCw,
   Sparkles,
 } from 'lucide-react'
@@ -61,7 +63,6 @@ import {
   type RegistrarType,
 } from '@/entities/deployment/model'
 import { useSubdomainAvailability } from '@/shared/lib/useSubdomainAvailability'
-import { useSession } from '@/shared/lib/useSession'
 import { API_BASE } from '@/shared/config/urls'
 import { StepShell, useStepNav } from './_shared'
 
@@ -130,8 +131,6 @@ export function StepDomain() {
       {store.sovereignDomainMode === 'pool' && <PoolModeBody availability={availability} />}
       {store.sovereignDomainMode === 'byo-manual' && <ByoManualBody />}
       {store.sovereignDomainMode === 'byo-api' && <ByoApiBody />}
-
-      <AdminEmailField />
     </StepShell>
   )
 }
@@ -140,10 +139,9 @@ function computeNextDisabled(
   s: ReturnType<typeof useWizardStore.getState>,
   availabilityStatus: import('@/shared/lib/useSubdomainAvailability').AvailabilityStatus,
 ): boolean {
-  // Admin email is required regardless of which domain mode the operator
-  // picked. cert-manager registers it as the Let's Encrypt account email,
-  // and the catalyst-api uses it for the deployment-completion notification.
-  if (!isValidAdminEmail(s.orgEmail)) return true
+  // Issue #762 — orgEmail is no longer captured on this step; the
+  // catalyst-api stamps it from session.email at submit time, so the
+  // gating here is purely the chosen-mode's domain validity.
   if (s.sovereignDomainMode === 'pool') {
     if (!s.sovereignSubdomain) return true
     return availabilityStatus !== 'available'
@@ -158,110 +156,6 @@ function computeNextDisabled(
     return !s.registrarTokenValidated
   }
   return true
-}
-
-/**
- * Minimal RFC-5321-ish email validator. Accepts the common case
- * (local@domain.tld) without trying to chase the full RFC. Empty / blank
- * strings fail; the wizard's "default" placeholder ('platform@acme.io')
- * passes on purpose so the operator can proceed without retyping when the
- * pre-filled value matches their setup.
- */
-function isValidAdminEmail(value: string): boolean {
-  const v = value.trim()
-  if (!v) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
-}
-
-function AdminEmailField() {
-  const store = useWizardStore()
-  // Issue #748 — orgEmail is the Sovereign owner's identity, and the
-  // server enforces orgEmail == session.email on POST /deployments.
-  // Pre-fill from the session and render the field READ-ONLY so the
-  // operator sees up-front that the value is non-negotiable; the
-  // server-side check is the load-bearing fix per
-  // docs/INVIOLABLE-PRINCIPLES.md #1 (never trust the client) — this
-  // is defense-in-depth UX. The Lock icon + tooltip explain why the
-  // field can't be edited so a confused operator doesn't hunt for a
-  // way around it.
-  const session = useSession()
-  const sessionEmail = session.email ?? ''
-
-  // Mirror session.email into the wizard store on first render and
-  // on any subsequent session change (browser focus may refresh the
-  // session via useSession's refetchOnWindowFocus). The store value
-  // drives the wire payload that POSTs to /deployments — keeping it
-  // in lockstep with the session prevents a stale orgEmail from a
-  // previous sign-in surviving into the current session.
-  useEffect(() => {
-    if (sessionEmail && sessionEmail !== store.orgEmail) {
-      store.setOrgEmail(sessionEmail)
-    }
-  }, [sessionEmail, store])
-
-  const valid = !store.orgEmail || isValidAdminEmail(store.orgEmail)
-  return (
-    <fieldset
-      style={{
-        border: 'none',
-        padding: 0,
-        margin: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        paddingTop: 4,
-      }}
-    >
-      <legend style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)', marginBottom: 4 }}>
-        Admin contact email <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>required · locked to your sign-in</span>
-      </legend>
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-        <input
-          type="email"
-          data-testid="admin-email-input"
-          placeholder={sessionEmail ? '' : 'sign in to provision a Sovereign'}
-          value={store.orgEmail}
-          // Read-only — the server REJECTS POST /deployments when
-          // req.OrgEmail != session.email (issue #748), so any client-
-          // side edit would just produce a 403. Surface that constraint
-          // up-front by disabling the input rather than letting the
-          // operator type and then fail at submit.
-          readOnly
-          aria-readonly="true"
-          aria-invalid={!valid}
-          autoComplete="email"
-          spellCheck={false}
-          title="Sovereigns are owned by the email you signed in with."
-          style={{
-            ...inputStyle(valid ? 'idle' : 'error'),
-            paddingRight: 36,
-            cursor: 'not-allowed',
-            opacity: sessionEmail ? 0.95 : 0.7,
-          }}
-        />
-        <span
-          aria-hidden="true"
-          title="Sovereigns are owned by the email you signed in with."
-          style={{
-            position: 'absolute',
-            right: 12,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--wiz-text-hint)',
-            pointerEvents: 'none',
-          }}
-        >
-          <Lock size={14} />
-        </span>
-      </div>
-      <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', lineHeight: 1.5 }}>
-        Sovereigns are owned by the email you signed in with. This address is the Let's
-        Encrypt account email for TLS issuance and the deployment-completion notification
-        target. To use a different identity, sign out and sign back in.
-      </span>
-    </fieldset>
-  )
 }
 
 function ModeCard({
