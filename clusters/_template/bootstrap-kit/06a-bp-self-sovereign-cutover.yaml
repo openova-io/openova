@@ -73,7 +73,10 @@ spec:
   chart:
     spec:
       chart: bp-self-sovereign-cutover
-      version: 0.1.0
+      # 0.1.1: Step-1 gitea-mirror script uses BusyBox-wget-compatible
+      # Authorization: Basic <b64> header instead of --user/--password
+      # which alpine/git's BusyBox wget does not support.
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

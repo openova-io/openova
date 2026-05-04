@@ -65,26 +65,35 @@ data:
             set -eu
             # Credential hygiene: never echo $GITEA_PASSWORD. We feed it
             # to git via URL embedding only inside the redirected http
-            # call below; stdout shows just the redacted form.
+            # call below; stdout shows just the redacted form. The HTTP
+            # API calls use a base64'd Authorization: Basic header (the
+            # alpine/git image's BusyBox wget does NOT support --user/
+            # --password flags — caught live on otech103 2026-05-04).
             redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
             echo "[gitea-mirror] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
             echo "[gitea-mirror] target=${redacted_url}"
 
+            # Build BusyBox-wget-compatible Basic auth header. printf -n
+            # avoids the trailing newline that would otherwise corrupt
+            # the base64 encoding (and thus the credential).
+            basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
+
             # 1. Ensure the repo exists in the local Gitea (idempotent).
             #    Gitea returns 201 on create / 409 on exists — both OK.
             api_url="${GITEA_INTERNAL_URL}/api/v1"
-            repo_check=$(wget -q -O - --header="Content-Type: application/json" \
-              --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
+            repo_check=$(wget -q -O - \
+              --header="Authorization: Basic ${basic_auth}" \
+              --header="Content-Type: application/json" \
               "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "missing")
             if [ "${repo_check}" = "missing" ]; then
               echo "[gitea-mirror] creating ${GITEA_ORG}/${GITEA_REPO}"
               wget -q -O /dev/null --post-data="{\"name\":\"${GITEA_REPO}\",\"private\":false,\"auto_init\":false}" \
+                --header="Authorization: Basic ${basic_auth}" \
                 --header="Content-Type: application/json" \
-                --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
                 "${api_url}/orgs/${GITEA_ORG}/repos" || \
                 wget -q -O /dev/null --post-data="{\"name\":\"${GITEA_REPO}\",\"private\":false,\"auto_init\":false}" \
+                  --header="Authorization: Basic ${basic_auth}" \
                   --header="Content-Type: application/json" \
-                  --user="${GITEA_USERNAME}" --password="${GITEA_PASSWORD}" \
                   "${api_url}/user/repos"
             else
               echo "[gitea-mirror] repo already present"
