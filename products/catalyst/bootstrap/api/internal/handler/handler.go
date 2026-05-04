@@ -204,6 +204,17 @@ type Handler struct {
 	// kubernetes.Interface + namespace pair the cutover engine reads
 	// from. Production leaves this nil and cutoverDepsFromEnv runs.
 	cutoverDepsFactory CutoverDepsFactory
+
+	// ── Unified RBAC SME-tier (issue #802, ADR-0003) ────────────────────────
+	// tenantRegistry — host → tenant lookup table backing the public
+	// /api/v1/tenant/discover endpoint. Same registry is used by the
+	// SME user endpoints to scope every operation to the calling tenant.
+	tenantRegistry *store.TenantRegistry
+	// smeDeps — bundle of dependencies for the ADR-0003 user-create hook
+	// (Keycloak admin client, NewAPI client, K8s Secret applier, NATS
+	// emitter, base-URL template). Wired from main.go at startup; tests
+	// inject stubs.
+	smeDeps SMEDeps
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate

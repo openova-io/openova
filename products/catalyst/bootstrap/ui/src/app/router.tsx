@@ -77,6 +77,8 @@ import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPa
 import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
 import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
+import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
+import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 
 // Root
@@ -673,6 +675,38 @@ const consoleCatalogRoute = createRoute({
   component: CatalogAdminPage,
 })
 
+/* ── SME-tier console routes (issue #802) ────────────────────────────
+ *
+ * Mounted under the same /console/* tree as the otech-tier routes —
+ * the same SovereignConsoleLayout owns the auth gate + chrome — but
+ * the page components target the SME unified-rbac surface.
+ *
+ *   /console/sme/users   → SMEUsersPage (POST + GET + DELETE
+ *                          /api/v1/sme/users; the create form fires
+ *                          the ADR-0003 3-step hook).
+ *   /console/sme/roles   → SMERolesPage (read-only canonical
+ *                          group → app-role map).
+ *
+ * Whether these routes are exposed in the sidebar is decided at
+ * runtime by the SME-tenant-aware nav (see SovereignSidebar.tsx),
+ * which reads the discovery payload from `getTenantContext()`.
+ * Because TanStack Router resolves on URL match (not on sidebar
+ * visibility), the routes themselves are always registered — that
+ * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the
+ * SME admin deep-link into either page from the welcome email.
+ */
+const consoleSMEUsersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sme/users',
+  component: SMEUsersPage,
+})
+
+const consoleSMERolesRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sme/roles',
+  component: SMERolesPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -718,6 +752,8 @@ const routeTree = rootRoute.addChildren([
     consoleCatalogRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
+    consoleSMEUsersRoute,
+    consoleSMERolesRoute,
   ]),
 ])
 
