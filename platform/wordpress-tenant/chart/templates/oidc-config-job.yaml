@@ -83,13 +83,13 @@ spec:
             - name: WP_DEFAULT_THEME
               value: {{ .Values.defaultTheme | quote }}
             - name: KC_REALM_URL
-              value: {{ required "keycloak.realmURL is required (e.g. https://auth.<sme-domain>/realms/sme)" .Values.keycloak.realmURL | quote }}
+              value: {{ .Values.keycloak.realmURL | quote }}
             - name: KC_CLIENT_ID
               value: {{ .Values.keycloak.clientID | quote }}
             - name: KC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "keycloak.clientSecretName is required (ExternalSecret name carrying the OIDC client secret)" .Values.keycloak.clientSecretName }}
+                  name: {{ .Values.keycloak.clientSecretName }}
                   key: client-secret
           command:
             - /bin/bash

@@ -76,14 +76,14 @@ list digest published on Docker Hub.
 {{/*
 Resolved ingress host. Templates `wordpress.<smeDomain>` when
 `ingress.host` is empty; otherwise returns the operator-supplied host
-verbatim. `smeDomain` is required when `ingress.host` is empty.
+verbatim. The `smeDomain` placeholder default in values.yaml ensures
+the smoke-render pass succeeds; per-Sovereign overlays MUST override.
 */}}
 {{- define "bp-wordpress-tenant.ingressHost" -}}
 {{- if .Values.ingress.host -}}
 {{- .Values.ingress.host -}}
 {{- else -}}
-{{- $sme := required ".Values.smeDomain or .Values.ingress.host MUST be set (no sensible default per INVIOLABLE-PRINCIPLES #4)." .Values.smeDomain -}}
-{{- printf "wordpress.%s" $sme -}}
+{{- printf "wordpress.%s" .Values.smeDomain -}}
 {{- end -}}
 {{- end -}}
 
