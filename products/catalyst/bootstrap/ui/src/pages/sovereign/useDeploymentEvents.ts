@@ -50,6 +50,24 @@ import {
 
 export type StreamStatus = 'connecting' | 'streaming' | 'completed' | 'failed' | 'unreachable'
 
+/**
+ * In-flight backend statuses (issue #782). The deployment record carries
+ * one of these values while provisioning is still progressing. The SSE
+ * stream closing while the canonical record is in any of these states
+ * means the transport dropped, NOT that the deployment failed: the
+ * wizard MUST keep showing a "still running" UI and reconnect rather
+ * than render a "Provisioning failed" banner with the stale phase id.
+ *
+ * Mirrors api/internal/handler/deployments.go isInFlightStatus().
+ */
+const IN_FLIGHT_STATUSES: ReadonlySet<string> = new Set([
+  'pending',
+  'provisioning',
+  'tofu-applying',
+  'flux-bootstrapping',
+  'phase1-watching',
+])
+
 export interface DeploymentSnapshot {
   id?: string
   status?: 'pending' | 'provisioning' | 'ready' | 'failed' | string
@@ -321,57 +339,67 @@ export function useDeploymentEvents(
     setFinishedAt(null)
     setHandoverReady(null)
     const url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/logs`
-    const es = new EventSource(url)
+    let cancelled = false
     let seen = 0
+    let es: EventSource | null = null
+    // Issue #782 — guards reconnection backoff. When the SSE drops while
+    // the canonical deployment status is still in-flight (e.g. the
+    // reverse proxy idle-timed out the long-lived stream), we re-open
+    // the EventSource against the same URL. The backend's
+    // replay-on-connect serves the buffered history again; the `seen`
+    // counter resets so the reducer skips already-applied events via
+    // the same `seen <= historyCountRef.current` rule. We hard-cap
+    // reconnect attempts so a permanently-broken transport eventually
+    // surfaces as `failed` rather than spinning forever.
+    let reconnectAttempts = 0
+    const MAX_RECONNECT_ATTEMPTS = 5
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-    es.onopen = () => {
-      setStreamStatus('streaming')
-      setStartedAt((prev) => prev ?? Date.now())
-    }
-    es.onmessage = (msg) => {
-      try {
-        const ev = JSON.parse(msg.data) as DeploymentEvent
-        seen += 1
-        if (seen <= historyCountRef.current) return
-        setState((prev) => reduceEvents(prev, [ev]))
-      } catch {
-        /* malformed event — drop, the next event will recover */
+    const applySnapshotAndComplete = (snap: DeploymentSnapshot) => {
+      setSnapshot(snap)
+      setFinishedAt(Date.now())
+      const handoverURL = snap.handoverURL ?? snap.result?.handoverURL ?? ''
+      if (handoverURL) {
+        setHandoverReady((prev) => prev ?? { handoverURL, expiresAt: '' })
+      }
+      if (snap.status === 'ready') {
+        const componentStates =
+          snap.componentStates ?? snap.result?.componentStates ?? null
+        setState((prev) => markAllReady(prev, componentStates))
+        setStreamStatus('completed')
+      } else if (snap.status === 'failed') {
+        const componentStates =
+          snap.componentStates ?? snap.result?.componentStates ?? null
+        const phase1Outcome =
+          snap.phase1Outcome ?? snap.result?.phase1Outcome ?? ''
+        setState((prev) => markFailedTerminal(prev, phase1Outcome, componentStates))
+        setStreamStatus('failed')
+        // Issue #782 — surface the REAL error from the canonical record.
+        // Never synthesise "Deployment ended with status=<phase>" because
+        // a phase id (e.g. "phase1-watching") is a transient state, not a
+        // final outcome. If the backend somehow reports a non-terminal
+        // status here we leave streamError null rather than fabricate a
+        // misleading copy.
+        setStreamError(snap.error ?? null)
+      } else {
+        // Backend reported a non-terminal status on what should be a
+        // terminal `done` event. This shouldn't happen, but defensive:
+        // treat it as still in-flight rather than failure. The
+        // reconnect/poll loop above will re-evaluate.
+        setStreamStatus('streaming')
       }
     }
+
     const onDone = (msg: MessageEvent) => {
       try {
         const snap = JSON.parse(msg.data) as DeploymentSnapshot
-        setSnapshot(snap)
-        setFinishedAt(Date.now())
-        if (snap?.status === 'ready') {
-          // Same grounding rule as the GET-replay path above.
-          const componentStates =
-            snap.componentStates ?? snap.result?.componentStates ?? null
-          setState((prev) => markAllReady(prev, componentStates))
-          setStreamStatus('completed')
-        } else {
-          // Issue #519 — same Phase-0 banner convergence as the GET-
-          // replay path above. The SSE `done` event is the live-stream
-          // mirror; failing to converge here would cause the same
-          // "Phase-0 stuck Running" UX on a tab that stayed open from
-          // the start.
-          if (snap?.status === 'failed') {
-            const componentStates =
-              snap.componentStates ?? snap.result?.componentStates ?? null
-            const phase1Outcome =
-              snap.phase1Outcome ?? snap.result?.phase1Outcome ?? ''
-            setState((prev) => markFailedTerminal(prev, phase1Outcome, componentStates))
-          }
-          setStreamStatus('failed')
-          setStreamError(snap?.error ?? `Deployment ended with status=${snap?.status ?? 'unknown'}`)
-        }
+        applySnapshotAndComplete(snap)
       } catch (err) {
         setStreamStatus('failed')
         setStreamError(`Failed to parse final snapshot: ${String(err)}`)
       }
-      es.close()
+      es?.close()
     }
-    es.addEventListener('done', onDone as EventListener)
 
     // Issues #764 + #768 — typed `handover-ready` SSE event. Carries
     // {handoverURL, expiresAt}; the provision page renders the
@@ -394,21 +422,148 @@ export function useDeploymentEvents(
         /* malformed payload — drop, the GET-replay fallback recovers */
       }
     }
-    es.addEventListener('handover-ready', onHandoverReady as EventListener)
 
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setStreamStatus((prev) => {
-          if (prev === 'completed') return prev
-          return prev === 'connecting' ? 'unreachable' : 'failed'
-        })
-        setStreamError((prev) => prev ?? 'SSE connection closed before completion')
+    /**
+     * Issue #782 — re-fetch /deployments/{id} once and switch on the
+     * canonical status. Called when the SSE stream closes WITHOUT a
+     * terminal `event: done`. The transport drop alone is NOT a failure
+     * signal; only `status === 'failed'` from this canonical poll is.
+     *
+     * Returns true if a terminal state was reached (ready/failed/
+     * unreachable), false if the deployment is still in flight (caller
+     * will reconnect SSE with backoff).
+     */
+    const pollCanonicalState = async (): Promise<boolean> => {
+      const pollUrl = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}`
+      try {
+        const resp = await fetch(pollUrl, { headers: { Accept: 'application/json' } })
+        if (cancelled) return true
+        if (!resp.ok) {
+          // 404/5xx — treat as unreachable so the operator can retry.
+          setStreamStatus('unreachable')
+          setStreamError(
+            (prev) => prev ?? `Deployment status poll returned HTTP ${resp.status}`,
+          )
+          return true
+        }
+        const snap = (await resp.json()) as DeploymentSnapshot
+        if (cancelled) return true
+        const status = snap?.status ?? ''
+        if (status === 'ready' || status === 'failed') {
+          applySnapshotAndComplete(snap)
+          return true
+        }
+        if (IN_FLIGHT_STATUSES.has(status)) {
+          // Still in flight — surface the snapshot so handover-URL
+          // (which catalyst-api may have stamped before the stream
+          // dropped) is recovered immediately, and keep the UI in
+          // `streaming` so the wizard's spinner stays up. The caller
+          // re-opens the EventSource via the reconnect branch.
+          setSnapshot(snap)
+          const handoverURL = snap.handoverURL ?? snap.result?.handoverURL ?? ''
+          if (handoverURL) {
+            // The handover URL is itself a terminal signal: catalyst-api
+            // only stamps it after the Phase-1 watch reaches
+            // OutcomeReady. Promote to completed so the AppsPage banner
+            // renders even if the top-level status hasn't flipped yet.
+            setHandoverReady((prev) => prev ?? { handoverURL, expiresAt: '' })
+            const componentStates =
+              snap.componentStates ?? snap.result?.componentStates ?? null
+            setState((prev) => markAllReady(prev, componentStates))
+            setStreamStatus('completed')
+            setFinishedAt(Date.now())
+            return true
+          }
+          // Spinner UI — the reducer state already reflects whatever
+          // events the GET-replay seeded; nothing more to do here.
+          setStreamStatus('streaming')
+          return false
+        }
+        // Unknown status — defensive: don't synthesize a failure copy.
+        return false
+      } catch {
+        if (cancelled) return true
+        setStreamStatus('unreachable')
+        setStreamError(
+          (prev) => prev ?? 'Could not reach the catalyst-api to confirm deployment status',
+        )
+        return true
       }
     }
+
+    const handleStreamClose = () => {
+      if (cancelled) return
+      // Issue #782 — SSE close is a TRANSPORT signal, not a deployment
+      // outcome. Re-fetch the canonical /deployments/{id} record and
+      // switch on the real status: `ready` → success banner, `failed`
+      // → real-error banner, in-flight → spinner + reconnect SSE.
+      void pollCanonicalState().then((terminal) => {
+        if (cancelled) return
+        if (terminal) return
+        // Still in flight — reconnect the SSE stream after a small
+        // exponential backoff. The reducer is idempotent over replayed
+        // events thanks to the `seen <= historyCountRef.current` guard,
+        // so the buffered history can be safely served again.
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          setStreamStatus('failed')
+          setStreamError(
+            (prev) =>
+              prev ??
+              'SSE connection dropped repeatedly — could not maintain a stream to the catalyst-api',
+          )
+          return
+        }
+        reconnectAttempts += 1
+        const backoffMs = Math.min(1000 * 2 ** (reconnectAttempts - 1), 8000)
+        if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => {
+          if (cancelled) return
+          es = openStream()
+        }, backoffMs)
+      })
+    }
+
+    const openStream = (): EventSource => {
+      const next = new EventSource(url)
+      seen = 0
+      next.onopen = () => {
+        setStreamStatus('streaming')
+        setStartedAt((prev) => prev ?? Date.now())
+      }
+      next.onmessage = (msg) => {
+        try {
+          const ev = JSON.parse(msg.data) as DeploymentEvent
+          seen += 1
+          if (seen <= historyCountRef.current) return
+          setState((prev) => reduceEvents(prev, [ev]))
+        } catch {
+          /* malformed event — drop, the next event will recover */
+        }
+      }
+      next.addEventListener('done', onDone as EventListener)
+      next.addEventListener('handover-ready', onHandoverReady as EventListener)
+      next.onerror = () => {
+        if (next.readyState === EventSource.CLOSED) {
+          // Issue #782 — SSE close is a TRANSPORT signal, not a
+          // deployment outcome. Re-fetch the canonical /deployments/{id}
+          // record and switch on the real status. We NEVER flip to
+          // `failed` purely on a stream close.
+          handleStreamClose()
+        }
+      }
+      return next
+    }
+
+    es = openStream()
+
     return () => {
-      es.removeEventListener('done', onDone as EventListener)
-      es.removeEventListener('handover-ready', onHandoverReady as EventListener)
-      es.close()
+      cancelled = true
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      if (es) {
+        es.removeEventListener('done', onDone as EventListener)
+        es.removeEventListener('handover-ready', onHandoverReady as EventListener)
+        es.close()
+      }
     }
   }, [deploymentId, retryNonce, disableStream])
 
