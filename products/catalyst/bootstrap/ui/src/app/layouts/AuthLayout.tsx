@@ -7,8 +7,19 @@ export function AuthLayout() {
 }
 
 export function AuthShell({ children }: { children: React.ReactNode }) {
+  // min-h-dvh + items-stretch on the outer flex makes the LEFT panel
+  // fill viewport height. The RIGHT panel uses overflow-y-auto so the
+  // form card NEVER truncates at small viewport heights (laptops at
+  // 1366×650, browsers with dev tools open, mobile landscape) — the
+  // card stays visible by scrolling its own column instead of the
+  // whole document. min-h-full + items-center on the right panel
+  // anchors the card vertically; if content fits, it's centered, if
+  // it doesn't, the user can scroll within the column. Caught live
+  // 2026-05-04: at certain heights the card sat at the top of the
+  // right panel because the parent was min-h-dvh but the inner
+  // wrapper had no flex-grow.
   return (
-    <div className="min-h-dvh flex">
+    <div className="min-h-dvh flex items-stretch">
       {/* Left panel — branding */}
       <div className="hidden lg:flex lg:w-[420px] xl:w-[480px] shrink-0 flex-col justify-between bg-[--color-surface-1] border-r border-[--color-surface-border] p-10">
         <div className="flex items-center gap-2.5">
@@ -53,8 +64,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center p-6 bg-[--color-surface-0]">
-        <div className="w-full max-w-sm">{children}</div>
+      <div className="flex flex-1 items-center justify-center overflow-y-auto p-6 sm:p-8 bg-[--color-surface-0]">
+        {/* py-8 inside the card column gives the card breathing room
+            top + bottom even when overflow-y-auto kicks in, so the
+            "scroll inside the column" path stays comfortable. */}
+        <div className="w-full max-w-sm py-8">{children}</div>
       </div>
     </div>
   )

@@ -291,7 +291,19 @@ jobs:
     needs: [build-ui, build-api]
     runs-on: ubuntu-latest
     permissions:
+      # contents: write — push the values.yaml SHA bump back to main
       contents: write
+      # actions: write — required for `gh workflow run` to dispatch
+      # blueprint-release.yaml after the deploy commit lands. Without
+      # this, the dispatch step (added in PR #720 to close the
+      # bot-deploy-doesn't-trigger-workflows gap from #712) returns
+      # HTTP 403 "Resource not accessible by integration", the
+      # blueprint-release fires NEVER, and the bp-catalyst-platform
+      # OCI artifact stays stuck on the PREVIOUS deploy's image SHA.
+      # Caught live 2026-05-04 — PR #722–727 all built green but
+      # blueprint-release was never dispatched, leaving Sovereigns
+      # provisioned afterwards on the pre-fix chart.
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
