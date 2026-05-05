@@ -669,16 +669,30 @@ func generateAppDeployment(ns, slug, appSlug string, spec AppSpec, dbPassword st
 	case "mysql":
 		switch spec.DBEnvStyle {
 		case "bookstack":
-			// linuxserver/bookstack reads DB_HOST/DB_USER/DB_PASS/DB_DATABASE
-			// (not WORDPRESS_DB_*) and refuses to start without APP_KEY +
-			// APP_URL. APP_KEY must be a Laravel-style base64:<32-byte> string.
+			// linuxserver/bookstack docs advertise DB_USER/DB_PASS, but the
+			// container's init script (init-bookstack-config) only copies
+			// .env.example into place — it does NOT substitute DB_USER ->
+			// DB_USERNAME or DB_PASS -> DB_PASSWORD. Laravel reads env vars
+			// natively, but using the Laravel-native names DB_USERNAME and
+			// DB_PASSWORD. Without those, Laravel falls back to the .env
+			// placeholder values (database_username / database_user_password)
+			// and the app fails with SQLSTATE[HY000] [1045] Access denied for
+			// user 'database_username'@... — caught live on tenant
+			// 'bookcheck' on 2026-05-06. We emit BOTH name pairs so the env
+			// works regardless of which the LSIO upstream eventually wires.
+			// APP_KEY must be a Laravel-style base64:<32-byte> string;
+			// without it, init halts with "The application key is missing".
 			envLines += fmt.Sprintf(`            - name: DB_HOST
               value: "mysql"
             - name: DB_PORT
               value: "3306"
             - name: DB_USER
               value: "app"
+            - name: DB_USERNAME
+              value: "app"
             - name: DB_PASS
+              value: "%s"
+            - name: DB_PASSWORD
               value: "%s"
             - name: DB_DATABASE
               value: "%s"
@@ -686,7 +700,7 @@ func generateAppDeployment(ns, slug, appSlug string, spec AppSpec, dbPassword st
               value: "https://%s.omani.rest"
             - name: APP_KEY
               value: "%s"
-`, dbPassword, appDB, slug, randomAppKey())
+`, dbPassword, dbPassword, appDB, slug, randomAppKey())
 		case "ghost":
 			envLines += fmt.Sprintf(`            - name: database__client
               value: "mysql"
