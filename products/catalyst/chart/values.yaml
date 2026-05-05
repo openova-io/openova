@@ -222,8 +222,14 @@ smePostgres:
     namespace: sme                  # the SME services live here too
     instances: 1                    # single-node by default; HA is a per-overlay decision
     pgVersion: "16"                 # tracks contabo data/postgresql.yaml + ADR-0003
-    database: sme_auth              # primary DB owned by the `sme` user; sme_billing is created via postInitApplicationSQL
+    database: sme_auth              # primary DB owned by the `sme` user; secondary DBs below
     owner: sme                      # role name + secret username
+    # Secondary DBs created via postInitApplicationSQL (1.4.4 — added
+    # sme_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
+    # Adding a new SME service is a values-only change.
+    additionalDatabases:
+      - sme_billing                 # billing service primary DB
+      - sme_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
     storageSize: 10Gi
     storageClass: local-path        # k3s default; per-Sovereign overlays may override
     resources:
@@ -282,3 +288,68 @@ smeSecrets:
     # randAlphaNum (32 chars) on first install — never settable from
     # values per Inviolable Principle #10.
     email: "admin@openova.io"
+
+# ─── SME service backing-store endpoints (issue #861) ─────────────────────
+# When ingress.marketplace.enabled=true the chart renders:
+#   - templates/sme-services/ferretdb.yaml — FerretDB Deployment + Service
+#     in `sme` ns, MongoDB-wire-compatible front end backed by sme-pg.
+#   - templates/sme-services/valkey-cross-ns-policy.yaml —
+#     CiliumNetworkPolicy in `valkey` ns allowing ingress from `sme` ns.
+#   - templates/sme-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
+#     populated from the values below.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL,
+# image ref, and resource value is operator-overridable. Defaults match
+# the known-working contabo-mkt shape (FerretDB v1.24 against vanilla
+# CNPG postgres:16; valkey-primary as the bp-valkey 1.0.0 read/write
+# Service name).
+smeServices:
+  ferretdb:
+    namespace: sme
+    # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x
+    # requires PostgreSQL with the DocumentDB extension which the
+    # sme-pg cluster does not ship; bumping is a separate change that
+    # also needs a custom CNPG image. See Chart.yaml 1.4.4 changelog.
+    image: ghcr.io/ferretdb/ferretdb
+    tag: "1.24"
+    imagePullPolicy: IfNotPresent
+    replicas: 1
+    # Postgres connection target — sme-pg-rw read/write Service in
+    # `sme` ns, sme_documents DB created by sme-pg's
+    # postInitApplicationSQL block (see smePostgres.cluster.
+    # additionalDatabases above).
+    postgresPort: 5432
+    postgresDatabase: sme_documents
+    sslmode: disable                          # ClusterIP traffic is overlay-encrypted; CNPG default issuer chain not bundled
+    # Service FQDN exposed to other SME services via configmap MONGODB_URI.
+    # Per-Sovereign overlays MAY swap to an external MongoDB endpoint.
+    host: ferretdb.sme.svc.cluster.local
+    port: 27017
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  valkey:
+    # bp-valkey 1.0.0 (slot 17) deploys to namespace `valkey` with
+    # bitnami valkey 5.5.1 + architecture: replication. Service names:
+    #   - valkey-primary.valkey.svc.cluster.local (read/write)
+    #   - valkey-replicas.valkey.svc.cluster.local (read-only)
+    #   - valkey-headless.valkey.svc.cluster.local (StatefulSet headless)
+    # SME services pin to the primary by default so writes succeed; per-
+    # Sovereign overlays MAY split read traffic to -replicas via a
+    # second VALKEY_READ_ADDR (separate ticket).
+    host: valkey-primary.valkey.svc.cluster.local
+    port: 6379
+    namespace: valkey
+    crossNsPolicy:
+      # Render templates/sme-services/valkey-cross-ns-policy.yaml — a
+      # CiliumNetworkPolicy in the `valkey` namespace allowing ingress
+      # from the `sme` namespace on Valkey's port. Default true since
+      # the cross-ns wire is the canonical Sovereign topology. Disable
+      # via per-Sovereign overlay only when bp-valkey is repackaged
+      # into the `sme` namespace (rare).
+      enabled: true
+      sourceNamespace: sme

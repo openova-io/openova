@@ -1,0 +1,95 @@
+{{- /*
+CiliumNetworkPolicy — explicit allow for sme-namespace Pods to reach the
+bp-valkey workload in the `valkey` namespace (issue #861).
+
+Why this template exists:
+  bp-valkey 1.0.0 deploys to namespace `valkey` (releaseName=valkey,
+  targetNamespace=valkey — see clusters/_template/bootstrap-kit/
+  17-valkey.yaml). The bitnami valkey 5.5.1 subchart with
+  `architecture: replication` renders three Services:
+    - valkey-headless.valkey.svc.cluster.local:6379
+    - valkey-primary.valkey.svc.cluster.local:6379  (read/write)
+    - valkey-replicas.valkey.svc.cluster.local:6379
+  None named just `valkey.valkey.svc.cluster.local` exists; the SME
+  configmap is updated to point at `valkey-primary` accordingly (see
+  configmap.yaml + .Values.smeServices.valkey.host).
+
+  bp-valkey's UPSTREAM NetworkPolicy (rendered into the `valkey`
+  namespace) already allows ingress on TCP/6379 from any source — the
+  upstream chart's default leaves `from` empty which is "all sources".
+  So strictly speaking, no NetworkPolicy change is required for the
+  cross-ns wire to function on a vanilla Cilium install.
+
+  This CiliumNetworkPolicy is shipped as DEFENSE-IN-DEPTH: an explicit
+  Cilium-native rule scoping the cross-ns allow to ONLY pods in the
+  `sme` namespace (no other workload should ever reach valkey
+  cross-ns). If a future bp-valkey bump tightens the upstream
+  NetworkPolicy to require namespaced sources, this CNP keeps the SME
+  wire working without coordinated chart changes. If a future bp-valkey
+  bump REMOVES the upstream NetworkPolicy entirely (and a Cilium
+  cluster-wide default-deny were applied), this CNP keeps the SME
+  ingress allowed.
+
+  Cilium uses union semantics across multiple policies — adding this
+  CNP only grants additional allow scope; it never narrows the
+  upstream NetworkPolicy.
+
+Where this lands:
+  metadata.namespace = `valkey` (NOT this chart's release namespace).
+  Cross-namespace render is fine: a CiliumNetworkPolicy targeting
+  workloads in namespace X must live IN namespace X (where the
+  endpointSelector resolves). Helm renders cross-ns resources without
+  trouble; Flux applies them as a single Kustomization. The
+  `valkey` namespace is created by clusters/_template/bootstrap-kit/
+  17-valkey.yaml AHEAD of bp-catalyst-platform (slot 13), so the
+  namespace is guaranteed present at reconcile time.
+
+Per Inviolable Principle #4 (never hardcode), the source/destination
+namespaces and Valkey port are operator-overridable via
+.Values.smeServices.valkey.{namespace,port,sourceNamespace}.
+
+Authoritative reference:
+  https://docs.cilium.io/en/stable/security/policy/language/#namespace-based
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- if .Values.smeServices.valkey.crossNsPolicy.enabled }}
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+{{- $valkey := .Values.smeServices.valkey -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: bp-catalyst-platform-sme-valkey-ingress
+  # Lives in the `valkey` namespace where the bp-valkey workload runs —
+  # endpointSelector below targets pods in this namespace. Per-Sovereign
+  # overlays MAY override the namespace if bp-valkey is repackaged into
+  # a different home (rare).
+  namespace: {{ $valkey.namespace | default "valkey" }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: sme-valkey-cross-ns-allow
+    app.kubernetes.io/part-of: sme
+  annotations:
+    description: |
+      Allow ingress on TCP/{{ $valkey.port | default 6379 }} from pods in
+      the `{{ $valkey.crossNsPolicy.sourceNamespace | default "sme" }}`
+      namespace to bp-valkey workloads. Defense-in-depth — bp-valkey's
+      upstream NetworkPolicy already permits port 6379 from any source.
+spec:
+  endpointSelector:
+    matchLabels:
+      # bitnami valkey 5.5.1 labels every Pod (primary + replicas +
+      # headless) with these. We grant ingress to all of them so SME
+      # services that route to any topology (read primary, replicas
+      # via -replicas Service) all work.
+      app.kubernetes.io/name: valkey
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $valkey.crossNsPolicy.sourceNamespace | default "sme" }}
+      toPorts:
+        - ports:
+            - port: {{ $valkey.port | default 6379 | quote }}
+              protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
