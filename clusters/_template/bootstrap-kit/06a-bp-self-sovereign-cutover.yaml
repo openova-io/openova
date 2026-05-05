@@ -204,7 +204,7 @@ spec:
       #   commits, and pushes. Subsequent reconciles see local Harbor
       #   as steady-state. Image bumped to alpine/k8s:1.31.4 (kubectl
       #   + git in one image; verified live on otech116).
-      version: 0.1.22
+      version: 0.1.23
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
