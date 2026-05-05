@@ -181,6 +181,17 @@ spec:
   values:
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
+      # sovereignLBIP — Sovereign's load-balancer public IPv4. Issue #900:
+      # the Day-2 multi-domain add-domain flow uses this to pre-register
+      # glue records at the customer's registrar before flipping NS.
+      # Resolved via envsubst from `SOVEREIGN_LB_IP` set in the Sovereign
+      # cloud-init env (rendered into bootstrap-kit by infra/hetzner from
+      # hcloud_load_balancer.main.ipv4 — see infra/hetzner/main.tf:274).
+      # When the Sovereign cloud-init pre-dates #900 the env stays empty
+      # and the chart renders an empty `lbIP` ConfigMap key — catalyst-api
+      # then short-circuits the glue registration and falls back to plain
+      # set_ns (legacy behaviour).
+      sovereignLBIP: ${SOVEREIGN_LB_IP}
     ingress:
       hosts:
         console:

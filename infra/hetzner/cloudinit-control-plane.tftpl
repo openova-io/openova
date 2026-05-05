@@ -866,6 +866,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
+            # #900). Threaded into bp-catalyst-platform's
+            # `global.sovereignLBIP` so catalyst-api can pre-register glue
+            # records at the customer's Dynadot account before flipping NS
+            # for Day-2 multi-domain adds. Sourced from
+            # hcloud_load_balancer.main.ipv4 in main.tf.
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             # Marketplace mode toggle (issue #710). Default "false" so a
             # zero-touch provision lands a non-marketplace Sovereign. The
             # operator (or the wizard's "Enable Marketplace" component
@@ -913,6 +920,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
+            # #900). Threaded into bp-catalyst-platform's
+            # `global.sovereignLBIP` so catalyst-api can pre-register glue
+            # records at the customer's Dynadot account before flipping NS
+            # for Day-2 multi-domain adds. Sourced from
+            # hcloud_load_balancer.main.ipv4 in main.tf.
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             # Marketplace mode toggle (issue #710). Default "false" so a
             # zero-touch provision lands a non-marketplace Sovereign. The
             # operator (or the wizard's "Enable Marketplace" component
@@ -950,6 +964,13 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
+            # #900). Threaded into bp-catalyst-platform's
+            # `global.sovereignLBIP` so catalyst-api can pre-register glue
+            # records at the customer's Dynadot account before flipping NS
+            # for Day-2 multi-domain adds. Sourced from
+            # hcloud_load_balancer.main.ipv4 in main.tf.
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             # Marketplace mode toggle (issue #710). Default "false" so a
             # zero-touch provision lands a non-marketplace Sovereign. The
             # operator (or the wizard's "Enable Marketplace" component

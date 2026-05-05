@@ -46,4 +46,13 @@ metadata:
     catalyst.openova.io/sovereign: {{ .Values.global.sovereignFQDN | quote }}
 data:
   fqdn: {{ .Values.global.sovereignFQDN | quote }}
+  # lbIP — Sovereign's load-balancer public IPv4. Consumed by
+  # catalyst-api's SOVEREIGN_LB_IP env (api-deployment.yaml) so the
+  # multi-domain Day-2 add-domain flow can pre-register glue records
+  # at the customer's registrar before flipping NS (issue #900).
+  # When .Values.global.sovereignLBIP is empty the key is rendered as
+  # empty string — catalyst-api treats that as "no glue registration"
+  # and falls back to plain set_ns. Operators on legacy Sovereigns
+  # without this value wired set the env via per-cluster overlay.
+  lbIP: {{ .Values.global.sovereignLBIP | default "" | quote }}
 {{- end }}
