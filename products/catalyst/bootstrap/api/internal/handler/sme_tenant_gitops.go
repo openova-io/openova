@@ -520,7 +520,7 @@ spec:
       version: "{{.ChartVersions.Keycloak}}"
       sourceRef:
         kind: HelmRepository
-        name: openova-blueprints
+        name: bp-keycloak
         namespace: flux-system
   install:
     timeout: 15m
@@ -576,7 +576,7 @@ spec:
       version: "{{.ChartVersions.CNPG}}"
       sourceRef:
         kind: HelmRepository
-        name: openova-blueprints
+        name: bp-cnpg
         namespace: flux-system
   values:
     namespace: {{.Namespace}}
@@ -598,7 +598,7 @@ spec:
       version: "{{.ChartVersions.WordPress}}"
       sourceRef:
         kind: HelmRepository
-        name: openova-blueprints
+        name: bp-wordpress-tenant
         namespace: flux-system
   dependsOn:
     - name: bp-keycloak
@@ -635,7 +635,7 @@ spec:
       version: "{{.ChartVersions.OpenClaw}}"
       sourceRef:
         kind: HelmRepository
-        name: openova-blueprints
+        name: bp-openclaw
         namespace: flux-system
   dependsOn:
     - name: bp-keycloak
@@ -672,7 +672,7 @@ spec:
       version: "{{.ChartVersions.Stalwart}}"
       sourceRef:
         kind: HelmRepository
-        name: openova-blueprints
+        name: bp-stalwart-tenant
         namespace: flux-system
   values:
     domain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
