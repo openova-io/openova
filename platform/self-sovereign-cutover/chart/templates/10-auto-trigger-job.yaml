@@ -1,13 +1,34 @@
 {{- if .Values.trigger.auto }}
 {{- /*
-Step 10 — auto-trigger Job (issue #933).
+Step 10 — auto-trigger Job (issue #933, refined per issue #935 Bug 2).
 
 Helm post-install / post-upgrade hook that fires the cutover automatically
 after the chart's ConfigMaps + RBAC land. Founder rule: handover is not
 "done" until cutover has run; the operator must NOT have to click a CTA
 on console.<sov-fqdn>/console/dashboard.
 
-Idempotency comes from catalyst-api's own /start endpoint:
+Auth path (issue #935 Bug 2)
+────────────────────────────
+The auto-trigger Job has no human session cookie — it's a pod with a
+projected ServiceAccount token. The 0.1.16 implementation POSTed
+/api/v1/sovereign/cutover/start unauthenticated, which sat behind
+RequireSession middleware and 401'd forever on otech113 2026-05-05.
+
+0.1.17 routes through a SEPARATE catalyst-api endpoint:
+  POST /api/v1/internal/cutover/trigger
+
+…which lives OUTSIDE RequireSession and validates the bearer token via
+the apiserver's TokenReview API. Same engine, same idempotency, same
+state machine — just an in-cluster auth surface (SA token) instead of
+the operator session-cookie surface. See
+products/catalyst/bootstrap/api/internal/handler/cutover_internal.go.
+
+The SA token mounts at the standard projected-volume path
+/var/run/secrets/kubernetes.io/serviceaccount/token; the script reads
+the bytes at request time so the token rotates correctly on long-
+running deadlines.
+
+Idempotency comes from catalyst-api's own engine logic:
   - cutoverComplete=true → 200, no Jobs created (already done)
   - cutoverComplete=false + steps in flight → 409 (in-progress)
   - cutoverComplete=false + no run → 200, kicks off the engine
@@ -34,7 +55,7 @@ Why a Job (not an init container on catalyst-api):
     helm.sh/hook=post-install was designed for.
 
 Why it doesn't crash a still-tethered Sovereign:
-  - The catalyst-api /start endpoint returns 200 if cutoverComplete=true,
+  - The catalyst-api /trigger endpoint returns 200 if cutoverComplete=true,
     409 if a cutover is already running, and 424 (FailedDependency) if
     the step ConfigMaps haven't landed yet (impossible here — we run
     AFTER them by hook ordering).
@@ -103,7 +124,12 @@ spec:
 
               api="${CATALYST_API_URL%/}"
               status_url="${api}/api/v1/sovereign/cutover/status"
-              start_url="${api}/api/v1/sovereign/cutover/start"
+              # Issue #935 Bug 2: hit the in-cluster /internal/cutover/trigger
+              # endpoint (lives outside RequireSession) with this Pod's
+              # ServiceAccount token. The previous /sovereign/cutover/start
+              # path required a human session cookie and 401'd forever.
+              trigger_url="${api}/api/v1/internal/cutover/trigger"
+              sa_token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
 
               # 1. Wait for catalyst-api to be reachable. In a fresh
               #    Sovereign, the cutover chart and catalyst-platform
@@ -139,34 +165,63 @@ spec:
                 exit 0
               fi
 
-              # 3. Fire POST /start. catalyst-api handles idempotency:
+              # 3. Confirm the SA token is mountable. Should always be
+              #    true when the Pod is running with our serviceAccount,
+              #    but a friendlier failure message helps operators
+              #    triage AutomountServiceAccountToken=false misconfig.
+              if [ ! -r "${sa_token_file}" ]; then
+                echo "[auto-trigger] ServiceAccount token not mounted at ${sa_token_file}; cannot authenticate"
+                echo "[auto-trigger] check that the Pod's serviceAccountName matches the chart's RBAC subject"
+                # Exit 0 so the operator can fire manually via CTA;
+                # failing the hook would block the chart install.
+                exit 0
+              fi
+
+              # 4. POST /api/v1/internal/cutover/trigger with the SA
+              #    token. catalyst-api validates the token via
+              #    TokenReview and runs the same engine path as
+              #    /sovereign/cutover/start.
+              #
+              #    Idempotency contract:
               #    - cutoverComplete=true → 200 with the existing snapshot
               #    - cutover already running on this Pod → 409 (benign)
               #    - no steps found → 424 (chart not installed; impossible here)
               #    - success → 200 with the freshly-seeded snapshot
-              echo "[auto-trigger] POSTing ${start_url}"
-              code=$(curl -s -o /tmp/start.json -w "%{http_code}" \
+              #    - SA token rejected by apiserver → 502 (transient)
+              #    - SA mismatch → 403 (chart RBAC misconfig)
+              echo "[auto-trigger] POSTing ${trigger_url}"
+              # Read the token at request time (not as an env var) so
+              # rotation during a long deadline still authenticates.
+              code=$(curl -s -o /tmp/trigger.json -w "%{http_code}" \
                 -X POST --connect-timeout 10 --max-time 60 \
+                -H "Authorization: Bearer $(cat ${sa_token_file})" \
                 -H "Content-Type: application/json" \
                 -d '{}' \
-                "${start_url}" 2>/dev/null || echo "000")
+                "${trigger_url}" 2>/dev/null || echo "000")
 
               case "${code}" in
                 200)
                   echo "[auto-trigger] cutover started successfully"
-                  cat /tmp/start.json 2>/dev/null || true
+                  cat /tmp/trigger.json 2>/dev/null || true
                   ;;
                 409)
                   echo "[auto-trigger] cutover already in progress on the catalyst-api Pod — no-op"
                   ;;
                 424)
                   echo "[auto-trigger] catalyst-api reports no step ConfigMaps — chart install ordering bug"
-                  cat /tmp/start.json 2>/dev/null || true
+                  cat /tmp/trigger.json 2>/dev/null || true
                   exit 1
+                  ;;
+                401|403)
+                  echo "[auto-trigger] catalyst-api rejected our SA token (HTTP ${code}); chart RBAC may be misconfigured"
+                  cat /tmp/trigger.json 2>/dev/null || true
+                  # Exit 0 — operator-actionable, not a chart-install
+                  # failure. CTA still works via the operator session.
+                  exit 0
                   ;;
                 *)
                   echo "[auto-trigger] unexpected status ${code}"
-                  cat /tmp/start.json 2>/dev/null || true
+                  cat /tmp/trigger.json 2>/dev/null || true
                   # Do NOT fail the hook — the operator can still fire
                   # the cutover manually via the CTA. Exit 0 so the
                   # chart install completes and Flux marks the
