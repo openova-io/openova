@@ -103,8 +103,20 @@ name: bp-catalyst-platform
 # carried only credentials and the chart fell back to
 # .Values.sovereign.smtp.* defaults — that fallback path remains as
 # the Sovereign-without-bp-stalwart-sovereign back-compat seam.
-version: 1.4.23
-appVersion: 1.4.23
+# 1.4.24 (#934 follow-up): smeSecrets.smtp.{host,port,from,user}
+# defaults flipped from "" to the mothership relay
+# (mail.openova.io:587, noreply@openova.io). On otech113 the
+# `catalyst-system/sovereign-smtp-credentials` Secret seeded by A5's
+# provisioner only carried smtp-user + smtp-pass (host/port/from
+# missing in the seed) — sme-secrets source-wins lookup correctly
+# kept SMTP_HOST="" because the source field was unset, but the
+# auth Pod then failed `failed to send email` for gate 2 (PIN
+# delivery). Defaults match `.Values.sovereign.smtp.*` which is the
+# proven catalyst-api PIN delivery path. When A5 ships the missing
+# host/port/from coverage these defaults become unused (source wins).
+# 2026-05-05.
+version: 1.4.24
+appVersion: 1.4.24
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.

@@ -212,7 +212,13 @@ spec:
       # contabo-mkt; chart values now template per-Sovereign with
       # provisioning-binary Go-side validation guard refusing commits
       # to foreign cluster trees). 2026-05-05.
-      version: 1.4.22
+      # 1.4.23: deploy-bot auto-bump (services-auth image SHA roll).
+      # 1.4.24 (#934 follow-up): smeSecrets.smtp.{host,port,from,user}
+      # defaults populated with mothership relay (mail.openova.io:587)
+      # so SME auth Pod's PIN delivery (gate 2) works on Sovereigns
+      # whose A5-seeded sovereign-smtp-credentials Secret only carries
+      # smtp-user + smtp-pass without host/port/from. 2026-05-05.
+      version: 1.4.24
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
