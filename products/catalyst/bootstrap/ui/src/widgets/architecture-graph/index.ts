@@ -13,8 +13,18 @@ export {
   type ArchitectureGraphPageProps,
 } from './ArchitectureGraphPage'
 export { hierarchyToGraph } from './adapter'
+export { k8sToGraph, mergeGraphs } from './k8sAdapter'
+export {
+  GRAPH_K8S_KINDS,
+  objectKey,
+  useK8sCacheStream,
+  type K8sObject,
+  type K8sSnapshot,
+  type K8sStreamEvent,
+} from './useK8sCacheStream'
 export {
   edgeNodeId,
+  DEFAULT_INACTIVE_TYPES,
   type ArchEdgeType,
   type ArchNodeType,
   type ArchStatus,

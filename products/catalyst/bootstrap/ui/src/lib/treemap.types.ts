@@ -101,7 +101,14 @@ export interface TreemapItem {
   id: string | null
   name: string
   count: number
-  percentage: number
+  /**
+   * Color-driving percentage in [0..100]. Encoded as JSON null when
+   * the data source for the requested colorBy is unavailable
+   * (today: utilization without metrics-server). The cell renderer
+   * substitutes a neutral grey + tooltip rather than computing a
+   * color from a missing input.
+   */
+  percentage: number | null
   size_value?: number
   children?: TreemapItem[]
 }

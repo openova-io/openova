@@ -86,7 +86,7 @@ export function JobsPage({
       pageTitle="Jobs"
       headerSlotLeft={
         <Link
-          to="/provision/$deploymentId"
+          to={`/dashboard` as never}
           params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-jobs-back-to-apps"

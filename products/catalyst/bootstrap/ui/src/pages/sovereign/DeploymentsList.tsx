@@ -131,7 +131,7 @@ export function DeploymentsList() {
                 >
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
                     <Link
-                      to="/provision/$deploymentId"
+                      to={`/dashboard` as never}
                       params={{ deploymentId: d.id }}
                       style={{ color: 'var(--wiz-text-hi)', textDecoration: 'none', fontWeight: 600 }}
                     >

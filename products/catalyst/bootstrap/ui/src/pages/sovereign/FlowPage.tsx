@@ -445,7 +445,7 @@ export function FlowPage({
       }
       // Leaf: navigate to its own home.
       navigate({
-        to: '/provision/$deploymentId/jobs/$jobId' as never,
+        to: '/jobs/$jobId' as never,
         params: { deploymentId, jobId } as never,
       })
     },
@@ -587,7 +587,7 @@ export function FlowPage({
       pageTitle="Flow"
       headerSlotLeft={
         <Link
-          to="/provision/$deploymentId/jobs"
+          to={`/jobs` as never}
           params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="flow-page-back-to-table"

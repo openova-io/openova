@@ -310,7 +310,7 @@ export function CloudPage({
       next.kind = search.kind
     }
     navigate({
-      to: '/provision/$deploymentId/cloud' as never,
+      to: '/cloud' as never,
       params: { deploymentId } as never,
       search: next as never,
       replace: true,
@@ -325,7 +325,7 @@ export function CloudPage({
       target.kind = search.kind
     }
     navigate({
-      to: '/provision/$deploymentId/cloud' as never,
+      to: '/cloud' as never,
       params: { deploymentId } as never,
       search: target as never,
       replace: false,
@@ -341,7 +341,7 @@ export function CloudPage({
       target.kind = search.kind
     }
     navigate({
-      to: '/provision/$deploymentId/cloud' as never,
+      to: '/cloud' as never,
       params: { deploymentId: nextId } as never,
       search: target as never,
     })
@@ -398,7 +398,7 @@ export function CloudPage({
   const setKind = useCallback(
     (next: CloudListKind) => {
       navigate({
-        to: '/provision/$deploymentId/cloud' as never,
+        to: '/cloud' as never,
         params: { deploymentId } as never,
         search: { view: 'list', kind: next } as never,
         replace: false,

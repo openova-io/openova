@@ -93,7 +93,7 @@ export function WizardPage() {
     // back-button press from /provision/<id> should land on the
     // referrer, not on a doomed wizard step.
     navigate({
-      to: '/provision/$deploymentId',
+      to: '/dashboard',
       params: { deploymentId: inflight.id },
       replace: true,
     })

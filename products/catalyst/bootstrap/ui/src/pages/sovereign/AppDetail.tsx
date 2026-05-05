@@ -128,7 +128,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
         pageTitle="App not found"
         headerSlotLeft={
           <Link
-            to="/provision/$deploymentId"
+            to={`/dashboard` as never}
             params={{ deploymentId }}
             className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             data-testid="sov-back-link"
@@ -155,7 +155,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       pageTitle="Applications"
       headerSlotLeft={
         <Link
-          to="/provision/$deploymentId"
+          to={`/dashboard` as never}
           params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-back-link"

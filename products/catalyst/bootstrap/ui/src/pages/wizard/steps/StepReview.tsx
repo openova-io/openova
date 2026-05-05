@@ -789,7 +789,7 @@ export function StepReview() {
       }
       store.setDeploymentId(data.id)
       router.navigate({
-        to: '/provision/$deploymentId',
+        to: '/dashboard',
         params: { deploymentId: data.id },
       })
     } catch (err) {
