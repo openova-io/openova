@@ -1,0 +1,280 @@
+{{- /*
+Catalyst overlay: detect-and-recover CronJob for HelmReleases stuck in
+Ready=Unknown after a helm-controller leader-election loss.
+
+WHY THIS EXISTS (issue #925)
+----------------------------
+helm-controller's reconcile loop has a known soft bug: when leadership
+is lost mid-install (transient kube-apiserver pressure / pod restart /
+OOMKill), the new leader takes over an in-flight Helm install whose
+release secret was already committed (Status=deployed). The new leader's
+"is the release in storage?" short-circuit returns yes, so it never
+re-runs the install — but the previous leader's last write to the HR's
+Ready condition was `Unknown`, and `Unknown` is treated by the controller
+as a transient state that "something else" will eventually flip.
+Nothing does. The HR is permanently stuck.
+
+Live evidence (otech113.omani.works, 2026-05-05): bp-vpa stuck in
+Ready=Unknown for 10+ minutes → blocked bootstrap-kit Kustomization →
+blocked sovereign-tls Kustomization → cilium-gateway never deployed →
+every HTTPRoute returned TLS handshake failure.
+
+The primary mitigation (extended leader-election lease durations + memory
+headroom in values.yaml) reduces the frequency of the trigger. This
+CronJob is the recovery safety net: every 2 minutes it scans every
+HelmRelease in the cluster, finds those stuck in Ready=Unknown for >5
+min where the underlying Helm release secret already shows Status=deployed,
+and force-toggles spec.suspend to make helm-controller re-evaluate the
+HR's Ready status on next reconcile (the only known workaround per #925).
+
+WHY A CRONJOB AND NOT A WEBHOOK / OPERATOR
+------------------------------------------
+A webhook would need to watch HRs and Helm secrets cluster-wide and run
+inside an event loop — that's another stateful controller competing with
+helm-controller for leadership. A CronJob is stateless, idempotent, and
+cheap (kubectl-only, runs in <5s when there's nothing to do). When the
+upstream bug is fixed in helm-controller, this CronJob becomes a no-op
+because the trigger condition will never match — operators can drop it
+by setting .Values.catalyst.stuckHelmReleaseRecovery.enabled=false.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4, every parameter is operator
+overridable.
+*/}}
+{{- $cfg := default (dict) (index .Values "catalyst" "stuckHelmReleaseRecovery") -}}
+{{- /* `default true X` treats `X=false` as empty and returns true, so use
+    an explicit hasKey check to honour an operator-set enabled=false
+    override (well-known Helm gotcha). */ -}}
+{{- $enabled := true -}}
+{{- if hasKey $cfg "enabled" -}}{{- $enabled = $cfg.enabled -}}{{- end -}}
+{{- if $enabled -}}
+{{- $fluxNs := default "flux-system" (index .Values "catalyst" "fluxNamespace") -}}
+{{- $schedule := default "*/2 * * * *" (index $cfg "schedule") -}}
+{{- $stuckThreshold := default "5m" (index $cfg "stuckThreshold") -}}
+{{- $image := default "bitnami/kubectl:1.31" (index $cfg "image") -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bp-flux-stuck-hr-recovery
+  namespace: {{ $fluxNs }}
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: stuck-hr-recovery
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+  annotations:
+    catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/925"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bp-flux-stuck-hr-recovery
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: stuck-hr-recovery
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+rules:
+  # Read every HelmRelease cluster-wide to find stuck ones.
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  # Patch spec.suspend on stuck HRs to force re-evaluation. We need this
+  # cluster-wide because tenant HRs live in tenant namespaces, not flux-system.
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["patch"]
+  # Read Helm release secrets to confirm Status=deployed (the precondition
+  # that distinguishes "stuck Ready=Unknown after leader-election loss"
+  # from "actually still installing").
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bp-flux-stuck-hr-recovery
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: stuck-hr-recovery
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bp-flux-stuck-hr-recovery
+subjects:
+  - kind: ServiceAccount
+    name: bp-flux-stuck-hr-recovery
+    namespace: {{ $fluxNs }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-flux-stuck-hr-recovery-script
+  namespace: {{ $fluxNs }}
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: stuck-hr-recovery
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+data:
+  stuck-threshold: {{ $stuckThreshold | quote }}
+  recover.sh: |
+    #!/bin/sh
+    # Detect HelmReleases stuck in Ready=Unknown after a helm-controller
+    # leader-election loss (issue #925) and force-toggle spec.suspend to
+    # make the controller re-evaluate Ready on next reconcile.
+    #
+    # Algorithm:
+    #   1. List every HelmRelease cluster-wide.
+    #   2. For each: read .status.conditions[type=Ready].
+    #      - If status != "Unknown" → skip.
+    #      - If lastTransitionTime is within the stuck threshold → skip
+    #        (still might be a real in-flight install).
+    #   3. Read the corresponding Helm release secret in the HR's
+    #      storageNamespace (defaults to HR's namespace).
+    #      - If secret missing or label `status` != "deployed" → skip
+    #        (HR really IS still installing; not stuck).
+    #   4. Patch spec.suspend=true, sleep 5s, patch spec.suspend=false.
+    #      This is the only known workaround for the upstream bug.
+    #
+    # Guardrail: if more than 10 HRs would be acted on in a single run,
+    # log and exit non-zero — that signals a cluster-wide problem (real
+    # outage) where touching everything would mask the cause.
+    set -eu
+    THRESHOLD_HUMAN="$(cat /config/stuck-threshold)"
+    # Convert "5m" / "30s" / "1h" to seconds for date math.
+    case "$THRESHOLD_HUMAN" in
+      *s) THRESHOLD_SEC="${THRESHOLD_HUMAN%s}" ;;
+      *m) THRESHOLD_SEC=$(( ${THRESHOLD_HUMAN%m} * 60 )) ;;
+      *h) THRESHOLD_SEC=$(( ${THRESHOLD_HUMAN%h} * 3600 )) ;;
+      *)  THRESHOLD_SEC="$THRESHOLD_HUMAN" ;;
+    esac
+    NOW="$(date -u +%s)"
+    ACTED=0
+    SCANNED=0
+
+    # Build a list of "ns/name|storageNs|releaseName|readyStatus|readyTransition"
+    # in a single kubectl call (cheap — JSONPath does the work server-side).
+    HRS="$(kubectl get hr -A -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.spec.storageNamespace}|{.spec.releaseName}|{range .status.conditions[?(@.type=="Ready")]}{.status}|{.lastTransitionTime}{end}{"\n"}{end}')" || HRS=""
+
+    echo "$HRS" | while IFS='|' read -r NS NAME STORAGE_NS RELEASE_NAME READY_STATUS READY_TRANSITION; do
+      [ -z "$NAME" ] && continue
+      SCANNED=$((SCANNED+1))
+      # Only act on Ready=Unknown.
+      [ "$READY_STATUS" = "Unknown" ] || continue
+      [ -n "$READY_TRANSITION" ] || continue
+      # Has the Unknown state persisted past the threshold?
+      TRANSITION_SEC="$(date -u -d "$READY_TRANSITION" +%s 2>/dev/null || echo 0)"
+      [ "$TRANSITION_SEC" -gt 0 ] || continue
+      AGE=$((NOW - TRANSITION_SEC))
+      [ "$AGE" -ge "$THRESHOLD_SEC" ] || continue
+
+      # Resolve storage ns + release name (defaults match upstream HR semantics).
+      EFFECTIVE_STORAGE_NS="${STORAGE_NS:-$NS}"
+      EFFECTIVE_RELEASE="${RELEASE_NAME:-$NAME}"
+
+      # Find the most recent Helm release secret for this release. Helm
+      # secrets are named sh.helm.release.v1.<release>.v<n>; we list and
+      # take the highest-version one.
+      LATEST_SECRET="$(kubectl get secret -n "$EFFECTIVE_STORAGE_NS" -l "owner=helm,name=$EFFECTIVE_RELEASE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | sort -t v -k 4 -n | tail -1)"
+      [ -n "$LATEST_SECRET" ] || { echo "skip $NS/$NAME: no helm secret found"; continue; }
+      SECRET_STATUS="$(kubectl get secret -n "$EFFECTIVE_STORAGE_NS" "$LATEST_SECRET" -o jsonpath='{.metadata.labels.status}' 2>/dev/null || echo "")"
+      # Only act if Helm itself thinks the release is deployed; if it's
+      # pending-install / failed / etc the HR really IS still in flight.
+      [ "$SECRET_STATUS" = "deployed" ] || { echo "skip $NS/$NAME: helm secret status=$SECRET_STATUS"; continue; }
+
+      ACTED=$((ACTED+1))
+      if [ "$ACTED" -gt 10 ]; then
+        echo "GUARDRAIL: more than 10 stuck HRs detected — refusing to mass-recover. Investigate cluster-wide outage."
+        exit 1
+      fi
+
+      echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, helm secret $LATEST_SECRET status=deployed) — toggling spec.suspend"
+      kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":true}}' >/dev/null
+      sleep 5
+      kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":false}}' >/dev/null
+      echo "RECOVERED $NS/$NAME"
+    done
+
+    echo "scan complete: scanned=$SCANNED acted=$ACTED threshold=${THRESHOLD_SEC}s"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bp-flux-stuck-hr-recovery
+  namespace: {{ $fluxNs }}
+  labels:
+    app.kubernetes.io/name: bp-flux
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    app.kubernetes.io/part-of: catalyst
+    app.kubernetes.io/component: stuck-hr-recovery
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    catalyst.openova.io/blueprint: bp-flux
+  annotations:
+    catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/925"
+spec:
+  schedule: {{ $schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: bp-flux
+            app.kubernetes.io/component: stuck-hr-recovery
+        spec:
+          serviceAccountName: bp-flux-stuck-hr-recovery
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: recover
+              image: {{ $image | quote }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/config/recover.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits:   { memory: 96Mi }
+              volumeMounts:
+                - name: script
+                  mountPath: /config
+                - name: tmp
+                  mountPath: /tmp
+                - name: home
+                  mountPath: /.kube
+          volumes:
+            - name: script
+              configMap:
+                name: bp-flux-stuck-hr-recovery-script
+                defaultMode: 0555
+            - name: tmp
+              emptyDir: {}
+            - name: home
+              emptyDir: {}
+{{- end -}}
