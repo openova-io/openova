@@ -137,8 +137,17 @@ export function SovereignConsoleLayout({
   useEffect(() => {
     async function initAuth() {
       if (!sovereignFQDN) {
-        // Should not happen in sovereign mode, but guard defensively.
-        setAuthState({ status: 'unauthenticated' })
+        // Catalyst-Zero (mothership) hit a clean-root Sovereign-Console
+        // route (e.g. /dashboard) — those exist for the per-Sovereign
+        // self-mode SPA mounted at console.<sov-fqdn>, not for the
+        // mothership. Without an FQDN there is no Keycloak realm to
+        // OIDC against, and the layout would otherwise render
+        // "Authenticating…" forever (issue #975 follow-up — observed
+        // when operators on console.openova.io navigated to /dashboard
+        // after the #976 clean-root URL split). Redirect to the
+        // mothership root so the operator lands on the wizard /
+        // deployments list instead.
+        window.location.replace('/')
         return
       }
 
