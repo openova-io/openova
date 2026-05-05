@@ -180,8 +180,14 @@ data:
               exit 0
             fi
             git commit -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor" >/dev/null
-            git push origin main >/dev/null 2>&1 || {
+            push_err=$(git push origin main 2>&1) || {
               echo "[helmrepository-patches] FATAL: git push failed" >&2
+              # Surface the actual git stderr so operators can diagnose
+              # auth / branch-protection / hook rejections without re-
+              # running the Job. The output is git's own stderr — does
+              # NOT contain the embedded credential (those live in the
+              # remote URL only and git redacts them in error messages).
+              printf '%s\n' "$push_err" >&2
               exit 1
             }
             echo "[helmrepository-patches] pushed to ${redacted} (commit will reconcile via bootstrap-kit Kustomization)"
