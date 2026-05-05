@@ -593,6 +593,108 @@ func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	}
 }
 
+// #915 (D1) — bp-wordpress-tenant.yaml MUST emit per-tenant OIDC values
+// so the chart's post-install wp-cli Job seeds openid-connect-generic
+// against the per-tenant Keycloak realm. PR #918 registers the matching
+// `wordpress` client + Secret on the bp-keycloak side; this test pins
+// the orchestrator-side contract that consumes them.
+func TestRenderSMETenantOverlay_WordPressEmitsOIDC(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		CompanyName:     "Alice Corp",
+		OTECHFQDN:       "otech107.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-wordpress-tenant.yaml"]
+	if !ok {
+		t.Fatalf("bp-wordpress-tenant.yaml missing from rendered overlay")
+	}
+	// Canonical oidc.* block — chart >= 0.2.0 contract.
+	wantOIDC := []string{
+		"    oidc:",
+		"      enabled: true",
+		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      clientId: wordpress",
+		"      clientSecretName: wordpress-oidc-client-secret",
+		"      defaultRole: subscriber",
+		"      identityKey: preferred_username",
+	}
+	for _, line := range wantOIDC {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-wordpress-tenant oidc block missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+	// Legacy keycloak.* alias — chart 0.1.x back-compat. Removed in 0.3.0.
+	wantLegacy := []string{
+		"    keycloak:",
+		"      realmURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      clientID: wordpress",
+		"      clientSecretName: wordpress-oidc-client-secret",
+	}
+	for _, line := range wantLegacy {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-wordpress-tenant legacy keycloak block missing line %q (back-compat)", line)
+		}
+	}
+	// Per-tenant realm URL MUST be the per-SME Keycloak, not a shared
+	// otech-level IdP. Same guardrail as the OpenClaw/Stalwart tests.
+	bad := "https://keycloak.otech107.omani.works"
+	if strings.Contains(body, bad) {
+		t.Errorf("bp-wordpress-tenant issuerURL must be per-tenant, not otech-wide: %s", body)
+	}
+	// Ingress + admin-user blocks are unchanged (kept here so a regression
+	// to those surfaces in the same test).
+	if !strings.Contains(body, "host: wordpress.alice.omantel.omani.works") {
+		t.Errorf("wordpress ingress host missing")
+	}
+	if !strings.Contains(body, "email: admin@alice.test") {
+		t.Errorf("admin email missing")
+	}
+	// dependsOn: bp-keycloak so the wp-cli Job runs AFTER the realm
+	// import + Secret materialisation.
+	if !strings.Contains(body, "name: bp-keycloak") {
+		t.Errorf("expected dependsOn bp-keycloak in bp-wordpress-tenant.yaml")
+	}
+}
+
+// #915 (D1) — BYO domain mode must emit OIDC against the BYO host, not
+// the otech default zone. Mirrors the BYO certificate-emission test for
+// wordpress.
+func TestRenderSMETenantOverlay_WordPressOIDC_BYOMode(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.SMEDomainBYO,
+		BYODomain:       "acme.com",
+		AdminEmail:      "admin@acme.com",
+		OTECHFQDN:       "otech.example",
+		VClusterName:    "vc-acme",
+		TenantNamespace: "sme-t-acme",
+	}
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := files["bp-wordpress-tenant.yaml"]
+	// BYO ingress host is wordpress.acme.com (derived from BYO domain).
+	if !strings.Contains(body, "host: wordpress.acme.com") {
+		t.Errorf("byo wordpress host missing — got:\n%s", body)
+	}
+	// smeDomain (BYO mode) is the bare BYO domain.
+	if !strings.Contains(body, "smeDomain: acme.com") {
+		t.Errorf("byo smeDomain missing")
+	}
+}
+
 // #915 (C2) — bp-stalwart-tenant.yaml MUST emit per-tenant Keycloak OIDC
 // values so the chart's setup Job seeds the OIDC directory entry against
 // the per-tenant Keycloak realm. Without these the chart falls back to

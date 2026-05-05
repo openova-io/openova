@@ -23,9 +23,10 @@ Boot sequence (per docs/INVIOLABLE-PRINCIPLES.md #2 — ship target-state shape,
 
 The OIDC plugin's option row, the admin user, and the default theme
 activation are populated by the post-install Jobs in
-templates/oidc-config-job.yaml + templates/admin-user-job.yaml — those
-talk to the WordPress install once the Service is reachable, which
-keeps this Deployment template free of WP CLI.
+templates/oidc-config-job.yaml + templates/admin-user-job.yaml. Both
+run via wp-cli (the canonical wordpress:cli-* image) against the same
+DB the runtime container uses, so any plugin/theme/option change goes
+through WordPress core's public API rather than direct schema writes.
 */}}
 apiVersion: apps/v1
 kind: Deployment

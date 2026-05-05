@@ -22,7 +22,7 @@ pattern.
 | `Cluster.postgresql.cnpg.io` (1 instance, 10Gi) | Tenant-isolated Postgres provisioned by bp-cnpg. The CNPG-emitted `<cluster>-app` Secret carries the password. |
 | `Secret wordpress-database-secret` (placeholder) | Reflector-managed bridge that the WordPress Pod reads via `secretKeyRef`. Populated by the post-install `db-secret-sync` Job. |
 | `Job <release>-db-secret-sync` (post-install/upgrade) | Mirrors `<cluster>-app.password` into `wordpress-database-secret.password`. Eliminates the otech30-class Reflector race documented in `bp-gitea`. |
-| `Job <release>-oidc-config` (post-install/upgrade) | Connects to Postgres, ensures `wp_options` exists, then UPSERTs the `openid_connect_generic_settings` row (Keycloak URLs + client secret), `active_plugins` (activates the OIDC plugin), `template`/`stylesheet` (default theme), `siteurl`/`home`. Idempotent — re-running on `helm upgrade` is safe. |
+| `Job <release>-oidc-config` (post-install/upgrade) | Runs the canonical `wordpress:cli` image: `wp core install` (idempotent), `wp plugin install openid-connect-generic --activate` (idempotent), `wp option update openid_connect_generic_settings <json>` with the per-tenant Keycloak realm + client + secret, `wp option update default_role`, `wp theme activate`, `wp option update siteurl/home`. Idempotent — re-running on `helm upgrade` is safe. |
 | `Job <release>-admin-user` (post-install/upgrade, hook weight 15) | Pre-seeds the SME admin into `wp_users` + `wp_usermeta` with the `administrator` role + the SSO email mapping. The user can log in via Keycloak only. |
 | `NetworkPolicy` | Restricts egress to: bp-cnpg :5432, Keycloak :8443/:8080, kube-dns, and HTTPS to public IPs (for plugin/theme fetches at first install). Ingress allowed only from the configured ingress namespace (default `traefik`). |
 | `ServiceAccount` | Default SA for the WordPress Pod. The post-install Jobs use a dedicated SA + Role + RoleBinding scoped to the tenant namespace. |
@@ -36,8 +36,10 @@ helm install
   │               Cluster.postgresql.cnpg.io, wordpress-database-secret (empty)
   ├─ post-install hook weight 5:  db-secret-sync Job
   │     └─ waits for CNPG <cluster>-app, PATCHes wordpress-database-secret
-  ├─ post-install hook weight 10: oidc-config Job
-  │     └─ trips WP install via Service GET, UPSERTs OIDC + theme + siteurl
+  ├─ post-install hook weight 10: oidc-config Job (wp-cli)
+  │     └─ wp core install, wp plugin install openid-connect-generic
+  │        --activate, wp option update openid_connect_generic_settings,
+  │        wp theme activate, wp option update siteurl/home
   └─ post-install hook weight 15: admin-user Job
         └─ INSERT/UPDATE wp_users row for the SME admin's email
 ```
@@ -52,9 +54,11 @@ WP install wizard, no manual config.
 | Value | Description |
 |---|---|
 | `smeDomain` | The SME tenant's domain (e.g. `acme.<otech-fqdn>` or BYO `acme.com`). Used to derive the default ingress host as `wordpress.<smeDomain>`. |
-| `keycloak.realmURL` | Discovery URL of the SME-vcluster Keycloak realm. Example: `https://auth.acme.<otech-fqdn>/realms/sme`. |
-| `keycloak.clientSecretName` | ExternalSecret carrying the Keycloak OIDC client secret (key `client-secret`). Provisioned by the tenant-provisioning pipeline before this chart installs. |
+| `oidc.issuerURL` | Discovery URL of the per-tenant Keycloak realm. Example: `https://keycloak.acme.<otech-fqdn>/realms/sme-acme`. The wp-cli Job derives the OIDC `endpoint_*` URLs from this. |
+| `oidc.clientSecretName` | K8s Secret carrying the OIDC client secret (key `client-secret`). Provisioned by `bp-keycloak`'s tenant-realm ConfigMap (PR #918) at the same time as the realm import. |
 | `adminUser.email` | Email of the SME admin (must match the `email` claim Keycloak issues for that user). The admin-user Job pre-seeds a wp_user with this email and the administrator role. |
+
+> **Back-compat (chart 0.1.x):** `keycloak.{realmURL,clientID,clientSecretName}` is still accepted as an alias when the modern `oidc.*` block is at its values.yaml defaults. New overlays MUST emit `oidc.*` — the legacy block is removed in chart `0.3.0`.
 
 ## Override surface
 
