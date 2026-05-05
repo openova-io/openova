@@ -440,6 +440,7 @@ func TestRenderSMETenantOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) {
 		"vcluster.yaml",
 		"bp-keycloak.yaml",
 		"bp-cnpg.yaml",
+		"bp-newapi.yaml",
 		"bp-wordpress-tenant.yaml",
 		"bp-openclaw.yaml",
 		"bp-stalwart-tenant.yaml",
@@ -590,6 +591,175 @@ func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	// channel routing).
 	if strings.Contains(body, "https://newapi.otech107.omani.works") {
 		t.Errorf("bp-openclaw llm.baseURL must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
+	}
+}
+
+// TestRenderSMETenantOverlay_NewAPIEmitted asserts the SME tenant
+// overlay emits a per-tenant bp-newapi HelmRelease (#945). Without it
+// the bp-openclaw HR points at https://api.<sub>.<parent>/v1 with no
+// chart materialising that ingress — alice's OpenClaw boots and gets
+// NXDOMAIN on every chat request.
+//
+// The chart values must:
+//   - dependsOn bp-keycloak (admin-UI OIDC) AND bp-cnpg (Postgres backend).
+//   - Emit ingress.host = api.<sub>.<parent> + ingress.adminHost =
+//     admin.<sub>.<parent> so OpenClaw's llm.baseURL resolves.
+//   - Wire auth.adminUI to the per-tenant Keycloak realm
+//     (alice's tenant Keycloak), NOT a shared otech-level IdP.
+//   - Enable defaultChannels.qwenBankDhofar so the chart's channel-seed
+//     post-install Job auto-seeds Qwen3.6@BankDhofar at install time
+//     (canonical first-otech default per #915 C4 PR #919).
+//   - Reference newapi-pg-app for the database (bp-cnpg renders the
+//     app secret in tenant ns) + newapi-credentials for app secrets.
+func TestRenderSMETenantOverlay_NewAPIEmitted(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		CompanyName:     "Alice Corp",
+		OTECHFQDN:       "otech113.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-newapi.yaml"]
+	if !ok {
+		t.Fatalf("bp-newapi.yaml missing from rendered overlay")
+	}
+
+	// HelmRelease metadata.
+	for _, want := range []string{
+		"kind: HelmRelease",
+		"name: bp-newapi",
+		"namespace: sme-t-alice",
+		"chart: bp-newapi",
+		`version: "*"`, // unconfigured chart version falls back to "*"
+		"name: bp-newapi", // sourceRef.name
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bp-newapi.yaml missing %q\n--- rendered ---\n%s", want, body)
+		}
+	}
+
+	// dependsOn: bp-keycloak + bp-cnpg (BOTH required).
+	wantDependsOn := []string{
+		"  dependsOn:",
+		"    - name: bp-keycloak",
+		"      namespace: sme-t-alice",
+		"    - name: bp-cnpg",
+		"      namespace: sme-t-alice",
+	}
+	for _, line := range wantDependsOn {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml dependsOn missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+
+	// Ingress hosts — customer-API + admin UI.
+	wantIngress := []string{
+		"      host: api.alice.omantel.omani.works",
+		"      adminHost: admin.alice.omantel.omani.works",
+		"        issuer: letsencrypt-prod",
+	}
+	for _, line := range wantIngress {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml ingress missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+
+	// Admin UI gated by the PER-TENANT Keycloak realm (NOT otech-wide).
+	wantAdminAuth := []string{
+		"        mode: keycloak",
+		"          issuer: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"          clientId: newapi-admin",
+		"          existingSecret: newapi-oidc-client-secret",
+	}
+	for _, line := range wantAdminAuth {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml auth.adminUI missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+
+	// Customer-API issuer = catalyst (Catalyst mints per-user keys; the
+	// upstream's self-serve portal stays OFF on Catalyst Sovereigns).
+	if !strings.Contains(body, "        keyIssuer: catalyst") {
+		t.Errorf("bp-newapi.yaml customerAPI.keyIssuer must be 'catalyst' to disable the self-serve portal")
+	}
+
+	// Per-tenant database + credentials Secrets.
+	wantSecrets := []string{
+		"      existingSecret: newapi-pg-app",
+		"      existingSecretKey: SQL_DSN",
+		"      existingSecret: newapi-credentials",
+	}
+	for _, line := range wantSecrets {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml DB/credentials missing line %q", line)
+		}
+	}
+
+	// defaultChannels.qwenBankDhofar — channel #1 auto-seeded by the
+	// chart's post-install Helm hook Job (per #915 C4 PR #919).
+	wantChannel := []string{
+		"      qwenBankDhofar:",
+		"        enabled: true",
+		"        name: qwen3.6-bankdhofar",
+		"        endpoint: https://llm-api.omtd.bankdhofar.com",
+		"          - qwen3.6",
+		"          - qwen3-coder",
+		"        existingSecret: newapi-channel-qwen-bankdhofar",
+		"        existingSecretKey: API_KEY",
+		"          kind: commercial-contract",
+	}
+	for _, line := range wantChannel {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml defaultChannels.qwenBankDhofar missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+
+	// MUST NOT point at the otech-wide newapi.<otech-fqdn> — that would
+	// defeat per-tenant channel routing (alice + bob would share a
+	// single channel set, audit log, and commercial-contract).
+	if strings.Contains(body, "newapi.otech113.omani.works") {
+		t.Errorf("bp-newapi.yaml must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
+	}
+
+	// kustomization.yaml MUST list bp-newapi.yaml so Flux materialises it.
+	kust, ok := files["kustomization.yaml"]
+	if !ok {
+		t.Fatalf("kustomization.yaml missing")
+	}
+	if !strings.Contains(kust, "  - bp-newapi.yaml") {
+		t.Errorf("kustomization.yaml resources list must include bp-newapi.yaml — got:\n%s", kust)
+	}
+}
+
+// TestRenderSMETenantOverlay_NewAPIChartVersion asserts the NewAPI
+// chart version is overridable via SMETenantChartVersions.NewAPI (per
+// Inviolable Principle 4 — never hardcode versions in source).
+func TestRenderSMETenantOverlay_NewAPIChartVersion(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		OTECHFQDN:       "otech113.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+	versions := SMETenantChartVersions{NewAPI: "1.3.0"}
+	files, err := renderSMETenantOverlay(rec, versions)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(files["bp-newapi.yaml"], `version: "1.3.0"`) {
+		t.Errorf("bp-newapi version override missing — got:\n%s", files["bp-newapi.yaml"])
 	}
 }
 
