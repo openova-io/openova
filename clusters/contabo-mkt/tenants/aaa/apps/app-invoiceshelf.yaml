@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invoiceshelf
+  namespace: apps
+  labels:
+    app: invoiceshelf
+    openova.io/tenant: "aaa"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: invoiceshelf
+  template:
+    metadata:
+      labels:
+        app: invoiceshelf
+        openova.io/tenant: "aaa"
+    spec:
+      containers:
+        - name: invoiceshelf
+          image: invoiceshelf/invoiceshelf:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mysql"
+            - name: WORDPRESS_DB_USER
+              value: "app"
+            - name: WORDPRESS_DB_PASSWORD
+              value: "8bb38a3e15dcd6b40adc619b44a405c9"
+            - name: WORDPRESS_DB_NAME
+              value: "db_invoiceshelf"
+            - name: MYSQL_HOST
+              value: "mysql"
+            - name: MYSQL_USER
+              value: "app"
+            - name: MYSQL_PASSWORD
+              value: "8bb38a3e15dcd6b40adc619b44a405c9"
+            - name: MYSQL_DATABASE
+              value: "db_invoiceshelf"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: invoiceshelf
+  namespace: apps
+spec:
+  selector:
+    app: invoiceshelf
+  ports:
+    - port: 80
+      targetPort: 8080
