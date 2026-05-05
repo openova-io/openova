@@ -120,7 +120,15 @@ spec:
       # because the deploy-bot updated values.yaml AFTER the chart was
       # published. Same deploy-step race documented in 1.4.6 / 1.4.9 /
       # 1.4.12 changelog.
-      version: 1.4.14
+      # 1.4.15 (issue #887): auto-provision marketplace-api-secrets
+      # Secret on Sovereign install. templates/marketplace-api/
+      # deployment.yaml referenced a secretKeyRef on
+      # `marketplace-api-secrets` but the chart never rendered the
+      # Secret — caught live on otech103, marketplace-api in
+      # CreateContainerConfigError. Fix mirrors sme-secrets/
+      # valkey-cross-ns-secret/provisioning-github-token Helm-lookup
+      # persistence pattern. helm.sh/resource-policy: keep.
+      version: 1.4.15
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

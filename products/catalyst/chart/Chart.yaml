@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.14
-appVersion: 1.4.14
+version: 1.4.15
+appVersion: 1.4.15
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -759,6 +759,23 @@ description: |
   blueprint-release) — the catalyst-build workflow needs the equivalent.
   Until then this manual bump is required after every catalyst-api
   image change. Lockstep slot 13 pin bumps to 1.4.14. 2026-05-05.
+
+  1.4.15 (issue #887): auto-provision marketplace-api-secrets Secret on
+  Sovereign install. templates/marketplace-api/deployment.yaml has always
+  referenced a secretKeyRef on `marketplace-api-secrets` (key:
+  `jwt-secret`); on contabo-mkt this Secret is hand-rolled in
+  clusters/contabo-mkt/apps/.../marketplace-api-secrets.yaml. On a freshly
+  franchised Sovereign with ingress.marketplace.enabled=true, nothing
+  equivalent existed — caught live on otech103 (2026-05-05) where
+  marketplace-api landed in CreateContainerConfigError "secret not found"
+  every reconcile. Fix: NEW templates/marketplace-api/secret.yaml uses
+  Helm `lookup` to persist a 64-char randAlphaNum jwt-secret across
+  reconciles (same load-bearing pattern as sme-secrets, valkey-cross-ns-
+  secret, provisioning-github-token, gitea-admin-secret per
+  feedback_passwords.md). Without lookup every reconcile would
+  invalidate every active marketplace JWT. helm.sh/resource-policy: keep
+  so the Secret survives helm uninstall. Lockstep slot 13 pin bumps to
+  1.4.15. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
