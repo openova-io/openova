@@ -36,4 +36,12 @@ spec:
     - group: ""
       kind: Service
       name: console
+    # Issue #868: marketplace HTTPRoute /api/* now cross-namespace
+    # backendRefs to sme/gateway:8080 (replacing the dead
+    # catalyst-system/marketplace-api Service). The gateway Pod fronts
+    # services-auth (PIN signin), services-catalog, services-tenant,
+    # services-billing, services-provisioning — the entire SME BSS API.
+    - group: ""
+      kind: Service
+      name: gateway
 {{- end }}

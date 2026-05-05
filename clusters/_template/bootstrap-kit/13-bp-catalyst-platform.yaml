@@ -96,7 +96,15 @@ spec:
       # (provisioning) reaches Running 1/1 on a fresh Sovereign,
       # completing the SME stack 12/13 → 13/13. Same lookup-and-mirror
       # pattern as valkey-cross-ns-secret.yaml (#863).
-      version: 1.4.7
+      # 1.4.8 (issue #868): fix marketplace UI PIN-signin — /api/*
+      # HTTPRoute now backendRefs sme/gateway:8080 (cross-namespace,
+      # authorised by ReferenceGrant). The previous catalyst-system/
+      # marketplace-api Service had zero backing Pods, so every signin
+      # POST 503'd at the gateway. Pairs with services-auth route alias
+      # /auth/send-pin → SendMagicLink (and /auth/verify-pin →
+      # VerifyMagicLink) so the UI's PIN-naming reaches the existing
+      # backend handler.
+      version: 1.4.8
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
