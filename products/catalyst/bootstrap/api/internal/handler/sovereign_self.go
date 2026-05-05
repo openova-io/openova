@@ -44,11 +44,22 @@ type SovereignSelfResponse struct {
 }
 
 // HandleSovereignSelf returns the active Sovereign's deployment id + FQDN.
-// Returns 404 on the mothership, 503 on Sovereigns that haven't received
-// the post-handover deployment-id stamp yet.
+//
+// Resolution order:
+//   1. CATALYST_SELF_DEPLOYMENT_ID env (populated by orchestrator overlay).
+//   2. Local store fallback — scan /var/lib/catalyst/deployments for a
+//      record whose Request.SovereignFQDN matches CATALYST_OTECH_FQDN.
+//      The cutover-import endpoint enforces FQDN match before persisting,
+//      so a single matching record is unambiguously this Sovereign's.
+//      This branch is what makes clean URLs render data on first
+//      handover-arrival, before the orchestrator has had a chance to
+//      stamp the env via a chart-values overlay write.
+//   3. CATALYST_OTECH_FQDN populated but no record yet — return 503.
+//   4. Both env empty AND no record → return 404 (mothership).
 func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, _ *http.Request) {
 	deploymentID := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
 	fqdn := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+
 	// Mothership: neither env is set — surface 404 so the UI hook treats
 	// this as "not on a Sovereign" and uses URL params instead.
 	if deploymentID == "" && fqdn == "" {
@@ -58,9 +69,24 @@ func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, _ *http.Request) {
 		})
 		return
 	}
-	// Sovereign without stamped deployment id — the handover step is
-	// behind. UI sees 503 and shows a "waiting for handover" pill rather
-	// than looping.
+
+	// Step 2: store fallback — scan the local store for a record whose
+	// SovereignFQDN matches CATALYST_OTECH_FQDN. The cutover-import
+	// endpoint enforces FQDN match before persisting, so the only
+	// record on disk should already be ours.
+	if deploymentID == "" && h.store != nil {
+		recs, err := h.store.LoadAll(nil)
+		if err == nil {
+			for _, r := range recs {
+				if strings.EqualFold(r.Request.SovereignFQDN, fqdn) {
+					deploymentID = r.ID
+					break
+				}
+			}
+		}
+	}
+
+	// Step 3: still no id — handover hasn't fired yet.
 	if deploymentID == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "deployment-id-not-yet-stamped",
@@ -69,6 +95,7 @@ func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, _ *http.Request) {
 		})
 		return
 	}
+
 	writeJSON(w, http.StatusOK, SovereignSelfResponse{
 		DeploymentID:  deploymentID,
 		SovereignFQDN: fqdn,
