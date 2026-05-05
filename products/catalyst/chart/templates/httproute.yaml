@@ -43,17 +43,32 @@ spec:
   hostnames:
     - {{ $consoleHost | quote }}
   rules:
-    # /auth/* and /api/* on the console hostname route to catalyst-api
+    # /auth/handover on the console hostname routes to catalyst-api
     # (the Go backend), not catalyst-ui (the React shell). The handover
     # JWT lands at GET /auth/handover?token=… which is implemented in
     # catalyst-api. Without this rule the React app sees /auth/handover,
     # has no client-side route for it, and falls through to Keycloak's
     # bare login screen — defeating the Phase-8b seamless auth promise.
     # Caught live on otech46.
+    #
+    # CRITICAL — Exact match, not PathPrefix. Issue #879 Bug 5:
+    # /auth/handover MUST be Exact (NOT PathPrefix /auth/). OIDC PKCE on
+    # the Sovereign-side Keycloak (catalyst-ui client) configures
+    # redirect_uri = https://console.<sov>/auth/callback, which the
+    # React SPA handles client-side. A PathPrefix /auth/ rule routes
+    # /auth/callback to catalyst-api too — and catalyst-api only
+    # registers /api/v1/auth/callback, so it returns bare "404 page not
+    # found". Result post-handover-JWT-cookie-expiry (8h TTL): the
+    # operator cannot log into the Sovereign Console at all (Keycloak
+    # bounces between login and a 404). Verified live on otech103,
+    # 2026-05-05. By using Exact /auth/handover here, every other
+    # /auth/* path (including /auth/callback, /auth/silent-renew, any
+    # future client-side OIDC routes) falls through to the catalyst-ui
+    # default rule below and the React Router resolves them.
     - matches:
         - path:
-            type: PathPrefix
-            value: "/auth/"
+            type: Exact
+            value: "/auth/handover"
       backendRefs:
         - name: catalyst-api
           port: 8080

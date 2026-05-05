@@ -291,6 +291,21 @@ type Request struct {
 	// wizard payload.
 	PowerDNSAPIKey string `json:"-"`
 
+	// PDMBasicAuthUser / PDMBasicAuthPass — credentials for the public
+	// PDM ingress at pool.openova.io (issue #879 Bug 2). cloudinit-
+	// control-plane.tftpl writes them into the Sovereign's `flux-system/
+	// pdm-basicauth` Secret so the catalyst-api Pod (mounted via
+	// Reflector mirror into catalyst-system) can `Authorization: Basic …`
+	// against the Traefik basicAuth Middleware in front of PDM.
+	// Stamped server-side from Provisioner.PDMBasicAuthUser /
+	// PDMBasicAuthPass (envs CATALYST_PDM_BASIC_AUTH_USER /
+	// CATALYST_PDM_BASIC_AUTH_PASS). json:"-" — never accepted from
+	// wizard payload. Empty falls through to a Secret with empty values;
+	// the Sovereign's catalyst-api skips SetBasicAuth and degrades to
+	// PDM 401 (clear log line) instead of crashlooping.
+	PDMBasicAuthUser string `json:"-"`
+	PDMBasicAuthPass string `json:"-"`
+
 	// DeploymentID — catalyst-api's per-deployment identifier (16-char
 	// hex). Stamped onto the Request by the handler before tfvars are
 	// emitted so the OpenTofu cloud-init template can render the URL
@@ -746,6 +761,19 @@ type Provisioner struct {
 	// issues and the Sovereign Console TLS handshake fails (caught
 	// live on otech47).
 	PowerDNSAPIKey string
+
+	// PDMBasicAuthUser / PDMBasicAuthPass — credentials for the public
+	// PDM ingress at pool.openova.io (issue #879 Bug 2). Mounted from
+	// the Reflector-mirrored `pdm-basicauth` Secret as envs
+	// CATALYST_PDM_BASIC_AUTH_USER / CATALYST_PDM_BASIC_AUTH_PASS.
+	// cloudinit-control-plane.tftpl interpolates them into the new
+	// Sovereign's flux-system/pdm-basicauth Secret so its catalyst-api
+	// inherits the same auth posture (Reflector mirrors them into
+	// catalyst-system). Empty values render an empty Secret and the
+	// Sovereign-side pdmFlipNS skips SetBasicAuth — same degradation
+	// posture as the harbor-robot-token Empty-Token path.
+	PDMBasicAuthUser string
+	PDMBasicAuthPass string
 }
 
 // New returns a Provisioner with paths read from environment.
@@ -764,6 +792,8 @@ func New() *Provisioner {
 		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
 		HarborRobotToken: os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),
 		PowerDNSAPIKey:   os.Getenv("CATALYST_POWERDNS_API_KEY"),
+		PDMBasicAuthUser: os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
+		PDMBasicAuthPass: os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
 	}
 }
 
@@ -784,6 +814,12 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 	if strings.TrimSpace(req.PowerDNSAPIKey) == "" {
 		req.PowerDNSAPIKey = p.PowerDNSAPIKey
+	}
+	if strings.TrimSpace(req.PDMBasicAuthUser) == "" {
+		req.PDMBasicAuthUser = p.PDMBasicAuthUser
+	}
+	if req.PDMBasicAuthPass == "" {
+		req.PDMBasicAuthPass = p.PDMBasicAuthPass
 	}
 
 	if err := req.Validate(); err != nil {
@@ -867,6 +903,12 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	}
 	if strings.TrimSpace(req.PowerDNSAPIKey) == "" {
 		req.PowerDNSAPIKey = p.PowerDNSAPIKey
+	}
+	if strings.TrimSpace(req.PDMBasicAuthUser) == "" {
+		req.PDMBasicAuthUser = p.PDMBasicAuthUser
+	}
+	if req.PDMBasicAuthPass == "" {
+		req.PDMBasicAuthPass = p.PDMBasicAuthPass
 	}
 
 	emit := func(phase, level, msg string) {
@@ -1121,6 +1163,17 @@ func writeTfvars(deployDir string, req Request) error {
 		// against harbor.openova.io's proxy projects. Empty falls
 		// through to anonymous Harbor pulls.
 		"harbor_robot_token": req.HarborRobotToken,
+
+		// PDM basic-auth credentials (issue #879 Bug 2). Stamped server-
+		// side. cloudinit-control-plane.tftpl writes them into the
+		// new Sovereign's flux-system/pdm-basicauth Secret so its
+		// catalyst-api can call PDM via Authorization: Basic ….
+		// Empty falls through to a Secret with empty values; the
+		// Sovereign's pdmFlipNS skips SetBasicAuth and degrades to
+		// PDM 401 with a clear log line, matching the harbor-robot-
+		// token degradation posture.
+		"pdm_basic_auth_user": req.PDMBasicAuthUser,
+		"pdm_basic_auth_pass": req.PDMBasicAuthPass,
 
 		// Cloud-init kubeconfig postback (issue #183, Option D). The
 		// catalyst-api stamps deployment_id + kubeconfig_bearer_token

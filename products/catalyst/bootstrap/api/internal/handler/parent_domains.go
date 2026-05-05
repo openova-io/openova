@@ -378,8 +378,24 @@ func (h *Handler) lookupPrimaryDomain() string {
 		return true
 	})
 	if len(candidates) == 0 {
-		// Fallback: env override for tests / single-Sovereign sandboxes.
+		// Fallback chain (issue #879 Bug 4):
+		//   1. CATALYST_PRIMARY_DOMAIN — explicit override for tests /
+		//      single-Sovereign sandboxes.
+		//   2. SOVEREIGN_FQDN — the Sovereign's public FQDN, already
+		//      wired into every catalyst-api Pod via the sovereign-fqdn
+		//      ConfigMap (api-deployment.yaml). On a post-handover
+		//      Sovereign no Deployment record is persisted (handover is
+		//      JWT-only — no wizard-run on the Sovereign-side that
+		//      writes one), so without this fallback GET
+		//      /parent-domains returns {"items":[]} and the propagation
+		//      panel shows expectedNs:null. Caught live on otech103,
+		//      2026-05-05. Reading the ALREADY-wired SOVEREIGN_FQDN env
+		//      makes the implicit primary visible without touching
+		//      anything else.
 		if v := strings.TrimSpace(os.Getenv("CATALYST_PRIMARY_DOMAIN")); v != "" {
+			return v
+		}
+		if v := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); v != "" {
 			return v
 		}
 		return ""
@@ -881,14 +897,46 @@ func (h *Handler) GetPropagation(w http.ResponseWriter, r *http.Request) {
 // call here (rather than re-using SetNSRegistrar's HTTP handler) so the
 // AddParentDomain pipeline can examine the response and update the store
 // atomically. Token never enters a logged struct.
+//
+// Issue #879 (otech103, 2026-05-05) wired three previously-missing pieces
+// to make this work end-to-end on a Sovereign:
+//
+//   - Bug 2 — Basic auth: PDM is exposed via the public ingress
+//     `pool.openova.io` (clusters/contabo-mkt/apps/pool-domain-manager/
+//     ingress.yaml) which is gated by Traefik basicAuth. Calls without
+//     `Authorization: Basic …` get 401. Credentials are loaded from
+//     the Pod env (CATALYST_PDM_BASIC_AUTH_USER / _PASS, sourced from
+//     the `pdm-basicauth` Secret per api-deployment.yaml). When unset
+//     (Catalyst-Zero in-cluster path / older Sovereigns) we omit the
+//     header — the in-cluster Service URL is unauthenticated and PDM
+//     responds normally. Per Inviolable Principle #10 the credentials
+//     are only read at call time and never enter a logged struct.
+//
+//   - Bug 3 — `nameservers` field: PDM's SetNSRequest schema
+//     (core/pool-domain-manager/internal/handler/registrar.go:149)
+//     requires a non-empty `nameservers` array. Without it, PDM
+//     returns 422 `missing-nameservers`. We populate it from
+//     `expectedNSFor(domain)` which already computes
+//     `[ns1.<primary>, ns2.<primary>]` from the Sovereign's primary
+//     FQDN — same nameserver pair PDM's gTLD-side write needs to
+//     point the new domain at the Sovereign's PowerDNS.
 func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token string) error {
 	pdmBase := pdmBaseURL()
 	if pdmBase == "" {
 		return fmt.Errorf("pdm-unavailable")
 	}
-	body, _ := json.Marshal(map[string]string{
-		"domain": domain,
-		"token":  token,
+	// PDM's SetNSRequest schema requires `nameservers` (a non-empty array).
+	// Compute from the Sovereign's primary FQDN — same `[ns1.<primary>,
+	// ns2.<primary>]` pair PDM's gTLD-side write uses for the existing
+	// primary domain.
+	nameservers := h.expectedNSFor(domain)
+	if len(nameservers) == 0 {
+		return fmt.Errorf("expected-ns-unavailable: cannot compute nameservers (primary domain unknown)")
+	}
+	body, _ := json.Marshal(map[string]any{
+		"domain":      domain,
+		"token":       token,
+		"nameservers": nameservers,
 	})
 	target := fmt.Sprintf("%s/api/v1/registrar/%s/set-ns",
 		strings.TrimRight(pdmBase, "/"),
@@ -901,6 +949,12 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 		return fmt.Errorf("build-request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Basic auth for the public PDM ingress. Skipped when the Pod env
+	// is unset — covers the in-cluster-Service path on Catalyst-Zero
+	// and CI / local dev, where PDM is unauthenticated.
+	if user, pass := pdmBasicAuth(); user != "" {
+		httpReq.SetBasicAuth(user, pass)
+	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("pdm-unreachable: %w", err)
@@ -911,6 +965,20 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 		return fmt.Errorf("pdm-status-%d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
+}
+
+// pdmBasicAuth reads the basic-auth credentials for the PDM public
+// ingress out of the Pod env. Returns ("", "") when unset — callers
+// then skip SetBasicAuth and rely on the in-cluster Service path
+// (unauthenticated). Read every call so a Secret rotation propagates
+// without a Pod restart (Reloader handles the env reload).
+//
+// Per Inviolable Principle #10, this is the ONE call site that touches
+// the credentials — they never enter a struct that gets logged.
+func pdmBasicAuth() (string, string) {
+	user := strings.TrimSpace(os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"))
+	pass := os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS")
+	return user, pass
 }
 
 // pdmCreatePowerDNSZone — runtime PowerDNS zone-create for the
@@ -985,6 +1053,11 @@ func (h *Handler) pdmCreatePowerDNSZone(ctx context.Context, domain string) erro
 		return fmt.Errorf("build-request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Same basic-auth treatment as pdmFlipNS — the public PDM ingress
+	// requires the Authorization header. Issue #879 Bug 2 follow-up.
+	if user, pass := pdmBasicAuth(); user != "" {
+		httpReq.SetBasicAuth(user, pass)
+	}
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("pdm-unreachable: %w", err)

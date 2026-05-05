@@ -174,10 +174,26 @@ write_files:
           # so all workloads can pull from ghcr.io/openova-io without
           # per-namespace manual creation. reflection-auto-enabled means
           # Reflector creates the copy in new namespaces as they appear.
+          #
+          # ALLOWED + AUTO namespaces — explicitly enumerated.
+          # Issue #879 Bonus Bug 6: the previous values left both fields
+          # as empty strings, which Reflector interprets ambiguously
+          # depending on version. On otech103 (2026-05-05) catalyst-api
+          # POD failed to pull the SHA-pinned image until an operator
+          # manually created the Secret in the `catalyst-system`
+          # namespace. The fix here lists every namespace catalyst-api
+          # and SME services land in: sme, catalyst, catalyst-system,
+          # gitea, harbor — paired with `auto-namespaces` so a
+          # later-created namespace (the bp-* HelmReleases land in their
+          # own namespaces over time) still gets the mirror automatically
+          # the moment it appears. The list is the SUPERSET of what
+          # otech103 verified live. Future namespaces added to the
+          # bootstrap-kit (a new bp-* slot) only need an addition here
+          # plus a Pod restart to pick up the new mirror.
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: ${base64encode(jsonencode({
@@ -271,6 +287,60 @@ write_files:
       type: Opaque
       data:
         api-key: ${base64encode(powerdns_api_key)}
+
+  # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ──────────────
+  #
+  # The Sovereign-side catalyst-api Pod (api-deployment.yaml) reads
+  # CATALYST_PDM_BASIC_AUTH_USER + CATALYST_PDM_BASIC_AUTH_PASS via
+  # secretKeyRef into `pdm-basicauth` (in the same namespace
+  # catalyst-api lives — catalyst-system). Reflector mirrors this
+  # Secret out of flux-system to sme,catalyst,catalyst-system,gitea,
+  # harbor (same canonical pattern flux-system/ghcr-pull and
+  # flux-system/harbor-robot-token already use).
+  #
+  # The Pod adds `Authorization: Basic …` to every PDM call so the
+  # Traefik basicAuth Middleware in front of pool.openova.io accepts
+  # the request — pdmFlipNS in parent_domains.go is the call site.
+  # Without this Secret + Reflector mirror, every Day-2 add-parent-
+  # domain POST returns 401 from PDM (caught live on otech103,
+  # 2026-05-05 — issue #879).
+  #
+  # optional=true on the secretKeyRef in api-deployment.yaml so:
+  #   - Catalyst-Zero pods (contabo's catalyst-api) start cleanly
+  #     when the Secret is absent. Contabo uses the in-cluster
+  #     Service path which bypasses the ingress entirely.
+  #   - CI / older Sovereigns that pre-date this provisioning seam
+  #     start cleanly. POSTs without auth get 401 from PDM with a
+  #     clear log line, instead of crashlooping on Pod start.
+  #
+  # Per Inviolable Principle #10: the credentials never enter a
+  # logged struct, a deployment record, or any committed git file.
+  # Plaintext only ever lives in the per-deployment OpenTofu workdir
+  # (mode 0600, wiped on tofu destroy) and inside the Sovereign's
+  # encrypted etcd.
+  - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: pdm-basicauth
+        namespace: flux-system
+        annotations:
+          # bp-reflector (slot 05a) mirrors this Secret to every
+          # namespace listed below so catalyst-api in catalyst-system
+          # picks it up event-driven. List explicitly enumerates the
+          # known namespaces (issue #879 Bonus Bug 6 — empty-string
+          # ambiguity caused otech103 to require a manual mirror
+          # creation in catalyst-system).
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+      type: Opaque
+      data:
+        username: ${base64encode(pdm_basic_auth_user)}
+        password: ${base64encode(pdm_basic_auth_pass)}
 
   # ── flux-system/object-storage Secret (issue #371, vendor-agnostic since #425) ─
   #
@@ -1200,6 +1270,17 @@ runcmd:
   # flux-system into catalyst-system on first reconcile so the Pod can
   # start cleanly. Same idempotency property as ghcr-pull above.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
+
+  # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ──────────────
+  #
+  # Apply the PDM basic-auth credentials BEFORE Flux reconciles the
+  # bootstrap-kit. bp-reflector (slot 05a) mirrors this Secret from
+  # flux-system into catalyst-system on first reconcile so the
+  # catalyst-api Pod can mount it via secretKeyRef (optional=true so
+  # Pod start is not blocked when this is absent). Same idempotency
+  # property as ghcr-pull above — re-running cloud-init rewrites the
+  # bytes; a token rotation propagates through here on the next render.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/pdm-basicauth-secret.yaml'
 
   # ── cert-manager/powerdns-api-credentials Secret (PR #681 followup) ──
   #
