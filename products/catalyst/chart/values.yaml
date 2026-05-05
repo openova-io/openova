@@ -14,6 +14,35 @@ global:
   # issue #827) when parentZones is empty (single-zone fallback).
   sovereignFQDN: ""
 
+# ─── Sovereign-side defaults (issue #901) ──────────────────────────────
+# Knobs that exclusively affect the franchised-Sovereign install path
+# and have no equivalent on Catalyst-Zero (contabo-mkt). Per-Sovereign
+# overlays may override every value here without forking the chart.
+sovereign:
+  # CATALYST_POST_AUTH_REDIRECT default. Browser is sent here after a
+  # successful PIN / magic-link callback. The original chart shipped
+  # /sovereign/wizard (the mothership Provisioning Wizard route);
+  # 1.4.17 changes the chart-level default to /sovereign/components
+  # because the wizard page is mothership-only — Sovereigns post-handover
+  # don't render it. The value at the top of the api-deployment.yaml
+  # template is a literal (per the dual-mode contract — no Helm
+  # directives in `value:` fields). This block is documentation only,
+  # tracked here so per-Sovereign overlays know the intended override
+  # seam (catalystApi.env additional-env patch).
+  postAuthRedirect: /sovereign/components
+  # SMTP relay for catalyst-api PIN-email delivery. Consumed by the
+  # auto-provisioned `catalyst-openova-kc-credentials` Secret (template
+  # at templates/catalyst-openova-kc-credentials-secret.yaml — issue
+  # #901). Defaults match the openova.io platform mail relay; per-
+  # Sovereign overlays MAY repoint at a Sovereign-local Stalwart
+  # instance once SMTP creds are reflected from cloud-init via the
+  # `catalyst-system/sovereign-smtp-credentials` Secret seam (issue
+  # #883, agent A5).
+  smtp:
+    host: mail.openova.io
+    port: "587"
+    from: noreply@openova.io
+
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,

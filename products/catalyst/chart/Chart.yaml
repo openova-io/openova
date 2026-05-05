@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.16
-appVersion: 1.4.16
+version: 1.4.17
+appVersion: 1.4.17
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -776,6 +776,65 @@ description: |
   invalidate every active marketplace JWT. helm.sh/resource-policy: keep
   so the Secret survives helm uninstall. Lockstep slot 13 pin bumps to
   1.4.15. 2026-05-05.
+
+  1.4.17 (issue #901): unblock Sovereign Console login on every fresh
+  provision. https://console.<sov>/login PIN-issue endpoint returned 503
+  with "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set" — a 3-bug chain:
+
+  Bug 1: api-deployment.yaml lines 676-739 reference a Secret
+    `catalyst-openova-kc-credentials` for the full PIN-auth env block
+    (CATALYST_OPENOVA_KC_* + CATALYST_SMTP_*). On contabo-mkt this Secret
+    is hand-rolled out-of-band (clusters/contabo-mkt/apps/keycloak-zero/
+    helmrelease.yaml mounts it via extraEnvVars). On a freshly franchised
+    Sovereign nothing equivalent existed — every secretKeyRef has
+    optional=true so the Pod started, but POST /api/v1/auth/pin/issue
+    503'd on the missing client-secret env. Fix: NEW
+    templates/catalyst-openova-kc-credentials-secret.yaml mirrors the
+    canonical KC SA Secret (`keycloak/catalyst-kc-sa-credentials`,
+    created by bp-keycloak's openbao-bridge post-install hook) into
+    catalyst-system as `catalyst-openova-kc-credentials` with the key
+    shape api-deployment.yaml expects. Same Helm-`lookup` persistence
+    pattern as templates/marketplace-api/secret.yaml (#887),
+    sme-secrets.yaml (#859), valkey-cross-ns-secret.yaml (#863),
+    provisioning-github-token.yaml (#866) and gitea-admin-secret.yaml
+    (#830). helm.sh/resource-policy: keep — Secret survives helm
+    uninstall.
+
+    Sovereign-vs-contabo gate (load-bearing): the new template is
+    rendered ONLY when `lookup "v1" "Secret" "keycloak"
+    "catalyst-kc-sa-credentials"` returns non-nil. On Catalyst-Zero
+    (contabo) Keycloak runs as `keycloak-zero` in its own namespace
+    and there is NO Secret by that name in the `keycloak` namespace
+    — lookup returns nil → the template renders empty bytes → the
+    existing hand-rolled Secret in clusters/contabo-mkt/apps/...
+    remains untouched (no helm-vs-kustomize ownership flap). The
+    new file is intentionally NOT added to templates/kustomization.yaml
+    `resources:` so Kustomize-mode contabo build skips it entirely
+    (same dual-mode pattern as templates/marketplace-api/secret.yaml).
+
+  Bug 2: SMTP host default `stalwart-web.stalwart.svc.cluster.local`
+    (an in-code constant) doesn't exist on Sovereign — even after Bug 1
+    the PIN-email delivery would fail at the next step. Fix: chart now
+    populates smtp-host/smtp-port/smtp-from from .Values.sovereign.smtp.*
+    defaulting to mail.openova.io:587 / noreply@openova.io. SMTP
+    user/pass come from a SECONDARY lookup against
+    `catalyst-system/sovereign-smtp-credentials` (Secret seeded by
+    cloud-init at provision time — issue #883 follow-up). If the source
+    Secret is missing, the Secret renders with empty smtp-user/smtp-pass
+    so the login surface still works and PIN delivery surfaces as a
+    clear "email delivery failed" log line, not as a 503.
+
+  Bug 3: CATALYST_POST_AUTH_REDIRECT default `/sovereign/wizard` is
+    mothership-only — the wizard page is the Provisioning Wizard the
+    operator drives at signup, not a post-handover Sovereign page. Fix:
+    chart-level default flips to `/sovereign/components` (the post-
+    handover Sovereign Console homepage). Per-Sovereign overlays
+    override via the catalystApi.env additional-env patch — the chart
+    value is a literal (per the dual-mode contract documented in the
+    CATALYST_POWERDNS_API_URL block of api-deployment.yaml).
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.16 → 1.4.17. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

@@ -661,13 +661,27 @@ spec:
                   key: session-cookie-secret
                   optional: true
             # CATALYST_POST_AUTH_REDIRECT — URL the browser is sent to after a
-            # successful magic-link callback. Defaults to /wizard in code; set
-            # to /sovereign/wizard here because Catalyst-Zero routes the UI
-            # under the /sovereign prefix and the Traefik strip-prefix middleware
-            # is transparent to the server-side Location header.
-            # Per INVIOLABLE-PRINCIPLES #4: runtime configuration, not hardcoded.
+            # successful magic-link / PIN callback. Defaults to /wizard in code.
+            # Catalyst-Zero (contabo) routes the UI under the /sovereign prefix
+            # (Traefik strip-prefix is transparent to the server-side Location
+            # header), so contabo overrides this to /sovereign/wizard via the
+            # per-environment overlay. On a freshly franchised Sovereign the
+            # wizard is mothership-only — empty page on /sovereign/wizard.
+            # The post-handover Sovereign Console homepage is /sovereign/components,
+            # so that's the default we now ship (issue #901, 2026-05-05).
+            #
+            # DUAL-MODE CONTRACT — see CATALYST_POWERDNS_API_URL block above:
+            # this file is consumed by both Helm (Sovereign) and Kustomize
+            # (contabo-mkt). Helm template directives (curly-brace syntax) in
+            # `value:` break the Kustomize render with "yaml: invalid map key".
+            # So this default is a literal. Per-Sovereign overrides go through
+            # the HelmRelease overlay's `catalystApi.env` additional-env patch,
+            # NOT through this file.
+            #
+            # Per INVIOLABLE-PRINCIPLES #4: the override seam exists (overlay
+            # env patch); only the chart-shipped default is a literal.
             - name: CATALYST_POST_AUTH_REDIRECT
-              value: /sovereign/wizard
+              value: "/sovereign/components"
             # ── Option-B magic-link: openova realm service account ───────────
             # CATALYST_OPENOVA_KC_ADDR — Keycloak base URL for the openova realm.
             # Defaults in code to keycloak-zero.keycloak-zero.svc (in-cluster
