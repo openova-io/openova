@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.3
-appVersion: 1.4.3
+version: 1.4.4
+appVersion: 1.4.4
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -387,6 +387,73 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.2 → 1.4.3. 2026-05-04.
+
+  Bumped to 1.4.4 — deploy FerretDB in sme ns + cross-ns Valkey wire
+  to unblock catalog/tenant/domain SME services on franchised
+  Sovereigns (issue #861, 2026-05-04). After 1.4.3 landed sme-pg +
+  sme-secrets, 7/12 SME pods reached Running on otech103 but 3 stayed
+  in CrashLoopBackOff with the same DNS error:
+
+      catalog: failed to ping MongoDB
+      error=...lookup ferretdb.sme.svc.cluster.local on 10.43.0.10:53:
+      no such host
+
+  Root cause: SME service ConfigMap (sme-services-config) hardcoded
+  two URLs that have no Sovereign-side workload behind them:
+    - MONGODB_URI: mongodb://ferretdb.sme.svc.cluster.local:27017
+      (FerretDB has no Deployment on Sovereigns — only on contabo-mkt
+      via clusters/contabo-mkt/apps/sme/data/ferretdb.yaml)
+    - VALKEY_ADDR: valkey.sme.svc.cluster.local:6379
+      (bp-valkey 1.0.0 deploys to namespace `valkey`, not `sme`,
+      and exposes Services `valkey-primary` / `valkey-replicas` /
+      `valkey-headless` — no plain `valkey` service)
+
+  Fix:
+  - NEW templates/sme-services/ferretdb.yaml — gated on the same
+    .Values.ingress.marketplace.enabled flag. Deployment + Service
+    `ferretdb` in `sme` ns, image pinned ghcr.io/ferretdb/ferretdb:1.24
+    (matches contabo's data/ferretdb.yaml — v2.x requires PostgreSQL
+    with the DocumentDB extension which the sme-pg CNPG cluster from
+    PR #860 does not ship; v1.24 works against vanilla CNPG postgres:
+    16 and is the proven path). Backed by sme-pg via FERRETDB_POSTGRESQL_
+    URL env interpolating PG_USER + PG_PASSWORD from the sme-pg-app
+    Secret (auto-created by CNPG in 1.4.3) and pointing at
+    sme-pg-rw.sme.svc.cluster.local:5432/sme_documents. Image is
+    operator-overridable via .Values.smeServices.ferretdb.{image,tag}
+    (Inviolable Principle #4).
+  - cnpg-cluster.yaml — extend postInitApplicationSQL to also
+    CREATE DATABASE sme_documents OWNER sme so FerretDB has a DB to
+    write into on first install. The DB list is data-driven from
+    .Values.smePostgres.cluster.additionalDatabases (defaulting to
+    [sme_billing, sme_documents]) so adding a new SME service is a
+    values-only change.
+  - configmap.yaml — VALKEY_ADDR now reads from .Values.smeServices.
+    valkey.host (default valkey-primary.valkey.svc.cluster.local:6379
+    — the actual Service name bitnami/valkey 5.5.1 with replication
+    architecture renders, NOT the issue's `valkey.valkey.svc.cluster.
+    local` which doesn't exist on Sovereigns). MONGODB_URI also uses
+    .Values.smeServices.ferretdb.{host,port} for symmetry.
+  - NEW templates/sme-services/valkey-cross-ns-policy.yaml —
+    CiliumNetworkPolicy in `valkey` namespace allowing ingress on
+    6379/TCP from any Pod in the `sme` namespace. Defense-in-depth on
+    top of bp-valkey 1.0.0's upstream NetworkPolicy (which already
+    permits port 6379 from any source). Gated on the same
+    marketplace.enabled flag.
+  - values.yaml — add `smeServices.ferretdb.{image,tag,replicas,
+    resources}` and `smeServices.valkey.host` blocks. Every URL,
+    image ref, and resource value is operator-overridable per
+    Inviolable Principle #4.
+
+  Known follow-up: bp-valkey ships with `auth.enabled: true` (bitnami
+  default). SME services pass only VALKEY_ADDR (no password env). Two
+  remediation paths exist: (a) per-Sovereign overlay disables
+  bp-valkey auth, or (b) plumb VALKEY_PASSWORD through SME service
+  Deployments + service code. Filed separately. This PR ships the
+  infrastructure (FQDN + CiliumNetworkPolicy) so the wire is in place
+  when one of those auth fixes lands.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.3 → 1.4.4. 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

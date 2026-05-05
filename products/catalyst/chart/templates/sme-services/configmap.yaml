@@ -26,10 +26,22 @@ data:
   NOTIFICATION_URL: "http://notification.sme.svc.cluster.local:8087"
 
   # ---- shared backing-store endpoints ---------------------------------------
-  MONGODB_URI: "mongodb://ferretdb.sme.svc.cluster.local:27017"
-  VALKEY_ADDR: "valkey.sme.svc.cluster.local:6379"
-  POSTGRES_HOST: "sme-pg-rw.sme.svc.cluster.local"
-  POSTGRES_PORT: "5432"
+  # FerretDB (MongoDB-wire) — Catalyst-curated Deployment in `sme` ns
+  # (see ferretdb.yaml, issue #861). Operator-overridable via
+  # .Values.smeServices.ferretdb.{host,port} so a per-Sovereign overlay
+  # MAY swap to an external MongoDB endpoint without forking the chart.
+  MONGODB_URI: "mongodb://{{ .Values.smeServices.ferretdb.host | default "ferretdb.sme.svc.cluster.local" }}:{{ .Values.smeServices.ferretdb.port | default 27017 }}"
+  # Valkey — bp-valkey 1.0.0 deploys to `valkey` namespace (slot 17,
+  # see 17-valkey.yaml). Bitnami valkey 5.5.1 with architecture:replication
+  # renders Services `valkey-primary` (read/write), `valkey-replicas`,
+  # `valkey-headless` — NO plain `valkey` Service exists. Default points
+  # at the primary; per-Sovereign overlays MAY override via
+  # .Values.smeServices.valkey.host (e.g. for HA replicas read-only or
+  # to swap to an external Redis-compatible cache). Cross-ns reachability
+  # is granted by templates/sme-services/valkey-cross-ns-policy.yaml.
+  VALKEY_ADDR: "{{ .Values.smeServices.valkey.host | default "valkey-primary.valkey.svc.cluster.local" }}:{{ .Values.smeServices.valkey.port | default 6379 }}"
+  POSTGRES_HOST: "{{ .Values.smePostgres.cluster.name | default "sme-pg" }}-rw.{{ .Values.smePostgres.cluster.namespace | default "sme" }}.svc.cluster.local"
+  POSTGRES_PORT: "{{ .Values.smeServices.ferretdb.postgresPort | default 5432 }}"
 
   # ---- cross-namespace event bus --------------------------------------------
   # Redpanda currently lives in the talentmesh namespace (migration tracked

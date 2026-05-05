@@ -25,13 +25,19 @@ Capabilities gate:
   rendered" rather than a hard install failure of the umbrella chart.
   See feedback_inviolable_principles.md #4.
 
-Why two databases (sme_auth + sme_billing):
-  The SME auth service uses sme_auth as its primary store; the billing
-  service uses sme_billing. On contabo a separate Job
-  (data/init-databases.yaml) creates sme_billing post-cluster-bootstrap.
-  Here we fold both into `bootstrap.initdb.postInitApplicationSQL` so a
-  single CNPG Cluster bootstraps both DBs atomically — one fewer Job to
-  watch, one fewer race against pod readiness.
+Why N databases (sme_auth primary, sme_billing + sme_documents secondary):
+  The SME auth service uses sme_auth as its primary store; billing uses
+  sme_billing; FerretDB (the MongoDB-wire-compatible front-end shipped
+  by templates/sme-services/ferretdb.yaml in 1.4.4) uses sme_documents.
+  On contabo a separate Job (data/init-databases.yaml) creates the
+  secondary DBs post-cluster-bootstrap. Here we fold them all into
+  `bootstrap.initdb.postInitApplicationSQL` so a single CNPG Cluster
+  bootstraps every DB atomically — one fewer Job to watch, one fewer
+  race against pod readiness.
+
+  The secondary-DB list is data-driven via
+  .Values.smePostgres.cluster.additionalDatabases so adding a new SME
+  service is a values-only change (Inviolable Principle #4).
 
 Credential persistence:
   CNPG owns the `sme-pg-app` Secret and emits stable bytes across
@@ -81,13 +87,18 @@ spec:
     initdb:
       database: {{ .Values.smePostgres.cluster.database | default "sme_auth" | quote }}
       owner: {{ .Values.smePostgres.cluster.owner | default "sme" | quote }}
-      # Create the secondary DBs the SME mesh needs (sme_billing).
+      # Create the secondary DBs the SME mesh needs.
       # postInitApplicationSQL runs as the postgres superuser AFTER
       # initdb has created the primary DB + owner role, so CREATE
       # DATABASE here is the canonical CNPG-blessed extension point
-      # for multi-DB clusters.
+      # for multi-DB clusters. Data-driven from
+      # .Values.smePostgres.cluster.additionalDatabases — defaults to
+      # [sme_billing, sme_documents] (1.4.4 — sme_documents is
+      # FerretDB's backing DB, see ferretdb.yaml).
       postInitApplicationSQL:
-        - CREATE DATABASE sme_billing OWNER {{ .Values.smePostgres.cluster.owner | default "sme" }};
+        {{- range $db := .Values.smePostgres.cluster.additionalDatabases | default (list "sme_billing" "sme_documents") }}
+        - CREATE DATABASE {{ $db }} OWNER {{ $.Values.smePostgres.cluster.owner | default "sme" }};
+        {{- end }}
 
   postgresql:
     parameters:

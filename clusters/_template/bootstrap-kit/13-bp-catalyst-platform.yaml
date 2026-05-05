@@ -74,7 +74,14 @@ spec:
       # clusters/contabo-mkt/apps/sme/data/* manifests — those are
       # outside templates/kustomization.yaml's resource list so the
       # contabo Kustomize-mode build is unaffected.
-      version: 1.4.3
+      # 1.4.4 (issue #861): deploy FerretDB in `sme` ns + cross-ns
+      # CiliumNetworkPolicy from sme → valkey. Unblocks the 4 SME
+      # services (catalog, tenant, domain, provisioning) that pin to
+      # ferretdb.sme.svc.cluster.local for the MongoDB wire and the 2
+      # services (auth, gateway) that pin to valkey for session/state.
+      # cnpg-cluster.yaml extended to bootstrap sme_documents (FerretDB
+      # backing DB) alongside sme_billing.
+      version: 1.4.4
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
