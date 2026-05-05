@@ -134,110 +134,86 @@ data:
               echo "[gitea-mirror] org already present"
             fi
 
-            # 2. Check whether the local repo already exists. Two cases:
-            #    - exists  → ensure mirror_interval is set + trigger sync
-            #    - missing → create via /repos/migrate with mirror=true
-            #                so Gitea owns the recurring upstream sync
-            #                going forward (10m default; tunable via
-            #                .Values.upstream.mirrorInterval).
-            #
-            #    Why migrate (mirror=true) over the legacy create+push:
-            #    Gitea's native pull-mirror polls upstream on the
-            #    configured interval and replicates branches+tags. The
-            #    previous one-shot push left local Gitea drifting from
-            #    upstream main indefinitely after Day-2 cutover, requiring
-            #    operator-driven `git fetch` for every chart rollout
-            #    (hit twice on otech103 2026-05-04). Mirror mode makes
-            #    drift impossible. Per Gitea migrate API, we explicitly
-            #    opt out of issues/pull-requests/wiki — the Sovereign
-            #    only needs branches+tags for Flux GitRepository.
+            # 2. Ensure the repo exists in Gitea as a REGULAR (non-mirror)
+            #    repository, then bare-clone upstream and push so the
+            #    local Gitea has the same content. This replaces the
+            #    earlier `/repos/migrate {mirror:true}` approach (PR
+            #    #970) — Gitea pull-mirrors are read-only and block the
+            #    cutover step-06 push that pivots HelmRepository URLs
+            #    to local Harbor (see PR #1029, otech125 incident).
+            #    Gitea 1.22 does not support converting a pull-mirror
+            #    to standalone via API (only `mirror_interval: "0s"`
+            #    silently no-ops, leaving `mirror: true` set, which
+            #    keeps the repo read-only). The architecturally correct
+            #    behaviour at cutover IS to stop tracking upstream — the
+            #    Sovereign is going self-hosted from this point on. If
+            #    operator wants a chart rollout post-cutover they
+            #    re-run this Job (idempotent: rebases local main on
+            #    upstream main and force-pushes any new commits).
             repo_check=$(wget -q -O - \
               --header="Authorization: Basic ${basic_auth}" \
               --header="Content-Type: application/json" \
               "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "missing")
 
             if [ "${repo_check}" = "missing" ]; then
-              echo "[gitea-mirror] creating mirror ${GITEA_ORG}/${GITEA_REPO} via /repos/migrate"
-              # POST /api/v1/repos/migrate — single-shot create-as-mirror.
-              # service=git is the generic git source (works for github
-              # without forcing the github-specific importer, which would
-              # require a GitHub PAT we don't have).
-              #
-              # Build payload via printf rather than a heredoc — the YAML
-              # block-scalar wrapper indents every shell line, and POSIX
-              # `<<MARKER` heredocs require the closing MARKER token to
-              # appear unindented in column 0 (only `<<-MARKER` strips
-              # leading tabs, not spaces). Using printf side-steps that
-              # whole class of shell-quoting bugs and keeps the JSON on a
-              # single line, which is also easier on stdout when set -x
-              # debugging is on.
-              migrate_payload=$(printf '{"clone_addr":"%s","repo_name":"%s","repo_owner":"%s","service":"git","mirror":true,"mirror_interval":"%s","private":false,"wiki":false,"issues":false,"pull_requests":false,"labels":false,"milestones":false,"releases":false,"description":"Pull-mirror of %s (auto-sync every %s)"}' \
-                "${UPSTREAM_REPO_URL}" "${GITEA_REPO}" "${GITEA_ORG}" "${MIRROR_INTERVAL}" "${UPSTREAM_REPO_URL}" "${MIRROR_INTERVAL}")
-              # Capture status code so we can fail loud if migrate refuses.
-              # wget -S writes status to stderr; grep for "HTTP/1.1 2".
-              migrate_log=$(mktemp)
-              wget -q -O "${migrate_log}" -S \
-                --post-data="${migrate_payload}" \
+              echo "[gitea-mirror] creating empty repo ${GITEA_ORG}/${GITEA_REPO}"
+              create_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Self-hosted clone of %s (post-cutover, standalone)"}' \
+                "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
+              wget -q -O /dev/null \
+                --post-data="${create_payload}" \
                 --header="Authorization: Basic ${basic_auth}" \
                 --header="Content-Type: application/json" \
-                "${api_url}/repos/migrate" 2>&1 || true
+                "${api_url}/orgs/${GITEA_ORG}/repos" 2>&1 || true
               if ! wget -q -O - \
                 --header="Authorization: Basic ${basic_auth}" \
                 --header="Content-Type: application/json" \
                 "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" >/dev/null 2>&1; then
-                echo "[gitea-mirror] FATAL: migrate failed — repo not visible after POST" >&2
-                cat "${migrate_log}" >&2 || true
+                echo "[gitea-mirror] FATAL: repo create failed — not visible after POST" >&2
                 exit 1
               fi
-              echo "[gitea-mirror] migrate complete — repo now mirroring from upstream"
+              echo "[gitea-mirror] empty repo created"
             else
-              # Repo already present (re-run / prior cutover attempt).
-              # PATCH the mirror_interval to the desired value. Note:
-              # PATCH only succeeds in setting interval if the repo was
-              # already created with mirror=true. Older Sovereigns seeded
-              # by chart < 0.1.14 (legacy create+push) lack the mirror
-              # bit and PATCH alone won't convert them — operator action
-              # to delete+re-migrate would be required. New provisions
-              # always go through the migrate path above and are fine.
-              echo "[gitea-mirror] repo already present — patching mirror_interval=${MIRROR_INTERVAL}"
-              patch_payload="{\"mirror_interval\":\"${MIRROR_INTERVAL}\"}"
-              # BusyBox wget supports --method via newer alpine builds,
-              # but to stay portable across alpine/git image variants we
-              # fall back to a raw-style PATCH using the X-HTTP-Method-
-              # Override header which Gitea's middleware honours.
-              wget -q -O /dev/null \
-                --post-data="${patch_payload}" \
-                --header="Authorization: Basic ${basic_auth}" \
-                --header="Content-Type: application/json" \
-                --header="X-HTTP-Method-Override: PATCH" \
-                "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || \
-                echo "[gitea-mirror] note: mirror_interval PATCH failed — repo may be a legacy non-mirror; continuing"
-
-              # Trigger an immediate sync so the local repo catches up
-              # with whatever has accumulated upstream since last interval.
-              # POST /repos/{owner}/{repo}/mirror-sync — fire-and-forget.
-              wget -q -O /dev/null \
-                --post-data='' \
-                --header="Authorization: Basic ${basic_auth}" \
-                "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}/mirror-sync" 2>/dev/null || true
+              echo "[gitea-mirror] repo already present (idempotent re-run); refreshing content"
             fi
 
-            # 3. Verify the mirror config landed. Read back the repo
-            #    metadata and confirm mirror=true + mirror_interval set.
-            #    This is the "no manual git fetch ever again" assertion.
+            # 3. Bare-clone upstream and push to local Gitea. --mirror
+            #    pushes ALL refs (every branch + tag), --force makes
+            #    re-runs idempotent (the upstream may have rewritten
+            #    history; we want local to match exactly).
+            export HOME=/tmp
+            git config --global user.name "self-sovereign-cutover"
+            git config --global user.email "cutover@${gitea_host}"
+            git config --global advice.detachedHead false
+
+            local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            workdir=$(mktemp -d)
+            cd "${workdir}"
+            echo "[gitea-mirror] cloning ${UPSTREAM_REPO_URL} (bare)"
+            git clone --bare "${UPSTREAM_REPO_URL}" upstream.git >/dev/null 2>&1
+            cd upstream.git
+            echo "[gitea-mirror] pushing all refs to ${redacted_url}"
+            push_err=$(git push --mirror --force "${local_url}" 2>&1) || {
+              echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
+              # Surface git stderr WITHOUT the embedded credential — git
+              # redacts URLs in error messages by default but be defensive.
+              printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+              exit 1
+            }
+            echo "[gitea-mirror] pushed all refs successfully"
+
+            # 4. Verify by reading back the default branch SHA and
+            #    confirming non-empty (auto_init=false means a missing
+            #    push leaves the repo "empty: true").
             repo_meta=$(wget -q -O - \
               --header="Authorization: Basic ${basic_auth}" \
               "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
-            # Lightweight JSON probe — no jq in alpine/git. We only need
-            # to confirm `"mirror":true` and the interval string land.
-            if printf '%s' "${repo_meta}" | grep -q '"mirror":true'; then
-              echo "[gitea-mirror] verified: mirror=true on ${GITEA_ORG}/${GITEA_REPO}"
+            if printf '%s' "${repo_meta}" | grep -q '"empty":false'; then
+              echo "[gitea-mirror] verified: repo has content (empty=false)"
             else
-              echo "[gitea-mirror] WARN: mirror flag not visible in repo metadata"
-              echo "[gitea-mirror] (legacy chart < 0.1.14 seed; auto-sync will not engage)"
+              echo "[gitea-mirror] WARN: repo metadata still reports empty=true — push may not have landed"
             fi
-            if printf '%s' "${repo_meta}" | grep -q "\"mirror_interval\":\"${MIRROR_INTERVAL}\""; then
-              echo "[gitea-mirror] verified: mirror_interval=${MIRROR_INTERVAL}"
+            if printf '%s' "${repo_meta}" | grep -q '"mirror":false'; then
+              echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
             echo "[gitea-mirror] step complete"
         resources:
