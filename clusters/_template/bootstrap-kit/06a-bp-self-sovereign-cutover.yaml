@@ -162,7 +162,19 @@ spec:
       #     via TokenReview. The Job now mounts its projected SA
       #     token at /var/run/secrets/kubernetes.io/serviceaccount/
       #     token and sends it as `Authorization: Bearer <token>`.
-      version: 0.1.17
+      # 0.1.18: Auto-trigger readiness probe loops on 401 (#957).
+      #   0.1.17 polled /api/v1/sovereign/cutover/status to check
+      #   "is catalyst-api up yet?" That endpoint lives INSIDE
+      #   RequireSession and returned 401 to every unauthenticated
+      #   probe from the in-cluster Job. The probe treated 401 as
+      #   "API not ready" → loop never broke → /internal/cutover/
+      #   trigger was never called → cutover never fired (caught
+      #   live on otech113 2026-05-05). Fix: poll /healthz
+      #   (unauthenticated, always 200 when the process is up).
+      #   Also drops the pre-flight cutoverComplete=true short-
+      #   circuit since /internal/cutover/trigger is itself
+      #   idempotent.
+      version: 0.1.18
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

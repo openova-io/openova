@@ -197,4 +197,52 @@ if grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep -q 'name: harbor-c
 fi
 echo "  PASS (Step 02 references harbor-admin)"
 
+echo "[cutover-contract] Case 13: readiness probe targets /healthz, NOT /sovereign/cutover/status (#957)"
+# Chart 0.1.17 polled /api/v1/sovereign/cutover/status to test
+# "is catalyst-api up yet?" That endpoint sits inside RequireSession
+# and returns 401 to every unauthenticated probe from the in-cluster
+# Job — the probe treated 401 as "not ready" → loop never broke →
+# /internal/cutover/trigger was never called → cutover never fired
+# (caught live on otech113 2026-05-05).
+#
+# 0.1.18 polls /healthz instead (unauthenticated, always 200 when
+# the process is up). This gate guards against future regressions
+# that re-introduce an auth-gated readiness probe.
+if ! grep -q 'healthz_url=' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job missing healthz_url= readiness probe target" >&2
+  exit 1
+fi
+if ! grep -q '/healthz' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job does NOT include the /healthz probe path" >&2
+  exit 1
+fi
+# The readiness loop must NOT poll /sovereign/cutover/status. The
+# auto-trigger code intentionally uses the unauthenticated /healthz
+# probe; any future re-introduction of a session-cookie-gated probe
+# would silently re-break the same way 0.1.17 did. We assert no
+# poll-loop variable is set to a /sovereign/cutover/* URL by checking
+# that no shell-line of the form `<id>=...sovereign/cutover/status...`
+# appears in the rendered Job. The string itself is allowed in
+# documentation comments — that's why we anchor on `=` (assignment),
+# not just substring presence.
+if grep -E '^\s*[a-zA-Z_][a-zA-Z0-9_]*=.*/api/v1/sovereign/cutover/status' "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: auto-trigger Job polls /sovereign/cutover/status as a readiness probe (auth-gated, 401-loops)" >&2
+  exit 1
+fi
+echo "  PASS (readiness probe is /healthz)"
+
+echo "[cutover-contract] Case 14: no early cutoverComplete short-circuit on auth-gated /status (#957)"
+# 0.1.17 had a pre-flight 'if cutoverComplete=true exit 0' check that
+# parsed the response body of /sovereign/cutover/status. Even if a
+# future change moves that check elsewhere, it must NOT depend on a
+# response body fetched from an auth-gated endpoint. The /internal/
+# cutover/trigger endpoint is itself idempotent (returns 200 with the
+# existing snapshot when cutoverComplete=true; cutover_internal.go
+# line 279) so no separate pre-read is needed.
+if grep -E "grep.*cutoverComplete.*/tmp/status\.json" "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: auto-trigger Job retains the 0.1.17 cutoverComplete pre-read off /tmp/status.json — that file no longer exists" >&2
+  exit 1
+fi
+echo "  PASS (no stale cutoverComplete pre-read)"
+
 echo "[cutover-contract] All gates green."
