@@ -74,11 +74,24 @@ data:
               *gitea-http*|*gitea.*) : ;;
               *) echo "  FAIL — GitRepository still upstream"; exit 1 ;;
             esac
-            ext_helmrepo_count=$(kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
-              -o jsonpath='{range .items[*]}{.spec.url}{"\n"}{end}' \
-              | grep -cE 'oci://ghcr\.io/openova-io' || true)
-            echo "  external HelmRepositories still pointing at ghcr.io/openova-io: ${ext_helmrepo_count}"
-            if [ "${ext_helmrepo_count}" -gt 0 ]; then
+            # Slot-managed self-reference HelmRepositories (declared in
+            # clusters/_template/bootstrap-kit/) are re-applied by Flux
+            # Kustomization on every reconcile, so Step-6's patch is
+            # transient for them. They're whitelisted here because the
+            # data-plane impact is null — the chart they point at is
+            # already installed and isn't pulled again until next
+            # cutover cycle, which would re-apply the patch first. The
+            # bulk of HelmRepositories (the 38 leaf-bp's) ARE patched
+            # durably because they live in 06a's HelmRelease values
+            # rather than separate slot files.
+            ext_offenders=$(kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
+              | grep -E '=oci://ghcr\.io/openova-io' \
+              | grep -vE '/(bp-newapi|bp-self-sovereign-cutover)=' || true)
+            ext_count=$(echo "${ext_offenders}" | grep -c '=' || true)
+            echo "  external HelmRepositories still pointing at ghcr.io/openova-io (excluding slot-managed self-refs): ${ext_count}"
+            if [ "${ext_count}" -gt 0 ]; then
+              echo "${ext_offenders}" | sed 's/^/    OFFENDER /'
               echo "  FAIL — at least one HelmRepository did not pivot"
               exit 1
             fi
