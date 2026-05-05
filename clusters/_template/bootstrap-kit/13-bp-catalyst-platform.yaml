@@ -104,6 +104,16 @@ spec:
       # /auth/send-pin → SendMagicLink (and /auth/verify-pin →
       # VerifyMagicLink) so the UI's PIN-naming reaches the existing
       # backend handler.
+      # 1.4.13 (issue #882): NEW templates/sme-services/sme-tenants-
+      # kustomization.yaml renders a Flux Kustomization in flux-system
+      # that watches ./clusters/<sov-fqdn>/sme-tenants — the path the
+      # catalyst-api SME-tenant orchestrator (sme_tenant_gitops.go)
+      # commits per-tenant overlays to. Without this, POST
+      # /api/v1/sme/tenants reached state=done optimistically but no
+      # K8s resources materialised because nothing reconciled the
+      # orchestrator's write target. Gated on
+      # ingress.marketplace.enabled — non-marketplace Sovereigns don't
+      # run the SME tenant pipeline.
       version: 1.4.13
       sourceRef:
         kind: HelmRepository

@@ -176,6 +176,73 @@ ingress:
   marketplace:
     enabled: false
 
+# ─── SME tenant overlay reconciler (issue #882) ───────────────────────────
+# Flux Kustomization shipped by templates/sme-services/sme-tenants-
+# kustomization.yaml. Watches the path the catalyst-api SME-tenant
+# orchestrator (sme_tenant_gitops.go::WriteTenantOverlay) commits
+# per-tenant overlays to:
+#
+#   ./clusters/<global.sovereignFQDN>/sme-tenants
+#
+# Without it, every POST /api/v1/sme/tenants reaches state=done
+# optimistically but the per-tenant K8s resources (Namespace, vCluster,
+# bp-keycloak / bp-cnpg / bp-wordpress-tenant / bp-openclaw /
+# bp-stalwart-tenant HRs) never materialise. Caught live on otech103,
+# 2026-05-04.
+#
+# Gated on ingress.marketplace.enabled (non-marketplace Sovereigns
+# don't run the SME tenant pipeline).
+#
+# Per Inviolable Principle #4 (never hardcode), every operationally-
+# meaningful value is operator-overridable. Defaults match the
+# canonical bootstrap-kit conventions documented in
+# clusters/_template/bootstrap-kit/03-flux.yaml + the cloud-init
+# flux-bootstrap.yaml block (which seeds flux-system/openova
+# GitRepository).
+smeTenants:
+  kustomization:
+    # Resource name. Default `sme-tenants` — short, ops-readable,
+    # appears in `kubectl get kustomization -n flux-system`.
+    name: sme-tenants
+    # Lives in flux-system alongside the cluster's other Kustomizations
+    # (bootstrap-kit, sovereign-tls, infrastructure-config) so operator
+    # tooling can discover it via the standard `-n flux-system` flag.
+    namespace: flux-system
+    # The same GitRepository the cluster bootstraps from. Cutover
+    # Step 5 patches its .spec.url from github.com to the local
+    # in-cluster Gitea (http://gitea-http.gitea.svc.cluster.local:3000/
+    # openova/openova) — exactly the URL sme_tenant_gitops.go pushes
+    # via CATALYST_GITOPS_REPO_URL. Operator overlays MAY repoint at
+    # a different GitRepository name (e.g. an SME-tenants-only repo
+    # split out of the monorepo) without forking the chart.
+    sourceRef:
+      name: openova
+      namespace: flux-system
+    # Reconcile cadence. 1m matches the orchestrator's documented
+    # "Flux on the OTECH cluster reconciles within ~1 min" SLA at the
+    # top of sme_tenant_gitops.go.
+    interval: 1m
+    # Same as interval — failed reconciles release the revision lock
+    # quickly so a per-tenant fix lands on the next poll.
+    retryInterval: 1m
+    # Per-tenant overlays each install ~5 bp-* HelmReleases that take
+    # multiple minutes to roll. 5m bounds the apply attempt without
+    # falsely declaring readiness or holding the lock too long. Each
+    # tenant's full readiness is owned by the orchestrator's watcher
+    # loop, not this Kustomization (wait: false below).
+    timeout: 5m
+    # DELETE /api/v1/sme/tenants/<id> removes the per-tenant overlay
+    # directory. Flux GCs the corresponding K8s resources via the
+    # Kustomization's prune contract.
+    prune: true
+    # Each tenant overlay's HelmReleases install asynchronously and
+    # have their own readiness watcher in the SME-tenant orchestrator.
+    # Blocking this top-level Kustomization on every tenant's full
+    # readiness would let one stuck tenant gate every other tenant's
+    # reconcile — a single CrashLooping bp-keycloak in tenant A would
+    # prevent tenant B from being created.
+    wait: false
+
 # Marketplace operator branding + payment + signup config (issue #710).
 # Operator-supplied at provision time; rendered into ConfigMaps consumed
 # by templates/sme-services/marketplace.yaml + admin.yaml. Defaults are

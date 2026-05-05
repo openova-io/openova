@@ -694,6 +694,58 @@ description: |
       wired by api-deployment.yaml from the sovereign-fqdn ConfigMap.
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.11 → 1.4.12. 2026-05-05.
+
+  Bumped to 1.4.13 — Flux Kustomization watching SME tenant overlays
+  (issue #882, 2026-05-05). The catalyst-api SME-tenant pipeline's
+  GitOps writer (sme_tenant_gitops.go::WriteTenantOverlay) commits
+  per-tenant Kustomize overlays to clusters/<sov-fqdn>/sme-tenants/
+  <tenant-id>/ on every successful POST /api/v1/sme/tenants — but no
+  Flux Kustomization on the Sovereign cluster watched that path. The
+  state machine (sme_tenant.go) advanced optimistically through every
+  step (vcluster → bp_charts → dns → certs → keycloak_clients →
+  registry) and reported state=done, while no actual K8s resources
+  materialised because nothing was reconciling the orchestrator's
+  write target.
+
+  Verified live on otech103 (2026-05-04 23:18 Berlin): the orchestrator
+  successfully committed the 9-file overlay for tenant 15f1e45e-...
+  to the local Gitea openova/openova repo @main, but `kubectl get hr
+  -n sme-15f1e45e-...` returned No resources found indefinitely.
+
+  Fix: NEW templates/sme-services/sme-tenants-kustomization.yaml,
+  gated on .Values.ingress.marketplace.enabled (same flag the rest of
+  the SME bundle uses) — non-marketplace Sovereigns don't run the SME
+  tenant pipeline so they don't render this Kustomization. Renders one
+  Flux Kustomization in flux-system that sweeps the entire
+  ./clusters/<sovereignFQDN>/sme-tenants directory tree:
+    - sourceRef:  flux-system/openova GitRepository (the same one the
+                  cluster bootstraps from; cutover Step 5 flips its
+                  .spec.url to the local in-cluster Gitea, which is
+                  precisely where sme_tenant_gitops.go pushes via
+                  CATALYST_GITOPS_REPO_URL=http://gitea-http.gitea.svc
+                  .cluster.local:3000/openova/openova)
+    - path:       ./clusters/{{ .Values.global.sovereignFQDN }}/sme-tenants
+    - interval:   1m (matches the orchestrator's "Flux reconciles
+                  within ~1 min" SLA documented at the top of
+                  sme_tenant_gitops.go)
+    - prune:      true (DELETE /api/v1/sme/tenants/<id> removes the
+                  overlay directory; Flux GCs the tenant resources)
+    - wait:       false (per-tenant overlays each install ~5 bp-* HRs
+                  asynchronously and have their own readiness watcher
+                  in the orchestrator; blocking this top-level
+                  Kustomization on every tenant's full readiness would
+                  let one stuck tenant gate every other tenant)
+
+  Per Inviolable Principle #4 (never hardcode), every knob is
+  operator-overridable via .Values.smeTenants.kustomization.* —
+  the GitRepository sourceRef name/namespace, the resource name,
+  the cadence (interval/retryInterval/timeout), and the toggles
+  (prune/wait). Defaults match the canonical bootstrap-kit
+  conventions documented in clusters/_template/bootstrap-kit/03-flux
+  .yaml + the cloud-init flux-bootstrap.yaml block.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.12 → 1.4.13. 2026-05-05.
 type: application
 
