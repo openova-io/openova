@@ -98,6 +98,7 @@ export function useSubdomainAvailability(
       try {
         const res = await fetch(`${API_BASE}/v1/subdomains/check`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subdomain: sub, poolDomain: pool }),
           signal: ctrl.signal,
