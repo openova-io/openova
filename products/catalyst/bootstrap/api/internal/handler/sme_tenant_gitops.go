@@ -67,15 +67,17 @@ type DefaultSMETenantGitOpsWriter struct {
 // generator emits for each bp-* HelmRelease. The orchestrator's
 // wiring (main.go) reads each from env (CATALYST_SME_BP_KEYCLOAK_VER,
 // CATALYST_SME_BP_CNPG_VER, CATALYST_SME_BP_WORDPRESS_VER,
-// CATALYST_SME_BP_OPENCLAW_VER, CATALYST_SME_BP_STALWART_VER); when
-// any is empty the generator falls back to "*" so Flux pulls the
-// latest matching chart in the repository.
+// CATALYST_SME_BP_OPENCLAW_VER, CATALYST_SME_BP_STALWART_VER,
+// CATALYST_SME_BP_NEWAPI_VER); when any is empty the generator falls
+// back to "*" so Flux pulls the latest matching chart in the
+// repository.
 type SMETenantChartVersions struct {
 	Keycloak  string
 	CNPG      string
 	WordPress string
 	OpenClaw  string
 	Stalwart  string
+	NewAPI    string
 }
 
 // WriteTenantOverlay implements SMETenantGitOpsWriter. Returns the
@@ -294,6 +296,18 @@ apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-cnpg
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-newapi
   namespace: flux-system
 spec:
   type: oci
@@ -532,6 +546,7 @@ func withVersionDefaults(v SMETenantChartVersions) SMETenantChartVersions {
 		WordPress: star(v.WordPress),
 		OpenClaw:  star(v.OpenClaw),
 		Stalwart:  star(v.Stalwart),
+		NewAPI:    star(v.NewAPI),
 	}
 }
 
@@ -545,6 +560,7 @@ var smeTenantTemplates = map[string]string{
 	"vcluster.yaml":            smeTenantVCluster,
 	"bp-keycloak.yaml":         smeTenantBPKeycloak,
 	"bp-cnpg.yaml":             smeTenantBPCNPG,
+	"bp-newapi.yaml":           smeTenantBPNewAPI,
 	"bp-wordpress-tenant.yaml": smeTenantBPWordPress,
 	"bp-openclaw.yaml":         smeTenantBPOpenClaw,
 	"bp-stalwart-tenant.yaml":  smeTenantBPStalwart,
@@ -560,6 +576,7 @@ resources:
   - vcluster.yaml
   - bp-keycloak.yaml
   - bp-cnpg.yaml
+  - bp-newapi.yaml
   - bp-wordpress-tenant.yaml
   - bp-openclaw.yaml
   - bp-stalwart-tenant.yaml
@@ -799,6 +816,174 @@ spec:
       monitoring:
         # Default OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
         podMonitorEnabled: false
+`
+
+// smeTenantBPNewAPI emits the per-tenant bp-newapi HelmRelease (#945).
+//
+// Architecture: every SME runs ITS OWN NewAPI gateway. alice's OpenClaw
+// boots and points at https://api.alice.<parent>/v1 (set by
+// smeTenantBPOpenClaw). That hostname MUST resolve to a per-tenant
+// NewAPI Pod with its own Postgres-backed channels list, its own admin
+// UI gated by the tenant Keycloak realm, and its own customer-API key
+// minted by Catalyst on signup. A shared otech-wide newapi.<otech-fqdn>
+// would defeat per-tenant channel routing (alice and bob would share
+// the same channel set + audit log + commercial-contract attestation).
+//
+// Values contract (chart >= 1.3.0, see platform/newapi/chart/values.yaml):
+//   - sovereignFQDN          → drives the OpenBao path convention for
+//                              ExternalSecrets (sovereign/<fqdn>/...).
+//   - ingress.host           → customer-facing OpenAI-compatible API at
+//                              api.<sub>.<parent>/v1
+//   - ingress.adminHost      → ops-staff admin UI at
+//                              admin.<sub>.<parent>
+//   - auth.adminUI           → mode=keycloak, issuer = per-tenant realm
+//                              (alice's tenant Keycloak), clientId
+//                              "newapi-admin" registered by the tenant
+//                              realm-config (see #910/#915 C1).
+//   - auth.customerAPI       → keyIssuer=catalyst (Catalyst mints
+//                              per-user bearer keys on signup; the
+//                              upstream's self-serve portal is OFF).
+//   - database.existingSecret → newapi-pg-app — the Secret bp-cnpg's
+//                              CNPG Cluster auto-renders for the
+//                              "newapi" Database (cnpg.enabled=true so
+//                              per-tenant Postgres auto-provisions per
+//                              #943).
+//   - credentials.existingSecret → newapi-credentials — pulled from
+//                              OpenBao via ExternalSecret carrying the
+//                              SESSION_SECRET + CRYPTO_SECRET keys.
+//   - defaultChannels.qwenBankDhofar → channel #1 = Qwen3.6@BankDhofar
+//                              auto-seeded at install time (canonical
+//                              first-otech default per #915 C4 PR #919).
+//
+// dependsOn: bp-keycloak (OIDC for admin UI) + bp-cnpg (Postgres
+// backend). Ordering matters — without it the chart's channel-seed
+// post-install Job races the readiness of the dependencies and Flux
+// retries cost minutes.
+const smeTenantBPNewAPI = `# bp-newapi per-tenant (#915, #945) — alice's own NewAPI gateway.
+#
+# Per umbrella epic #915 + bug #945 (G3 surfaced 2026-05-05): every SME
+# tenant runs its own NewAPI Pod with its own channels list + admin UI.
+# OpenClaw's llm.baseURL points here (api.<sub>.<parent>/v1) so each
+# tenant's chats route through their own NewAPI which proxies to the
+# configured channel — Qwen3.6@BankDhofar wired by C4 (PR #919).
+#
+# A shared otech-wide newapi.<otech-fqdn> would defeat per-tenant
+# channel routing, audit isolation, and commercial-contract attestation
+# (alice and bob would share the same upstream account). Hence per-
+# tenant deployment.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-newapi
+  namespace: {{.Namespace}}
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: bp-newapi
+      version: "{{.ChartVersions.NewAPI}}"
+      sourceRef:
+        kind: HelmRepository
+        name: bp-newapi
+        namespace: flux-system
+  install:
+    timeout: 15m
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+  dependsOn:
+    - name: bp-keycloak
+      namespace: {{.Namespace}}
+    - name: bp-cnpg
+      namespace: {{.Namespace}}
+  values:
+    # Per-tenant identity zone — drives the OpenBao path convention for
+    # ExternalSecrets (sovereign/<fqdn>/newapi/...). The sub.parent form
+    # makes the path tenant-unique on a multi-tenant Sovereign.
+    sovereignFQDN: {{.Subdomain}}.{{.ParentDomain}}
+    # ── Postgres backend (bp-cnpg in tenant ns auto-provisions) ────────
+    # bp-cnpg renders a per-database app Secret named "<db>-app" (#943).
+    # The NewAPI chart consumes the canonical SQL_DSN key.
+    database:
+      existingSecret: newapi-pg-app
+      existingSecretKey: SQL_DSN
+    # ── App credentials (SESSION_SECRET + CRYPTO_SECRET) ──────────────
+    # Materialised by an ExternalSecret pulling from the per-tenant
+    # OpenBao path. The chart's manifest fails render if the Secret is
+    # missing both keys; the operator overlay seeds them out-of-band on
+    # tenant creation (bootstrap-kit reflector setup).
+    credentials:
+      existingSecret: newapi-credentials
+    # ── Auth: ops-staff admin UI gated by per-tenant Keycloak ─────────
+    # Customer-facing API uses Catalyst-minted keys (NewAPI's self-serve
+    # portal stays OFF on Catalyst Sovereigns per platform/newapi).
+    auth:
+      adminUI:
+        mode: keycloak
+        keycloak:
+          issuer: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+          clientId: newapi-admin
+          callbackPath: /oauth/callback
+          existingSecret: newapi-oidc-client-secret
+      customerAPI:
+        keyIssuer: catalyst
+    # ── Ingress + cert-manager TLS ────────────────────────────────────
+    # Two virtual hosts:
+    #   api.<sub>.<parent>    → customer-facing OpenAI-compatible /v1/*
+    #                          endpoint OpenClaw's llm.baseURL points to.
+    #   admin.<sub>.<parent>  → ops-staff admin UI (OIDC against tenant
+    #                          Keycloak realm).
+    # The wildcard *.<parent> Cert covers the free-subdomain mode hosts;
+    # BYO mode adds explicit dnsNames in certificate.yaml above.
+    ingress:
+      enabled: true
+      className: traefik
+      host: api.{{.Subdomain}}.{{.ParentDomain}}
+      adminHost: admin.{{.Subdomain}}.{{.ParentDomain}}
+      tls:
+        enabled: true
+        issuer: letsencrypt-prod
+        apiSecretName: newapi-api-tls
+        adminSecretName: newapi-admin-tls
+    # ── Default channels: Qwen3.6 @ BankDhofar (canonical #915 C4) ────
+    # Channel #1 — auto-seeded at install time by the chart's
+    # post-install/post-upgrade channel-seed Helm hook Job. The seed
+    # Job probes NewAPI's admin API via GET /api/channel/?keyword=NAME
+    # (idempotent) and POSTs the channel if missing. The accountId +
+    # contractRef carry the commercial-contract attestation per
+    # platform/newapi/README.md compliance posture (operator overlay
+    # supplies the legal-team-owned contract reference).
+    defaultChannels:
+      qwenBankDhofar:
+        enabled: true
+        name: qwen3.6-bankdhofar
+        endpoint: https://llm-api.omtd.bankdhofar.com
+        models:
+          - qwen3.6
+          - qwen3-coder
+        existingSecret: newapi-channel-qwen-bankdhofar
+        existingSecretKey: API_KEY
+        attestation:
+          kind: commercial-contract
+          accountId: bankdhofar-omtd
+          contractRef: sovereign/{{.OTECHFQDN}}/newapi/qwen-bankdhofar/contract
+    # ── Catalyst integration — admin token for per-user key minting ──
+    # ADR-0003 §3.2: Catalyst's signup hook reads this Secret and POSTs
+    # against NewAPI's admin API with Authorization: Bearer header to
+    # issue per-user customer-API keys. The token is rotated per the
+    # convention in docs/CATALYST-CLI-AGENT.md.
+    catalystIntegration:
+      enabled: true
+      existingSecret: catalyst-newapi-admin-token
+      externalSecret:
+        enabled: true
+        refreshInterval: 1h
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: vault-region1
+        remoteRef:
+          key: sovereign/{{.OTECHFQDN}}/newapi/{{.TenantID}}/admin-token
+          property: ADMIN_API_TOKEN
 `
 
 const smeTenantBPWordPress = `# bp-wordpress-tenant (#800, #915) — SSO-pre-wired WordPress per SME.

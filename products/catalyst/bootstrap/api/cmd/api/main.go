@@ -330,6 +330,7 @@ func main() {
 					WordPress: os.Getenv("CATALYST_SME_BP_WORDPRESS_VER"),
 					OpenClaw:  os.Getenv("CATALYST_SME_BP_OPENCLAW_VER"),
 					Stalwart:  os.Getenv("CATALYST_SME_BP_STALWART_VER"),
+					NewAPI:    os.Getenv("CATALYST_SME_BP_NEWAPI_VER"),
 				},
 			}
 			// DNS provisioner — wraps PowerDNS for free-subdomain
