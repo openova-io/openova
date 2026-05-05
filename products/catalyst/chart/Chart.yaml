@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.8
-appVersion: 1.4.8
+version: 1.4.9
+appVersion: 1.4.9
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -590,6 +590,18 @@ description: |
       authorised by Gateway API.
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.7 → 1.4.8. 2026-05-04.
+
+  1.4.9 (issue #871): no template change — chart-version-only bump to
+  republish the OCI artifact with the current services-auth image SHA
+  baked into templates/sme-services/auth.yaml. 1.4.8 was published from
+  commit 95a06f56 BEFORE the deploy-bot updated auth.yaml's image pin
+  from `services-auth:fa4395f` (old) → `services-auth:95a06f5` (new,
+  with the /auth/send-pin alias), so 1.4.8 OCI bytes still reference
+  the OLD SHA and otech103 reconciled the broken image. Bumping the
+  chart version forces blueprint-release to publish a fresh artifact
+  with the current pin. Same race documented in
+  feedback_idempotent_iac_purge.md and overnight DoD doc as
+  "deploy-step race". Lockstep slot 13 pin bumps to 1.4.9. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

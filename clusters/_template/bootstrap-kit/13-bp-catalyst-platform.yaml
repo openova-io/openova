@@ -104,7 +104,7 @@ spec:
       # /auth/send-pin → SendMagicLink (and /auth/verify-pin →
       # VerifyMagicLink) so the UI's PIN-naming reaches the existing
       # backend handler.
-      version: 1.4.8
+      version: 1.4.9
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
