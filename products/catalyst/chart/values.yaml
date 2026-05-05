@@ -125,9 +125,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "2ff50f0"
+    tag: "ae5766f"
   catalystUi:
-    tag: "2ff50f0"
+    tag: "ae5766f"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
