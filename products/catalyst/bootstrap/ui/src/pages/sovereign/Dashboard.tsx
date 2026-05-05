@@ -130,7 +130,7 @@ export function Dashboard({
   initialColorBy,
   initialSizeBy,
 }: DashboardProps = {}) {
-  const { deploymentId: resolved, isLoading: idLoading } = useResolvedDeploymentId()
+  const { deploymentId: resolved } = useResolvedDeploymentId()
   const deploymentId = resolved ?? ''
   const router = useRouter()
 
