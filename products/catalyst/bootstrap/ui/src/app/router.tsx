@@ -91,7 +91,7 @@ const rootRoute = createRootRoute({ component: RootLayout })
  * Index redirect — mode-aware.
  *
  * catalyst-zero (console.openova.io): redirect to /wizard (Provisioning Wizard)
- * sovereign (console.<sov-fqdn>):     redirect to /console/dashboard (Sovereign Console)
+ * sovereign (console.<sov-fqdn>):     redirect to /dashboard (Sovereign Console clean root)
  *
  * IS_SAAS is preserved as a higher-priority override for the Catalyst-Zero
  * SaaS variant of the platform where local auth is used.
@@ -106,7 +106,7 @@ const indexRoute = createRoute({
   path: '/',
   beforeLoad: () => {
     if (IS_SAAS) throw redirect({ to: '/login' })
-    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/console/dashboard' as never })
+    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/dashboard' as never })
     throw redirect({ to: '/wizard' })
   },
 })
@@ -132,8 +132,8 @@ const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgo
  *   GET /auth/callback?code=<code>&state=<state>
  *
  * AuthCallbackPage exchanges the code for tokens, then navigates to
- * /console/dashboard. The route is intentionally outside the
- * SovereignConsoleLayout so it runs before auth state is resolved.
+ * /dashboard (clean Sovereign root). The route is intentionally outside
+ * the SovereignConsoleLayout so it runs before auth state is resolved.
  */
 const authCallbackRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -146,11 +146,11 @@ const authCallbackRoute = createRoute({
  *
  * The server-side (Agent C / catalyst-api on the Sovereign) handles
  * POST /auth/handover — it validates the JWT, creates a Keycloak session,
- * and returns 302 with session cookies to /console/dashboard.
+ * and returns 302 with session cookies to /dashboard.
  *
  * The client does NOT intercept this URL at the fetch level. If the
  * browser lands here (unlikely — the server redirect should carry the
- * browser directly to /console/dashboard), redirect immediately.
+ * browser directly to /dashboard), redirect immediately.
  *
  * This route exists purely as a safety net to prevent a TanStack Router
  * 404 in case the server 302 for some reason resolves to a client-side
@@ -160,7 +160,7 @@ const authHandoverRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/handover',
   beforeLoad: () => {
-    throw redirect({ to: '/console/dashboard' as never, replace: true })
+    throw redirect({ to: '/dashboard' as never, replace: true })
   },
   component: () => null,
 })
