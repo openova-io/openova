@@ -78,6 +78,108 @@ smtp:
   starttls: "true"
   auth: "true"
 
+# ─── Per-tenant realm configuration (issue #915, SME multi-tenant SSO) ────
+#
+# When the bp-keycloak chart is installed for an SME tenant (one Keycloak
+# Pod per SME under a per-tenant Namespace), the Sovereign realm import
+# is NOT what we want — the tenant has its own realm with per-app OIDC
+# clients (wordpress / openclaw / stalwart) so each app federates against
+# THIS tenant's identity store, not the Sovereign-wide one.
+#
+# Set realmConfig.tenant.enabled=true to switch the chart into tenant
+# mode:
+#   - configmap-sovereign-realm.yaml SKIPS (gated mutual exclusion)
+#   - configmap-tenant-realm.yaml RENDERS with the tenant realm JSON
+#     and three per-app OIDC client Secrets (wordpress-oidc-client-secret,
+#     openclaw-oidc-client-secret, stalwart-oidc-client-secret) that the
+#     downstream bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant
+#     charts consume via secretKeyRef.
+#   - The keycloak-config-cli post-install Job picks up the tenant
+#     ConfigMap (same name `{{ .Release.Name }}-sovereign-realm-config`
+#     so the existing existingConfigmap reference still resolves) and
+#     imports the tenant realm idempotently.
+#
+# Per-app client secrets persist via Helm `lookup` (same pattern as
+# templates/configmap-sovereign-realm.yaml's catalystApiServerClientSecret
+# resolution and products/catalyst/chart/templates/marketplace-api/
+# secret.yaml's jwt-secret pattern) — first install generates a fresh
+# random; subsequent reconciles re-emit the existing bytes verbatim so
+# downstream apps don't see secret rotation.
+#
+# Per Inviolable Principle #4 (never hardcode), every host-derived field
+# is templated off `realmConfig.tenant.parentDomain` +
+# `realmConfig.tenant.subdomain` (or operator-supplied per-app hosts).
+# Per Inviolable Principle #10 (never print credentials), the per-app
+# client secrets only land in the generated K8s Secret bytes — never in
+# stdout / logs / git.
+realmConfig:
+  tenant:
+    # Master switch — when false (default), chart stays in Sovereign mode.
+    enabled: false
+    # Realm name in the tenant Keycloak (e.g. `sme-acme`). REQUIRED when
+    # enabled=true. Convention: `sme-<subdomain>` matching the tenant
+    # subdomain registered in the SME pool (multi-domain Sovereign #826).
+    realmName: ""
+    # Display name shown in the Keycloak login UI — typically the SME's
+    # company name. Falls back to realmName if blank.
+    displayName: ""
+    # Tenant admin's email — receives the welcome / password-reset mail
+    # when keycloak-config-cli imports the realm with bootstrap users.
+    adminEmail: ""
+    # Tenant zone fields used to template default redirect / origin URIs.
+    # parentDomain example: omantel.omani.works ; subdomain example: acme.
+    # The chart computes default per-app hosts as
+    # <app>.<subdomain>.<parentDomain> when the per-app `host` is unset.
+    parentDomain: ""
+    subdomain: ""
+    # Default groups bootstrapped in the tenant realm. Mirror the
+    # sovereign-admins/sovereign-ops/sovereign-viewers triad at the SME
+    # level so RBAC scaffolding is consistent.
+    groups:
+      - sme-admins
+      - sme-users
+    # Per-app OIDC client configuration. Each block honours an operator-
+    # supplied `clientSecret` (rare; useful for sealed-secret replication)
+    # — when blank the chart looks up an existing K8s Secret in the
+    # release namespace and persists; on a fresh install a 32-char
+    # randAlphaNum value is generated.
+    wordpress:
+      # Public host the WordPress site is reachable at. Defaults to
+      # wordpress.<subdomain>.<parentDomain> when unset.
+      host: ""
+      # OIDC client ID — the bp-wordpress-tenant chart consumes this
+      # via .Values.keycloak.clientID (default "wordpress").
+      clientID: "wordpress"
+      # Pre-generated client secret. Leave blank for self-bootstrap via
+      # lookup-or-generate.
+      clientSecret: ""
+      # Name of the K8s Secret materialised in the tenant Namespace.
+      # bp-wordpress-tenant references this by default
+      # (`wordpress-oidc-client-secret`).
+      clientSecretName: "wordpress-oidc-client-secret"
+      # Redirect URIs registered in Keycloak. Leave empty to use the
+      # default templated off the host (the openid-connect-generic
+      # WP plugin's admin-ajax.php callback + /wp-login.php).
+      redirectURIs: []
+    openclaw:
+      host: ""
+      clientID: "openclaw"
+      clientSecret: ""
+      clientSecretName: "openclaw-oidc-client-secret"
+      # Default redirect URI: https://<host>/oauth/callback (per #915 spec)
+      redirectURIs: []
+    stalwart:
+      host: ""
+      clientID: "stalwart"
+      clientSecret: ""
+      clientSecretName: "stalwart-oidc-client-secret"
+      # Stalwart's `directory.keycloak` of type=oidc uses the
+      # client_credentials grant (serviceAccountsEnabled=true) to
+      # introspect tokens for IMAP/SMTP auth. The webmail UI also uses
+      # the auth-code flow — both flows are enabled on the same client
+      # by default so a single registration covers both sides.
+      redirectURIs: []
+
 # ─── Upstream chart values (subchart key: keycloak) ───────────────────────
 # Generated by docs/PROVISIONING-PLAN.md tickets [F] chart Pass 105+.
 keycloak:
