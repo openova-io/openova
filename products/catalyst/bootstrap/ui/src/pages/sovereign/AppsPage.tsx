@@ -352,7 +352,6 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             Provisioning
             <Link
               to={`/jobs` as never}
-              params={{ deploymentId }}
               className="ml-1 underline text-[var(--color-accent)]"
             >
               View jobs
@@ -361,7 +360,6 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         ) : streamStatus === 'completed' ? (
           <Link
             to={`/jobs` as never}
-            params={{ deploymentId }}
             className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           >
             View install history
@@ -486,7 +484,6 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               key={app.id}
               app={app}
               status={state.apps[app.id]?.status ?? 'pending'}
-              deploymentId={deploymentId}
               isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
             />
           ))}
@@ -499,7 +496,6 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
 interface AppCardProps {
   app: ApplicationDescriptor
   status: ApplicationStatus
-  deploymentId: string
   /**
    * Mirror of canonical `is-service`. The wizard catalog doesn't carry
    * an explicit service flag yet — keep the prop so adding one later
@@ -509,12 +505,12 @@ interface AppCardProps {
   isService: boolean
 }
 
-function AppCard({ app, status, deploymentId, isService }: AppCardProps) {
+function AppCard({ app, status, isService }: AppCardProps) {
   const stateClass = `state-${status}`
   return (
     <Link
       to={`/app/$componentId` as never}
-      params={{ deploymentId, componentId: app.id }}
+      params={{ componentId: app.id } as never}
       className={`app-card ${stateClass}${isService ? ' is-service' : ''}`}
       data-testid={`sov-app-card-${app.id}`}
       data-status={status}

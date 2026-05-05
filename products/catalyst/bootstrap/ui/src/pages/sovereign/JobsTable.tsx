@@ -143,8 +143,6 @@ export function formatRelative(iso: string | null): { display: string; absolute:
 interface JobsTableProps {
   /** Job list. Backend populates; UI sorts/filters in place. */
   jobs: readonly Job[]
-  /** Stable deployment id — embedded in the per-row link target. */
-  deploymentId: string
   /**
    * Optional pre-filter applied BEFORE search/filter dropdowns. Used
    * by AppDetail's Jobs tab to narrow the list to a single appId.
@@ -162,7 +160,7 @@ interface JobsTableProps {
 
 const STATUS_VALUES: readonly JobStatus[] = ['running', 'pending', 'succeeded', 'failed']
 
-export function JobsTable({ jobs, deploymentId, appIdFilter, initialParentFilter }: JobsTableProps) {
+export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableProps) {
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
   const [appFilter, setAppFilter] = useState<string>('')
@@ -331,7 +329,6 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialParentFilter
                 <JobRow
                   key={j.id}
                   job={j}
-                  deploymentId={deploymentId}
                   parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
                 />
               ))
@@ -345,11 +342,10 @@ export function JobsTable({ jobs, deploymentId, appIdFilter, initialParentFilter
 
 interface JobRowProps {
   job: Job
-  deploymentId: string
   parentLabel: string
 }
 
-function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
+function JobRow({ job, parentLabel }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   return (
     <tr
@@ -360,7 +356,7 @@ function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
       <td className="jobs-cell jobs-cell-name">
         <Link
           to={`/jobs/$jobId` as never}
-          params={{ deploymentId, jobId: job.id }}
+          params={{ jobId: job.id } as never}
           className="jobs-row-link"
           data-testid={`jobs-row-link-${job.id}`}
         >
@@ -392,7 +388,7 @@ function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
         {job.parentId ? (
           <Link
             to={`/jobs/$jobId` as never}
-            params={{ deploymentId, jobId: job.parentId }}
+            params={{ jobId: job.parentId } as never}
             className="jobs-chip jobs-chip-parent jobs-chip-link"
             data-testid={`jobs-cell-parent-${job.id}`}
             title={parentLabel}

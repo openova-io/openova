@@ -212,7 +212,7 @@ describe('JobsTable — formatDuration', () => {
 
 describe('JobsTable — render', () => {
   it('renders all leaf fixture rows by default (group rows hidden)', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
+    renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const rows = screen.getAllByTestId(/^jobs-table-row-/)
     const expectedLeafCount = FIXTURE_JOBS.filter((j) => j.type !== 'group').length
@@ -220,7 +220,7 @@ describe('JobsTable — render', () => {
   })
 
   it('search input filters the visible row count', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
+    renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const search = screen.getByTestId('jobs-search') as HTMLInputElement
     // Search for a query that exists in exactly one fixture job's
@@ -233,7 +233,7 @@ describe('JobsTable — render', () => {
   })
 
   it('status filter narrows to a single status', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
+    renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const statusFilter = screen.getByTestId('jobs-filter-status') as HTMLSelectElement
     fireEvent.change(statusFilter, { target: { value: 'failed' } })
@@ -243,7 +243,7 @@ describe('JobsTable — render', () => {
   })
 
   it('appIdFilter prop short-circuits to one appId (AppDetail Jobs tab — item #8b)', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1', appIdFilter: 'bp-cilium' })
+    renderTable({ jobs: FIXTURE_JOBS, appIdFilter: 'bp-cilium' })
     await screen.findByTestId('jobs-table')
     const rows = screen.getAllByTestId(/^jobs-table-row-/)
     // Only `job-install-cilium` carries appId='bp-cilium' in the fixture.
@@ -253,7 +253,7 @@ describe('JobsTable — render', () => {
   })
 
   it('renders all seven canonical columns', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
+    renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const headers = screen
       .getAllByRole('columnheader')
@@ -261,12 +261,12 @@ describe('JobsTable — render', () => {
     expect(headers).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
-  it('row link points at /provision/$deploymentId/jobs/$jobId', async () => {
-    renderTable({ jobs: FIXTURE_JOBS, deploymentId: 'd-1' })
+  it('row link points at the clean /jobs/$jobId path (post-#976 root URLs)', async () => {
+    renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const link = screen.getByTestId('jobs-row-link-job-install-cilium') as HTMLAnchorElement
     expect(link.tagName.toLowerCase()).toBe('a')
-    expect(link.getAttribute('href')).toBe('/provision/d-1/jobs/job-install-cilium')
+    expect(link.getAttribute('href')).toBe('/jobs/job-install-cilium')
   })
 
   // Issue #232 verbatim: "simulates 0 reducer-derived jobs + 5
@@ -316,7 +316,7 @@ describe('JobsTable — render', () => {
         startedAt: null, finishedAt: null, durationMs: 0,
       },
     ]
-    renderTable({ jobs: liveOnly, deploymentId: 'd-1' })
+    renderTable({ jobs: liveOnly })
     await screen.findByTestId('jobs-table')
     const rows = screen.getAllByTestId(/^jobs-table-row-/)
     expect(rows.length).toBe(5)
