@@ -524,6 +524,23 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # CATALYST_SELF_DEPLOYMENT_ID — the deployment-record id this
+            # Sovereign was provisioned under on the contabo orchestrator.
+            # Read by HandleSovereignSelf (sovereign_self.go) so the
+            # Sovereign-side catalyst-ui can resolve /console/<page> to the
+            # canonical /provision/<self-id>/<page> deployment-scoped UI.
+            # Sourced from the sovereign-fqdn ConfigMap (key
+            # selfDeploymentId), stamped by the orchestrator's per-
+            # Sovereign overlay writer at handover. Empty on contabo and
+            # on freshly-provisioned Sovereigns whose handover hasn't run
+            # yet — HandleSovereignSelf returns 503 in that window so
+            # the UI shows a "waiting for handover" pill.
+            - name: CATALYST_SELF_DEPLOYMENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: selfDeploymentId
+                  optional: true
             # SOVEREIGN_LB_IP — Sovereign's load-balancer public IPv4. Used by
             # the Day-2 multi-domain add-domain flow (issue #900) to
             # pre-register glue records at the customer's registrar before

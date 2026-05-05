@@ -55,4 +55,16 @@ data:
   # and falls back to plain set_ns. Operators on legacy Sovereigns
   # without this value wired set the env via per-cluster overlay.
   lbIP: {{ .Values.global.sovereignLBIP | default "" | quote }}
+  # selfDeploymentId — the catalyst-api deployment-record id this Sovereign
+  # was provisioned under on the contabo orchestrator. Stamped into the
+  # values block by the orchestrator's per-Sovereign overlay writer
+  # (products/catalyst/bootstrap/api/internal/handler/sovereign_*.go) so
+  # the Sovereign-side catalyst-api can answer GET /api/v1/sovereign/self
+  # which the SovereignConsoleRedirect React component reads to issue the
+  # `/console/<page>` → `/provision/<self-id>/<page>` redirect (the
+  # canonical pixel-byte-byte-identical UI contract).
+  #
+  # Empty until the per-Sovereign overlay carries it — UI then surfaces
+  # the 503 deployment-id-not-yet-stamped state instead of looping.
+  selfDeploymentId: {{ .Values.global.sovereignSelfDeploymentId | default "" | quote }}
 {{- end }}

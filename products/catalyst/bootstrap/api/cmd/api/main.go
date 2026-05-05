@@ -235,6 +235,21 @@ func main() {
 	// calls this.
 	r.Get("/api/v1/tenant/discover", h.HandleTenantDiscover)
 
+	// /api/v1/sovereign/self — Sovereign self-discovery (deployment id +
+	// FQDN) used by the catalyst-ui SovereignConsoleRedirect React
+	// component to map clean `/console/<page>` URLs on a Sovereign to the
+	// canonical deployment-scoped `/provision/<self-id>/<page>` pages
+	// that render the same byte-byte data the mothership serves at
+	// console.openova.io/sovereign/provision/<id>/<page>.
+	//
+	// Outside RequireSession: the response carries only public
+	// identifiers (deployment id + FQDN — both visible in URLs anyway).
+	// Bypassing the session gate keeps the redirect helper usable on
+	// the very first browser hit before the operator has logged in.
+	// Mothership returns 404 (CATALYST_OTECH_FQDN unset) — the UI hook
+	// silently falls back to URL params there. See sovereign_self.go.
+	r.Get("/api/v1/sovereign/self", h.HandleSovereignSelf)
+
 	// Wire the tenant registry — flat-file store at
 	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
 	// the catalyst-api is the host process for the unified-rbac slice

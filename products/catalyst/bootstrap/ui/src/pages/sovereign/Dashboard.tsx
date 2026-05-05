@@ -44,7 +44,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useRouter, Link } from '@tanstack/react-router'
+import { useRouter, Link } from '@tanstack/react-router'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useQuery } from '@tanstack/react-query'
 import { ResponsiveContainer, Treemap } from 'recharts'
 
@@ -129,10 +130,8 @@ export function Dashboard({
   initialColorBy,
   initialSizeBy,
 }: DashboardProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/dashboard' as never,
-  }) as { deploymentId: string }
-  const deploymentId = params.deploymentId
+  const { deploymentId: resolved, isLoading: idLoading } = useResolvedDeploymentId()
+  const deploymentId = resolved ?? ''
   const router = useRouter()
 
   const { snapshot } = useDeploymentEvents({

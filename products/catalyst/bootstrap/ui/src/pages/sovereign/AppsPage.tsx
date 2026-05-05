@@ -31,7 +31,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter, Link } from '@tanstack/react-router'
+import { useRouter, Link } from '@tanstack/react-router'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
@@ -49,8 +50,8 @@ interface AppsPageProps {
 type TabId = 'installed' | 'catalog'
 
 export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
-  const params = useParams({ from: '/provision/$deploymentId' as never }) as {
-    deploymentId: string
+  const params = useResolvedDeploymentId() as {
+    deploymentId: string | null
   }
   // The route param is a `string` from TanStack — validate it against
   // the branded `DeploymentID` shape at the boundary so a 15-char
@@ -58,7 +59,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   // down. We use `isDeploymentID` (rather than throwing parse) so the
   // page can render its own malformed-id banner without crashing the
   // route. Closes issues #749 + #754.
-  const rawDeploymentId = params.deploymentId
+  const rawDeploymentId = params.deploymentId ?? ''
   const deploymentIdValid = isDeploymentID(rawDeploymentId)
   const deploymentId = rawDeploymentId
   const router = useRouter()

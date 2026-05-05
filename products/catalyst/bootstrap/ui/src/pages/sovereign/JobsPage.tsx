@@ -17,7 +17,8 @@
  */
 
 import { useMemo } from 'react'
-import { useParams, Link } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
@@ -38,10 +39,8 @@ export function JobsPage({
   disableStream = false,
   disableJobsBackfill = false,
 }: JobsPageProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/jobs' as never,
-  }) as { deploymentId: string }
-  const { deploymentId } = params
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = resolvedId ?? ''
   const store = useWizardStore()
 
   const applications = useMemo(
