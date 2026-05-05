@@ -65,9 +65,12 @@ import type {
 } from '@/lib/infrastructure.types'
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
 import { hierarchyToGraph } from './adapter'
+import { k8sToGraph, mergeGraphs } from './k8sAdapter'
+import { useK8sCacheStream } from './useK8sCacheStream'
 import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
+  DEFAULT_INACTIVE_TYPES,
   EDGE_DASHED,
   EDGE_MARKER_END,
   EDGE_MARKER_START,
@@ -101,6 +104,15 @@ const TUNABLE_TYPES: ArchNodeType[] = [
   'Volume',
   'Service',
   'Ingress',
+  // K8s-side types — high-cardinality kinds whose density slider
+  // matters most. ConfigMap and Pod are also default-inactive (see
+  // DEFAULT_INACTIVE_TYPES) so they don't crowd the canvas before
+  // the operator opts in.
+  'Pod',
+  'Deployment',
+  'StatefulSet',
+  'DaemonSet',
+  'ConfigMap',
 ]
 
 const DEBOUNCE_MS = 400
@@ -182,11 +194,20 @@ export function ArchitectureGraphPage({
 }: ArchitectureGraphPageProps) {
   const handleRef = useRef<GraphCanvasHandle | null>(null)
 
-  /* ── 1. Adapter — tree → nodes/edges ───────────────────────── */
-  const { nodes: allNodes, edges: allEdges } = useMemo(
-    () => hierarchyToGraph(data),
-    [data],
-  )
+  /* ── 0. Live K8s cache stream — feeds the K8s-side adapter
+   *     alongside the cloud-side hierarchy fetch. The hook opens an
+   *     EventSource against /api/v1/sovereigns/{deploymentId}/k8s/
+   *     stream?initialState=1 and accumulates a snapshot map as
+   *     ADDED/MODIFIED/DELETED events arrive. */
+  const { snapshot: k8sSnapshot, revision: k8sRevision } = useK8sCacheStream(deploymentId)
+
+  /* ── 1. Adapter — tree → nodes/edges, merged with K8s side ─── */
+  const { nodes: allNodes, edges: allEdges } = useMemo(() => {
+    const cloud = hierarchyToGraph(data)
+    const k8s = k8sToGraph(k8sSnapshot)
+    return mergeGraphs(cloud, k8s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, k8sRevision])
 
   /* ── 2. Type totals for slider sizing ──────────────────────── */
   const typeTotals = useMemo(() => {
@@ -201,12 +222,21 @@ export function ArchitectureGraphPage({
    * remove is a pure visibility filter applied via `hiddenTypes`
    * below — derived from the inverse of `activeTypes`. */
   const [activeTypes, setActiveTypes] = useState<Set<ArchNodeType>>(
-    () => new Set<ArchNodeType>(ALL_NODE_TYPES),
+    () => {
+      const init = new Set<ArchNodeType>()
+      for (const t of ALL_NODE_TYPES) {
+        if (!DEFAULT_INACTIVE_TYPES.has(t)) init.add(t)
+      }
+      return init
+    },
   )
 
   // Whenever the data refreshes, ensure types newly seen become active
   // (don't auto-activate a type the operator removed previously, but
   // do show types that didn't exist on the previous render).
+  // Default-inactive types are NEVER auto-activated — the operator
+  // opts in via the chip strip so the canvas isn't immediately
+  // overrun by 200+ Pods on first paint.
   const seenTypesRef = useRef<Set<ArchNodeType>>(new Set())
   useEffect(() => {
     setActiveTypes((prev) => {
@@ -216,7 +246,7 @@ export function ArchitectureGraphPage({
         const total = typeTotals.get(t) ?? 0
         if (total > 0 && !seenTypesRef.current.has(t)) {
           seenTypesRef.current.add(t)
-          if (!next.has(t)) {
+          if (!next.has(t) && !DEFAULT_INACTIVE_TYPES.has(t)) {
             next.add(t)
             changed = true
           }

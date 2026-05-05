@@ -398,7 +398,10 @@ export function Dashboard({
               <Treemap
                 data={visibleItems as unknown as Array<Record<string, unknown>>}
                 dataKey="size_value"
-                aspectRatio={4 / 3}
+                /* aspectRatio=1 → recharts squarifies aggressively;
+                 * cells render as close to square as the value
+                 * distribution permits (founder feedback 2026-05-05). */
+                aspectRatio={1}
                 isAnimationActive={false}
                 content={
                   isNested
@@ -489,7 +492,11 @@ function HoverTooltip({
       <div className="mt-1 flex justify-between text-[var(--color-text-dim)]">
         <span>{colorLabel}</span>
         <span className="font-mono" data-testid="dashboard-tooltip-percentage">
-          {Math.round(item.percentage)}%
+          {item.percentage === null
+            ? colorBy === 'utilization'
+              ? 'metrics-server not installed'
+              : 'no data'
+            : `${Math.round(item.percentage)}%`}
         </span>
       </div>
       <div className="mt-1 flex justify-between text-[var(--color-text-dim)]">
@@ -583,13 +590,19 @@ interface RechartsCellProps {
   depth?: number
   name?: string
   size_value?: number
-  percentage?: number
+  percentage?: number | null
   count?: number
   id?: string | null
   children?: TreemapItem[]
   root?: { children?: TreemapItem[] }
   payload?: TreemapItem
 }
+
+/** Neutral fill used when a cell's percentage is null (e.g. utilization
+ *  requested but metrics-server is not installed on the Sovereign).
+ *  The colour is a desaturated grey that visibly differs from any
+ *  point on the utilization/health/age gradients. */
+const NULL_PERCENTAGE_FILL = 'rgba(125, 125, 125, 0.45)'
 
 /**
  * Resolve the underlying TreemapItem from whatever shape Recharts
@@ -613,7 +626,7 @@ function resolveItem(props: RechartsCellProps): TreemapItem | null {
       id: (props.id as string | null | undefined) ?? null,
       name: props.name,
       count: props.count ?? 0,
-      percentage: props.percentage ?? 0,
+      percentage: props.percentage ?? null,
       size_value: props.size_value,
     }
   }
@@ -638,8 +651,8 @@ function TreemapContent(props: RechartsCellProps) {
   if (width <= 0 || height <= 0) return null
 
   const item = resolveItem(props)
-  const percentage = item?.percentage ?? props.percentage ?? 0
-  const fill = _activeColorFn(percentage)
+  const rawPct = item?.percentage ?? props.percentage ?? null
+  const fill = rawPct === null ? NULL_PERCENTAGE_FILL : _activeColorFn(rawPct)
   const showLabel = width >= LABEL_MIN_WIDTH_PX && height >= LABEL_MIN_HEIGHT_PX
 
   function handleEnter(e: React.MouseEvent) {
@@ -687,7 +700,7 @@ function TreemapContent(props: RechartsCellProps) {
             fontSize={10}
             style={{ pointerEvents: 'none' }}
           >
-            {Math.round(percentage)}%
+            {rawPct === null ? '— %' : `${Math.round(rawPct)}%`}
           </text>
         </>
       )}
@@ -717,7 +730,7 @@ function NestedTreemapContent(props: RechartsCellProps) {
   if (width <= 0 || height <= 0) return null
 
   const item = resolveItem(props)
-  const percentage = item?.percentage ?? props.percentage ?? 0
+  const rawPct = item?.percentage ?? props.percentage ?? null
 
   // Recharts depths: 0 = root, 1 = first-level cells (the parents),
   // 2 = second-level cells (the children). Treat depth >= 2 as leaf.
@@ -786,7 +799,7 @@ function NestedTreemapContent(props: RechartsCellProps) {
   }
 
   if (isLeaf) {
-    const fill = _activeColorFn(percentage)
+    const fill = rawPct === null ? NULL_PERCENTAGE_FILL : _activeColorFn(rawPct)
 
     // Clip leaf y against parent header — leaf cells whose top edge is
     // inside the header strip get pushed down so labels don't render
@@ -873,7 +886,7 @@ function NestedTreemapContent(props: RechartsCellProps) {
               fontSize={9}
               style={{ pointerEvents: 'none' }}
             >
-              {Math.round(percentage)}%
+              {rawPct === null ? '— %' : `${Math.round(rawPct)}%`}
             </text>
           </>
         )}
