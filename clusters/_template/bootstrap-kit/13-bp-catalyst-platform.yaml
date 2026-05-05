@@ -86,7 +86,12 @@ spec:
       # via Helm lookup, and wire VALKEY_PASSWORD into auth + gateway
       # Deployments. Clears the NOAUTH HELLO crashloop that started
       # appearing after 1.4.4 made cross-ns Valkey reachable.
-      version: 1.4.5
+      # 1.4.6 (issue #863 follow-up): rebuild chart artifact to bundle
+      # the rebuilt services-auth + services-gateway image (SHA fa4395f)
+      # that contains the ConnectValkeyWithAuth Go change. 1.4.5 shipped
+      # with the OLD image SHA baked in due to a race between the
+      # blueprint-release pipeline and the services-build deploy step.
+      version: 1.4.6
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

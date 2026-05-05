@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.5
-appVersion: 1.4.5
+version: 1.4.6
+appVersion: 1.4.6
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -511,6 +511,26 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.4 → 1.4.5. 2026-05-04.
+
+  Bumped to 1.4.6 — bundle the rebuilt services-auth + services-gateway
+  image SHA fa4395f from PR #864 into the chart artifact (issue #863
+  follow-up, 2026-05-05). 1.4.5 was published at commit fa4395fa BEFORE
+  the deploy job updated auth.yaml's hardcoded `image:` to fa4395f, so
+  Sovereigns pulling 1.4.5 got the OLD image (5cdb738) without the
+  ConnectValkeyWithAuth Go change — VALKEY_PASSWORD env was wired but
+  the binary ignored it and still hit "NOAUTH HELLO" on connect.
+
+  Same race documented in the 1.1.16 changelog above (catalyst-ui
+  base:/ fix). 1.4.6 republishes the chart with the deploy-committed
+  image SHAs already in tree (auth.yaml + gateway.yaml `image:` lines
+  point at fa4395f as of commit 9731701c).
+
+  No template/code changes — pure version bump to roll a fresh OCI
+  artifact whose `helm template` output references the
+  ConnectValkeyWithAuth-enabled image.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.5 → 1.4.6. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
