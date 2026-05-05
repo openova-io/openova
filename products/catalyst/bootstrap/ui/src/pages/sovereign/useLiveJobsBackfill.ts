@@ -44,6 +44,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE } from '@/shared/config/urls'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import type { Job } from '@/lib/jobs.types'
 
 /** Wire shape of GET /api/v1/deployments/{id}/jobs. */
@@ -64,8 +65,22 @@ export interface UseLiveJobsBackfillResult {
  * without monkey-patching `globalThis.fetch`.
  */
 async function defaultFetchJobs(deploymentId: string): Promise<Job[]> {
-  const url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`
-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  // On Sovereign mode (console.<sov-fqdn>) prefer the LIVE local-cluster
+  // endpoint /api/v1/sovereign/jobs over the imported-snapshot endpoint
+  // /api/v1/deployments/<id>/jobs. The imported snapshot is captured at
+  // mother's phase1-watching state and remains frozen at "Pending" — the
+  // operator's complaint on otech122. Sovereign-side endpoint reads
+  // from local helm-controller HelmRelease history + Kubernetes Jobs
+  // and returns up-to-date status. See sovereign.go for the wire shape
+  // (compatible with this Job type).
+  const url =
+    DETECTED_MODE.mode === 'sovereign'
+      ? `${API_BASE}/v1/sovereign/jobs`
+      : `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
   if (!res.ok) {
     throw new Error(`Failed to fetch jobs: ${res.status}`)
   }
