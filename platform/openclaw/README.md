@@ -73,13 +73,19 @@ The chart fails to render if any of these are unset (see
 
 | Value | Example |
 |---|---|
-| `keycloak.realmURL` | `https://keycloak.acme.<otech-fqdn>/realms/acme` |
-| `keycloak.clientSecretName` | `openclaw-oidc` (ExternalSecret with key `OIDC_CLIENT_SECRET`) |
+| `oidc.issuerURL` | `https://keycloak.acme.<parent-domain>/realms/sme-acme` |
+| `oidc.clientId` | `openclaw` |
+| `oidc.clientSecret.name` | `openclaw-oidc-client-secret` (Secret with key `OIDC_CLIENT_SECRET`) |
+| `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-tenant NewAPI OpenAI-compatible endpoint) |
+| `llm.apiKey.name` | `openclaw-newapi-controller-token` (Secret with key `NEWAPI_KEY`) |
+| `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. Qwen3.6@BankDhofar) |
 | `tenant.namespace` | `sme-acme` |
-| `newapi.baseURL` | `https://newapi.<otech-fqdn>` |
 | `controller.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
 | `perUserPod.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
-| `ingress.host` | `openclaw.acme.<otech-fqdn>` |
+| `ingress.host` | `openclaw.acme.<parent-domain>` |
+
+Legacy `keycloak.*` / `newapi.*` keys remain accepted for back-compat
+(see umbrella epic #915).
 
 ---
 

@@ -1,0 +1,488 @@
+{{- /*
+Catalyst bp-keycloak — Per-tenant SME realm import ConfigMap + per-app
+OIDC client Secrets (issue #915).
+
+When a tenant is provisioned on a Sovereign (per-tenant Namespace, single
+Keycloak Pod + Postgres backend), the Keycloak realm imported by the
+upstream bitnami/keycloak chart's keycloak-config-cli post-install Job
+MUST register OIDC clients for the SME's downstream apps so first-login
+SSO works end-to-end:
+
+  - wordpress  (confidential client; auth-code flow; redirect URI to the
+                 openid-connect-generic plugin's admin-ajax.php callback
+                 plus /wp-login.php fallback)
+  - openclaw   (confidential client; auth-code flow; redirect URI to
+                 https://openclaw.<host>/oauth/callback)
+  - stalwart   (confidential client; client_credentials AND auth-code
+                 enabled — Stalwart's `directory.keycloak` of type=oidc
+                 uses client_credentials to introspect IMAP/SMTP tokens,
+                 webmail uses auth-code)
+
+The orchestrator (products/catalyst/bootstrap/api/internal/handler/
+sme_tenant_gitops.go, smeTenantBPKeycloak) emits
+realmConfig.tenant.enabled=true alongside sovereignRealm.enabled=true on
+the per-tenant HelmRelease (PR #911). When tenant mode is on,
+configmap-sovereign-realm.yaml SKIPS (mutual exclusion) and this template
+emits the realm import ConfigMap with the SAME name expected by
+.Values.keycloak.keycloakConfigCli.existingConfigmap
+(`<release>-sovereign-realm-config`) so the upstream Job picks it up
+without further values plumbing. Mutual-exclusion guard lives in
+configmap-sovereign-realm.yaml.
+
+Per-app client secrets — persistence + zero-touch
+─────────────────────────────────────────────────
+Each of wordpress / openclaw / stalwart needs a confidential client
+secret that is:
+  1. registered in the realm JSON imported by keycloak-config-cli, AND
+  2. materialised as a K8s Secret in the tenant Namespace so the per-
+     app Helm chart can mount it (bp-wordpress-tenant references
+     `wordpress-oidc-client-secret`, bp-openclaw references
+     `openclaw-oidc-client-secret`, bp-stalwart-tenant references
+     `stalwart-oidc-client-secret`).
+
+Resolution order (first match wins) — same pattern as
+configmap-sovereign-realm.yaml's catalyst-api-server secret:
+  1. operator-supplied .Values.realmConfig.tenant.<app>.clientSecret
+     (rare; useful for replicating from sealed-secret store)
+  2. existing K8s Secret in .Release.Namespace (helm `lookup` →
+     idempotent on upgrade; secret stays stable across reconciles so
+     the downstream app never sees a rotation)
+  3. fresh randAlphaNum 32 (zero-touch on first install)
+
+This template emits all three Secrets PLUS the realm-config ConfigMap in
+ONE template scope so the same `$wpSecret`/`$ocSecret`/`$swSecret`
+variables flow into both the realm JSON and the K8s Secrets — the
+secrets cannot drift because one render produces both.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode): every host-derived
+URI is templated off `realmConfig.tenant.parentDomain` +
+`realmConfig.tenant.subdomain` with operator override via per-app `host`.
+Per docs/INVIOLABLE-PRINCIPLES.md #10 (never print credentials): the
+generated client secrets land ONLY in K8s Secret bytes (and the realm
+JSON ConfigMap consumed by keycloak-config-cli, which itself runs as a
+Job and reads the ConfigMap via projected volume — no credential ever
+leaves the cluster).
+
+Canonical seam: platform/keycloak/chart/templates/configmap-tenant-realm.yaml
+*/}}
+{{- if and .Values.realmConfig .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled }}
+{{- /* ── Validate required tenant fields ──────────────────────────────── */}}
+{{- $t := .Values.realmConfig.tenant -}}
+{{- if not $t.realmName -}}
+  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.realmName (convention: sme-<subdomain>) — Inviolable Principle #4 (never hardcode)" -}}
+{{- end -}}
+{{- if not $t.parentDomain -}}
+  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.parentDomain — Inviolable Principle #4 (never hardcode)" -}}
+{{- end -}}
+{{- if not $t.subdomain -}}
+  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.subdomain — Inviolable Principle #4 (never hardcode)" -}}
+{{- end -}}
+{{- /* ── Resolve per-app hosts (operator override OR <app>.<sub>.<parent>) ─── */}}
+{{- $defaultZone := printf "%s.%s" $t.subdomain $t.parentDomain -}}
+{{- $wpHost := $t.wordpress.host | default (printf "wordpress.%s" $defaultZone) -}}
+{{- $ocHost := $t.openclaw.host  | default (printf "openclaw.%s"  $defaultZone) -}}
+{{- $swHost := $t.stalwart.host  | default (printf "mail.%s"      $defaultZone) -}}
+{{- /* ── Resolve per-app client secrets via lookup-or-generate ─────────── */}}
+{{- $wpSecretName := $t.wordpress.clientSecretName | default "wordpress-oidc-client-secret" -}}
+{{- $ocSecretName := $t.openclaw.clientSecretName  | default "openclaw-oidc-client-secret" -}}
+{{- $swSecretName := $t.stalwart.clientSecretName  | default "stalwart-oidc-client-secret" -}}
+{{- $wpSecret := $t.wordpress.clientSecret -}}
+{{- if not $wpSecret -}}
+  {{- $existing := lookup "v1" "Secret" .Release.Namespace $wpSecretName -}}
+  {{- if and $existing $existing.data (index $existing.data "client-secret") -}}
+    {{- $wpSecret = index $existing.data "client-secret" | b64dec -}}
+  {{- else -}}
+    {{- $wpSecret = randAlphaNum 32 -}}
+  {{- end -}}
+{{- end -}}
+{{- $ocSecret := $t.openclaw.clientSecret -}}
+{{- if not $ocSecret -}}
+  {{- $existing := lookup "v1" "Secret" .Release.Namespace $ocSecretName -}}
+  {{- if and $existing $existing.data (index $existing.data "client-secret") -}}
+    {{- $ocSecret = index $existing.data "client-secret" | b64dec -}}
+  {{- else -}}
+    {{- $ocSecret = randAlphaNum 32 -}}
+  {{- end -}}
+{{- end -}}
+{{- $swSecret := $t.stalwart.clientSecret -}}
+{{- if not $swSecret -}}
+  {{- $existing := lookup "v1" "Secret" .Release.Namespace $swSecretName -}}
+  {{- if and $existing $existing.data (index $existing.data "client-secret") -}}
+    {{- $swSecret = index $existing.data "client-secret" | b64dec -}}
+  {{- else -}}
+    {{- $swSecret = randAlphaNum 32 -}}
+  {{- end -}}
+{{- end -}}
+{{- /* ── Resolve default redirect URI lists ────────────────────────────── */}}
+{{- $wpRedirects := $t.wordpress.redirectURIs -}}
+{{- if not $wpRedirects -}}
+  {{- /* openid-connect-generic plugin: admin-ajax.php callback (default
+         when alternate_redirect_uri=0) + /wp-login.php fallback so both
+         paths work even if the plugin's setting is toggled. */ -}}
+  {{- $wpRedirects = list
+        (printf "https://%s/wp-admin/admin-ajax.php?action=openid-connect-authorize" $wpHost)
+        (printf "https://%s/wp-login.php" $wpHost)
+        (printf "https://%s/openid-connect-authorize" $wpHost)
+        (printf "https://%s/*" $wpHost) -}}
+{{- end -}}
+{{- $ocRedirects := $t.openclaw.redirectURIs -}}
+{{- if not $ocRedirects -}}
+  {{- /* OpenClaw OIDC redirect URI per #915 spec: /oauth/callback. */ -}}
+  {{- $ocRedirects = list
+        (printf "https://%s/oauth/callback" $ocHost)
+        (printf "https://%s/*" $ocHost) -}}
+{{- end -}}
+{{- $swRedirects := $t.stalwart.redirectURIs -}}
+{{- if not $swRedirects -}}
+  {{- /* Stalwart webmail OIDC callback (auth-code flow). The directory
+         backend uses client_credentials (no redirect needed) — the
+         webmail UI uses auth-code. */ -}}
+  {{- $swRedirects = list
+        (printf "https://%s/auth/oidc/callback" $swHost)
+        (printf "https://%s/*" $swHost) -}}
+{{- end -}}
+{{- /* Helper: render a JSON string array from a Helm list. */ -}}
+{{- $renderRedirects := "" -}}
+{{- /* ── Default-groups list defaulted to first entry of .groups ──────── */}}
+{{- $defaultGroup := "" -}}
+{{- if $t.groups -}}
+  {{- $defaultGroup = index $t.groups 0 -}}
+{{- end -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sovereign-realm-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: keycloak-config-cli
+    catalyst.openova.io/realm-mode: tenant
+    catalyst.openova.io/tenant-realm: {{ $t.realmName | quote }}
+    {{- with .Values.sovereignFQDN }}
+    catalyst.openova.io/sovereign-fqdn: {{ . | quote }}
+    {{- end }}
+  annotations:
+    catalyst.openova.io/comment: |
+      Tenant-mode realm import for SME `{{ $t.realmName }}`. Replaces
+      the Sovereign realm import (configmap-sovereign-realm.yaml is
+      gated off when realmConfig.tenant.enabled=true). Imported by the
+      upstream keycloak-config-cli post-install Job referenced via
+      `keycloakConfigCli.existingConfigmap` in values.yaml.
+data:
+  sovereign-realm.json: |
+    {
+      "realm": {{ $t.realmName | quote }},
+      "enabled": true,
+      "displayName": {{ ($t.displayName | default $t.realmName) | quote }},
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "accessTokenLifespan": 900,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 28800,
+      "attributes": {
+        "token-exchange": "true"
+      },
+      {{- if and .Values.smtp .Values.smtp.host }}
+      "smtpServer": {
+        "host": {{ .Values.smtp.host | quote }},
+        "port": {{ .Values.smtp.port | default "587" | quote }},
+        "from": {{ .Values.smtp.from | default (printf "noreply@%s" $defaultZone) | quote }},
+        "fromDisplayName": {{ ($t.displayName | default $t.realmName) | quote }},
+        "ssl": {{ .Values.smtp.ssl | default "false" | quote }},
+        "starttls": {{ .Values.smtp.starttls | default "true" | quote }},
+        "auth": {{ .Values.smtp.auth | default "true" | quote }}
+        {{- if .Values.smtp.user }},
+        "user": {{ .Values.smtp.user | quote }}
+        {{- end }}
+      },
+      {{- end }}
+      {{- if $defaultGroup }}
+      "defaultGroups": [
+        {{ printf "/%s" $defaultGroup | quote }}
+      ],
+      {{- end }}
+      "groups": [
+        {{- range $i, $g := $t.groups }}
+        {{- if $i }},{{ end }}
+        { "name": {{ $g | quote }} }
+        {{- end }}
+      ],
+      "requiredActions": [
+        {
+          "alias": "UPDATE_PASSWORD",
+          "name": "Update Password",
+          "providerId": "UPDATE_PASSWORD",
+          "enabled": true,
+          "defaultAction": false,
+          "priority": 30,
+          "config": {}
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "clients": [
+        {
+          "clientId": {{ ($t.wordpress.clientID | default "wordpress") | quote }},
+          "name": "WordPress (SME tenant — openid-connect-generic plugin)",
+          "description": "Confidential OIDC client for the SME tenant's WordPress instance. Auth-code flow with PKCE optional. Redirect URIs cover the openid-connect-generic plugin's admin-ajax.php callback (default when alternate_redirect_uri=0) plus /wp-login.php fallback.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": {{ $wpSecret | quote }},
+          "redirectUris": [
+            {{- range $i, $u := $wpRedirects }}
+            {{- if $i }},{{ end }}
+            {{ $u | quote }}
+            {{- end }}
+          ],
+          "webOrigins": [
+            {{ printf "https://%s" $wpHost | quote }}
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": {{ printf "https://%s/*" $wpHost | quote }}
+          }
+        },
+        {
+          "clientId": {{ ($t.openclaw.clientID | default "openclaw") | quote }},
+          "name": "OpenClaw (SME tenant — Claude UI)",
+          "description": "Confidential OIDC client for the SME tenant's OpenClaw deployment. Auth-code flow; redirect URI per #915 spec is /oauth/callback.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": {{ $ocSecret | quote }},
+          "redirectUris": [
+            {{- range $i, $u := $ocRedirects }}
+            {{- if $i }},{{ end }}
+            {{ $u | quote }}
+            {{- end }}
+          ],
+          "webOrigins": [
+            {{ printf "https://%s" $ocHost | quote }}
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": {{ printf "https://%s/*" $ocHost | quote }}
+          }
+        },
+        {
+          "clientId": {{ ($t.stalwart.clientID | default "stalwart") | quote }},
+          "name": "Stalwart (SME tenant — mail server OIDC)",
+          "description": "Confidential OIDC client for the SME tenant's Stalwart mail server. serviceAccountsEnabled=true so the directory.keycloak backend can use client_credentials to introspect IMAP/SMTP tokens; standardFlowEnabled=true so the webmail UI can do auth-code login. Single client covers both flows.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": true,
+          "authorizationServicesEnabled": false,
+          "secret": {{ $swSecret | quote }},
+          "redirectUris": [
+            {{- range $i, $u := $swRedirects }}
+            {{- if $i }},{{ end }}
+            {{ $u | quote }}
+            {{- end }}
+          ],
+          "webOrigins": [
+            {{ printf "https://%s" $swHost | quote }}
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900"
+          }
+        }
+      ],
+      "clientScopeMappings": {
+        "realm-management": [
+          {
+            "client": {{ ($t.stalwart.clientID | default "stalwart") | quote }},
+            "roles": [
+              "view-users",
+              "query-users"
+            ]
+          }
+        ]
+      },
+      "users": [
+        {
+          "username": {{ printf "service-account-%s" ($t.stalwart.clientID | default "stalwart") | quote }},
+          "enabled": true,
+          "serviceAccountClientId": {{ ($t.stalwart.clientID | default "stalwart") | quote }},
+          "clientRoles": {
+            "realm-management": [
+              "view-users",
+              "query-users"
+            ]
+          }
+        }
+        {{- if $t.adminEmail }},
+        {
+          "username": "admin",
+          "enabled": true,
+          "email": {{ $t.adminEmail | quote }},
+          "emailVerified": false,
+          "firstName": "Admin",
+          "lastName": {{ ($t.displayName | default $t.realmName) | quote }},
+          "groups": [
+            {{- if $defaultGroup }}
+            {{ $defaultGroup | quote }}
+            {{- end }}
+          ],
+          "requiredActions": [
+            "UPDATE_PASSWORD"
+          ]
+        }
+        {{- end }}
+      ]
+    }
+{{- /* ── wordpress-oidc-client-secret ────────────────────────────────── */}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $wpSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: tenant-oidc-client-secret
+    catalyst.openova.io/oidc-client: wordpress
+    catalyst.openova.io/tenant-realm: {{ $t.realmName | quote }}
+  annotations:
+    catalyst.openova.io/comment: |
+      Per-tenant Keycloak OIDC client secret for the `wordpress` client
+      registered in realm `{{ $t.realmName }}`. The bp-wordpress-tenant
+      chart consumes this Secret via .Values.keycloak.clientSecretName
+      (default `wordpress-oidc-client-secret`). Bytes persist across
+      `helm upgrade` via lookup-or-generate (issue #915 / C1).
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  client-secret: {{ $wpSecret | quote }}
+{{- /* ── openclaw-oidc-client-secret ─────────────────────────────────── */}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $ocSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: tenant-oidc-client-secret
+    catalyst.openova.io/oidc-client: openclaw
+    catalyst.openova.io/tenant-realm: {{ $t.realmName | quote }}
+  annotations:
+    catalyst.openova.io/comment: |
+      Per-tenant Keycloak OIDC client secret for the `openclaw` client
+      registered in realm `{{ $t.realmName }}`. The bp-openclaw chart
+      consumes this Secret via .Values.keycloak.clientSecretName
+      (default `openclaw-oidc-client-secret`). Bytes persist across
+      `helm upgrade` via lookup-or-generate (issue #915 / C1).
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  client-secret: {{ $ocSecret | quote }}
+{{- /* ── stalwart-oidc-client-secret ─────────────────────────────────── */}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $swSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: tenant-oidc-client-secret
+    catalyst.openova.io/oidc-client: stalwart
+    catalyst.openova.io/tenant-realm: {{ $t.realmName | quote }}
+  annotations:
+    catalyst.openova.io/comment: |
+      Per-tenant Keycloak OIDC client secret for the `stalwart` client
+      registered in realm `{{ $t.realmName }}`. The bp-stalwart-tenant
+      chart consumes this Secret via .Values.keycloak.clientSecretName
+      (default `stalwart-oidc-client-secret`); the OIDC_CLIENT_SECRET
+      key shape is provided alongside `client-secret` so both consumers
+      (legacy ExternalSecret-driven `OIDC_CLIENT_SECRET` AND the
+      generic `client-secret` key) resolve. Bytes persist across `helm
+      upgrade` via lookup-or-generate (issue #915 / C1).
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  client-secret: {{ $swSecret | quote }}
+  OIDC_CLIENT_SECRET: {{ $swSecret | quote }}
+{{- end }}

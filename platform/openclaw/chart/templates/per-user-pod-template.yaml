@@ -47,6 +47,8 @@ data:
           image: "{{ .Values.perUserPod.image.repository }}:{{ .Values.perUserPod.image.tag }}"
           imagePullPolicy: {{ .Values.perUserPod.image.pullPolicy }}
           env:
+            # NewAPI gateway — per-user Secret (ADR-0003 §3.3). The
+            # runtime is identity-blind: it reads only these env vars.
             - name: NEWAPI_BASE_URL
               valueFrom:
                 secretKeyRef:
@@ -57,6 +59,24 @@ data:
                 secretKeyRef:
                   name: ${SECRET_NAME}
                   key: api-key
+            # OpenAI-compatible aliases (any pre-built OpenAI SDK in the
+            # runtime image picks these up without code changes).
+            - name: OPENAI_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: ${SECRET_NAME}
+                  key: base-url
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${SECRET_NAME}
+                  key: api-key
+            # Default model identifier sent by the runtime when the
+            # client doesn't override. NewAPI uses the model name to
+            # select a channel; for #915 DoD this is "qwen3.6" and C4
+            # wires the BankDhofar channel routing.
+            - name: LLM_DEFAULT_MODEL
+              value: {{ include "bp-openclaw.llm.defaultModel" . | quote }}
             {{- range .Values.perUserPod.extraEnv }}
             - {{- toYaml . | nindent 14 }}
             {{- end }}

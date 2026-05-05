@@ -49,19 +49,76 @@ if ! grep -q "placeholder" "$TMP/assert.err"; then
 fi
 echo "  PASS"
 
-echo "[render-toggles] Case 2b: assertNoPlaceholders=true with all real values renders successfully"
+echo "[render-toggles] Case 2b: assertNoPlaceholders=true with all real values (canonical oidc/llm blocks) renders successfully"
 if ! helm template smoke-openclaw . \
     --set "assertNoPlaceholders=true" \
-    --set "keycloak.realmURL=https://kc.acme.example/realms/acme" \
-    --set "keycloak.clientSecretName=openclaw-oidc" \
+    --set "oidc.issuerURL=https://kc.acme.example/realms/sme-acme" \
+    --set "oidc.clientSecret.name=openclaw-oidc-client-secret" \
+    --set "llm.baseURL=https://api.acme.example/v1" \
+    --set "llm.apiKey.name=openclaw-newapi-controller-token" \
+    --set "llm.defaultModel=qwen3.6" \
     --set "tenant.namespace=sme-acme" \
-    --set "newapi.baseURL=https://newapi.example" \
     --set "controller.image.tag=sha-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" \
     --set "perUserPod.image.tag=sha-cafef00dcafef00dcafef00dcafef00dcafef00d" \
     --set "ingress.host=openclaw.acme.example" \
     > "$TMP/real.yaml" 2> "$TMP/real.err"; then
   echo "FAIL: assertNoPlaceholders=true with real values failed:" >&2
   cat "$TMP/real.err" >&2
+  exit 1
+fi
+# Assert canonical envs are present on the controller.
+for env in OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET \
+           LLM_BASE_URL LLM_API_KEY LLM_DEFAULT_MODEL \
+           OPENAI_API_BASE OPENAI_API_KEY \
+           KEYCLOAK_REALM_URL NEWAPI_BASE_URL_DEFAULT; do
+  if ! grep -q "name: ${env}" "$TMP/real.yaml"; then
+    echo "FAIL: controller env ${env} missing from rendered manifests" >&2
+    exit 1
+  fi
+done
+# Assert the per-user pod-template ConfigMap carries OPENAI_API_BASE +
+# LLM_DEFAULT_MODEL so OpenAI-SDK-based runtimes work without code change.
+if ! grep -q "OPENAI_API_BASE" "$TMP/real.yaml"; then
+  echo "FAIL: per-user pod template missing OPENAI_API_BASE env" >&2
+  exit 1
+fi
+if ! grep -q "LLM_DEFAULT_MODEL" "$TMP/real.yaml"; then
+  echo "FAIL: per-user pod template missing LLM_DEFAULT_MODEL env" >&2
+  exit 1
+fi
+# Assert OIDC issuer + LLM baseURL values reach the rendered Deployment
+# verbatim from --set.
+if ! grep -q "https://kc.acme.example/realms/sme-acme" "$TMP/real.yaml"; then
+  echo "FAIL: OIDC issuer URL not propagated to rendered Deployment" >&2
+  exit 1
+fi
+if ! grep -q "https://api.acme.example/v1" "$TMP/real.yaml"; then
+  echo "FAIL: LLM baseURL not propagated to rendered Deployment" >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[render-toggles] Case 2c: legacy keycloak.* / newapi.* keys still work as fallbacks"
+if ! helm template smoke-openclaw . \
+    --set "assertNoPlaceholders=true" \
+    --set "keycloak.realmURL=https://kc.legacy.example/realms/legacy" \
+    --set "keycloak.clientSecretName=openclaw-oidc-legacy" \
+    --set "newapi.baseURL=https://newapi.legacy.example/v1" \
+    --set "tenant.namespace=sme-legacy" \
+    --set "controller.image.tag=sha-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" \
+    --set "perUserPod.image.tag=sha-cafef00dcafef00dcafef00dcafef00dcafef00d" \
+    --set "ingress.host=openclaw.legacy.example" \
+    > "$TMP/legacy.yaml" 2> "$TMP/legacy.err"; then
+  echo "FAIL: legacy-key render failed:" >&2
+  cat "$TMP/legacy.err" >&2
+  exit 1
+fi
+if ! grep -q "https://kc.legacy.example/realms/legacy" "$TMP/legacy.yaml"; then
+  echo "FAIL: legacy keycloak.realmURL did not reach rendered Deployment" >&2
+  exit 1
+fi
+if ! grep -q "https://newapi.legacy.example/v1" "$TMP/legacy.yaml"; then
+  echo "FAIL: legacy newapi.baseURL did not reach rendered Deployment" >&2
   exit 1
 fi
 echo "  PASS"

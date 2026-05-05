@@ -50,8 +50,22 @@ mint an admin token, (c) PUT the client secret, (d) write the K8s Secret —
 that's four failure modes the lookup-or-generate pattern eliminates.
 
 Canonical seam: platform/keycloak/chart/templates/configmap-sovereign-realm.yaml
+
+Tenant-mode mutual exclusion (issue #915, C1)
+─────────────────────────────────────────────
+When `realmConfig.tenant.enabled=true` the chart is being installed for an
+SME tenant (per-tenant Keycloak with a tenant realm + per-app OIDC clients
+for wordpress / openclaw / stalwart). In that mode the tenant realm
+ConfigMap (templates/configmap-tenant-realm.yaml) emits a ConfigMap with
+the SAME name expected by `keycloakConfigCli.existingConfigmap`
+(`{{"{{ .Release.Name }}"}}-sovereign-realm-config`) so the upstream
+keycloak-config-cli Job imports the tenant realm instead. To avoid two
+ConfigMaps colliding on the same name, this Sovereign template skips when
+tenant mode is on. The orchestrator (A3 / PR #911) currently sets BOTH
+`sovereignRealm.enabled=true` and `realmConfig.tenant.enabled=true` in the
+tenant emit; tenant takes precedence here.
 */}}
-{{- if .Values.sovereignRealm.enabled }}
+{{- if and .Values.sovereignRealm.enabled (not (and .Values.realmConfig (and .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled))) }}
 {{- /* ── Resolve catalyst-api-server client secret ─────────────────────── */}}
 {{- $saSecretName := "catalyst-kc-sa-credentials" -}}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $saSecretName -}}

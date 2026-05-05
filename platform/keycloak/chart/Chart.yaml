@@ -1,17 +1,25 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.3.3
+version: 1.4.0
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
   `helm dependency build` pulls the upstream payload into this artifact;
   the Catalyst overlay templates in templates/ (HTTPRoute, sovereign realm
-  ConfigMap) sit alongside the upstream subchart and Helm renders both at
-  install time. Catalyst-curated values flow into the upstream subchart under
-  the `keycloak:` key in values.yaml.
+  ConfigMap, tenant realm ConfigMap) sit alongside the upstream subchart and
+  Helm renders both at install time. Catalyst-curated values flow into the
+  upstream subchart under the `keycloak:` key in values.yaml.
   Phase-8b (issue #604): adds catalyst-ui PKCE client, catalyst-api-server
   service-account client with impersonate role, token-exchange enabled on
   sovereign realm, WebAuthn Required Actions, and SMTP configuration.
+  1.4.0 (issue #915 / C1): tenant-mode realm import. When
+  realmConfig.tenant.enabled=true the chart emits a per-tenant realm with
+  wordpress / openclaw / stalwart OIDC clients pre-registered, plus the
+  matching `wordpress-oidc-client-secret` / `openclaw-oidc-client-secret`
+  / `stalwart-oidc-client-secret` Secrets the downstream
+  bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant charts consume
+  via secretKeyRef. Sovereign-mode unchanged. Closes the chart-side gap
+  left by orchestrator PR #911 (which already emits realmConfig.tenant.*).
 type: application
 keywords: [catalyst, blueprint, keycloak]
 maintainers:
