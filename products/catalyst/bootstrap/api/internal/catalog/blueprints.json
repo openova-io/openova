@@ -1,0 +1,882 @@
+{
+  "generatedAt": "2026-05-05T10:29:38.525Z",
+  "blueprints": [
+    {
+      "id": "bp-anthropic-adapter",
+      "slug": "anthropic-adapter",
+      "title": "Anthropic Adapter",
+      "summary": "|",
+      "icon": "anthropic-adapter.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-6-llm-serving",
+      "depends": [
+        "bp-external-secrets"
+      ]
+    },
+    {
+      "id": "bp-bge",
+      "slug": "bge",
+      "title": "BGE Embeddings + Reranker",
+      "summary": "BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.",
+      "icon": "bge.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-6-llm-serving",
+      "depends": [
+        "bp-cnpg"
+      ]
+    },
+    {
+      "id": "bp-cert-manager",
+      "slug": "cert-manager",
+      "title": "cert-manager",
+      "summary": "TLS certificate automation. Lets Encrypt issuer with Dynadot DNS-01 for omani.works pool, HTTP-01 for BYO domains.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.2",
+      "section": "pts-3-3-security-and-policy",
+      "depends": []
+    },
+    {
+      "id": "bp-cert-manager-dynadot-webhook",
+      "slug": "cert-manager-dynadot-webhook",
+      "title": "cert-manager-dynadot-webhook",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-cert-manager-powerdns-webhook",
+      "slug": "cert-manager-powerdns-webhook",
+      "title": "cert-manager-powerdns-webhook",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-cilium",
+      "slug": "cilium",
+      "title": "Cilium",
+      "summary": "Unified CNI + Service Mesh (eBPF). mTLS via WireGuard, Hubble observability, Gateway API.",
+      "icon": "cilium.svg",
+      "category": "infrastructure",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.0",
+      "section": "pts-3-1-networking-and-service-mesh",
+      "depends": []
+    },
+    {
+      "id": "bp-cnpg",
+      "slug": "cnpg",
+      "title": "CloudNativePG",
+      "summary": "|",
+      "icon": "cnpg.svg",
+      "category": "data",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-4-1-data-services",
+      "depends": [
+        "bp-flux"
+      ]
+    },
+    {
+      "id": "bp-crossplane",
+      "slug": "crossplane",
+      "title": "crossplane",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.4",
+      "section": "pts-3-2-gitops-and-iac",
+      "depends": []
+    },
+    {
+      "id": "bp-crossplane-claims",
+      "slug": "crossplane-claims",
+      "title": "crossplane-claims",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.0",
+      "section": "pts-3-2-gitops-and-iac",
+      "depends": [
+        "bp-crossplane"
+      ]
+    },
+    {
+      "id": "bp-external-secrets",
+      "slug": "external-secrets",
+      "title": "External Secrets Operator",
+      "summary": "|",
+      "icon": "external-secrets.svg",
+      "category": "security",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [
+        "bp-openbao",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-external-secrets-stores",
+      "slug": "external-secrets-stores",
+      "title": "External Secrets — Stores",
+      "summary": "|",
+      "icon": "external-secrets.svg",
+      "category": "security",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": []
+    },
+    {
+      "id": "bp-flux",
+      "slug": "flux",
+      "title": "flux",
+      "summary": "GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.4",
+      "section": "pts-3-2-gitops-and-iac",
+      "depends": []
+    },
+    {
+      "id": "bp-gateway-api",
+      "slug": "gateway-api",
+      "title": "Gateway API",
+      "summary": "|",
+      "icon": "kubernetes.svg",
+      "category": "infrastructure",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.0",
+      "section": "pts-3-1-networking-and-service-mesh",
+      "depends": []
+    },
+    {
+      "id": "bp-gitea",
+      "slug": "gitea",
+      "title": "gitea",
+      "summary": "Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.4",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": []
+    },
+    {
+      "id": "bp-keycloak",
+      "slug": "keycloak",
+      "title": "keycloak",
+      "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for SME, shared-sovereign for corporate).",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.4.0",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": []
+    },
+    {
+      "id": "bp-knative",
+      "slug": "knative",
+      "title": "Knative",
+      "summary": "|",
+      "icon": "knative.svg",
+      "category": "ai-ml",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-4-6-ai-ml",
+      "depends": [
+        "bp-cilium",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-kserve",
+      "slug": "kserve",
+      "title": "KServe",
+      "summary": "|",
+      "icon": "kserve.svg",
+      "category": "ai-ml",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-4-6-ai-ml",
+      "depends": [
+        "bp-cilium",
+        "bp-cert-manager",
+        "bp-knative"
+      ]
+    },
+    {
+      "id": "bp-librechat",
+      "slug": "librechat",
+      "title": "LibreChat",
+      "summary": "|",
+      "icon": "librechat.svg",
+      "category": "application",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-7-application-tier-chat-ui",
+      "depends": [
+        "bp-llm-gateway",
+        "bp-vllm",
+        "bp-bge",
+        "bp-keycloak"
+      ]
+    },
+    {
+      "id": "bp-livekit",
+      "slug": "livekit",
+      "title": "LiveKit",
+      "summary": "|",
+      "icon": "livekit.svg",
+      "category": "application",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-5-communication",
+      "depends": [
+        "bp-stunner",
+        "bp-cert-manager",
+        "bp-valkey"
+      ]
+    },
+    {
+      "id": "bp-llm-gateway",
+      "slug": "llm-gateway",
+      "title": "LLM Gateway",
+      "summary": "|",
+      "icon": "llm-gateway.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-6-llm-serving",
+      "depends": [
+        "bp-cnpg",
+        "bp-keycloak",
+        "bp-external-secrets"
+      ]
+    },
+    {
+      "id": "bp-matrix",
+      "slug": "matrix",
+      "title": "Matrix (Synapse)",
+      "summary": "|",
+      "icon": "matrix.svg",
+      "category": "application",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-5-communication",
+      "depends": [
+        "bp-cnpg",
+        "bp-keycloak",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-nats-jetstream",
+      "slug": "nats-jetstream",
+      "title": "nats-jetstream",
+      "summary": "Event spine for the Catalyst control plane. JetStream Streams + KV. Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.2",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": []
+    },
+    {
+      "id": "bp-nemo-guardrails",
+      "slug": "nemo-guardrails",
+      "title": "NeMo Guardrails",
+      "summary": "Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.",
+      "icon": "nemo-guardrails.svg",
+      "category": "ai-safety",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-7-ai-safety",
+      "depends": [
+        "bp-vllm"
+      ]
+    },
+    {
+      "id": "bp-newapi",
+      "slug": "newapi",
+      "title": "NewAPI",
+      "summary": "|",
+      "icon": "newapi.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.1.0",
+      "section": "pts-4-6-llm-serving",
+      "depends": [
+        "bp-cnpg",
+        "bp-keycloak",
+        "bp-external-secrets",
+        "bp-valkey",
+        "bp-vllm"
+      ]
+    },
+    {
+      "id": "bp-openbao",
+      "slug": "openbao",
+      "title": "openbao",
+      "summary": "OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.14",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": []
+    },
+    {
+      "id": "bp-openclaw",
+      "slug": "openclaw",
+      "title": "OpenClaw",
+      "summary": "|",
+      "icon": "openclaw.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.1.0",
+      "section": "pts-4-7-agentic-workspace",
+      "depends": [
+        "bp-newapi",
+        "bp-keycloak",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-openmeter",
+      "slug": "openmeter",
+      "title": "OpenMeter",
+      "summary": "|",
+      "icon": "openmeter.svg",
+      "category": "application",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-8-identity-and-metering",
+      "depends": [
+        "bp-cnpg",
+        "bp-nats-jetstream",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-powerdns",
+      "slug": "powerdns",
+      "title": "PowerDNS",
+      "summary": "|",
+      "icon": "powerdns.svg",
+      "category": "infrastructure",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.8",
+      "section": "pts-3-2-gitops-and-iac",
+      "depends": [
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-sealed-secrets",
+      "slug": "sealed-secrets",
+      "title": "sealed-secrets",
+      "summary": "Sealed Secrets — used during Phase 0 bootstrap to transport bootstrap-only secrets, then archived after OpenBao + ESO replace it.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.2",
+      "section": "pts-3-3-security-and-policy",
+      "depends": []
+    },
+    {
+      "id": "bp-self-sovereign-cutover",
+      "slug": "self-sovereign-cutover",
+      "title": "self-sovereignty-cutover",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "0.1.14",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": [
+        "bp-gitea",
+        "bp-harbor"
+      ]
+    },
+    {
+      "id": "bp-spire",
+      "slug": "spire",
+      "title": "spire",
+      "summary": "SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Server on mgt cluster + agent per host cluster.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.7",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": []
+    },
+    {
+      "id": "bp-stalwart-sovereign",
+      "slug": "stalwart-sovereign",
+      "title": "Stalwart (Sovereign Console mail)",
+      "summary": "|",
+      "icon": "stalwart.svg",
+      "category": "communication",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.1.0",
+      "section": "pts-4-5-communication",
+      "depends": [
+        "bp-cert-manager",
+        "bp-cert-manager-powerdns-webhook",
+        "bp-powerdns"
+      ]
+    },
+    {
+      "id": "bp-stalwart-tenant",
+      "slug": "stalwart-tenant",
+      "title": "Stalwart (per-tenant)",
+      "summary": "|",
+      "icon": "stalwart.svg",
+      "category": "communication",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.1.2",
+      "section": "pts-4-5-communication",
+      "depends": [
+        "bp-keycloak",
+        "bp-external-secrets",
+        "bp-cert-manager",
+        "bp-powerdns"
+      ]
+    },
+    {
+      "id": "bp-stunner",
+      "slug": "stunner",
+      "title": "STUNner",
+      "summary": "|",
+      "icon": "stunner.svg",
+      "category": "communication",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-4-5-communication",
+      "depends": [
+        "bp-cilium",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-temporal",
+      "slug": "temporal",
+      "title": "Temporal",
+      "summary": "Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.",
+      "icon": "temporal.svg",
+      "category": "workflow",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-3-workflow-and-processing",
+      "depends": [
+        "bp-cnpg",
+        "bp-cert-manager"
+      ]
+    },
+    {
+      "id": "bp-valkey",
+      "slug": "valkey",
+      "title": "Valkey",
+      "summary": "|",
+      "icon": "valkey.svg",
+      "category": "data",
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-4-1-data-services",
+      "depends": [
+        "bp-flux"
+      ]
+    },
+    {
+      "id": "bp-vllm",
+      "slug": "vllm",
+      "title": "vLLM",
+      "summary": "High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.",
+      "icon": "vllm.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "1.0.0",
+      "section": "pts-4-6-llm-serving",
+      "depends": [
+        "bp-kserve"
+      ]
+    },
+    {
+      "id": "bp-wordpress-tenant",
+      "slug": "wordpress-tenant",
+      "title": "WordPress Tenant",
+      "summary": "|",
+      "icon": "wordpress.svg",
+      "category": "tenant-app",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.2.0",
+      "section": "pts-7-sme-tenant",
+      "depends": [
+        "bp-cnpg",
+        "bp-keycloak",
+        "bp-reflector",
+        "bp-cert-manager"
+      ]
+    }
+  ],
+  "bootstrapKit": [
+    {
+      "id": "bp-cilium",
+      "slug": "cilium",
+      "label": "cilium",
+      "file": "01-cilium.yaml",
+      "order": 1
+    },
+    {
+      "id": "bp-cert-manager",
+      "slug": "cert-manager",
+      "label": "cert-manager",
+      "file": "02-cert-manager.yaml",
+      "order": 2
+    },
+    {
+      "id": "bp-flux",
+      "slug": "flux",
+      "label": "flux",
+      "file": "03-flux.yaml",
+      "order": 3
+    },
+    {
+      "id": "bp-crossplane",
+      "slug": "crossplane",
+      "label": "crossplane",
+      "file": "04-crossplane.yaml",
+      "order": 4
+    },
+    {
+      "id": "bp-sealed-secrets",
+      "slug": "sealed-secrets",
+      "label": "sealed-secrets",
+      "file": "05-sealed-secrets.yaml",
+      "order": 5
+    },
+    {
+      "id": "bp-nats-jetstream",
+      "slug": "nats-jetstream",
+      "label": "nats-jetstream",
+      "file": "07-nats-jetstream.yaml",
+      "order": 7
+    },
+    {
+      "id": "bp-openbao",
+      "slug": "openbao",
+      "label": "openbao",
+      "file": "08-openbao.yaml",
+      "order": 8
+    },
+    {
+      "id": "bp-keycloak",
+      "slug": "keycloak",
+      "label": "keycloak",
+      "file": "09-keycloak.yaml",
+      "order": 9
+    },
+    {
+      "id": "bp-gitea",
+      "slug": "gitea",
+      "label": "gitea",
+      "file": "10-gitea.yaml",
+      "order": 10
+    },
+    {
+      "id": "bp-powerdns",
+      "slug": "powerdns",
+      "label": "powerdns",
+      "file": "11-powerdns.yaml",
+      "order": 11
+    },
+    {
+      "id": "bp-external-dns",
+      "slug": "external-dns",
+      "label": "external-dns",
+      "file": "12-external-dns.yaml",
+      "order": 12
+    },
+    {
+      "id": "bp-bp-catalyst-platform",
+      "slug": "bp-catalyst-platform",
+      "label": "bp-catalyst-platform",
+      "file": "13-bp-catalyst-platform.yaml",
+      "order": 13
+    },
+    {
+      "id": "bp-crossplane-claims",
+      "slug": "crossplane-claims",
+      "label": "crossplane-claims",
+      "file": "14-crossplane-claims.yaml",
+      "order": 14
+    },
+    {
+      "id": "bp-external-secrets",
+      "slug": "external-secrets",
+      "label": "external-secrets",
+      "file": "15-external-secrets.yaml",
+      "order": 15
+    },
+    {
+      "id": "bp-cnpg",
+      "slug": "cnpg",
+      "label": "cnpg",
+      "file": "16-cnpg.yaml",
+      "order": 16
+    },
+    {
+      "id": "bp-valkey",
+      "slug": "valkey",
+      "label": "valkey",
+      "file": "17-valkey.yaml",
+      "order": 17
+    },
+    {
+      "id": "bp-seaweedfs",
+      "slug": "seaweedfs",
+      "label": "seaweedfs",
+      "file": "18-seaweedfs.yaml",
+      "order": 18
+    },
+    {
+      "id": "bp-harbor",
+      "slug": "harbor",
+      "label": "harbor",
+      "file": "19-harbor.yaml",
+      "order": 19
+    },
+    {
+      "id": "bp-opentelemetry",
+      "slug": "opentelemetry",
+      "label": "opentelemetry",
+      "file": "20-opentelemetry.yaml",
+      "order": 20
+    },
+    {
+      "id": "bp-alloy",
+      "slug": "alloy",
+      "label": "alloy",
+      "file": "21-alloy.yaml",
+      "order": 21
+    },
+    {
+      "id": "bp-loki",
+      "slug": "loki",
+      "label": "loki",
+      "file": "22-loki.yaml",
+      "order": 22
+    },
+    {
+      "id": "bp-mimir",
+      "slug": "mimir",
+      "label": "mimir",
+      "file": "23-mimir.yaml",
+      "order": 23
+    },
+    {
+      "id": "bp-tempo",
+      "slug": "tempo",
+      "label": "tempo",
+      "file": "24-tempo.yaml",
+      "order": 24
+    },
+    {
+      "id": "bp-grafana",
+      "slug": "grafana",
+      "label": "grafana",
+      "file": "25-grafana.yaml",
+      "order": 25
+    },
+    {
+      "id": "bp-kyverno",
+      "slug": "kyverno",
+      "label": "kyverno",
+      "file": "27-kyverno.yaml",
+      "order": 27
+    },
+    {
+      "id": "bp-reloader",
+      "slug": "reloader",
+      "label": "reloader",
+      "file": "28-reloader.yaml",
+      "order": 28
+    },
+    {
+      "id": "bp-vpa",
+      "slug": "vpa",
+      "label": "vpa",
+      "file": "29-vpa.yaml",
+      "order": 29
+    },
+    {
+      "id": "bp-trivy",
+      "slug": "trivy",
+      "label": "trivy",
+      "file": "30-trivy.yaml",
+      "order": 30
+    },
+    {
+      "id": "bp-falco",
+      "slug": "falco",
+      "label": "falco",
+      "file": "31-falco.yaml",
+      "order": 31
+    },
+    {
+      "id": "bp-sigstore",
+      "slug": "sigstore",
+      "label": "sigstore",
+      "file": "32-sigstore.yaml",
+      "order": 32
+    },
+    {
+      "id": "bp-syft-grype",
+      "slug": "syft-grype",
+      "label": "syft-grype",
+      "file": "33-syft-grype.yaml",
+      "order": 33
+    },
+    {
+      "id": "bp-velero",
+      "slug": "velero",
+      "label": "velero",
+      "file": "34-velero.yaml",
+      "order": 34
+    },
+    {
+      "id": "bp-coraza",
+      "slug": "coraza",
+      "label": "coraza",
+      "file": "35-coraza.yaml",
+      "order": 35
+    },
+    {
+      "id": "bp-bp-cert-manager-powerdns-webhook",
+      "slug": "bp-cert-manager-powerdns-webhook",
+      "label": "bp-cert-manager-powerdns-webhook",
+      "file": "49-bp-cert-manager-powerdns-webhook.yaml",
+      "order": 49
+    },
+    {
+      "id": "bp-cluster-autoscaler",
+      "slug": "cluster-autoscaler",
+      "label": "cluster-autoscaler",
+      "file": "50-cluster-autoscaler.yaml",
+      "order": 50
+    },
+    {
+      "id": "bp-newapi",
+      "slug": "newapi",
+      "label": "newapi",
+      "file": "80-newapi.yaml",
+      "order": 80
+    },
+    {
+      "id": "bp-bp-stalwart-sovereign",
+      "slug": "bp-stalwart-sovereign",
+      "label": "bp-stalwart-sovereign",
+      "file": "95-bp-stalwart-sovereign.yaml",
+      "order": 95
+    }
+  ]
+}

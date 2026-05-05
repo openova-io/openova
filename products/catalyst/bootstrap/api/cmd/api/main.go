@@ -605,6 +605,27 @@ func main() {
 		rg.Post("/api/v1/sme/tenants/{id}/reconcile", h.HandleReconcileSMETenant)
 		rg.Delete("/api/v1/sme/tenants/{id}", h.HandleDeleteSMETenant)
 
+		// Sovereign Console populated views (issue #933). Read-only
+		// endpoints the Console pages on console.<sov-fqdn>/console/*
+		// hit to render LIVE local-cluster data (HelmReleases, Jobs,
+		// catalog, nodes/namespaces/ingresses). Without these the
+		// freshly-handed-over Sovereign Console renders only
+		// placeholders — useless on day one.
+		//
+		// All four endpoints use rest.InClusterConfig + the
+		// catalyst-api ServiceAccount on the Sovereign cluster, so
+		// they continue to function after the Self-Sovereignty
+		// Cutover (issue #792) severs every mothership-side tether.
+		// On the mothership these endpoints also work (catalyst-api
+		// runs in-cluster on contabo too), but the mothership
+		// Console serves the per-deployment endpoints instead — the
+		// /api/v1/sovereign/* surface is the customer-side Console's
+		// data plane.
+		rg.Get("/api/v1/sovereign/status", h.HandleSovereignStatus)
+		rg.Get("/api/v1/sovereign/jobs", h.HandleSovereignJobs)
+		rg.Get("/api/v1/sovereign/apps", h.HandleSovereignApps)
+		rg.Get("/api/v1/sovereign/cloud", h.HandleSovereignCloud)
+
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining
 		// tethers to the openova-io mothership: gitea-mirror,
