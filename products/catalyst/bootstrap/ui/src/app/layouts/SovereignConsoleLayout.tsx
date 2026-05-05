@@ -142,15 +142,12 @@ export function SovereignConsoleLayout({
         // self-mode SPA mounted at console.<sov-fqdn>, not for the
         // mothership. Without an FQDN there is no Keycloak realm to
         // OIDC against, and the layout would otherwise render
-        // "Authenticating…" forever.
-        //
-        // The right landing for the mothership is `/sovereign/` — the
-        // Vite base path the catalyst-ui SPA is mounted at, which
-        // serves the wizard / provisioning surface. Redirecting to
-        // bare `/` would 302 to `/nova/` (SME marketplace via the
-        // contabo nginx) and yank the operator out of the
-        // sovereign-provisioning flow entirely.
-        window.location.replace('/sovereign/')
+        // "Authenticating…" forever (issue #975 follow-up — observed
+        // when operators on console.openova.io navigated to /dashboard
+        // after the #976 clean-root URL split). Redirect to the
+        // mothership root so the operator lands on the wizard /
+        // deployments list instead.
+        window.location.replace('/')
         return
       }
 
@@ -218,7 +215,7 @@ export function SovereignConsoleLayout({
         // Network failures don't block client-side sign-out; the cookie
         // will be cleared on the next request that gets a 401 anyway.
       }
-      window.location.replace('/sovereign/')
+      window.location.replace('/')
       return
     }
     if (sovereignFQDN) initiateLogout(sovereignFQDN)
