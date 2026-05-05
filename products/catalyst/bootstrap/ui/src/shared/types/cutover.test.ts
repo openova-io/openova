@@ -186,12 +186,44 @@ describe('parseCutoverStatus — happy paths', () => {
     const out = parseCutoverStatus({ state: 'sovereign', steps: [] })
     expect(out.cutoverComplete).toBe(true)
   })
+
+  it('defaults state to `tethered` when the wire field is missing (otech113 #933)', () => {
+    // The dashboard rendered `invalid CutoverState: <undefined>` because
+    // the catalyst-api response did not include a `state` field on
+    // freshly-handed-over Sovereigns. Defensive parser must derive the
+    // state from `cutoverComplete` rather than throwing.
+    const out = parseCutoverStatus({ cutoverComplete: false, steps: [] })
+    expect(out.state).toBe('tethered')
+    expect(out.cutoverComplete).toBe(false)
+  })
+
+  it('defaults state to `sovereign` when wire field is missing but cutoverComplete=true', () => {
+    const out = parseCutoverStatus({ cutoverComplete: true, steps: [] })
+    expect(out.state).toBe('sovereign')
+    expect(out.cutoverComplete).toBe(true)
+  })
+
+  it('defaults to `tethered` for an empty wire object (older catalyst-api Pod)', () => {
+    const out = parseCutoverStatus({})
+    expect(out.state).toBe('tethered')
+    expect(out.cutoverComplete).toBe(false)
+  })
+
+  it('defaults to `tethered` when state is explicitly null', () => {
+    const out = parseCutoverStatus({ state: null, cutoverComplete: false })
+    expect(out.state).toBe('tethered')
+  })
 })
 
 describe('parseCutoverStatus — defensive boundaries', () => {
-  it('throws when state is missing or unknown', () => {
-    expect(() => parseCutoverStatus({})).toThrow(/invalid CutoverState/)
+  it('throws when state is an unknown string (typo / hostile input)', () => {
     expect(() => parseCutoverStatus({ state: 'pending', steps: [] })).toThrow(
+      /invalid CutoverState/,
+    )
+    expect(() => parseCutoverStatus({ state: 'TETHERED', steps: [] })).toThrow(
+      /invalid CutoverState/,
+    )
+    expect(() => parseCutoverStatus({ state: '', steps: [] })).toThrow(
       /invalid CutoverState/,
     )
   })

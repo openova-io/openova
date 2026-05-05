@@ -129,4 +129,30 @@ else
   exit 1
 fi
 
+echo "[cutover-contract] Case 8: auto-trigger Job renders by default (#933)"
+# Founder rule: handover is not done until cutover has run. The chart MUST
+# auto-fire by default. trigger.auto=false is the operator override, NOT
+# the default.
+if ! grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job missing from default render — handover gate broken" >&2
+  exit 1
+fi
+# It MUST be a post-install + post-upgrade Helm hook so chart upgrades
+# also re-fire (catalyst-api handles idempotency).
+if ! grep -q '"helm.sh/hook": "post-install,post-upgrade"' "$TMP/render.yaml" ; then
+  echo "FAIL: auto-trigger Job missing post-install + post-upgrade hook annotations" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger Job present + hook-annotated)"
+
+echo "[cutover-contract] Case 9: auto-trigger absent when trigger.auto=false"
+# Operator override path — the chart MUST install dormant when an overlay
+# disables auto-trigger.
+helm template smoke-noauto . --set trigger.auto=false > "$TMP/render-noauto.yaml"
+if grep -q 'cutover-auto-trigger' "$TMP/render-noauto.yaml"; then
+  echo "FAIL: auto-trigger Job rendered despite trigger.auto=false" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger gated on trigger.auto)"
+
 echo "[cutover-contract] All gates green."

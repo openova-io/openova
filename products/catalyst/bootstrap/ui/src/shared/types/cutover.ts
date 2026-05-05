@@ -255,8 +255,17 @@ export interface CutoverStatus {
  * MUST NOT crash the page or render an undefined badge.
  *
  * Strategy:
- *   • `state` MUST round-trip through `parseCutoverState`. A wire frame
- *     with an unknown overall state is rejected outright.
+ *   • `state` MUST resolve to a valid `CutoverState`. The wire SHOULD
+ *     emit `tethered` or `sovereign`; if the field is missing/undefined
+ *     (older catalyst-api Pod, sparse status ConfigMap mid-rollout)
+ *     we DERIVE it from `cutoverComplete` rather than throwing.
+ *     Throwing was the otech113 regression — `parseCutoverState`
+ *     surfaced `invalid CutoverState: <undefined>` as user-visible
+ *     text on the dashboard. Default = `tethered` (safe / accurate
+ *     for newly-handed-over Sovereigns where no cutover has run yet).
+ *   • A wire frame with an EXPLICITLY-WRONG state value (a typo, a
+ *     hostile string) still rejects via `parseCutoverState` — we
+ *     only soften the missing-field case.
  *   • Step records are filtered: any record whose `step` id is unknown
  *     is dropped (forward-compat — a future api version that adds a
  *     9th step won't break a stale UI).
@@ -269,7 +278,24 @@ export function parseCutoverStatus(input: unknown): CutoverStatus {
     throw new Error('invalid CutoverStatus: not an object')
   }
   const raw = input as Record<string, unknown>
-  const state = parseCutoverState(raw.state)
+  // Resolve state and cutoverComplete jointly. Either field can be the
+  // primary source; if neither is present we default to `tethered`
+  // (a freshly-handed-over Sovereign that hasn't run cutover yet).
+  // The API contract guarantees an explicit state field on every
+  // post-#933 catalyst-api build, but a stale Pod or partial-rollout
+  // wire snapshot must not crash the UI.
+  let state: CutoverState
+  if (raw.state === undefined || raw.state === null) {
+    // Wire field missing — derive from cutoverComplete. Default tethered.
+    const fromComplete =
+      typeof raw.cutoverComplete === 'boolean' && raw.cutoverComplete
+    state = (fromComplete ? 'sovereign' : 'tethered') as CutoverState
+  } else {
+    // Wire field present — branded parse (rejects typos / hostile input).
+    state = parseCutoverState(raw.state)
+  }
+  // cutoverComplete prefers the explicit boolean wire value when present,
+  // otherwise mirrors the resolved state.
   const cutoverComplete =
     typeof raw.cutoverComplete === 'boolean'
       ? raw.cutoverComplete
