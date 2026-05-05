@@ -172,12 +172,19 @@ func (h *Handler) HandleSetMarketplace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// gitOpsConfig captures the clone-target URL, branch, token, and committer
-// identity for the GitOps push. Every field is runtime-configurable per
-// INVIOLABLE-PRINCIPLES.md #4.
+// gitOpsConfig captures the clone-target URL, branch, user/token, and
+// committer identity for the GitOps push. Every field is runtime-
+// configurable per INVIOLABLE-PRINCIPLES.md #4.
 type gitOpsConfig struct {
-	RepoURL       string
-	Branch        string
+	RepoURL string
+	Branch  string
+	// User is the basic-auth username embedded in the clone URL. GitHub
+	// PATs accept any username (canonical "x-access-token"); Gitea
+	// requires the real account name. Wired via CATALYST_GITOPS_USER so
+	// the SAME catalyst-api binary works against both GitHub (Catalyst-
+	// Zero pre-cutover) and the Sovereign-side local Gitea (post-Day-2-
+	// Independence). Issue #878.
+	User          string
 	Token         string
 	CommitterName string
 	CommitterMail string
@@ -187,6 +194,7 @@ func loadGitOpsConfig() gitOpsConfig {
 	return gitOpsConfig{
 		RepoURL:       envOr("CATALYST_GITOPS_REPO_URL", "https://github.com/openova-io/openova"),
 		Branch:        envOr("CATALYST_GITOPS_BRANCH", "main"),
+		User:          envOr("CATALYST_GITOPS_USER", "x-access-token"),
 		Token:         os.Getenv("CATALYST_GITOPS_TOKEN"),
 		CommitterName: envOr("CATALYST_GITOPS_COMMITTER_NAME", "catalyst-api"),
 		CommitterMail: envOr("CATALYST_GITOPS_COMMITTER_EMAIL", "ops@openova.io"),
@@ -208,7 +216,7 @@ func envOr(key, fallback string) string {
 func writeMarketplaceOverlay(ctx context.Context, cfg gitOpsConfig, sovereignFQDN string, body SetMarketplaceRequest, log *slog.Logger) (string, error) {
 	// Build the authenticated clone URL once so the token is never echoed
 	// to a subprocess argument list (visible to /proc/<pid>/cmdline).
-	authURL, err := injectTokenIntoURL(cfg.RepoURL, cfg.Token)
+	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
 	if err != nil {
 		return "", fmt.Errorf("rewrite repo URL: %w", err)
 	}
@@ -501,12 +509,29 @@ func runGitOutput(ctx context.Context, dir string, args ...string) (string, erro
 }
 
 // injectTokenIntoURL rewrites https://github.com/foo into
-// https://x-access-token:<TOKEN>@github.com/foo so `git clone` can
-// authenticate against GitHub without an SSH key. Returns an error if
-// the URL is not http/https.
+// https://<USER>:<TOKEN>@github.com/foo so `git clone` can authenticate
+// without an SSH key. The user is configurable so the same code path
+// works for:
+//   - GitHub PATs — user="x-access-token" (default; GitHub ignores
+//     the username when the token is a PAT)
+//   - Local Gitea — user="gitea_admin" (Gitea checks the username on
+//     basic auth; "x-access-token" returns 401)
+//
+// Returns an error if the URL is not http/https.
 func injectTokenIntoURL(rawURL, token string) (string, error) {
+	return injectTokenIntoURLWithUser(rawURL, "x-access-token", token)
+}
+
+// injectTokenIntoURLWithUser is the configurable variant. Issue #878 —
+// post-cutover Sovereign uses local Gitea, which requires the real
+// admin username (default GitHub PAT username "x-access-token" returns
+// 401). Loaded from CATALYST_GITOPS_USER env via gitOpsConfig.User.
+func injectTokenIntoURLWithUser(rawURL, user, token string) (string, error) {
 	if token == "" {
 		return rawURL, nil
+	}
+	if user == "" {
+		user = "x-access-token"
 	}
 	if strings.HasPrefix(rawURL, "https://") {
 		// Strip any pre-existing userinfo, then re-inject.
@@ -514,14 +539,14 @@ func injectTokenIntoURL(rawURL, token string) (string, error) {
 		if at := strings.IndexByte(stripped, '@'); at >= 0 {
 			stripped = stripped[at+1:]
 		}
-		return "https://x-access-token:" + token + "@" + stripped, nil
+		return "https://" + user + ":" + token + "@" + stripped, nil
 	}
 	if strings.HasPrefix(rawURL, "http://") {
 		stripped := strings.TrimPrefix(rawURL, "http://")
 		if at := strings.IndexByte(stripped, '@'); at >= 0 {
 			stripped = stripped[at+1:]
 		}
-		return "http://x-access-token:" + token + "@" + stripped, nil
+		return "http://" + user + ":" + token + "@" + stripped, nil
 	}
 	return "", fmt.Errorf("unsupported repo URL scheme: %s", rawURL)
 }
