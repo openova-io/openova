@@ -581,7 +581,16 @@ func cutoverJobName(stepName string, runEpoch int64) string {
 // hook-style Helm Jobs the bootstrap-kit uses elsewhere.
 func createCutoverJob(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64) (*batchv1.Job, error) {
 	name := cutoverJobName(step.stepName, runEpoch)
-	backoffLimit := int32(0)   // No retries — fail fast, surface to the operator.
+	// #968 — backoffLimit raised from 0 to 3 to absorb the gitea-mirror
+	// step's known race against gitea-http endpoint publication. The
+	// step Pod can land in scheduling within seconds of the gitea Pod
+	// reaching Ready, before cluster-DNS endpoint propagation. One DNS
+	// miss used to be terminal because the Job had no retry budget;
+	// the cutover engine then aborted all 8 steps. With backoffLimit=3
+	// + the per-step DNS readiness probe (chart-side), a single miss
+	// is recoverable and steps still surface real failures (4× attempts
+	// over the activeDeadlineSeconds window).
+	backoffLimit := int32(3)
 	ttl := int32(24 * 60 * 60) // 24h GC so the Job evidence stays around for audit.
 	activeDeadline := int64(cutoverStepTimeout().Seconds())
 	job := &batchv1.Job{

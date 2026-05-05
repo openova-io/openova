@@ -76,6 +76,40 @@ data:
             echo "[gitea-mirror] target=${redacted_url}"
             echo "[gitea-mirror] mirror_interval=${MIRROR_INTERVAL}"
 
+            # #968 — DNS-readiness probe for gitea-http.
+            #
+            # The cutover auto-trigger fires within seconds of bp-self-
+            # sovereign-cutover Helm-install completing. On a fresh
+            # Sovereign the gitea Pod can still be moving from Running
+            # to Ready, in which case the headless service `gitea-http`
+            # has no DNS record published yet. Without this probe the
+            # very first wget call returns `bad address` and the Job
+            # exits non-zero. catalyst-api's cutover engine treats that
+            # as a hard failure (per cutover.go #968 backoffLimit was
+            # raised to 3, but local resolve here is cheaper and faster
+            # than burning Pod-restart budget). On otech115 2026-05-05
+            # this race fired Step-01 at +8s after gitea reached Ready
+            # and DNS hadn't propagated; one nslookup wait of ~10s would
+            # have been sufficient. Loop budget = 30 × 5s = 150s, well
+            # under the step's activeDeadlineSeconds.
+            gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+            if [ -n "${gitea_host}" ]; then
+              echo "[gitea-mirror] waiting for DNS resolution of ${gitea_host}"
+              dns_ready="false"
+              for i in $(seq 1 30); do
+                if nslookup "${gitea_host}" >/dev/null 2>&1; then
+                  echo "[gitea-mirror] DNS ready for ${gitea_host} (attempt ${i})"
+                  dns_ready="true"
+                  break
+                fi
+                sleep 5
+              done
+              if [ "${dns_ready}" != "true" ]; then
+                echo "[gitea-mirror] FATAL: ${gitea_host} did not resolve within 150s" >&2
+                exit 1
+              fi
+            fi
+
             # Build BusyBox-wget-compatible Basic auth header. printf -n
             # avoids the trailing newline that would otherwise corrupt
             # the base64 encoding (and thus the credential).

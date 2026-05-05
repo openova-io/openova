@@ -174,7 +174,21 @@ spec:
       #   Also drops the pre-flight cutoverComplete=true short-
       #   circuit since /internal/cutover/trigger is itself
       #   idempotent.
-      version: 0.1.18
+      # 0.1.19: Step-01 gitea-mirror DNS race + backoffLimit=0 (#968).
+      #   0.1.18 unblocked the auto-trigger so the cutover engine fired
+      #   correctly on otech115 (2026-05-05) — but Step-01 then failed
+      #   within 8s with `wget: bad address gitea-http.gitea.svc.cluster.
+      #   local`. The gitea Pod had reached Ready ~2-3s prior; cluster-
+      #   DNS endpoint propagation was still in flight. catalyst-api
+      #   stamped the Job with `backoffLimit=0` (cutover.go:584), so
+      #   one DNS miss was terminal and the cutover engine aborted all
+      #   8 steps. Fix is dual: (a) catalyst-api now stamps Jobs with
+      #   `backoffLimit=3` so a single miss is recoverable; (b) Step-01
+      #   bash script gains an explicit `nslookup` readiness loop (30 ×
+      #   5s) at the top, before any wget call. Both layers are needed —
+      #   the in-script probe is fastest; the backoffLimit is the
+      #   safety net for any other transient pre-cluster-stable race.
+      version: 0.1.19
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

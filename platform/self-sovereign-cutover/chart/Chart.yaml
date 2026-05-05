@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
-version: 0.1.18
+version: 0.1.19
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
