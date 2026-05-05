@@ -66,14 +66,58 @@ func (c *Client) CommitFiles(ctx context.Context, branch, message string, files 
 // prunePrefixes must not be empty strings; each must end with "/" (e.g.,
 // "clusters/contabo-mkt/tenants/haty/apps/"). Paths outside the prefixes are
 // preserved via base_tree as before.
+//
+// On ref-race retry, the SAME files map is committed against the new HEAD —
+// safe when the file content is independent of HEAD (e.g. tenant manifests
+// scoped to a fresh tenant subdirectory). NOT safe when the content is a
+// read-modify-write of an existing file (e.g. parent kustomization.yaml that
+// needs to merge in a slug). For that case use CommitFilesWithPruneAndRebuild.
 func (c *Client) CommitFilesWithPrune(ctx context.Context, branch, message string, files map[string]string, prunePrefixes []string) error {
-	if len(files) == 0 && len(prunePrefixes) == 0 {
+	return c.CommitFilesWithPruneAndRebuild(ctx, branch, message, files, prunePrefixes, nil)
+}
+
+// CommitFilesWithPruneAndRebuild is like CommitFilesWithPrune but lets the
+// caller participate in the ref-race retry. If non-nil, `rebuild` is called
+// at the START of each attempt (including the first) to (re)compute the file
+// map. This gives the caller a chance to read the latest HEAD content of any
+// merge-target file (e.g. parent kustomization.yaml) and re-apply the merge
+// against the post-race state, preventing stale read-modify-write resurrection.
+//
+// Issue #1031 — observed live 2026-05-06: tenant teardown of "bookcheck"
+// committed at T, then a multitest provision committed at T+5s. Multitest's
+// first commit attempt got the ref-race rejection because teardown landed
+// first; the retry re-used the SAME files map (containing a stale parent
+// kustomization that still listed "bookcheck"), wedging Flux's `tenants`
+// Kustomization in a build-failure loop because the bookcheck/ directory
+// was already gone but the slug was back in resources:.
+func (c *Client) CommitFilesWithPruneAndRebuild(
+	ctx context.Context,
+	branch, message string,
+	files map[string]string,
+	prunePrefixes []string,
+	rebuild func(ctx context.Context) (map[string]string, error),
+) error {
+	if rebuild == nil && len(files) == 0 && len(prunePrefixes) == 0 {
 		return fmt.Errorf("no files to commit")
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= commitAttemptsMax; attempt++ {
-		err := c.commitOnce(ctx, branch, message, files, prunePrefixes)
+		// Each attempt starts from a fresh files map when the caller has
+		// supplied a rebuilder. Without one, the static files map flows
+		// through unchanged — preserving the old behaviour.
+		attemptFiles := files
+		if rebuild != nil {
+			fresh, rebuildErr := rebuild(ctx)
+			if rebuildErr != nil {
+				return fmt.Errorf("rebuild files for commit: %w", rebuildErr)
+			}
+			attemptFiles = fresh
+			if len(attemptFiles) == 0 && len(prunePrefixes) == 0 {
+				return fmt.Errorf("rebuild returned no files to commit")
+			}
+		}
+		err := c.commitOnce(ctx, branch, message, attemptFiles, prunePrefixes)
 		if err == nil {
 			return nil
 		}
