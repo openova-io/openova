@@ -1,0 +1,82 @@
+{{- /*
+DNS-records ConfigMap — surfaces the records the operator (or the
+follow-up orchestrator-side PDM dynadot adapter sub-PR) MUST publish
+at the Sovereign's parent zone for Sovereign Console mail to deliver
+externally.
+
+The DKIM TXT record's value is initially empty — the post-install
+setup Job reads the public key from Stalwart's admin API on first
+boot and patches THIS ConfigMap with the populated value (via the
+Job's RBAC binding in templates/setup-job-rbac.yaml).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every value is templated. Render
+gates: skip when sovereignFQDN unset (smoke-render-safe).
+*/}}
+{{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
+{{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
+{{- $rua := include "bp-stalwart-sovereign.dmarcRua" . -}}
+{{- if and .Values.dnsRecords.enabled $fqdn $mailHost -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-stalwart-sovereign.dnsRecordsConfigMapName" . }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+    catalyst.openova.io/component: stalwart-sovereign-dns-records
+  annotations:
+    # Keep across helm uninstall — operator may still need the
+    # records list to clean up the parent zone.
+    helm.sh/resource-policy: keep
+data:
+  # Operator-readable summary surfaced by the Sovereign Console UI.
+  README.md: |
+    # Sovereign Console mail DNS records
+
+    Publish the records below at the parent zone of `{{ $fqdn }}` for
+    `noreply@{{ $fqdn }}` mail to deliver externally with valid SPF /
+    DKIM / DMARC posture. The orchestrator-side sub-PR will register
+    these automatically via the PDM dynadot adapter; until that lands,
+    publish them manually via the parent registrar's control panel.
+
+    | Type | Name | Value | Priority |
+    |------|------|-------|----------|
+    | MX   | {{ $fqdn }} | {{ $mailHost }} | 10 |
+    | A    | {{ $mailHost }} | <Sovereign LoadBalancer IPv4> | — |
+    | TXT  | {{ $fqdn }} | "v=spf1 a mx {{ .Values.dns.spf.policy }}" | — |
+    | TXT  | _dmarc.{{ $fqdn }} | "v=DMARC1; p={{ .Values.dns.dmarc.policy }}; rua=mailto:{{ $rua }}" | — |
+    | TXT  | {{ .Values.dns.dkim.selector }}._domainkey.{{ $fqdn }} | <DKIM public key — populated by setup Job> | — |
+
+    PTR (rDNS) for the Sovereign LoadBalancer IPv4 must point at
+    `{{ $mailHost }}` — set via the cloud provider's reverse-DNS API
+    (Hetzner: `hcloud server set-rdns`). The orchestrator-side sub-PR
+    will automate this.
+  # Machine-readable shape for the orchestrator-side registration job.
+  records.json: |
+    {
+      "sovereignFQDN": {{ $fqdn | quote }},
+      "mailHost": {{ $mailHost | quote }},
+      "mx": {
+        "name": {{ $fqdn | quote }},
+        "value": {{ $mailHost | quote }},
+        "priority": 10
+      },
+      "spf": {
+        "name": {{ $fqdn | quote }},
+        "value": {{ printf "v=spf1 a mx %s" .Values.dns.spf.policy | quote }}
+      },
+      "dmarc": {
+        "name": {{ printf "_dmarc.%s" $fqdn | quote }},
+        "value": {{ printf "v=DMARC1; p=%s; rua=mailto:%s" .Values.dns.dmarc.policy $rua | quote }}
+      },
+      "dkim": {
+        "selector": {{ .Values.dns.dkim.selector | quote }},
+        "name": {{ printf "%s._domainkey.%s" .Values.dns.dkim.selector $fqdn | quote }},
+        "algorithm": {{ .Values.dns.dkim.algorithm | quote }},
+        "publicKey": ""
+      },
+      "ptr": {
+        "name": "<Sovereign LoadBalancer IPv4>",
+        "value": {{ $mailHost | quote }}
+      }
+    }
+{{- end -}}

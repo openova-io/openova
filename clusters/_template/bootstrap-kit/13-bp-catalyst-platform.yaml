@@ -191,7 +191,15 @@ spec:
       #   want that rotation to require explicit operator action
       #   (delete the target) rather than auto-roll the catalyst-api
       #   Pod.
-      version: 1.4.19
+      # 1.4.20 (#924): Phase-2 SMTP cutover. SOURCE-wins precedence
+      # extended to (a) non-secret fields smtp-host/smtp-port/smtp-from
+      # so the per-Sovereign Stalwart relay (`mail.<sovereignFQDN>`)
+      # takes over from the mothership default (`mail.openova.io`) on
+      # the next reconcile after slot 95 (bp-stalwart-sovereign) lands,
+      # and (b) canonical key shape `smtp-user`/`smtp-pass` in addition
+      # to the legacy `user`/`password` source key shape — the new
+      # chart writes both shapes, this chart reads either.
+      version: 1.4.20
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

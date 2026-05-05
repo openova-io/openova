@@ -1,0 +1,128 @@
+# bp-stalwart-sovereign — Catalyst bootstrap-kit slot 95.
+# Sovereign-local Stalwart for Sovereign Console mail (PIN/magic-link
+# delivery, ops alerts, the noreply@<sovereignFQDN> system mailbox).
+#
+# Phase-2 follow-up to #883: replaces the mothership Stalwart relay
+# (mail.openova.io:587) with a Sovereign-local instance. After this
+# slot installs, Sovereign Console PIN delivery originates from
+# `noreply@<sovereignFQDN>` with per-Sovereign SPF/DKIM/DMARC posture,
+# eliminating the mothership-as-SPOF for Sovereign Console login.
+#
+# Distinct from bp-stalwart-tenant (per-SME/vcluster instance):
+#   - bp-stalwart-tenant: customer mailboxes, OIDC SSO via per-tenant
+#     Keycloak realm, exposed at `mail.<sme-domain>`.
+#   - bp-stalwart-sovereign (THIS SLOT): single instance per Sovereign,
+#     scoped to Sovereign Console system mail. NO Keycloak OIDC, NO
+#     webmail UI — Sovereign Console is the only consumer.
+#
+# Slot 95 (NOT slot 12): the chart's post-install Job materialises the
+# `catalyst-system/sovereign-smtp-credentials` mirror Secret AFTER
+# bp-catalyst-platform (slot 13) has created the catalyst-system
+# namespace. bp-catalyst-platform's `lookup` against that Secret runs
+# every Flux reconcile (~1 min), so the chart-rendered SMTP coordinates
+# take effect on the next reconcile after this slot first installs.
+# Until then the Phase-1 mothership-creds-seeded bytes (catalyst-api
+# `sovereign_smtp_seed.go`) keep PIN delivery working — graceful
+# cutover with no downtime.
+#
+# Wrapper chart: platform/stalwart-sovereign/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — provides the cert-manager.io CRDs / ClusterIssuer
+#                       referenced by the Sovereign wildcard cert that
+#                       covers `mail.<sovereignFQDN>` (the wildcard
+#                       chain rendered by bp-catalyst-platform 1.4.0+'s
+#                       per-zone cert template). Without cert-manager
+#                       Ready the wildcard SAN never materialises and
+#                       MTA STARTTLS handshakes fail.
+#   - bp-catalyst-platform — the chart materialises a Secret in the
+#                       `catalyst-system` namespace; the namespace must
+#                       exist (created by slot 13) before the post-
+#                       install Job's apply hits the K8s API.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every URL/zone
+# is operator-overridable. ${SOVEREIGN_FQDN} is substituted by Flux
+# envsubst at the per-Sovereign apply time.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stalwart-sovereign
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-stalwart-sovereign
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-stalwart-sovereign
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: stalwart-sovereign
+  targetNamespace: stalwart-sovereign
+  dependsOn:
+    - name: bp-cert-manager
+    - name: bp-catalyst-platform
+  chart:
+    spec:
+      chart: bp-stalwart-sovereign
+      # 0.1.0 (#924): initial release — Sovereign-local Stalwart for
+      # Sovereign Console mail. Materialises
+      # catalyst-system/sovereign-smtp-credentials so bp-catalyst-platform
+      # 1.4.17+'s `lookup` against that Secret picks up the per-Sovereign
+      # SMTP coordinates on the next Flux reconcile.
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-stalwart-sovereign
+        namespace: flux-system
+  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3. Stalwart
+  # itself is single-pod and starts in seconds; the long pole is the
+  # post-install Job's wait for the admin API readiness probe (60 s
+  # ceiling enforced inside the Job).
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    # Per-Sovereign FQDN — drives the SMTP sender domain
+    # (`noreply@<sovereignFQDN>`), the public MX hostname
+    # (`mail.<sovereignFQDN>`), and the DKIM signing domain.
+    global:
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+    # ─── Storage class for the RocksDB spool ───────────────────────
+    # Empty = cluster default. Per-Sovereign overlay sets the
+    # canonical class (e.g. `hcloud-volumes` on Hetzner Sovereigns,
+    # `local-path` on contabo / k3s). Inviolable Principle #4.
+    persistence:
+      spool:
+        storageClassName: ""
+    # ─── Soft-launch SPF/DMARC posture ─────────────────────────────
+    # `~all` (SPF soft-fail) + `quarantine` (DMARC quarantine, not
+    # reject) at first install so the orchestrator-side DNS-record
+    # registration race (sub-PR follow-up) does not hard-bounce the
+    # first send-pin emails. Operators flip to `-all` + `reject` via
+    # per-Sovereign overlay once propagation is verified.
+    dns:
+      spf:
+        policy: "~all"
+      dmarc:
+        policy: "quarantine"

@@ -1,0 +1,28 @@
+{{- /*
+ClusterIP Service for the Stalwart admin HTTP API (port 8080). NOT
+exposed publicly — only reached from:
+  - the post-install setup Job pod (this chart's own ServiceAccount)
+  - the ops `kubectl port-forward` operator-runtime path
+
+No webmail / JMAP exposure at the Sovereign Console mail tier — the
+Sovereign Console itself is the only mail consumer, and it talks SMTP
+on submission 587 via the LoadBalancer Service.
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-http
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+    catalyst.openova.io/exposure: cluster-internal
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+{{- end }}

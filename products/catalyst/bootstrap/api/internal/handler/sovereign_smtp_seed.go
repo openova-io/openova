@@ -10,8 +10,24 @@
 //
 //   Phase-1 architectural decision (founder-confirmed): during initial
 //   provisioning the Sovereign Console relays mail through the
-//   mothership Stalwart at mail.openova.io:587. A Sovereign-local
-//   Stalwart-relay is Phase-2 work tracked separately.
+//   mothership Stalwart at mail.openova.io:587.
+//
+//   Phase-2 cutover (issue #924, bp-stalwart-sovereign blueprint):
+//   bootstrap-kit slot 95 installs a Sovereign-local Stalwart whose
+//   post-install Job re-materialises catalyst-system/sovereign-smtp-
+//   credentials with Sovereign-local infrastructure addresses
+//   (`mail.<sovereignFQDN>` / `noreply@<sovereignFQDN>`) AND
+//   credentials minted in-cluster. bp-catalyst-platform 1.4.20+
+//   reads BOTH key shapes (`smtp-user`/`smtp-pass` AND legacy
+//   `user`/`password`) so this Phase-1 seed and the Phase-2 chart's
+//   write are interchangeable on the read side.
+//
+//   This Phase-1 step remains as a graceful fallback that runs ONLY
+//   when no in-namespace Secret exists yet (Get → IsNotFound → Create).
+//   The Phase-2 chart's post-install Job uses `kubectl apply` against
+//   the same Secret and overwrites whatever Phase-1 seeded — so the
+//   first cluster reconcile after slot 95 lands cuts over to
+//   `noreply@<sovereignFQDN>` automatically, no operator action.
 //
 // What this seeds:
 //

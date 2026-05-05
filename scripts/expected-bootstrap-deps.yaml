@@ -334,3 +334,19 @@ slots:
     name: bp-newapi
     depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
     wave: present
+
+  # ---- Slot 95 — bp-stalwart-sovereign Sovereign-local Stalwart for the
+  # Sovereign Console PIN/magic-link mail surface. Issue #924 (Phase-2
+  # follow-up to #883). Sequenced AFTER bp-catalyst-platform (slot 13)
+  # so the chart's post-install Job lands its
+  # catalyst-system/sovereign-smtp-credentials mirror Secret in an
+  # already-existing namespace; the next bp-catalyst-platform reconcile
+  # picks up the Sovereign-local SMTP coordinates and PIN delivery flips
+  # from mothership relay (mail.openova.io) to Sovereign-local relay
+  # (mail.<sovereignFQDN>) without operator action. Sequenced AFTER
+  # bp-cert-manager so the wildcard cert covering mail.<sovereignFQDN>
+  # is already issued before mail-server STARTTLS handshakes start.
+  - slot: 95
+    name: bp-stalwart-sovereign
+    depends_on: [bp-cert-manager, bp-catalyst-platform]
+    wave: present

@@ -1,7 +1,21 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.19
-appVersion: 1.4.19
+# 1.4.20 (#924): Phase-2 SMTP source-wins extended to non-secret fields
+# (smtp-host, smtp-port, smtp-from) AND to canonical key shape `smtp-user`/
+# `smtp-pass` in addition to legacy `user`/`password`. Pairs with the
+# new bp-stalwart-sovereign chart whose post-install Job materialises
+# `catalyst-system/sovereign-smtp-credentials` carrying Sovereign-local
+# infrastructure addresses (`mail.<sovereignFQDN>` / `noreply@<sovereignFQDN>`).
+# Once bp-stalwart-sovereign installs (bootstrap-kit slot 95), the
+# next Flux reconcile of THIS umbrella picks up the Sovereign-local
+# coordinates and Console PIN delivery flips from mothership relay
+# (`mail.openova.io`, Phase-1 #883) to Sovereign-local relay without
+# operator action. Pre-#924 catalyst-system/sovereign-smtp-credentials
+# carried only credentials and the chart fell back to
+# .Values.sovereign.smtp.* defaults — that fallback path remains as
+# the Sovereign-without-bp-stalwart-sovereign back-compat seam.
+version: 1.4.20
+appVersion: 1.4.20
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
