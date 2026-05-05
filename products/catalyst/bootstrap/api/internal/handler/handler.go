@@ -162,6 +162,23 @@ type Handler struct {
 	// deterministically against a stuck fake informer.
 	refreshWatchSeedTimeout time.Duration
 
+	// wipeMinLifeProtection — issue #914. Minimum age below which a
+	// POST /api/v1/deployments/{id}/wipe call is REJECTED with 409 when
+	// the deployment is still in `phase1-watching` (i.e. mid-converge).
+	// The operator can override with `?force=true` query param. Zero
+	// falls back to env var (CATALYST_WIPE_MIN_LIFE_PROTECTION) →
+	// DefaultWipeMinLifeProtection (30m). Tests inject a tiny value
+	// (e.g. 100ms) to exercise the protection path in milliseconds.
+	//
+	// The threshold is sized vs the Phase-1 watcher's overall budget
+	// (DefaultWatchTimeout = 60m) so a deployment that's still
+	// converging gets at least half the watch budget before any
+	// external wipe can destroy it. otech106 incident, 2026-05-05:
+	// an external POST /wipe at T+24m killed a still-converging
+	// 28/40-installed Sovereign because no minimum-life guard
+	// existed.
+	wipeMinLifeProtection time.Duration
+
 	// k8sCache — catalyst-wide informer cache (issue #321). Owns one
 	// SharedInformerFactory per managed Sovereign cluster. The k8s
 	// REST + SSE handlers in k8s.go read its Indexer + Subscribe.
