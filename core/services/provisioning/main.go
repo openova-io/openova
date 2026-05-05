@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
+	"github.com/openova-io/openova/core/services/provisioning/gitguard"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/handlers"
 	"github.com/openova-io/openova/core/services/provisioning/store"
@@ -29,12 +30,39 @@ func main() {
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8084")
 	gitBasePath := getEnv("GIT_BASE_PATH", "clusters/contabo-mkt/tenants")
+	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
 
 	// GitHub API credentials for committing manifests.
 	githubToken := getEnv("GITHUB_TOKEN", "")
 	githubOwner := getEnv("GITHUB_OWNER", "openova-io")
 	githubRepo := getEnv("GITHUB_REPO", "openova-private")
+
+	// ── Cross-cluster pollution guard (issue #944, CRITICAL) ─────────
+	// Validate GIT_BASE_PATH against SOVEREIGN_FQDN at startup. Failure
+	// is fail-loud — the binary refuses to start so an operator notices
+	// the misconfiguration the moment the Pod fails readiness rather
+	// than after alice signups have leaked into a foreign cluster's
+	// tree.
+	if err := gitguard.ValidateBasePath(gitBasePath, sovereignFQDN); err != nil {
+		slog.Error("FATAL: GIT_BASE_PATH validation failed",
+			"git_base_path", gitBasePath,
+			"sovereign_fqdn", sovereignFQDN,
+			"error", err)
+		os.Exit(1)
+	}
+	slog.Info("git base path validated against sovereign fqdn",
+		"git_base_path", gitBasePath,
+		"sovereign_fqdn", sovereignFQDN)
+
+	// ── Placeholder token guard (issue #940) ─────────────────────────
+	// Reject leaked placeholder Secret bytes at startup so the operator
+	// sees the failure before alice signups start hitting "401 Bad
+	// credentials" buried in service logs.
+	if err := gitguard.ValidateGitHubToken(githubToken); err != nil {
+		slog.Error("FATAL: GITHUB_TOKEN validation failed", "error", err)
+		os.Exit(1)
+	}
 
 	// Connect to MongoDB (FerretDB).
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -81,20 +109,34 @@ func main() {
 	slog.Info("provisioning job indexes ensured")
 	generator := gitops.NewManifestGenerator(gitBasePath)
 
+	// ── Git host coordinates (issue #940) ────────────────────────────
+	// On Sovereigns the canonical Git target is the local Gitea (the
+	// cutover step flipped the Sovereign's GitRepository CR to point
+	// there). The provisioning binary's GitHub-Data-API client targets
+	// whatever GITHUB_API_URL specifies — Gitea exposes a GitHub-
+	// compatible Git Data API at /api/v1, so the wire format is
+	// unchanged. Empty value falls back to https://api.github.com (the
+	// contabo path).
+	githubAPIURL := getEnv("GITHUB_API_URL", "")
+	githubBranch := getEnv("GITHUB_BRANCH", "main")
+
 	var gc *ghclient.Client
 	if githubToken != "" {
-		gc = ghclient.NewClient(githubToken, githubOwner, githubRepo)
-		slog.Info("GitHub client configured", "owner", githubOwner, "repo", githubRepo)
+		gc = ghclient.NewClientWithAPIURL(githubToken, githubOwner, githubRepo, githubAPIURL)
+		slog.Info("GitHub client configured", "owner", githubOwner, "repo", githubRepo, "api_url_set", githubAPIURL != "", "branch", githubBranch)
 	} else {
 		slog.Warn("GITHUB_TOKEN not set — provisioning will fail to commit manifests")
 	}
 
 	h := &handlers.Handler{
-		Store:        provisionStore,
-		Producer:     producer,
-		Generator:    generator,
-		GitHubClient: gc,
-		CatalogURL:   catalogURL,
+		Store:         provisionStore,
+		Producer:      producer,
+		Generator:     generator,
+		GitHubClient:  gc,
+		CatalogURL:    catalogURL,
+		GitBasePath:   gitBasePath,
+		SovereignFQDN: sovereignFQDN,
+		GitBranch:     githubBranch,
 	}
 
 	// Start event consumer in a background goroutine.

@@ -78,8 +78,55 @@ newapi:
 database:
   # ExternalSecret name carrying the full DSN. Required key: SQL_DSN
   # (e.g. "postgres://user:pass@host:5432/newapi?sslmode=require").
+  # Pre-#943 this was REQUIRED — the deployment.yaml gate skipped Pod
+  # render when empty, blocking alice signup gate 5 (LLM) on every
+  # fresh Sovereign. Issue #943 (2026-05-05): when empty, the chart
+  # auto-provisions via .Values.cnpg.* below and the Pod reads from
+  # the chart-emitted DSN Secret. Operator may still set this to
+  # bypass auto-provision and wire NewAPI at an external Postgres
+  # (the contabo path historically did this via Crossplane).
   existingSecret: ""              # operator-supplied (e.g. "newapi-db-dsn")
   existingSecretKey: "SQL_DSN"
+
+# ─── CNPG-backed auto-provisioned Postgres (issue #943) ──────────────────
+# When enabled (DEFAULT true), the chart renders templates/cnpg-cluster.yaml:
+#   - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg`
+#   - Secret `<release>-newapi-db-dsn` (key: SQL_DSN) read by the Pod
+# The Cluster's auto-emitted basic-auth Secret is read via Helm `lookup`
+# and the DSN string is composed at render time. Per Inviolable Principle
+# #4 the instance count, image, storage, and SSL mode are all operator-
+# tunable via per-Sovereign overlay.
+#
+# Capabilities-gated on postgresql.cnpg.io/v1 — when bp-cnpg is not yet
+# Ready the Cluster CR is skipped and chart install does not fail.
+cnpg:
+  enabled: true
+  # Override the auto-emitted DSN Secret name. Default empty ⇒ derived
+  # from release name (`<release>-newapi-db-dsn`).
+  dsnSecretName: ""
+  # Database name created by CNPG initdb.
+  database: newapi
+  # SSL mode component of the DSN string. CNPG enforces TLS by default
+  # so `require` matches the cluster's posture; operators may relax to
+  # `prefer` on dev clusters by overlaying this value.
+  sslMode: "require"
+  cluster:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
+    storage: "5Gi"
+    storageClassName: ""          # empty ⇒ default StorageClass
+    owner: "newapi"
+    # Optional bootstrap SQL — empty by default. Operators may add
+    # CREATE EXTENSION / additional databases here without forking
+    # the chart.
+    postInitApplicationSQL: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 # ─── Valkey cache (bp-valkey) ────────────────────────────────────────────
 # Session store and rate-limit counters. Optional but recommended
@@ -94,12 +141,26 @@ valkey:
 
 # ─── App credentials (NewAPI-internal) ───────────────────────────────────
 # SESSION_SECRET (random 32+ bytes) and CRYPTO_SECRET (random 32+ bytes)
-# are NewAPI-internal cryptographic material. Generated out-of-band by
-# the operator (per docs/INVIOLABLE-PRINCIPLES.md #4 and the credential
-# hygiene rules in ~/.claude/CLAUDE.md), mounted via ExternalSecret.
-# Required keys: SESSION_SECRET, CRYPTO_SECRET.
+# are NewAPI-internal cryptographic material.
+#
+# Issue #943 (2026-05-05): the chart auto-provisions these via
+# templates/credentials-secret.yaml when autoProvision=true (DEFAULT)
+# AND existingSecret is empty. Persistence across reconciles via Helm
+# `lookup` — same load-bearing pattern as gitea-admin-secret (issue
+# #830 Bug 2). Without this, every reconcile would invalidate every
+# active session cookie and every encrypted token across NewAPI's user
+# base. helm.sh/resource-policy: keep so a `helm uninstall` + reinstall
+# recovers the same bytes.
+#
+# Operator may bring their own bytes via per-Sovereign overlay setting
+# `existingSecret` — when non-empty it takes precedence and the chart-
+# emitted Secret is NOT rendered.
 credentials:
   existingSecret: ""              # operator-supplied (e.g. "newapi-app-creds")
+  autoProvision: true
+  # Override the auto-emitted credentials Secret name. Default empty
+  # ⇒ derived from release name (`<release>-app-creds`).
+  autoSecretName: ""
 
 # ─── Auth: ops-staff admin UI ────────────────────────────────────────────
 # The admin UI at admin.<host> is gated by the operator's IdP. Default

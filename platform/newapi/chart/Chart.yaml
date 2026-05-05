@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.0 (issue #943, 2026-05-05): auto-provision CNPG-backed Postgres +
+# in-chart credentials Secret so a Sovereign install at bootstrap-kit
+# slot 80 lands a real Pod without operator intervention.
+#
+# Pre-#943 the deployment.yaml gate REQUIRED operator-supplied
+# `database.existingSecret` AND `credentials.existingSecret` — the Pod
+# silently skipped render whenever either was empty. On a freshly
+# franchised Sovereign nothing populated those values, so NewAPI never
+# came up and alice signup gate 5 (LLM) timed out waiting for the
+# customer-facing /v1/* API to respond.
+#
+# Fix:
+#   - NEW templates/cnpg-cluster.yaml — when .Values.cnpg.enabled
+#     (DEFAULT true), renders postgresql.cnpg.io/v1.Cluster
+#     `<release>-newapi-pg` + a Helm-`lookup`-persistent DSN Secret
+#     `<release>-newapi-db-dsn` (key: SQL_DSN) read by the deployment.
+#     Capabilities-gated on postgresql.cnpg.io/v1 so a cold install
+#     before bp-cnpg is Ready surfaces as "no Cluster yet" rather
+#     than a hard install error (mirrors platform/powerdns/chart/
+#     templates/cnpg-cluster.yaml's pattern).
+#   - NEW templates/credentials-secret.yaml — when
+#     .Values.credentials.autoProvision (DEFAULT true) AND
+#     .Values.credentials.existingSecret is empty, renders
+#     `<release>-app-creds` carrying SESSION_SECRET + CRYPTO_SECRET
+#     (each 64-char randAlphaNum, persistent across reconciles via
+#     Helm `lookup`). helm.sh/resource-policy: keep so a re-install
+#     recovers the same bytes (otherwise an upgrade silently rotates
+#     the keys, invalidating every active session cookie + every
+#     encrypted token).
+#   - deployment.yaml — Secret name resolution now picks the chart-
+#     emitted defaults when the operator hasn't supplied an override.
+#     The Pod-render gate accepts EITHER an explicit existingSecret
+#     OR the auto-provisioned one.
+#   - values.yaml — adds .Values.cnpg.* and .Values.credentials.
+#     {autoProvision,autoSecretName} blocks; every knob is operator-
+#     overridable per Inviolable Principle #4.
+#
 # 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
 # https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
 # `channel-seed` Helm hook Job that idempotently POSTs default
@@ -9,7 +46,7 @@ name: bp-newapi
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
 # NewAPI → Qwen3.6@BankDhofar end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-version: 1.3.0
+version: 1.4.0
 appVersion: "0.4.5"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

@@ -395,9 +395,20 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 	tenantDir := h.Generator.TenantDir(data.TenantSlug) + "/"
 	prunePrefixes := []string{tenantDir}
 
+	// Issue #944 cross-cluster pollution guard — defence in depth on top
+	// of main.go's startup validation. Refuses to commit into a foreign
+	// cluster's tree even if a runtime env mutation slipped past startup.
+	if err := h.VerifyCommitTargetSafe(tenantDir); err != nil {
+		return fmt.Errorf("commit guard: %w", err)
+	}
+
+	branch := h.GitBranch
+	if branch == "" {
+		branch = "main"
+	}
 	commitMsg := fmt.Sprintf("day-2: %s %s on tenant %s (apps: %d)",
 		action, data.AppSlug, data.TenantSlug, len(appSlugs))
-	if err := h.GitHubClient.CommitFilesWithPrune(ctx, "main", commitMsg, manifests, prunePrefixes); err != nil {
+	if err := h.GitHubClient.CommitFilesWithPrune(ctx, branch, commitMsg, manifests, prunePrefixes); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 	slog.Info("day-2: committed tenant manifests",
@@ -406,12 +417,17 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 }
 
 // readExistingDBPassword tries db-postgres.yaml then db-mysql.yaml from the
-// tenant's apps/ dir on main. Returns "" if neither file exists (first-time DB
-// install) or the password couldn't be parsed.
+// tenant's apps/ dir on the configured branch (default "main"). Returns ""
+// if neither file exists (first-time DB install) or the password couldn't
+// be parsed.
 func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string) string {
 	dir := h.Generator.TenantDir(tenantSlug) + "/apps"
+	branch := h.GitBranch
+	if branch == "" {
+		branch = "main"
+	}
 	for _, name := range []string{"db-postgres.yaml", "db-mysql.yaml"} {
-		content, err := h.GitHubClient.ReadFile(ctx, "main", dir+"/"+name)
+		content, err := h.GitHubClient.ReadFile(ctx, branch, dir+"/"+name)
 		if err != nil {
 			continue
 		}
@@ -542,14 +558,24 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	tenantDir := h.Generator.TenantDir(data.Slug) + "/"
 	parentPath := h.Generator.BasePath + "/kustomization.yaml"
 
-	currentParent, readErr := h.GitHubClient.ReadFile(ctx, "main", parentPath)
+	// Issue #944 cross-cluster pollution guard.
+	if err := h.VerifyCommitTargetSafe(tenantDir); err != nil {
+		return fmt.Errorf("teardown: commit guard: %w", err)
+	}
+
+	branch := h.GitBranch
+	if branch == "" {
+		branch = "main"
+	}
+
+	currentParent, readErr := h.GitHubClient.ReadFile(ctx, branch, parentPath)
 	files := map[string]string{}
 	if readErr == nil {
 		files[parentPath] = gitops.RemoveTenantFromParentKustomization(currentParent, data.Slug)
 	}
 
 	commitMsg := fmt.Sprintf("teardown: delete tenant %s", data.Slug)
-	if err := h.GitHubClient.CommitFilesWithPrune(ctx, "main", commitMsg, files, []string{tenantDir}); err != nil {
+	if err := h.GitHubClient.CommitFilesWithPrune(ctx, branch, commitMsg, files, []string{tenantDir}); err != nil {
 		slog.Error("teardown: commit/prune failed", "slug", data.Slug, "error", err)
 		return err
 	}
@@ -883,7 +909,27 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	}
 
 	parentKustomPath := h.Generator.BasePath + "/kustomization.yaml"
-	currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, "main", parentKustomPath)
+
+	// Issue #944 cross-cluster pollution guard. Validate the parent
+	// kustomization path AND the per-tenant subdir live under the
+	// configured GIT_BASE_PATH before any commit lands.
+	if err := h.VerifyCommitTargetSafe(parentKustomPath); err != nil {
+		slog.Error("commit guard rejected provision target", "provision_id", provisionID, "path", parentKustomPath, "error", err)
+		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
+		return
+	}
+	if err := h.VerifyCommitTargetSafe(h.Generator.TenantDir(subdomain) + "/"); err != nil {
+		slog.Error("commit guard rejected tenant target", "provision_id", provisionID, "tenant", subdomain, "error", err)
+		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
+		return
+	}
+
+	branch := h.GitBranch
+	if branch == "" {
+		branch = "main"
+	}
+
+	currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, branch, parentKustomPath)
 	if readErr != nil {
 		slog.Warn("could not read parent kustomization, using empty", "error", readErr)
 		currentParentKustom = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
@@ -891,7 +937,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	manifests[parentKustomPath] = gitops.UpdateParentKustomization(currentParentKustom, subdomain)
 
 	commitMsg := fmt.Sprintf("provision: deploy tenant %s (plan: %s, apps: %d)", subdomain, planSlug, len(appSlugs))
-	if err := h.GitHubClient.CommitFiles(ctx, "main", commitMsg, manifests); err != nil {
+	if err := h.GitHubClient.CommitFiles(ctx, branch, commitMsg, manifests); err != nil {
 		slog.Error("failed to commit manifests", "provision_id", provisionID, "error", err)
 		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("git commit failed: %s", err))
 		return

@@ -376,6 +376,16 @@ smeSecrets:
   secretName: sme-secrets
   namespace: sme
   smtp:
+    # ─── Sovereign source-Secret (issue #934) ────────────────────────
+    # On a freshly franchised Sovereign the SMTP creds are seeded by
+    # cloud-init / A5's provisioner (#883/#905) into
+    # `catalyst-system/sovereign-smtp-credentials`. The sme-secrets
+    # template reads from there with source-wins precedence so any
+    # non-empty bytes override the chart-level defaults below. Empty
+    # source falls back to the defaults so non-Sovereign (contabo)
+    # installs keep working unchanged.
+    sovereignNamespace: catalyst-system
+    sovereignSecretName: sovereign-smtp-credentials
     # In-cluster Stalwart Service URL, or per-Sovereign override pointing
     # at the operator's preferred relay. Empty default means non-
     # marketplace Sovereigns stay clean (the Secret renders with empty
@@ -414,6 +424,22 @@ smeSecrets:
 # CNPG postgres:16; valkey-primary as the bp-valkey 1.0.0 read/write
 # Service name).
 smeServices:
+  # ─── Event bus (issue #942) ────────────────────────────────────────────
+  # Per ADR-0001 the OpenOva architecture uses NATS JetStream as the only
+  # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy SME
+  # services still target a Redpanda Service in the talentmesh namespace
+  # (migration #68). The configmap.yaml template selects the default at
+  # render time based on .Values.global.sovereignFQDN:
+  #   - non-empty (Sovereign)  → nats-jetstream.nats-jetstream.svc:4222
+  #   - empty (Catalyst-Zero) → redpanda.talentmesh.svc:9092
+  # `brokers` overrides the default outright — operator MAY wire any
+  # NATS-protocol or Kafka-protocol broker without forking the chart.
+  # `protocol` is an explicit hint for SME services that want to switch
+  # wire format independently (e.g. a Sovereign with a Kafka-compatible
+  # broker outside the cluster).
+  eventBus:
+    brokers: ""
+    protocol: ""
   ferretdb:
     namespace: sme
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x
@@ -509,3 +535,38 @@ smeServices:
       destNamespace: sme
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
+    # ─── Provisioning service GitOps env (issues #940 + #944) ──────────
+    # The SME provisioning service Deployment env block is rendered from
+    # these keys. Every value is operator-overridable per Inviolable
+    # Principle #4. Defaults are topology-aware:
+    #   - Sovereign install (global.sovereignFQDN non-empty) defaults
+    #     gitBasePath to clusters/<sovereignFQDN>/sme-tenants and points
+    #     git.{apiURL,owner} at the local Gitea bp-gitea installs.
+    #   - Catalyst-Zero install (global.sovereignFQDN empty) keeps the
+    #     legacy contabo-mkt write target.
+    #
+    # gitBasePath: filesystem prefix under the cloned repo root. When
+    # non-empty, takes precedence over the topology default. The
+    # provisioning binary's startup guard (validateGitBasePath in
+    # core/services/provisioning/main.go) rejects values that don't
+    # start with `clusters/<SOVEREIGN_FQDN>/` on Sovereigns — the
+    # cross-cluster pollution defence (#944 critical).
+    gitBasePath: ""
+    # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
+    # from. Defaults match the chart-emitted
+    # templates/sme-services/provisioning-github-token.yaml output
+    # (issue #866). Operator may swap to a per-Sovereign ExternalSecret
+    # by setting both fields here.
+    githubToken:
+      secretName: provisioning-github-token
+      secretKey: GITHUB_TOKEN
+    # git.{apiURL,owner,repo,branch}: Git host coordinates. The
+    # provisioning binary uses GITHUB_API_URL when non-empty (Sovereign
+    # path → in-cluster Gitea REST API) and otherwise falls back to the
+    # canonical https://api.github.com (contabo path). All four values
+    # are operator-overridable.
+    git:
+      apiURL: ""
+      owner: ""
+      repo: openova
+      branch: main

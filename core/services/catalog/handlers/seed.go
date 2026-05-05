@@ -565,21 +565,50 @@ func (h *Handler) migrateAppDependencies(ctx context.Context) {
 // (chatwoot → needs Redis, issue #100; listmonk → config.toml bug,
 // issue #101; rocket-chat → needs MongoDB backing service) are marked
 // NOT deployable until their fixes ship.
-func (h *Handler) migrateAppDeployable(ctx context.Context) {
-	deployable := map[string]bool{
-		"wordpress":    true,
-		"ghost":        true,
-		"nextcloud":    true,
-		"bookstack":    true,
-		"uptime-kuma":  true,
-		"gitea":        true,
-		"vaultwarden":  true,
-		"umami":        true,
-		"nocodb":       true,
-		"cal-com":      true,
-		"invoiceshelf": true,
-		"formbricks":   true,
-		"listmonk":     true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
+//
+// Issue #941 (2026-05-05): openclaw + stalwart-mail were missing here even
+// though both blueprints (bp-openclaw, bp-stalwart-sovereign) ship with
+// visibility=listed in products/catalyst/bootstrap/api/internal/catalog/
+// blueprints.json. The result on a fresh Sovereign was the marketplace UI
+// drawing a "COMING SOON" overlay on every "AI" + "Communication" card —
+// alice signup gates 4 (LLM) and 5 (mail) blocked before alice could click
+// Install. Both are SME-tenant-pipeline-installable per the per-tenant
+// overlay templates emitted by sme_tenant_gitops.go (bp-openclaw +
+// bp-stalwart-tenant HelmRelease emit), so they MUST appear as Available
+// to install. The marketplace shows the customer-app slug (`stalwart-mail`,
+// matching seedApps line 48) — bp-stalwart-sovereign is the Sovereign-side
+// realisation; bp-stalwart-tenant is the per-tenant one driven by the
+// SME-tenant orchestrator.
+// DeployableAppSlugs returns the canonical map of catalog app slugs the
+// SME provisioning service / SME-tenant orchestrator can install end to
+// end. Apps NOT in this map are flagged with Deployable=false on the
+// catalog rows so the marketplace UI overlays them with "COMING SOON"
+// per issue #102. The map is exported as a function so unit tests can
+// assert membership without invoking a Mongo store.
+//
+// Issue #941 (2026-05-05): added `openclaw` + `stalwart-mail` after
+// C5-final hit "27 apps COMING SOON" on otech113 — both blueprints
+// (bp-openclaw, bp-stalwart-{sovereign,tenant}) ship with visibility=
+// listed in the embedded blueprints.json AND have working SME-tenant
+// overlay templates in sme_tenant_gitops.go, but the catalog handler
+// silently filtered them out because they were missing here.
+func DeployableAppSlugs() map[string]bool {
+	return map[string]bool{
+		"wordpress":     true,
+		"ghost":         true,
+		"nextcloud":     true,
+		"bookstack":     true,
+		"uptime-kuma":   true,
+		"gitea":         true,
+		"vaultwarden":   true,
+		"umami":         true,
+		"nocodb":        true,
+		"cal-com":       true,
+		"invoiceshelf":  true,
+		"formbricks":    true,
+		"listmonk":      true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
+		"openclaw":      true, // #941 — bp-openclaw + bp-newapi via SME-tenant overlay
+		"stalwart-mail": true, // #941 — bp-stalwart-tenant via SME-tenant overlay
 		// Backing services are always deployable — they come bundled with
 		// whichever business app needs them. Marking them true so the
 		// catalog UI doesn't draw a 'Coming soon' overlay on them. #112.
@@ -587,6 +616,10 @@ func (h *Handler) migrateAppDeployable(ctx context.Context) {
 		"mysql":    true,
 		"redis":    true,
 	}
+}
+
+func (h *Handler) migrateAppDeployable(ctx context.Context) {
+	deployable := DeployableAppSlugs()
 	apps, err := h.Store.ListApps(ctx)
 	if err != nil {
 		slog.Error("seed: list apps for deployable migration", "error", err)

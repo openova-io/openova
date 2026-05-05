@@ -1,5 +1,94 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.22 (#915 SME blockers — issues #934/#940/#941/#942/#943/#944): six
+# coupled chart + orchestrator fixes that unblock alice signup gates 2-6
+# on a freshly franchised Sovereign. C5-final got Gate 1 GREEN on
+# otech113 (2026-05-05) but every downstream gate failed because the SME
+# bundle hardcoded contabo-only assumptions:
+#
+#   - #934: auth + notification SME services pinned SMTP env to bytes
+#     the operator placed in `sme-secrets` via .Values.smeSecrets.smtp.*.
+#     On a Sovereign nothing populated those values — auth.yaml's POST
+#     /auth/send-pin returned `failed to send email` and gate 2 (PIN
+#     delivery) timed out. Fix: sme-secrets.yaml now reads SMTP_*
+#     from `catalyst-system/sovereign-smtp-credentials` (the same
+#     A5-seeded source #883/#905 the chart 1.4.20 catalyst-openova-kc-
+#     credentials Secret already uses) with source-wins precedence.
+#     Empty source falls back to legacy chart-level defaults so
+#     contabo paths stay clean. Both canonical (smtp-host/port/from/
+#     user/pass) AND legacy (host/port/from/user/password) source-Secret
+#     key shapes are accepted.
+#
+#   - #940: Sovereign provisioning service shipped with GITHUB_TOKEN
+#     placeholder bytes AND with GITHUB_OWNER + GITHUB_REPO hardcoded
+#     to upstream `openova-io/openova` so per-tenant commits attempted
+#     authenticated POST against api.github.com — failed every time
+#     with 401. Fix: chart values
+#     .Values.smeServices.provisioning.{githubToken,git.{apiURL,owner,
+#     repo,branch}} make every GitHub-API coordinate operator-overridable
+#     with topology-aware defaults (Sovereign ⇒ in-cluster Gitea REST
+#     API + `openova` org; contabo ⇒ api.github.com + `openova-io` org).
+#     Provisioning binary's startup gate validates the GITHUB_TOKEN
+#     does NOT contain placeholder substrings (`<placeholder>`,
+#     `PLACEHOLDER`, `REPLACE_ME`, ...) and crashes the Pod into
+#     Pending if it does — the operator sees the misconfig immediately
+#     instead of after alice signups have failed silently in Pod logs.
+#
+#   - #941: marketplace UI drew "COMING SOON" overlay on every AI +
+#     Communication card on a fresh Sovereign because catalog handler's
+#     migrateAppDeployable() map at core/services/catalog/handlers/
+#     seed.go omitted `openclaw` and `stalwart-mail` even though both
+#     blueprints (bp-openclaw, bp-stalwart-{sovereign,tenant}) are
+#     visibility=listed in the embedded blueprints.json. C5-final hit
+#     "27 apps COMING SOON" because of this — gates 4 (LLM) and 5
+#     (mail) blocked before alice could click Install. Fix: add both
+#     slugs to the deployable map.
+#
+#   - #942: configmap.yaml hardcoded REDPANDA_BROKERS to
+#     `redpanda.talentmesh.svc.cluster.local:9092`. talentmesh ns does
+#     not exist on a Sovereign and the OpenOva architecture uses NATS
+#     JetStream as the only local bus per ADR-0001 (slot 09 ships
+#     bp-nats-jetstream into namespace `nats-jetstream`). Every SME
+#     service crashlooped at startup with `lookup ...: no such host`,
+#     blocking gate 3 (tenant ready). Fix: data-driven via
+#     .Values.smeServices.eventBus.brokers with a topology-aware default
+#     — Sovereign ⇒ NATS JetStream Service, contabo ⇒ legacy Redpanda
+#     Service. The ConfigMap key name stays REDPANDA_BROKERS for
+#     back-compat with existing SME service Go env wiring.
+#
+#   - #943: bp-newapi chart silently skipped Deployment render on a
+#     fresh Sovereign because the Pod gate REQUIRED operator-supplied
+#     `database.existingSecret` AND `credentials.existingSecret`. The
+#     bootstrap-kit slot 80 overlay supplied neither, so NewAPI never
+#     came up and gate 5 (LLM) timed out. Fix: bp-newapi 1.4.0 auto-
+#     provisions a CNPG-backed Postgres Cluster + a chart-emitted DSN
+#     Secret + a Helm-lookup-persistent SESSION_SECRET/CRYPTO_SECRET
+#     Secret when the operator hasn't overridden either. The
+#     deployment.yaml gate now passes by default. Capabilities-gated
+#     on postgresql.cnpg.io/v1 so a cold install before bp-cnpg is
+#     Ready surfaces as "no Cluster yet" rather than an install error.
+#
+#   - #944 (CRITICAL — cross-cluster pollution): Sovereign provisioning
+#     service had GIT_BASE_PATH hardcoded to `clusters/contabo-mkt/
+#     tenants` so every alice tenant overlay landed in the upstream
+#     openova/openova repo's contabo overlay, which contabo Flux would
+#     then install on the contabo cluster. C5-final caught + reverted
+#     the alice2 incident at commit 5715db04 (2026-05-05). Fix:
+#     provisioning.yaml templates GIT_BASE_PATH from
+#     .Values.smeServices.provisioning.gitBasePath with a topology-
+#     aware default `clusters/<sovereignFQDN>/sme-tenants` on
+#     Sovereigns. Provisioning binary's startup AND every commit code
+#     path validate the path begins with `clusters/<self-FQDN>/` via
+#     a new shared `core/services/provisioning/gitguard` package —
+#     refusing to commit to any other cluster's tree. Defence in depth
+#     so a runtime env mutation (kubectl exec, ConfigMap update without
+#     Pod restart, hostile sidecar) cannot bypass the check.
+#
+# Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+# 13-bp-catalyst-platform.yaml bumps from 1.4.21 → 1.4.22.
+# Coupled bp-newapi bump 1.3.0 → 1.4.0 for the #943 CNPG auto-
+# provisioning. 2026-05-05.
+#
 # 1.4.20 (#924): Phase-2 SMTP source-wins extended to non-secret fields
 # (smtp-host, smtp-port, smtp-from) AND to canonical key shape `smtp-user`/
 # `smtp-pass` in addition to legacy `user`/`password`. Pairs with the
@@ -14,8 +103,8 @@ name: bp-catalyst-platform
 # carried only credentials and the chart fell back to
 # .Values.sovereign.smtp.* defaults — that fallback path remains as
 # the Sovereign-without-bp-stalwart-sovereign back-compat seam.
-version: 1.4.21
-appVersion: 1.4.21
+version: 1.4.22
+appVersion: 1.4.22
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.

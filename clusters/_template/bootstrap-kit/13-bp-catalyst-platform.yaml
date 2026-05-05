@@ -199,7 +199,20 @@ spec:
       # and (b) canonical key shape `smtp-user`/`smtp-pass` in addition
       # to the legacy `user`/`password` source key shape — the new
       # chart writes both shapes, this chart reads either.
-      version: 1.4.21
+      # 1.4.22 (#915 SME blockers): six chart + orchestrator fixes
+      # unblocking alice signup gates 2-6 on franchised Sovereigns —
+      # issues #934 (auth SMTP empty), #940 (provisioning placeholder
+      # GITHUB_TOKEN + hardcoded upstream github.com), #941 (catalog
+      # migrateAppDeployable missing openclaw + stalwart-mail), #942
+      # (REDPANDA_BROKERS hardcoded to talentmesh — switched to NATS
+      # JetStream on Sovereigns per ADR-0001), #943 (bp-newapi
+      # silently skipped Deployment — paired bp-newapi 1.4.0 auto-
+      # provisions CNPG cluster + credentials Secret), #944 (CRITICAL
+      # cross-cluster pollution — GIT_BASE_PATH was hardcoded to
+      # contabo-mkt; chart values now template per-Sovereign with
+      # provisioning-binary Go-side validation guard refusing commits
+      # to foreign cluster trees). 2026-05-05.
+      version: 1.4.22
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

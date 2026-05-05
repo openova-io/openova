@@ -158,6 +158,12 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: REDPANDA_BROKERS
+            - name: EVENT_BUS_PROTOCOL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: EVENT_BUS_PROTOCOL
+                  optional: true
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -168,22 +174,114 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: CORS_ORIGIN_PUBLIC
+            # ── GitOps target path — issue #944 ───────────────────────────
+            # Pre-#944 GIT_BASE_PATH was hardcoded to
+            # `clusters/contabo-mkt/tenants` here. On a freshly franchised
+            # Sovereign (the SME marketplace runs on the Sovereign too) that
+            # path points at CONTABO's clusters/ tree — every alice tenant
+            # commit landed in upstream openova/openova's contabo overlay,
+            # which contabo Flux would then install on the contabo cluster.
+            # C5-final caught + reverted the alice2 incident at commit
+            # 20a0884a (revert visible on main as 5715db04, 2026-05-05).
+            #
+            # Fix: data-driven via .Values.smeServices.provisioning.gitBasePath
+            # with a topology-aware default. Sovereign installs default to
+            # clusters/<sovereignFQDN>/sme-tenants/ (matches the existing
+            # catalyst-api SME-tenant orchestrator path in
+            # sme_tenant_gitops.go and the Flux Kustomization spec.path the
+            # chart 1.4.13 sme-tenants-kustomization.yaml watches). Catalyst-
+            # Zero (contabo) keeps the legacy `clusters/contabo-mkt/tenants`
+            # path so existing contabo-mkt tenants continue to reconcile.
+            #
+            # Source-side cross-cluster pollution guard: the provisioning
+            # binary ALSO validates at startup + before every commit that
+            # the path begins with `clusters/<self-FQDN>/` so a malicious
+            # or misconfigured value pointing at a foreign cluster's tree
+            # is rejected at runtime even if a per-Sovereign overlay sets
+            # the value wrong. See main.go validateGitBasePath.
             - name: GIT_BASE_PATH
+            {{- if .Values.smeServices.provisioning.gitBasePath }}
+              value: {{ .Values.smeServices.provisioning.gitBasePath | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "clusters/{{ .Values.global.sovereignFQDN }}/sme-tenants"
+            {{- else }}
               value: "clusters/contabo-mkt/tenants"
+            {{- end }}
+            # ── Sovereign FQDN env (cross-cluster pollution guard) ────────
+            # Provisioning service uses this to validate that GIT_BASE_PATH
+            # starts with `clusters/<SOVEREIGN_FQDN>/` before any git
+            # commit. Empty on Catalyst-Zero (contabo) where the legacy
+            # `clusters/contabo-mkt/tenants` path is the canonical write
+            # target — the binary's guard recognises that special case.
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:
                   name: sme-services-config
                   key: CATALOG_URL
+            # ── GitOps token — issue #940 ─────────────────────────────────
+            # On contabo this Secret is hand-rolled (clusters/contabo-mkt/
+            # apps/sme/data/...). On franchised Sovereigns it is rendered by
+            # templates/sme-services/provisioning-github-token.yaml (issue
+            # #866) which mirrors the local Gitea admin password into
+            # `sme/provisioning-github-token`. The Secret name + key are
+            # operator-overridable via
+            # .Values.smeServices.provisioning.githubToken.* without
+            # forking the chart.
+            #
+            # Provisioning service rejects placeholder values at startup
+            # (`<placeholder>`, `<changeme>`, empty) — a leaked Secret with
+            # a placeholder string in its bytes is just as broken as no
+            # Secret, and silent acceptance previously failed every per-
+            # tenant commit on Sovereigns with "401 Bad credentials" buried
+            # in service logs.
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: provisioning-github-token
-                  key: GITHUB_TOKEN
+                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}
+                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" }}
+            # ── Git host coordinates — issue #940 ─────────────────────────
+            # Pre-#940 GITHUB_OWNER + GITHUB_REPO were chart-level literals
+            # ("openova-io" / "openova"). On a Sovereign the orchestrator
+            # MUST commit to the LOCAL Gitea (the cutover step flipped the
+            # GitRepository CR to point there), so writes to upstream
+            # github.com would (a) leak per-tenant overlays into the public
+            # repo's main branch and (b) fail authentication because the
+            # GITHUB_TOKEN Secret is the local Gitea admin password, not a
+            # GitHub PAT.
+            #
+            # Defaults match the catalyst-api gitops env contract:
+            #   - GITHUB_API_URL: in-cluster Gitea on Sovereign,
+            #     https://api.github.com on contabo.
+            #   - GITHUB_OWNER:   `openova` (the local Gitea org bp-gitea
+            #     ships) on Sovereign, `openova-io` on contabo.
+            #   - GITHUB_REPO:    `openova` on both — bp-gitea seeds a
+            #     bare-name `openova/openova` repo on Sovereign install to
+            #     match the upstream path so Kustomization paths stay
+            #     stable across the cutover boundary.
+            # Per Inviolable Principle #4, every value is operator-
+            # overridable via .Values.smeServices.provisioning.git.*.
+            - name: GITHUB_API_URL
+            {{- if .Values.smeServices.provisioning.git.apiURL }}
+              value: {{ .Values.smeServices.provisioning.git.apiURL | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "http://gitea-http.gitea.svc.cluster.local:3000/api/v1"
+            {{- else }}
+              value: "https://api.github.com"
+            {{- end }}
             - name: GITHUB_OWNER
-              value: "openova-io"
-            - name: GITHUB_REPO
+            {{- if .Values.smeServices.provisioning.git.owner }}
+              value: {{ .Values.smeServices.provisioning.git.owner | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
               value: "openova"
+            {{- else }}
+              value: "openova-io"
+            {{- end }}
+            - name: GITHUB_REPO
+              value: {{ .Values.smeServices.provisioning.git.repo | default "openova" | quote }}
+            - name: GITHUB_BRANCH
+              value: {{ .Values.smeServices.provisioning.git.branch | default "main" | quote }}
           resources:
             requests:
               cpu: 25m
