@@ -339,16 +339,17 @@ jobs:
           echo "values.yaml after update:"
           grep -A2 "catalystUi\|catalystApi" "${VALUES}" | head -10
 
-          # Also patch the literal image refs in the Kustomize-path deployment
-          # manifests so Flux kustomize-controller uses a valid image reference.
-          API_DEP="products/catalyst/chart/templates/api-deployment.yaml"
-          UI_DEP="products/catalyst/chart/templates/ui-deployment.yaml"
-          sed -i "s|ghcr\.io/openova-io/openova/catalyst-api:[a-z0-9]*\"|ghcr.io/openova-io/openova/catalyst-api:${SHA_SHORT}\"|" "${API_DEP}"
-          sed -i "s|ghcr\.io/openova-io/openova/catalyst-ui:[a-z0-9]*\"|ghcr.io/openova-io/openova/catalyst-ui:${SHA_SHORT}\"|" "${UI_DEP}"
-          echo "api-deployment.yaml image after update:"
-          grep "image:" "${API_DEP}"
-          echo "ui-deployment.yaml image after update:"
-          grep "image:" "${UI_DEP}"
+          # NOTE: the literal image refs in templates/api-deployment.yaml and
+          # templates/ui-deployment.yaml are deliberately NOT auto-bumped here.
+          # Those manifests are what contabo's Kustomize-path Flux reconciles —
+          # auto-bumping them auto-rolls contabo on every PR, which broke
+          # contabo on 2026-05-05 (k8scache startup loop on dead Sovereign
+          # kubeconfigs in PR #975's image). contabo rolls ONLY when an
+          # operator manually edits + commits those files (see
+          # docs/RUNBOOK-CONTABO-IMAGE-BUMP.md). Sovereigns are unaffected:
+          # they install via OCI chart whose values.yaml carries the new SHA
+          # (bumped above), which gets picked up at the next blueprint-release
+          # publish below.
 
       - name: Commit and push manifest updates
         id: deploy_commit
@@ -357,9 +358,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add products/catalyst/chart/values.yaml \
-                  products/catalyst/chart/templates/api-deployment.yaml \
-                  products/catalyst/chart/templates/ui-deployment.yaml
+          # Only the chart's values.yaml is auto-bumped — Sovereigns consume
+          # the OCI chart bump via blueprint-release. Contabo's Kustomize-path
+          # deployment manifests are intentionally NOT touched here so contabo
+          # never auto-rolls; an operator manually bumps those files when a
+          # specific catalyst-api/ui SHA has been validated against contabo.
+          git add products/catalyst/chart/values.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
             echo "pushed=false" >> "$GITHUB_OUTPUT"

@@ -110,7 +110,6 @@ export function StatusStrip({
 
       <Link
         to={`/dashboard` as never}
-        params={{ deploymentId }}
         className="status-strip-breadcrumb"
         data-testid="sov-status-strip-breadcrumb"
       >

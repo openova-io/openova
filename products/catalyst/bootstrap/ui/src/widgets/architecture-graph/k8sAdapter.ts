@@ -43,7 +43,7 @@
  */
 
 import type { K8sObject, K8sSnapshot } from './useK8sCacheStream'
-import type { ArchEdgeType, ArchNodeType, ArchStatus, GraphEdge, GraphNode } from './types'
+import type { ArchNodeType, ArchStatus, GraphEdge, GraphNode } from './types'
 
 interface AdaptResult {
   nodes: GraphNode[]

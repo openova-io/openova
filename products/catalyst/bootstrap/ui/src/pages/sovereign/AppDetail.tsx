@@ -129,7 +129,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
         headerSlotLeft={
           <Link
             to={`/dashboard` as never}
-            params={{ deploymentId }}
             className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             data-testid="sov-back-link"
           >
@@ -156,7 +155,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       headerSlotLeft={
         <Link
           to={`/dashboard` as never}
-          params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-back-link"
         >
@@ -326,7 +324,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
 
           {appTab === 'jobs' ? (
             <div role="tabpanel" data-testid="sov-app-tabpanel-jobs" className="app-tabpanel">
-              <JobsTable jobs={flatJobs} deploymentId={deploymentId} appIdFilter={componentId} />
+              <JobsTable jobs={flatJobs} appIdFilter={componentId} />
             </div>
           ) : (
             <div role="tabpanel" data-testid="sov-app-tabpanel-dependencies" className="app-tabpanel">

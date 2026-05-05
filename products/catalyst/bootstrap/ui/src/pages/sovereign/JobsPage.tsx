@@ -87,7 +87,6 @@ export function JobsPage({
       headerSlotLeft={
         <Link
           to={`/dashboard` as never}
-          params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-jobs-back-to-apps"
         >
@@ -107,7 +106,7 @@ export function JobsPage({
       ) : null}
 
       <div className="mt-6" data-testid="sov-jobs-list">
-        <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
+        <JobsTable jobs={flatJobs} />
       </div>
     </PortalShell>
   )

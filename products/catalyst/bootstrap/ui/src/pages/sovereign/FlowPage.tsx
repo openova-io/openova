@@ -588,7 +588,6 @@ export function FlowPage({
       headerSlotLeft={
         <Link
           to={`/jobs` as never}
-          params={{ deploymentId }}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="flow-page-back-to-table"
         >
