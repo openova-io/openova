@@ -250,6 +250,20 @@ func main() {
 	// silently falls back to URL params there. See sovereign_self.go.
 	r.Get("/api/v1/sovereign/self", h.HandleSovereignSelf)
 
+	// /api/v1/internal/deployments/import — Sovereign-side receiver for
+	// the full deployment record POSTed by the contabo mother at
+	// handover time. Mother's fireHandover() ships the record here after
+	// the JWT mint completes; child persists it locally so the child's
+	// own /api/v1/deployments/{id}/* endpoints answer byte-byte-identical
+	// to the mother's view. Closes the data half of the mother→child
+	// contract (PR #976 closed the URL routing half).
+	//
+	// Outside RequireSession: cross-cluster ingress at handover happens
+	// before any operator session exists on the child. Validation is
+	// instead done by FQDN match against CATALYST_OTECH_FQDN env — a
+	// record claiming a different FQDN is rejected.
+	r.Post("/api/v1/internal/deployments/import", h.HandleDeploymentImport)
+
 	// Wire the tenant registry — flat-file store at
 	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
 	// the catalyst-api is the host process for the unified-rbac slice

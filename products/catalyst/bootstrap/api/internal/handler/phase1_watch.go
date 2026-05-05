@@ -674,6 +674,17 @@ func (h *Handler) fireHandover(dep *Deployment) {
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
 
+	// Mother → child cutover data transfer. POST the full deployment
+	// record to the child's catalyst-api so its `/api/v1/deployments/{id}/*`
+	// endpoints answer with byte-byte-identical data the operator sees on
+	// the mother view. Fire-and-forget: a transient network blip during
+	// the POST does not block the JWT mint or SSE emit; mother stays the
+	// source of truth (operators can re-fire handover via /mint-handover-token
+	// to retry the import). Per docs/INVIOLABLE-PRINCIPLES.md #3 — no
+	// silent fallback, the failure is logged loudly so it surfaces in the
+	// catalyst-api journal.
+	go h.exportDeploymentToChild(dep, fqdn)
+
 	// Emit the typed SSE event. The Message field IS the data payload
 	// (see writeSSEEvent in deployments.go) — a JSON object the
 	// wizard parses verbatim. Per #768's contract the payload is
