@@ -101,15 +101,35 @@ cluster-autoscaler:
   # support-friendly but not required for correctness.
   replicaCount: 1
 
-  # ─── Hetzner credentials (HCLOUD_TOKEN) ──────────────────────────────
+  # ─── Hetzner credentials + node-bootstrap config (issue #921) ───────
   # Wired via `extraEnvSecrets`: the upstream deployment template lifts
   # each `name → {name, key}` entry into a regular env var with a
-  # secretKeyRef. The Secret itself is rendered by templates/
-  # hetzner-token-secret.yaml in this umbrella chart, sourced from the
-  # canonical flux-system/cloud-credentials.hcloud-token via Flux
+  # secretKeyRef. The Secrets themselves are rendered by templates/
+  # hetzner-token-secret.yaml + hetzner-node-config-secret.yaml in this
+  # umbrella chart, sourced from canonical flux-system Secrets via Flux
   # `valuesFrom` at HelmRelease apply time (matches the velero / harbor
   # object-storage pattern — see clusters/_template/bootstrap-kit/
   # 34-velero.yaml).
+  #
+  # HCLOUD_TOKEN — Hetzner Cloud API token (mandatory).
+  #
+  # HCLOUD_CLUSTER_CONFIG / HCLOUD_CLOUD_INIT — at least one of these
+  # MUST be set or cluster-autoscaler 1.32.x exits with the FATAL
+  # "HCLOUD_CLUSTER_CONFIG or HCLOUD_CLOUD_INIT is not specified"
+  # message at startup (issue #921). The upstream Hetzner provider uses
+  # these to know how to bootstrap a fresh server it provisions during
+  # scale-up: cloud-init script (legacy single-pool) or the newer
+  # per-pool ClusterConfig JSON.
+  #
+  # Both keys are populated by per-Sovereign overlay
+  # (clusters/<sovereign>/bootstrap-kit/50-cluster-autoscaler.yaml)
+  # writing into clusterAutoscalerHcloud.cloudInit / .clusterConfig
+  # below — see `templates/hetzner-node-config-secret.yaml`. The chart
+  # renders the env var entries here unconditionally so the upstream
+  # deployment always declares them; the Hetzner provider explicitly
+  # accepts "either is specified", so an empty CLUSTER_CONFIG with a
+  # populated CLOUD_INIT (or vice-versa) is the recommended Phase-1
+  # shape.
   #
   # Per-Sovereign overlays MAY override `name:` to point at a different
   # Secret (e.g. an ExternalSecret materialised from OpenBao once the
@@ -118,6 +138,12 @@ cluster-autoscaler:
     HCLOUD_TOKEN:
       name: hcloud-token
       key: token
+    HCLOUD_CLUSTER_CONFIG:
+      name: hetzner-node-config
+      key: cluster-config
+    HCLOUD_CLOUD_INIT:
+      name: hetzner-node-config
+      key: cloud-init
 
   # Resources — modest defaults for a controller-pattern workload that
   # mainly polls the apiserver + Hetzner API.
@@ -160,6 +186,41 @@ clusterAutoscalerHcloud:
   # `clusterAutoscalerHcloud.hcloudToken` at apply time so it never
   # appears in the committed manifest.
   hcloudToken: ""
+
+  # ─── Node-bootstrap config (issue #921) ────────────────────────────
+  # cluster-autoscaler 1.32.x's Hetzner provider FATALs at startup
+  # ("`HCLOUD_CLUSTER_CONFIG` or `HCLOUD_CLOUD_INIT` is not specified")
+  # unless at least one of these is wired. The two values are
+  # complementary — `clusterConfig` is the modern per-pool JSON shape
+  # (recommended for multi-pool Sovereigns), `cloudInit` is the legacy
+  # single-script shape that matches what the OpenTofu Phase 0 module
+  # already writes for the initial worker fleet. At least one MUST be
+  # non-empty when the autoscaler is enabled.
+  #
+  # Per-Sovereign overlays populate one of these via Flux `valuesFrom`
+  # against the canonical `flux-system/cloud-credentials` Secret cloud-
+  # init writes at Phase 0 (the worker cloud-init is base64-encoded
+  # under the `hcloud-cloud-init` key of the same Secret that already
+  # carries `hcloud-token`).
+  #
+  # When BOTH are empty the chart still renders the Secret with both
+  # keys empty so the upstream Deployment's secretKeyRef references
+  # resolve cleanly during `helm template` lint and in the live
+  # cluster regardless of overlay state. The autoscaler will FATAL on
+  # first start in that mode, which surfaces the misconfiguration in
+  # chart-test smoke rather than masking it as a missing-Secret
+  # CreateContainerConfigError on Pod admission.
+  #
+  # Format reference (autoscaler/cluster-autoscaler/cloudprovider/
+  # hetzner/README.md):
+  #   HCLOUD_CLUSTER_CONFIG — base64(JSON) per-pool node config
+  #   HCLOUD_CLOUD_INIT     — base64(cloud-init.yaml) shared bootstrap
+  # The values supplied here MUST already be the BASE64-ENCODED form
+  # per the upstream contract; the chart writes them verbatim into the
+  # Secret. Phase 0 cloud-init is responsible for the base64 encoding
+  # before stamping the `flux-system/cloud-credentials` key.
+  clusterConfig: ""
+  cloudInit: ""
 
   # NetworkPolicy — locks the autoscaler pod down to: egress to the
   # apiserver + DNS + Hetzner API (api.hetzner.cloud). DEFAULT FALSE

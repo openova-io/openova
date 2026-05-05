@@ -93,17 +93,44 @@ spec:
     disableWait: true
     remediation:
       retries: 3
-  # ── Hetzner-token wiring ────────────────────────────────────────────
-  # Pulls the `hcloud-token` key from the canonical
-  # `flux-system/cloud-credentials` Secret cloud-init writes at Phase 0
+  # ── Hetzner-token + node-bootstrap wiring (issue #921) ─────────────
+  # Pulls keys from the canonical `flux-system/cloud-credentials`
+  # Secret cloud-init writes at Phase 0
   # (infra/hetzner/cloudinit-control-plane.tftpl §"cloud-credentials-
-  # secret"). Flux dereferences `valuesFrom` at HelmRelease apply time,
-  # so the plaintext token never appears in this committed manifest.
+  # secret"):
+  #   - hcloud-token       → API token (mandatory)
+  #   - hcloud-cloud-init  → base64(cloud-init.yaml) — the autoscaler-
+  #                          spawned worker's bootstrap, identical to the
+  #                          Phase-0 worker user_data. Required by
+  #                          cluster-autoscaler 1.32.x's Hetzner provider
+  #                          (HCLOUD_CLOUD_INIT env var) — without it the
+  #                          autoscaler Pod exits at startup with FATAL
+  #                          "HCLOUD_CLUSTER_CONFIG or HCLOUD_CLOUD_INIT
+  #                          is not specified".
+  # Flux dereferences `valuesFrom` at HelmRelease apply time, so the
+  # plaintext payloads never appear in this committed manifest.
+  #
+  # The chart's templates/hetzner-node-config-secret.yaml renders these
+  # values into a namespace-local `cluster-autoscaler/hetzner-node-config`
+  # Secret which the upstream chart's `extraEnvSecrets.HCLOUD_CLOUD_INIT`
+  # binding lifts onto the deployment's env.
   valuesFrom:
     - kind: Secret
       name: cloud-credentials
       valuesKey: hcloud-token
       targetPath: clusterAutoscalerHcloud.hcloudToken
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-cloud-init
+      targetPath: clusterAutoscalerHcloud.cloudInit
+      # When older Sovereigns provisioned BEFORE issue #921 lack the
+      # hcloud-cloud-init key, Flux skips this entry rather than failing
+      # the entire HelmRelease — the chart's empty-string default keeps
+      # the upstream Deployment shape valid (the autoscaler will still
+      # FATAL at startup, surfacing the missing-cloud-init in Pod logs;
+      # operators rotate by re-running cloud-init or by patching
+      # cloud-credentials directly).
+      optional: true
   # Per-Sovereign baseline values. clusters/<sovereign>/bootstrap-kit/
   # 40-cluster-autoscaler.yaml MAY override `autoscalingGroups` to set
   # the actual instanceType + region + min/max + name the Tofu module

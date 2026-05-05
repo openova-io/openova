@@ -3,7 +3,7 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
-import { PROVIDER_NODE_SIZES, defaultNodeSizeId, defaultWorkerSizeId, findNodeSize } from '@/shared/constants/providerSizes'
+import { PROVIDER_NODE_SIZES, defaultNodeSizeId, defaultWorkerSizeId, findNodeSize, isSkuAvailableInRegion } from '@/shared/constants/providerSizes'
 import { StepShell, useStepNav } from './_shared'
 
 /* ── Provider definitions with logos ─────────────────────────────── */
@@ -116,19 +116,30 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
 /**
  * Build SKU dropdown options for a provider — pulls labels + specs from
  * the per-provider catalog so this UI never hardcodes a SKU literal.
+ *
+ * When `region` is supplied, SKUs whose `availableRegions` does NOT
+ * include the chosen region are HIDDEN (issue #916). This stops the
+ * wizard from letting an operator pick e.g. cpx32 in `ash` —
+ * combination Hetzner rejects 41 seconds into `tofu apply` after
+ * Phase-0 has already created the CP + LB + firewall (otech109
+ * evidence). When `region` is undefined the catalog renders verbatim,
+ * which is the shape used while the operator hasn't picked a region
+ * yet (= no constraint to enforce).
  */
-function skuOptions(provider: CloudProvider): SelectOption[] {
-  return PROVIDER_NODE_SIZES[provider].map((s) => {
-    // Disk shown verbatim when the provider lists local SSD; cloud-disk
-    // SKUs (AWS EBS-only, Azure variable, Huawei/OCI cloud volume) render
-    // their literal disk descriptor.
-    const diskStr = typeof s.disk === 'number' ? `${s.disk} GB SSD` : s.disk
-    return {
-      value: s.id,
-      label: s.label,
-      sublabel: `${s.vcpu} vCPU · ${s.ram} GB · ${diskStr} · €${s.priceHour.toFixed(4)}/hr · €${s.priceMonth.toFixed(2)}/mo`,
-    }
-  })
+function skuOptions(provider: CloudProvider, region?: string): SelectOption[] {
+  return PROVIDER_NODE_SIZES[provider]
+    .filter((s) => !region || isSkuAvailableInRegion(provider, s.id, region))
+    .map((s) => {
+      // Disk shown verbatim when the provider lists local SSD; cloud-disk
+      // SKUs (AWS EBS-only, Azure variable, Huawei/OCI cloud volume) render
+      // their literal disk descriptor.
+      const diskStr = typeof s.disk === 'number' ? `${s.disk} GB SSD` : s.disk
+      return {
+        value: s.id,
+        label: s.label,
+        sublabel: `${s.vcpu} vCPU · ${s.ram} GB · ${diskStr} · €${s.priceHour.toFixed(4)}/hr · €${s.priceMonth.toFixed(2)}/mo`,
+      }
+    })
 }
 
 /* ── Per-region cost rollup ───────────────────────────────────────── */
@@ -196,8 +207,12 @@ function RegionCard({
       }))
     : []
 
-  const cpOptions = selectedProvider ? skuOptions(selectedProvider) : []
-  const wkOptions = selectedProvider ? skuOptions(selectedProvider) : []
+  // Issue #916 — pass `selectedCloudRegion` to skuOptions so SKUs
+  // unavailable in that region (e.g. cpx32 in `ash`) drop OUT of the
+  // dropdowns. When no region is selected yet, the unfiltered catalog
+  // renders.
+  const cpOptions = selectedProvider ? skuOptions(selectedProvider, selectedCloudRegion) : []
+  const wkOptions = selectedProvider ? skuOptions(selectedProvider, selectedCloudRegion) : []
 
   const hourly = regionHourlyCost(selectedProvider, controlPlaneSizeId, workerSizeId, workerCount)
 
@@ -424,6 +439,41 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
     store.setRegionWorkerCount(i, 2)
   }
 
+  /**
+   * Issue #916 — region change handler. When the operator switches
+   * region AFTER picking a SKU, the previously-chosen SKU may no
+   * longer be orderable in the new region (e.g. cpx32 was fine in
+   * `fsn1` but is rejected by Hetzner POST /v1/servers in `ash`).
+   * Swap to the provider's recommended default for that role
+   * (CP / worker) when the current selection has fallen out of
+   * orderability — same way handleSelectProvider auto-defaults the
+   * SKUs when a fresh provider is picked. The defaults themselves
+   * are guarded against the same regional matrix.
+   */
+  function handleSelectCloudRegion(i: number, region: string) {
+    store.setRegionCloudRegion(i, region)
+    const provider = store.regionProviders[i]
+    if (!provider) return
+    const cpId = store.regionControlPlaneSizes[i]
+    if (cpId && !isSkuAvailableInRegion(provider, cpId, region)) {
+      const fallback = defaultNodeSizeId(provider)
+      // Only swap if the fallback is itself valid in the new region;
+      // otherwise leave the existing (now-invalid) selection so the
+      // operator can pick another SKU manually rather than getting a
+      // silent forced default that's also wrong.
+      if (isSkuAvailableInRegion(provider, fallback, region)) {
+        store.setRegionControlPlaneSize(i, fallback)
+      }
+    }
+    const wkId = store.regionWorkerSizes[i]
+    if (wkId && !isSkuAvailableInRegion(provider, wkId, region)) {
+      const fallback = defaultWorkerSizeId(provider)
+      if (isSkuAvailableInRegion(provider, fallback, region)) {
+        store.setRegionWorkerSize(i, fallback)
+      }
+    }
+  }
+
   /* Total estimated cost across all regions — each at its OWN provider's
      pricing. A mixed-provider topology computes correctly because each
      region's contribution is looked up in its own PROVIDER_NODE_SIZES table. */
@@ -465,7 +515,7 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
             workerSizeId={store.regionWorkerSizes[i]}
             workerCount={store.regionWorkerCounts[i] ?? 0}
             onSelectProvider={p => handleSelectProvider(i, p)}
-            onSelectCloudRegion={r => store.setRegionCloudRegion(i, r)}
+            onSelectCloudRegion={r => handleSelectCloudRegion(i, r)}
             onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(i, id)}
             onSelectWorkerSize={id => store.setRegionWorkerSize(i, id)}
             onSelectWorkerCount={n => store.setRegionWorkerCount(i, n)}
@@ -484,7 +534,7 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
             workerSizeId={store.regionWorkerSizes[regionCount]}
             workerCount={store.regionWorkerCounts[regionCount] ?? 0}
             onSelectProvider={p => handleSelectProvider(regionCount, p)}
-            onSelectCloudRegion={r => store.setRegionCloudRegion(regionCount, r)}
+            onSelectCloudRegion={r => handleSelectCloudRegion(regionCount, r)}
             onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(regionCount, id)}
             onSelectWorkerSize={id => store.setRegionWorkerSize(regionCount, id)}
             onSelectWorkerCount={n => store.setRegionWorkerCount(regionCount, n)}

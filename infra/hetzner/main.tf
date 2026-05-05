@@ -157,6 +157,27 @@ locals {
   # operator's region choice, never hardcoded in cloudinit-control-plane.tftpl.
   object_storage_endpoint = "https://${var.object_storage_region}.your-objectstorage.com"
 
+  # Worker cloud-init computed BEFORE the control-plane cloud-init so it
+  # can be threaded into the CP template as `worker_cloud_init_b64`
+  # (issue #921). The CP cloud-init writes the base64-encoded value
+  # under the `hcloud-cloud-init` key of the canonical
+  # `flux-system/cloud-credentials` Secret, which the bp-cluster-autoscaler-
+  # hcloud HelmRelease lifts via Flux `valuesFrom` into
+  # `clusterAutoscalerHcloud.cloudInit`. cluster-autoscaler 1.32.x's
+  # Hetzner provider FATALs at startup ("`HCLOUD_CLUSTER_CONFIG` or
+  # `HCLOUD_CLOUD_INIT` is not specified") without it. The autoscaler-
+  # spawned worker uses the IDENTICAL bootstrap as Phase-0 workers so
+  # k3s join token, control-plane address, hardening drop-ins are all
+  # already aligned.
+  worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
+    sovereign_fqdn             = var.sovereign_fqdn
+    k3s_version                = var.k3s_version
+    k3s_token                  = local.k3s_token
+    cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
+    enable_unattended_upgrades = var.enable_unattended_upgrades
+    enable_fail2ban            = var.enable_fail2ban
+  }), "/(?m)^[ ]{0,2}# .*\n/", "")
+
   # Strip indent-0 and indent-2 YAML-block comment lines from the rendered
   # cloud-init before passing it to Hetzner (32 KiB user_data limit per the
   # hcloud API). The source template ships ~16 KB of documentation prose in
@@ -276,15 +297,12 @@ locals {
     # (cloud-init → control_plane.ipv4_address → control_plane.user_data → cloud-init).
     # The cloud-init runs ON the CP node, so it resolves its own public IP at boot
     # via Hetzner metadata service (169.254.169.254) — see cloudinit-control-plane.tftpl.
-  }), "/(?m)^[ ]{0,2}# .*\n/", "")
 
-  worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
-    sovereign_fqdn             = var.sovereign_fqdn
-    k3s_version                = var.k3s_version
-    k3s_token                  = local.k3s_token
-    cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
-    enable_unattended_upgrades = var.enable_unattended_upgrades
-    enable_fail2ban            = var.enable_fail2ban
+    # Issue #921 — base64-encoded worker cloud-init for the bp-cluster-
+    # autoscaler-hcloud HelmRelease's HCLOUD_CLOUD_INIT env var. Same
+    # bootstrap content the Phase-0 workers receive, so autoscaler-spawned
+    # workers join the cluster identically.
+    worker_cloud_init_b64      = base64encode(local.worker_cloud_init)
   }), "/(?m)^[ ]{0,2}# .*\n/", "")
 }
 
