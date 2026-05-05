@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, getGoogleAuthUrl, googleCallback, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHref } from '../lib/config';
+  import PinInput6 from './PinInput6.svelte';
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
@@ -52,100 +53,17 @@
     payMethod = payMethod === m ? null : m;
   }
 
-  // ── 6-box PIN UX (issue #721) ─────────────────────────────────────────
-  // Each digit is a separate <input maxlength=1>. Auto-advance, paste-fan-
-  // out, backspace-back. Mirrors the React PinInput6 component on the
-  // catalyst-zero side so the operator gets the same experience whether
-  // they sign into the Sovereign console or the marketplace storefront.
-  let codeDigits = $state<string[]>(['', '', '', '', '', '']);
-  let codeRefs: (HTMLInputElement | null)[] = $state([null, null, null, null, null, null]);
-  // Mirror digits → existing `code` field so the rest of the form (verify
-  // submit) keeps working unchanged.
-  $effect(() => {
-    code = codeDigits.join('');
-  });
-  function focusBox(i: number) {
-    const el = codeRefs[i];
-    if (el) {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  }
-  function setDigitAt(i: number, v: string) {
-    if (codeDigits[i] === v) return;
-    const next = codeDigits.slice();
-    next[i] = v;
-    codeDigits = next;
-  }
-  function onDigitInput(i: number, ev: Event) {
-    const el = ev.target as HTMLInputElement;
-    const cleaned = (el.value.match(/\d/g) ?? []).join('');
-    if (cleaned.length === 0) {
-      setDigitAt(i, '');
-      return;
-    }
-    if (cleaned.length === 1) {
-      setDigitAt(i, cleaned);
-      el.value = cleaned;
-      if (i < 5) focusBox(i + 1);
-      return;
-    }
-    // Multiple digits typed/autofilled — fan out across remaining boxes.
-    const next = codeDigits.slice();
-    let idx = i;
-    for (const d of cleaned.split('')) {
-      if (idx >= 6) break;
-      next[idx] = d;
-      idx += 1;
-    }
-    codeDigits = next;
-    queueMicrotask(() => focusBox(Math.min(idx, 5)));
-  }
-  function onDigitKeyDown(i: number, ev: KeyboardEvent) {
-    const k = ev.key;
-    if (k === 'Backspace') {
-      if (codeDigits[i] === '' && i > 0) {
-        ev.preventDefault();
-        setDigitAt(i - 1, '');
-        focusBox(i - 1);
-      }
-      return;
-    }
-    if (k === 'ArrowLeft' && i > 0) {
-      ev.preventDefault();
-      focusBox(i - 1);
-      return;
-    }
-    if (k === 'ArrowRight' && i < 5) {
-      ev.preventDefault();
-      focusBox(i + 1);
-      return;
-    }
-    if (k === 'Enter') {
-      if (codeDigits.every((d) => d !== '')) {
-        handleVerify();
-      }
-      return;
-    }
-    if (k.length === 1 && (k < '0' || k > '9')) {
-      ev.preventDefault();
-    }
-  }
-  function onDigitPaste(ev: ClipboardEvent) {
-    ev.preventDefault();
-    const text = ev.clipboardData?.getData('text') ?? '';
-    const cleaned = (text.match(/\d/g) ?? []).join('').slice(0, 6);
-    if (!cleaned) return;
-    const next = ['', '', '', '', '', ''];
-    for (let i = 0; i < cleaned.length; i += 1) {
-      next[i] = cleaned.charAt(i);
-    }
-    codeDigits = next;
-    const last = Math.min(cleaned.length, 5);
-    queueMicrotask(() => focusBox(last));
-    if (cleaned.length === 6) {
-      queueMicrotask(() => handleVerify());
-    }
+  // ── PIN UX ────────────────────────────────────────────────────────────
+  // Single PinInput6 component (Svelte 5 port of the canonical React
+  // component on the Sovereign wizard side, products/catalyst/bootstrap/
+  // ui/src/components/PinInput6.tsx). One hidden <input maxlength=6>
+  // overlaid on 6 decorative boxes — auto-focused on mount + tab-back,
+  // so paste anywhere just works. #1010.
+  let pinResetCounter = $state(0);
+  function onPinChange(v: string) { code = v; }
+  function onPinComplete(v: string) {
+    code = v;
+    if (!authLoading) handleVerify();
   }
 
   // Email pill — copy-on-click for one-shot copy of the address the code
@@ -282,9 +200,16 @@
     try {
       const res = await verifyMagicLink(email, code);
       setAuthTokens(res.token, res.refresh_token);
+      // Clear the PIN from local state immediately on success — credential
+      // hygiene #10 (never linger longer than necessary).
+      code = '';
+      pinResetCounter += 1;
       user = res.user;
     } catch (e: any) {
       authError = e.message || 'Invalid code';
+      // Clear the boxes so the user can retype without backspace-chasing.
+      code = '';
+      pinResetCounter += 1;
     }
     authLoading = false;
   }
@@ -430,40 +355,9 @@
     }, 120000);
   }
 
-  async function handleGoogleAuth() {
-    try {
-      const callbackUrl = window.location.origin + '/auth/callback';
-      const data = await getGoogleAuthUrl(callbackUrl);
-      window.location.href = data.url;
-    } catch (e: any) {
-      authError = e.message || 'Failed to start Google login';
-    }
-  }
-
-  // Check for Google OAuth callback params on mount
-  $effect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const googleAuth = params.get('google_auth');
-    if (code && googleAuth === '1') {
-      handleGoogleCallback(code);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  });
-
-  async function handleGoogleCallback(code: string) {
-    authLoading = true;
-    authError = '';
-    try {
-      const callbackUrl = window.location.origin + '/auth/callback';
-      const res = await googleCallback(code, callbackUrl);
-      setAuthTokens(res.token, res.refresh_token);
-      user = res.user;
-    } catch (e: any) {
-      authError = e.message || 'Google login failed';
-    }
-    authLoading = false;
-  }
+  // #1010 — Google sign-in removed. Email + PIN only. The `/auth/callback`
+  // route is preserved as a passive redirect to /checkout in case any
+  // stale Google-issued redirect URI fires.
 </script>
 
 <div class="py-4">
@@ -550,27 +444,8 @@
       <div class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8">
         <h2 class="mb-6 text-center text-lg font-semibold text-[var(--color-text-strong)]">Sign in to continue</h2>
 
-        <!-- Google SSO -->
-        <button
-          onclick={handleGoogleAuth}
-          class="flex w-full items-center justify-center gap-3 rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-50"
-        >
-          <svg class="h-5 w-5" viewBox="0 0 24 24">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Continue with Google
-        </button>
-
-        <div class="my-6 flex items-center gap-3">
-          <div class="flex-1 border-t border-[var(--color-border)]"></div>
-          <span class="text-xs text-[var(--color-text-dimmer)]">or use email</span>
-          <div class="flex-1 border-t border-[var(--color-border)]"></div>
-        </div>
-
-        <!-- Magic Link -->
+        <!-- Email + 6-digit PIN — same flow as the Sovereign wizard sign-in
+             modal at console.openova.io/sovereign/wizard. (#1010) -->
         {#if authMode === 'login'}
           <form onsubmit={(e) => { e.preventDefault(); handleSendCode(); }}>
             <input
@@ -609,35 +484,14 @@
               </button>
             </div>
 
-            <div class="mb-5 flex items-center justify-center gap-2 sm:gap-2.5" role="group" aria-label="Sign-in code" data-testid="checkout-pin-row">
-              {#each codeDigits as digit, i}
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  autocomplete={i === 0 ? 'one-time-code' : 'off'}
-                  maxlength={1}
-                  bind:this={codeRefs[i]}
-                  value={digit}
-                  disabled={authLoading}
-                  oninput={(e) => onDigitInput(i, e)}
-                  onkeydown={(e) => onDigitKeyDown(i, e)}
-                  onpaste={onDigitPaste}
-                  data-testid={`checkout-pin-${i}`}
-                  aria-label={`Digit ${i + 1}`}
-                  class={[
-                    'w-12 h-14 sm:w-14 sm:h-16',
-                    'text-center text-2xl sm:text-3xl font-semibold tabular-nums tracking-tight',
-                    'rounded-xl border-[1.5px] bg-[var(--color-bg)] text-[var(--color-text)]',
-                    'shadow-[0_1px_0_rgba(255,255,255,0.04),_inset_0_-1px_0_rgba(255,255,255,0.02)]',
-                    digit !== '' ? 'border-[var(--color-accent)]/70' : 'border-[var(--color-border)]',
-                    'focus:border-[var(--color-accent)] focus:outline-none focus:ring-[3px] focus:ring-[var(--color-accent)]/30 focus:scale-[1.04]',
-                    'transition-[border-color,transform] duration-150 ease-out',
-                    'disabled:opacity-50 disabled:cursor-not-allowed',
-                    'caret-transparent',
-                  ].join(' ')}
-                />
-              {/each}
+            <div class="mb-5">
+              <PinInput6
+                resetKey={pinResetCounter}
+                disabled={authLoading}
+                onChange={onPinChange}
+                onComplete={onPinComplete}
+                testId="checkout-pin"
+              />
             </div>
 
             <button
