@@ -525,6 +525,74 @@ func TestRenderSMETenantOverlay_NoVersionsDefaultsToStar(t *testing.T) {
 	}
 }
 
+// TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks asserts that the
+// bp-openclaw HelmRelease emits the canonical oidc.{issuerURL,clientId,
+// clientSecret} + llm.{baseURL,apiKey,defaultModel} blocks per umbrella
+// epic openova-io/openova#915. These blocks pre-wire OpenClaw to:
+//   - per-tenant Keycloak (alice's users log in via alice's Keycloak)
+//   - per-tenant NewAPI as the OpenAI-compatible LLM gateway
+//     (alice's OpenClaw chats route through alice's NewAPI which
+//     proxies to the configured channel — Qwen3.6@BankDhofar wired
+//     by C4 of #915).
+func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		CompanyName:     "Alice Corp",
+		OTECHFQDN:       "otech107.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-openclaw.yaml"]
+	if !ok {
+		t.Fatalf("bp-openclaw.yaml missing from rendered overlay")
+	}
+	// OIDC block (canonical).
+	wantOIDC := []string{
+		"    oidc:",
+		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      clientId: openclaw",
+		"      clientSecret:",
+		"        name: openclaw-oidc-client-secret",
+		"        key: OIDC_CLIENT_SECRET",
+	}
+	for _, line := range wantOIDC {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-openclaw oidc block missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+	// LLM block (canonical) — per-tenant NewAPI endpoint, NOT direct
+	// OpenAI; defaultModel is the placeholder NewAPI maps to the
+	// Qwen3.6@BankDhofar channel C4 wires at tenant-create time.
+	wantLLM := []string{
+		"    llm:",
+		"      baseURL: https://api.alice.omantel.omani.works/v1",
+		"      apiKey:",
+		"        name: openclaw-newapi-controller-token",
+		"        key: NEWAPI_KEY",
+		"      defaultModel: qwen3.6",
+	}
+	for _, line := range wantLLM {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-openclaw llm block missing line %q\n--- rendered ---\n%s", line, body)
+		}
+	}
+	// Per-tenant LLM endpoint MUST be the SME's own api.<sub>.<parent>,
+	// NEVER the otech-wide newapi.<otech-fqdn> (that would route every
+	// SME's traffic through one shared gateway, defeating per-tenant
+	// channel routing).
+	if strings.Contains(body, "https://newapi.otech107.omani.works") {
+		t.Errorf("bp-openclaw llm.baseURL must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
+	}
+}
+
 func TestStepsForState(t *testing.T) {
 	cases := []struct {
 		state store.SMETenantProvisionState

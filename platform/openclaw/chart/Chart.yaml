@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
   — a multi-tenant controller deployment in an SME tenant namespace plus
@@ -11,10 +11,11 @@ description: |
 
   Deployment shape:
     - One controller Deployment per SME tenant namespace. Authenticates
-      end users via the SME-vcluster Keycloak realm (OIDC) and validates
+      end users via the per-tenant Keycloak realm (OIDC) and validates
       the JWT signature + sub claim before spawning a per-user pod.
-    - Per-user pods carry only two env vars (NEWAPI_BASE_URL, NEWAPI_KEY)
-      mounted from the per-user Secret labelled
+    - Per-user pods carry NEWAPI_BASE_URL + NEWAPI_KEY (plus their
+      OpenAI-compatible aliases OPENAI_API_BASE / OPENAI_API_KEY +
+      LLM_DEFAULT_MODEL) mounted from the per-user Secret labelled
       `catalyst.openova.io/sme-user-uuid=<uuid>`. The runtime image is
       identity-blind: no Keycloak code, no key-management code.
 
@@ -25,8 +26,24 @@ description: |
   SHA in the consuming overlay (per Inviolable Principle 4 — never use
   floating tags in production manifests).
 
-  Pairs with bp-newapi (Sovereign-level metered LLM gateway), bp-keycloak
-  (SME-vcluster realm), bp-cert-manager (per-host TLS).
+  Pairs with bp-newapi (per-tenant OpenAI-compatible LLM gateway),
+  bp-keycloak (per-tenant realm), bp-cert-manager (per-host TLS).
+
+  Changelog
+  ─────────
+  0.2.0 (2026-05-05, umbrella #915)
+    - Add canonical `oidc.{issuerURL,clientId,clientSecret}` block
+      (per-tenant Keycloak SSO).
+    - Add canonical `llm.{baseURL,apiKey,defaultModel}` block
+      (per-tenant NewAPI as OpenAI-compatible LLM gateway).
+    - Controller now emits OIDC_*, LLM_*, OPENAI_API_{BASE,KEY},
+      LLM_DEFAULT_MODEL envs (legacy KEYCLOAK_*/NEWAPI_BASE_URL_DEFAULT
+      retained for back-compat).
+    - Per-user pods now also carry OPENAI_API_BASE / OPENAI_API_KEY /
+      LLM_DEFAULT_MODEL.
+    - Legacy `keycloak.*` / `newapi.*` keys remain as fallbacks.
+  0.1.0 (2026-04, epic #795)
+    - Initial chart: controller Deployment + per-user pod ConfigMap.
 
 type: application
 keywords: [catalyst, blueprint, openclaw, sme, workspace-controller, per-user-pod, llm, agent]

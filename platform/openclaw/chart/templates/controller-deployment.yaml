@@ -34,20 +34,61 @@ spec:
               containerPort: {{ .Values.controller.port }}
               protocol: TCP
           env:
-            # ── Identity: SME-vcluster Keycloak realm ─────────────────
+            # ── Identity: per-tenant Keycloak (OIDC) ──────────────────
+            # Canonical OIDC_* envs (umbrella #915). Legacy KEYCLOAK_*
+            # envs are emitted alongside for back-compat with controller
+            # builds that haven't yet been recompiled to the new names.
+            - name: OIDC_ISSUER_URL
+              value: {{ include "bp-openclaw.oidc.issuerURL" . | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ include "bp-openclaw.oidc.clientId" . | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bp-openclaw.oidc.clientSecretName" . }}
+                  key: {{ include "bp-openclaw.oidc.clientSecretKey" . }}
             - name: KEYCLOAK_REALM_URL
-              value: {{ .Values.keycloak.realmURL | quote }}
+              value: {{ include "bp-openclaw.oidc.issuerURL" . | quote }}
             - name: KEYCLOAK_CLIENT_ID
-              value: {{ .Values.keycloak.clientID | quote }}
+              value: {{ include "bp-openclaw.oidc.clientId" . | quote }}
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.keycloak.clientSecretName }}
-                  key: OIDC_CLIENT_SECRET
+                  name: {{ include "bp-openclaw.oidc.clientSecretName" . }}
+                  key: {{ include "bp-openclaw.oidc.clientSecretKey" . }}
 
             # ── Tenant placement for per-user pods ────────────────────
             - name: TENANT_NAMESPACE
               value: {{ include "bp-openclaw.tenantNamespace" . | quote }}
+
+            # ── LLM gateway: per-tenant NewAPI (OpenAI-compatible) ────
+            # The controller knows the tenant's NewAPI /v1 endpoint and
+            # default model so it can run /readyz probes and any
+            # controller-side LLM call that pre-dates a user session.
+            # Per-user pods continue to read NEWAPI_BASE_URL/NEWAPI_KEY
+            # from the per-user `newapi-key-{uuid}` Secret per ADR-0003
+            # §3.3 — the controller does NOT inject its own service
+            # token into the user-facing pod.
+            - name: LLM_BASE_URL
+              value: {{ include "bp-openclaw.llm.baseURL" . | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bp-openclaw.llm.apiKeySecretName" . }}
+                  key: {{ include "bp-openclaw.llm.apiKeySecretKey" . }}
+                  optional: true
+            - name: LLM_DEFAULT_MODEL
+              value: {{ include "bp-openclaw.llm.defaultModel" . | quote }}
+            # OpenAI-SDK-compatible aliases (drop-in for any controller
+            # subroutine that uses an off-the-shelf OpenAI client).
+            - name: OPENAI_API_BASE
+              value: {{ include "bp-openclaw.llm.baseURL" . | quote }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bp-openclaw.llm.apiKeySecretName" . }}
+                  key: {{ include "bp-openclaw.llm.apiKeySecretKey" . }}
+                  optional: true
 
             # ── NewAPI customer-facing base URL (fallback default) ───
             # Authoritative value per ADR-0003 §3.3 lives on each
@@ -55,7 +96,7 @@ spec:
             # reads that field; this env is the chart-render-time
             # fallback for overlays that haven't yet been migrated.
             - name: NEWAPI_BASE_URL_DEFAULT
-              value: {{ .Values.newapi.baseURL | quote }}
+              value: {{ include "bp-openclaw.llm.baseURL" . | quote }}
 
             # ── Per-user pod template ConfigMap reference ─────────────
             - name: POD_TEMPLATE_CONFIGMAP
