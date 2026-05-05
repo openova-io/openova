@@ -211,7 +211,6 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 		Name:       "podmetrics",
 		GVR:        schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"},
 		Namespaced: true,
-		Optional:   true,
 	})
 	cfg := k8scache.Config{
 		Logger:   quietHandlerLogger(),
