@@ -121,7 +121,17 @@ func main() {
 
 	mux.Handle("/tenant/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Slug check is public — no JWT required.
-		if strings.HasPrefix(r.URL.Path, "/tenant/check-slug/") {
+		// /tenant/internal/* is service-to-service (#105 / #1018): the
+		// route was registered with that intent in routes.go but the
+		// JWT bypass here was never wired, so billing's
+		// dispatchOrderPlaced lookupTenantSubdomain got a 401 and
+		// shipped an empty subdomain into order.placed, which
+		// provisioning then rejected as "invalid subdomain". Both
+		// gateways already 401 /tenant/internal/* externally, so the
+		// bypass only opens the path to in-cluster callers (the
+		// documented threat model — subdomain values are public DNS).
+		if strings.HasPrefix(r.URL.Path, "/tenant/check-slug/") ||
+			strings.HasPrefix(r.URL.Path, "/tenant/internal/") {
 			tenantRoutes.ServeHTTP(w, r)
 			return
 		}
