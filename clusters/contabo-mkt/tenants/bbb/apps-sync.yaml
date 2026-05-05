@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tenant-bbb-apps
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 1m
+  timeout: 5m
+  prune: true
+  wait: true
+  targetNamespace: tenant-bbb
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  path: ./clusters/contabo-mkt/tenants/bbb/apps
+  kubeConfig:
+    secretRef:
+      name: tenant-bbb-kubeconfig
+      key: config

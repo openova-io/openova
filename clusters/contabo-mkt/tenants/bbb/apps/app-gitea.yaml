@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: apps
+  labels:
+    app: gitea
+    openova.io/tenant: "bbb"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+        openova.io/tenant: "bbb"
+    spec:
+      containers:
+        - name: gitea
+          image: gitea/gitea:1-rootless
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://app:bbaa187122d88da6b0e38b8de814c133@postgres:5432/db_gitea"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DATABASE
+              value: "db_gitea"
+            - name: POSTGRES_USERNAME
+              value: "app"
+            - name: POSTGRES_PASSWORD
+              value: "bbaa187122d88da6b0e38b8de814c133"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: apps
+spec:
+  selector:
+    app: gitea
+  ports:
+    - port: 80
+      targetPort: 3000

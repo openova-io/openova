@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-bbb
+  labels:
+    openova.io/tenant: "bbb"
+    openova.io/managed-by: provisioning
