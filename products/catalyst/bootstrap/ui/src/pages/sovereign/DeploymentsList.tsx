@@ -22,6 +22,7 @@ import { Link } from '@tanstack/react-router'
 import { useSession } from '@/shared/lib/useSession'
 import { useInflightDeployment, INFLIGHT_STATUSES } from '@/shared/lib/useInflightDeployment'
 import type { DeploymentListEntry } from '@/shared/lib/useInflightDeployment'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 function formatDate(iso?: string): string {
   if (!iso) return '—'
@@ -131,7 +132,11 @@ export function DeploymentsList() {
                 >
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
                     <Link
-                      to={`/dashboard` as never}
+                      to={
+                        (DETECTED_MODE.mode === 'sovereign'
+                          ? `/dashboard`
+                          : `/provision/${d.id}/dashboard`) as never
+                      }
                       style={{ color: 'var(--wiz-text-hi)', textDecoration: 'none', fontWeight: 600 }}
                     >
                       {d.sovereignFQDN || d.id}
