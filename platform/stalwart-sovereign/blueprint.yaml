@@ -1,0 +1,157 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-stalwart-sovereign
+  labels:
+    catalyst.openova.io/category: communication
+    catalyst.openova.io/section: pts-4-5-communication
+spec:
+  # 0.1.0 (#924) — initial release. Phase-2 follow-up to the Phase-1
+  # SMTP seed seam (#883): the Sovereign Console's PIN/magic-link mail
+  # is delivered by a Sovereign-LOCAL Stalwart instance instead of being
+  # relayed through the mothership at mail.openova.io:587. Sender flips
+  # from `noreply@openova.io` to `noreply@<sovereignFQDN>` and SPF/DKIM/
+  # DMARC posture is per-Sovereign, eliminating the mothership-as-SPOF.
+  #
+  # Distinct from `bp-stalwart-tenant`:
+  #   - bp-stalwart-tenant — per-SME (per-vcluster) instance, OIDC-authn
+  #     against the per-tenant Keycloak realm, customer mailboxes.
+  #   - bp-stalwart-sovereign (THIS) — single instance per Sovereign,
+  #     scoped to Sovereign Console mail (PIN delivery, ops alerts, the
+  #     `noreply@<sovereignFQDN>` system mailbox). Authn is the local
+  #     admin principal materialised by the chart's auto-provisioned
+  #     `sovereign-smtp-credentials` Secret (read by bp-catalyst-platform's
+  #     `catalyst-openova-kc-credentials` chart-rendered Secret via
+  #     Helm `lookup`). NO Keycloak OIDC — Console is the only client.
+  #
+  # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
+  version: 0.1.0
+  card:
+    title: Stalwart (Sovereign Console mail)
+    summary: |
+      Sovereign-local Stalwart for Sovereign Console PIN/magic-link
+      mail delivery from `noreply@<sovereignFQDN>`. Phase-2 sovereignty
+      replacement for the mothership Stalwart relay (Phase-1 #883).
+
+      Single instance per Sovereign cluster. Materialises the
+      `catalyst-system/sovereign-smtp-credentials` Secret read by
+      bp-catalyst-platform 1.4.17+'s
+      `catalyst-openova-kc-credentials` chart-rendered Secret. DKIM
+      keypair generated at first install, public component published
+      via the `stalwart-sovereign-dns-records-required` ConfigMap for
+      the orchestrator to register at the Sovereign's parent zone via
+      PDM (sub-PR follow-up — chart ships first per #924 scope split).
+
+      External mail surface: `mail.<sovereignFQDN>` LoadBalancer
+      (SMTP 25, submission 587, submissions 465, IMAP 143/993). NO
+      webmail UI in the Sovereign-level instance — Sovereign Console
+      is the only consumer.
+    icon: stalwart.svg
+    category: communication
+    tags: [mail, smtp, sovereign, console, pin, dkim, spf, dmarc]
+    documentation: https://stalw.art/
+    license: AGPL-3.0
+  visibility: listed
+  owner:
+    team: platform
+    contact: catalyst@openova.io
+  configSchema:
+    type: object
+    required: []
+    properties:
+      sovereignFQDN:
+        type: string
+        description: |
+          Sovereign FQDN (e.g. `omantel.omani.works`). Drives the
+          SMTP sender domain (`noreply@<sovereignFQDN>`), the public
+          MX hostname (`mail.<sovereignFQDN>`), and the DKIM signing
+          domain. Resolved from `global.sovereignFQDN` at render time
+          per the bootstrap-kit overlay convention.
+      persistence:
+        type: object
+        properties:
+          spool:
+            type: object
+            properties:
+              size:
+                type: string
+                default: 10Gi
+              storageClassName:
+                type: string
+                description: Empty = cluster default; per-Sovereign overlay supplies.
+      admin:
+        type: object
+        properties:
+          secretName:
+            type: string
+            default: stalwart-sovereign-admin
+          username:
+            type: string
+            default: postmaster
+      smtp:
+        type: object
+        description: |
+          Submission credential the chart materialises into Stalwart's
+          runtime AND mirrors into `catalyst-system/sovereign-smtp-credentials`
+          for bp-catalyst-platform's `catalyst-openova-kc-credentials`
+          chart to read via Helm `lookup`. The chart auto-generates
+          a random 32-char password on first install; subsequent
+          reconciles read the existing bytes via `lookup`.
+        properties:
+          submissionUser:
+            type: string
+            default: noreply
+          submissionSecretName:
+            type: string
+            default: stalwart-sovereign-submission
+      dns:
+        type: object
+        properties:
+          dkim:
+            type: object
+            properties:
+              selector:
+                type: string
+                default: dkim
+              algorithm:
+                type: string
+                default: ed25519-sha256
+          spf:
+            type: object
+            properties:
+              policy:
+                type: string
+                enum: ["-all", "~all"]
+                default: "~all"
+          dmarc:
+            type: object
+            properties:
+              policy:
+                type: string
+                enum: [reject, quarantine, none]
+                default: quarantine
+              rua:
+                type: string
+                description: Empty = composed as `postmaster@<sovereignFQDN>`.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cert-manager
+      version: ^1.0
+      alias: certs
+    - blueprint: bp-cert-manager-powerdns-webhook
+      version: ^1.0
+      alias: certs-dns01
+      optional: true
+    - blueprint: bp-powerdns
+      version: ^1.0
+      alias: dns
+      optional: true
+  upgrades:
+    from: []
+  observability:
+    metrics: prometheus
+    logs: stdout

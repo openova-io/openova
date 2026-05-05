@@ -1,0 +1,53 @@
+{{- /*
+Single LoadBalancer Service exposing the public mail surface — SMTP 25
+(inbound MX), submission 587 (Console relay), submissions 465 (implicit-
+TLS submission), IMAP 143 / IMAPS 993 (ops-only postmaster mailbox
+inspection). Per ADR-0001 the operator's cloud-LB controller (k3s
+ServiceLB on contabo, hcloud-cloud-controller-manager on Hetzner)
+provisions a public IPv4. externalTrafficPolicy=Local preserves source
+IPs for IP-based reputation policy in Stalwart.
+
+NOT exposed on this Service: HTTP 8080 (the admin API). HTTP is reached
+only via the in-cluster ClusterIP Service (templates/service-http.yaml)
+and is gated by the chart's NetworkPolicy to the catalyst-system
+namespace + the post-install Job's pod.
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-mail
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+    catalyst.openova.io/exposure: public-mail
+  {{- with .Values.service.mail.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.mail.type }}
+  externalTrafficPolicy: {{ .Values.service.mail.externalTrafficPolicy }}
+  selector:
+    {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: smtp
+      port: {{ .Values.service.mail.ports.smtp }}
+      targetPort: smtp
+      protocol: TCP
+    - name: submission
+      port: {{ .Values.service.mail.ports.submission }}
+      targetPort: submission
+      protocol: TCP
+    - name: submissions
+      port: {{ .Values.service.mail.ports.submissions }}
+      targetPort: submissions
+      protocol: TCP
+    - name: imap
+      port: {{ .Values.service.mail.ports.imap }}
+      targetPort: imap
+      protocol: TCP
+    - name: imaps
+      port: {{ .Values.service.mail.ports.imaps }}
+      targetPort: imaps
+      protocol: TCP
+{{- end }}

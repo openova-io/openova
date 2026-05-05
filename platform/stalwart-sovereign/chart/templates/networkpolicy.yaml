@@ -1,0 +1,74 @@
+{{- /*
+NetworkPolicy — default-deny posture at the namespace level (per
+ADR-0001 multi-tenant isolation). Explicit allows:
+
+  Ingress:
+    - SMTP/IMAP/IMAPS/submission/submissions from anywhere (public mail
+      traffic via the LoadBalancer Service).
+    - HTTP 8080 (admin API) from the catalyst-system namespace
+      (catalyst-api PIN-mail send) AND from this chart's release
+      namespace (post-install Job + ops port-forward path).
+  Egress:
+    - DNS (port 53 anywhere — name resolution for outbound delivery).
+    - SMTP port 25 to anywhere (outbound MX delivery).
+    - K8s API server (the post-install Job's mirror-Secret writes).
+*/}}
+{{- if and .Values.stalwart.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Public mail surface — accept from anywhere (the LB Service
+    # forwards external traffic into the pod's net ns).
+    - ports:
+        - protocol: TCP
+          port: 25
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+        - protocol: TCP
+          port: 143
+        - protocol: TCP
+          port: 993
+    # Admin API — restricted to catalyst-system + release namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: catalyst-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # DNS resolution — kube-dns / coredns and external recursive.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Outbound SMTP delivery.
+    - ports:
+        - protocol: TCP
+          port: 25
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+    # K8s API server (post-install Job mirror-Secret writes).
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+{{- end }}

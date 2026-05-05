@@ -1,0 +1,111 @@
+{{- /*
+Stalwart Sovereign Console mail StatefulSet — single replica with PVC
+for the RocksDB mail spool. Per docs/INVIOLABLE-PRINCIPLES.md #4 every
+knob is operator-tunable; per ADR-0001 the per-Sovereign Harbor proxy-
+cache is honoured via `global.imageRegistry`.
+*/}}
+{{- if .Values.stalwart.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "bp-stalwart-sovereign.fullname" . }}-headless
+  replicas: {{ .Values.stalwart.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the bootstrap config changes. RocksDB
+        # persists user state across restarts so the config-only roll
+        # is safe.
+        checksum/config: {{ include (print $.Template.BasePath "/config-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}
+      {{- with .Values.stalwart.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.stalwart.podSecurityContext | nindent 8 }}
+      containers:
+        - name: stalwart
+          image: {{ include "bp-stalwart-sovereign.image" . | quote }}
+          imagePullPolicy: {{ .Values.stalwart.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.stalwart.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: smtp
+              containerPort: 25
+              protocol: TCP
+            - name: submission
+              containerPort: 587
+              protocol: TCP
+            - name: submissions
+              containerPort: 465
+              protocol: TCP
+            - name: imap
+              containerPort: 143
+              protocol: TCP
+            - name: imaps
+              containerPort: 993
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- include "bp-stalwart-sovereign.adminPasswordEnv" . | nindent 12 }}
+            - name: STALWART_DOMAIN
+              value: {{ include "bp-stalwart-sovereign.sovereignFQDN" . | default "" | quote }}
+            - name: STALWART_HOSTNAME
+              value: {{ include "bp-stalwart-sovereign.mailFQDN" . | default "" | quote }}
+          resources:
+            {{- toYaml .Values.stalwart.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /opt/stalwart
+            - name: config
+              mountPath: /opt/stalwart/etc
+              readOnly: true
+          livenessProbe:
+            tcpSocket:
+              port: smtp
+            initialDelaySeconds: {{ .Values.stalwart.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.stalwart.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.stalwart.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.stalwart.probes.liveness.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: smtp
+            initialDelaySeconds: {{ .Values.stalwart.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.stalwart.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.stalwart.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.stalwart.probes.readiness.failureThreshold }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "bp-stalwart-sovereign.configMapName" . }}
+            items:
+              - key: config.toml
+                path: config.toml
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "bp-stalwart-sovereign.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.spool.accessModes | nindent 10 }}
+        {{- if .Values.persistence.spool.storageClassName }}
+        storageClassName: {{ .Values.persistence.spool.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.spool.size | quote }}
+{{- end }}

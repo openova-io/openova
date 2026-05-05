@@ -1,0 +1,289 @@
+# Catalyst Blueprint scratch chart for the Sovereign-local Stalwart
+# instance scoped to Sovereign Console mail (#924).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is operator-supplied at install time.
+# `sovereignFQDN` is resolved from `global.sovereignFQDN` (set by the
+# bootstrap-kit overlay via envsubst) — there is NO chart-level default
+# domain.
+
+catalystBlueprint:
+  upstream:
+    chart: ""              # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+    images:
+      stalwart: "docker.io/stalwartlabs/stalwart"
+
+# ─── Stalwart application ────────────────────────────────────────────────
+# Single replica per Sovereign. Stalwart stores all state in RocksDB on
+# a PVC — no horizontal-scale requirement at the Sovereign Console mail
+# tier (PIN/magic-link mail is low-volume, latency-tolerant, and the LB
+# fronts a single backend). Resource requests sized for ~1k PINs/day.
+stalwart:
+  enabled: true
+  replicas: 1
+
+  # Pin upstream image — DO NOT use floating tags per
+  # docs/INVIOLABLE-PRINCIPLES.md #4. Sovereign-local Harbor proxy-cache
+  # mirrors `docker.io/stalwartlabs/stalwart` so runtime pulls don't
+  # traverse the public internet (issue #560 + ADR-0001 §11.5). The
+  # `global.imageRegistry` value (when set by the per-Sovereign overlay
+  # post-handover) rewrites the registry on every pull.
+  #
+  # Digest below is `docker.io/stalwartlabs/stalwart:v0.16.3` linux/amd64
+  # (verified via Docker Hub API on 2026-05-04, same digest as
+  # bp-stalwart-tenant 0.1.2).
+  image:
+    registry: docker.io
+    repository: stalwartlabs/stalwart
+    tag: "v0.16.3"
+    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    pullPolicy: IfNotPresent
+    # Per-Sovereign Harbor pull secret. Empty by default — Sovereign
+    # bootstrap-kit overlay supplies the namespace dockercfg secret
+    # name once Harbor proxy-cache is wired (ADR-0001 §11.5).
+    pullSecrets: []
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # SecurityContext — non-root + NET_BIND_SERVICE (matches the bp-
+  # stalwart-tenant 0.1.1 fix from #898). Stalwart's upstream image
+  # creates an in-image `stalwart` user at UID 2000 and ships the
+  # binary at /usr/local/bin/stalwart with file capability
+  # `cap_net_bind_service=ep`. The binary needs that capability to
+  # bind 25/465/587/143/993 directly. Aligning with UID 2000 + adding
+  # ONLY NET_BIND_SERVICE keeps the kernel from refusing to elevate
+  # the file capability (the failure mode that bit otech103 in #898).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+    runAsGroup: 2000
+    fsGroup: 2000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: ["ALL"]
+      add: ["NET_BIND_SERVICE"]
+
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 5
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+# ─── Sovereign FQDN ──────────────────────────────────────────────────────
+# `sovereignFQDN` drives the SMTP sender domain
+# (`noreply@<sovereignFQDN>`), the public MX hostname
+# (`mail.<sovereignFQDN>`), and the DKIM signing domain. Resolved from
+# `global.sovereignFQDN` at render time when this block is empty (the
+# canonical bootstrap-kit overlay pattern — see clusters/_template/
+# bootstrap-kit/01-cilium.yaml for the reference).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 there is NO chart-level default;
+# both the per-block override AND the global must be unset for the
+# helper to return empty (smoke-render-safe — per-template gates skip
+# render in that case).
+sovereignFQDN: ""
+
+# ─── Mail-spool persistence ──────────────────────────────────────────────
+persistence:
+  spool:
+    size: 10Gi
+    # storageClassName: empty = cluster default. Sovereign overlay sets
+    # the per-Sovereign default (e.g. "hcloud-volumes" on Hetzner,
+    # "local-path" on k3s) — Inviolable Principle #4.
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+# ─── Admin (postmaster) credentials ──────────────────────────────────────
+# `admin.secretName` carries the Stalwart admin (initial superuser)
+# password. Auto-provisioned on first install via Helm `lookup`-or-
+# generate (mirrors bp-stalwart-tenant 0.1.1 + gitea-admin-secret
+# pattern, #830/#887).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #10 the generated value is written
+# ONLY into the Secret bytes — NEVER echoed or persisted elsewhere.
+admin:
+  secretName: "stalwart-sovereign-admin"
+  username: "postmaster"
+  autoProvision:
+    enabled: true
+
+# ─── Submission (Console relay) credentials ──────────────────────────────
+# Catalyst-API + services-auth + services-notification authenticate
+# AGAINST this Stalwart at port 587 with these credentials. Auto-
+# provisioned on first install (`smtp.submissionUser` is the literal
+# username; the password is randomly generated by sprig's randAlphaNum
+# inside the `lookup`-or-generate switch in templates/submission-
+# secret.yaml).
+#
+# The chart materialises TWO Secrets carrying the same submission
+# credentials, in two namespaces:
+#   1. <Release.Namespace>/<smtp.submissionSecretName> — read by the
+#      post-install Job that registers the submission principal in
+#      Stalwart's runtime via `/api/principal`.
+#   2. catalyst-system/sovereign-smtp-credentials (FIXED name; the
+#      bp-catalyst-platform chart's `lookup` reads this exact path) —
+#      with keys `smtp-host`, `smtp-port`, `smtp-from`, `smtp-user`,
+#      `smtp-pass`. SOURCE-wins precedence in bp-catalyst-platform
+#      1.4.17+ (#910 Bug 3) ensures the chart-rendered credentials
+#      take effect on the next Flux reconcile.
+smtp:
+  submissionUser: "noreply"
+  submissionSecretName: "stalwart-sovereign-submission"
+
+# ─── DKIM / SPF / DMARC ──────────────────────────────────────────────────
+# Stalwart generates the DKIM keypair on first boot (RocksDB-stored).
+# The post-install Job reads the public component back via the admin
+# API and writes it into the `stalwart-sovereign-dns-records-required`
+# ConfigMap so the orchestrator-side DNS-record registration sub-PR
+# (catalyst-api → PDM dynadot adapter) can publish the record at the
+# Sovereign's parent zone. Until that sub-PR lands, the operator
+# manually publishes the records (same surface as bp-stalwart-tenant's
+# BYO mode).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #10 the DKIM PRIVATE key NEVER
+# leaves Stalwart's RocksDB (it is generated in-pod and stored on the
+# encrypted PVC). The Job exports ONLY the public component.
+dns:
+  dkim:
+    selector: "dkim"
+    algorithm: "ed25519-sha256"
+  spf:
+    # `~all` (soft-fail) at the Sovereign tier so the first-pass
+    # external delivery test (Gmail / Outlook acceptance) does not
+    # hard-bounce while the DNS records propagate. Operators that
+    # have validated propagation may flip to `-all` (hard-fail) via
+    # per-Sovereign overlay.
+    policy: "~all"
+  dmarc:
+    # `quarantine` at the Sovereign tier — same soft-launch reasoning
+    # as SPF. Flip to `reject` after first-pass validation.
+    policy: "quarantine"
+    rua: ""                              # empty = composed as `postmaster@<sovereignFQDN>`
+
+# ─── Service exposure ────────────────────────────────────────────────────
+# SMTP (25 inbound MX), submission (587 Console relay), submissions
+# (465 implicit-TLS submission), IMAP (143/993 ops-only postmaster
+# inspection). Single LoadBalancer Service exposes all five — the
+# Sovereign Console mail tier does NOT need a separate webmail-LB
+# split (no webmail UI at this tier).
+service:
+  mail:
+    type: LoadBalancer
+    # externalTrafficPolicy=Local preserves source IP for IP-based
+    # reputation/RBL policy in Stalwart.
+    externalTrafficPolicy: Local
+    annotations: {}
+    ports:
+      smtp: 25
+      submission: 587
+      submissions: 465
+      imap: 143
+      imaps: 993
+
+# ─── DNS-records ConfigMap ───────────────────────────────────────────────
+# Renders into `stalwart-sovereign-dns-records-required` ConfigMap. The
+# Sovereign Console UI surfaces these records to the operator until the
+# orchestrator-side auto-registration sub-PR lands.
+#
+# Public-key components in the ConfigMap:
+#   - MX:    mail.<sovereignFQDN> (priority 10)
+#   - A:     mail.<sovereignFQDN> -> <sovereign LB IPv4>
+#   - TXT:   <sovereignFQDN>      "v=spf1 a mx ~all"
+#   - TXT:   _dmarc.<sovereignFQDN> "v=DMARC1; p=quarantine; rua=mailto:postmaster@<sovereignFQDN>"
+#   - TXT:   <selector>._domainkey.<sovereignFQDN> "<dkim-pubkey>"  (post-Job)
+dnsRecords:
+  enabled: true
+
+# ─── Post-install setup Job ──────────────────────────────────────────────
+# Run-once Job that:
+#   1. Waits for Stalwart's HTTP admin API on the local Service to be
+#      reachable.
+#   2. POSTs the submission principal to `/api/principal/<submissionUser>`
+#      with the auto-generated password (read from the in-namespace
+#      submission Secret via env-var injection, NEVER logged).
+#   3. POSTs `lookup.sender-allow.<submissionUser>|<submissionUser>@<sovereignFQDN>`
+#      so the principal can send-as the `noreply@<sovereignFQDN>`
+#      address (per stalwart_send_as.md).
+#   4. Reads the DKIM public key back via `/api/settings` and patches
+#      the dns-records ConfigMap with the populated TXT record string.
+setupJob:
+  enabled: true
+  image:
+    repository: stalwartlabs/stalwart
+    tag: "v0.16.3"
+    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    pullPolicy: IfNotPresent
+  activeDeadlineSeconds: 600
+  backoffLimit: 6
+
+# ─── Mirror Secret into catalyst-system ──────────────────────────────────
+# The bp-catalyst-platform chart's `catalyst-openova-kc-credentials`
+# template performs:
+#   $smtpSrc := lookup "v1" "Secret" "catalyst-system" "sovereign-smtp-credentials"
+# with SOURCE-wins precedence (#910 Bug 3). This chart materialises
+# the source Secret in catalyst-system so the lookup hits a non-nil
+# value on the next Flux reconcile.
+#
+# Disable when the operator has an alternative seam (e.g. an external
+# SMTP relay in front of the Sovereign-local Stalwart, where the
+# submission credentials come from elsewhere).
+sovereignSMTPCredentialsMirror:
+  enabled: true
+  # Hard-coded by chart contract (matches bp-catalyst-platform's
+  # `lookup` path). Overridable for testing only.
+  namespace: "catalyst-system"
+  secretName: "sovereign-smtp-credentials"
+
+# ─── ServiceAccount ──────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# Default-deny posture at the namespace level. Explicit allows:
+#   Ingress  — SMTP/submission/submissions/IMAP from anywhere (public
+#              mail traffic via LoadBalancer).
+#   Egress   — DNS, public SMTP for outbound delivery (port 25 to
+#              anywhere).
+networkPolicy:
+  enabled: true
+
+# ─── ServiceMonitor ──────────────────────────────────────────────────────
+# Default false per docs/BLUEPRINT-AUTHORING.md §11.2.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  port: "http"
+
+# ─── Global registry override (post-handover Harbor) ─────────────────────
+global:
+  # `imageRegistry`: Sovereign-local Harbor proxy-cache rewrite
+  # (ADR-0001 §11.5). Empty at chart level — operator overlay supplies
+  # post-handover.
+  imageRegistry: ""
+  # `sovereignFQDN`: read by templates/_helpers.tpl when the per-chart
+  # `sovereignFQDN` value is empty. Set by the bootstrap-kit overlay
+  # via envsubst from `${SOVEREIGN_FQDN}`.
+  sovereignFQDN: ""

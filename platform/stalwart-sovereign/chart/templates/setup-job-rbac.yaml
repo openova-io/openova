@@ -1,0 +1,118 @@
+{{- /*
+RBAC for the post-install setup Job. Bounded scope — only the specific
+resources the Job mutates:
+
+  - Role (release-namespace): patch the dns-records ConfigMap (DKIM
+    public key write-back) and read the submission Secret.
+  - Role (catalyst-system): create / update the
+    `sovereign-smtp-credentials` mirror Secret. NO list / watch — the
+    Job only writes ONE Secret it knows the name of.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #10 the Secret bytes never enter
+log lines or env vars beyond the Job's own pod (the Job uses the
+in-pod kubectl + curl + sed flow, which writes via the K8s API
+directly to the destination Secret without echoing to stdout).
+*/}}
+{{- if and .Values.stalwart.enabled .Values.setupJob.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-setup
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  # Read the submission Secret (smtp-pass for the principal POST).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ .Values.smtp.submissionSecretName | quote }}]
+    verbs: ["get"]
+  # Patch the dns-records ConfigMap with the DKIM public key.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ include "bp-stalwart-sovereign.dnsRecordsConfigMapName" . | quote }}]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-setup
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-setup
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- /*
+Cross-namespace Role + RoleBinding into catalyst-system for the
+mirror-Secret create/update. K8s RBAC requires the Role to live in
+the target namespace; the RoleBinding lives there too but binds the
+ServiceAccount in this chart's release namespace.
+
+Per docs/INVIOLABLE-PRINCIPLES.md global CLAUDE.md feedback_rbac_create_no_resourcenames.md:
+"create" verb cannot be combined with resourceNames. Split into TWO
+rules — one with create (NO resourceNames), one with get/update/patch
+(resourceNames-bounded to the canonical mirror Secret).
+*/ -}}
+{{- $cfg := .Values.sovereignSMTPCredentialsMirror | default dict -}}
+{{- $cfgEnabled := dig "enabled" true $cfg -}}
+{{- $mirrorNs := default "catalyst-system" $cfg.namespace -}}
+{{- $mirrorName := default "sovereign-smtp-credentials" $cfg.secretName -}}
+{{- if $cfgEnabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-mirror
+  namespace: {{ $mirrorNs | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  # Create — cannot be combined with resourceNames per K8s RBAC.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # Mutate the canonical mirror Secret only.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $mirrorName | quote }}]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-mirror
+  namespace: {{ $mirrorNs | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-mirror
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- end }}

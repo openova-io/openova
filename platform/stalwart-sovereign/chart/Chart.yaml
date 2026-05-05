@@ -1,0 +1,98 @@
+apiVersion: v2
+name: bp-stalwart-sovereign
+# 0.1.0 (#924) — initial release. Phase-2 follow-up to #883: replace
+# the mothership Stalwart (mail.openova.io:587) with a Sovereign-local
+# Stalwart so Console PIN/magic-link mail originates from
+# `noreply@<sovereignFQDN>` with per-Sovereign SPF/DKIM/DMARC posture.
+#
+# Distinct from bp-stalwart-tenant (per-SME/vcluster instance):
+#   - bp-stalwart-tenant: customer mailboxes, OIDC-authn against per-
+#     tenant Keycloak realm, webmail UI exposed at `mail.<sme-domain>`.
+#   - bp-stalwart-sovereign (this): single instance per Sovereign,
+#     scoped to Sovereign Console system mail (PIN delivery, ops
+#     alerts, the `noreply@<sovereignFQDN>` mailbox). NO Keycloak OIDC,
+#     NO webmail UI — Sovereign Console is the only consumer.
+#
+# Source-of-truth seam (load-bearing):
+#   On first install the chart materialises
+#   `catalyst-system/sovereign-smtp-credentials` with:
+#     smtp-host: mail.<sovereignFQDN>
+#     smtp-port: "587"
+#     smtp-from: noreply@<sovereignFQDN>
+#     smtp-user: <chart-generated random submission user>
+#     smtp-pass: <chart-generated random submission password>
+#   bp-catalyst-platform 1.4.17+'s
+#   `catalyst-openova-kc-credentials` template performs a Helm
+#   `lookup "v1" "Secret" "catalyst-system" "sovereign-smtp-credentials"`
+#   with SOURCE-wins precedence (#910 Bug 3) so the Sovereign-local
+#   bytes take effect on the next Flux reconcile (~1 min after this
+#   chart's first apply). The mothership-creds-seeding step in
+#   `products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go`
+#   becomes a graceful Phase-1 fallback that runs ONLY when this chart
+#   has not yet rendered (e.g. operator opted out or a Sovereign was
+#   provisioned before this slot existed).
+#
+# Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
+version: 0.1.0
+appVersion: "0.16.3"
+description: |
+  Catalyst Blueprint scratch chart for the Sovereign-local Stalwart
+  instance scoped to Sovereign Console mail (PIN delivery, ops alerts,
+  noreply@<sovereignFQDN> system mailbox). Replaces the mothership
+  Stalwart (mail.openova.io:587) as the SMTP relay path for the
+  Sovereign Console (#924, Phase-2 follow-up to #883).
+
+  Connects to:
+    - bp-cert-manager       (TLS for `mail.<sovereignFQDN>` via the
+                             per-Sovereign wildcard cert OR a per-mail
+                             Certificate when DKIM-aware MTAs require
+                             a hostname-matching cert chain).
+    - bp-cert-manager-powerdns-webhook (DNS-01 ACME via contabo's
+                             central PowerDNS for the wildcard SAN —
+                             optional dependency, only when the
+                             Sovereign uses DNS-01 for cert renewal).
+    - bp-powerdns           (free-subdomain mode, optional: when the
+                             orchestrator-side DNS-record registration
+                             sub-PR lands, MX/A/SPF/DMARC/DKIM-pubkey
+                             records are POSTed to PowerDNS at
+                             `<sovereignFQDN>`'s parent zone via the
+                             PDM dynadot adapter).
+
+  External mail surface:
+    - `mail.<sovereignFQDN>` LoadBalancer
+      Ports: SMTP 25 (inbound MX), submission 587 (Console relay),
+             submissions 465 (implicit-TLS submission), IMAP 143/993
+             (ops-only — postmaster mailbox inspection).
+    - NO webmail UI (deliberate scope split — Sovereign Console is the
+      only consumer; webmail at the Sovereign tier is a future feature
+      tracked separately).
+
+  Stalwart expression-language gotcha (incident 2026-04-14, see
+  ~/.claude/projects/-home-openova-repos-openova-private/memory/
+  stalwart_expression_syntax.md): equality matchers MUST use `==` not
+  `=` — a single `=` is assignment and silently never matches. The
+  bootstrap config.toml in templates/config-configmap.yaml audits
+  clean for this; tests/expression-syntax.sh enforces.
+
+  See platform/stalwart-sovereign/README.md (sub-PR follow-up) for
+  DKIM/SPF/DMARC setup and the orchestrator-side DNS/PTR registration
+  contract. Until that sub-PR lands, the operator manually publishes
+  the records emitted by `stalwart-sovereign-dns-records-required`
+  ConfigMap (same surface as bp-stalwart-tenant's BYO mode).
+type: application
+keywords: [catalyst, blueprint, stalwart, mail, smtp, sovereign, console, pin, dkim, spf, dmarc]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — Stalwart upstream does not publish a first-party Helm
+# chart. The Catalyst overlay templates (StatefulSet, Services, ConfigMap,
+# NetworkPolicy, mirror-Secret consumers, sovereign-smtp-credentials
+# materialiser, post-install Job) are entirely in templates/ in this
+# chart. The `sigstore/common` library subchart is included to satisfy
+# the platform-wide blueprint-release.yaml hollow-chart gate (issue #181)
+# — every umbrella MUST declare at least one dependency.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

@@ -55,3 +55,12 @@ resources:
   # See clusters/_template/bootstrap-kit/80-newapi.yaml for full
   # dependsOn rationale and per-Sovereign override surface.
   - 80-newapi.yaml
+  # bp-stalwart-sovereign (slot 95) — Sovereign-local Stalwart for the
+  # Sovereign Console PIN/magic-link mail surface (Phase-2 follow-up to
+  # #883 / umbrella #924). Materialises
+  # `catalyst-system/sovereign-smtp-credentials` so bp-catalyst-platform's
+  # `lookup` picks up Sovereign-local SMTP coordinates and Console mail
+  # originates from `noreply@<sovereignFQDN>`. Sequenced AFTER
+  # bp-catalyst-platform (slot 13) so the catalyst-system namespace
+  # exists when the chart's post-install Job applies the mirror Secret.
+  - 95-bp-stalwart-sovereign.yaml

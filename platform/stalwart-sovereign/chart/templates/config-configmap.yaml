@@ -1,0 +1,115 @@
+{{- /*
+Stalwart bootstrap config.toml — applied when RocksDB is empty (first
+install). Subsequent runtime config edits via webadmin / stalwart-cli
+are persisted in RocksDB and NOT reflected back to this ConfigMap.
+
+Stalwart expression-language gotcha (incident 2026-04-14, see
+~/.claude/projects/-home-openova-repos-openova-private/memory/
+stalwart_expression_syntax.md): equality matchers MUST use `==` not
+`=`. A single `=` is assignment and silently never matches. Every
+comparison in this template uses `==`.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value is
+templated from chart values — no literal hostnames or selectors.
+*/}}
+{{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
+{{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-stalwart-sovereign.configMapName" . }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+data:
+  config.toml: |
+    [server]
+    hostname = {{ $mailHost | default "" | quote }}
+
+    [server.listener.smtp]
+    bind = ["0.0.0.0:25"]
+    protocol = "smtp"
+
+    [server.listener.submission]
+    bind = ["0.0.0.0:587"]
+    protocol = "smtp"
+    tls.implicit = false
+
+    [server.listener.submissions]
+    bind = ["0.0.0.0:465"]
+    protocol = "smtp"
+    tls.implicit = true
+
+    [server.listener.imap]
+    bind = ["0.0.0.0:143"]
+    protocol = "imap"
+    tls.implicit = false
+
+    [server.listener.imaps]
+    bind = ["0.0.0.0:993"]
+    protocol = "imap"
+    tls.implicit = true
+
+    [server.listener.http]
+    bind = ["0.0.0.0:8080"]
+    protocol = "http"
+    tls.implicit = false
+
+    [storage]
+    data = "rocksdb"
+    blob = "rocksdb"
+    fts = "rocksdb"
+    lookup = "rocksdb"
+    directory = "internal"
+
+    [store.rocksdb]
+    type = "rocksdb"
+    path = "/opt/stalwart/data"
+
+    [directory.internal]
+    type = "internal"
+    store = "rocksdb"
+
+    # ─── DKIM signing — Sovereign Console mail ────────────────────────
+    # Stalwart generates the keypair on first boot; the public component
+    # is read back by the post-install Job and patched into the dns-
+    # records ConfigMap for orchestrator-side registration via PDM.
+    [auth.dkim]
+    sign = [{if = "is_local_domain('*')", then = true}, {else = false}]
+
+    [signature.dkim]
+    domain = {{ $fqdn | default "" | quote }}
+    selector = {{ .Values.dns.dkim.selector | quote }}
+    algorithm = {{ .Values.dns.dkim.algorithm | quote }}
+    canonicalization = "relaxed/relaxed"
+    set-body-length = false
+    report = true
+
+    # Per-recipient-domain TLS — default profile only at install time.
+    # Stalwart expression syntax requires `==` (comparison), not `=`
+    # (assignment) — single `=` silently never matches.
+    [tls.default]
+    allow-invalid-certs = false
+    description = "Default TLS settings"
+
+    [[queue.outbound.tls]]
+    else = "'default'"
+
+    # Inbound spam filtering — disabled at the Sovereign Console tier.
+    # Per ~/.claude/projects/-home-openova-repos-openova-private/memory/
+    # feedback_no_spam_filtering.md: NEVER reject inbound mail on spam
+    # scoring at the Sovereign tier; the Console only receives bounce
+    # notifications and the `postmaster@<sovereignFQDN>` mailbox is
+    # ops-inspected, not auto-filtered.
+    [spam-filter]
+    enable = false
+
+    [spam-filter.score]
+    spam = 999.0
+    reject = 999.0
+    discard = 9999.0
+
+    # Local domain — the Sovereign's primary FQDN. Mail addressed to
+    # `<anything>@<sovereignFQDN>` is delivered locally; everything
+    # else is relayed/rejected per the [queue.outbound] policy above.
+    [config.local-domain]
+    {{ printf "%q" ($fqdn | default "") }} = true

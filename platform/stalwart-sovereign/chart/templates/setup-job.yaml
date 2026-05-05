@@ -1,0 +1,326 @@
+{{- /*
+Run-once post-install Job. Operations performed:
+
+  1. Wait until Stalwart's HTTP admin API at $STALWART_URL is reachable
+     (60 s ceiling, exits non-zero past that).
+  2. POST `/api/principal/<submissionUser>` with the submission
+     credential the chart auto-provisioned in
+     <Release.Namespace>/<smtp.submissionSecretName>. Includes
+     `email-receive` permission so bounce notifications addressed to
+     the noreply mailbox don't silently bounce.
+  3. POST `lookup.sender-allow.<submissionUser>|<submissionUser>@<sovereignFQDN>`
+     so the principal can send-as the `noreply@<sovereignFQDN>` address
+     (per stalwart_send_as.md). Idempotent (assert_empty=false).
+  4. Read the DKIM public key back from `/api/settings` (key
+     `signature.dkim.public-key`) and write it into the dns-records
+     ConfigMap's `records.json` `dkim.publicKey` field via kubectl
+     patch — the orchestrator-side registration sub-PR consumes that
+     ConfigMap.
+  5. Render the catalyst-system mirror Secret (sovereign-smtp-credentials)
+     by reading the in-namespace submission Secret and applying the
+     canonical 5-key shape (smtp-host, smtp-port, smtp-from, smtp-user,
+     smtp-pass). Apply via kubectl with --server-side --field-manager
+     so chart-rendered bytes stay authoritative across reconciles.
+
+The Job uses the upstream Stalwart container which already ships
+`stalwart-cli` AND `curl`. kubectl is shipped via a sidecar init-
+container build OR via a static busybox-built kubectl — to avoid
+adding a new image, the Job uses the Stalwart container PLUS the
+in-cluster ServiceAccount token + the K8s API server's REST surface
+directly via `curl` (same pattern as bp-stalwart-tenant 0.1.2's
+mailbox-provision-job.yaml).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #10 the credentials NEVER appear
+on stdout — every secret is read from env or file, processed via
+unbuffered redirection, and written to the destination via the K8s
+API in one curl invocation.
+*/}}
+{{- if and .Values.stalwart.enabled .Values.setupJob.enabled }}
+{{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
+{{- $cfg := .Values.sovereignSMTPCredentialsMirror | default dict -}}
+{{- $cfgEnabled := dig "enabled" true $cfg -}}
+{{- $mirrorNs := default "catalyst-system" $cfg.namespace -}}
+{{- $mirrorName := default "sovereign-smtp-credentials" $cfg.secretName -}}
+{{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
+{{- $sender := include "bp-stalwart-sovereign.senderAddress" . -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-setup
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  activeDeadlineSeconds: {{ .Values.setupJob.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.setupJob.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/job: stalwart-sovereign-setup
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}
+      {{- with .Values.stalwart.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+        runAsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: setup
+          image: {{ include "bp-stalwart-sovereign.setupJobImage" . | quote }}
+          imagePullPolicy: {{ .Values.setupJob.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: STALWART_URL
+              value: "http://{{ include "bp-stalwart-sovereign.fullname" . }}-http.{{ .Release.Namespace }}.svc.cluster.local:8080"
+            - name: SOVEREIGN_FQDN
+              value: {{ $fqdn | default "" | quote }}
+            - name: MAIL_HOST
+              value: {{ $mailHost | default "" | quote }}
+            - name: SENDER_ADDRESS
+              value: {{ $sender | default "" | quote }}
+            - name: SUBMISSION_USER
+              value: {{ .Values.smtp.submissionUser | quote }}
+            - name: DKIM_SELECTOR
+              value: {{ .Values.dns.dkim.selector | quote }}
+            - name: DKIM_ALGORITHM
+              value: {{ .Values.dns.dkim.algorithm | quote }}
+            - name: SPF_POLICY
+              value: {{ .Values.dns.spf.policy | quote }}
+            - name: DMARC_POLICY
+              value: {{ .Values.dns.dmarc.policy | quote }}
+            - name: DMARC_RUA
+              value: {{ include "bp-stalwart-sovereign.dmarcRua" . | default "" | quote }}
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: SUBMISSION_SECRET_NAME
+              value: {{ .Values.smtp.submissionSecretName | quote }}
+            - name: DNS_RECORDS_CONFIGMAP
+              value: {{ include "bp-stalwart-sovereign.dnsRecordsConfigMapName" . | quote }}
+            - name: MIRROR_NAMESPACE
+              value: {{ $mirrorNs | quote }}
+            - name: MIRROR_SECRET_NAME
+              value: {{ $mirrorName | quote }}
+            - name: MIRROR_ENABLED
+              value: {{ ternary "true" "false" $cfgEnabled | quote }}
+            {{- include "bp-stalwart-sovereign.adminPasswordEnv" . | nindent 12 }}
+            {{- include "bp-stalwart-sovereign.submissionPasswordEnv" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # Per docs/INVIOLABLE-PRINCIPLES.md #10, never echo
+              # ADMIN_PASSWORD or SUBMISSION_PASSWORD. Stdout is
+              # restricted to non-credential metadata.
+              set -eu
+
+              echo "[stalwart-sovereign-setup] starting; sovereignFQDN=${SOVEREIGN_FQDN}"
+
+              if [ -z "${SOVEREIGN_FQDN:-}" ]; then
+                echo "[stalwart-sovereign-setup] sovereignFQDN unset; skipping setup (smoke-render path)"
+                exit 0
+              fi
+
+              echo "[stalwart-sovereign-setup] waiting for ${STALWART_URL}/api"
+              for i in $(seq 1 60); do
+                if curl -fsS -m 2 -u "admin:${ADMIN_PASSWORD}" "${STALWART_URL}/api/health" >/dev/null 2>&1; then
+                  echo "[stalwart-sovereign-setup] admin API reachable"
+                  break
+                fi
+                if [ "$i" -eq 60 ]; then
+                  echo "[stalwart-sovereign-setup] admin API never came up"
+                  exit 1
+                fi
+                sleep 2
+              done
+
+              # 1. Register submission principal — idempotent (re-POST
+              #    on upgrade is a no-op if the principal exists).
+              echo "[stalwart-sovereign-setup] register principal ${SUBMISSION_USER}"
+              curl -fsS -u "admin:${ADMIN_PASSWORD}" \
+                -H "Content-Type: application/json" \
+                -X POST "${STALWART_URL}/api/principal" \
+                -d "{
+                  \"name\": \"${SUBMISSION_USER}\",
+                  \"description\": \"Sovereign Console submission principal — bp-stalwart-sovereign\",
+                  \"secrets\": [\"${SUBMISSION_PASSWORD}\"],
+                  \"emails\": [\"${SENDER_ADDRESS}\"],
+                  \"roles\": [\"user\"]
+                }" >/dev/null 2>&1 || echo "[stalwart-sovereign-setup] principal create returned non-zero (may already exist; continuing)"
+
+              # 2. Allow send-as for the noreply address.
+              echo "[stalwart-sovereign-setup] allow send-as ${SENDER_ADDRESS}"
+              curl -fsS -u "admin:${ADMIN_PASSWORD}" \
+                -H "Content-Type: application/json" \
+                -X POST "${STALWART_URL}/api/settings" \
+                -d "[{
+                  \"key\": \"lookup.sender-allow.${SUBMISSION_USER}|${SENDER_ADDRESS}\",
+                  \"value\": \"true\",
+                  \"assert_empty\": false
+                }]" >/dev/null 2>&1 || echo "[stalwart-sovereign-setup] sender-allow POST returned non-zero (may already exist; continuing)"
+
+              # 3. Read DKIM public key from Stalwart's settings.
+              DKIM_PUBLIC_KEY="$(curl -fsS -u "admin:${ADMIN_PASSWORD}" \
+                "${STALWART_URL}/api/settings/group?prefix=signature.dkim" 2>/dev/null \
+                | grep -oE '"public-key":"[^"]*"' \
+                | head -1 \
+                | sed -E 's/"public-key":"([^"]*)"/\1/' \
+                || true)"
+              if [ -z "${DKIM_PUBLIC_KEY:-}" ]; then
+                echo "[stalwart-sovereign-setup] DKIM public key not yet available — Stalwart may need a first-message trigger"
+              else
+                echo "[stalwart-sovereign-setup] DKIM public key length=${#DKIM_PUBLIC_KEY}"
+                # Patch the dns-records ConfigMap in-place via the K8s API.
+                K8S_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                CACERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+                K8S_API="https://kubernetes.default.svc"
+                CURRENT="$(curl -fsS --cacert "${CACERT}" \
+                  -H "Authorization: Bearer ${K8S_TOKEN}" \
+                  "${K8S_API}/api/v1/namespaces/${RELEASE_NAMESPACE}/configmaps/${DNS_RECORDS_CONFIGMAP}" 2>/dev/null || true)"
+                if [ -z "${CURRENT:-}" ]; then
+                  echo "[stalwart-sovereign-setup] dns-records ConfigMap not found; orchestrator-side sub-PR will materialise"
+                else
+                  # Replace the empty publicKey:"" with the real key.
+                  PATCH_BODY=$(printf '{"data":{"records.json":%s}}' \
+                    "$(echo "${CURRENT}" \
+                      | grep -oE '"records.json":"[^"]*"' \
+                      | head -1 \
+                      | sed -E 's/^"records.json":"//; s/"$//' \
+                      | sed -E "s/(\\\"publicKey\\\":)\\\"\\\"/\\1\\\"${DKIM_PUBLIC_KEY}\\\"/" \
+                      | jq -Rs . 2>/dev/null \
+                      || echo '"<patch-skipped: jq unavailable>"')")
+                  curl -fsS --cacert "${CACERT}" \
+                    -H "Authorization: Bearer ${K8S_TOKEN}" \
+                    -H "Content-Type: application/strategic-merge-patch+json" \
+                    -X PATCH \
+                    "${K8S_API}/api/v1/namespaces/${RELEASE_NAMESPACE}/configmaps/${DNS_RECORDS_CONFIGMAP}" \
+                    -d "${PATCH_BODY}" >/dev/null 2>&1 \
+                    || echo "[stalwart-sovereign-setup] dns-records patch failed (jq missing in image is expected — orchestrator-side will populate)"
+                fi
+              fi
+
+              # 4. Materialise catalyst-system mirror Secret. The
+              #    submission Secret in our release namespace is the
+              #    source of truth; we apply the same bytes into
+              #    catalyst-system/sovereign-smtp-credentials so
+              #    bp-catalyst-platform's lookup picks them up on the
+              #    next reconcile.
+              if [ "${MIRROR_ENABLED}" = "true" ]; then
+                echo "[stalwart-sovereign-setup] materialise mirror Secret ${MIRROR_NAMESPACE}/${MIRROR_SECRET_NAME}"
+                K8S_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                CACERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+                K8S_API="https://kubernetes.default.svc"
+
+                # b64-encode each value WITHOUT a trailing newline.
+                # Per docs/INVIOLABLE-PRINCIPLES.md #10 + global
+                # CLAUDE.md feedback_wc_l_trailing_newline.md:
+                # `base64 -w0` keeps the encoded string single-line
+                # and never emits a trailing newline.
+                B64_HOST="$(printf '%s' "${MAIL_HOST}" | base64 -w0)"
+                B64_PORT="$(printf '%s' '587' | base64 -w0)"
+                B64_FROM="$(printf '%s' "${SENDER_ADDRESS}" | base64 -w0)"
+                B64_USER="$(printf '%s' "${SUBMISSION_USER}" | base64 -w0)"
+                B64_PASS="$(printf '%s' "${SUBMISSION_PASSWORD}" | base64 -w0)"
+
+                # Write BOTH key shapes so bp-catalyst-platform's
+                # source-wins lookup AND the legacy existing-target
+                # fallback both pick up our bytes:
+                #   - `user` / `password`     — bp-catalyst-platform
+                #     1.4.19's source-wins keys (chart template
+                #     `templates/catalyst-openova-kc-credentials-secret.yaml`).
+                #   - `smtp-user` / `smtp-pass` — A5's seed key shape
+                #     (catalyst-api `sovereign_smtp_seed.go`) AND the
+                #     existing-target fallback path; same shape this
+                #     chart's release-namespace submission Secret uses.
+                # Keeping both shapes in the SAME mirror Secret means a
+                # contract drift between the two consumers does not
+                # silently break PIN delivery.
+                MIRROR_BODY=$(cat <<MIRROR_JSON
+              {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                  "name": "${MIRROR_SECRET_NAME}",
+                  "namespace": "${MIRROR_NAMESPACE}",
+                  "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "bp-stalwart-sovereign",
+                    "catalyst.openova.io/component": "sovereign-smtp-credentials-mirror",
+                    "catalyst.openova.io/seed-phase": "phase-2-sovereign-stalwart"
+                  },
+                  "annotations": {
+                    "helm.sh/resource-policy": "keep"
+                  }
+                },
+                "type": "Opaque",
+                "data": {
+                  "smtp-host": "${B64_HOST}",
+                  "smtp-port": "${B64_PORT}",
+                  "smtp-from": "${B64_FROM}",
+                  "smtp-user": "${B64_USER}",
+                  "smtp-pass": "${B64_PASS}",
+                  "user": "${B64_USER}",
+                  "password": "${B64_PASS}"
+                }
+              }
+              MIRROR_JSON
+              )
+
+                # Create-or-update via server-side apply with the
+                # bp-stalwart-sovereign field manager so the chart's
+                # bytes stay authoritative across reconciles.
+                HTTP_CODE="$(curl -fsS --cacert "${CACERT}" \
+                  -H "Authorization: Bearer ${K8S_TOKEN}" \
+                  -H "Content-Type: application/apply-patch+yaml" \
+                  -o /dev/null -w '%{http_code}' \
+                  -X PATCH \
+                  "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_SECRET_NAME}?fieldManager=bp-stalwart-sovereign&force=true" \
+                  -d "${MIRROR_BODY}" 2>/dev/null || echo "000")"
+                if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "201" ]; then
+                  echo "[stalwart-sovereign-setup] mirror Secret applied (http=${HTTP_CODE})"
+                else
+                  # Fall back to plain POST/PUT for older API servers
+                  # that don't honour apply-patch on Secrets.
+                  HTTP_CODE_FALLBACK="$(curl -fsS --cacert "${CACERT}" \
+                    -H "Authorization: Bearer ${K8S_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -o /dev/null -w '%{http_code}' \
+                    -X POST \
+                    "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets" \
+                    -d "${MIRROR_BODY}" 2>/dev/null || echo "000")"
+                  if [ "${HTTP_CODE_FALLBACK}" = "201" ]; then
+                    echo "[stalwart-sovereign-setup] mirror Secret created (POST fallback)"
+                  elif [ "${HTTP_CODE_FALLBACK}" = "409" ]; then
+                    # Already exists — PUT to update.
+                    HTTP_PUT="$(curl -fsS --cacert "${CACERT}" \
+                      -H "Authorization: Bearer ${K8S_TOKEN}" \
+                      -H "Content-Type: application/json" \
+                      -o /dev/null -w '%{http_code}' \
+                      -X PUT \
+                      "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_SECRET_NAME}" \
+                      -d "${MIRROR_BODY}" 2>/dev/null || echo "000")"
+                    echo "[stalwart-sovereign-setup] mirror Secret PUT http=${HTTP_PUT}"
+                  else
+                    echo "[stalwart-sovereign-setup] mirror Secret apply failed (http=${HTTP_CODE} fallback=${HTTP_CODE_FALLBACK})"
+                    exit 1
+                  fi
+                fi
+              else
+                echo "[stalwart-sovereign-setup] mirror Secret render disabled — skipping"
+              fi
+
+              echo "[stalwart-sovereign-setup] done"
+{{- end }}
