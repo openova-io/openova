@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.4
-appVersion: 1.4.4
+version: 1.4.5
+appVersion: 1.4.5
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -454,6 +454,63 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.3 → 1.4.4. 2026-05-04.
+
+  Bumped to 1.4.5 — wire VALKEY_PASSWORD into SME auth + gateway services
+  to clear cross-ns Valkey auth crashloop on franchised Sovereigns
+  (issue #863, 2026-05-04). After 1.4.4 landed FerretDB + the cross-ns
+  CiliumNetworkPolicy, 11/13 SME pods reached Running 1/1 on otech103
+  but `auth` stayed in CrashLoopBackOff and `gateway`'s rate limiter
+  was disabled, both with the same error:
+
+      ERROR failed to connect to Valkey error="NOAUTH HELLO must be
+      called with the client already authenticated, otherwise the
+      HELLO <proto> AUTH <user> <pass> option can be used..."
+
+  Root cause: bp-valkey 1.0.0 (slot 17) ships with `auth.enabled=true`
+  (bitnami valkey 5.5.1 default convention). The bitnami subchart
+  auto-generates a random password and exposes it via the
+  `valkey-password` key in the `valkey` Secret in the `valkey`
+  namespace. SME service code (`core/services/shared/db/valkey.go`)
+  only accepted an addr — no password — and the auth.yaml + gateway.yaml
+  Deployments only set VALKEY_ADDR. Cross-ns AUTH was never plumbed
+  through. Pre-1.4.4 this was masked because VALKEY_ADDR pointed at a
+  non-existent `valkey.sme.svc.cluster.local` and the connect failed
+  at DNS not at AUTH.
+
+  Fix:
+  - core/services/shared/db/valkey.go — add ConnectValkeyWithAuth
+    overload that takes username + password. ConnectValkey kept
+    backwards-compatible for callers that don't pass auth (contabo-mkt
+    auth-less in-namespace Valkey under data/valkey.yaml).
+  - core/services/auth/main.go + core/services/gateway/main.go —
+    read VALKEY_USERNAME + VALKEY_PASSWORD env, call
+    ConnectValkeyWithAuth when password is non-empty, else fall through
+    to the no-auth path. Empty password = current contabo behaviour.
+  - NEW templates/sme-services/valkey-cross-ns-secret.yaml — use Helm
+    `lookup` to read the bp-valkey auto-generated password from
+    `valkey/valkey` Secret and re-emit it as `sme-valkey-auth` in
+    `sme` namespace. Same lookup-and-mirror pattern as
+    sme-secrets.yaml (issue #859) and gitea-admin-secret (issue #830
+    Bug 2). On first install the lookup may return nil — Flux's 15m
+    reconcile picks up the mirror once bp-valkey is Ready.
+  - auth.yaml + gateway.yaml — add VALKEY_PASSWORD env reading from
+    `sme-valkey-auth` Secret with `optional: true` so contabo-mkt's
+    auth-less Valkey path keeps working when the mirror Secret is
+    absent. valkey-go's `default` ACL user uses `requirepass`, so
+    VALKEY_USERNAME stays unset by convention.
+  - values.yaml — add `smeServices.valkey.{sourceSecretName,
+    sourcePasswordKey, destNamespace, destSecretName}` knobs so a
+    forked bp-valkey with non-default Secret naming can override
+    without forking the chart (Inviolable Principle #4).
+
+  No SME smeTag bump needed at chart-source time — the
+  services-build.yaml workflow rebuilds the auth + gateway images
+  from this commit's SHA and updates the `image:` line in auth.yaml +
+  gateway.yaml directly. The chart's blueprint-release pipeline picks
+  up those updated SHAs in its values.yaml on the next chart push.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.4 → 1.4.5. 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
