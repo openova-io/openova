@@ -106,7 +106,7 @@ const indexRoute = createRoute({
   path: '/',
   beforeLoad: () => {
     if (IS_SAAS) throw redirect({ to: '/login' })
-    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/console/dashboard' as never })
+    if (DETECTED_MODE.mode === 'sovereign') throw redirect({ to: '/dashboard' as never })
     throw redirect({ to: '/wizard' })
   },
 })
@@ -160,7 +160,7 @@ const authHandoverRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/handover',
   beforeLoad: () => {
-    throw redirect({ to: '/console/dashboard' as never, replace: true })
+    throw redirect({ to: '/dashboard' as never, replace: true })
   },
   component: () => null,
 })
