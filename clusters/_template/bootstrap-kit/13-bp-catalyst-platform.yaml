@@ -128,7 +128,14 @@ spec:
       # CreateContainerConfigError. Fix mirrors sme-secrets/
       # valkey-cross-ns-secret/provisioning-github-token Helm-lookup
       # persistence pattern. helm.sh/resource-policy: keep.
-      version: 1.4.15
+      # 1.4.16 (#893/#889 follow-up): chart-version-only republish to
+      # bake catalyst-api image SHA 727fb2f (containing the parent-
+      # kustomization.yaml index + helmrepositories.yaml emit + correct
+      # per-blueprint sourceRef.name in tenant overlay templates) into
+      # values.yaml. Without this bump the OCI artifact still references
+      # the old image and the Sovereign's tenant orchestrator emits
+      # tenant overlays with stale openova-blueprints sourceRef.
+      version: 1.4.16
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
