@@ -1,0 +1,38 @@
+{{- /*
+Auto-create the `sme` namespace on Sovereigns where the marketplace is
+enabled.
+
+Why: every other template under templates/sme-services/* (billing.yaml,
+auth.yaml, ferretdb.yaml, valkey-cross-ns-secret.yaml, sme-secrets.yaml,
+provisioning-github-token.yaml, ...) emits resources with
+`namespace: sme`. On Catalyst-Zero (contabo) the `sme` namespace is
+pre-provisioned by clusters/contabo-mkt/apps/sme/* — so the chart never
+needed to create it. On a freshly franchised Sovereign nothing else
+provisions the `sme` namespace, so without this template Helm install
+fails 23 times with `failed to create resource: namespaces "sme" not
+found` (live blocker on otech105 — 2026-05-05).
+
+Same dual-mode contract as the rest of templates/sme-services/* — gated
+on `ingress.marketplace.enabled` so non-marketplace Sovereigns and the
+Kustomize-mode contabo build skip this entirely. Kustomize-mode build
+does NOT include `templates/sme-services/sme-namespace.yaml` in
+`templates/sme-services/kustomization.yaml`'s `resources:` list (the
+contabo build manages the `sme` namespace via
+clusters/contabo-mkt/apps/sme/namespace.yaml).
+
+helm.sh/resource-policy: keep — never delete the namespace on a
+chart uninstall (would cascade-delete every SME workload + tenant).
+*/ -}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sme
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: catalyst-platform
+    catalyst.openova.io/sovereign: {{ .Values.global.sovereignFQDN | quote }}
+  annotations:
+    helm.sh/resource-policy: keep
+    catalyst.openova.io/created-by: bp-catalyst-platform
+{{- end -}}
