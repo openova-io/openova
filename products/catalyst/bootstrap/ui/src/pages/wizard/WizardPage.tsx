@@ -28,14 +28,18 @@ import { StepNSDelegation } from './steps/StepNSDelegation'
 //                         that provider's control-plane SKU + worker SKU +
 //                         count. SKU vocabulary is per-provider, which is
 //                         why sizing lives here, not in topology.
-//   4. StepCredentials  — API tokens (per chosen provider) + SSH key.
-//   5. StepComponents   — unified marketplace catalog.
-//   6. StepMarketplace  — opt into Marketplace mode (issue #710 wave 3a).
+//   4. StepComponents   — unified marketplace catalog.
+//   5. StepMarketplace  — opt into Marketplace mode (issue #710 wave 3a).
 //                         The toggle decides whether the Sovereign exposes
 //                         a per-tenant SaaS storefront at
 //                         marketplace.<sovereign-fqdn>.
-//   7. StepDomain       — pool subdomain or BYO domain (admin email
+//   6. StepDomain       — pool subdomain or BYO domain (admin email
 //                         decommissioned in #762).
+//   7. StepCredentials  — API tokens (per chosen provider) + SSH key.
+//                         Moved from position 4 to 7 in #973 so the
+//                         cloud API token is the final input captured
+//                         before Review — operators shape the
+//                         deployment first, hand over keys last.
 //   8. StepReview       — single source of truth for the POST body.
 //   9. StepSuccess      — provisioning result.
 //  10. StepNSDelegation — post-handover parent-zone NS delegation
@@ -47,10 +51,10 @@ const STEPS = [
   StepOrg,
   StepTopology,
   StepProvider,
-  StepCredentials,
   StepComponents,
   StepMarketplace,
   StepDomain,
+  StepCredentials,
   StepReview,
   StepSuccess,
   StepNSDelegation,

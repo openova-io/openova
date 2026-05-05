@@ -634,40 +634,67 @@ const consoleLayoutRoute = createRoute({
   component: SovereignConsoleLayout,
 })
 
+// /console/* mounts the SAME canonical components as /provision/$deploymentId/*
+// — the components resolve deploymentId via useResolvedDeploymentId() which
+// falls back from URL params to GET /api/v1/sovereign/self when running on
+// a Sovereign cluster. Pixel-byte-byte-identical UI, clean URLs.
 const consoleIndexRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/',
-  component: SovereignConsoleRedirect,
+  beforeLoad: () => {
+    throw redirect({ to: '/console/dashboard' as never, replace: true })
+  },
+  component: () => null,
 })
 const consoleDashboardRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/dashboard',
-  component: () => <SovereignConsoleRedirect to="dashboard" />,
+  component: Dashboard,
 })
 const consoleAppsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/apps',
-  component: () => <SovereignConsoleRedirect to="" />,
+  component: AppsPage,
 })
 const consoleJobsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs',
-  component: () => <SovereignConsoleRedirect to="jobs" />,
+  component: JobsPage,
+})
+const consoleJobDetailRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/jobs/$jobId',
+  component: JobDetail,
 })
 const consoleCloudRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/cloud',
-  component: () => <SovereignConsoleRedirect to="cloud" />,
+  component: CloudPage,
 })
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/users',
-  component: () => <SovereignConsoleRedirect to="users" />,
+  component: UserAccessListPage,
+})
+const consoleUsersNewRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/users/new',
+  component: UserAccessEditPage,
+})
+const consoleUsersEditRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/users/$name',
+  component: UserAccessEditPage,
 })
 const consoleSettingsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/settings',
-  component: () => <SovereignConsoleRedirect to="settings" />,
+  component: SettingsPage,
+})
+const consoleAppDetailRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/app/$componentId',
+  component: AppDetail,
 })
 
 // /console/settings/marketplace — operator toggles marketplace mode on a
@@ -790,9 +817,13 @@ const routeTree = rootRoute.addChildren([
     consoleIndexRoute,
     consoleDashboardRoute,
     consoleAppsRoute,
+    consoleAppDetailRoute,
     consoleJobsRoute,
+    consoleJobDetailRoute,
     consoleCloudRoute,
     consoleUsersRoute,
+    consoleUsersNewRoute,
+    consoleUsersEditRoute,
     consoleCatalogRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
