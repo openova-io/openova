@@ -84,6 +84,13 @@ spec:
   chart:
     spec:
       chart: bp-harbor
+      # 1.2.15: hot-fix for issue #949 — admin-secret.yaml duplicate
+      # label keys (app.kubernetes.io/name, catalyst.openova.io/
+      # component) made Helm's strict YAML post-render reject the
+      # rendered manifest, blocking the upgrade chain on otech113.
+      # Labels in admin-secret.yaml are now inlined verbatim instead
+      # of `include "bp-harbor.labels"` + override, eliminating the
+      # collision.
       # 1.2.14: Catalyst-curated `harbor-admin` Secret with Reflector
       # mirror annotations into `catalyst` ns so the
       # bp-self-sovereign-cutover Step 02 (harbor-projects) Job in
@@ -92,7 +99,7 @@ spec:
       # live on otech113 2026-05-05 (issue #935 Bug 1) — Step 02 was
       # in CreateContainerConfigError for 11+ retries, blocking
       # cutover indefinitely.
-      version: 1.2.14
+      version: 1.2.15
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
