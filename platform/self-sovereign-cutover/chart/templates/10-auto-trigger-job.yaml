@@ -28,6 +28,27 @@ The SA token mounts at the standard projected-volume path
 the bytes at request time so the token rotates correctly on long-
 running deadlines.
 
+Readiness probe (issue #957 — chart 0.1.18)
+───────────────────────────────────────────
+0.1.17's readiness loop polled /api/v1/sovereign/cutover/status to
+decide "is catalyst-api up yet?" That endpoint lives INSIDE the
+RequireSession group and returned 401 to every unauthenticated probe
+from this Pod. The probe treated 401 as "API not ready" → loop never
+broke → /internal/cutover/trigger was NEVER called → cutover never
+fired on otech113 2026-05-05. Live evidence: catalyst-api access log
+showed 30 consecutive 401 responses on /sovereign/cutover/status from
+the auto-trigger Pod and zero hits on /internal/cutover/trigger.
+
+0.1.18 polls /healthz instead — an unauthenticated, always-200
+endpoint while the process is up (products/catalyst/bootstrap/api/
+internal/handler/health.go:51). The endpoint exists for exactly this
+purpose (kubelet liveness, in-cluster reachability tests). Once
+/healthz returns 200 we proceed straight to /internal/cutover/trigger;
+the trigger endpoint is itself idempotent — it returns 200 with the
+existing snapshot when cutoverComplete=true, 409 when a run is
+already in progress, 200 otherwise — so we no longer need a separate
+"cutoverComplete already true" pre-flight read.
+
 Idempotency comes from catalyst-api's own engine logic:
   - cutoverComplete=true → 200, no Jobs created (already done)
   - cutoverComplete=false + steps in flight → 409 (in-progress)
@@ -123,7 +144,17 @@ spec:
               fi
 
               api="${CATALYST_API_URL%/}"
-              status_url="${api}/api/v1/sovereign/cutover/status"
+              # Issue #957 — chart 0.1.18: poll the unauthenticated
+              # /healthz endpoint to test reachability. /api/v1/sovereign/
+              # cutover/status (used in 0.1.17) lives behind RequireSession
+              # middleware and returned 401 to every probe from this Pod
+              # because the in-cluster Job has no operator session cookie.
+              # The probe treated 401 as "API not ready" → loop never
+              # broke → trigger was never called → cutover never fired.
+              # /healthz exists for exactly this purpose (kubelet liveness
+              # + in-cluster reachability) and returns 200 unconditionally
+              # while the process is up.
+              healthz_url="${api}/healthz"
               # Issue #935 Bug 2: hit the in-cluster /internal/cutover/trigger
               # endpoint (lives outside RequireSession) with this Pod's
               # ServiceAccount token. The previous /sovereign/cutover/start
@@ -134,16 +165,16 @@ spec:
               # 1. Wait for catalyst-api to be reachable. In a fresh
               #    Sovereign, the cutover chart and catalyst-platform
               #    chart land on slightly different timelines via Flux.
-              #    We poll /status (a read-only endpoint, idempotent) up
-              #    to WAIT_TIMEOUT_SECONDS so a transient unreachability
+              #    We poll /healthz (an unauthenticated liveness endpoint)
+              #    up to WAIT_TIMEOUT_SECONDS so a transient unreachability
               #    doesn't fail the hook.
               echo "[auto-trigger] waiting for catalyst-api at ${api}"
               deadline=$(( $(date +%s) + WAIT_TIMEOUT_SECONDS ))
               api_ready="false"
               while [ "$(date +%s)" -lt "${deadline}" ]; do
-                code=$(curl -s -o /tmp/status.json -w "%{http_code}" \
+                code=$(curl -s -o /dev/null -w "%{http_code}" \
                   --connect-timeout 5 --max-time 15 \
-                  "${status_url}" 2>/dev/null || echo "000")
+                  "${healthz_url}" 2>/dev/null || echo "000")
                 if [ "${code}" = "200" ]; then
                   api_ready="true"
                   break
@@ -156,14 +187,13 @@ spec:
                 exit 0
               fi
 
-              # 2. Read current state. If cutoverComplete=true, log and exit.
-              #    The /status endpoint is the durable record; we trust it
-              #    over any in-process state because catalyst-api Pods can
-              #    restart between cutover runs.
-              if grep -q '"cutoverComplete":true' /tmp/status.json 2>/dev/null; then
-                echo "[auto-trigger] cutover already complete on this Sovereign — no-op"
-                exit 0
-              fi
+              # 2. Skip the pre-flight cutoverComplete=true short-circuit
+              #    that 0.1.17 had: /internal/cutover/trigger is itself
+              #    idempotent — it returns 200 with the existing snapshot
+              #    when cutoverComplete=true (cutover_internal.go line
+              #    279). Removing the pre-read keeps us off the auth-gated
+              #    /sovereign/cutover/status endpoint entirely, which is
+              #    the whole point of the 0.1.18 change.
 
               # 3. Confirm the SA token is mountable. Should always be
               #    true when the Pod is running with our serviceAccount,
