@@ -170,7 +170,7 @@ keycloak:
       registry: docker.io
       repository: bitnamilegacy/keycloak-config-cli
       tag: 6.4.0-debian-12-r11
-    # ─── Phase-8b realm ConfigMap (issue #604) ───────────────────────────────
+    # ─── Phase-8b realm ConfigMap (issue #604, #899) ─────────────────────────
     # The realm import JSON is now owned by the parent bp-keycloak chart's
     # templates/configmap-sovereign-realm.yaml template. That template has
     # access to .Values.sovereignFQDN and .Values.smtp.* for per-Sovereign
@@ -179,10 +179,23 @@ keycloak:
     #
     # The upstream bitnami/keycloak chart honours `keycloakConfigCli.existingConfigmap`:
     # when set it skips creating its own ConfigMap and uses the named one instead.
-    # Name convention: "<releaseName>-sovereign-realm-config".
-    # With the bootstrap-kit default releaseName=keycloak → "keycloak-sovereign-realm-config".
-    # Operators using a non-default releaseName must override this key to match.
-    existingConfigmap: keycloak-sovereign-realm-config
+    # The bitnami helper "keycloak.keycloakConfigCli.configmapName" applies
+    # `tpl` to the value (see charts/keycloak/templates/_helpers.tpl), so we
+    # can embed a Helm template expression here that resolves at render time.
+    #
+    # Name convention: "<releaseName>-sovereign-realm-config" — emitted by
+    # templates/configmap-sovereign-realm.yaml at the parent scope. Using
+    # `{{ .Release.Name }}` (subchart scope; identical Release object)
+    # keeps the reference correct on EVERY install topology:
+    #   - Sovereign-mothership bootstrap-kit: releaseName=keycloak →
+    #     "keycloak-sovereign-realm-config"
+    #   - Per-tenant SME (issue #899): releaseName=bp-keycloak →
+    #     "bp-keycloak-sovereign-realm-config"
+    # Issue #899 root cause: this was a literal "keycloak-sovereign-realm-config"
+    # which broke whenever the operator-supplied releaseName != "keycloak".
+    # Per Inviolable Principle #4 (never hardcode): the release-name
+    # derivation here is the seam.
+    existingConfigmap: '{{ .Release.Name }}-sovereign-realm-config'
   # Metrics + ServiceMonitor + PrometheusRule — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
