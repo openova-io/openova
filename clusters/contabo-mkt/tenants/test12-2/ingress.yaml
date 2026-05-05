@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tenant-ingress
+  namespace: tenant-test12-2
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: test12-2.omani.rest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-x-tenant-test12-2-x-vcluster
+                port:
+                  number: 80
+          - path: /nextcloud
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-x-tenant-test12-2-x-vcluster
+                port:
+                  number: 80
+          - path: /vaultwarden
+            pathType: Prefix
+            backend:
+              service:
+                name: vaultwarden-x-tenant-test12-2-x-vcluster
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - test12-2.omani.rest
+      secretName: tenant-test12-2-tls
