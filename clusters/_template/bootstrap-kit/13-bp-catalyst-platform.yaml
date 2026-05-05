@@ -164,7 +164,34 @@ spec:
       # the rest of templates/sme-services/* (gated on
       # ingress.marketplace.enabled, excluded from kustomization.yaml's
       # resources: list).
-      version: 1.4.18
+      # 1.4.19 (issue #910 — Bugs 2 + 3): unblock Sovereign Console PIN-
+      # login on a freshly franchised cluster.
+      #   Bug 2: CATALYST_SESSION_COOKIE_DOMAIN literal flips from
+      #   `console.openova.io` to `""` (empty). On a Sovereign the
+      #   request host is console.<sov-fqdn>, so the previous hardcoded
+      #   value made the browser reject Set-Cookie (RFC 6265 §5.3 step 6
+      #   Domain mismatch) and every /api/* request landed without a
+      #   session, redirecting to /login forever. Empty value contract
+      #   (Domain attribute omitted → cookie binds to request host) is
+      #   correct on BOTH Sovereign (console.<sov-fqdn>) AND contabo
+      #   (console.openova.io — wizard + magic-link served from the
+      #   same host). Per-Sovereign overlays MAY override via
+      #   catalystApi.env additional-env patch for unusual topologies.
+      #
+      #   Bug 3: catalyst-openova-kc-credentials-secret.yaml's smtp-
+      #   user/smtp-pass lookup precedence inverts: SOURCE
+      #   (sovereign-smtp-credentials, seeded by A5's provisioner #883)
+      #   wins over the persisted target. Pre-1.4.19 target-wins meant
+      #   first-install rendered empty SMTP creds, persisted them, and
+      #   NEVER picked up A5's seeded bytes — POST /api/v1/auth/pin/
+      #   issue 502'd `email-send-failed` for the life of the cluster.
+      #   Source-wins makes every Flux 1m reconcile re-read the source.
+      #   KC fields keep "existing target wins" because bp-keycloak
+      #   auto-rotates the client-secret on every Helm upgrade and we
+      #   want that rotation to require explicit operator action
+      #   (delete the target) rather than auto-roll the catalyst-api
+      #   Pod.
+      version: 1.4.19
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -772,10 +772,46 @@ spec:
                   key: smtp-from
                   optional: true
             # CATALYST_SESSION_COOKIE_DOMAIN — optional domain scoping for the
-            # catalyst_session + catalyst_refresh cookies. Set to console.openova.io
-            # so both /sovereign/wizard and /sovereign/auth/magic share the cookie jar.
+            # catalyst_session + catalyst_refresh cookies.
+            #
+            # Why this is empty by default (issue #910 Bug 2)
+            # ===============================================
+            # Pre-1.4.19 this was hardcoded `console.openova.io` because that
+            # was the host Catalyst-Zero (contabo) serves both /sovereign/wizard
+            # and /sovereign/auth/magic from. On contabo that worked: the
+            # request host == the cookie domain, so the browser accepted the
+            # Set-Cookie and re-presented it on every subsequent request.
+            #
+            # On a freshly franchised Sovereign (e.g. console.otech105.omani.
+            # works, caught live 2026-05-05) the same hardcoded value made the
+            # browser refuse to bind the cookie at all: the Set-Cookie header
+            # had `Domain=console.openova.io` while the request host was
+            # `console.otech105.omani.works`. RFC 6265 §5.3 step 6 rejects any
+            # Set-Cookie where the request URI's host is not the cookie's
+            # domain (or a sub-domain). The browser silently dropped the
+            # cookie → next /api/* request had no session → backend redirected
+            # to /login → infinite loop. Login broke for every Sovereign.
+            #
+            # Empty value contract: when CATALYST_SESSION_COOKIE_DOMAIN is
+            # empty, the auth handler omits the Domain attribute from
+            # Set-Cookie. Per RFC 6265 the browser binds the cookie to the
+            # exact request host. That is the correct behaviour on BOTH:
+            #   - Sovereign: request host = console.<sov-fqdn>, cookie binds
+            #     there, /api/* on the same host re-presents it.
+            #   - Catalyst-Zero (contabo): request host = console.openova.io,
+            #     cookie binds there. Wizard + magic-link callbacks are
+            #     served from the same Ingress so a single cookie jar is
+            #     sufficient.
+            #
+            # Per the dual-mode contract documented in the
+            # CATALYST_POWERDNS_API_URL block above, this MUST stay a literal
+            # value (no Helm template directives) so the Kustomize-mode
+            # contabo build keeps parsing. Per-Sovereign overlays MAY
+            # override via the `catalystApi.env` additional-env patch in the
+            # per-cluster HelmRelease (Helm-only codepath, takes precedence
+            # over this default at template-render time).
             - name: CATALYST_SESSION_COOKIE_DOMAIN
-              value: "console.openova.io"
+              value: ""
           resources:
             requests:
               cpu: 50m
