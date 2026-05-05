@@ -226,7 +226,7 @@ spec:
       # every trigger call returned 502 "token-review-failed" on
       # otech113 (chart 0.1.18 fixed the readiness loop but exposed
       # this missing-RBAC bug as the next failure). 2026-05-05.
-      version: 1.4.27
+      version: 1.4.28
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
