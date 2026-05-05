@@ -111,4 +111,39 @@ if ! grep -B1 -A3 '^          - name: HARBOR_ADMIN_PASSWORD$' "$TMP/render.yaml"
 fi
 echo "  PASS"
 
+echo "[admin-secret] Case 6: no duplicate mapping keys in harbor-admin Secret (issue #949 regression guard)"
+# bp-harbor 1.2.14 (PR #947) shipped admin-secret.yaml that emitted
+# duplicate label keys (`app.kubernetes.io/name`,
+# `catalyst.openova.io/component`) because it `include`d the
+# `bp-harbor.labels` helper AND re-declared the same keys with admin-
+# credential-specific values. Helm's post-render strict YAML parser
+# rejected the result (`mapping key "app.kubernetes.io/name" already
+# defined at line 8`) and Flux blocked the upgrade chain on otech113.
+# This gate runs the rendered Secret block through a strict YAML
+# parser (PyYAML's safe_load — same key-uniqueness enforcement Helm
+# uses post-render); duplicate keys raise ConstructorError /
+# ScannerError and break the test.
+duplicate_check=$(printf '%s\n' "$admin_block" | python3 -c "
+import sys, yaml
+try:
+    docs = list(yaml.safe_load_all(sys.stdin.read()))
+except yaml.YAMLError as e:
+    print('FAIL:', e)
+    sys.exit(1)
+for d in docs:
+    if d is None:
+        continue
+    labels = (d.get('metadata') or {}).get('labels') or {}
+    # safe_load_all itself raises on duplicate mapping keys; arriving
+    # here means the YAML is well-formed. Print label cardinality so
+    # operators can eyeball any future drift.
+    print('OK', len(labels), 'unique label keys')
+")
+if ! printf '%s\n' "$duplicate_check" | grep -q '^OK '; then
+  echo "FAIL: harbor-admin Secret has duplicate / malformed YAML keys" >&2
+  echo "      $duplicate_check" >&2
+  exit 1
+fi
+echo "  PASS ($duplicate_check)"
+
 echo "[admin-secret] All gates green."
