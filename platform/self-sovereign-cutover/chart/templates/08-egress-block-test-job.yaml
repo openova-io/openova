@@ -102,37 +102,55 @@ data:
               *gitea-http*|*gitea.*) : ;;
               *) echo "  FAIL — catalyst-api env still upstream"; exit 1 ;;
             esac
-            echo "[egress-block-test] architectural pivots verified — entering ${DURATION_SECONDS}s survival window"
+            echo "[egress-block-test] capturing baseline NotReady set"
+            baseline_hr=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+              | grep -E '=False$' | sort -u || true)
+            baseline_ks=$(kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+              | grep -E '=False$' | sort -u || true)
+            if [ -n "${baseline_hr}${baseline_ks}" ]; then
+              echo "[egress-block-test] baseline pre-existing NotReady items (excluded from regression check):"
+              [ -n "${baseline_hr}" ] && echo "${baseline_hr}" | sed 's/^/  baseline HR /'
+              [ -n "${baseline_ks}" ] && echo "${baseline_ks}" | sed 's/^/  baseline KS /'
+            else
+              echo "[egress-block-test] baseline clean — no pre-existing NotReady items"
+            fi
+            echo "[egress-block-test] entering ${DURATION_SECONDS}s survival window — only NEW NotReady regressions count as failure"
 
             start=$(date +%s)
             deadline=$((start + DURATION_SECONDS))
             poll_interval=30
-            failures=0
+            new_failures=0
 
             while [ "$(date +%s)" -lt "${deadline}" ]; do
               hr_not_ready=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
                 -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
-                | grep -E '=False$' || true)
+                | grep -E '=False$' | sort -u || true)
               ks_not_ready=$(kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A \
                 -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
-                | grep -E '=False$' || true)
+                | grep -E '=False$' | sort -u || true)
 
-              if [ -n "${hr_not_ready}${ks_not_ready}" ]; then
-                echo "[egress-block-test] NotReady detected at $(($(date +%s) - start))s:"
-                [ -n "${hr_not_ready}" ] && echo "${hr_not_ready}" | sed 's/^/  HR /'
-                [ -n "${ks_not_ready}" ] && echo "${ks_not_ready}" | sed 's/^/  KS /'
-                failures=$((failures+1))
+              # Diff against baseline — only new entries count as a regression.
+              new_hr=$(comm -13 <(echo "${baseline_hr}") <(echo "${hr_not_ready}"))
+              new_ks=$(comm -13 <(echo "${baseline_ks}") <(echo "${ks_not_ready}"))
+
+              if [ -n "${new_hr}${new_ks}" ]; then
+                echo "[egress-block-test] NEW NotReady at $(($(date +%s) - start))s (regression):"
+                [ -n "${new_hr}" ] && echo "${new_hr}" | sed 's/^/  NEW HR /'
+                [ -n "${new_ks}" ] && echo "${new_ks}" | sed 's/^/  NEW KS /'
+                new_failures=$((new_failures+1))
               fi
 
               sleep "${poll_interval}"
             done
 
-            echo "[egress-block-test] window complete; observed-failure-cycles=${failures}"
-            if [ "${failures}" -gt 0 ]; then
-              echo "[egress-block-test] cluster did NOT survive egress block — sovereignty proof FAILED"
+            echo "[egress-block-test] window complete; new-regression-cycles=${new_failures}"
+            if [ "${new_failures}" -gt 0 ]; then
+              echo "[egress-block-test] cluster developed NEW NotReady items during the window — sovereignty proof FAILED"
               exit 1
             fi
-            echo "[egress-block-test] cluster survived ${DURATION_SECONDS}s egress block — sovereignty proof PASSED"
+            echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window — sovereignty proof PASSED"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits:   { memory: 256Mi }

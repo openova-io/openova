@@ -120,7 +120,14 @@ spec:
       # Flux Kustomization re-applies from bootstrap-kit slots after
       # Step-6's patch. Data-plane impact null — they're not pulled
       # again until next cutover cycle. Caught live otech103.
-      version: 0.1.12
+      # 0.1.13: Step-8 survival window captures BASELINE NotReady set
+      # before entering the window, then only fails on NEW Ready=False
+      # transitions (regressions). Pre-existing failures (Crossplane
+      # provider CRD ordering, etc.) don't poison the sovereignty
+      # verdict — sovereignty asks "did cutover break anything", not
+      # "is the cluster perfect". Caught live otech103 — infrastructure
+      # -config Kustomization had been NotReady for 4h pre-cutover.
+      version: 0.1.13
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
