@@ -102,6 +102,15 @@ type Handler struct {
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
 
+	// phase1LatePollTimeout / phase1LatePollInterval — test-only
+	// overrides for the eventual-consistency late-poll window
+	// (issue #910). Zero means "fall back to env var →
+	// DefaultLatePollTimeout / DefaultLatePollInterval"; tests inject
+	// tiny values (e.g. 200ms / 50ms) so the late-poll path can be
+	// exercised in milliseconds.
+	phase1LatePollTimeout  time.Duration
+	phase1LatePollInterval time.Duration
+
 	// kubeconfigArrivalTimeout / kubeconfigArrivalPollInterval —
 	// runtime knobs for the polling loop that waits for cloud-init
 	// to PUT the new Sovereign's kubeconfig. Zero falls back to the

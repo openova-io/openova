@@ -232,6 +232,13 @@ func TestRunPhase1Watch_AllInstalledFlowsThroughEventsBuf(t *testing.T) {
 // TestRunPhase1Watch_FailedComponentFlipsStatusToFailed proves a
 // component ending in "failed" propagates to Deployment.Status =
 // "failed" with an error message naming the count.
+//
+// Issue #910: this exercises the late-poll-exhausted path — the
+// failed HR never recovers in this fixture, so after the eventual-
+// consistency late-poll window elapses the watcher classifies as
+// OutcomeFailed and the handler flips the deployment to "failed".
+// LatePollTimeout is shrunk to milliseconds so the test runs fast;
+// production has a 10-minute window.
 func TestRunPhase1Watch_FailedComponentFlipsStatusToFailed(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	h.dynamicFactory = fakeDynamicFactoryFromObjects(
@@ -239,6 +246,8 @@ func TestRunPhase1Watch_FailedComponentFlipsStatusToFailed(t *testing.T) {
 		makeFailedHR("bp-cert-manager", "chart load failed: 401"),
 	)
 	h.phase1WatchTimeout = 5 * time.Second
+	h.phase1LatePollTimeout = 200 * time.Millisecond
+	h.phase1LatePollInterval = 50 * time.Millisecond
 
 	dep := makeDeploymentWithKubeconfig(t, h, "phase1-failed", "fake-kubeconfig: yaml")
 	h.runPhase1Watch(dep)
@@ -1061,6 +1070,234 @@ func TestMarkPhase1Done_RefusesToDowngradeAdopted(t *testing.T) {
 	}
 	if dep.Result.ComponentStates["cilium"] != helmwatch.StateInstalled {
 		t.Errorf("ComponentStates[cilium] = %q, want %q (must not be overwritten on adopted)", dep.Result.ComponentStates["cilium"], helmwatch.StateInstalled)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Issue #910 — eventual-consistency late-poll integration tests.
+//
+// These prove the FULL handler path: runPhase1Watch → markPhase1Done
+// → Deployment.Status writes the right value when a failed component
+// recovers (or doesn't) during the late-poll window. Low-level
+// Watcher behaviour is covered in helmwatch/helmwatch_test.go.
+// ─────────────────────────────────────────────────────────────────────
+
+// fakeDynamicFactoryReturningClient — returns the SAME pre-built fake
+// dynamic client on every factory invocation, so a test can reach
+// into the client mid-watch and Update an HR's status. The standard
+// fakeDynamicFactoryFromObjects rebuilds a fresh client per call,
+// which would break the late-poll recovery tests.
+func fakeDynamicFactoryReturningClient(client dynamic.Interface) func(string) (dynamic.Interface, error) {
+	return func(_ string) (dynamic.Interface, error) {
+		return client, nil
+	}
+}
+
+// updateHRForHandler — mirror of helmwatch_test.updateHR but local to
+// the handler tests so we don't reach across the package boundary.
+// Patches the bp-* HelmRelease's Ready condition on the fake dynamic
+// client so the informer's UpdateFunc fires.
+func updateHRForHandler(t *testing.T, client dynamic.Interface, name string, ready metav1.ConditionStatus, reason, message string) {
+	t.Helper()
+	patch := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "helm.toolkit.fluxcd.io/v2",
+			"kind":       "HelmRelease",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": helmwatch.FluxNamespace,
+			},
+			"spec": map[string]any{
+				"chart": map[string]any{
+					"spec": map[string]any{"chart": name},
+				},
+			},
+			"status": map[string]any{
+				"conditions": []any{
+					map[string]any{
+						"type":               "Ready",
+						"status":             string(ready),
+						"reason":             reason,
+						"message":            message,
+						"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+					},
+				},
+			},
+		},
+	}
+	patch.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "helm.toolkit.fluxcd.io",
+		Version: "v2",
+		Kind:    "HelmRelease",
+	})
+	_, err := client.Resource(helmwatch.HelmReleaseGVR).Namespace(helmwatch.FluxNamespace).Update(
+		t.Context(), patch, metav1.UpdateOptions{},
+	)
+	if err != nil {
+		t.Fatalf("updateHRForHandler(%q): %v", name, err)
+	}
+}
+
+// TestRunPhase1Watch_LatePollRecoversFailedToReady proves the
+// handler-level happy-path of issue #910: a failed HR that recovers
+// during the late-poll window flips Deployment.Status from "would
+// have been failed" to "ready". Models the otech105 incident where
+// bp-catalyst-platform 1.4.17 InstallFailed → 1.4.18 succeeded a few
+// minutes later → cluster reached 40/40 HRs Ready=True.
+func TestRunPhase1Watch_LatePollRecoversFailedToReady(t *testing.T) {
+	scheme := newFakeSchemeForHandler()
+	releases := []runtime.Object{
+		makeReadyHR("bp-cilium"),
+		makeReadyHR("bp-cert-manager"),
+		makeFailedHR("bp-catalyst-platform", "namespace 'sme' not found"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		scheme,
+		map[schema.GroupVersionResource]string{helmwatch.HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.dynamicFactory = fakeDynamicFactoryReturningClient(client)
+	h.phase1WatchTimeout = 30 * time.Second
+	h.phase1MinBootstrapKitHRs = 3
+	h.phase1LatePollTimeout = 2 * time.Second
+	h.phase1LatePollInterval = 50 * time.Millisecond
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-late-poll-recovers", "fake-kubeconfig: yaml")
+
+	// Simulate Flux helm-controller retrying with the new chart
+	// version: 200ms after the all-terminal trip the failed HR
+	// flips back to Ready=True. Well within LatePollTimeout (2s).
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		updateHRForHandler(t, client, "bp-catalyst-platform",
+			metav1.ConditionTrue, "ReconciliationSucceeded",
+			"Helm install succeeded after retry with chart 1.4.18",
+		)
+	}()
+
+	start := time.Now()
+	h.runPhase1Watch(dep)
+	elapsed := time.Since(start)
+
+	if elapsed > 5*time.Second {
+		t.Errorf("runPhase1Watch took %v — late-poll recovery should converge fast", elapsed)
+	}
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	// The deployment must be marked READY — late-poll observed the
+	// failed HR flip back to installed before the deadline.
+	if dep.Status != "ready" {
+		t.Errorf("Status = %q, want %q (late-poll recovered the failed component)", dep.Status, "ready")
+	}
+	if dep.Error != "" {
+		t.Errorf("Error = %q, want empty (recovery success)", dep.Error)
+	}
+	if dep.Result == nil {
+		t.Fatalf("Result is nil")
+	}
+	if dep.Result.Phase1Outcome != helmwatch.OutcomeReady {
+		t.Errorf("Phase1Outcome = %q, want %q", dep.Result.Phase1Outcome, helmwatch.OutcomeReady)
+	}
+	if dep.Result.ComponentStates["catalyst-platform"] != helmwatch.StateInstalled {
+		t.Errorf("ComponentStates[catalyst-platform] = %q, want %q (recovery)",
+			dep.Result.ComponentStates["catalyst-platform"], helmwatch.StateInstalled)
+	}
+}
+
+// TestRunPhase1Watch_LatePollExhaustsFlipsToFailed proves the
+// handler-level exhaustion path of issue #910: a failed HR that
+// never recovers during the late-poll window still flips the
+// deployment to Status=failed. This is the regression guard: late-
+// poll must NOT silently turn permanent failures into successes.
+func TestRunPhase1Watch_LatePollExhaustsFlipsToFailed(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(
+		makeReadyHR("bp-cilium"),
+		makeReadyHR("bp-cert-manager"),
+		makeFailedHR("bp-catalyst-platform", "permanent failure: chart broken"),
+	)
+	h.phase1WatchTimeout = 30 * time.Second
+	h.phase1MinBootstrapKitHRs = 3
+	h.phase1LatePollTimeout = 200 * time.Millisecond
+	h.phase1LatePollInterval = 50 * time.Millisecond
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-late-poll-exhausts", "fake-kubeconfig: yaml")
+
+	start := time.Now()
+	h.runPhase1Watch(dep)
+	elapsed := time.Since(start)
+
+	if elapsed > 5*time.Second {
+		t.Errorf("runPhase1Watch took %v — late-poll exhaustion should be quick (200ms cap)", elapsed)
+	}
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status != "failed" {
+		t.Errorf("Status = %q, want %q (late-poll exhausted with HR still failed)", dep.Status, "failed")
+	}
+	if !strings.Contains(dep.Error, "1 failed component") {
+		t.Errorf("Error = %q, want it to mention the failed count", dep.Error)
+	}
+	if dep.Result == nil {
+		t.Fatalf("Result is nil")
+	}
+	if dep.Result.Phase1Outcome != helmwatch.OutcomeFailed {
+		t.Errorf("Phase1Outcome = %q, want %q", dep.Result.Phase1Outcome, helmwatch.OutcomeFailed)
+	}
+	if dep.Result.ComponentStates["catalyst-platform"] != helmwatch.StateFailed {
+		t.Errorf("ComponentStates[catalyst-platform] = %q, want %q",
+			dep.Result.ComponentStates["catalyst-platform"], helmwatch.StateFailed)
+	}
+}
+
+// TestPhase1WatchConfig_LatePollEnvVarOverride proves the
+// CATALYST_PHASE1_LATE_POLL_TIMEOUT and CATALYST_PHASE1_LATE_POLL_INTERVAL
+// env vars parse through phase1WatchConfigForDeployment when the
+// handler's test-only field overrides are unset. This is the only
+// production path — operator sets env vars on the catalyst-api
+// Deployment to tune the recovery window per-cluster.
+func TestPhase1WatchConfig_LatePollEnvVarOverride(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	t.Setenv("CATALYST_PHASE1_LATE_POLL_TIMEOUT", "20m")
+	t.Setenv("CATALYST_PHASE1_LATE_POLL_INTERVAL", "45s")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-late-poll-env", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.LatePollTimeout != 20*time.Minute {
+		t.Errorf("LatePollTimeout = %v, want 20m (from env)", cfg.LatePollTimeout)
+	}
+	if cfg.LatePollInterval != 45*time.Second {
+		t.Errorf("LatePollInterval = %v, want 45s (from env)", cfg.LatePollInterval)
+	}
+}
+
+// TestPhase1WatchConfig_LatePollFieldOverrideBeatsEnv proves the
+// test-injection precedence: when h.phase1LatePollTimeout is non-
+// zero, it wins over the env var. Mirrors the existing
+// TestPhase1WatchConfig_FieldOverrideBeatsEnv contract for every
+// other Phase-1 knob.
+func TestPhase1WatchConfig_LatePollFieldOverrideBeatsEnv(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.phase1LatePollTimeout = 7 * time.Second
+	h.phase1LatePollInterval = 250 * time.Millisecond
+	t.Setenv("CATALYST_PHASE1_LATE_POLL_TIMEOUT", "20m")
+	t.Setenv("CATALYST_PHASE1_LATE_POLL_INTERVAL", "45s")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-late-poll-field", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.LatePollTimeout != 7*time.Second {
+		t.Errorf("LatePollTimeout = %v, want 7s (handler field override)", cfg.LatePollTimeout)
+	}
+	if cfg.LatePollInterval != 250*time.Millisecond {
+		t.Errorf("LatePollInterval = %v, want 250ms (handler field override)", cfg.LatePollInterval)
 	}
 }
 
