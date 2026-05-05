@@ -93,14 +93,62 @@ jobs:
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
           CHART_YAML="products/catalyst/chart/Chart.yaml"
+          VALUES_YAML="products/catalyst/chart/values.yaml"
 
+          # ──────────────────────────────────────────────────────────
+          # Issue #953: 7 of 8 sme-services templates render their
+          # image as `{{ .Values.images.smeTag }}` — the chart's
+          # values.yaml `images.smeTag` field is the SINGLE source of
+          # truth for those Pods. Only `auth.yaml` keeps a hardcoded
+          # `image: ghcr.io/...:<sha>` line (held at the older shape
+          # because of a historical InvalidImageName quirk).
+          #
+          # Pre-#953 this loop only ran a sed against the hardcoded
+          # form. The 7 templated services silently no-op'd and the
+          # deploy commit reported "update sme service images to
+          # ${SHA}" while only auth.yaml actually rolled. Result:
+          # every fix to catalog/tenant/etc. shipped the merge but
+          # the live Pod kept running pre-fix bytes (caught live on
+          # otech113 — services-catalog Pod still on 95a06f5 after
+          # PR #951's commit `68927688` claimed it deployed).
+          #
+          # Fix: bump `images.smeTag` in values.yaml AS WELL AS the
+          # hardcoded auth.yaml line. The values.yaml bump rolls
+          # all 7 templated services on the next chart release; the
+          # auth.yaml sed keeps the special-cased Pod on the same
+          # SHA. This stays event-driven (the push to main triggers
+          # this workflow); cron is intentionally absent per
+          # CLAUDE.md (every workflow MUST be event-driven, never
+          # scheduled).
+          # ──────────────────────────────────────────────────────────
+
+          # Hardcoded form — auth.yaml only. Kept until auth.yaml is
+          # re-templated (issue #953 fix scope was values.yaml; the
+          # back-compat hardcoded loop is preserved so a future
+          # auth-template flip is a no-op for this workflow).
           for svc in auth catalog gateway tenant domain billing provisioning notification; do
             FILE="${DEPLOY_DIR}/${svc}.yaml"
             if [ -f "$FILE" ]; then
               sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
-              echo "Updated ${svc} to SHA ${SHA}"
+              echo "Updated ${svc} hardcoded image refs (no-op for templated forms) to SHA ${SHA}"
             fi
           done
+
+          # Templated form — bump `images.smeTag` in values.yaml so
+          # the 7 templated services (catalog, gateway, tenant,
+          # domain, billing, provisioning, notification) all roll on
+          # the next chart release. Match the canonical 2-space
+          # indented form `  smeTag: "<sha>"` (with quotes) emitted
+          # by the chart's existing values.yaml shape; refuse to
+          # auto-bump if the line is missing or shaped differently
+          # so a contributor renaming the field does not silently
+          # break this workflow's promise.
+          if ! grep -Eq '^  smeTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
+            echo "::error title=smeTag field missing or unparseable::Expected '  smeTag: \"<sha>\"' line in ${VALUES_YAML}; refusing to auto-bump."
+            exit 1
+          fi
+          sed -i "s|^  smeTag: \"[A-Za-z0-9_.-]*\"$|  smeTag: \"${SHA}\"|" "${VALUES_YAML}"
+          echo "Bumped ${VALUES_YAML} images.smeTag to ${SHA}"
 
           # Patch-bump Chart.yaml `version:` and `appVersion:` (kept in
           # lockstep — the chart reflects the bundled appVersion via
@@ -128,6 +176,7 @@ jobs:
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
           CHART_YAML="products/catalyst/chart/Chart.yaml"
+          VALUES_YAML="products/catalyst/chart/values.yaml"
 
           # Idempotent reset-and-rewrite. Parallel/back-to-back CI runs
           # both try to update the same `image:` lines AND the same
@@ -137,6 +186,12 @@ jobs:
           # version origin/main currently holds and bump from THAT, so
           # two concurrent runs produce strictly increasing patch
           # versions instead of clobbering each other.
+          #
+          # Issue #953: rewrite() must mirror the values.yaml smeTag
+          # bump that the rewrite step does — otherwise a retry that
+          # reset-to-origin/main would leave values.yaml on the OLD
+          # SHA and only auth.yaml would carry the new SHA, recreating
+          # the original bug under any push-conflict scenario.
           rewrite() {
             for svc in auth catalog gateway tenant domain billing provisioning notification; do
               FILE="${DEPLOY_DIR}/${svc}.yaml"
@@ -144,6 +199,11 @@ jobs:
                 sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
               fi
             done
+            if ! grep -Eq '^  smeTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
+              echo "::error title=smeTag field missing on retry::Expected '  smeTag: \"<sha>\"' line in ${VALUES_YAML}."
+              exit 1
+            fi
+            sed -i "s|^  smeTag: \"[A-Za-z0-9_.-]*\"$|  smeTag: \"${SHA}\"|" "${VALUES_YAML}"
             current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
             if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "::error title=Unparseable chart version on retry::Chart.yaml version='${current}' is not semver."

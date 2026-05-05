@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.1 (issue #952, 2026-05-05): templatize spec.imagePullSecrets on the
+# Deployment + channel-seed Job and default `imagePullSecrets:
+# [{name: ghcr-pull}]` in values.yaml. Pre-1.4.1 the Pod template emitted
+# no imagePullSecrets, so kubelet pulled the PRIVATE
+# `ghcr.io/openova-io/openova/newapi-mirror` and
+# `ghcr.io/openova-io/openova/services-metering-sidecar` images
+# anonymously and got 403 Forbidden on every fresh Sovereign — blocking
+# alice signup gate 5 (LLM). The cloud-init `flux-system/ghcr-pull`
+# Secret is reflected into the `newapi` namespace via bp-reflector
+# annotations (paired with #952 cloud-init update adding `newapi` to the
+# `reflection-auto-namespaces` list).
+#
 # 1.4.0 (issue #943, 2026-05-05): auto-provision CNPG-backed Postgres +
 # in-chart credentials Secret so a Sovereign install at bootstrap-kit
 # slot 80 lands a real Pod without operator intervention.
@@ -46,7 +58,7 @@ name: bp-newapi
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
 # NewAPI → Qwen3.6@BankDhofar end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-version: 1.4.0
+version: 1.4.1
 appVersion: "0.4.5"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
