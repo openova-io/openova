@@ -595,6 +595,44 @@ variable "harbor_robot_token" {
   default   = ""
 }
 
+variable "pdm_basic_auth_user" {
+  type        = string
+  description = <<-EOT
+    Username for the Pool Domain Manager (PDM) public ingress at
+    `pool.openova.io`. The Sovereign-side catalyst-api uses this
+    value (paired with `pdm_basic_auth_pass`) to authenticate
+    every PDM call (Day-2 multi-domain "Add another parent
+    domain" flow — issue #879). Cloud-init writes the value into
+    a `pdm-basicauth` Secret in the `flux-system` namespace with
+    Reflector annotations so the Secret mirrors into
+    `catalyst-system` where catalyst-api reads it via secretKeyRef.
+
+    Source on contabo: `openova-system/pool-domain-manager-basicauth`
+    Secret (operator-managed). The catalyst-api provisioner forwards
+    plaintext at provisioning time — never logged, never committed.
+
+    Default empty: when unset, the cloud-init still renders the
+    `pdm-basicauth` Secret with empty values. The Sovereign-side
+    pdmFlipNS skips SetBasicAuth when the env value is empty, so
+    older Sovereigns that pre-date this variable degrade to a
+    clear PDM 401 instead of a panic. Once the operator fills
+    this in, a re-provision (or a Secret rotation via cloud-init
+    re-render) supplies real credentials.
+  EOT
+  sensitive = true
+  default   = ""
+}
+
+variable "pdm_basic_auth_pass" {
+  type        = string
+  description = <<-EOT
+    Password for the Pool Domain Manager (PDM) public ingress.
+    See `pdm_basic_auth_user` for the full lifecycle. Sensitive.
+  EOT
+  sensitive = true
+  default   = ""
+}
+
 variable "object_storage_bucket_name" {
   type        = string
   description = <<-EOT

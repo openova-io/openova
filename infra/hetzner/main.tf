@@ -256,6 +256,17 @@ locals {
     # records to contabo's authoritative omani.works zone.
     powerdns_api_key        = var.powerdns_api_key
 
+    # PDM (Pool Domain Manager) basic-auth credentials (issue #879 Bug 2).
+    # Interpolated into the Sovereign's `flux-system/pdm-basicauth` Secret
+    # at cloud-init time so catalyst-api in catalyst-system can call PDM
+    # at https://pool.openova.io with `Authorization: Basic …` for the
+    # Day-2 multi-domain "Add another parent domain" flow. Reflector
+    # auto-mirrors the Secret into `catalyst-system` (same canonical
+    # pattern flux-system/ghcr-pull and flux-system/harbor-robot-token
+    # already use). Sensitive — never logged, never committed.
+    pdm_basic_auth_user     = var.pdm_basic_auth_user
+    pdm_basic_auth_pass     = var.pdm_basic_auth_pass
+
     deployment_id           = var.deployment_id
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
     catalyst_api_url        = var.catalyst_api_url

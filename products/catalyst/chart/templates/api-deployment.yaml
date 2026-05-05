@@ -548,6 +548,82 @@ spec:
                   name: gitea-admin-secret
                   key: password
                   optional: true
+            # POOL_DOMAIN_MANAGER_URL — base URL of the central Pool Domain
+            # Manager (PDM) ingress on Catalyst-Zero (contabo). Sovereign-
+            # side catalyst-api calls PDM's /api/v1/registrar/{r}/set-ns
+            # endpoint for the Day-2 multi-domain "Add another parent
+            # domain" flow (issue #879, parent epic #825 / #829).
+            #
+            # Why a public ingress URL (not an in-cluster Service):
+            # the in-cluster default `pool-domain-manager.openova-system.
+            # svc.cluster.local` ONLY resolves on the contabo cluster
+            # (PDM lives in `openova-system` ns there). On a franchised
+            # Sovereign post-handover, that DNS name is NXDOMAIN, so
+            # every Day-2 add-domain call returned `dial tcp: lookup
+            # pool-domain-manager.openova-system.svc.cluster.local on
+            # 10.43.0.10:53: no such host` (caught live on otech103,
+            # 2026-05-05 — issue #879 verification).
+            #
+            # The default below points at the public PDM ingress on
+            # contabo (`pool.openova.io`). Per Inviolable Principle #4
+            # (never hardcode), per-Sovereign overlays may override via
+            # `catalystApi.poolDomainManagerURL` in values. Catalyst-Zero
+            # (contabo) leaves this default — its catalyst-api Pod hits
+            # the SAME public URL via its own loopback ingress (the proxy
+            # is idempotent on the source cluster).
+            #
+            # Pairs with CATALYST_PDM_BASIC_AUTH_USER / _PASS below: the
+            # PDM ingress at pool.openova.io is gated by Traefik basicAuth
+            # (clusters/contabo-mkt/apps/pool-domain-manager/ingress.yaml).
+            # Both halves wired together so a fresh Sovereign reaches PDM
+            # without a manual env-var patch.
+            #
+            # NOTE — DUAL-MODE CONTRACT: this file is consumed BOTH by
+            # Helm (per-Sovereign install via bp-catalyst-platform OCI)
+            # AND by Kustomize (contabo-mkt's clusters/contabo-mkt/apps/
+            # catalyst-platform). The default literal below (no Helm
+            # template directives) keeps both build paths clean. Per-
+            # Sovereign overlays override via the HelmRelease overlay's
+            # `catalystApi.env` additional-env patch (Helm-only, takes
+            # precedence over THIS default at template-render time).
+            - name: POOL_DOMAIN_MANAGER_URL
+              value: "https://pool.openova.io"
+            # CATALYST_PDM_BASIC_AUTH_USER / _PASS — basic-auth credentials
+            # for the PDM public ingress (issue #879 Bug 2). The Sovereign-
+            # side catalyst-api adds `Authorization: Basic …` to every PDM
+            # call so the Traefik basicAuth Middleware in front of
+            # pool.openova.io accepts the request. Without this, every
+            # Day-2 add-domain call returns 401 from PDM (caught live on
+            # otech103).
+            #
+            # Source Secret (`pdm-basicauth`, keys `username` + `password`)
+            # is pre-provisioned by cloud-init on every Sovereign at
+            # provision time, mirrored via the same Reflector seam ghcr-
+            # pull / harbor-robot-token already use. optional=true so:
+            #   - Catalyst-Zero pods (contabo's catalyst-api) start cleanly
+            #     when the Secret is absent. On contabo the in-cluster
+            #     Service path bypasses the ingress entirely and BasicAuth
+            #     is a no-op.
+            #   - CI / local dev / older Sovereigns that pre-date this
+            #     provisioning seam start cleanly. POSTs without auth get
+            #     401 from PDM with a clear log line, instead of the Pod
+            #     crashlooping on start.
+            #
+            # Per Inviolable Principle #10: the credentials never enter a
+            # logged struct or a deployment record — loaded into the Pod
+            # env once at start, read per-call by pdmFlipNS only.
+            - name: CATALYST_PDM_BASIC_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pdm-basicauth
+                  key: username
+                  optional: true
+            - name: CATALYST_PDM_BASIC_AUTH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: pdm-basicauth
+                  key: password
+                  optional: true
             # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
             # catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.

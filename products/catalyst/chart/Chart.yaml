@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.12
-appVersion: 1.4.12
+version: 1.4.13
+appVersion: 1.4.13
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -643,6 +643,58 @@ description: |
   catalyst-build workflow needs the equivalent. Until then this manual
   bump is required after every catalyst-api image change. Lockstep
   slot 13 pin bumps to 1.4.12. 2026-05-05.
+
+  1.4.13 (issue #879): unblock the multi-domain Day-2 add-domain happy
+  path on a fresh post-handover Sovereign. Five stacked wiring fixes,
+  three of which are chart-side:
+
+    Bug 1 — POOL_DOMAIN_MANAGER_URL: api-deployment.yaml now wires
+    `POOL_DOMAIN_MANAGER_URL=https://pool.openova.io` so the Sovereign-
+    side catalyst-api hits the public PDM ingress on contabo (the
+    in-cluster default `pool-domain-manager.openova-system.svc` only
+    resolves on contabo and is NXDOMAIN on franchised Sovereigns).
+    Caught live on otech103, 2026-05-05: every Day-2 add-domain POST
+    failed with `dial tcp: lookup pool-domain-manager.openova-system.
+    svc.cluster.local: no such host`.
+
+    Bug 2 — CATALYST_PDM_BASIC_AUTH_USER / _PASS: api-deployment.yaml
+    now mounts the `pdm-basicauth` Secret (keys `username`+`password`)
+    so pdmFlipNS can `Authorization: Basic ...` against the Traefik
+    basicAuth Middleware in front of pool.openova.io. optional=true:
+    Catalyst-Zero pods skip the header (in-cluster Service path is
+    unauthenticated) and CI / older Sovereigns degrade to a clear 401
+    log line instead of crashlooping. The Secret is provisioned by
+    cloud-init at handover-time (paired infra change in
+    cloudinit-control-plane.tftpl).
+
+    Bug 5 — HTTPRoute /auth/handover Exact match: httproute.yaml
+    catalyst-ui rule changed from PathPrefix `/auth/` to Exact
+    `/auth/handover`. The previous PathPrefix collided with the OIDC
+    PKCE redirect_uri `/auth/callback` — catalyst-api 404s on that
+    path because it only registers `/api/v1/auth/callback`. Result
+    post-handover-JWT-cookie-expiry (8h TTL): the operator could not
+    log into the Sovereign Console at all (caught live on otech103).
+    Exact-match keeps /auth/handover routed to catalyst-api while
+    every other /auth/* path falls through to catalyst-ui's React
+    Router for client-side OIDC.
+
+  Three coupled code-side fixes ship in catalyst-api as part of the
+  same #879 PR (parent_domains.go):
+
+    Bug 2-code: pdmFlipNS now SetBasicAuth from the env (read every
+      call so a Secret rotation propagates without Pod restart).
+    Bug 3-code: pdmFlipNS body now includes `nameservers` (computed
+      from expectedNSFor — PDM's SetNSRequest schema requires it; the
+      previous body got 422 missing-nameservers).
+    Bug 4-code: lookupPrimaryDomain falls back to SOVEREIGN_FQDN env
+      after CATALYST_PRIMARY_DOMAIN. On a post-handover Sovereign no
+      Deployment record is persisted, so without this fallback GET
+      /parent-domains returned {"items":[]} and the propagation panel
+      showed `expectedNs: null`. The SOVEREIGN_FQDN env is already
+      wired by api-deployment.yaml from the sovereign-fqdn ConfigMap.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.12 → 1.4.13. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
