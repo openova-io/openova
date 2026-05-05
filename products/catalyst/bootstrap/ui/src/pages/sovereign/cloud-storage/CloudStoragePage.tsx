@@ -10,7 +10,6 @@ import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useCloud } from '../CloudPage'
 import { CLOUD_LIST_CSS } from '../cloud-list/cloudListCss'
-import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 interface StorageTile {
   id: 'pvcs' | 'storage-classes' | 'buckets' | 'volumes'
@@ -92,11 +91,8 @@ export function CloudStoragePage() {
             return (
               <Link
                 key={tile.id}
-                to={
-                  (DETECTED_MODE.mode === 'sovereign'
-                    ? `/cloud/storage/${tile.id}`
-                    : `/provision/${deploymentId}/cloud/storage/${tile.id}`) as never
-                }
+                to={`/provision/$deploymentId/cloud/storage/${tile.id}` as never}
+                params={{ deploymentId } as never}
                 className="cloud-list-tile"
                 data-testid={`cloud-storage-page-tile-${tile.id}`}
               >

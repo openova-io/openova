@@ -19,7 +19,7 @@
 //     refresh token pair (audience: catalyst-ui OIDC client).
 //  6. Sets HttpOnly Secure SameSite=Lax cookies (catalyst_session +
 //     catalyst_refresh).
-//  7. 302 redirects to /dashboard (clean Sovereign root URL).
+//  7. 302 redirects to /console/dashboard.
 //
 // All errors return 401 with terse JSON {"error": "..."}.
 // No secrets are emitted in error responses (per INVIOLABLE-PRINCIPLES #10).
@@ -250,7 +250,7 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 
 	redirectTarget := h.authHandoverRedirect
 	if redirectTarget == "" {
-		redirectTarget = "/dashboard"
+		redirectTarget = "/console/dashboard"
 	}
 	http.Redirect(w, r, redirectTarget, http.StatusFound)
 }
