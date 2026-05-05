@@ -439,7 +439,42 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		synced:      map[string]bool{},
 		lastEventAt: map[string]time.Time{},
 	}
+
+	// Build the per-cluster availability set for Optional kinds. The
+	// probe is one ServerResourcesForGroupVersion call per distinct
+	// (group,version), cached by string key. When discovery fails we
+	// log + skip the optional kind entirely (treat as absent) — better
+	// to render a degraded UI than crash-loop the informer.
+	optionalAvail := map[string]bool{}
+	if core != nil {
+		seenGV := map[string]bool{}
+		for _, k := range f.registry.All() {
+			if !k.Optional {
+				continue
+			}
+			gv := k.GVR.GroupVersion().String()
+			if seenGV[gv] {
+				continue
+			}
+			seenGV[gv] = true
+			list, derr := core.Discovery().ServerResourcesForGroupVersion(gv)
+			if derr != nil || list == nil {
+				f.log.Info("k8scache: optional GroupVersion absent on cluster",
+					"cluster", c.ID, "gv", gv, "err", derr)
+				continue
+			}
+			for _, r := range list.APIResources {
+				optionalAvail[k.GVR.GroupVersion().WithResource(r.Name).String()] = true
+			}
+		}
+	}
+
 	for _, k := range f.registry.All() {
+		if k.Optional && !optionalAvail[k.GVR.String()] {
+			f.log.Info("k8scache: skipping optional kind on cluster (GVR not discoverable)",
+				"cluster", c.ID, "kind", k.Name, "gvr", k.GVR.String())
+			continue
+		}
 		inf := cs.factory.ForResource(k.GVR).Informer()
 		k := k // capture per-iteration
 		_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{

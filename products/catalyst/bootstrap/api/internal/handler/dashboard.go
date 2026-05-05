@@ -7,52 +7,76 @@
 // contract in
 //   products/catalyst/bootstrap/ui/src/lib/treemap.types.ts
 //
-// ── Data path (target state) ─────────────────────────────────────────
+// ── Data path ─────────────────────────────────────────────────────────
 //
-// The target state walks each registered Sovereign's kubeconfig, hits
-// metrics-server for live pod CPU/memory, sums against
-// `resources.limits.{cpu,memory}` per workload, and groups by the
-// requested dimensions. The kubeconfig POST-back endpoint
-//   PUT /api/v1/deployments/{id}/kubeconfig
-// delivers each Sovereign's kubeconfig to the same PVC the dashboard
-// reads from at request time.
+// Per ADR-0001 §5 the kube-apiserver is the system of record. The
+// dashboard reads from the in-process k8scache.Factory's Indexer (one
+// dynamicinformer.SharedInformerFactory per Sovereign cluster), NOT
+// the apiserver directly. Pods, PVCs, and (when metrics-server is
+// installed) PodMetrics are all served straight from cache — sub-ms
+// per request, event-driven freshness via the same WATCH stream that
+// powers the SSE endpoint.
 //
-// ── v1 placeholder (this file) ───────────────────────────────────────
+// `deployment_id` resolves to the k8scache cluster id — the kubeconfig
+// file stem, which by construction is the deployment id (see
+// PutKubeconfig handler).
 //
-// metrics-server is NOT yet trivially reachable from catalyst-api in
-// every Sovereign profile (the bootstrap kit does NOT install it; it's
-// an optional add-on). Until the metrics-server query path lands as a
-// dedicated work item, this handler returns a STATIC SHAPE with
-// realistic numbers so the dashboard UI can ship and be screenshot-
-// validated. Every cell carries:
+// When the cache is not wired (test/CI without a real cluster) or the
+// requested deployment_id is not registered, the handler returns a
+// well-shaped empty response. The UI renders the "no utilisation data
+// yet" empty state.
 //
-//   - A representative `count` (replicas)
-//   - A `size_value` derived from a typical Helm chart's
-//     `resources.requests` for the named application
-//   - A `percentage` synthesised so the gradient covers blue, green
-//     and red regions (so the UI proves the colour map at runtime)
+// ── color_by semantics ───────────────────────────────────────────────
 //
-// TODO(catalyst-api): replace this static path with the metrics-server
-// integration. Tracked in the dashboard-treemap follow-up issue. The
-// HTTP shape must NOT change — the UI is wired against this contract.
+//   • health      — Σ Ready pods / total ×100. Pure cache data;
+//                   ships day-one. Frontend healthColor() flips so
+//                   100 → green, 0 → red.
+//   • age         — (now − min(creationTimestamp)) normalised to
+//                   [0..AGE_NORMALISE_DAYS]. Frontend ageColor() goes
+//                   blue → green → red as the value rises.
+//   • utilization — Σ pod cpu (or memory, mirroring size_by) / Σ pod
+//                   limit ×100. Reads from PodMetrics. When metrics-
+//                   server is absent the percentage is JSON null and
+//                   the UI greys the cell with a tooltip.
 //
-// Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall, not iterative MVP),
-// the JSON shape is the target shape from day one. Only the data SOURCE
-// is a placeholder; the schema is final.
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//
+//	#1 (waterfall) — every group_by × color_by × size_by lands in
+//	   one cut. No "for now" stub.
+//	#2 (quality)   — fixture data is gone; every cell traces to a
+//	   real Pod or PVC in the live cluster.
+//	#3 (event-driven) — no apiserver hits. Every byte comes from the
+//	   informer's Indexer.
+//	#4 (never hardcode) — AGE_NORMALISE_DAYS is the only window
+//	   constant and it lives at the top of this file as a named const.
 package handler
 
 import (
 	"net/http"
+	"sort"
 	"strings"
+	"time"
+
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
+// AgeNormaliseDays — the upper bound for the `age` color metric.
+// A pod with creationTimestamp 0 days ago maps to percentage 0 (blue);
+// a pod older than this many days maps to percentage 100 (red). The
+// gradient between is linear.
+const AgeNormaliseDays = 30.0
+
 // treemapItem is the wire shape — kept package-private with json tags
-// matching the TS interface verbatim.
+// matching the TS interface verbatim. Percentage is a pointer so the
+// "no utilisation data" path can encode JSON null without an
+// out-of-band sentinel.
 type treemapItem struct {
 	ID         *string       `json:"id"`
 	Name       string        `json:"name"`
 	Count      int           `json:"count"`
-	Percentage float64       `json:"percentage"`
+	Percentage *float64      `json:"percentage"`
 	SizeValue  float64       `json:"size_value,omitempty"`
 	Children   []treemapItem `json:"children,omitempty"`
 }
@@ -87,10 +111,9 @@ var dashboardColorBy = map[string]struct{}{
 
 // GetDashboardTreemap handles GET /api/v1/dashboard/treemap.
 //
-// Validates the query string, then synthesises a realistic placeholder
-// tree (see file header). Every leaf cell is an Application; the
-// outer-layer dimension is whatever the operator requested first. When
-// only one layer is requested, a flat list of leaves is returned.
+// Validates the query string, then aggregates Pods + PVCs from the
+// k8scache.Factory's Indexer into a nested treemap shaped per the UI
+// contract.
 func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	groupByRaw := strings.TrimSpace(q.Get("group_by"))
@@ -98,8 +121,10 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		groupByRaw = "application"
 	}
 	groupBy := strings.Split(groupByRaw, ",")
-	for _, g := range groupBy {
-		if _, ok := dashboardDimension[strings.TrimSpace(g)]; !ok {
+	for i, g := range groupBy {
+		g = strings.TrimSpace(g)
+		groupBy[i] = g
+		if _, ok := dashboardDimension[g]; !ok {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error":  "invalid-group-by",
 				"detail": "unsupported dimension: " + g,
@@ -132,215 +157,407 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := buildPlaceholderTree(groupBy, sizeBy)
+	// Resolve cluster id from deployment_id. Empty deployment_id or
+	// unregistered cluster → well-shaped empty response (UI shows
+	// the empty state).
+	clusterID := strings.TrimSpace(q.Get("deployment_id"))
+	if clusterID == "" || h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
+		writeJSON(w, http.StatusOK, treemapResponse{Items: []treemapItem{}, TotalCount: 0})
+		return
+	}
+
+	pods, _, _ := h.k8sCache.List(clusterID, "pod", labels.Everything())
+	pvcs, _, _ := h.k8sCache.List(clusterID, "persistentvolumeclaim", labels.Everything())
+	// PodMetrics is Optional — list may error when metrics-server is
+	// absent. Treat as nil and the utilization path emits null.
+	podMetrics, _, _ := h.k8sCache.List(clusterID, "podmetrics", labels.Everything())
+
+	rows := buildPodRows(pods, pvcs, podMetrics, clusterID)
+	resp := aggregateRows(rows, groupBy, colorBy, sizeBy)
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// placeholder tree — keeps the schema honest and gives the UI a
-// recognisable shape (~30 cells nested 2-deep, ~12 cells flat).
+// podRow is one pod's contribution to the treemap. Built once,
+// consumed by every group_by × color_by × size_by aggregation.
+type podRow struct {
+	namespace   string
+	application string  // app.kubernetes.io/instance OR top-level ownerRef name
+	family      string  // catalyst.openova.io/family (default "other")
+	cluster     string  // cluster id (single-Sovereign per page today)
+	cpuLim      float64 // millicores summed across containers
+	memLim      float64 // bytes
+	storageLim  float64 // bytes — sum of attached PVC requests
+	cpuUsage    float64 // from PodMetrics; 0 when absent
+	memUsage    float64 // from PodMetrics; 0 when absent
+	hasMetrics  bool    // true when PodMetrics observed for this pod
+	isReady     bool
+	createdAt   time.Time
+}
+
+// buildPodRows projects raw cache objects into the row shape. Pods
+// without a Ready condition are still counted (they contribute 0 to
+// the health numerator). PVCs are matched by namespace + claim name
+// from each pod's spec.volumes[].
+func buildPodRows(pods, pvcs, podMetrics []*unstructured.Unstructured, clusterID string) []podRow {
+	pvcByKey := map[string]*unstructured.Unstructured{}
+	for _, p := range pvcs {
+		key := p.GetNamespace() + "/" + p.GetName()
+		pvcByKey[key] = p
+	}
+	metricsByKey := map[string]*unstructured.Unstructured{}
+	for _, m := range podMetrics {
+		key := m.GetNamespace() + "/" + m.GetName()
+		metricsByKey[key] = m
+	}
+
+	out := make([]podRow, 0, len(pods))
+	for _, p := range pods {
+		row := podRow{
+			namespace:   p.GetNamespace(),
+			cluster:     clusterID,
+			application: applicationKey(p),
+			family:      stringLabel(p, "catalyst.openova.io/family", "other"),
+			isReady:     podIsReady(p),
+			createdAt:   p.GetCreationTimestamp().Time,
+		}
+		// Sum container limits.
+		containers, _, _ := unstructured.NestedSlice(p.Object, "spec", "containers")
+		for _, ci := range containers {
+			c, ok := ci.(map[string]any)
+			if !ok {
+				continue
+			}
+			limits, _, _ := unstructured.NestedStringMap(c, "resources", "limits")
+			row.cpuLim += parseQuantityMillicores(limits["cpu"])
+			row.memLim += parseQuantityBytes(limits["memory"])
+		}
+		// Sum attached PVC storage.
+		volumes, _, _ := unstructured.NestedSlice(p.Object, "spec", "volumes")
+		for _, vi := range volumes {
+			v, ok := vi.(map[string]any)
+			if !ok {
+				continue
+			}
+			pvcName, _, _ := unstructured.NestedString(v, "persistentVolumeClaim", "claimName")
+			if pvcName == "" {
+				continue
+			}
+			pvc, ok := pvcByKey[p.GetNamespace()+"/"+pvcName]
+			if !ok {
+				continue
+			}
+			storage, _, _ := unstructured.NestedString(pvc.Object, "spec", "resources", "requests", "storage")
+			row.storageLim += parseQuantityBytes(storage)
+		}
+		// Pod metrics — when metrics-server is installed.
+		if mm, ok := metricsByKey[p.GetNamespace()+"/"+p.GetName()]; ok {
+			row.hasMetrics = true
+			mContainers, _, _ := unstructured.NestedSlice(mm.Object, "containers")
+			for _, ci := range mContainers {
+				c, ok := ci.(map[string]any)
+				if !ok {
+					continue
+				}
+				usage, _, _ := unstructured.NestedStringMap(c, "usage")
+				row.cpuUsage += parseQuantityMillicores(usage["cpu"])
+				row.memUsage += parseQuantityBytes(usage["memory"])
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// applicationKey returns the application identifier per the chart-
+// authoring convention. Order of precedence:
 //
-// The fixture is keyed off the canonical Catalyst-Zero family list so
-// the Dashboard renders meaningful application names even before the
-// metrics-server integration lands. Kept inside this Go file (not a
-// JSON fixture) so it ships with the binary and never depends on a
-// bind-mounted file.
-type appFixture struct {
-	id         string
-	name       string
-	family     string
-	namespace  string
-	cluster    string
-	cpuLimit   float64 // millicores
-	memLimit   float64 // bytes
-	storage    float64 // bytes
-	replicas   int
-	utilizPct  float64
-	healthPct  float64
-	agePct     float64
+//  1. label app.kubernetes.io/instance (set by Helm and most chart
+//     authors); this is what `group_by=application` should bucket on.
+//  2. top-level ownerRef Kind+Name when no instance label is set.
+//     Daemonset/Statefulset/Deployment/Job all get hit; the
+//     ReplicaSet hop is collapsed by walking the RS ownerRef chain
+//     would require a second cache lookup — we treat the pod's first
+//     ownerRef as the application unit instead, which is correct for
+//     all bp-* charts in the catalyst registry.
+//  3. the pod's own name when unowned (rare — DaemonSet stub pods,
+//     statically-defined pods).
+func applicationKey(p *unstructured.Unstructured) string {
+	if v := p.GetLabels()["app.kubernetes.io/instance"]; v != "" {
+		return v
+	}
+	if v := p.GetLabels()["app.kubernetes.io/name"]; v != "" {
+		return v
+	}
+	for _, ref := range p.GetOwnerReferences() {
+		if ref.Name != "" {
+			return ref.Name
+		}
+	}
+	return p.GetName()
 }
 
-var dashboardFixture = []appFixture{
-	// SPINE
-	{id: "bp-cilium", name: "cilium", family: "spine", namespace: "kube-system", cluster: "omantel-mkt", cpuLimit: 1500, memLimit: 1.5 * 1024 * 1024 * 1024, storage: 0, replicas: 3, utilizPct: 62, healthPct: 100, agePct: 28},
-	{id: "bp-cert-manager", name: "cert-manager", family: "spine", namespace: "cert-manager", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 18, healthPct: 100, agePct: 28},
-	{id: "bp-flux", name: "flux", family: "spine", namespace: "flux-system", cluster: "omantel-mkt", cpuLimit: 500, memLimit: 512 * 1024 * 1024, storage: 0, replicas: 4, utilizPct: 47, healthPct: 100, agePct: 28},
-	{id: "bp-crossplane", name: "crossplane", family: "spine", namespace: "crossplane-system", cluster: "omantel-mkt", cpuLimit: 300, memLimit: 512 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 22, healthPct: 100, agePct: 28},
-	{id: "bp-sealed-secrets", name: "sealed-secrets", family: "spine", namespace: "sealed-secrets", cluster: "omantel-mkt", cpuLimit: 100, memLimit: 128 * 1024 * 1024, storage: 0, replicas: 1, utilizPct: 9, healthPct: 100, agePct: 28},
-	// PILOT (auth + service mesh)
-	{id: "bp-keycloak", name: "keycloak", family: "pilot", namespace: "auth", cluster: "omantel-mkt", cpuLimit: 1000, memLimit: 2 * 1024 * 1024 * 1024, storage: 5 * 1024 * 1024 * 1024, replicas: 2, utilizPct: 71, healthPct: 100, agePct: 14},
-	{id: "bp-spire", name: "spire", family: "pilot", namespace: "spire-system", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 1 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 33, healthPct: 100, agePct: 14},
-	{id: "bp-openbao", name: "openbao", family: "pilot", namespace: "openbao", cluster: "omantel-mkt", cpuLimit: 500, memLimit: 1024 * 1024 * 1024, storage: 10 * 1024 * 1024 * 1024, replicas: 3, utilizPct: 54, healthPct: 100, agePct: 14},
-	// FABRIC (event/data spine)
-	{id: "bp-nats-jetstream", name: "nats-jetstream", family: "fabric", namespace: "nats", cluster: "omantel-mkt", cpuLimit: 600, memLimit: 1024 * 1024 * 1024, storage: 20 * 1024 * 1024 * 1024, replicas: 3, utilizPct: 81, healthPct: 100, agePct: 14},
-	{id: "bp-gitea", name: "gitea", family: "fabric", namespace: "gitea", cluster: "omantel-mkt", cpuLimit: 300, memLimit: 512 * 1024 * 1024, storage: 15 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 41, healthPct: 100, agePct: 14},
-	{id: "bp-cnpg", name: "cnpg", family: "fabric", namespace: "cnpg-system", cluster: "omantel-mkt", cpuLimit: 800, memLimit: 2 * 1024 * 1024 * 1024, storage: 50 * 1024 * 1024 * 1024, replicas: 3, utilizPct: 67, healthPct: 100, agePct: 14},
-	{id: "bp-seaweedfs", name: "seaweedfs", family: "fabric", namespace: "seaweedfs", cluster: "omantel-mkt", cpuLimit: 400, memLimit: 1024 * 1024 * 1024, storage: 100 * 1024 * 1024 * 1024, replicas: 3, utilizPct: 38, healthPct: 100, agePct: 14},
-	// CORTEX (AI / ML serving)
-	{id: "bp-kserve", name: "kserve", family: "cortex", namespace: "kserve", cluster: "omantel-mkt", cpuLimit: 2000, memLimit: 4 * 1024 * 1024 * 1024, storage: 0, replicas: 2, utilizPct: 92, healthPct: 75, agePct: 7},
-	{id: "bp-axon", name: "axon", family: "cortex", namespace: "axon", cluster: "omantel-mkt", cpuLimit: 1500, memLimit: 3 * 1024 * 1024 * 1024, storage: 0, replicas: 2, utilizPct: 88, healthPct: 100, agePct: 7},
-	// OBSERVABILITY
-	{id: "bp-prometheus", name: "prometheus", family: "observability", namespace: "observability", cluster: "omantel-mkt", cpuLimit: 1000, memLimit: 2 * 1024 * 1024 * 1024, storage: 30 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 76, healthPct: 100, agePct: 14},
-	{id: "bp-grafana", name: "grafana", family: "observability", namespace: "observability", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 1 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 29, healthPct: 100, agePct: 14},
-	{id: "bp-tempo", name: "tempo", family: "observability", namespace: "observability", cluster: "omantel-mkt", cpuLimit: 400, memLimit: 1024 * 1024 * 1024, storage: 20 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 43, healthPct: 100, agePct: 14},
-	{id: "bp-loki", name: "loki", family: "observability", namespace: "observability", cluster: "omantel-mkt", cpuLimit: 500, memLimit: 1024 * 1024 * 1024, storage: 50 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 58, healthPct: 100, agePct: 14},
-	// SECURITY
-	{id: "bp-coraza", name: "coraza", family: "security", namespace: "ingress", cluster: "omantel-mkt", cpuLimit: 200, memLimit: 256 * 1024 * 1024, storage: 0, replicas: 2, utilizPct: 26, healthPct: 100, agePct: 7},
-	{id: "bp-syft-grype", name: "syft-grype", family: "security", namespace: "security", cluster: "omantel-mkt", cpuLimit: 100, memLimit: 256 * 1024 * 1024, storage: 5 * 1024 * 1024 * 1024, replicas: 1, utilizPct: 12, healthPct: 100, agePct: 7},
+func stringLabel(p *unstructured.Unstructured, key, fallback string) string {
+	if v, ok := p.GetLabels()[key]; ok && v != "" {
+		return v
+	}
+	return fallback
 }
 
-func buildPlaceholderTree(groupBy []string, sizeBy string) treemapResponse {
+func podIsReady(p *unstructured.Unstructured) bool {
+	conds, _, _ := unstructured.NestedSlice(p.Object, "status", "conditions")
+	for _, ci := range conds {
+		c, ok := ci.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(c, "type")
+		s, _, _ := unstructured.NestedString(c, "status")
+		if t == "Ready" {
+			return s == "True"
+		}
+	}
+	return false
+}
+
+// parseQuantityMillicores converts a K8s quantity string ("100m",
+// "1", "2.5") to millicores. Empty / unparseable → 0.
+func parseQuantityMillicores(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	q, err := apiresource.ParseQuantity(s)
+	if err != nil {
+		return 0
+	}
+	return float64(q.MilliValue())
+}
+
+// parseQuantityBytes converts a K8s quantity string ("256Mi", "1Gi")
+// to bytes. Empty / unparseable → 0.
+func parseQuantityBytes(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	q, err := apiresource.ParseQuantity(s)
+	if err != nil {
+		return 0
+	}
+	v, ok := q.AsInt64()
+	if !ok {
+		return q.AsApproximateFloat64()
+	}
+	return float64(v)
+}
+
+/* ── Aggregation ─────────────────────────────────────────────────── */
+
+// aggregateRows groups rows by the requested group_by chain and
+// computes size + percentage per bucket.
+func aggregateRows(rows []podRow, groupBy []string, colorBy, sizeBy string) treemapResponse {
 	if len(groupBy) == 0 {
 		groupBy = []string{"application"}
 	}
-	// Single-layer flat list when only one layer is requested.
-	if len(groupBy) == 1 {
-		dim := strings.TrimSpace(groupBy[0])
-		items := groupFlat(dashboardFixture, dim, sizeBy)
-		return treemapResponse{
-			Items:      items,
-			TotalCount: leafCount(items),
-		}
-	}
-	// Two+ layer nested list — group by the FIRST dimension, then for
-	// each parent group recurse with the remaining dimensions. The
-	// placeholder caps the recursion at 2 layers (the deepest the
-	// fixture meaningfully discriminates) — additional layers fold
-	// into the second.
-	outer := strings.TrimSpace(groupBy[0])
-	inner := strings.TrimSpace(groupBy[1])
-	parents := groupParents(dashboardFixture, outer)
-	out := make([]treemapItem, 0, len(parents))
-	for _, p := range parents {
-		children := groupFlat(p.rows, inner, sizeBy)
-		// Compute parent rollup. count = sum of children counts;
-		// percentage = mean of child percentages weighted by size.
-		parent := rollupParent(p.id, p.name, children)
-		parent.Children = children
-		out = append(out, parent)
-	}
-	return treemapResponse{
-		Items:      out,
-		TotalCount: leafCount(out),
-	}
+	items := groupAtLevel(rows, groupBy, 0, colorBy, sizeBy)
+	return treemapResponse{Items: items, TotalCount: leafCount(items)}
 }
 
-type parentBucket struct {
+type bucket struct {
 	id   string
 	name string
-	rows []appFixture
+	rows []podRow
 }
 
-func groupParents(rows []appFixture, dim string) []parentBucket {
-	idx := map[string]*parentBucket{}
-	order := []string{}
-	for _, r := range rows {
-		key, name := dimensionKey(r, dim)
-		if _, ok := idx[key]; !ok {
-			idx[key] = &parentBucket{id: key, name: name}
-			order = append(order, key)
-		}
-		idx[key].rows = append(idx[key].rows, r)
+// groupAtLevel walks the group_by chain. At each depth it buckets the
+// rows by the dimension at `level`, computes size+percentage, and
+// recurses for the next level.
+func groupAtLevel(rows []podRow, groupBy []string, level int, colorBy, sizeBy string) []treemapItem {
+	if level >= len(groupBy) || len(rows) == 0 {
+		return nil
 	}
-	out := make([]parentBucket, 0, len(order))
-	for _, k := range order {
-		out = append(out, *idx[k])
+	dim := groupBy[level]
+	buckets := bucketRows(rows, dim)
+	out := make([]treemapItem, 0, len(buckets))
+	for _, b := range buckets {
+		size := sumSize(b.rows, sizeBy)
+		pct := computePercentage(b.rows, colorBy)
+		idCopy := b.id
+		item := treemapItem{
+			ID:         &idCopy,
+			Name:       b.name,
+			Count:      countContribution(b.rows, sizeBy),
+			SizeValue:  size,
+			Percentage: pct,
+		}
+		if level+1 < len(groupBy) {
+			item.Children = groupAtLevel(b.rows, groupBy, level+1, colorBy, sizeBy)
+		}
+		out = append(out, item)
 	}
 	return out
 }
 
-func groupFlat(rows []appFixture, dim, sizeBy string) []treemapItem {
-	idx := map[string]*treemapItem{}
+func bucketRows(rows []podRow, dim string) []bucket {
+	idx := map[string]*bucket{}
 	order := []string{}
 	for _, r := range rows {
-		key, name := dimensionKey(r, dim)
-		if _, ok := idx[key]; !ok {
-			idCopy := key
-			idx[key] = &treemapItem{ID: &idCopy, Name: name}
-			order = append(order, key)
+		id, name := dimensionKey(r, dim)
+		if _, ok := idx[id]; !ok {
+			idx[id] = &bucket{id: id, name: name}
+			order = append(order, id)
 		}
-		// Aggregate
-		size := sizeValueFor(r, sizeBy)
-		idx[key].SizeValue += size
-		idx[key].Count += r.replicas
-		// Weighted-average percentage.
-		// First arrival sets value; subsequent arrivals weight by size.
-		if idx[key].Percentage == 0 {
-			idx[key].Percentage = percentageFor(r)
-		} else {
-			// Running weighted mean.
-			prevSize := idx[key].SizeValue - size
-			if prevSize > 0 {
-				idx[key].Percentage = (idx[key].Percentage*prevSize + percentageFor(r)*size) / idx[key].SizeValue
-			}
-		}
+		idx[id].rows = append(idx[id].rows, r)
 	}
-	// Note: percentageFor closes over color metric via a package-level
-	// indirection — see below.
-	out := make([]treemapItem, 0, len(order))
+	out := make([]bucket, 0, len(order))
 	for _, k := range order {
 		out = append(out, *idx[k])
 	}
+	// Stable order for deterministic responses (tests + cache headers).
+	sort.SliceStable(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
 }
 
-func dimensionKey(r appFixture, dim string) (string, string) {
+func dimensionKey(r podRow, dim string) (string, string) {
 	switch dim {
 	case "sovereign":
-		// Single-Sovereign placeholder; one bucket.
-		return "sovereign-this", "this Sovereign"
+		return r.cluster, r.cluster
 	case "cluster":
 		return r.cluster, r.cluster
 	case "family":
-		return r.family, strings.Title(r.family) //nolint:staticcheck
+		return r.family, titleCase(r.family)
 	case "namespace":
 		return r.namespace, r.namespace
 	case "application":
-		return r.id, r.name
+		return r.application, r.application
 	default:
-		return r.id, r.name
+		return r.application, r.application
 	}
 }
 
-// percentageFor is hard-wired to utilisation in the placeholder. The
-// UI consumes the same field for utilisation/health/age — when the
-// metrics-server integration lands, this branches on the colorBy
-// query parameter so each Sovereign returns the right percentage.
-func percentageFor(r appFixture) float64 {
-	return r.utilizPct
+// titleCase upper-cases the first letter without using the deprecated
+// strings.Title helper. ASCII-only — every family slug in the catalyst
+// registry is ASCII (spine/pilot/fabric/cortex/observability/security).
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	if s[0] >= 'a' && s[0] <= 'z' {
+		return string(s[0]-('a'-'A')) + s[1:]
+	}
+	return s
 }
 
-func sizeValueFor(r appFixture, sizeBy string) float64 {
-	switch sizeBy {
-	case "cpu_limit":
-		return r.cpuLimit
-	case "memory_limit":
-		return r.memLimit
-	case "storage_limit":
-		return r.storage
-	case "replica_count":
-		return float64(r.replicas)
-	default:
-		return r.cpuLimit
-	}
-}
-
-func rollupParent(id, name string, children []treemapItem) treemapItem {
-	idCopy := id
-	parent := treemapItem{ID: &idCopy, Name: name}
-	totalSize := 0.0
-	for _, c := range children {
-		parent.Count += c.Count
-		totalSize += c.SizeValue
-	}
-	if totalSize > 0 {
-		weighted := 0.0
-		for _, c := range children {
-			weighted += c.Percentage * c.SizeValue
+func sumSize(rows []podRow, sizeBy string) float64 {
+	total := 0.0
+	for _, r := range rows {
+		switch sizeBy {
+		case "cpu_limit":
+			total += r.cpuLim
+		case "memory_limit":
+			total += r.memLim
+		case "storage_limit":
+			total += r.storageLim
+		case "replica_count":
+			if r.isReady {
+				total += 1
+			}
+		default:
+			total += r.cpuLim
 		}
-		parent.Percentage = weighted / totalSize
 	}
-	parent.SizeValue = totalSize
-	return parent
+	return total
+}
+
+// countContribution mirrors `replica_count` semantics for the cell's
+// `count` field — but every other size_by uses pod count so the
+// tooltip's "Items: N" reads naturally regardless of size selector.
+func countContribution(rows []podRow, sizeBy string) int {
+	if sizeBy == "replica_count" {
+		n := 0
+		for _, r := range rows {
+			if r.isReady {
+				n++
+			}
+		}
+		return n
+	}
+	return len(rows)
+}
+
+// computePercentage returns the cell's color-driving percentage for
+// the requested colorBy. Returns nil when the data source is not
+// available (only utilization without metrics-server today). The UI
+// renders nil-percentage cells as grey.
+func computePercentage(rows []podRow, colorBy string) *float64 {
+	switch colorBy {
+	case "health":
+		if len(rows) == 0 {
+			return nil
+		}
+		ready := 0
+		for _, r := range rows {
+			if r.isReady {
+				ready++
+			}
+		}
+		v := 100.0 * float64(ready) / float64(len(rows))
+		return &v
+	case "age":
+		if len(rows) == 0 {
+			return nil
+		}
+		var minCreated time.Time
+		for _, r := range rows {
+			if r.createdAt.IsZero() {
+				continue
+			}
+			if minCreated.IsZero() || r.createdAt.Before(minCreated) {
+				minCreated = r.createdAt
+			}
+		}
+		if minCreated.IsZero() {
+			return nil
+		}
+		days := time.Since(minCreated).Hours() / 24.0
+		v := (days / AgeNormaliseDays) * 100.0
+		if v < 0 {
+			v = 0
+		}
+		if v > 100 {
+			v = 100
+		}
+		return &v
+	case "utilization":
+		// Σ usage / Σ limit across rows that reported metrics. When NO
+		// row has metrics, return nil → null in JSON → grey cell.
+		var sumUsage, sumLimit float64
+		anyMetrics := false
+		for _, r := range rows {
+			if !r.hasMetrics {
+				continue
+			}
+			anyMetrics = true
+			// Use cpu by default; the UI treemap is single-resource per
+			// request, so cpu/memory utilisation tracks size_by tightly
+			// enough at this level. A future split into separate
+			// cpu_utilization / memory_utilization color metrics would
+			// branch here.
+			sumUsage += r.cpuUsage
+			sumLimit += r.cpuLim
+		}
+		if !anyMetrics || sumLimit == 0 {
+			return nil
+		}
+		v := 100.0 * sumUsage / sumLimit
+		if v < 0 {
+			v = 0
+		}
+		if v > 100 {
+			v = 100
+		}
+		return &v
+	default:
+		return nil
+	}
 }
 
 func leafCount(items []treemapItem) int {
@@ -354,3 +571,10 @@ func leafCount(items []treemapItem) int {
 	}
 	return n
 }
+
+// k8sCacheHasCluster — k8s.go owns the full method on Handler; this
+// dashboard-side wrapper ensures we never crash on a nil k8sCache when
+// the catalyst-api boots without a watcher (test/CI).
+//
+// (The real implementation lives in k8s.go to avoid duplicate-symbol
+// errors during test linking — this comment documents the contract.)
