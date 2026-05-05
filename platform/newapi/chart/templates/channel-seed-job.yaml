@@ -1,0 +1,397 @@
+{{- /*
+Channel-seed Job (issue #915, parent epic #915).
+
+Per-Sovereign NewAPI MUST come up with channel #1 = Qwen3.6 hosted at
+BankDhofar already wired, so the FIRST customer request from an SME's
+OpenClaw → NewAPI hits a real upstream LLM rather than a 404 / "no
+channel found" error. The chart's existing ConfigMap (channels.yaml
+mounted at /etc/newapi/channels.yaml) is a documentation surface only —
+the upstream NewAPI binary persists channel state to its Postgres
+`channels` table via its admin API. This Job bridges that gap.
+
+Trigger:
+  - hook: post-install,post-upgrade — runs after Helm has applied
+    every other manifest in this chart, so the Service + Pod already
+    exist by the time the Job's first probe lands.
+  - hook-weight: "10" — runs after any "5"-weighted hooks (RBAC).
+  - hook-delete-policy: before-hook-creation — keep the most recent
+    Job around for operator forensics ('kubectl logs job/...') but
+    delete the previous one before each new install/upgrade so we do
+    not accumulate immutable Job objects across releases.
+
+Idempotency:
+  - For each channel the Job knows about, GET
+    `/api/channel/?keyword=<name>` first; if any returned row's
+    `name` field exactly matches, the channel is already seeded and
+    the loop SKIPs the POST. Re-runs after a chart upgrade are pure
+    no-ops once the channels exist.
+  - The Job is therefore safe to leave enabled across upgrades; it
+    will simply discover that channels already exist and exit clean.
+
+Authorization:
+  - NewAPI's admin API requires either an authenticated session
+    cookie OR the bootstrap MASTER_KEY in
+    `Authorization: Bearer <master-key>`. The Job mounts the operator-
+    supplied master-key Secret (`auth.adminUI.masterKeySecret`) and
+    uses it ONCE at install time. Operators that have rotated the
+    master key OUT post-bootstrap (the secure path) can re-supply it
+    transiently for the upgrade window or disable this Job
+    (`channelSeed.enabled: false`).
+
+Skip-render:
+  - When `channelSeed.enabled: false` the Job + RBAC bundle is
+    suppressed entirely.
+  - When NO default channel is enabled (`qwenBankDhofar.enabled:
+    false` AND no other future defaultChannels.* slot is on), the
+    Job has nothing to seed and is also suppressed (no-op render).
+  - When the operator has not supplied `auth.adminUI.masterKeySecret`,
+    the Job has no auth and is suppressed; the operator's own
+    out-of-band channel-creation flow takes over.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every
+operationally-meaningful value flows from values.yaml — image,
+resources, backoff, deadline, channel list itself.
+
+Issue #915, 2026-05-05.
+*/}}
+{{- $cs := .Values.channelSeed | default dict -}}
+{{- $qbd := (.Values.defaultChannels | default dict).qwenBankDhofar | default dict -}}
+{{- $hasDefaults := $qbd.enabled -}}
+{{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
+{{- if and $cs.enabled $hasDefaults $masterKeySecret -}}
+{{- $jobName := include "bp-newapi.channelSeedJobName" . -}}
+---
+{{- /*
+ServiceAccount + Role + RoleBinding for the Job.
+
+The Job needs read access to the master-key Secret AND any per-channel
+upstream-API-key Secrets (one Secret per default channel that has
+`existingSecret` set). We give it a dedicated SA + Role pair (NOT the
+NewAPI Deployment's SA) so the bootstrap posture is bounded — the SA
+can read the named Secrets and nothing else.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: channel-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ $cs.hookDeletePolicy | default "before-hook-creation" | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: channel-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ $cs.hookDeletePolicy | default "before-hook-creation" | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ $masterKeySecret | quote }}
+{{- if and $qbd.enabled $qbd.existingSecret }}
+      - {{ $qbd.existingSecret | quote }}
+{{- end }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: channel-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ $cs.hookDeletePolicy | default "before-hook-creation" | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $jobName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ $jobName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+{{- /*
+ConfigMap of channel definitions (audit pointer).
+
+The list rendered into data.channels.json is the operator-visible
+audit trail of "what default channels did the Sovereign think it
+should seed on this install/upgrade?". Side-channel only — the Job
+reads the same list directly out of its template-rendered shell
+script. The admin console / docs surface may consume this ConfigMap
+to show a "channels seeded by chart" badge without re-querying NewAPI.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $jobName }}-spec
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: channel-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": {{ $cs.hookDeletePolicy | default "before-hook-creation" | quote }}
+    catalyst.openova.io/comment: |
+      Audit pointer for the default channels seeded on this install/
+      upgrade. Consumed by the admin console / docs UI to render the
+      list without re-querying NewAPI's admin API.
+data:
+  channels.json: |
+    {{- $list := list }}
+    {{- if $qbd.enabled }}
+      {{- $list = append $list (dict
+            "name"     (default "qwen3.6-bankdhofar" $qbd.name)
+            "type"     "openai-compatible"
+            "endpoint" $qbd.endpoint
+            "models"   (default (list "qwen3.6" "qwen3-coder") $qbd.models)) }}
+    {{- end }}
+    {{ $list | toJson }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: channel-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": {{ $cs.hookDeletePolicy | default "before-hook-creation" | quote }}
+spec:
+  backoffLimit: {{ $cs.backoffLimit | default 6 }}
+  activeDeadlineSeconds: {{ $cs.activeDeadlineSeconds | default 300 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-newapi.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: channel-seed
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $jobName }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: channel-seed
+          image: "{{ $cs.image.repository }}:{{ $cs.image.tag }}"
+          imagePullPolicy: {{ $cs.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+          # curl writes response bodies to /tmp; with readOnlyRootFilesystem
+          # the container's / is RO so /tmp must be backed by an emptyDir
+          # (in-memory, auto-cleaned post-Job).
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $cs.resources | nindent 12 }}
+          env:
+            # In-cluster NewAPI Service. The chart's own service.yaml
+            # exposes port 3000 on the bare Service name {{ include "bp-newapi.fullname" . }}.
+            # The Job runs in the same namespace so the bare name resolves.
+            # Note: when the metering sidecar is enabled the Service still
+            # routes 3000 → sidecar → NewAPI on loopback; the seed Job's
+            # admin-API calls land on the SAME path the customer hits, which
+            # is what we want (it exercises the entire chain end-to-end).
+            - name: NEWAPI_BASE
+              value: "http://{{ include "bp-newapi.fullname" . }}:{{ .Values.service.port }}"
+            - name: NEWAPI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $masterKeySecret | quote }}
+                  key: MASTER_KEY
+{{- if and $qbd.enabled $qbd.existingSecret }}
+            - name: QWEN_BANKDHOFAR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $qbd.existingSecret | quote }}
+                  key: {{ $qbd.existingSecretKey | default "API_KEY" | quote }}
+{{- end }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # ─── Idempotent channel-seed loop (issue #915) ──────────
+              #
+              # For each default channel the chart knows about, probe
+              # NewAPI's admin API for an existing row by name; POST a
+              # new row only if the name is not already present.
+              # NewAPI returns:
+              #   200 GET /api/channel/?keyword=<name> with `data:[]`
+              #     → channel does not exist; POST it
+              #   200 GET /api/channel/?keyword=<name> with `data:[...]`
+              #     and an entry whose `name` exactly matches
+              #     → channel already exists; SKIP
+              #   201 POST /api/channel/ → channel created
+              #   any other 4xx/5xx → fail the iteration so the Job
+              #                       backs off and retries (via
+              #                       restartPolicy=OnFailure +
+              #                       backoffLimit on the Job spec).
+              #
+              # NewAPI exposes its admin endpoints under /api/channel/
+              # (upstream Calcium-Ion/new-api: controller/channel.go).
+              # Auth header is `Authorization: Bearer <master-key>`.
+              #
+              # Wait-for-NewAPI: the Service exists from t=0 (Helm
+              # applies it before the post-install hook fires) but the
+              # Pod's readiness probe may not pass for ~30s after
+              # rollout. We poll /api/status until it returns 200,
+              # then proceed with the channel loop.
+
+              base="${NEWAPI_BASE}"
+              master_key="${NEWAPI_MASTER_KEY}"
+
+              echo "Channel-seed: target=${base}"
+              echo "Channel-seed: waiting for /api/status to return 200..."
+              # 60 attempts × 5s = 5min upper bound; outer activeDeadlineSeconds
+              # also caps the total Job runtime.
+              attempt=0
+              until [ "${attempt}" -ge 60 ]; do
+                code=$(curl --silent --output /dev/null --max-time 5 \
+                  --write-out '%{http_code}' \
+                  "${base}/api/status" || echo "000")
+                if [ "${code}" = "200" ]; then
+                  echo "  [OK] /api/status reachable (HTTP 200)"
+                  break
+                fi
+                attempt=$((attempt + 1))
+                echo "  [wait] /api/status HTTP ${code} (attempt ${attempt}/60)"
+                sleep 5
+              done
+
+              # seed_channel: probe by name → POST if missing.
+              # Args: 1=name 2=type 3=base_url 4=models_csv 5=key
+              seed_channel() {
+                local name="$1"
+                local type="$2"
+                local base_url="$3"
+                local models="$4"
+                local key="$5"
+
+                # Probe — the admin API supports keyword= for name search.
+                local probe_code probe_body
+                probe_body=$(curl --silent --max-time 10 \
+                  --output /tmp/probe-resp \
+                  --write-out '%{http_code}' \
+                  -H "Authorization: Bearer ${master_key}" \
+                  -H "Accept: application/json" \
+                  "${base}/api/channel/?keyword=$(echo "${name}" | sed 's/ /%20/g')&p=0")
+                probe_code="${probe_body}"
+
+                if [ "${probe_code}" = "200" ]; then
+                  # Look for an exact name match in the response.
+                  # The upstream returns
+                  # `{"success":true,"data":[{"id":...,"name":"...",...}]}`.
+                  # We grep for the literal `"name":"<name>"` substring
+                  # using `-F` (fixed-string) so channel names with `.` /
+                  # other regex metacharacters (e.g. `qwen3.6-bankdhofar`)
+                  # do not become wildcards.
+                  if grep -qF "\"name\":\"${name}\"" /tmp/probe-resp; then
+                    echo "  [SKIP] channel ${name} already exists"
+                    return 0
+                  fi
+                else
+                  echo "  [warn] probe ${name} HTTP ${probe_code}; will attempt POST anyway"
+                fi
+
+                # Build the JSON body. NewAPI's POST /api/channel/ shape
+                # (upstream controller/channel.go AddChannel):
+                #   {
+                #     "name":     "...",
+                #     "type":     <int-or-string>,        # type registry
+                #     "base_url": "...",                  # upstream endpoint
+                #     "key":      "<api-key>",            # upstream auth
+                #     "models":   "<comma-separated>",    # routed model list
+                #     "groups":   "default",              # default group
+                #     "status":   1                       # 1 = enabled
+                #   }
+                # `type` for OpenAI-compatible upstreams is "openai" in the
+                # upstream registry (constants/channel_type.go).
+                local body
+                body=$(printf '{"name":"%s","type":"%s","base_url":"%s","key":"%s","models":"%s","groups":"default","status":1}' \
+                  "${name}" "${type}" "${base_url}" "${key}" "${models}")
+
+                local post_code
+                post_code=$(curl --silent --max-time 10 \
+                  --output /tmp/post-resp \
+                  --write-out '%{http_code}' \
+                  --retry 3 --retry-delay 2 --retry-connrefused \
+                  -X POST \
+                  -H "Authorization: Bearer ${master_key}" \
+                  -H "Content-Type: application/json" \
+                  --data "${body}" \
+                  "${base}/api/channel/")
+
+                case "${post_code}" in
+                  200|201)
+                    echo "  [OK] channel ${name} created (HTTP ${post_code})"
+                    ;;
+                  409)
+                    # Race: someone else seeded the same name between our
+                    # probe and POST. Idempotent OK.
+                    echo "  [OK] channel ${name} already exists (HTTP 409)"
+                    ;;
+                  *)
+                    echo "  [FAIL] channel ${name} HTTP ${post_code}:"
+                    cat /tmp/post-resp || true
+                    echo
+                    return 1
+                    ;;
+                esac
+              }
+
+              echo "Channel-seed: seeding default channels"
+{{- if $qbd.enabled }}
+              # ── Channel #1: Qwen3.6 @ BankDhofar (#915) ────────────
+              # NewAPI's `type` field for OpenAI-compatible upstreams is
+              # "openai" (constants/channel_type.go ChannelTypeOpenAI).
+              # The chart's effectiveChannels helper marks the type as
+              # "openai-compatible" in the rendered channels.yaml audit
+              # pointer; the seed Job translates that to NewAPI's
+              # registry value here.
+              seed_channel \
+                {{ (default "qwen3.6-bankdhofar" $qbd.name) | quote }} \
+                "openai" \
+                {{ $qbd.endpoint | quote }} \
+                {{ join "," (default (list "qwen3.6" "qwen3-coder") $qbd.models) | quote }} \
+                "${QWEN_BANKDHOFAR_KEY}"
+{{- end }}
+
+              echo "Channel-seed: complete."
+{{- end }}

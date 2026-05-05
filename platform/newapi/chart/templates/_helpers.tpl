@@ -63,13 +63,45 @@ ConfigMap name (channel + policy config).
 {{- end }}
 
 {{/*
-Effective channel list — `.Values.channels` plus the composed
-`defaultChannels.vllm` channel when enabled. Centralised so configmap.yaml
-and assertChannelAttestation operate on the same materialised list.
+Effective channel list — composed default channels plus
+`.Values.channels`. Composition order matters because NewAPI's
+channel-router resolves `model` lookups in row-insertion order:
+  1. defaultChannels.qwenBankDhofar     (issue #915 — channel #1)
+  2. .Values.channels                    (operator-supplied)
+  3. defaultChannels.vllm                (in-cluster vLLM fallback)
+A fresh customer landing on a fresh Sovereign with no
+`.Values.channels` set hits qwenBankDhofar first; this is the
+documented "channel #1 = Qwen3.6@BankDhofar" contract from epic #915
+(per-tenant SME alice → NewAPI → Qwen3.6@BankDhofar end-to-end DoD).
+Centralised so configmap.yaml + assertChannelAttestation +
+channel-seed-job.yaml operate on the same materialised list.
 */}}
 {{- define "bp-newapi.effectiveChannels" -}}
-{{- $channels := default (list) .Values.channels -}}
+{{- $channels := list -}}
 {{- $dc := .Values.defaultChannels | default dict -}}
+{{/* ── Channel #1: Qwen3.6 @ BankDhofar (#915) ───────────────── */}}
+{{- $qbd := $dc.qwenBankDhofar | default dict -}}
+{{- if $qbd.enabled -}}
+  {{- if not $qbd.endpoint -}}
+    {{- fail "defaultChannels.qwenBankDhofar.enabled=true but defaultChannels.qwenBankDhofar.endpoint is empty — supply the upstream relay URL in the per-Sovereign bootstrap-kit overlay (canonical: https://llm-api.omtd.bankdhofar.com)" -}}
+  {{- end -}}
+  {{- $att := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
+  {{- $composed := dict
+        "name"      (default "qwen3.6-bankdhofar" $qbd.name)
+        "type"      "openai-compatible"
+        "endpoint"  $qbd.endpoint
+        "models"    (default (list "qwen3.6" "qwen3-coder") $qbd.models)
+        "attestation" $att -}}
+  {{- if $qbd.existingSecret -}}
+    {{- $_ := set $composed "existingSecret" $qbd.existingSecret -}}
+  {{- end -}}
+  {{- $channels = append $channels $composed -}}
+{{- end -}}
+{{/* ── Operator-supplied channels (in-order) ──────────────────── */}}
+{{- range (default (list) .Values.channels) -}}
+  {{- $channels = append $channels . -}}
+{{- end -}}
+{{/* ── Default vLLM (in-cluster fallback) ─────────────────────── */}}
 {{- $vllm := $dc.vllm | default dict -}}
 {{- if $vllm.enabled -}}
   {{- if not $vllm.endpoint -}}
@@ -88,6 +120,14 @@ and assertChannelAttestation operate on the same materialised list.
 {{- end -}}
 {{- toYaml $channels -}}
 {{- end -}}
+
+{{/*
+Channel-seed Job name. Reused by the Job + RBAC + ConfigMap manifests
+emitted by templates/channel-seed-job.yaml.
+*/}}
+{{- define "bp-newapi.channelSeedJobName" -}}
+{{- printf "%s-channel-seed" (include "bp-newapi.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
 
 {{/*
 Channel attestation gate — refuses to render if any enabled channel
