@@ -31,7 +31,6 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clientgokubernetes "k8s.io/client-go/kubernetes"
 	kfake "k8s.io/client-go/kubernetes/fake"
-	fakediscovery "k8s.io/client-go/discovery/fake"
 )
 
 // quietLogger discards log output so test runs aren't noisy.
@@ -113,30 +112,19 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		"namespace", "node", "pod", "service", "configmap", "secret",
 		"persistentvolumeclaim", "deployment", "statefulset", "daemonset",
 		"ingress",
-		// new — graph + dashboard depend on these
+		// graph + dashboard depend on these
 		"persistentvolume", "replicaset", "endpointslice",
-		// optional but registered
-		"podmetrics",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {
 			t.Errorf("DefaultKinds missing %q — required by architecture-graph or dashboard", name)
 		}
 	}
-
-	// PodMetrics MUST be flagged Optional so the discovery probe in
-	// AddCluster skips it on Sovereigns without metrics-server.
-	if pm, ok := r.Get("podmetrics"); !ok {
-		t.Fatalf("podmetrics not in registry")
-	} else if !pm.Optional {
-		t.Errorf("podmetrics must be Optional=true; got false")
-	}
-	// All other kinds must be mandatory — Optional is reserved for
-	// add-ons we know are not part of in-spec K8s.
-	for _, k := range DefaultKinds {
-		if k.Name != "podmetrics" && k.Optional {
-			t.Errorf("kind %q should be mandatory; got Optional=true", k.Name)
-		}
+	// PodMetrics is intentionally NOT in DefaultKinds — see kinds.go
+	// for the rationale (the synchronous discovery probe that gated
+	// it caused contabo startup to block on dead kubeconfigs).
+	if _, ok := r.Get("podmetrics"); ok {
+		t.Errorf("podmetrics must not be in DefaultKinds; the discovery-gate path was reverted")
 	}
 }
 
@@ -238,94 +226,6 @@ func TestFactory_ListUnknownClusterErrors(t *testing.T) {
 	_, _, err = f.List("missing", "pod", labels.Everything())
 	if err == nil {
 		t.Fatalf("expected error for unknown cluster")
-	}
-}
-
-// TestFactory_OptionalKindSkippedWhenAbsent — adding a Kind flagged
-// Optional whose GVR is not in the cluster's discovery surface MUST
-// not crash-loop the informer. The factory probes discovery, sees
-// the GroupVersion is unregistered, and silently skips the informer.
-// Listing that kind on the cluster then errors out cleanly.
-func TestFactory_OptionalKindSkippedWhenAbsent(t *testing.T) {
-	dyn, core := fakeClients()
-	r := minimalRegistry()
-	// metrics.k8s.io is NOT registered on the fake clientset's discovery,
-	// so this Optional kind must be skipped at AddCluster time.
-	_ = r.Add(Kind{
-		Name:       "podmetrics",
-		GVR:        schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"},
-		Namespaced: true,
-		Optional:   true,
-	})
-	cfg := Config{
-		Logger:   quietLogger(),
-		Registry: r,
-		Clusters: []ClusterRef{
-			{ID: "alpha", DynamicClient: dyn, CoreClient: core},
-		},
-	}
-	f, err := NewFactory(cfg)
-	if err != nil {
-		t.Fatalf("NewFactory: %v", err)
-	}
-	defer f.Stop()
-	if err := f.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	_, _, err = f.List("alpha", "podmetrics", labels.Everything())
-	if err == nil {
-		t.Fatalf("expected error listing optional+absent kind, got nil")
-	}
-}
-
-// TestFactory_OptionalKindRegisteredWhenPresent — when discovery does
-// surface the Optional kind's GroupVersion, the informer spawns
-// normally and List works. We seed metrics.k8s.io into the typed
-// fake's Discovery via the kfake.Resources field.
-func TestFactory_OptionalKindRegisteredWhenPresent(t *testing.T) {
-	dyn, _ := fakeClients()
-	core := kfake.NewSimpleClientset()
-	// kfake exposes a fake discovery client; populate it with the
-	// metrics.k8s.io/v1beta1 resource list so AddCluster's probe
-	// returns success.
-	if fd, ok := core.Discovery().(*fakediscovery.FakeDiscovery); ok {
-		fd.Resources = append(fd.Resources, &metav1.APIResourceList{
-			GroupVersion: "metrics.k8s.io/v1beta1",
-			APIResources: []metav1.APIResource{
-				{Name: "pods", Namespaced: true, Kind: "PodMetrics"},
-			},
-		})
-	} else {
-		t.Skipf("fake discovery not assertable; skipping")
-	}
-
-	r := minimalRegistry()
-	_ = r.Add(Kind{
-		Name:       "podmetrics",
-		GVR:        schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"},
-		Namespaced: true,
-		Optional:   true,
-	})
-	cfg := Config{
-		Logger:   quietLogger(),
-		Registry: r,
-		Clusters: []ClusterRef{
-			{ID: "alpha", DynamicClient: dyn, CoreClient: core},
-		},
-	}
-	f, err := NewFactory(cfg)
-	if err != nil {
-		t.Fatalf("NewFactory: %v", err)
-	}
-	defer f.Stop()
-	if err := f.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	// List of zero items is fine; the contract under test is that
-	// the informer was spawned (no "kind not registered" error).
-	_, _, err = f.List("alpha", "podmetrics", labels.Everything())
-	if err != nil {
-		t.Fatalf("expected optional+present kind to list cleanly, got %v", err)
 	}
 }
 
