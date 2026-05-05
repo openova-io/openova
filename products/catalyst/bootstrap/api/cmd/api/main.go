@@ -227,6 +227,17 @@ func main() {
 	// negligible information disclosure ("is this subdomain taken?"
 	// is the same answer DNS itself surfaces to anyone).
 	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
+
+	// Wizard pre-submit credential validators — also pre-auth surfaces.
+	// The operator types Hetzner / S3 / Dynadot creds in the wizard
+	// BEFORE PIN auth (so a typo surfaces at the prompt, not 5 minutes
+	// into `tofu apply`). Each endpoint is read-only — it probes the
+	// credential against the upstream API and returns 200/400. No state
+	// change on success. Same pre-auth treatment as /subdomains/check.
+	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
+	r.Post("/api/v1/credentials/object-storage/validate", h.ValidateObjectStorageCredentials)
+	r.Post("/api/v1/sshkey/generate", h.GenerateSSHKey)
+	r.Post("/api/v1/registrar/{registrar}/validate", h.ValidateRegistrar)
 	r.Get("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
 	})
@@ -467,20 +478,13 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}", h.HandleK8sList)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
-		rg.Post("/api/v1/credentials/validate", h.ValidateCredentials)
-		// Hetzner Object Storage credential validator (issue #371). The wizard's
-		// StepCredentials Object-Storage section POSTs here BEFORE allowing the
-		// operator to advance to StepReview, so a typo'd access/secret pair
-		// surfaces as a wizard-step error card rather than 5 minutes into
-		// `tofu apply`. Hetzner exposes no API for credential issuance — the
-		// operator generates them once in the Hetzner Console; this endpoint
-		// confirms the operator-supplied keys can authenticate against the
-		// chosen region's S3 endpoint via ListBuckets.
-		rg.Post("/api/v1/credentials/object-storage/validate", h.ValidateObjectStorageCredentials)
-		// SSH keypair generator — wizard's "auto-generate" Mode A path
-		// (issue #160). Returns publicKey + privateKey + fingerprint; the
-		// handler logs ONLY the fingerprint and never persists either half.
-		rg.Post("/api/v1/sshkey/generate", h.GenerateSSHKey)
+		// NOTE: wizard pre-submit validation endpoints
+		// (/credentials/validate, /credentials/object-storage/validate,
+		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)
+		// are registered OUTSIDE the session group at the top of this
+		// function — they are called from the wizard BEFORE the operator
+		// authenticates and gating them on a session cookie produces a
+		// 401 every time, blocking the only flow that matters.
 		rg.Post("/api/v1/deployments", h.CreateDeployment)
 		// List endpoint (issue #747) — wizard auto-redirect to /provision/<id>
 		// when the signed-in operator already has an in-flight deployment.
@@ -504,10 +508,9 @@ func main() {
 		rg.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
 		// (PUT /kubeconfig is registered ABOVE the session group — see
 		// the cloud-init postback comment near r.Delete /auth/session.)
-		// Registrar proxy — wizard's BYO Flow B (#169). /validate is called
-		// pre-submit so a typo'd token surfaces at the prompt; /set-ns is
-		// called from CreateDeployment when domainMode == byo-api.
-		rg.Post("/api/v1/registrar/{registrar}/validate", h.ValidateRegistrar)
+		// Registrar proxy — wizard's BYO Flow B (#169). /validate is OUTSIDE
+		// session group (pre-auth wizard surface). /set-ns is called from
+		// CreateDeployment when domainMode == byo-api (post-auth).
 		rg.Post("/api/v1/registrar/{registrar}/set-ns", h.SetNSRegistrar)
 		// Phase-retry endpoint for the wizard's failed-phase UX (issue #125).
 		// Phase 0 retries re-run `tofu apply` against the existing workdir;
