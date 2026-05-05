@@ -618,10 +618,46 @@ spec:
         enabled: true
 `
 
-const smeTenantBPKeycloak = `# bp-keycloak per-organization (issue #800/#803/#804) — the SME's
-# own Keycloak realm. Issuer URL becomes the SPA's OIDC discovery
-# anchor. Per epic #795 [B] this is the realm that holds the
-# SME's user identity.
+const smeTenantBPKeycloak = `# bp-keycloak per-tenant (issue #800/#803/#804/#910) — the SME's
+# own Keycloak instance. Each tenant runs its own Keycloak Pod +
+# PostgreSQL backend in its tenant Namespace; per Inviolable Principle 7
+# (K8s-native tenancy) the realm namespace is internal to that one
+# Keycloak (no cross-tenant collision).
+#
+# Values contract (issue #910 / B3 fix):
+# The bp-keycloak chart (platform/keycloak/chart/values.yaml) consumes
+# the canonical Catalyst-side keys below. Earlier orchestrator versions
+# emitted a different shape (` + "`topology`, `realm.*`, `bootstrap.*`, `ingress.*`" + `)
+# that the chart did NOT honour — result: tenant Keycloak Pod ran but
+# no HTTPRoute was rendered (` + "`gateway.host`" + ` was unset), so tenant
+# users could not reach their own Keycloak and downstream WordPress /
+# OpenClaw / Stalwart OIDC integration broke.
+#
+# Chart contract (current):
+#   - sovereignFQDN          : the per-tenant identity zone, used by
+#                              configmap-sovereign-realm.yaml to render
+#                              redirect/origin URIs as
+#                              https://console.<sovereignFQDN>/*
+#   - sovereignRealm.enabled : when true (default), the chart emits its
+#                              realm-import ConfigMap + service-account
+#                              Secret. Keep true so the keycloak-config-cli
+#                              post-install Job runs and the realm is
+#                              materialised idempotently.
+#   - gateway.enabled        : true (chart default)
+#   - gateway.host           : the tenant Keycloak's public hostname.
+#                              Without this the templates/httproute.yaml
+#                              guard renders nothing → no exposure.
+#   - smtp.{host,port,from,user,password,ssl,starttls,auth}
+#                              SMTP for outbound realm email (welcome /
+#                              password-reset). Phase-1 default: mothership
+#                              relay at mail.openova.io:587. Tenant-local
+#                              Stalwart relay is later work.
+#
+# realmConfig.tenant.* — forward-looking marker (chart does not yet
+# consume; Helm silently ignores unknown values). Once the chart adds a
+# tenant-mode realm template these keys carry the per-tenant realm name,
+# OIDC client list (wordpress/openclaw/stalwart), and group bootstrap.
+# Tracked under the bp-keycloak tenant-mode follow-up.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -642,42 +678,97 @@ spec:
   upgrade:
     timeout: 15m
     cleanupOnFail: true
+  # SMTP credentials reference: Phase-1 routes through the mothership
+  # Stalwart relay. The per-tenant Secret is reflected from
+  # catalyst-system/sovereign-smtp-credentials by the bootstrap-kit
+  # reflector setup; until that lands the chart keeps smtp.user /
+  # smtp.password empty (chart accepts empty values; outbound mail
+  # silently no-ops, login flows still work).
+  valuesFrom:
+    - kind: Secret
+      name: sme-tenant-smtp-credentials
+      valuesKey: smtp-user
+      targetPath: smtp.user
+      optional: true
+    - kind: Secret
+      name: sme-tenant-smtp-credentials
+      valuesKey: smtp-pass
+      targetPath: smtp.password
+      optional: true
   values:
-    topology: per-organization
-    realm:
-      name: sme-{{.Subdomain}}
-      displayName: {{.CompanyName}}
-    ingress:
+    # Per-tenant identity zone — drives realm import redirect/origin URIs.
+    sovereignFQDN: {{.Subdomain}}.{{.ParentDomain}}
+    # Realm import is owned by the chart's keycloak-config-cli post-
+    # install Job; the chart materialises a "sovereign" realm and the
+    # catalyst-kc-sa-credentials Secret idempotently. Keep enabled so
+    # the realm exists from t=0 and SSE/SSO probes find it.
+    sovereignRealm:
+      enabled: true
+    # HTTPRoute exposure on the per-Sovereign cilium-gateway. Without a
+    # non-empty gateway.host the chart's templates/httproute.yaml guard
+    # renders nothing — that was the user-visible regression in #910.
+    gateway:
+      enabled: true
       host: keycloak.{{.Subdomain}}.{{.ParentDomain}}
-      tls:
-        issuer: letsencrypt-prod
-    bootstrap:
-      adminEmail: {{.AdminEmail}}
-      groups:
-        - sme-admin
-        - sme-user
-      clients:
-        - id: catalyst-ui
-          publicClient: true
-          redirectURIs:
-            - https://{{.ConsoleHost}}/*
-        - id: wordpress
-          publicClient: false
-          redirectURIs:
-            - https://{{.WordPressHost}}/*
-        - id: openclaw
-          publicClient: false
-          redirectURIs:
-            - https://{{.OpenClawHost}}/*
-        - id: stalwart
-          publicClient: false
-          redirectURIs:
-            - https://{{.MailHost}}/*
-    parentDomain: {{.ParentDomain}}
+      # backendService defaults to .Release.Name; with releaseName=
+      # bp-keycloak the bitnami fullname helper trims the chart suffix
+      # and returns "bp-keycloak", matching the default.
+      parentRef:
+        name: cilium-gateway
+        namespace: kube-system
+        sectionName: https
+    # Outbound realm email — Phase-1 mothership relay. Operator overlay
+    # (or future tenant-Stalwart sub-issue) overrides host/port once
+    # tenant-local SMTP is shipped.
+    smtp:
+      host: mail.openova.io
+      port: "587"
+      from: noreply@{{.Subdomain}}.{{.ParentDomain}}
+      ssl: "false"
+      starttls: "true"
+      auth: "true"
+    # Forward-looking tenant-mode marker (issue #910 / B3). Chart does
+    # not yet consume — Helm silently accepts unknown values. The
+    # canonical realm + clients shape the orchestrator wants once the
+    # chart's tenant template lands.
+    realmConfig:
+      tenant:
+        enabled: true
+        realmName: sme-{{.Subdomain}}
+        displayName: {{.CompanyName}}
+        adminEmail: {{.AdminEmail}}
+        groups:
+          - sme-admin
+          - sme-user
+        clients:
+          - id: catalyst-ui
+            publicClient: true
+            redirectURIs:
+              - https://{{.ConsoleHost}}/*
+          - id: wordpress
+            publicClient: false
+            redirectURIs:
+              - https://{{.WordPressHost}}/*
+          - id: openclaw
+            publicClient: false
+            redirectURIs:
+              - https://{{.OpenClawHost}}/*
+          - id: stalwart
+            publicClient: false
+            redirectURIs:
+              - https://{{.MailHost}}/*
+        parentDomain: {{.ParentDomain}}
 `
 
 const smeTenantBPCNPG = `# bp-cnpg in the SME tenant namespace — Postgres for WordPress
 # + (in future tenants) other apps that need a relational store.
+#
+# Values contract (issue #910 / B3): bp-cnpg is a pure umbrella subchart
+# of cloudnative-pg; per-Sovereign overrides flow through the
+# ` + "`cloudnative-pg.*`" + ` namespace (see platform/cnpg/chart/values.yaml).
+# Earlier orchestrator versions emitted ` + "`namespace`" + ` and ` + "`operator.enabled`" + `
+# at the top level — the chart silently ignored them. Fixed to the
+# canonical subchart-keyed shape.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -694,9 +785,20 @@ spec:
         name: bp-cnpg
         namespace: flux-system
   values:
-    namespace: {{.Namespace}}
-    operator:
-      enabled: true
+    cloudnative-pg:
+      # Single replica per tenant — operator-leader-elected, additional
+      # replicas are passive standbys; SME footprint trade-off per
+      # docs/INVIOLABLE-PRINCIPLES.md #4 (overridable via per-cluster
+      # overlay).
+      replicaCount: 1
+      crds:
+        # CRDs ship with the bootstrap-kit's mothership bp-cnpg already;
+        # the per-tenant install must NOT re-create them or apiserver
+        # rejects the manifest with "already exists, owned by ...".
+        create: false
+      monitoring:
+        # Default OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
+        podMonitorEnabled: false
 `
 
 const smeTenantBPWordPress = `# bp-wordpress-tenant (#800) — SSO-pre-wired WordPress per SME.
