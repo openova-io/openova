@@ -55,7 +55,6 @@ import { findNodeSize } from '@/shared/constants/providerSizes'
 import { API_BASE } from '@/shared/config/urls'
 import { useRouter } from '@tanstack/react-router'
 import { useSession } from '@/shared/lib/useSession'
-import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PinSignInModal } from '@/widgets/auth/PinSignInModal'
 import { StepShell, useStepNav } from './_shared'
 import {
@@ -789,20 +788,10 @@ export function StepReview() {
         return
       }
       store.setDeploymentId(data.id)
-      // Mode-aware target: Sovereign self-mode uses the clean root
-      // /dashboard, mothership uses /provision/$deploymentId/dashboard.
-      // Sending all callers to bare /dashboard with a params payload
-      // matches the Sovereign-Console clean-root route on the
-      // mothership and triggers an infinite redirect loop with
-      // SovereignConsoleLayout's mothership-fall-through guard.
-      if (DETECTED_MODE.mode === 'sovereign') {
-        router.navigate({ to: '/dashboard' })
-      } else {
-        router.navigate({
-          to: '/provision/$deploymentId/dashboard' as never,
-          params: { deploymentId: data.id } as never,
-        })
-      }
+      router.navigate({
+        to: '/dashboard',
+        params: { deploymentId: data.id },
+      })
     } catch (err) {
       alert(`Failed to start provisioning: ${err}`)
       setLoading(false)
