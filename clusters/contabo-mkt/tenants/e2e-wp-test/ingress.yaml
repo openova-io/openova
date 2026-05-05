@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tenant-ingress
+  namespace: tenant-e2e-wp-test
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: e2e-wp-test.omani.rest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wordpress-x-tenant-e2e-wp-test-x-vcluster
+                port:
+                  number: 80
+          - path: /wordpress
+            pathType: Prefix
+            backend:
+              service:
+                name: wordpress-x-tenant-e2e-wp-test-x-vcluster
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - e2e-wp-test.omani.rest
+      secretName: tenant-e2e-wp-test-tls

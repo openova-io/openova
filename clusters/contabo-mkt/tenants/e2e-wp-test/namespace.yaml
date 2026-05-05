@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-e2e-wp-test
+  labels:
+    openova.io/tenant: "e2e-wp-test"
+    openova.io/managed-by: provisioning

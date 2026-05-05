@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - bbb
   - test12-2
+  - e2e-wp-test
