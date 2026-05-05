@@ -142,7 +142,27 @@ spec:
       # hook is safe on every install + every upgrade. Coupled with the
       # cutoverStatusResponse.State field fix on the API side which
       # closes the otech113 `invalid CutoverState: <undefined>` bug.
-      version: 0.1.16
+      # 0.1.17: Two-bug fix surfaced live on otech113 2026-05-05 (#935):
+      #   Bug 1 — Step 02 (harbor-projects) Job in `catalyst` ns was
+      #     hitting `secret "harbor-core" not found` because the
+      #     upstream Harbor `harbor-core` Secret only exists in
+      #     `harbor` ns and K8s forbids cross-namespace secretKeyRef.
+      #     Fix lives in bp-harbor 1.2.14: a Catalyst-curated
+      #     `harbor-admin` Secret is now emitted in the harbor ns
+      #     with Reflector annotations mirroring it into `catalyst`
+      #     so the Job's secretKeyRef resolves automatically. This
+      #     chart's values.yaml `harbor.adminSecretRef.name` is now
+      #     `harbor-admin` (was `harbor-core`).
+      #   Bug 2 — 0.1.16 auto-trigger Job POSTed
+      #     /api/v1/sovereign/cutover/start which lives behind
+      #     RequireSession middleware → 401 forever (no session
+      #     cookie on an in-cluster Job). Fix: route through new
+      #     /api/v1/internal/cutover/trigger endpoint which lives
+      #     OUTSIDE RequireSession and validates the bearer SA token
+      #     via TokenReview. The Job now mounts its projected SA
+      #     token at /var/run/secrets/kubernetes.io/serviceaccount/
+      #     token and sends it as `Authorization: Bearer <token>`.
+      version: 0.1.17
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

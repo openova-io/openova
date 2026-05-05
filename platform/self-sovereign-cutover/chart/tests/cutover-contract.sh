@@ -155,4 +155,46 @@ if grep -q 'cutover-auto-trigger' "$TMP/render-noauto.yaml"; then
 fi
 echo "  PASS (auto-trigger gated on trigger.auto)"
 
+echo "[cutover-contract] Case 10: auto-trigger uses /internal/cutover/trigger (#935 Bug 2)"
+# Chart 0.1.16 POSTed /api/v1/sovereign/cutover/start which sat behind
+# RequireSession middleware and 401'd forever on otech113 2026-05-05.
+# 0.1.17 must route through /api/v1/internal/cutover/trigger (lives
+# OUTSIDE RequireSession, validates the bearer SA token via TokenReview).
+if ! grep -q '/api/v1/internal/cutover/trigger' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job does NOT POST /api/v1/internal/cutover/trigger" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger uses internal endpoint)"
+
+echo "[cutover-contract] Case 11: auto-trigger sends SA bearer token (#935 Bug 2)"
+# The Job must mount its projected ServiceAccount token AND send it as
+# Authorization: Bearer. Without this the /internal/cutover/trigger
+# endpoint will reject the request with 401 missing-bearer.
+if ! grep -q '/var/run/secrets/kubernetes.io/serviceaccount/token' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job does NOT read its projected SA token" >&2
+  exit 1
+fi
+if ! grep -q 'Authorization: Bearer' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job does NOT send Authorization: Bearer header" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger authenticates via SA token)"
+
+echo "[cutover-contract] Case 12: harbor.adminSecretRef.name is harbor-admin (#935 Bug 1)"
+# Chart 0.1.16 referenced `harbor-core` for Step 02 (harbor-projects);
+# the upstream Harbor `harbor-core` Secret only exists in `harbor` ns
+# and K8s forbids cross-namespace secretKeyRef, so Step 02 hit
+# `secret "harbor-core" not found` indefinitely on otech113. 0.1.17
+# uses the Catalyst-curated `harbor-admin` Secret which bp-harbor 1.2.14
+# emits with Reflector annotations into the `catalyst` namespace.
+if ! grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep -q 'name: harbor-admin'; then
+  echo "FAIL: Step 02 PodSpec does NOT reference the Reflector-mirrored harbor-admin Secret" >&2
+  exit 1
+fi
+if grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep -q 'name: harbor-core$'; then
+  echo "FAIL: Step 02 PodSpec still references harbor-core (the broken cross-ns Secret)" >&2
+  exit 1
+fi
+echo "  PASS (Step 02 references harbor-admin)"
+
 echo "[cutover-contract] All gates green."

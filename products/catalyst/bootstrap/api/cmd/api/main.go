@@ -390,6 +390,25 @@ func main() {
 	// subsequent /sovereign/api/v1/* call inside the RequireSession group.
 	r.Get("/auth/handover", h.AuthHandover)
 
+	// In-cluster Self-Sovereignty Cutover trigger (issue #935 Bug 2).
+	// The bp-self-sovereign-cutover chart's auto-trigger Helm
+	// post-install Job (templates/10-auto-trigger-job.yaml, added in
+	// chart 0.1.16 per issue #933) hits this endpoint to fire the
+	// cutover automatically — there is no human session, no browser
+	// cookie. The Job authenticates via its projected ServiceAccount
+	// token (Authorization: Bearer <SA token bytes>) and the handler
+	// validates the token via the apiserver's TokenReview API + checks
+	// the resolved username matches the canonical
+	// `bp-self-sovereign-cutover-runner` SA the chart authored for this
+	// purpose. Same blast radius as the chart's RBAC, expressed at the
+	// HTTP edge instead of only at the K8s API edge.
+	//
+	// MUST live outside RequireSession because the in-cluster Job has
+	// no `catalyst_session` cookie. The session-cookie group below
+	// rejects every Job request with 401 `unauthenticated`, which is
+	// what was hanging cutover on otech113 2026-05-05 (issue #935).
+	r.Post("/api/v1/internal/cutover/trigger", h.HandleCutoverInternalTrigger)
+
 	// Auth-gated wizard endpoints — RequireSession validates the
 	// HMAC-signed catalyst_session cookie on every request. When
 	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)

@@ -30,6 +30,35 @@ harbor:
   # placeholder so `helm template` smoke renders without `--set`.
   externalURL: "https://harbor.example.local"
 
+  # ─── Admin password (issue #935) ───────────────────────────────────────
+  # The upstream goharbor/harbor chart writes its `harbor-core` Secret
+  # with key HARBOR_ADMIN_PASSWORD. Either it generates a fresh password
+  # from the chart values (`harborAdminPassword`) every reconcile — which
+  # rotates every helm upgrade and breaks every running session — OR it
+  # consumes a pre-existing Secret via `existingSecretAdminPassword`.
+  #
+  # The umbrella chart owns the Secret (templates/admin-secret.yaml)
+  # because:
+  #   1. Per docs/INVIOLABLE-PRINCIPLES.md #10, the password MUST be
+  #      fully-random + per-install (no shared default across Sovereigns).
+  #   2. The bp-self-sovereign-cutover Step 02 (harbor-projects) Job
+  #      runs in the `catalyst` namespace and must read the admin
+  #      password via secretKeyRef — K8s forbids cross-namespace
+  #      secretKeyRef. The umbrella's admin-secret carries Reflector
+  #      annotations that mirror the Secret into `catalyst` so the
+  #      cutover Job's references resolve. (Caught live on otech113
+  #      2026-05-05 — Job CreateContainerConfigError "secret
+  #      harbor-core not found".)
+  #   3. lookup-on-reconcile keeps the bytes stable across helm upgrade
+  #      so the rotation pathology above never fires.
+  #
+  # Operator override: set .Values.harborAdmin.password at the umbrella
+  # values layer to inject a specific password (e.g. when sealed-secrets
+  # already pin it). Empty = generate at first install + lookup on
+  # subsequent reconciles.
+  existingSecretAdminPassword: "harbor-admin"
+  existingSecretAdminPasswordKey: "HARBOR_ADMIN_PASSWORD"
+
   # ─── Expose (clusterIP + Cilium Gateway HTTPRoute) ─────────────────────
   # Catalyst standard (issue #387): expose harbor-core as a ClusterIP
   # Service and route external traffic through the per-Sovereign Cilium
@@ -324,6 +353,33 @@ harbor:
   # ─── Update strategy ──────────────────────────────────────────────────
   updateStrategy:
     type: RollingUpdate
+
+# ─── Harbor admin credentials (issue #935) ────────────────────────────────
+# Catalyst-curated admin Secret that the umbrella chart materialises in
+# the harbor namespace and Reflector-mirrors into `catalyst` so the
+# bp-self-sovereign-cutover Step 02 Job (which lives in the `catalyst`
+# namespace) can read HARBOR_ADMIN_PASSWORD via secretKeyRef.
+#
+# Persistence: lookup-on-reconcile keeps the password stable across
+# every helm upgrade. First-install path generates a 32-char alphanum
+# password (190 bits entropy, per feedback_passwords.md). Operator may
+# inject a fixed password via .password (e.g. when sealed-secrets pin
+# it). The Secret is annotated with helm.sh/resource-policy=keep so
+# `helm uninstall` does NOT delete the bytes — a re-install picks the
+# same password back up via lookup.
+harborAdmin:
+  # Name of the Secret materialised in `.Release.Namespace` (the harbor
+  # namespace by convention). The upstream Harbor subchart's
+  # `existingSecretAdminPassword` field (default "harbor-admin", set in
+  # the harbor: subchart values above) MUST match this value.
+  secretName: "harbor-admin"
+  # Operator-supplied password override. Empty = generate at first
+  # install + preserve via lookup on every reconcile thereafter.
+  password: ""
+  # Comma-separated list of namespaces Reflector mirrors the admin
+  # Secret into. `catalyst` is required for the cutover Job; operators
+  # may add more if other in-cluster consumers need the bytes.
+  reflectionAllowedNamespaces: "catalyst"
 
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays added in a follow-up PR once

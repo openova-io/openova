@@ -81,12 +81,25 @@ gitea:
 
 # Local Harbor target — admin credentials + proxy_cache projects to create.
 harbor:
-  # Shape of the admin secret created by bp-harbor's templates
-  # (HARBOR_ADMIN_PASSWORD per upstream chart). Keys:
-  # HARBOR_ADMIN_USERNAME (optional, falls back to "admin"),
-  # HARBOR_ADMIN_PASSWORD.
+  # Shape of the admin secret materialised by bp-harbor's templates
+  # (Catalyst-curated `harbor-admin` Secret with key HARBOR_ADMIN_PASSWORD).
+  #
+  # The bp-harbor umbrella chart (templates/admin-secret.yaml) emits
+  # this Secret in the `harbor` namespace AND annotates it with
+  # Reflector mirror annotations (allowed-namespaces=catalyst), so the
+  # SAME Secret name auto-materialises in this Job's `catalyst`
+  # namespace without any cross-namespace secretKeyRef gymnastics.
+  # Caught live on otech113 2026-05-05 — Step 02 was failing with
+  # `secret "harbor-core" not found` because the upstream `harbor-core`
+  # Secret only exists in the `harbor` namespace and K8s forbids
+  # cross-namespace secretKeyRef. (issue #935)
+  #
+  # HARBOR_ADMIN_USERNAME is intentionally NOT carried by the Secret —
+  # the upstream Harbor chart hardcodes it to "admin", and Step 02's
+  # PodSpec already defaults via `: "${HARBOR_USERNAME:=admin}"` with
+  # `optional: true` on the secretKeyRef.
   adminSecretRef:
-    name: "harbor-core"
+    name: "harbor-admin"
     namespace: "harbor"
     usernameKey: "HARBOR_ADMIN_USERNAME"
     passwordKey: "HARBOR_ADMIN_PASSWORD"
