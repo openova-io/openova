@@ -156,10 +156,14 @@ func (c *Client) GetDomainInfo(ctx context.Context, domain string) (*DomainInfo,
 		return nil, err
 	}
 
+	// domain_info live response shape (verified 2026-05-05): code/status
+	// fields live DIRECTLY under DomainInfoResponse, NOT under a
+	// `ResponseHeader` wrapper. Aligning with the set_dns2 path's
+	// previously-correct unwrapping above. Refs issue #939.
 	var raw struct {
 		DomainInfoResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
-			DomainInfo     struct {
+			respHeader
+			DomainInfo struct {
 				NameServerSettings struct {
 					NameServers []struct {
 						ServerName string `json:"ServerName"`
@@ -182,7 +186,7 @@ func (c *Client) GetDomainInfo(ctx context.Context, domain string) (*DomainInfo,
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("dynadot: parse domain_info: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	if err := classifyDynadotError(raw.DomainInfoResponse.ResponseHeader); err != nil {
+	if err := classifyDynadotError(raw.DomainInfoResponse.respHeader); err != nil {
 		return nil, err
 	}
 

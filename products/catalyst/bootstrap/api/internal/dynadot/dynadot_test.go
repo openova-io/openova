@@ -91,7 +91,11 @@ func newDynadotFakeServer() (*httptest.Server, *dynadotFakeServer) {
 		responder := f.responder
 		f.mu.Unlock()
 
-		status, body := http.StatusOK, `{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`
+		// Real Dynadot api3.json `set_dns2` success envelope: status
+		// fields directly under SetDnsResponse (not SetDns2Response, and
+		// no `ResponseHeader` wrapper). Verified live 2026-05-05. See
+		// issue #939.
+		status, body := http.StatusOK, `{"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}`
 		if responder != nil {
 			status, body = responder(rr)
 		}
@@ -343,14 +347,14 @@ func TestAddRecord_DynadotErrorIsSurfacedAsGoError(t *testing.T) {
 	srv, fake := newDynadotFakeServer()
 	defer srv.Close()
 	fake.setResponder(func(rr recordedRequest) (int, string) {
-		// Dynadot's actual error envelope shape — code = -1, error = string.
+		// Real Dynadot error envelope: code "-1" string, status="error",
+		// fields DIRECTLY under SetDnsResponse (no ResponseHeader
+		// wrapper, no SetDns2Response key — see #939).
 		body, _ := json.Marshal(map[string]any{
-			"SetDns2Response": map[string]any{
-				"ResponseHeader": map[string]any{
-					"ResponseCode": "-1",
-					"Status":       "failed",
-					"Error":        "domain not found in account",
-				},
+			"SetDnsResponse": map[string]any{
+				"ResponseCode": "-1",
+				"Status":       "failed",
+				"Error":        "domain not found in account",
 			},
 		})
 		return http.StatusOK, string(body)
@@ -400,18 +404,19 @@ func TestAddSovereignRecords_FailsFastOnFirstError(t *testing.T) {
 		current := count
 		mu.Unlock()
 		if current == 1 {
+			// Real Dynadot error envelope (see #939): code+status at
+			// top of SetDnsResponse, no ResponseHeader wrapper.
 			body, _ := json.Marshal(map[string]any{
-				"SetDns2Response": map[string]any{
-					"ResponseHeader": map[string]any{
-						"ResponseCode": "-2",
-						"Status":       "failed",
-						"Error":        "rate limited",
-					},
+				"SetDnsResponse": map[string]any{
+					"ResponseCode": "-2",
+					"Status":       "failed",
+					"Error":        "rate limited",
 				},
 			})
 			return http.StatusOK, string(body)
 		}
-		return http.StatusOK, `{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`
+		// Real Dynadot success envelope (see #939).
+		return http.StatusOK, `{"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}`
 	})
 
 	c := newClientPointingAt(srv.URL, "k", "s")

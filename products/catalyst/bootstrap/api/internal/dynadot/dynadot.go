@@ -107,22 +107,27 @@ func (c *Client) AddRecord(ctx context.Context, domain string, rec Record) error
 		return fmt.Errorf("dynadot api status %d: %s", resp.StatusCode, string(body))
 	}
 
+	// Dynadot api3.json set_dns2 reply (verified live 2026-05-05): the
+	// status fields live DIRECTLY under SetDnsResponse, with no
+	// `ResponseHeader` wrapper. ResponseCode is JSON-typed `int` on
+	// success and `string` on error — json.Number accepts both. The
+	// previous wrapper-based decode silently produced an empty header
+	// and treated every real reply as a fall-through error. Refs #939.
 	var result struct {
-		SetDNS2Response struct {
-			ResponseHeader struct {
-				ResponseCode string `json:"ResponseCode"`
-				Status       string `json:"Status"`
-				Error        string `json:"Error"`
-			} `json:"ResponseHeader"`
-		} `json:"SetDns2Response"`
+		SetDNSResponse struct {
+			ResponseCode json.Number `json:"ResponseCode"`
+			Status       string      `json:"Status"`
+			Error        string      `json:"Error"`
+		} `json:"SetDnsResponse"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		// Dynadot sometimes returns plaintext for errors; surface raw body.
 		return fmt.Errorf("parse dynadot response: %w (body=%s)", err, truncate(string(body), 256))
 	}
-	hdr := result.SetDNS2Response.ResponseHeader
-	if !strings.EqualFold(hdr.Status, "success") && !strings.EqualFold(hdr.ResponseCode, "0") {
-		return fmt.Errorf("dynadot api error: code=%s status=%s err=%s", hdr.ResponseCode, hdr.Status, hdr.Error)
+	hdr := result.SetDNSResponse
+	codeStr := strings.TrimSpace(hdr.ResponseCode.String())
+	if !strings.EqualFold(hdr.Status, "success") && codeStr != "0" && codeStr != "" {
+		return fmt.Errorf("dynadot api error: code=%s status=%s err=%s", hdr.ResponseCode.String(), hdr.Status, hdr.Error)
 	}
 	return nil
 }

@@ -95,9 +95,12 @@ func TestRemoveSubRecord_PreservesOthers(t *testing.T) {
 		switch r.URL.Query().Get("command") {
 		case "domain_info":
 			w.Header().Set("Content-Type", "application/json")
+			// Real Dynadot domain_info shape — code+status at top of
+			// DomainInfoResponse (no ResponseHeader wrapper, see #939).
 			_, _ = w.Write([]byte(`{
 				"DomainInfoResponse": {
-					"ResponseHeader": {"ResponseCode":"0","Status":"success"},
+					"ResponseCode": 0,
+					"Status": "success",
 					"DomainInfo": {
 						"NameServerSettings": {
 							"NameServers": [{"ServerName":"ns1.openova.io"}],
@@ -158,9 +161,11 @@ func TestRemoveSubRecord_NoMatchIsNoop(t *testing.T) {
 		switch r.URL.Query().Get("command") {
 		case "domain_info":
 			w.Header().Set("Content-Type", "application/json")
+			// Real Dynadot domain_info shape (no ResponseHeader wrapper).
 			_, _ = w.Write([]byte(`{
 				"DomainInfoResponse": {
-					"ResponseHeader": {"ResponseCode":"0","Status":"success"},
+					"ResponseCode": 0,
+					"Status": "success",
 					"DomainInfo": {"NameServerSettings": {"SubDomains":[]}}
 				}
 			}`))

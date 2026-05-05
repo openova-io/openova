@@ -22,6 +22,17 @@ func newTestAdapter(t *testing.T, h http.HandlerFunc) (*Adapter, *httptest.Serve
 	return a, srv
 }
 
+// ── ValidateToken ────────────────────────────────────────────────────────
+//
+// All fixtures below use the REAL Dynadot api3.json envelope shape
+// (status fields directly under <Command>Response, NO `ResponseHeader`
+// wrapper, ResponseCode oscillating between JSON int 0 on success and
+// JSON string "-1" on error). Captured live 2026-05-05 against
+// omani.works (success) and a non-owned domain (error). Refs #939.
+
+// TestValidateTokenHappy — real Dynadot api3.json `domain_info` success
+// envelope: ResponseCode is JSON int 0 at TOP of DomainInfoResponse, not
+// nested under a `ResponseHeader` wrapper.
 func TestValidateTokenHappy(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("command"); got != "domain_info" {
@@ -30,10 +41,25 @@ func TestValidateTokenHappy(t *testing.T) {
 		if got := r.URL.Query().Get("domain"); got != "example.com" {
 			t.Errorf("domain = %q, want example.com", got)
 		}
-		w.Write([]byte(`{"DomainInfoResponse":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+		w.Write([]byte(`{"DomainInfoResponse":{"ResponseCode":0,"Status":"success","DomainInfo":{"Name":"example.com","Status":"active"}}}`))
 	})
 	if err := a.ValidateToken(context.Background(), "k:s", "example.com"); err != nil {
 		t.Fatalf("ValidateToken err = %v", err)
+	}
+}
+
+// TestValidateTokenIntCodeNoStatus — Dynadot has been observed to omit
+// the Status string field in some success replies, returning only
+// `"ResponseCode": 0`. The adapter must accept that as success too;
+// otherwise every such response would 500 the caller. The codeIsZero
+// helper is what makes this work — it normalises int 0 / string "0" /
+// empty-string to "success".
+func TestValidateTokenIntCodeNoStatus(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"DomainInfoResponse":{"ResponseCode":0,"DomainInfo":{"Name":"example.com"}}}`))
+	})
+	if err := a.ValidateToken(context.Background(), "k:s", "example.com"); err != nil {
+		t.Fatalf("ValidateToken err = %v (expected success on int-only ResponseCode)", err)
 	}
 }
 
@@ -55,13 +81,31 @@ func TestValidateTokenUnauthorized(t *testing.T) {
 	}
 }
 
+// TestValidateTokenAppError — real Dynadot error envelope: ResponseCode
+// is the STRING "-1" (not the int 0 success returns), Status="error",
+// Error message at TOP of DomainInfoResponse — no ResponseHeader wrapper.
 func TestValidateTokenAppError(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"DomainInfoResponse":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Invalid api key"}}}`))
+		w.Write([]byte(`{"DomainInfoResponse":{"ResponseCode":"-1","Status":"error","Error":"Invalid api key"}}`))
 	})
 	err := a.ValidateToken(context.Background(), "k:s", "example.com")
 	if !errors.Is(err, registrar.ErrInvalidToken) {
 		t.Fatalf("err = %v, want ErrInvalidToken", err)
+	}
+}
+
+// TestValidateTokenDomainNotInAccount — captures the live "could not
+// find domain in your account" message that Dynadot returns when the
+// supplied (key, secret) authenticates but the domain is registered
+// elsewhere. Maps to ErrDomainNotInAccount per #939. Captured live
+// 2026-05-05 against does-not-exist-12345.works.
+func TestValidateTokenDomainNotInAccount(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"DomainInfoResponse":{"ResponseCode":"-1","Status":"error","Error":"could not find domain in your account"}}`))
+	})
+	err := a.ValidateToken(context.Background(), "k:s", "not-mine.com")
+	if !errors.Is(err, registrar.ErrDomainNotInAccount) {
+		t.Fatalf("err = %v, want ErrDomainNotInAccount", err)
 	}
 }
 
@@ -75,6 +119,14 @@ func TestValidateTokenRateLimited(t *testing.T) {
 	}
 }
 
+// ── SetNameservers ───────────────────────────────────────────────────────
+
+// TestSetNameserversHappy — Dynadot api3.json docs sample for set_ns:
+//
+//	{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}
+//
+// Status fields live DIRECTLY under SetNsResponse (no ResponseHeader
+// wrapper — see #939).
 func TestSetNameserversHappy(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("command"); got != "set_ns" {
@@ -86,7 +138,7 @@ func TestSetNameserversHappy(t *testing.T) {
 		if got := r.URL.Query().Get("ns1"); got != "ns2.openova.io" {
 			t.Errorf("ns1 = %q", got)
 		}
-		w.Write([]byte(`{"SetNsResponse":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+		w.Write([]byte(`{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`))
 	})
 	err := a.SetNameservers(context.Background(), "k:s", "example.com",
 		[]string{"ns1.openova.io", "ns2.openova.io"})
@@ -112,9 +164,11 @@ func TestSetNameserversRateLimited(t *testing.T) {
 	}
 }
 
+// TestSetNameserversDomainNotFound — real Dynadot error shape: code is
+// the STRING "-1" at top of SetNsResponse (no ResponseHeader wrapper).
 func TestSetNameserversDomainNotFound(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"SetNsResponse":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Domain not in your account"}}}`))
+		w.Write([]byte(`{"SetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Domain not in your account"}}`))
 	})
 	err := a.SetNameservers(context.Background(), "k:s", "x.com", []string{"a", "b"})
 	if !errors.Is(err, registrar.ErrDomainNotInAccount) {
@@ -122,16 +176,42 @@ func TestSetNameserversDomainNotFound(t *testing.T) {
 	}
 }
 
+// TestSetNameserversNeedsGlueRegistration — real-world Dynadot error
+// (issue #900) when set_ns references an out-of-bailiwick NS hostname
+// that hasn't been pre-registered. The wrapper-bug-fixed adapter must
+// now correctly surface this non-success; pre-fix this would have
+// silently zeroed out and returned nil, masking the failure.
+func TestSetNameserversNeedsGlueRegistration(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"SetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"'ns1.otech103.omani.works' needs to be registered with an ip address before it can be used."}}`))
+	})
+	err := a.SetNameservers(context.Background(), "k:s", "x.com", []string{"ns1.otech103.omani.works", "ns2.otech103.omani.works"})
+	if err == nil {
+		t.Fatal("expected error for needs-glue-registration response")
+	}
+	if !strings.Contains(err.Error(), "needs to be registered") {
+		t.Fatalf("err = %v, expected to surface registrar's needs-glue message", err)
+	}
+}
+
+// ── GetNameservers ───────────────────────────────────────────────────────
+
+// TestGetNameserversHappy — real Dynadot domain_info success shape
+// (verified live 2026-05-05 against omani.works): ResponseCode is INT 0
+// at TOP of DomainInfoResponse, ServerId+ServerName per NameServers
+// entry, no ResponseHeader wrapper.
 func TestGetNameserversHappy(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{
 		  "DomainInfoResponse": {
-		    "ResponseHeader": {"ResponseCode":"0","Status":"success"},
+		    "ResponseCode": 0,
+		    "Status": "success",
 		    "DomainInfo": {
 		      "NameServerSettings": {
+		        "Type": "Name Servers",
 		        "NameServers": [
-		          {"ServerName":"ns1.openova.io"},
-		          {"ServerName":"ns2.openova.io"}
+		          {"ServerId":"5262350","ServerName":"ns1.openova.io"},
+		          {"ServerId":"5262351","ServerName":"ns2.openova.io"}
 		        ]
 		      }
 		    }
@@ -161,11 +241,10 @@ func TestNewAdapterDefaults(t *testing.T) {
 
 // ── Glue-record path (issue #900) ───────────────────────────────────────
 //
-// These tests cover the new register_ns / get_ns / set_ns_ip surface the
-// adapter exposes via the registrar.GlueRegistrar interface. Each test
-// drives the adapter against an httptest server that asserts the
-// expected Dynadot api3.json command + parameters and replies with a
-// canned api3.json response.
+// All fixtures below use the REAL Dynadot api3.json envelope shape
+// (status fields directly under <Command>Response, no ResponseHeader
+// wrapper). These tests cover the new register_ns / get_ns / set_ns_ip
+// surface the adapter exposes via the registrar.GlueRegistrar interface.
 //
 // The flow under test:
 //
@@ -175,9 +254,9 @@ func TestNewAdapterDefaults(t *testing.T) {
 //      IP, falls through to set_ns_ip on different IP, register_ns when
 //      not yet registered.
 
-// TestGetGlueRecordHappy — Dynadot returns the registered IP for a
-// known host. Must be returned as the first non-empty entry of the IP
-// array (Dynadot's get_ns response carries IP as a list).
+// TestGetGlueRecordHappy — real Dynadot get_ns success shape: status
+// fields directly under GetNsResponse (no ResponseHeader wrapper, see
+// #939). ResponseCode is INT 0 on success.
 func TestGetGlueRecordHappy(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("command"); got != "get_ns" {
@@ -188,7 +267,8 @@ func TestGetGlueRecordHappy(t *testing.T) {
 		}
 		fmt.Fprintln(w, `{
 		  "GetNsResponse": {
-		    "ResponseHeader": {"ResponseCode":"0","Status":"success"},
+		    "ResponseCode": 0,
+		    "Status": "success",
 		    "NsInfo": {"NameServer": {"Host":"ns1.otech103.omani.works", "IP":["203.0.113.42"]}}
 		  }
 		}`)
@@ -208,8 +288,10 @@ func TestGetGlueRecordHappy(t *testing.T) {
 // from "API failed".
 func TestGetGlueRecordNotRegistered(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		// Real Dynadot error shape (string code "-1" at top of
+		// GetNsResponse, no ResponseHeader wrapper — see #939).
 		fmt.Fprintln(w, `{
-		  "GetNsResponse": {"ResponseHeader": {"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}
+		  "GetNsResponse": {"ResponseCode":"-1","Status":"error","Error":"Name server not found"}
 		}`)
 	})
 	got, err := a.GetGlueRecord(context.Background(), "k:s", "ns1.otech999.omani.works")
@@ -242,11 +324,11 @@ func TestRegisterGlueRecordFreshHost(t *testing.T) {
 		cmd := r.URL.Query().Get("command")
 		switch calls {
 		case 1:
-			// Probe — not registered.
+			// Probe — not registered. Real Dynadot error shape.
 			if cmd != "get_ns" {
 				t.Errorf("call 1: command = %q, want get_ns", cmd)
 			}
-			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}}`)
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
 		case 2:
 			// Register with the supplied IP.
 			if cmd != "register_ns" {
@@ -258,7 +340,9 @@ func TestRegisterGlueRecordFreshHost(t *testing.T) {
 			if got := r.URL.Query().Get("ip0"); got != "203.0.113.42" {
 				t.Errorf("ip0 = %q, want 203.0.113.42", got)
 			}
-			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`)
+			// register_ns success — real Dynadot shape: code+status at
+			// top of RegisterNsResponse (no wrapper).
+			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseCode":0,"Status":"success"}}`)
 		default:
 			t.Errorf("unexpected call %d (cmd=%s)", calls, cmd)
 		}
@@ -286,9 +370,12 @@ func TestRegisterGlueRecordIdempotent(t *testing.T) {
 		if cmd != "get_ns" {
 			t.Errorf("command = %q, want get_ns", cmd)
 		}
+		// Real Dynadot get_ns success — code+status at top of
+		// GetNsResponse (no ResponseHeader wrapper, see #939).
 		fmt.Fprintln(w, `{
 		  "GetNsResponse": {
-		    "ResponseHeader": {"ResponseCode":"0","Status":"success"},
+		    "ResponseCode": 0,
+		    "Status": "success",
 		    "NsInfo": {"NameServer": {"Host":"ns1.otech103.omani.works", "IP":["203.0.113.42"]}}
 		  }
 		}`)
@@ -314,9 +401,11 @@ func TestRegisterGlueRecordIPChanged(t *testing.T) {
 			if cmd != "get_ns" {
 				t.Errorf("call 1: command = %q, want get_ns", cmd)
 			}
+			// Real Dynadot get_ns shape — top-level code+status, no wrapper.
 			fmt.Fprintln(w, `{
 			  "GetNsResponse": {
-			    "ResponseHeader": {"ResponseCode":"0","Status":"success"},
+			    "ResponseCode": 0,
+			    "Status": "success",
 			    "NsInfo": {"NameServer": {"Host":"ns1.otech103.omani.works", "IP":["198.51.100.7"]}}
 			  }
 			}`)
@@ -330,7 +419,9 @@ func TestRegisterGlueRecordIPChanged(t *testing.T) {
 			if got := r.URL.Query().Get("ip0"); got != "203.0.113.42" {
 				t.Errorf("ip0 = %q, want 203.0.113.42", got)
 			}
-			fmt.Fprintln(w, `{"SetNsIpResponse":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`)
+			// set_ns_ip success — real Dynadot shape: code+status at top
+			// of SetNsIpResponse (no wrapper).
+			fmt.Fprintln(w, `{"SetNsIpResponse":{"ResponseCode":0,"Status":"success"}}`)
 		default:
 			t.Errorf("unexpected call %d (cmd=%s)", calls, cmd)
 		}
@@ -357,7 +448,7 @@ func TestRegisterGlueRecordRateLimitedDuringRegister(t *testing.T) {
 			if cmd != "get_ns" {
 				t.Errorf("call 1: command = %q, want get_ns", cmd)
 			}
-			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}}`)
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
 		case 2:
 			if cmd != "register_ns" {
 				t.Errorf("call 2: command = %q, want register_ns", cmd)
@@ -391,8 +482,8 @@ func TestRegisterGlueRecordValidation(t *testing.T) {
 func TestRegisterGlueRecordBadToken(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		// get_ns probe is allowed (returns not-found) BEFORE the token
-		// parse for the set_ns_ip / register_ns path.
-		fmt.Fprintln(w, `{"GetNsResponse":{"ResponseHeader":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}}`)
+		// parse for the set_ns_ip / register_ns path. Real Dynadot shape.
+		fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
 	})
 	err := a.RegisterGlueRecord(context.Background(), "no-colon", "ns1.x.com", "1.2.3.4")
 	if !errors.Is(err, registrar.ErrInvalidToken) {
