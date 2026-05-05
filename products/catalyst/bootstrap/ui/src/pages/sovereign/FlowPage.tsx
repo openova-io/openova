@@ -41,6 +41,7 @@ import {
 } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
@@ -443,11 +444,17 @@ export function FlowPage({
         toggleFold(jobId)
         return
       }
-      // Leaf: navigate to its own home.
-      navigate({
-        to: '/jobs/$jobId' as never,
-        params: { deploymentId, jobId } as never,
-      })
+      // Leaf: navigate to its own home. Chroot-aware target: when the
+      // operator is on the mother's monitoring surface (deploymentId
+      // present in URL params), stay scoped under
+      // /provision/<id>/jobs/<jobId>; on the Sovereign's adult
+      // hostname the deploymentId is implicit so the clean root form
+      // /jobs/<jobId> is correct.
+      const target =
+        deploymentId && DETECTED_MODE.mode !== 'sovereign'
+          ? `/provision/${deploymentId}/jobs/${jobId}`
+          : `/jobs/${jobId}`
+      navigate({ to: target as never })
     },
     [navigate, deploymentId, cancelPendingClick, allJobs, toggleFold],
   )

@@ -26,8 +26,9 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useParams } from '@tanstack/react-router'
 import type { Job, JobStatus } from '@/lib/jobs.types'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 /* ──────────────────────────────────────────────────────────────────
  * Pure helpers (exported for unit tests)
@@ -345,8 +346,34 @@ interface JobRowProps {
   parentLabel: string
 }
 
+/**
+ * useJobLinkBuilder — returns a function that builds the chroot-correct
+ * Link `to` for a job id.
+ *
+ * On the mother's monitoring surface (Catalyst-Zero hostname,
+ * `/sovereign/provision/$deploymentId/...`) every link MUST stay scoped
+ * under `/provision/$deploymentId/jobs/$jobId` — escaping to clean
+ * `/jobs/$jobId` would route the operator to either the mother's own
+ * Sovereign-Console route (404 here) or the legacy /sovereign/jobs
+ * surface (which renders disjointed data).
+ *
+ * On the Sovereign's adult surface (hostname = `console.<sov-fqdn>`)
+ * the deploymentId is implicit from the hostname, so the link uses the
+ * clean root form `/jobs/$jobId`.
+ */
+function useJobLinkBuilder(): (jobId: string) => string {
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  const isSovereign = DETECTED_MODE.mode === 'sovereign'
+  const depId = params.deploymentId ?? ''
+  return (jobId: string) =>
+    isSovereign || !depId
+      ? `/jobs/${jobId}`
+      : `/provision/${depId}/jobs/${jobId}`
+}
+
 function JobRow({ job, parentLabel }: JobRowProps) {
   const started = formatRelative(job.startedAt)
+  const jobLink = useJobLinkBuilder()
   return (
     <tr
       className="jobs-row"
@@ -355,8 +382,7 @@ function JobRow({ job, parentLabel }: JobRowProps) {
     >
       <td className="jobs-cell jobs-cell-name">
         <Link
-          to={`/jobs/$jobId` as never}
-          params={{ jobId: job.id } as never}
+          to={jobLink(job.id) as never}
           className="jobs-row-link"
           data-testid={`jobs-row-link-${job.id}`}
         >
@@ -387,8 +413,7 @@ function JobRow({ job, parentLabel }: JobRowProps) {
             group as its host job (issue #351). */}
         {job.parentId ? (
           <Link
-            to={`/jobs/$jobId` as never}
-            params={{ jobId: job.parentId } as never}
+            to={jobLink(job.parentId) as never}
             className="jobs-chip jobs-chip-parent jobs-chip-link"
             data-testid={`jobs-cell-parent-${job.id}`}
             title={parentLabel}
