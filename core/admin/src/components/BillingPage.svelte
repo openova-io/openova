@@ -1,6 +1,7 @@
 <script lang="ts">
   import AdminShell from './AdminShell.svelte';
   import {
+    getMe,
     getBillingSettings,
     updateBillingSettings,
     listPromoCodes,
@@ -15,6 +16,11 @@
   // settings. The Stripe-settings section is rendered conditionally on
   // `userRole === 'superadmin'` and the GET /billing/admin/settings call
   // is skipped for sovereign-admin (it would 403 anyway).
+  // #1000 — userRole is driven by BillingPage's own getMe() in the
+  // initial $effect, NOT by writing it from inside the AdminShell snippet's
+  // {@const}. Svelte 5 treats state writes during render as
+  // state_unsafe_mutation and the parent's $effect does not reliably
+  // re-fire — that's what stranded the spinner before.
   let userRole = $state<string>('');
   let settings = $state<BillingSettings | null>(null);
   let promos = $state<PromoCode[]>([]);
@@ -57,11 +63,21 @@
     }
   }
 
-  // Load happens once we know the user's role — AdminShell hands us
-  // `user` via the children snippet, so we re-trigger when userRole flips
-  // from '' to 'superadmin' / 'sovereign-admin'.
   $effect(() => {
-    if (userRole) load(userRole);
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await getMe();
+        if (cancelled) return;
+        userRole = me.role;
+        await load(me.role);
+      } catch (e: any) {
+        if (cancelled) return;
+        error = e.message;
+        loading = false;
+      }
+    })();
+    return () => { cancelled = true; };
   });
 
   async function saveSettings(e: Event) {
@@ -126,7 +142,6 @@
 
 <AdminShell activePage="billing">
   {#snippet children(user: User)}
-    {@const _ = (userRole = user.role)}
     <div>
       <div>
         <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Billing</h1>
