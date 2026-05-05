@@ -627,23 +627,23 @@ const marketplaceProductRoute = createRoute({
  * Sovereigns by refactoring the canonical components to read deploymentId
  * from a route-aware hook (useResolvedDeploymentId, already added).
  */
+/**
+ * Sovereign Console layout — mounted at the root path on Sovereign clusters
+ * so operator pages live at clean URLs (`/dashboard`, `/apps`, `/jobs`,
+ * `/cloud`, `/users`, `/settings`, `/parent-domains`, `/catalog`). On
+ * contabo the same component renders at `/sovereign/<page>` — but the
+ * mothership wizard tracks per-deployment state at `/sovereign/provision/$id/*`
+ * (the transient URL pattern that's only meaningful while monitoring
+ * a specific provisioning run from the wizard shell).
+ */
+/**
+ * Pathless layout route — inherits the parent URL (root) and only adds
+ * the SovereignConsoleLayout chrome. Children live at clean root paths.
+ */
 const consoleLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/console',
+  id: '_sovereign_console',
   component: SovereignConsoleLayout,
-})
-
-// /console/* mounts the SAME canonical components as /provision/$deploymentId/*
-// — the components resolve deploymentId via useResolvedDeploymentId() which
-// falls back from URL params to GET /api/v1/sovereign/self when running on
-// a Sovereign cluster. Pixel-byte-byte-identical UI, clean URLs.
-const consoleIndexRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/console/dashboard' as never, replace: true })
-  },
-  component: () => null,
 })
 const consoleDashboardRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -813,7 +813,6 @@ const routeTree = rootRoute.addChildren([
   marketplaceFamilyRoute,
   marketplaceProductRoute,
   consoleLayoutRoute.addChildren([
-    consoleIndexRoute,
     consoleDashboardRoute,
     consoleAppsRoute,
     consoleAppDetailRoute,

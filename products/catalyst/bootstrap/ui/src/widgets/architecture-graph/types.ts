@@ -40,6 +40,17 @@ export type ArchNodeType =
   | 'Volume'
   | 'Service'
   | 'Ingress'
+  // K8s-side projection (issue #975) — surfaced from the per-Sovereign
+  // k8scache.Factory's Indexer via /api/v1/sovereigns/{id}/k8s/stream.
+  // Every K8s node carries a `Pod:<ns>/<name>` style composite id; the
+  // bridge with the cloud-side `WorkerNode` is a name-or-IP match
+  // collapsed at adapter merge time.
+  | 'Namespace'
+  | 'Pod'
+  | 'Deployment'
+  | 'StatefulSet'
+  | 'DaemonSet'
+  | 'ConfigMap'
 
 /**
  * Canonical ordered list of every type the data layer + chip strip
@@ -61,7 +72,25 @@ export const ALL_NODE_TYPES: ArchNodeType[] = [
   'Volume',
   'Service',
   'Ingress',
+  // K8s-side
+  'Namespace',
+  'Pod',
+  'Deployment',
+  'StatefulSet',
+  'DaemonSet',
+  'ConfigMap',
 ]
+
+/**
+ * Default-off node types — high-cardinality kinds whose chips start
+ * unchecked. Operators can enable them at any time. Today: Pod and
+ * ConfigMap, which can balloon past 200+ nodes on a healthy Sovereign
+ * and crowd the canvas before any signal emerges.
+ */
+export const DEFAULT_INACTIVE_TYPES: ReadonlySet<ArchNodeType> = new Set([
+  'Pod',
+  'ConfigMap',
+])
 
 /**
  * Edge relationship types. Containment is just one of these — the
@@ -206,6 +235,13 @@ export const NODE_FILL: Record<ArchNodeType, string> = {
   Volume: '#22b8cf', // cyan — block storage
   Service: '#20c997', // mint — k8s service
   Ingress: '#e64980', // pink — k8s ingress
+  // K8s-side projection
+  Namespace: '#495057', // dark grey — logical grouping
+  Pod: '#74c0fc', // light blue — leaf workload
+  Deployment: '#4dabf7', // sky blue — workload owner
+  StatefulSet: '#6741d9', // deep violet — stateful workload owner
+  DaemonSet: '#9c36b5', // magenta — per-node workload owner
+  ConfigMap: '#adb5bd', // light grey — config payload
 }
 
 export const EDGE_STROKE: Record<ArchEdgeType, string> = {
