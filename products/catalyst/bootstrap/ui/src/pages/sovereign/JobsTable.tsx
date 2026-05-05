@@ -359,7 +359,7 @@ function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
     >
       <td className="jobs-cell jobs-cell-name">
         <Link
-          to="/provision/$deploymentId/jobs/$jobId"
+          to={`/jobs/$jobId` as never}
           params={{ deploymentId, jobId: job.id }}
           className="jobs-row-link"
           data-testid={`jobs-row-link-${job.id}`}
@@ -391,7 +391,7 @@ function JobRow({ job, deploymentId, parentLabel }: JobRowProps) {
             group as its host job (issue #351). */}
         {job.parentId ? (
           <Link
-            to="/provision/$deploymentId/jobs/$jobId"
+            to={`/jobs/$jobId` as never}
             params={{ deploymentId, jobId: job.parentId }}
             className="jobs-chip jobs-chip-parent jobs-chip-link"
             data-testid={`jobs-cell-parent-${job.id}`}

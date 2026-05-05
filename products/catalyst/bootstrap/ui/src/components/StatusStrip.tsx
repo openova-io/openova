@@ -109,7 +109,7 @@ export function StatusStrip({
       <style>{STATUS_STRIP_CSS}</style>
 
       <Link
-        to="/provision/$deploymentId"
+        to={`/dashboard` as never}
         params={{ deploymentId }}
         className="status-strip-breadcrumb"
         data-testid="sov-status-strip-breadcrumb"

@@ -351,7 +351,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             <div className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
             Provisioning
             <Link
-              to="/provision/$deploymentId/jobs"
+              to={`/jobs` as never}
               params={{ deploymentId }}
               className="ml-1 underline text-[var(--color-accent)]"
             >
@@ -360,7 +360,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           </div>
         ) : streamStatus === 'completed' ? (
           <Link
-            to="/provision/$deploymentId/jobs"
+            to={`/jobs` as never}
             params={{ deploymentId }}
             className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           >
@@ -513,7 +513,7 @@ function AppCard({ app, status, deploymentId, isService }: AppCardProps) {
   const stateClass = `state-${status}`
   return (
     <Link
-      to="/provision/$deploymentId/app/$componentId"
+      to={`/app/$componentId` as never}
       params={{ deploymentId, componentId: app.id }}
       className={`app-card ${stateClass}${isService ? ' is-service' : ''}`}
       data-testid={`sov-app-card-${app.id}`}

@@ -434,7 +434,7 @@ const legacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
     component: NoopRedirectComponent,
     beforeLoad: ({ params }) => {
       throw redirect({
-        to: '/provision/$deploymentId/cloud' as never,
+        to: '/cloud' as never,
         params: params as never,
         search: r.search as never,
         replace: true,
@@ -457,7 +457,7 @@ const provisionInfrastructureIndexRoute = createRoute({
   path: '/',
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: '/provision/$deploymentId/cloud' as never,
+      to: '/cloud' as never,
       params: params as never,
       search: { view: 'graph' } as never,
       replace: true,
@@ -485,7 +485,7 @@ const infraLegacyRedirectRoutes = INFRA_LEGACY_REDIRECTS.map((r) =>
     component: NoopRedirectComponent,
     beforeLoad: ({ params }) => {
       throw redirect({
-        to: '/provision/$deploymentId/cloud' as never,
+        to: '/cloud' as never,
         params: params as never,
         search: r.search as never,
         replace: true,

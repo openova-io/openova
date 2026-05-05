@@ -130,7 +130,7 @@ export function UserAccessEditPage({
         await createUserAccess(deploymentId, req)
       }
       navigate({
-        to: '/provision/$deploymentId/users' as never,
+        to: '/users' as never,
         params: { deploymentId } as never,
       })
     } catch (err) {
@@ -252,7 +252,7 @@ export function UserAccessEditPage({
               data-testid="ua-button-cancel"
               onClick={() =>
                 navigate({
-                  to: '/provision/$deploymentId/users' as never,
+                  to: '/users' as never,
                   params: { deploymentId } as never,
                 })
               }

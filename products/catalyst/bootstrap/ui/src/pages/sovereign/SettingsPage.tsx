@@ -312,7 +312,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
                 grants, and namespace scopes share one editor.
               </p>
               <Link
-                to="/provision/$deploymentId/users"
+                to={`/users` as never}
                 params={{ deploymentId }}
                 className="mt-2 inline-flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                 data-testid="settings-members-link"

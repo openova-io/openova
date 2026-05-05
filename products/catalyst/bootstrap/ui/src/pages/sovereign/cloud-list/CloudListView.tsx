@@ -66,7 +66,7 @@ export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
     if (search.kind === activeKind) return
     if (!pathname.endsWith('/cloud')) return
     navigate({
-      to: '/provision/$deploymentId/cloud' as never,
+      to: '/cloud' as never,
       params: { deploymentId } as never,
       search: { view: 'list', kind: activeKind } as never,
       replace: true,
@@ -80,7 +80,7 @@ export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
   const setActiveKind = useCallback(
     (next: CloudListKind) => {
       navigate({
-        to: '/provision/$deploymentId/cloud' as never,
+        to: '/cloud' as never,
         params: { deploymentId } as never,
         search: { view: 'list', kind: next } as never,
         replace: false,

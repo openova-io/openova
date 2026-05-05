@@ -75,31 +75,31 @@ const FLAT_NAV: FlatNavItem[] = [
   {
     id: 'apps',
     label: 'Apps',
-    to: '/provision/$deploymentId',
+    to: '/dashboard' as never,
     icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
   },
   {
     id: 'jobs',
     label: 'Jobs',
-    to: '/provision/$deploymentId/jobs',
+    to: '/jobs' as never,
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   },
   {
     id: 'dashboard',
     label: 'Dashboard',
-    to: '/provision/$deploymentId/dashboard',
+    to: '/dashboard' as never,
     icon: 'M3 3h7v9H3V3zm11 0h7v5h-7V3zM14 10h7v11h-7V10zM3 14h7v7H3v-7z',
   },
   {
     id: 'cloud',
     label: 'Cloud',
-    to: '/provision/$deploymentId/cloud',
+    to: '/cloud' as never,
     icon: CLOUD_ICON,
   },
   {
     id: 'users',
     label: 'Users',
-    to: '/provision/$deploymentId/users',
+    to: '/users' as never,
     // Tabler IconUsers — verbatim path data, viewBox 24x24.
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
@@ -108,7 +108,7 @@ const FLAT_NAV: FlatNavItem[] = [
 const SETTINGS_ITEM: FlatNavItem = {
   id: 'settings',
   label: 'Settings',
-  to: '/provision/$deploymentId/settings',
+  to: '/settings' as never,
   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 

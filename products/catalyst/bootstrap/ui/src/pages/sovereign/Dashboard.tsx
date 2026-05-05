@@ -265,7 +265,7 @@ export function Dashboard({
 
   function navigateToApp(componentId: string) {
     router.navigate({
-      to: '/provision/$deploymentId/app/$componentId',
+      to: '/app/$componentId',
       params: { deploymentId, componentId },
     })
   }
