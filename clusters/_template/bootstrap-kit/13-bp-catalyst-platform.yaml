@@ -135,7 +135,27 @@ spec:
       # values.yaml. Without this bump the OCI artifact still references
       # the old image and the Sovereign's tenant orchestrator emits
       # tenant overlays with stale openova-blueprints sourceRef.
-      version: 1.4.16
+      # 1.4.17 (issue #901): unblock Sovereign Console login on every
+      # fresh provision. 3-bug chain:
+      #   1. NEW templates/catalyst-openova-kc-credentials-secret.yaml
+      #      auto-mirrors the canonical KC SA Secret (`keycloak/
+      #      catalyst-kc-sa-credentials`) into catalyst-system as
+      #      `catalyst-openova-kc-credentials` with the keys
+      #      api-deployment.yaml's PIN-auth env block expects. Gated on
+      #      `lookup "v1" "Secret" "keycloak" "catalyst-kc-sa-credentials"`
+      #      returning non-nil — renders only on Sovereign, skips on
+      #      contabo (which has its own hand-rolled Secret). Same Helm-
+      #      `lookup` persistence + `helm.sh/resource-policy: keep`
+      #      pattern as templates/marketplace-api/secret.yaml (#887).
+      #   2. SMTP host/port/from defaults flow through .Values.sovereign.
+      #      smtp.* (mail.openova.io:587 / noreply@openova.io). SMTP
+      #      user/pass mirrored from `catalyst-system/sovereign-smtp-
+      #      credentials` (#883) when present.
+      #   3. CATALYST_POST_AUTH_REDIRECT default flips from
+      #      /sovereign/wizard (mothership-only) to /sovereign/components
+      #      (post-handover Sovereign homepage). Per-Sovereign overlays
+      #      override via catalystApi.env additional-env patch.
+      version: 1.4.17
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
