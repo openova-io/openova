@@ -81,7 +81,12 @@ spec:
       # services (auth, gateway) that pin to valkey for session/state.
       # cnpg-cluster.yaml extended to bootstrap sme_documents (FerretDB
       # backing DB) alongside sme_billing.
-      version: 1.4.4
+      # 1.4.5 (issue #863): mirror bp-valkey's auto-generated auth
+      # password from `valkey/valkey` Secret into `sme/sme-valkey-auth`
+      # via Helm lookup, and wire VALKEY_PASSWORD into auth + gateway
+      # Deployments. Clears the NOAUTH HELLO crashloop that started
+      # appearing after 1.4.4 made cross-ns Valkey reachable.
+      version: 1.4.5
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

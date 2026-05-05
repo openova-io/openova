@@ -9,6 +9,7 @@ import (
 	"github.com/openova-io/openova/core/services/shared/db"
 	"github.com/openova-io/openova/core/services/shared/health"
 	"github.com/openova-io/openova/core/services/shared/middleware"
+	"github.com/valkey-io/valkey-go"
 )
 
 func main() {
@@ -16,6 +17,11 @@ func main() {
 	jwtSecret := getEnv("JWT_SECRET", "dev-secret")
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	valkeyAddr := getEnv("VALKEY_ADDR", "valkey:6379")
+	// Cross-ns bp-valkey deployments require auth (bitnami default).
+	// Issue #863: empty username + password keep contabo-mkt's auth-less
+	// in-namespace Valkey working unchanged.
+	valkeyUsername := getEnv("VALKEY_USERNAME", "")
+	valkeyPassword := getEnv("VALKEY_PASSWORD", "")
 	rateLimit := getEnvInt("RATE_LIMIT_RPM", 120)
 	// Trusted proxy CIDRs are consulted when deciding whether to honour
 	// X-Forwarded-For / X-Real-IP headers. Defaults to the k3s pod CIDR so
@@ -65,8 +71,16 @@ func main() {
 		{PathPrefix: "/api/notification/", Upstream: notificationURL, StripPrefix: "/api", Public: false},
 	}
 
-	// Connect to Valkey for rate limiting.
-	valkeyClient, err := db.ConnectValkey(valkeyAddr)
+	// Connect to Valkey for rate limiting. Use the auth-aware constructor
+	// when a password is configured; otherwise fall through to the no-auth
+	// path so existing deployments without `requirepass` keep working.
+	var valkeyClient valkey.Client
+	var err error
+	if valkeyPassword != "" {
+		valkeyClient, err = db.ConnectValkeyWithAuth(valkeyAddr, valkeyUsername, valkeyPassword)
+	} else {
+		valkeyClient, err = db.ConnectValkey(valkeyAddr)
+	}
 	if err != nil {
 		log.Printf("warning: valkey unavailable (%v), rate limiting disabled", err)
 	}

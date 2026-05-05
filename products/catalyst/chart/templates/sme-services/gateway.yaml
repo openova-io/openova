@@ -35,6 +35,20 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: VALKEY_ADDR
+            # bp-valkey ships auth.enabled=true (bitnami default); the
+            # `default` ACL user uses requirepass, so VALKEY_USERNAME stays
+            # empty and VALKEY_PASSWORD reads from the cross-ns mirror
+            # Secret rendered by templates/sme-services/valkey-cross-ns-
+            # secret.yaml. Issue #863. optional=true so contabo-mkt's
+            # auth-less in-namespace Valkey (data/valkey.yaml) works
+            # unchanged — empty VALKEY_PASSWORD triggers the no-auth
+            # connect path in core/services/shared/db/valkey.go.
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sme-valkey-auth
+                  key: valkey-password
+                  optional: true
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:

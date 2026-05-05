@@ -13,12 +13,18 @@ import (
 	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/health"
 	"github.com/openova-io/openova/core/services/shared/middleware"
+	"github.com/valkey-io/valkey-go"
 )
 
 func main() {
 	// Configuration from environment.
 	databaseURL := getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/auth?sslmode=disable")
 	valkeyAddr := getEnv("VALKEY_ADDR", "localhost:6379")
+	// Cross-ns bp-valkey deployments require auth (bitnami default).
+	// Issue #863: empty username + password keep contabo-mkt's auth-less
+	// in-namespace Valkey working unchanged.
+	valkeyUsername := getEnv("VALKEY_USERNAME", "")
+	valkeyPassword := getEnv("VALKEY_PASSWORD", "")
 	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	jwtRefreshSecret := []byte(getEnv("JWT_REFRESH_SECRET", ""))
@@ -38,8 +44,16 @@ func main() {
 	defer pgDB.Close()
 	slog.Info("connected to PostgreSQL")
 
-	// Connect to Valkey.
-	valkeyClient, err := db.ConnectValkey(valkeyAddr)
+	// Connect to Valkey. Use the auth-aware constructor when a password
+	// is configured; otherwise fall through to the no-auth path so
+	// existing deployments without `requirepass` keep working.
+	var valkeyClient valkey.Client
+	var err error
+	if valkeyPassword != "" {
+		valkeyClient, err = db.ConnectValkeyWithAuth(valkeyAddr, valkeyUsername, valkeyPassword)
+	} else {
+		valkeyClient, err = db.ConnectValkey(valkeyAddr)
+	}
 	if err != nil {
 		slog.Error("failed to connect to Valkey", "error", err)
 		os.Exit(1)
