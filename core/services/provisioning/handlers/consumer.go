@@ -568,14 +568,23 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 		branch = "main"
 	}
 
-	currentParent, readErr := h.GitHubClient.ReadFile(ctx, branch, parentPath)
-	files := map[string]string{}
-	if readErr == nil {
-		files[parentPath] = gitops.RemoveTenantFromParentKustomization(currentParent, data.Slug)
+	// Re-read the parent kustomization on EACH attempt so a concurrent
+	// provision/teardown that beat us doesn't get its slug entry resurrected
+	// when our retry replays a stale files map. Issue: live race observed
+	// 2026-05-06 between bookcheck teardown and a concurrent multitest
+	// provision — multitest's retry resurrected bookcheck because
+	// CommitFilesWithPrune didn't re-read the parent on rebuild.
+	rebuild := func(ctx context.Context) (map[string]string, error) {
+		currentParent, readErr := h.GitHubClient.ReadFile(ctx, branch, parentPath)
+		files := map[string]string{}
+		if readErr == nil {
+			files[parentPath] = gitops.RemoveTenantFromParentKustomization(currentParent, data.Slug)
+		}
+		return files, nil
 	}
 
 	commitMsg := fmt.Sprintf("teardown: delete tenant %s", data.Slug)
-	if err := h.GitHubClient.CommitFilesWithPrune(ctx, branch, commitMsg, files, []string{tenantDir}); err != nil {
+	if err := h.GitHubClient.CommitFilesWithPruneAndRebuild(ctx, branch, commitMsg, nil, []string{tenantDir}, rebuild); err != nil {
 		slog.Error("teardown: commit/prune failed", "slug", data.Slug, "error", err)
 		return err
 	}
@@ -929,15 +938,27 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 		branch = "main"
 	}
 
-	currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, branch, parentKustomPath)
-	if readErr != nil {
-		slog.Warn("could not read parent kustomization, using empty", "error", readErr)
-		currentParentKustom = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
+	// Re-read the parent kustomization on EACH commit attempt so a concurrent
+	// teardown's removal of another slug doesn't get reverted by our retry
+	// replaying a stale files map. Issue: live race observed 2026-05-06 where
+	// multitest provision's retry resurrected the just-deleted bookcheck slug.
+	rebuild := func(ctx context.Context) (map[string]string, error) {
+		currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, branch, parentKustomPath)
+		if readErr != nil {
+			slog.Warn("could not read parent kustomization, using empty", "error", readErr)
+			currentParentKustom = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
+		}
+		// Copy the static tenant manifests + the freshly-merged parent.
+		fresh := make(map[string]string, len(manifests)+1)
+		for k, v := range manifests {
+			fresh[k] = v
+		}
+		fresh[parentKustomPath] = gitops.UpdateParentKustomization(currentParentKustom, subdomain)
+		return fresh, nil
 	}
-	manifests[parentKustomPath] = gitops.UpdateParentKustomization(currentParentKustom, subdomain)
 
 	commitMsg := fmt.Sprintf("provision: deploy tenant %s (plan: %s, apps: %d)", subdomain, planSlug, len(appSlugs))
-	if err := h.GitHubClient.CommitFiles(ctx, branch, commitMsg, manifests); err != nil {
+	if err := h.GitHubClient.CommitFilesWithPruneAndRebuild(ctx, branch, commitMsg, nil, nil, rebuild); err != nil {
 		slog.Error("failed to commit manifests", "provision_id", provisionID, "error", err)
 		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("git commit failed: %s", err))
 		return
