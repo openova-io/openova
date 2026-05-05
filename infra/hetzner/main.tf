@@ -176,18 +176,28 @@ locals {
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
-  }), "/(?m)^[ ]{0,2}# .*\n/", "")
+  }), "/(?m)^[ ]*#( |$).*\n/", "")
 
-  # Strip indent-0 and indent-2 YAML-block comment lines from the rendered
-  # cloud-init before passing it to Hetzner (32 KiB user_data limit per the
-  # hcloud API). The source template ships ~16 KB of documentation prose in
-  # comments — explanatory text for future readers, not operationally
-  # meaningful at boot. Indent-4+ comments live INSIDE heredoc `content: |`
-  # blocks (embedded shell scripts, kubeconfig fragments, etc.) and MUST
-  # be preserved. The RE2 regex below matches lines whose first 0-2 chars
-  # are spaces followed by `#` followed by anything-but-`!` (preserves
-  # shebangs in case they ever appear at indent 0-2). Phase-8a-preflight
-  # bug #5 surfaced the 32 KiB cap.
+  # Strip ALL pure-comment lines (any indent) from the rendered cloud-init
+  # before passing it to Hetzner (HARD 32 KiB user_data limit per the hcloud
+  # API). The source template ships ~44 KB of documentation prose in comments
+  # — explanatory text for future readers, not operationally meaningful at
+  # boot. Comments live at indent-0/2 (template-level prose explaining the
+  # tftpl itself) AND at indent-6+ INSIDE heredoc `content: |` blocks (YAML
+  # comments inside flux-bootstrap.yaml, cloud-credentials-secret.yaml, etc.
+  # — every write_files file we materialise is YAML, JSON, or a key=value
+  # config; none are shell scripts). YAML/JSON/INI/conf parsers all ignore
+  # `#`-prefixed comment lines so stripping them in Tofu loses nothing at
+  # runtime. The regex `^[ ]*#( |$).*` matches a leading-whitespace `#`
+  # followed by either a space (prose comment) OR end-of-line (separator
+  # `#`). Lines whose `#` is followed by ANY OTHER char (e.g. `#!shebang`,
+  # `#cloud-config` at line 1, `#pragma`) are NOT matched — they're operative.
+  # Phase-8a-preflight bug #5 surfaced the 32 KiB cap initially; issue #966
+  # raised it again on otech114 after #921 (cluster-autoscaler HCLOUD_CLOUD_INIT
+  # b64) pushed rendered size past 36 KiB. The any-indent strip lands rendered
+  # cloud-init at ~22 KB with ~10 KB of headroom for future additions.
+  # Guardrail in this same module: see `validate_user_data_size` precondition
+  # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     sovereign_subdomain        = var.sovereign_subdomain
@@ -303,7 +313,7 @@ locals {
     # bootstrap content the Phase-0 workers receive, so autoscaler-spawned
     # workers join the cluster identically.
     worker_cloud_init_b64      = base64encode(local.worker_cloud_init)
-  }), "/(?m)^[ ]{0,2}# .*\n/", "")
+  }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
 resource "hcloud_server" "control_plane" {
@@ -324,6 +334,28 @@ resource "hcloud_server" "control_plane" {
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
     "catalyst.openova.io/role"      = "control-plane"
+  }
+
+  # Issue #966 — Hetzner Cloud HARD limit on user_data is 32768 bytes.
+  # Fail at plan-time (not at apply-time after the network/LB/firewall are
+  # already created) if the rendered cloud-init exceeds 30720 bytes (30 KiB
+  # = 32 KiB minus 10% future-additions buffer). Diagnosed live on otech114
+  # deployment 5c3eea37d3aacda6 where #921's HCLOUD_CLOUD_INIT b64 + #827
+  # multi-domain + earlier accumulation pushed rendered size to ~37 KB,
+  # causing `tofu apply` to FATAL with `invalid input in field 'user_data'
+  # [Length must be between 0 and 32768]` AFTER 30+ seconds of partial
+  # provisioning. The any-indent comment-strip in `local.control_plane_cloud_init`
+  # lands rendered size at ~22 KB; the 30 KiB precondition guards against
+  # future bloat-creep silently re-eating that headroom.
+  lifecycle {
+    precondition {
+      condition     = length(local.control_plane_cloud_init) <= 30720
+      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issue #966."
+    }
+    precondition {
+      condition     = length(local.worker_cloud_init) <= 30720
+      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+    }
   }
 
   depends_on = [hcloud_network_subnet.main]
@@ -349,6 +381,17 @@ resource "hcloud_server" "worker" {
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
     "catalyst.openova.io/role"      = "worker"
+  }
+
+  # Issue #966 — same 32 KiB user_data hard cap applies to workers. The
+  # precondition on hcloud_server.control_plane already guards both rendered
+  # cloud-inits, but mirror it here so a worker-only future change can't
+  # bypass the gate by editing only cloudinit-worker.tftpl.
+  lifecycle {
+    precondition {
+      condition     = length(local.worker_cloud_init) <= 30720
+      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+    }
   }
 
   depends_on = [hcloud_server.control_plane]
