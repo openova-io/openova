@@ -199,7 +199,7 @@ spec:
       # and (b) canonical key shape `smtp-user`/`smtp-pass` in addition
       # to the legacy `user`/`password` source key shape — the new
       # chart writes both shapes, this chart reads either.
-      version: 1.4.20
+      version: 1.4.21
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
