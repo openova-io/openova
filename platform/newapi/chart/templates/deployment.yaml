@@ -1,12 +1,31 @@
 {{- /*
-Deployment skip-render gate. The Deployment binds three operator-supplied
-Secrets (database DSN, app credentials, optional OIDC client secret); if
-any are missing on a default-values render (CI smoke test), the
-Deployment is silently skipped. The Service / ServiceAccount / ConfigMap
-/ NetworkPolicy still render so `helm template` produces a non-empty
-output that proves the chart is structurally sound, while the actual
-Pod-rendering deferred until the per-Sovereign overlay sets
-`database.existingSecret` and `credentials.existingSecret`.
+Deployment skip-render gate.
+
+Pre-#943 the Deployment skipped silently unless the operator manually
+provided three Secrets (database DSN, app credentials, optional OIDC
+client secret) via per-Sovereign overlay. On a freshly franchised
+Sovereign nothing populated those values — the chart emitted Service +
+ConfigMap + NetworkPolicy but no Pod, so NewAPI never came up and
+alice signup gate 5 (LLM) failed.
+
+Issue #943 fix: chart auto-provisions BOTH the CNPG-backed Postgres
+DSN Secret (templates/cnpg-cluster.yaml, gated on .Values.cnpg.enabled)
+AND the SESSION_SECRET/CRYPTO_SECRET credentials Secret (templates/
+credentials-secret.yaml, gated on .Values.credentials.autoProvision).
+Defaults flip both to true so a Sovereign install with bp-newapi at
+slot 80 lands a real Pod without operator intervention.
+
+Effective DSN Secret name resolution:
+  1. .Values.database.existingSecret (operator override) — if set, use
+     it directly (the contabo path or a per-Sovereign external Postgres).
+  2. else when .Values.cnpg.enabled the chart auto-emits its own DSN
+     Secret named `<release>-newapi-db-dsn`.
+  3. else the Deployment skip-renders (legacy path — preserved for
+     environments where neither auto-provision nor a manual Secret is
+     wired).
+
+Same precedence for credentials: explicit existingSecret > auto-emitted
+`<release>-app-creds` > skip-render.
 
 Keycloak OIDC client secret is required only when
 `auth.adminUI.mode=keycloak` AND `auth.adminUI.keycloak.issuer` is set;
@@ -14,7 +33,18 @@ the configmap mirrors this gate.
 */ -}}
 {{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
 {{- $kcConfigured := and $kcMode .Values.auth.adminUI.keycloak.issuer .Values.auth.adminUI.keycloak.existingSecret -}}
-{{- $deployReady := and .Values.newapi.enabled .Values.database.existingSecret .Values.credentials.existingSecret -}}
+{{- /* Resolve database secret: explicit override > chart-emitted CNPG DSN */ -}}
+{{- $effDbSecret := .Values.database.existingSecret -}}
+{{- $effDbKey := .Values.database.existingSecretKey | default "SQL_DSN" -}}
+{{- if and (not $effDbSecret) .Values.cnpg.enabled -}}
+{{- $effDbSecret = default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
+{{- end -}}
+{{- /* Resolve credentials secret: explicit override > chart auto-provision */ -}}
+{{- $effCredsSecret := .Values.credentials.existingSecret -}}
+{{- if and (not $effCredsSecret) .Values.credentials.autoProvision -}}
+{{- $effCredsSecret = default (printf "%s-app-creds" (include "bp-newapi.fullname" .)) .Values.credentials.autoSecretName -}}
+{{- end -}}
+{{- $deployReady := and .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
 {{- if and $kcMode (not $kcConfigured) -}}
 {{- $deployReady = false -}}
 {{- end -}}
@@ -51,11 +81,15 @@ spec:
               protocol: TCP
           env:
             # ── Database (Postgres on bp-cnpg) ────────────────────────
+            # Secret name resolution (issue #943):
+            #   1. .Values.database.existingSecret if set (operator override)
+            #   2. else chart-emitted DSN Secret from cnpg-cluster.yaml
+            #      (`<release>-newapi-db-dsn`) when .Values.cnpg.enabled
             - name: SQL_DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.existingSecret }}
-                  key: {{ .Values.database.existingSecretKey }}
+                  name: {{ $effDbSecret }}
+                  key: {{ $effDbKey }}
 
             # ── Valkey cache ──────────────────────────────────────────
             {{- if .Values.valkey.enabled }}
@@ -72,15 +106,19 @@ spec:
             {{- end }}
 
             # ── App credentials (NewAPI-internal) ─────────────────────
+            # Secret name resolution (issue #943):
+            #   1. .Values.credentials.existingSecret (operator override)
+            #   2. else chart-emitted credentials-secret.yaml output
+            #      when .Values.credentials.autoProvision (DEFAULT true)
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.credentials.existingSecret }}
+                  name: {{ $effCredsSecret }}
                   key: SESSION_SECRET
             - name: CRYPTO_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.credentials.existingSecret }}
+                  name: {{ $effCredsSecret }}
                   key: CRYPTO_SECRET
 
             # ── OIDC (admin UI) ───────────────────────────────────────

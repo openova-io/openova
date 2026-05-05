@@ -12,16 +12,37 @@ import (
 	"time"
 )
 
-// Client provides methods to commit files to a GitHub repository via the Git Data API.
+// Client provides methods to commit files to a GitHub repository via the
+// Git Data API. The API base URL is configurable so the client can target
+// either upstream github.com (the contabo path) or a local Gitea REST API
+// running inside a Sovereign cluster (the issue #940 fix path).
+//
+// Gitea exposes a GitHub-compatible Git Data API at /api/v1 (the same
+// shape this client already uses). The only difference is the base URL —
+// `https://api.github.com` vs e.g.
+// `http://gitea-http.gitea.svc.cluster.local:3000/api/v1`. apiURL on the
+// client struct lets a caller override the prefix without re-implementing
+// the whole client.
 type Client struct {
-	Token string
-	Owner string
-	Repo  string
+	Token  string
+	Owner  string
+	Repo   string
+	APIURL string // optional — defaults to https://api.github.com when empty.
 }
 
-// NewClient creates a GitHub API client.
+// NewClient creates a GitHub API client targeting upstream github.com.
+// Use NewClientWithAPIURL when targeting a Gitea-compatible REST API on
+// a Sovereign cluster.
 func NewClient(token, owner, repo string) *Client {
 	return &Client{Token: token, Owner: owner, Repo: repo}
+}
+
+// NewClientWithAPIURL creates a Git Data API client with a custom base
+// URL — used to target an in-cluster Gitea on Sovereigns (issue #940).
+// Pass apiURL="" or apiURL="https://api.github.com" to fall back to the
+// canonical upstream endpoint.
+func NewClientWithAPIURL(token, owner, repo, apiURL string) *Client {
+	return &Client{Token: token, Owner: owner, Repo: repo, APIURL: strings.TrimRight(apiURL, "/")}
 }
 
 // commitAttemptsMax is how many times CommitFilesWithPrune retries a full
@@ -243,7 +264,11 @@ func (t treeEntry) MarshalJSON() ([]byte, error) {
 }
 
 func (c *Client) apiURL(path string) string {
-	return fmt.Sprintf("https://api.github.com/repos/%s/%s%s", c.Owner, c.Repo, path)
+	base := c.APIURL
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	return fmt.Sprintf("%s/repos/%s/%s%s", base, c.Owner, c.Repo, path)
 }
 
 func (c *Client) doRequest(ctx context.Context, method, url string, body any) ([]byte, error) {

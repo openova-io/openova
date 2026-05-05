@@ -1,0 +1,117 @@
+{{- /*
+CNPG Cluster + DSN Secret for bp-newapi (issue #943).
+
+NewAPI persists users, credits, channels, tokens, and an audit log to
+PostgreSQL. Pre-#943 the chart REQUIRED an operator-supplied
+`database.existingSecret` to render the Deployment — the deployment
+template silently skipped Pod render if it was empty. On a freshly
+franchised Sovereign installing bp-newapi via Flux from the bootstrap-kit
+slot 80 overlay nothing populated this Secret, so the Deployment never
+materialised, NewAPI never came up, and alice signup gate 5 (LLM)
+timed out waiting for `api.<sov-fqdn>` to respond.
+
+Fix (issue #943, 2026-05-05): auto-provision the backing Postgres via
+CNPG when `cnpg.enabled=true` (DEFAULT). The chart renders:
+
+  - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg` with the
+    operator-configured size + storage from .Values.cnpg.cluster.*.
+    CNPG auto-creates `<cluster>-app` Secret (basic-auth shape:
+    username + password keys) and `<cluster>-rw` Service.
+
+  - Secret `<release>-newapi-db-dsn` with the SQL_DSN key the chart's
+    deployment.yaml reads. The DSN is materialised via Helm `lookup`
+    against the CNPG-emitted Secret so the bytes are stable across
+    reinstalls. Persistent across reconciles per the same lookup-and-
+    persist pattern as platform/gitea/chart/templates/admin-secret.yaml
+    (issue #830 Bug 2 + feedback_passwords.md). On first install the
+    lookup returns nil — the Cluster is still warming — and the DSN
+    Secret renders with an empty password. The 1-minute Flux reconcile
+    picks it up on the next tick once CNPG has materialised the bytes.
+
+  - `database.existingSecret` and `database.existingSecretKey` default
+    to the chart-emitted Secret name and key when cnpg.enabled=true,
+    so the deployment.yaml gate passes WITHOUT operator intervention.
+    Per Inviolable Principle #4 the operator MAY still override
+    `.Values.database.existingSecret` to wire NewAPI at an external
+    Postgres without forking the chart.
+
+Capabilities gate: the chart MUST NOT render the Cluster on a Sovereign
+where bp-cnpg has not yet registered the `postgresql.cnpg.io/v1` CRD.
+Without the gate, a cold install fails with "no matches for kind
+Cluster". Same pattern the bp-external-dns chart uses (issue #190) and
+the platform/powerdns/chart/templates/cnpg-cluster.yaml mirror.
+
+Lockstep with bp-newapi 1.4.0 — paired with deployment.yaml change to
+read the chart-emitted DSN by default + the existingSecret value
+defaulting in values.yaml.
+*/}}
+{{- if .Values.cnpg.enabled -}}
+{{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
+{{- $cnpgSecretName := printf "%s-app" $clusterName -}}
+{{- $dsnSecretName := default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
+{{- $database := .Values.cnpg.database | default "newapi" -}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .Values.cnpg.cluster.instances | default 1 }}
+  imageName: {{ .Values.cnpg.cluster.imageName | default "ghcr.io/cloudnative-pg/postgresql:16.4" | quote }}
+  storage:
+    size: {{ .Values.cnpg.cluster.storage | default "5Gi" | quote }}
+    {{- with .Values.cnpg.cluster.storageClassName }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ $database | quote }}
+      owner: {{ .Values.cnpg.cluster.owner | default "newapi" | quote }}
+      {{- with .Values.cnpg.cluster.postInitApplicationSQL }}
+      postInitApplicationSQL:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with .Values.cnpg.cluster.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+{{- /*
+DSN Secret — read CNPG's auto-emitted basic-auth Secret via Helm lookup
+and re-emit the canonical SQL_DSN string the deployment.yaml expects.
+On first install the lookup returns nil; the DSN renders with empty
+password and the Pod stays in CrashLoopBackOff until the next 1-minute
+Flux reconcile picks up the materialised bytes. Same first-install race
+as templates/sme-services/sme-secrets.yaml (issue #859) and
+templates/sme-services/valkey-cross-ns-secret.yaml (issue #863) — both
+proven to recover on the second reconcile in production.
+*/ -}}
+{{- $cnpgSecret := lookup "v1" "Secret" .Release.Namespace $cnpgSecretName -}}
+{{- $pgUser := .Values.cnpg.cluster.owner | default "newapi" -}}
+{{- $pgPass := "" -}}
+{{- $pgHost := printf "%s-rw.%s.svc.cluster.local" $clusterName .Release.Namespace -}}
+{{- if and $cnpgSecret $cnpgSecret.data $cnpgSecret.data.password -}}
+  {{- $pgPass = $cnpgSecret.data.password | b64dec -}}
+{{- end -}}
+{{- $sslMode := .Values.cnpg.sslMode | default "require" -}}
+{{- $dsn := printf "postgres://%s:%s@%s:5432/%s?sslmode=%s" $pgUser $pgPass $pgHost $database $sslMode -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $dsnSecretName }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+  annotations:
+    # Keep the Secret across helm uninstall — re-install picks the
+    # bytes back up via lookup, so external consumers (debug Pods,
+    # backup scripts) keep a stable reference.
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  SQL_DSN: {{ $dsn | b64enc | quote }}
+{{- end }}

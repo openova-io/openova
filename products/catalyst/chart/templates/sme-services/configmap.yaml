@@ -1,4 +1,41 @@
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- /*
+Event-bus default — issue #942 (2026-05-05).
+
+On Catalyst-Zero (contabo, global.sovereignFQDN empty) the SME services
+historically point at a cross-namespace Redpanda in `talentmesh` (migration
+tracked in #68). On franchised Sovereigns the talentmesh namespace does
+not exist and the OpenOva architecture uses NATS JetStream as the only
+local bus per ADR-0001 — slot 09 ships bp-nats-jetstream into namespace
+`nats-jetstream`. Pre-#942 the value was hardcoded to the talentmesh
+Service, which made every SME service crashloop on a fresh Sovereign at
+startup with `lookup redpanda.talentmesh.svc.cluster.local: no such host`,
+blocking alice signup gate 3 (tenant ready).
+
+Per Inviolable Principle #4 (never hardcode), the broker target is
+data-driven via .Values.smeServices.eventBus.brokers. Defaults differ per
+topology so the contabo + Sovereign render paths both work out of the box:
+
+  - Sovereign install (global.sovereignFQDN non-empty) defaults to the
+    in-cluster NATS JetStream Service.
+  - Catalyst-Zero install (global.sovereignFQDN empty) defaults to the
+    legacy Redpanda Service in talentmesh so contabo keeps working.
+
+Per-Sovereign overlays MAY override either default to wire SME services
+at any NATS-protocol or Kafka-protocol broker without forking the chart.
+
+The ConfigMap key name stays REDPANDA_BROKERS for backwards-compatibility
+with existing SME service Go env wiring (the env name is historical; the
+value is whatever broker is actually wired). A future ticket may rename
+the env to EVENT_BUS_BROKERS once every SME service binary reads the new
+name; that rename can ship without re-touching this template because the
+key name is the only thing this template promises to its consumers.
+*/ -}}
+{{- $defaultBrokers := "redpanda.talentmesh.svc.cluster.local:9092" -}}
+{{- if .Values.global.sovereignFQDN -}}
+  {{- $defaultBrokers = "nats-jetstream.nats-jetstream.svc.cluster.local:4222" -}}
+{{- end -}}
+{{- $brokers := default $defaultBrokers (index (default (dict) .Values.smeServices.eventBus) "brokers") -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -43,11 +80,14 @@ data:
   POSTGRES_HOST: "{{ .Values.smePostgres.cluster.name | default "sme-pg" }}-rw.{{ .Values.smePostgres.cluster.namespace | default "sme" }}.svc.cluster.local"
   POSTGRES_PORT: "{{ .Values.smeServices.ferretdb.postgresPort | default 5432 }}"
 
-  # ---- cross-namespace event bus --------------------------------------------
-  # Redpanda currently lives in the talentmesh namespace (migration tracked
-  # in issue #68). Centralised so the eventual move to a sme-owned broker
-  # is a single-key change.
-  REDPANDA_BROKERS: "redpanda.talentmesh.svc.cluster.local:9092"
+  # ---- event bus ------------------------------------------------------------
+  # See header comment for the topology-aware default selection (issue #942).
+  REDPANDA_BROKERS: {{ $brokers | quote }}
+  # Protocol hint for SME services that want to switch wire formats per
+  # broker without re-reading the URL — `kafka` for Redpanda (legacy
+  # contabo), `nats` for NATS JetStream (Sovereign default). Operator-
+  # overridable via .Values.smeServices.eventBus.protocol.
+  EVENT_BUS_PROTOCOL: {{ default (ternary "nats" "kafka" (ne (toString .Values.global.sovereignFQDN) "")) (index (default (dict) .Values.smeServices.eventBus) "protocol") | quote }}
 
   # ---- public / CORS endpoints ----------------------------------------------
   CORS_ORIGIN_PUBLIC: "https://sme.openova.io"

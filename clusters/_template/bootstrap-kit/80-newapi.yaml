@@ -63,6 +63,15 @@ spec:
   chart:
     spec:
       chart: bp-newapi
+      # 1.4.0 (issue #943, 2026-05-05): auto-provision CNPG-backed
+      # Postgres + chart-emitted SESSION_SECRET/CRYPTO_SECRET so a
+      # Sovereign install lands a real Pod without operator intervention.
+      # Pre-#943 the Deployment silently skipped render whenever
+      # database.existingSecret OR credentials.existingSecret was
+      # empty (the bootstrap-kit overlay supplies neither), so NewAPI
+      # never came up and alice signup gate 5 (LLM) timed out. Both
+      # auto-provisions are capability-gated on bp-cnpg's CRD and
+      # operator-overridable per Inviolable Principle #4.
       # 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
       # https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
       # `channel-seed` Helm hook Job that idempotently POSTs default
@@ -70,7 +79,7 @@ spec:
       # integration DoD: alice → OpenClaw → NewAPI → Qwen3.6@BankDhofar
       # end-to-end).
       # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-      version: 1.3.0
+      version: 1.4.0
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

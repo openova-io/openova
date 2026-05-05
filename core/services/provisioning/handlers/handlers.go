@@ -14,6 +14,7 @@ import (
 	"time"
 
 	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
+	"github.com/openova-io/openova/core/services/provisioning/gitguard"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/store"
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -28,9 +29,52 @@ type Handler struct {
 	GitHubClient *ghclient.Client
 	CatalogURL   string // internal URL to catalog service
 
+	// GitBasePath + SovereignFQDN are read at startup from env and used
+	// to re-validate every commit before it lands (issue #944 cross-
+	// cluster pollution guard, defence in depth on top of the startup
+	// validation in main.go). Empty SovereignFQDN means Catalyst-Zero
+	// (contabo) — see ValidateGitBasePath in main.go.
+	GitBasePath   string
+	SovereignFQDN string
+
+	// GitBranch is the branch name commits target. Defaults to "main"
+	// (matching both upstream github.com defaults and bp-gitea's seeded
+	// repo on Sovereigns). Operator-overridable via GITHUB_BRANCH env.
+	GitBranch string
+
 	// day2Cancels tracks in-flight day-2 job wait contexts so tenant.deleted
 	// can preempt them (issue #99). Zero value is ready to use.
 	day2Cancels day2CancelRegistry
+}
+
+// VerifyCommitTargetSafe re-runs the issue #944 cross-cluster pollution
+// guard before every git commit. Callers MUST invoke it as the first
+// statement of any code path that reaches GitHubClient.CommitFiles* —
+// even though startup already validated, a runtime mutation (env-var
+// flip via kubectl exec, ConfigMap update without Pod restart, or a
+// mis-resolved manifest path computed from rec.OTECHFQDN that doesn't
+// share the prefix) could still slip a foreign-cluster path past the
+// startup check.
+//
+// The function is intentionally a thin wrapper around the package-level
+// validator (sub-package gitguard) so the policy lives in exactly one
+// place.
+func (h *Handler) VerifyCommitTargetSafe(targetPath string) error {
+	if err := gitguard.ValidateBasePath(h.GitBasePath, h.SovereignFQDN); err != nil {
+		return fmt.Errorf("base path: %w", err)
+	}
+	if targetPath == "" {
+		return nil
+	}
+	clean := strings.TrimSuffix(targetPath, "/")
+	if strings.HasPrefix(clean, "/") || strings.Contains(clean, "..") {
+		return fmt.Errorf("commit target path must be repo-relative without traversal, got %q", targetPath)
+	}
+	base := strings.TrimSuffix(h.GitBasePath, "/")
+	if base != "" && !strings.HasPrefix(clean, base+"/") && clean != base {
+		return fmt.Errorf("commit target path %q escapes configured GIT_BASE_PATH %q (issue #944 cross-cluster pollution guard)", targetPath, h.GitBasePath)
+	}
+	return nil
 }
 
 // startRequest is the JSON body for manually starting a provision.
