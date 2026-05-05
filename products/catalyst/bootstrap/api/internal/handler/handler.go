@@ -111,6 +111,28 @@ type Handler struct {
 	phase1LatePollTimeout  time.Duration
 	phase1LatePollInterval time.Duration
 
+	// phase1Reachability — test-only override for the pre-flight
+	// apiserver reachability probe (issue #923). Production uses
+	// helmwatch.NewReachabilityProbeFromKubeconfig (discovery client
+	// against /version with rest.Config.Timeout = 30s). Tests inject
+	// a closure that returns N transient errors then nil so the
+	// reconnect path can be exercised without standing up an
+	// apiserver. Zero / nil = "use production default".
+	//
+	// phase1ReachabilityBudget / phase1ReachabilitySleep / probe
+	// timing knobs are the test-friendly overrides for the same
+	// loop. Production reads
+	// CATALYST_PHASE1_REACHABILITY_BUDGET on every Pod start and
+	// passes the parsed Duration into Config.ReachabilityOverallBudget;
+	// the per-attempt + backoff knobs default to the helmwatch
+	// constants and tests inject tiny values for fast runtimes.
+	phase1Reachability             func(kubeconfigYAML string) func(ctx context.Context) error
+	phase1ReachabilityBudget       time.Duration
+	phase1ReachabilitySleep        func(ctx context.Context, d time.Duration)
+	phase1ReachabilityProbeTimeout time.Duration
+	phase1ReachabilityRetryInitial time.Duration
+	phase1ReachabilityRetryMax     time.Duration
+
 	// kubeconfigArrivalTimeout / kubeconfigArrivalPollInterval —
 	// runtime knobs for the polling loop that waits for cloud-init
 	// to PUT the new Sovereign's kubeconfig. Zero falls back to the

@@ -664,6 +664,25 @@ type Result struct {
 	// nil while Phase 1 is in flight or has not started.
 	Phase1FinishedAt *time.Time `json:"phase1FinishedAt,omitempty"`
 
+	// Phase1Substate — live sub-status while Phase 1 is in flight
+	// (issue #923). Set by helmwatch.Watcher.OnSubstate as the watch
+	// progresses through pre-flight reachability + cache-sync. Cleared
+	// (set to "") once the watch terminates and Phase1Outcome is
+	// stamped. The Sovereign Admin's wizard banner reads this to
+	// render a granular status pill while Status itself stays
+	// "phase1-watching":
+	//
+	//   - "watcher-reconnecting" — apiserver was unreachable and the
+	//     pre-flight probe is retrying with backoff (typical after a
+	//     catalyst-api Pod restart while the LB / kube-vip warms up)
+	//   - "watcher-watching"     — apiserver reachable, informer
+	//     attached, observing per-component HelmRelease transitions
+	//
+	// Empty while Phase 1 has not started, has terminated, or the
+	// build of catalyst-api predates the substate field — the wizard
+	// falls back to rendering the bare Status pill.
+	Phase1Substate string `json:"phase1Substate,omitempty"`
+
 	// Phase1Outcome — terminal classification of the Phase-1 watch.
 	// One of:
 	//

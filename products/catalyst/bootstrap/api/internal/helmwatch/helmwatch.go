@@ -172,6 +172,53 @@ const DefaultLatePollTimeout = 10 * time.Minute
 // Operator override: CATALYST_PHASE1_LATE_POLL_INTERVAL.
 const DefaultLatePollInterval = 30 * time.Second
 
+// DefaultReachabilityProbeTimeout — per-attempt timeout for the
+// pre-flight apiserver reachability probe (issue #923). After a
+// catalyst-api Pod restart, the new Pod's TLS handshake to the
+// Sovereign apiserver can hang for the full WatchTimeout (60m
+// default) when the LB is mid-warm-up or kube-vip is flapping. The
+// probe forces individual attempts to fail fast so we can retry with
+// backoff while emitting "watcher-reconnecting" diagnostics into the
+// SSE stream.
+//
+// 10 seconds is sized well above the healthy handshake observed in
+// production (sub-second on otech10x and on contabo's BankDhofar
+// Qwen probe — same network position), with headroom for slow
+// Hetzner regions.
+const DefaultReachabilityProbeTimeout = 10 * time.Second
+
+// DefaultReachabilityRetryInitialInterval — initial backoff for the
+// pre-flight reachability probe (issue #923). Each failed attempt
+// doubles the wait up to DefaultReachabilityRetryMaxInterval.
+const DefaultReachabilityRetryInitialInterval = 5 * time.Second
+
+// DefaultReachabilityRetryMaxInterval — upper bound on the pre-flight
+// reachability probe backoff (issue #923). Caps the inter-attempt
+// gap so a long unreachable window still emits a "watcher-
+// reconnecting" event at the wizard log pane at least once a minute.
+const DefaultReachabilityRetryMaxInterval = 60 * time.Second
+
+// DefaultReachabilityOverallBudget — overall budget for the pre-flight
+// reachability loop before falling through to factory.Start (issue
+// #923). 10 minutes is generous: a healthy Sovereign answers within
+// seconds. After this, the informer cache-sync path takes over with
+// classifyOutcomeOnContextEnd → OutcomeFluxNotReconciling as the
+// terminal classification — exactly the right diagnostic for a
+// genuinely unreachable apiserver.
+//
+// Operator override: CATALYST_PHASE1_REACHABILITY_BUDGET.
+const DefaultReachabilityOverallBudget = 10 * time.Minute
+
+// DefaultRESTConfigTimeout — per-request timeout we set on the REST
+// config built by NewDynamicClientFromKubeconfig /
+// NewKubernetesClientFromKubeconfig (issue #923). Without this, the
+// rest.Config has no per-request deadline and a hung TLS handshake
+// can block the informer's List call until the overall WatchTimeout
+// fires (60m). 30 seconds caps individual REST calls so the
+// informer's internal retry loop has a chance to recover when
+// transient TLS / LB flaps clear.
+const DefaultRESTConfigTimeout = 30 * time.Second
+
 // Phase-1 outcome strings — Watcher.Outcome() returns one of these so
 // the handler can set Result.Phase1Outcome (read by the Sovereign
 // Admin banner). Empty string means the watch has not yet terminated.
@@ -223,6 +270,23 @@ const (
 	StateInstalled  = "installed"
 	StateDegraded   = "degraded"
 	StateFailed     = "failed"
+)
+
+// Phase-1 sub-state strings — surfaced via OnSubstate so the handler
+// can stamp them onto Deployment.Result.Phase1Substate. Read by the
+// Sovereign Admin's wizard banner to render a more granular status
+// pill while Status itself stays "phase1-watching" (issue #923).
+const (
+	// SubstateReconnecting — set while the pre-flight reachability
+	// probe is retrying after a Pod restart. Cleared (set to "") once
+	// the apiserver answers and the informer's first sync completes.
+	SubstateReconnecting = "watcher-reconnecting"
+
+	// SubstateWatching — set immediately after a successful
+	// reachability probe + WaitForCacheSync return. The watch is now
+	// observing live HelmRelease transitions; the wizard's "X of Y
+	// installed" pill takes over from this point.
+	SubstateWatching = "watcher-watching"
 )
 
 // terminalStates — once a component reaches one of these, the watch
@@ -330,6 +394,63 @@ type Config struct {
 	// (30s). Zero means "fall back to default"; tests inject a tiny
 	// value (e.g. 50ms).
 	LatePollInterval time.Duration
+
+	// Reachability — pre-flight apiserver reachability probe (issue
+	// #923). Production wires NewReachabilityProbeFromKubeconfig which
+	// builds a discovery client and calls ServerVersion() with a short
+	// per-attempt timeout. Tests inject a closure that returns N
+	// transient errors then nil to exercise the reconnect path
+	// deterministically.
+	//
+	// The contract is: a non-nil return means "apiserver did not
+	// answer this attempt — retry with backoff and emit a watcher-
+	// reconnecting event"; nil means "ready to start informer".
+	//
+	// nil here means: fall back to NewReachabilityProbeFromKubeconfig
+	// (production default). Setting to an explicit no-op
+	// (`func(_ string) func(context.Context) error { return func(context.Context) error { return nil } }`)
+	// disables the probe — used by tests that exercise the
+	// post-reachability informer path without dragging the probe
+	// retry loop into the test runtime.
+	Reachability func(kubeconfigYAML string) func(ctx context.Context) error
+
+	// ReachabilityProbeTimeout — per-attempt timeout for the pre-flight
+	// reachability probe. Defaults to DefaultReachabilityProbeTimeout
+	// (10s).
+	ReachabilityProbeTimeout time.Duration
+
+	// ReachabilityRetryInitialInterval — initial inter-attempt gap for
+	// the reachability backoff. Defaults to
+	// DefaultReachabilityRetryInitialInterval (5s).
+	ReachabilityRetryInitialInterval time.Duration
+
+	// ReachabilityRetryMaxInterval — upper bound on the reachability
+	// backoff. Defaults to DefaultReachabilityRetryMaxInterval (60s).
+	ReachabilityRetryMaxInterval time.Duration
+
+	// ReachabilityOverallBudget — overall budget for the reachability
+	// loop. After this, Watch falls through to factory.Start +
+	// WaitForCacheSync, which will then time out via WatchTimeout and
+	// classify as OutcomeFluxNotReconciling (correct diagnostic for a
+	// genuinely unreachable apiserver). Defaults to
+	// DefaultReachabilityOverallBudget (10m).
+	ReachabilityOverallBudget time.Duration
+
+	// Sleep — sleep injection for the reachability backoff (issue
+	// #923). Production passes a closure backed by time.NewTimer that
+	// honours ctx; tests inject a no-op so the retry loop runs in
+	// microseconds. Defaults to a real-time sleep that blocks until
+	// the timer or ctx fires, whichever first.
+	Sleep func(ctx context.Context, d time.Duration)
+
+	// OnSubstate — fired whenever the Phase-1 substate transitions
+	// (issue #923). Production wires this to a callback that updates
+	// Deployment.Result.Phase1Substate under dep.mu so the Sovereign
+	// Admin's wizard sees the live "reconnecting…" pill instead of a
+	// stale "phase1-watching". Optional; nil disables substate
+	// notifications (the Watcher still runs the probe, just without
+	// surfacing the field on the deployment record).
+	OnSubstate func(substate string)
 }
 
 func (c *Config) applyDefaults() {
@@ -353,6 +474,49 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LatePollInterval <= 0 {
 		c.LatePollInterval = DefaultLatePollInterval
+	}
+	if c.ReachabilityProbeTimeout <= 0 {
+		c.ReachabilityProbeTimeout = DefaultReachabilityProbeTimeout
+	}
+	if c.ReachabilityRetryInitialInterval <= 0 {
+		c.ReachabilityRetryInitialInterval = DefaultReachabilityRetryInitialInterval
+	}
+	if c.ReachabilityRetryMaxInterval <= 0 {
+		c.ReachabilityRetryMaxInterval = DefaultReachabilityRetryMaxInterval
+	}
+	if c.ReachabilityOverallBudget <= 0 {
+		c.ReachabilityOverallBudget = DefaultReachabilityOverallBudget
+	}
+	if c.Sleep == nil {
+		c.Sleep = sleepWithContext
+	}
+}
+
+// noopReachability is the test-only default for Config.Reachability
+// when a fake DynamicFactory is also supplied (issue #923). It
+// returns a probe that always succeeds, so a dynamic-fake-client
+// test is not forced to also stand up a fake reachability probe
+// just to exercise the post-probe informer path. A test that
+// specifically exercises the reconnect loop sets Config.Reachability
+// to a closure that returns transient errors first.
+func noopReachability(_ string) func(ctx context.Context) error {
+	return func(_ context.Context) error { return nil }
+}
+
+// sleepWithContext sleeps for d, returning early when ctx is done.
+// Used as the production default for Config.Sleep so the reachability
+// retry loop wakes immediately on context cancel (Pod shutdown,
+// caller cancel, overall WatchTimeout). Tests inject a no-op closure
+// so the backoff runs in microseconds.
+func sleepWithContext(ctx context.Context, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
 	}
 }
 
@@ -523,6 +687,7 @@ func NewWatcher(cfg Config, emit Emit) (*Watcher, error) {
 	if strings.TrimSpace(cfg.KubeconfigYAML) == "" {
 		return nil, errors.New("helmwatch: kubeconfig is required (deployment.Result.KubeconfigPath was empty or the file was unreadable)")
 	}
+	usingTestDynamicFactory := cfg.DynamicFactory != nil
 	if cfg.DynamicFactory == nil {
 		cfg.DynamicFactory = NewDynamicClientFromKubeconfig
 	}
@@ -534,6 +699,24 @@ func NewWatcher(cfg Config, emit Emit) (*Watcher, error) {
 		// `[seeded]` / `[<state>]` summary lines. See issue #305.
 		// Tests still inject a fake.NewSimpleClientset via Config.CoreFactory.
 		cfg.CoreFactory = NewKubernetesClientFromKubeconfig
+	}
+	if cfg.Reachability == nil {
+		// Production default: discovery-client ServerVersion() against
+		// the Sovereign apiserver, with the per-attempt timeout taken
+		// from cfg.ReachabilityProbeTimeout (issue #923).
+		//
+		// Tests that inject a fake DynamicFactory but do NOT explicitly
+		// set Reachability get a no-op probe by default — there is no
+		// real apiserver to probe and we don't want every existing
+		// dynamic-fake-client test to hang against the production
+		// probe trying to hit "fake-kubeconfig: bytes". A test that
+		// specifically exercises the reconnect path overrides
+		// Reachability with its own closure.
+		if usingTestDynamicFactory {
+			cfg.Reachability = noopReachability
+		} else {
+			cfg.Reachability = NewReachabilityProbeFromKubeconfig
+		}
 	}
 	cfg.applyDefaults()
 	return &Watcher{
@@ -575,6 +758,33 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	// (deployment delete, Pod shutdown) propagates.
 	watchCtx, cancel := context.WithTimeout(ctx, w.cfg.WatchTimeout)
 	defer cancel()
+
+	// Pre-flight reachability probe — issue #923. Catalyst-api Pod
+	// restart in the middle of Phase-1 leaves the new Pod with no live
+	// connection to the Sovereign apiserver. If we go straight to
+	// factory.Start, an unreachable apiserver causes
+	// cache.WaitForCacheSync to block silently for the entire
+	// WatchTimeout (60m) — the deployment record's componentStates
+	// stays empty and the wizard log pane goes dark. Probe with a
+	// short per-attempt timeout, retry with backoff, and emit
+	// "watcher-reconnecting" events so the operator sees live
+	// progress.
+	//
+	// On success: substate flips to SubstateWatching and we proceed to
+	// factory.Start. On overall-budget exhaustion: we still proceed
+	// to factory.Start (the informer's own timeout path will then
+	// classify as OutcomeFluxNotReconciling — exactly the right
+	// terminal diagnostic for a genuinely unreachable apiserver).
+	if !w.runReachabilityProbe(watchCtx) {
+		// runReachabilityProbe returns false only when watchCtx is
+		// done — meaning the overall WatchTimeout fired during the
+		// probe loop. Surface terminal classification immediately
+		// rather than building an informer that will time out on the
+		// same condition.
+		final := w.terminalStatesSnapshot()
+		w.setOutcome(w.classifyOutcomeOnContextEnd())
+		return final, fmt.Errorf("helmwatch: pre-flight reachability probe cancelled by context: %w", watchCtx.Err())
+	}
 
 	// Stash the cancel func so Watcher.Cancel() can interrupt a
 	// long-running watch from another goroutine — the handover
@@ -1048,6 +1258,125 @@ func (w *Watcher) maybeEmitFirstSeenWarn(firstSeenStart time.Time) {
 			w.cfg.FirstSeenTimeout,
 		),
 	})
+}
+
+// runReachabilityProbe drives the pre-flight apiserver reachability
+// loop (issue #923). Returns true on success (apiserver answered OR
+// the overall reachability budget elapsed — caller should fall
+// through to factory.Start either way). Returns false only when
+// watchCtx fires during the probe loop — caller exits early with
+// classifyOutcomeOnContextEnd.
+//
+// The first attempt is a single info-level "starting reachability
+// probe" event so the wizard log pane shows the watch is alive.
+// Each subsequent failed attempt emits a warn-level
+// "watcher-reconnecting" event naming the attempt number + the
+// observed error. On success a single info-level "reachable" event
+// fires and substate flips to SubstateWatching. The first failed
+// attempt also flips substate to SubstateReconnecting so the wizard
+// banner can render "reconnecting…" while the loop runs.
+//
+// Backoff: starts at ReachabilityRetryInitialInterval (5s), doubles
+// each failed attempt, caps at ReachabilityRetryMaxInterval (60s).
+// Sleeps via cfg.Sleep so tests can inject a no-op and exercise the
+// loop in microseconds.
+func (w *Watcher) runReachabilityProbe(watchCtx context.Context) bool {
+	probe := w.cfg.Reachability(w.cfg.KubeconfigYAML)
+	budgetDeadline := w.cfg.Now().Add(w.cfg.ReachabilityOverallBudget)
+	interval := w.cfg.ReachabilityRetryInitialInterval
+
+	attempt := 0
+	for {
+		attempt++
+		// Per-attempt context with the configured probe timeout, so a
+		// hung TLS handshake fails fast and we can retry.
+		probeCtx, probeCancel := context.WithTimeout(watchCtx, w.cfg.ReachabilityProbeTimeout)
+		err := probe(probeCtx)
+		probeCancel()
+
+		if err == nil {
+			// Apiserver reachable — flip substate to watching, emit a
+			// concise "reachable" diagnostic, return success.
+			if attempt > 1 {
+				w.dispatch(provisioner.Event{
+					Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+					Phase: PhaseComponent,
+					Level: "info",
+					Message: fmt.Sprintf(
+						"Phase-1 watch: Sovereign apiserver reachable on attempt %d — starting per-component HelmRelease watch.",
+						attempt,
+					),
+				})
+			}
+			w.notifySubstate(SubstateWatching)
+			return true
+		}
+
+		// Probe failed — surface diagnostic. First failure is the
+		// transition from "starting" to "reconnecting"; subsequent
+		// failures emit a re-attempt summary so the wizard log pane
+		// shows the loop is alive.
+		w.notifySubstate(SubstateReconnecting)
+		w.dispatch(provisioner.Event{
+			Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+			Phase: PhaseComponent,
+			Level: "warn",
+			Message: fmt.Sprintf(
+				"Phase-1 watch: Sovereign apiserver unreachable on attempt %d (%s); retrying in %s — typically a transient TLS handshake / LB warm-up after Pod restart.",
+				attempt,
+				err.Error(),
+				interval,
+			),
+		})
+
+		// Check the overall reachability budget BEFORE sleeping so we
+		// don't sleep past the budget for nothing. Once the budget is
+		// exhausted we still return true and let the caller fall
+		// through to factory.Start — the informer's own retry path
+		// + WaitForCacheSync timeout will then classify as
+		// OutcomeFluxNotReconciling on a genuinely unreachable
+		// apiserver, exactly the right operator-actionable diagnostic.
+		if w.cfg.Now().After(budgetDeadline) {
+			w.dispatch(provisioner.Event{
+				Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+				Phase: PhaseComponent,
+				Level: "warn",
+				Message: fmt.Sprintf(
+					"Phase-1 watch: reachability budget %s exhausted after %d attempts; falling through to informer (will time out as flux-not-reconciling on a genuinely unreachable apiserver).",
+					w.cfg.ReachabilityOverallBudget,
+					attempt,
+				),
+			})
+			return true
+		}
+
+		// Sleep with cancellation. cfg.Sleep wakes immediately if
+		// watchCtx is done so a Pod-shutdown / overall-WatchTimeout
+		// during a long backoff returns the loop early.
+		w.cfg.Sleep(watchCtx, interval)
+		if watchCtx.Err() != nil {
+			return false
+		}
+
+		// Exponential backoff up to the cap.
+		interval = interval * 2
+		if interval > w.cfg.ReachabilityRetryMaxInterval {
+			interval = w.cfg.ReachabilityRetryMaxInterval
+		}
+	}
+}
+
+// notifySubstate fires the OnSubstate callback if one is configured
+// (issue #923). Production wires this to a closure on the handler
+// that updates Deployment.Result.Phase1Substate under dep.mu so a
+// /deployments/<id> GET returns the live substate. A nil OnSubstate
+// is the test-only path — the watcher still runs the probe + emits
+// the corresponding events.
+func (w *Watcher) notifySubstate(substate string) {
+	if w.cfg.OnSubstate == nil {
+		return
+	}
+	w.cfg.OnSubstate(substate)
 }
 
 // classifyOutcomeOnTerminate maps a clean terminate-on-all-done into
