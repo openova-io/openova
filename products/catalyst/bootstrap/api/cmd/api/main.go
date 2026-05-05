@@ -216,6 +216,17 @@ func main() {
 	// or stale magic-link emails degrade gracefully.
 	r.Post("/api/v1/auth/pin/issue", h.HandlePinIssue)
 	r.Post("/api/v1/auth/pin/verify", h.HandlePinVerify)
+
+	// /api/v1/subdomains/check — public, read-only availability query.
+	// Same model as a username-availability check on a signup form: an
+	// anonymous visitor lands on the wizard's Domain step BEFORE they
+	// authenticate (PIN issue happens AFTER they pick a subdomain), so
+	// requiring a session cookie here would block the only flow that
+	// matters. The handler routes the call to PDM (managed pool) or to
+	// a DNS lookup (BYO) — both are read-only with no state change and
+	// negligible information disclosure ("is this subdomain taken?"
+	// is the same answer DNS itself surfaces to anyone).
+	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
 	r.Get("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
 	})
@@ -466,7 +477,6 @@ func main() {
 		// confirms the operator-supplied keys can authenticate against the
 		// chosen region's S3 endpoint via ListBuckets.
 		rg.Post("/api/v1/credentials/object-storage/validate", h.ValidateObjectStorageCredentials)
-		rg.Post("/api/v1/subdomains/check", h.CheckSubdomain)
 		// SSH keypair generator — wizard's "auto-generate" Mode A path
 		// (issue #160). Returns publicKey + privateKey + fingerprint; the
 		// handler logs ONLY the fingerprint and never persists either half.
