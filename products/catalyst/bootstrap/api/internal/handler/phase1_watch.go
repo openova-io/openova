@@ -36,6 +36,11 @@ import (
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -112,6 +117,52 @@ const DefaultKubeconfigArrivalTimeout = 15 * time.Minute
 // DefaultKubeconfigArrivalPollInterval — production default for the
 // kubeconfig-arrival poll cadence. Issue #538.
 const DefaultKubeconfigArrivalPollInterval = 15 * time.Second
+
+// handoverCertWaitTimeoutEnv — env var override for how long the
+// handover auto-fire waits for the new Sovereign's wildcard TLS
+// cert (`sovereign-wildcard-tls` in `kube-system`) to reach
+// Ready=True before emitting the handoverURL anyway. Issue #780:
+// Phase-1 ready does NOT imply the cert has issued — DNS-01 with
+// PowerDNS typically takes 30s-3min after Phase-1 terminates.
+// Without this gate the wizard renders the redirect button at a
+// console URL that fails TLS for ~90s, breaking the operator's
+// first impression.
+const handoverCertWaitTimeoutEnv = "CATALYST_HANDOVER_CERT_WAIT_TIMEOUT"
+
+// handoverCertPollIntervalEnv — env var override for the cadence
+// at which the handover auto-fire polls the cert's
+// status.conditions[type=Ready] block while waiting. 10s keeps
+// the wizard log pane informative without thrashing the
+// Sovereign's apiserver.
+const handoverCertPollIntervalEnv = "CATALYST_HANDOVER_CERT_POLL_INTERVAL"
+
+// DefaultHandoverCertWaitTimeout — production default for the
+// wildcard-cert wait window. 10 minutes is generous headroom: the
+// Phase-1 watch terminates Ready when 38/38 HRs are installed,
+// and the cert's DNS-01 challenge against contabo's central
+// PowerDNS typically completes within 90 seconds of bp-cert-
+// manager-powerdns-webhook becoming ready (which is itself one of
+// the 38 HRs). Issue #780.
+const DefaultHandoverCertWaitTimeout = 10 * time.Minute
+
+// DefaultHandoverCertPollInterval — production default for the
+// wildcard-cert poll cadence. Issue #780.
+const DefaultHandoverCertPollInterval = 10 * time.Second
+
+// sovereignWildcardCertName — name of the Certificate resource the
+// handover auto-fire waits on. Created by either
+// clusters/_template/sovereign-tls/cilium-gateway-cert.yaml
+// (single-zone overlay) or
+// products/catalyst/chart/templates/sovereign-wildcard-certs.yaml
+// (multi-zone overlay) — both produce a Certificate named
+// `sovereign-wildcard-tls`. Issue #780.
+const sovereignWildcardCertName = "sovereign-wildcard-tls"
+
+// sovereignWildcardCertNamespace — namespace where the Certificate
+// resource lives. The Cilium Gateway listener references a Secret
+// of the same name in the same namespace, so this MUST match the
+// chart + legacy template. Issue #780.
+const sovereignWildcardCertNamespace = "kube-system"
 
 // runPhase1Watch builds a helmwatch.Watcher and runs it to completion.
 // All emit goes through h.emitWatchEvent so the durable buffer + SSE
@@ -506,6 +557,15 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 // does NOT mint a second JWT. The first mint wins; the second call
 // returns silently without emitting a duplicate SSE event.
 //
+// Issue #780 — before minting, fireHandover blocks on the new
+// Sovereign's `sovereign-wildcard-tls` Certificate reaching
+// Ready=True via waitForWildcardCert. Phase-1 ready means 38/38
+// HRs are installed but the cert's DNS-01 challenge is a separate
+// downstream watch — it can take 30s-3min to land. Without the
+// gate, the handoverURL points at https://console.<fqdn> while
+// TLS is still self-signed/issuing, and the operator's first
+// click on their new Sovereign hits a browser security warning.
+//
 // Failure modes:
 //   - h.handoverSigner is nil — log + skip. Production catalyst-api
 //     always has a wired Signer (cmd/api/main.go LoadOrGenerate's the
@@ -517,6 +577,11 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 //   - h.handoverSigner.MintToken returns an error — log + skip. The
 //     UI's status=ready + handoverURL=="" branch renders a manual-
 //     mint button so the operator is never silently stranded.
+//   - sovereign-wildcard-tls never reaches Ready=True within
+//     DefaultHandoverCertWaitTimeout — log + emit a warn event +
+//     proceed with the mint. Per issue #780 spec we'd rather emit a
+//     handoverURL the operator can retry than leave them stuck with
+//     status=ready and no redirect at all.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the JWT itself is NEVER logged
 // — only the deployment id + the post-mint expiry timestamp lands in
@@ -565,6 +630,23 @@ func (h *Handler) fireHandover(dep *Deployment) {
 		)
 		return
 	}
+
+	// Issue #780 — block the mint until the new Sovereign's wildcard
+	// TLS cert (`sovereign-wildcard-tls` in `kube-system`) reaches
+	// Ready=True. Phase-1 ready means 38/38 HRs are installed, but
+	// the DNS-01 challenge for the wildcard cert is a separate
+	// downstream watch — it can take 30s-3min to land after Phase-1
+	// terminates. Without this gate the wizard renders the redirect
+	// button at a console URL whose TLS handshake fails for ~90s,
+	// making the operator's first contact with their new Sovereign a
+	// browser security warning.
+	//
+	// Bounded timeout (DefaultHandoverCertWaitTimeout, 10m): if the
+	// cert never lands, we emit the handoverURL anyway with a warn
+	// event. The operator can retry the redirect in their browser
+	// once TLS settles. This is the lesser evil vs leaving the
+	// deployment stuck with status=ready but no redirect URL.
+	h.waitForWildcardCert(dep)
 
 	tokenStr, err := h.handoverSigner.MintToken(fqdn, depID, owner, owner)
 	if err != nil {
@@ -710,4 +792,200 @@ func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
 
 		time.Sleep(pollEvery)
 	}
+}
+
+// certificateGVR — GroupVersionResource for cert-manager.io/v1.Certificate.
+// Pulled out as a package-level var so tests can override the GVR if a
+// future cert-manager release bumps the API version. Not exported —
+// the only consumer today is waitForWildcardCert.
+var certificateGVR = schema.GroupVersionResource{
+	Group:    "cert-manager.io",
+	Version:  "v1",
+	Resource: "certificates",
+}
+
+// waitForWildcardCert polls the new Sovereign's apiserver for the
+// `sovereign-wildcard-tls` Certificate's status.conditions[type=Ready]
+// = True before the handover auto-fire mints the JWT. Returns when
+// the cert is Ready OR when the timeout elapses (whichever first).
+//
+// The function NEVER blocks the handover indefinitely — the timeout
+// is bounded (DefaultHandoverCertWaitTimeout = 10 minutes by default)
+// and on timeout we log + emit a warn event but proceed with the
+// mint. Per issue #780 spec: "If cert doesn't land in 5 min, log +
+// emit handoverURL anyway (operator can retry)".
+//
+// Graceful degradation when the cert can't be queried:
+//
+//   - dep.Result.KubeconfigPath empty / unreadable → skip the wait.
+//     Sovereign-side / test paths that don't drive a real Sovereign
+//     cluster fall through here. The mint proceeds immediately.
+//   - dynamic client construction fails → log + skip. Same fallback.
+//   - cert not found (404 / NotFound) → keep polling. The cert
+//     resource may not have been applied yet — bp-catalyst-platform's
+//     templates land it once the chart is installed but we may
+//     observe Phase-1 Ready a few seconds before the apply completes.
+//   - apiserver transient error → keep polling. Single-shot blips
+//     (informer disconnect mid-poll) are recovered by the next tick.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 timeout + poll cadence are
+// runtime-configurable via CATALYST_HANDOVER_CERT_WAIT_TIMEOUT and
+// CATALYST_HANDOVER_CERT_POLL_INTERVAL. Tests inject sub-second
+// values via Handler.handoverCertWaitTimeout +
+// Handler.handoverCertPollInterval so the wait path is exercised
+// deterministically.
+func (h *Handler) waitForWildcardCert(dep *Deployment) {
+	timeout := h.handoverCertWaitTimeout
+	if timeout == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(handoverCertWaitTimeoutEnv)); v > 0 {
+			timeout = v
+		} else {
+			timeout = DefaultHandoverCertWaitTimeout
+		}
+	}
+	pollEvery := h.handoverCertPollInterval
+	if pollEvery == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(handoverCertPollIntervalEnv)); v > 0 {
+			pollEvery = v
+		} else {
+			pollEvery = DefaultHandoverCertPollInterval
+		}
+	}
+
+	dyn, err := h.sovereignDynamicClientForCertWait(dep)
+	if err != nil || dyn == nil {
+		// No kubeconfig / no client — fall through. The legacy
+		// behaviour (mint immediately) is preserved for Sovereign-side
+		// callers and the test suite that injects a Handler with no
+		// dynamicFactory wired. Issue #780 only requires the gate when
+		// we CAN observe the cert.
+		h.log.Info("handover cert-wait: skipping (no Sovereign dynamic client available; mint proceeds)",
+			"id", dep.ID,
+			"err", err,
+		)
+		return
+	}
+
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   helmwatch.PhaseComponent,
+		Level:   "info",
+		Message: fmt.Sprintf("Handover gate: waiting for sovereign-wildcard-tls Certificate Ready=True before emitting handoverURL (timeout %s, polling every %s). Issue #780.", timeout, pollEvery),
+	})
+
+	deadline := time.Now().Add(timeout)
+	// Use a bounded context for the per-poll Get only — NOT for the
+	// outer wait loop. We want the timeout-on-the-loop to be governed
+	// by the deadline check below so we ALWAYS get a chance to emit
+	// the timeout warn event (a ctx.Done() unblock would skip the
+	// emit and the operator-visible reason would never reach the
+	// wizard log pane).
+
+	for {
+		getCtx, cancelGet := context.WithTimeout(context.Background(), pollEvery)
+		ready, observed, certErr := wildcardCertReady(getCtx, dyn)
+		cancelGet()
+		if certErr == nil && ready {
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: "Handover gate: sovereign-wildcard-tls Certificate Ready=True. Emitting handoverURL.",
+			})
+			h.log.Info("handover cert-wait: cert reached Ready=True; proceeding to mint",
+				"id", dep.ID,
+			)
+			return
+		}
+
+		if time.Now().After(deadline) {
+			// Timeout — emit a warn event and let the mint proceed.
+			// Per issue #780 we'd rather emit a handoverURL the
+			// operator can retry than leave them stuck with status=
+			// ready and no redirect at all.
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "warn",
+				Message: fmt.Sprintf("Handover gate: timed out after %s waiting for sovereign-wildcard-tls Ready=True (last observed status=%q, err=%v). Emitting handoverURL anyway — TLS may need a few seconds to settle in the operator's browser. Issue #780.", timeout, observed, certErr),
+			})
+			h.log.Warn("handover cert-wait: timeout; minting anyway",
+				"id", dep.ID,
+				"timeout", timeout,
+				"observedStatus", observed,
+				"err", certErr,
+			)
+			return
+		}
+
+		time.Sleep(pollEvery)
+	}
+}
+
+// sovereignDynamicClientForCertWait — narrow dynamic-client builder
+// the cert-wait path uses. Returns (nil, nil) when the deployment
+// has no kubeconfig path set (test fixtures, Sovereign-side paths)
+// so the caller can detect "skip the wait" without log noise. Any
+// real error (kubeconfig present but unreadable, factory returns
+// an error) surfaces as (nil, err).
+func (h *Handler) sovereignDynamicClientForCertWait(dep *Deployment) (dynamic.Interface, error) {
+	dep.mu.Lock()
+	kubeconfigPath := ""
+	if dep.Result != nil {
+		kubeconfigPath = dep.Result.KubeconfigPath
+	}
+	dep.mu.Unlock()
+	if kubeconfigPath == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read kubeconfig: %w", err)
+	}
+	if h.dynamicFactory != nil {
+		return h.dynamicFactory(string(raw))
+	}
+	return helmwatch.NewDynamicClientFromKubeconfig(string(raw))
+}
+
+// wildcardCertReady inspects the `sovereign-wildcard-tls` Certificate
+// in `kube-system` and returns (ready, observedStatus, err). `ready`
+// is true iff status.conditions has an entry with type=Ready,
+// status=True. `observedStatus` is the raw Ready condition status
+// string (or "<not-found>" / "<no-conditions>" / "<missing-ready>")
+// for telemetry.
+func wildcardCertReady(ctx context.Context, dyn dynamic.Interface) (bool, string, error) {
+	u, err := dyn.Resource(certificateGVR).
+		Namespace(sovereignWildcardCertNamespace).
+		Get(ctx, sovereignWildcardCertName, metav1.GetOptions{})
+	if err != nil {
+		return false, "<not-found>", err
+	}
+	return certificateReady(u)
+}
+
+// certificateReady — returns (ready, observedStatus, nil) for a
+// cert-manager.io/v1.Certificate's status.conditions[type=Ready]
+// entry. Mirrors helmReleaseReady's Ready-True scan but on the
+// Certificate shape. Pulled out so the wait helper + a future
+// cutover-time check can share one parser.
+func certificateReady(u *unstructured.Unstructured) (bool, string, error) {
+	conds, ok, err := unstructured.NestedSlice(u.Object, "status", "conditions")
+	if err != nil {
+		return false, "<status-parse-error>", err
+	}
+	if !ok || len(conds) == 0 {
+		return false, "<no-conditions>", nil
+	}
+	for _, c := range conds {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if m["type"] == "Ready" {
+			status, _ := m["status"].(string)
+			return status == "True", status, nil
+		}
+	}
+	return false, "<missing-ready>", nil
 }
