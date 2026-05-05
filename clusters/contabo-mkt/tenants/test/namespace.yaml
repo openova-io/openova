@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-test
+  labels:
+    openova.io/tenant: "test"
+    openova.io/managed-by: provisioning
