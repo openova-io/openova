@@ -72,6 +72,98 @@ matches the operator's intent.
 {{- end }}
 
 {{/*
+─── OIDC + LLM resolution helpers (umbrella #915) ─────────────────────
+
+The chart's canonical config blocks are `oidc.*` and `llm.*`; legacy
+overlays may still set `keycloak.*` / `newapi.*`. Helpers prefer the
+canonical value and fall back to the legacy alias when unset.
+*/}}
+{{/*
+Resolution rule: when an overlay sets a legacy key (`keycloak.*` /
+`newapi.*`) AND leaves the canonical block at its placeholder default,
+the legacy key wins (back-compat). When the canonical block is
+explicitly set to a non-placeholder value, it always wins.
+*/}}
+{{- define "bp-openclaw.oidc.issuerURL" -}}
+{{- $oidc := .Values.oidc.issuerURL | default "" -}}
+{{- $legacy := .Values.keycloak.realmURL | default "" -}}
+{{- if and $legacy (or (eq $oidc "") (eq $oidc "https://keycloak.example.local/realms/example")) -}}
+{{- $legacy -}}
+{{- else if $oidc -}}
+{{- $oidc -}}
+{{- else -}}
+{{- "https://keycloak.example.local/realms/example" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.oidc.clientId" -}}
+{{- $oidc := .Values.oidc.clientId | default "" -}}
+{{- $legacy := .Values.keycloak.clientID | default "" -}}
+{{- if and $legacy (or (eq $oidc "") (eq $oidc "openclaw")) -}}
+{{- $legacy -}}
+{{- else if $oidc -}}
+{{- $oidc -}}
+{{- else -}}
+{{- "openclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.oidc.clientSecretName" -}}
+{{- $oidc := "" -}}
+{{- if .Values.oidc.clientSecret -}}
+{{- $oidc = .Values.oidc.clientSecret.name | default "" -}}
+{{- end -}}
+{{- $legacy := .Values.keycloak.clientSecretName | default "" -}}
+{{- if and $legacy (or (eq $oidc "") (eq $oidc "openclaw-oidc")) -}}
+{{- $legacy -}}
+{{- else if $oidc -}}
+{{- $oidc -}}
+{{- else -}}
+{{- "openclaw-oidc" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.oidc.clientSecretKey" -}}
+{{- if and .Values.oidc.clientSecret .Values.oidc.clientSecret.key -}}
+{{- .Values.oidc.clientSecret.key -}}
+{{- else -}}
+{{- "OIDC_CLIENT_SECRET" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.llm.baseURL" -}}
+{{- $llm := .Values.llm.baseURL | default "" -}}
+{{- $legacy := .Values.newapi.baseURL | default "" -}}
+{{- if and $legacy (or (eq $llm "") (eq $llm "https://newapi.example.local/v1")) -}}
+{{- $legacy -}}
+{{- else if $llm -}}
+{{- $llm -}}
+{{- else -}}
+{{- "https://newapi.example.local/v1" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.llm.apiKeySecretName" -}}
+{{- if and .Values.llm.apiKey .Values.llm.apiKey.name -}}
+{{- .Values.llm.apiKey.name -}}
+{{- else -}}
+{{- "openclaw-llm-apikey" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.llm.apiKeySecretKey" -}}
+{{- if and .Values.llm.apiKey .Values.llm.apiKey.key -}}
+{{- .Values.llm.apiKey.key -}}
+{{- else -}}
+{{- "NEWAPI_KEY" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "bp-openclaw.llm.defaultModel" -}}
+{{- default "qwen3.6" .Values.llm.defaultModel -}}
+{{- end }}
+
+{{/*
 Placeholder-rejection assertions. The chart ships placeholder defaults
 (see values.yaml) so `helm template` smoke-renders cleanly in CI
 (mirroring bp-self-sovereign-cutover's pattern); these assertions fail
@@ -94,11 +186,11 @@ HelmRelease.
 {{- if eq .Values.perUserPod.image.tag "0.1.0-placeholder" }}
 {{- fail "perUserPod.image.tag is still the placeholder — overlay must supply a SHA-pinned tag (Inviolable Principle 4)" }}
 {{- end }}
-{{- if eq .Values.keycloak.realmURL "https://keycloak.example.local/realms/example" }}
-{{- fail "keycloak.realmURL is still the placeholder — overlay must supply the SME-vcluster Keycloak realm URL" }}
+{{- if eq (include "bp-openclaw.oidc.issuerURL" .) "https://keycloak.example.local/realms/example" }}
+{{- fail "oidc.issuerURL is still the placeholder — overlay must supply the per-tenant Keycloak realm URL" }}
 {{- end }}
-{{- if eq .Values.newapi.baseURL "https://newapi.example.local" }}
-{{- fail "newapi.baseURL is still the placeholder — overlay must supply the NewAPI customer-facing hostname" }}
+{{- if eq (include "bp-openclaw.llm.baseURL" .) "https://newapi.example.local/v1" }}
+{{- fail "llm.baseURL is still the placeholder — overlay must supply the per-tenant NewAPI OpenAI-compatible endpoint" }}
 {{- end }}
 {{- if eq .Values.tenant.namespace "sme-example" }}
 {{- fail "tenant.namespace is still the placeholder — overlay must supply the SME tenant namespace" }}

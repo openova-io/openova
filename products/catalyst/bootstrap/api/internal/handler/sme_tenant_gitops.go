@@ -837,8 +837,18 @@ spec:
         issuer: letsencrypt-prod
 `
 
-const smeTenantBPOpenClaw = `# bp-openclaw (#803) — workspace controller pre-wired to the SME
-# Keycloak + the otech NewAPI gateway.
+const smeTenantBPOpenClaw = `# bp-openclaw (#803, #915) — workspace controller pre-wired to the
+# per-tenant Keycloak realm (SSO) and the per-tenant NewAPI gateway
+# (OpenAI-compatible LLM endpoint, NOT direct OpenAI).
+#
+# Per umbrella epic #915:
+#   - oidc.issuerURL → per-tenant Keycloak realm (alice's users log in
+#     to OpenClaw via alice's own Keycloak).
+#   - llm.baseURL    → per-tenant NewAPI /v1 (alice's OpenClaw chats
+#     route through alice's NewAPI which proxies to the configured
+#     channel — Qwen3.6@BankDhofar wired by C4).
+#   - llm.defaultModel → "qwen3.6" placeholder; NewAPI maps the model
+#     name to a channel.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -858,15 +868,36 @@ spec:
     - name: bp-keycloak
       namespace: {{.Namespace}}
   values:
+    # ── OIDC (per-tenant Keycloak SSO) ─────────────────────────────────
+    oidc:
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      clientId: openclaw
+      clientSecret:
+        name: openclaw-oidc-client-secret
+        key: OIDC_CLIENT_SECRET
+    # ── LLM gateway (per-tenant NewAPI, OpenAI-compatible) ─────────────
+    # newapi runs as a per-tenant HelmRelease (bp-newapi) — alice has
+    # her own NewAPI at api.<sme-domain>; OpenClaw points its OpenAI
+    # client there. The per-user newapi-key-{uuid} Secret carries the
+    # end-user's bearer token (ADR-0003 §3.3); the controller-side
+    # service token below is used for /readyz probes and any
+    # controller-side LLM call that pre-dates a user session.
+    llm:
+      baseURL: https://api.{{.Subdomain}}.{{.ParentDomain}}/v1
+      apiKey:
+        name: openclaw-newapi-controller-token
+        key: NEWAPI_KEY
+      # NewAPI uses the model name to select a backing channel. C4
+      # provisions channel #1 = Qwen3.6@BankDhofar at tenant-create
+      # time so this default routes to the correct upstream.
+      defaultModel: qwen3.6
+    # ── Legacy aliases (back-compat with chart < 0.2.0) ────────────────
     keycloak:
       realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
       clientID: openclaw
       clientSecretName: openclaw-oidc-client-secret
     newapi:
-      # newapi runs on the otech (Sovereign) ingress regardless of the
-      # SME's chosen parent zone — there's exactly one NewAPI per
-      # Sovereign and it's anchored to OTECHFQDN.
-      baseURL: https://newapi.{{.OTECHFQDN}}
+      baseURL: https://api.{{.Subdomain}}.{{.ParentDomain}}/v1
     tenant:
       namespace: {{.Namespace}}
     ingress:

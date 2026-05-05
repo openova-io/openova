@@ -6,13 +6,19 @@
 # rebuilding the Blueprint OCI artifact.
 #
 # Required at install time (overlay MUST set):
-#   - keycloak.realmURL          (SME-vcluster Keycloak realm OIDC issuer)
-#   - keycloak.clientSecretName  (ExternalSecret with OIDC client_secret)
+#   - oidc.issuerURL             (per-tenant Keycloak realm OIDC issuer)
+#   - oidc.clientSecret.name     (ExternalSecret with OIDC client_secret)
+#   - llm.baseURL                (per-tenant NewAPI OpenAI-compatible endpoint)
+#   - llm.apiKey.name            (Secret carrying NewAPI bearer token)
 #   - tenant.namespace           (SME tenant namespace where per-user pods run)
 #   - ingress.host               (controller public hostname)
-#   - newapi.baseURL             (NewAPI customer-facing hostname)
 #   - controller.image.tag       (SHA-pinned tag)
 #   - perUserPod.image.tag       (SHA-pinned tag)
+#
+# Legacy keys `keycloak.*` and `newapi.*` remain accepted for back-compat
+# (they fall back when the canonical `oidc.*` / `llm.*` block omits a
+# field); new overlays SHOULD use the canonical blocks. See umbrella
+# epic #915 (per-tenant SSO + per-tenant NewAPI gateway DoD).
 #
 # Placeholder defaults below let `helm template` smoke-render cleanly in
 # CI without --set (mirroring the bp-self-sovereign-cutover pattern).
@@ -80,32 +86,79 @@ controller:
       timeoutSeconds: 5
       failureThreshold: 3
 
-# ─── Auth: SME-vcluster Keycloak (OIDC) ──────────────────────────────────
+# ─── Auth: per-tenant Keycloak (OIDC) — canonical block ─────────────────
 # The controller validates inbound end-user JWTs against the SME's own
 # Keycloak realm. It NEVER uses the OTECH-ops realm, NEVER trusts a JWT
 # from outside the SME vcluster.
-keycloak:
-  # Required at install time: full realm issuer URL.
-  # e.g. "https://keycloak.<sme-domain>/realms/<sme-realm>"
-  # Placeholder default lets `helm template` smoke-render pass.
-  realmURL: "https://keycloak.example.local/realms/example"
-  # OIDC client registered in the SME's Keycloak realm for OpenClaw.
-  clientID: "openclaw"
-  # ExternalSecret name carrying the OIDC client_secret. Required key:
+#
+# Per umbrella epic #915 the orchestrator (catalyst-api smeTenantBPOpenClaw
+# template) emits this block per-tenant: `oidc.issuerURL` resolves to
+# https://keycloak.<tenant-domain>/realms/<tenant>, `oidc.clientId` to
+# `openclaw`, and `oidc.clientSecret.name` to the per-tenant Keycloak
+# client-secret (Secret rendered by bp-keycloak post-install).
+oidc:
+  # Required at install time: full realm issuer URL (the OIDC `iss` claim
+  # the controller will validate JWTs against). Placeholder default lets
+  # `helm template` smoke-render pass.
+  issuerURL: "https://keycloak.example.local/realms/example"
+  # OIDC client registered in the per-tenant Keycloak realm.
+  clientId: "openclaw"
+  # OIDC client_secret. Loaded from a K8s Secret via secretKeyRef so the
+  # plaintext NEVER lands in the HelmRelease values block (Inviolable
+  # Principle 10 — credential hygiene). Required Secret key:
   # OIDC_CLIENT_SECRET. Provisioned by the SME-tenant onboarding pipeline
-  # (epic #795 ticket #804). Placeholder default lets smoke render pass.
-  clientSecretName: "openclaw-oidc"
+  # (epic #795 ticket #804).
+  clientSecret:
+    # Secret name (defaults to legacy `keycloak.clientSecretName` if
+    # unset — see _helpers.tpl).
+    name: "openclaw-oidc"
+    key: "OIDC_CLIENT_SECRET"
 
-# ─── NewAPI integration ──────────────────────────────────────────────────
-# Per-user pods talk to NewAPI via its CUSTOMER-FACING hostname (egress
-# through the OTECH ingress with TLS), NEVER the in-cluster admin URL.
-# Per ADR-0003 §3.3 the per-user Secret carries `base-url` matching this
-# value; we read the value from the Secret at pod-spawn time so this
-# field acts as a fallback default for overlays that don't yet set
-# `base-url` on the Secret.
+# ─── LLM gateway: per-tenant NewAPI ─────────────────────────────────────
+# OpenClaw uses the per-tenant NewAPI as its OpenAI-compatible LLM
+# gateway (NOT direct OpenAI). The orchestrator points this at
+# https://api.<tenant-domain>/v1; NewAPI then routes to the configured
+# channel (e.g. Qwen3.6@BankDhofar — wired by C4 of #915).
+#
+# Per ADR-0003 §3.3 each end-user has a per-user Secret rendered by
+# the unified-rbac hook carrying `base-url` + `api-key`; per-user pods
+# read those at session-start. The chart-level `llm.*` block carries the
+# CONTROLLER-side defaults (used for /readyz probes, fallback when the
+# per-user Secret is missing the field, and for the OpenAI-compatible
+# `LLM_DEFAULT_MODEL` env that NewAPI maps to a channel).
+llm:
+  # Required at install time. The customer-facing OpenAI-compatible
+  # endpoint (i.e. NewAPI's /v1 surface). Placeholder default lets
+  # smoke render pass.
+  baseURL: "https://newapi.example.local/v1"
+  # Bearer token sourced from a K8s Secret (Inviolable Principle 10).
+  # Required Secret key: NEWAPI_KEY (or `api-key` for ADR-0003-aligned
+  # per-user secrets). Per-user pods continue to read the per-user
+  # `newapi-key-{uuid}` Secret per ADR-0003 §3.3; this controller-side
+  # secret is the controller's own service-token (used for /readyz
+  # probes and for any controller-side LLM call that pre-dates a user
+  # session).
+  apiKey:
+    name: "openclaw-llm-apikey"
+    key: "NEWAPI_KEY"
+  # The default OpenAI-compatible model identifier sent on /v1/chat/
+  # completions when the client doesn't override. NewAPI uses the
+  # `model` field to select a channel; for the umbrella #915 DoD this
+  # is "qwen3.6" — C4 wires the BankDhofar channel routing at
+  # tenant-create time.
+  defaultModel: "qwen3.6"
+
+# ─── Legacy aliases (back-compat, deprecated) ───────────────────────────
+# Old overlays may still set `keycloak.*` / `newapi.*`. The chart's
+# helpers prefer `oidc.*` / `llm.*` and fall back to these when the
+# canonical block is unset (or still at placeholder). Removed once every
+# overlay has migrated.
+keycloak:
+  realmURL: ""
+  clientID: ""
+  clientSecretName: ""
 newapi:
-  # Required at install time. Placeholder default lets smoke render pass.
-  baseURL: "https://newapi.example.local"
+  baseURL: ""
 
 # ─── Tenant namespace ────────────────────────────────────────────────────
 # SME tenant namespace where:
