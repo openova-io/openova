@@ -245,4 +245,26 @@ if grep -E "grep.*cutoverComplete.*/tmp/status\.json" "$TMP/render.yaml" >/dev/n
 fi
 echo "  PASS (no stale cutoverComplete pre-read)"
 
+echo "[cutover-contract] Case 15: Step-01 gitea-mirror has DNS-readiness probe (#968)"
+# 0.1.18 Step-01 fired wget against gitea-http.gitea.svc.cluster.local
+# the moment the auto-trigger fired, racing the gitea Pod's endpoint
+# publication. One DNS miss returned `wget: bad address` and (combined
+# with catalyst-api's backoffLimit=0) terminated the Job permanently
+# — which the cutover engine surfaced as a hard cutover failure (caught
+# live on otech115 2026-05-05).
+#
+# 0.1.19 Step-01 prefixes its wget calls with an `nslookup` readiness
+# loop (30 x 5s) so the Job tolerates the ~10s endpoint-publish lag
+# without burning Pod-restart budget. This gate guards against future
+# regressions that drop the loop.
+if ! grep -q 'nslookup "${gitea_host}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-01 gitea-mirror missing nslookup readiness probe (#968)" >&2
+  exit 1
+fi
+if ! grep -q 'gitea_host=' "$TMP/render.yaml"; then
+  echo "FAIL: Step-01 gitea-mirror missing gitea_host= variable extraction (#968)" >&2
+  exit 1
+fi
+echo "  PASS (Step-01 has DNS readiness probe)"
+
 echo "[cutover-contract] All gates green."
