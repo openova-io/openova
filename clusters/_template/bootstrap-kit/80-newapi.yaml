@@ -63,11 +63,14 @@ spec:
   chart:
     spec:
       chart: bp-newapi
-      # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled
-      # (default false) — was hard-rendering on Cilium Sovereigns and
-      # failing install with "no matches for kind Middleware". See live
-      # otech103 failure 2026-05-04 21:30 Berlin.
-      version: 1.2.0
+      # 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
+      # https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
+      # `channel-seed` Helm hook Job that idempotently POSTs default
+      # channels into NewAPI's admin API. Issue #915 (epic SME tenant
+      # integration DoD: alice → OpenClaw → NewAPI → Qwen3.6@BankDhofar
+      # end-to-end).
+      # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -135,15 +138,55 @@ spec:
           # path is `secret/sovereign/<fqdn>/newapi/admin-token`.
           key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
           property: ADMIN_API_TOKEN
-    # Default vLLM channel — disabled in the template so a fresh
-    # Sovereign does not silently wire customers to a third-party
-    # endpoint. Per-Sovereign overlays (e.g.
-    # `clusters/<sovereign>/bootstrap-kit/80-newapi.yaml`) enable this
-    # block and supply a concrete `endpoint`, `models`, and
-    # `attestation.owner`. The first-otech canonical reference is
-    # `https://llm-api.omtd.bankdhofar.com` with `qwen3-coder` (the same
-    # relay Axon uses on the OpenOva marketing deployment).
+    # Default channels — chart-side composition (channel #1 first).
+    #
+    # `qwenBankDhofar` (issue #915) is the canonical first channel:
+    # Qwen3.6 hosted at BankDhofar (https://llm-api.omtd.bankdhofar.com,
+    # model `qwen3-coder` / alias `qwen3.6`) — the SAME relay the
+    # OpenOva marketing site's Axon helmrelease consumes
+    # (openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml).
+    # Disabled in the template so a fresh Sovereign does not silently
+    # wire customers to a third-party endpoint; per-Sovereign overlays
+    # (clusters/<sovereign>/bootstrap-kit/80-newapi.yaml) enable this
+    # block and supply:
+    #   - defaultChannels.qwenBankDhofar.enabled = true
+    #   - defaultChannels.qwenBankDhofar.endpoint = https://llm-api.omtd.bankdhofar.com
+    #   - defaultChannels.qwenBankDhofar.attestation.accountId   (legal-team-owned)
+    #   - defaultChannels.qwenBankDhofar.attestation.contractRef (legal-team-owned)
+    #   - the Secret `newapi-channel-qwen-bankdhofar` containing the
+    #     upstream API key under key `API_KEY` (or an ExternalSecret
+    #     pulling from OpenBao at
+    #     `sovereign/<sovereign-fqdn>/newapi/channel-qwen-bankdhofar`)
+    #   - auth.adminUI.masterKeySecret = name of a Secret carrying
+    #     `MASTER_KEY` (NewAPI bootstrap admin auth) — required for
+    #     the channel-seed Helm hook Job to POST against the admin API
+    #     ONCE at install time. Operator may rotate the master key out
+    #     post-bootstrap; channels persist in Postgres.
+    #
+    # When the operator flips `qwenBankDhofar.enabled: true`, the
+    # chart's post-install/post-upgrade `channel-seed` Job probes
+    # NewAPI's admin API (`/api/channel/?keyword=<name>`) and POSTs
+    # the channel definition idempotently. Re-runs after upgrades
+    # are no-ops once the channel exists.
+    #
+    # The legacy `vllm` slot (in-cluster vLLM fallback) remains for
+    # operators that run their own bp-vllm + open-weight model in-
+    # cluster; it composes after `qwenBankDhofar` and any operator
+    # `.Values.channels`.
     defaultChannels:
+      qwenBankDhofar:
+        enabled: false
+        name: qwen3.6-bankdhofar
+        endpoint: ""
+        models:
+          - qwen3.6
+          - qwen3-coder
+        existingSecret: newapi-channel-qwen-bankdhofar
+        existingSecretKey: API_KEY
+        attestation:
+          kind: commercial-contract
+          accountId: ""
+          contractRef: ""
       vllm:
         enabled: false
         name: qwen

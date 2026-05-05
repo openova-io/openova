@@ -197,6 +197,124 @@ defaultChannels:
       kind: "in-cluster"
       owner: ""
 
+  # ─── Qwen3.6 @ BankDhofar (canonical first channel — issue #915) ─────
+  # First-class default channel: Qwen3.6 hosted at BankDhofar
+  # (`https://llm-api.omtd.bankdhofar.com`, model `qwen3-coder` / alias
+  # `qwen3.6`). When `qwenBankDhofar.enabled: true`, the chart:
+  #   1. Composes this entry into the EFFECTIVE channels list as
+  #      channel #1 (BEFORE any operator-supplied `.Values.channels`
+  #      and BEFORE the generic `defaultChannels.vllm` block) — so a
+  #      fresh customer landing on a fresh Sovereign gets routed here
+  #      by default.
+  #   2. Triggers the `channel-seed` post-install/post-upgrade Helm
+  #      hook Job that probes NewAPI's admin API for the channel by
+  #      name and POSTs it if missing (idempotent — re-runs after an
+  #      upgrade are no-ops).
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every knob
+  # below is configurable via the per-Sovereign bootstrap-kit overlay.
+  # The endpoint default is empty so a `helm template` with default
+  # values does not silently wire customers to a third-party host;
+  # operators set `endpoint: https://llm-api.omtd.bankdhofar.com` in
+  # their per-Sovereign overlay (matches the canonical wiring in
+  # openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml,
+  # the SAME relay the OpenOva marketing site uses).
+  qwenBankDhofar:
+    # Toggle the channel composition + seed-Job render. Default false
+    # so a CI smoke render produces no Job; per-Sovereign overlay flips
+    # this true with the canonical endpoint + a wired ExternalSecret.
+    enabled: false
+    # Customer-visible channel name. Channel name is the human-readable
+    # row label in NewAPI's admin UI AND is the idempotency key for
+    # the seed Job's existence-probe (GET /api/channel/?keyword=<name>).
+    name: "qwen3.6-bankdhofar"
+    # Upstream OpenAI-compatible endpoint URL. The chart leaves this
+    # empty so an unconfigured deploy never silently dials a third-
+    # party host. Per-Sovereign overlay sets it to
+    # `https://llm-api.omtd.bankdhofar.com` (canonical first-otech
+    # default; matches the existing Axon helmrelease).
+    endpoint: ""
+    # Customer-facing model identifiers exposed via this channel. NewAPI
+    # routes incoming requests whose `model` field matches any string
+    # here to this channel. The default list contains both the
+    # human-friendly `qwen3.6` alias (used in product docs) and the
+    # upstream-canonical `qwen3-coder` (matches the Axon helmrelease at
+    # https://llm-api.omtd.bankdhofar.com — DO NOT delete this alias
+    # or existing OpenClaw/Axon deployments stop routing).
+    models:
+      - "qwen3.6"
+      - "qwen3-coder"
+    # ExternalSecret name carrying the upstream API key under the
+    # canonical key `API_KEY`. Operator overlay creates this Secret
+    # (or wires an ExternalSecret pulling from OpenBao) before
+    # enabling the channel; the seed Job mounts it and POSTs the
+    # value as the channel's `key` field to NewAPI's admin API. The
+    # canonical OpenBao path is
+    # `sovereign/<sovereign-fqdn>/newapi/channel-qwen-bankdhofar` with
+    # property `API_KEY` (operator overlay supplies the ExternalSecret).
+    existingSecret: "newapi-channel-qwen-bankdhofar"
+    # Secret key name holding the upstream API key.
+    existingSecretKey: "API_KEY"
+    # Channel attestation. The Qwen3.6@BankDhofar relay is operated by
+    # Bank Dhofar (a commercial counterparty); the attestation kind is
+    # `commercial-contract` per platform/newapi/README.md compliance
+    # posture. Operator overlay supplies `accountId` + `contractRef`
+    # (legal-team-owned doc link) before flipping `enabled: true`.
+    attestation:
+      kind: "commercial-contract"
+      accountId: ""
+      contractRef: ""
+
+# ─── Channel-seed Job (issue #915) ───────────────────────────────────────
+# Post-install / post-upgrade Helm hook Job that POSTs default channels
+# (currently `defaultChannels.qwenBankDhofar`) into NewAPI's admin API
+# so the FIRST customer request lands on a fully-wired channel, not a
+# 404 / 400. The Job is idempotent: it probes existence via
+# GET `/api/channel/?keyword=<name>` and skips channels that already
+# exist; only newly-added entries POST against NewAPI.
+#
+# Authorization: NewAPI's admin API requires either a logged-in admin
+# session cookie OR the bootstrap MASTER_KEY in the
+# `Authorization: Bearer <master-key>` header. The seed Job mounts the
+# operator-supplied master-key Secret (`auth.adminUI.masterKeySecret`)
+# and uses it ONCE at install time. After bootstrap completes, the
+# operator may rotate the master key out — channels persist in
+# Postgres independent of the master key.
+#
+# Defaults to enabled=true so a Sovereign with `qwenBankDhofar.enabled`
+# also seeds the channel. Operators that load channels via an
+# out-of-band controller flip this off to suppress the Job entirely.
+channelSeed:
+  enabled: true
+  # Image for the curl-based seed loop. Pinned at the upstream-mutable
+  # default tag; production overlays SHA-pin per
+  # docs/INVIOLABLE-PRINCIPLES.md #4a.
+  image:
+    repository: docker.io/curlimages/curl
+    tag: "8.10.1"
+    pullPolicy: IfNotPresent
+  # Resource budget — small. Each channel is one GET (probe) + zero
+  # or one POST against the in-cluster NewAPI Service.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  # Hook delete policy — keep the most recent Job around for operator
+  # forensics (`kubectl logs job/<release>-channel-seed`) but delete
+  # the previous one before each install/upgrade so we don't pile up
+  # immutable Jobs across upgrades.
+  hookDeletePolicy: "before-hook-creation"
+  # backoffLimit — retries on transient errors (NewAPI Pod still
+  # warming up post-rollout) before the Job marks itself Failed.
+  backoffLimit: 6
+  # activeDeadlineSeconds — upper bound on Job runtime. 5 minutes
+  # is generous for a single-channel seed loop that retries through
+  # NewAPI's startup window.
+  activeDeadlineSeconds: 300
+
 # ─── Geographic AUP enforcement ──────────────────────────────────────────
 # Blocks requests from sanctioned regions on commercial-provider
 # channels. US/EU export-control baseline by default. Operator extends

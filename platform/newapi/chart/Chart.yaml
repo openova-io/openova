@@ -1,6 +1,15 @@
 apiVersion: v2
 name: bp-newapi
-version: 1.2.0
+# 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
+# https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
+# `channel-seed` Helm hook Job that idempotently POSTs default
+# channels into NewAPI's admin API at /api/channel/. Bridges the
+# previous documentation-only channels.yaml ConfigMap → the actual
+# Postgres-backed channel rows the upstream binary reads at runtime.
+# Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
+# NewAPI → Qwen3.6@BankDhofar end-to-end).
+# 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
+version: 1.3.0
 appVersion: "0.4.5"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

@@ -867,6 +867,13 @@ spec:
       # SME's chosen parent zone — there's exactly one NewAPI per
       # Sovereign and it's anchored to OTECHFQDN.
       baseURL: https://newapi.{{.OTECHFQDN}}
+      # Default model alias for OpenClaw → NewAPI requests. Channel #1
+      # in the per-Sovereign NewAPI is Qwen3.6 hosted at BankDhofar
+      # (issue #915 / bp-newapi 1.3.0 defaultChannels.qwenBankDhofar).
+      # Both qwen3.6 (canonical UI alias) and qwen3-coder (upstream
+      # model id) route to the same channel; OpenClaw's UI surfaces
+      # the friendlier name.
+      defaultModel: qwen3.6
     tenant:
       namespace: {{.Namespace}}
     ingress:
