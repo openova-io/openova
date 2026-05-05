@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.9
-appVersion: 1.4.9
+version: 1.4.10
+appVersion: 1.4.10
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -602,6 +602,18 @@ description: |
   with the current pin. Same race documented in
   feedback_idempotent_iac_purge.md and overnight DoD doc as
   "deploy-step race". Lockstep slot 13 pin bumps to 1.4.9. 2026-05-05.
+
+  1.4.10 (issue #876): wire CATALYST_OTECH_FQDN env on the catalyst-api
+  Deployment from the same `sovereign-fqdn` ConfigMap (key `fqdn`) that
+  feeds SOVEREIGN_FQDN. The SME tenant create handler (sme_tenant.go)
+  and the sovereign-parent-domains seed (sovereign_parent_domains.go)
+  both read CATALYST_OTECH_FQDN — without it, POST /api/v1/sme/tenants
+  returns 503 {"error":"otech-fqdn-unconfigured"} on every Sovereign,
+  and the SME-pool fallback returns an empty list. The two env names
+  exist for historical reasons (Phase-8b handover vs SME-tier tenant
+  pipeline) but ultimately point at the Sovereign's public FQDN.
+  optional=true since Catalyst-Zero (contabo) doesn't run the SME
+  tenant pipeline. Lockstep slot 13 pin bumps to 1.4.10. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

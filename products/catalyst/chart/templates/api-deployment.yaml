@@ -507,6 +507,23 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # CATALYST_OTECH_FQDN — same value as SOVEREIGN_FQDN, but read by
+            # the SME tenant create handler (sme_tenant.go) and the
+            # sovereign-parent-domains seed (sovereign_parent_domains.go).
+            # The two envs exist for historical reasons: SOVEREIGN_FQDN is the
+            # Phase-8b handover-flow JWT-audience env; CATALYST_OTECH_FQDN is
+            # the SME-tier tenant-pipeline env (epic #795 / #804). Both
+            # ultimately point at the Sovereign's public FQDN. Wired from the
+            # same `sovereign-fqdn` ConfigMap (key `fqdn`). optional=true since
+            # Catalyst-Zero (contabo) doesn't run the SME tenant pipeline.
+            # Issue #876 — without this, POST /api/v1/sme/tenants returns
+            # 503 {"error":"otech-fqdn-unconfigured"} on every Sovereign.
+            - name: CATALYST_OTECH_FQDN
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: fqdn
+                  optional: true
             # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
             # catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
