@@ -237,6 +237,14 @@ type Handler struct {
 	// inject stubs.
 	smeTenantDeps SMETenantDeps
 
+	// ── Sovereign SMTP seed (issue #883) ────────────────────────────────────
+	// sovereignSMTPSeedClientFactory — test-only override for building a
+	// kubernetes.Interface from a kubeconfig YAML. Production wires
+	// helmwatch.NewKubernetesClientFromKubeconfig. Tests inject a
+	// closure returning a fake.NewSimpleClientset so the seed path is
+	// exercised without standing up a real cluster.
+	sovereignSMTPSeedClientFactory SovereignSMTPSeedClientFactory
+
 	// ── Multi-zone PowerDNS (issue #827, parent epic #825) ──────────────────
 	// powerdnsZoneClient — narrow client for runtime parent-zone creation.
 	// The bootstrap-kit's bp-powerdns Helm hook Job creates the operator's

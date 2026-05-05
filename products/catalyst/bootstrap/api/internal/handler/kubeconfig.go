@@ -567,6 +567,23 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		"relaunchAfterKubeconfigMissing", relaunchAfterTerminalKubeconfigMissing,
 	)
 
+	// Issue #883 — seed the Sovereign-side
+	// catalyst-system/sovereign-smtp-credentials Secret with the
+	// mothership's SMTP submission credentials BEFORE Phase-1 watch
+	// launches. The bp-catalyst-platform chart's auto-create step
+	// (#901) runs Helm `lookup` against this Secret when rendering
+	// the Sovereign-local catalyst-openova-kc-credentials Secret;
+	// seeding now (kubeconfig present, bp-catalyst-platform not yet
+	// installed) is exactly the window that makes the lookup land
+	// real bytes instead of empty placeholders.
+	//
+	// The seed is best-effort: a failure here does NOT abort
+	// Phase-1. PIN email delivery may degrade, but the Sovereign
+	// itself still bootstraps. Outcome flows through the SSE event
+	// bus so the wizard surfaces it inline with helmwatch events.
+	seedOutcome := h.seedSovereignSMTPCredentials(r.Context(), dep, string(body))
+	h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
+
 	// Launch the helmwatch goroutine in the background. The PUT
 	// returns immediately; per-component events flow via the SSE
 	// stream the wizard already has open. The phase1Started guard
