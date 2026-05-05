@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: catalyst-ui
-          image: "ghcr.io/openova-io/openova/catalyst-ui:019309f"
+          image: "ghcr.io/openova-io/openova/catalyst-ui:ffe3607"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
