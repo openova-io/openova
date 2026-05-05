@@ -14,7 +14,7 @@ import { useSearch, useRouter } from '@tanstack/react-router'
  *   Keycloak redirects to /auth/callback?code=...&state=... after the
  *   operator authenticates. The page calls handleCallback() to exchange
  *   the code for tokens via the PKCE token endpoint (client-side), then
- *   navigates to /dashboard.
+ *   navigates to /console/dashboard.
  *
  * Catalyst-Zero (console.openova.io):
  *   The PIN flow set the catalyst_session cookie on /auth/pin/verify;
@@ -77,7 +77,7 @@ function SovereignCallbackPage() {
         await handleCallback(sovereignFQDN, params)
         // Navigate to the console dashboard — replace so the callback
         // URL doesn't appear in browser history.
-        router.navigate({ to: '/dashboard' as never, replace: true })
+        router.navigate({ to: '/console/dashboard' as never, replace: true })
       } catch (err) {
         setState({
           status: 'error',

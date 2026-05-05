@@ -8,7 +8,7 @@
  *      `catalyst_session` cookie minted by the server-side /auth/handover
  *      handler. If 200, the operator is authenticated via the cookie —
  *      render the console without ever touching Keycloak.
- *   2. If 401, fall back to the OIDC flow:
+ *   2. If 401, fall back to the legacy OIDC flow:
  *      - read tokens from sessionStorage,
  *      - if missing/expired, attempt silentRefresh,
  *      - if that fails, initiateLogin (PKCE redirect to Keycloak).
@@ -28,7 +28,7 @@
  * otech49 + otech52 today, operator landed on a username/password
  * screen instead of the dashboard).
  *
- * The SovereignSidebar uses clean root routes (/dashboard, /apps, …) —
+ * The SovereignSidebar uses `/console/*` routes (no deploymentId param) —
  * in Sovereign mode the sovereign context is implicit from the hostname.
  *
  * Layout contract:
@@ -137,20 +137,8 @@ export function SovereignConsoleLayout({
   useEffect(() => {
     async function initAuth() {
       if (!sovereignFQDN) {
-        // Catalyst-Zero (mothership) hit a clean-root Sovereign-Console
-        // route (e.g. /dashboard) — those exist for the per-Sovereign
-        // self-mode SPA mounted at console.<sov-fqdn>, not for the
-        // mothership. Without an FQDN there is no Keycloak realm to
-        // OIDC against, and the layout would otherwise render
-        // "Authenticating…" forever.
-        //
-        // The right landing for the mothership is `/sovereign/` — the
-        // Vite base path the catalyst-ui SPA is mounted at, which
-        // serves the wizard / provisioning surface. Redirecting to
-        // bare `/` would 302 to `/nova/` (SME marketplace via the
-        // contabo nginx) and yank the operator out of the
-        // sovereign-provisioning flow entirely.
-        window.location.replace('/sovereign/')
+        // Should not happen in sovereign mode, but guard defensively.
+        setAuthState({ status: 'unauthenticated' })
         return
       }
 
@@ -218,7 +206,7 @@ export function SovereignConsoleLayout({
         // Network failures don't block client-side sign-out; the cookie
         // will be cleared on the next request that gets a 401 anyway.
       }
-      window.location.replace('/sovereign/')
+      window.location.replace('/')
       return
     }
     if (sovereignFQDN) initiateLogout(sovereignFQDN)
@@ -337,7 +325,7 @@ export function SovereignConsoleLayout({
                   {sovereignFQDN}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
-                  onClick={() => router.navigate({ to: '/settings' as never })}
+                  onClick={() => router.navigate({ to: '/console/settings' as never })}
                 >
                   <Settings className="h-3.5 w-3.5" />
                   Settings

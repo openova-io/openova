@@ -53,7 +53,7 @@ func testHandoverSetup(t *testing.T) (h *Handler, privKey *rsa.PrivateKey, keyPa
 		log:                       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		handoverJWTPublicKeyPath:  keyPath,
 		authHandoverSovereignFQDN: "sov.test",
-		authHandoverRedirect:      "/dashboard",
+		authHandoverRedirect:      "/console/dashboard",
 		jtiStore:                  jtiSt,
 		kc:                        &stubKeycloakClient{},
 	}
@@ -128,8 +128,8 @@ func TestAuthHandover_HappyPath(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("status: got %d want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/dashboard" {
-		t.Errorf("Location: got %q want /dashboard", loc)
+	if loc := resp.Header.Get("Location"); loc != "/console/dashboard" {
+		t.Errorf("Location: got %q want /console/dashboard", loc)
 	}
 
 	cookies := resp.Cookies()

@@ -241,7 +241,7 @@ type Handler struct {
 	authHandoverSovereignFQDN string
 	// kcAudience — OIDC client id for token-exchange. Defaults to "catalyst-ui".
 	kcAudience string
-	// authHandoverRedirect — post-handover redirect target. Defaults to "/dashboard".
+	// authHandoverRedirect — post-handover redirect target. Defaults to "/console/dashboard".
 	authHandoverRedirect string
 
 	// ── /auth/pin fields (issue #688, replaces magic-link flow) ─────────────
