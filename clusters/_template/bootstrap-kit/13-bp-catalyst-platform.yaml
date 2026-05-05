@@ -91,7 +91,12 @@ spec:
       # that contains the ConnectValkeyWithAuth Go change. 1.4.5 shipped
       # with the OLD image SHA baked in due to a race between the
       # blueprint-release pipeline and the services-build deploy step.
-      version: 1.4.6
+      # 1.4.7 (issue #866): mirror the gitea-admin password into
+      # `sme/provisioning-github-token` so the last 1/13 SME pod
+      # (provisioning) reaches Running 1/1 on a fresh Sovereign,
+      # completing the SME stack 12/13 → 13/13. Same lookup-and-mirror
+      # pattern as valkey-cross-ns-secret.yaml (#863).
+      version: 1.4.7
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
