@@ -9,6 +9,7 @@ matchers MUST use `==` not `=`. A single `=` is assignment and silently
 never matches — see stalwart_expression_syntax.md. Every comparison in
 this template uses `==`.
 */}}
+{{- $tenantDomain := include "bp-stalwart-tenant.tenantDomain" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -95,7 +96,7 @@ data:
     sign = [{if = "is_local_domain('*')", then = true}, {else = false}]
 
     [signature.dkim]
-    domain = {{ .Values.domain.primary | quote }}
+    domain = {{ $tenantDomain | quote }}
     selector = {{ .Values.dns.dkim.selector | quote }}
     algorithm = {{ .Values.dns.dkim.algorithm | quote }}
     canonicalization = "relaxed/relaxed"
@@ -131,4 +132,4 @@ data:
     # Local domains — the SME's primary domain (and any aliases the
     # operator adds via webadmin runtime).
     [config.local-domain]
-    {{ printf "%q" .Values.domain.primary }} = true
+    {{ printf "%q" $tenantDomain }} = true

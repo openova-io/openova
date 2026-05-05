@@ -6,7 +6,20 @@ metadata:
     catalyst.openova.io/category: communication
     catalyst.openova.io/section: pts-4-5-communication
 spec:
-  version: 0.1.0
+  # 0.1.1 (#898) — three fixes from the otech103 fresh-tenant sweep:
+  #   1. `tenantDomain` helper accepts both `domain.primary` (canonical)
+  #      and the legacy string-shape `domain: <fqdn>` emitted by
+  #      pre-#897 catalyst-api builds, plus a forward-looking
+  #      `tenant.domain` field (#898 brief).
+  #   2. auto-provisioned `stalwart-admin` Secret with random
+  #      ADMIN_PASSWORD via lookup-persistence (no more
+  #      CreateContainerConfigError on fresh tenants).
+  #   3. pod sec ctx aligned to the upstream image's UID 2000 +
+  #      drop ALL caps then add NET_BIND_SERVICE so the binary's
+  #      `cap_net_bind_service=ep` file-cap can elevate (was failing
+  #      with `exec: operation not permitted` on every fresh tenant).
+  # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
+  version: 0.1.1
   card:
     title: Stalwart (per-tenant)
     summary: |
@@ -31,11 +44,17 @@ spec:
     contact: catalyst@openova.io
   configSchema:
     type: object
-    required: [domain, keycloak]
+    required: [keycloak]
     properties:
+      # `domain` is the canonical mail-domain shape (post-#897). The
+      # chart's `tenantDomain` helper additionally accepts a legacy
+      # string-shape `domain: <fqdn>` (pre-#897 catalyst-api builds)
+      # and a forward-looking `tenant.domain` block (#898). Either
+      # the chart-level `domain` block OR `tenant.domain` MUST resolve
+      # to a non-empty FQDN at runtime — the helper fails closed
+      # otherwise.
       domain:
         type: object
-        required: [primary]
         properties:
           primary:
             type: string
@@ -44,6 +63,19 @@ spec:
             type: string
             enum: [free-subdomain, byo]
             default: free-subdomain
+      tenant:
+        type: object
+        description: |
+          Forward-looking tenant block (#898). When `tenant.domain` is
+          set it takes priority over the legacy `domain` block. Useful
+          for orchestrators that want a flat per-tenant values shape.
+        properties:
+          domain:
+            type: string
+            description: Mail domain (alternative to `domain.primary`).
+          mode:
+            type: string
+            enum: [free-subdomain, byo]
       keycloak:
         type: object
         required: [realmURL]
@@ -78,6 +110,17 @@ spec:
           username:
             type: string
             default: admin
+          autoProvision:
+            type: object
+            description: |
+              Auto-provision the admin Secret with a random
+              ADMIN_PASSWORD when no ExternalSecret/SealedSecret is
+              wired (#898). Defaults to enabled so fresh tenants
+              boot without operator intervention.
+            properties:
+              enabled:
+                type: boolean
+                default: true
       ingress:
         type: object
         properties:

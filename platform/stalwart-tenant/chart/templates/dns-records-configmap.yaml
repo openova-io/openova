@@ -15,6 +15,8 @@ template below ships the static records (MX, SPF, DMARC) and a
 placeholder DKIM record line so the UI can render before DKIM is sealed.
 */}}
 {{- if .Values.stalwart.enabled }}
+{{- $tenantDomain := include "bp-stalwart-tenant.tenantDomain" . -}}
+{{- $tenantMode := include "bp-stalwart-tenant.tenantMode" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,21 +25,21 @@ metadata:
     {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
     catalyst.openova.io/role: dns-records-required
 data:
-  domain: {{ .Values.domain.primary | quote }}
-  mode: {{ .Values.domain.mode | quote }}
+  domain: {{ $tenantDomain | quote }}
+  mode: {{ $tenantMode | quote }}
   records.yaml: |
     # MX record — points the SME's domain at this Stalwart's mail Service.
     # The hostname is the LoadBalancer-assigned address (filled in at
     # runtime by the unified-rbac controller once the LB IP is known).
     - kind: MX
-      name: {{ .Values.domain.primary | quote }}
+      name: {{ $tenantDomain | quote }}
       priority: 10
-      value: {{ printf "mail.%s" .Values.domain.primary | quote }}
+      value: {{ printf "mail.%s" $tenantDomain | quote }}
 
     # SPF — declare this Stalwart's IP as a permitted sender; close
     # everything else off per .Values.dns.spf.policy.
     - kind: TXT
-      name: {{ .Values.domain.primary | quote }}
+      name: {{ $tenantDomain | quote }}
       value: {{ printf "v=spf1 mx %s" .Values.dns.spf.policy | quote }}
 
     # DKIM public key — selector + algorithm rendered here; the actual
@@ -45,11 +47,11 @@ data:
     # once Stalwart has minted the key on first boot. Placeholder
     # "<DKIM-PUBLIC-KEY>" is a sentinel the controller searches for.
     - kind: TXT
-      name: {{ printf "%s._domainkey.%s" .Values.dns.dkim.selector .Values.domain.primary | quote }}
+      name: {{ printf "%s._domainkey.%s" .Values.dns.dkim.selector $tenantDomain | quote }}
       value: "v=DKIM1; k=ed25519; p=<DKIM-PUBLIC-KEY>"
 
     # DMARC.
     - kind: TXT
-      name: {{ printf "_dmarc.%s" .Values.domain.primary | quote }}
-      value: {{ printf "v=DMARC1; p=%s; rua=mailto:%s" .Values.dns.dmarc.policy (default (printf "dmarc@%s" .Values.domain.primary) .Values.dns.dmarc.rua) | quote }}
+      name: {{ printf "_dmarc.%s" $tenantDomain | quote }}
+      value: {{ printf "v=DMARC1; p=%s; rua=mailto:%s" .Values.dns.dmarc.policy (default (printf "dmarc@%s" $tenantDomain) .Values.dns.dmarc.rua) | quote }}
 {{- end }}

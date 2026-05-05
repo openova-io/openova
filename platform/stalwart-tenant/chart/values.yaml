@@ -52,17 +52,29 @@ stalwart:
       cpu: 1
       memory: 1Gi
 
-  # SecurityContext — non-root. Stalwart's official image runs as
-  # `stalwart-mail` (UID 65534 on the upstream image). Container
-  # restricts elevated capabilities; SMTP port 25 inside the container
-  # is bound by the upstream entrypoint without CAP_NET_BIND_SERVICE
-  # because Stalwart binds AFTER the entrypoint demotes (it uses a
-  # listener offset configurable via `server.listener.smtp.bind`).
+  # SecurityContext — non-root + NET_BIND_SERVICE (issue #898).
+  #
+  # Stalwart's upstream image (docker.io/stalwartlabs/stalwart:v0.16.3)
+  # creates an in-image `stalwart` user at UID 2000 and ships the
+  # binary at /usr/local/bin/stalwart with file capability
+  # `cap_net_bind_service=ep`. The binary needs that capability to
+  # bind 25/465/587/143/993 directly (no entrypoint demotion script
+  # in this image — the binary is the entrypoint).
+  #
+  # The 0.1.0 chart ran as UID 65534 with `drop: ALL` — kernel
+  # refuses to elevate file capabilities when the caller's bounding
+  # set is empty, so exec failed at startup with `operation not
+  # permitted` on every fresh tenant (otech103 evidence in #898).
+  #
+  # 0.1.1 fix: align with the image's native UID 2000, drop ALL
+  # then add ONLY NET_BIND_SERVICE. fsGroup 2000 ensures the PVC
+  # at /opt/stalwart is writable by the stalwart user without
+  # privileged chown.
   podSecurityContext:
     runAsNonRoot: true
-    runAsUser: 65534
-    runAsGroup: 65534
-    fsGroup: 65534
+    runAsUser: 2000
+    runAsGroup: 2000
+    fsGroup: 2000
     seccompProfile:
       type: RuntimeDefault
   containerSecurityContext:
@@ -70,6 +82,7 @@ stalwart:
     readOnlyRootFilesystem: false
     capabilities:
       drop: ["ALL"]
+      add: ["NET_BIND_SERVICE"]
 
   # Liveness/readiness via stalwart-cli healthcheck. The CLI authenticates
   # against the local management API using the admin credentials the chart
@@ -183,6 +196,20 @@ admin:
   # initial superuser. Webmail SSO covers regular users (Keycloak); this
   # account is for the rescue-shell admin path only.
   username: "admin"
+  # Auto-provision render gate (#898). When true (default), the chart
+  # emits `templates/admin-secret.yaml` which materialises the
+  # `<secretName>` Secret with a random 32-char ADMIN_PASSWORD via
+  # lookup-persistence (mirrors gitea-admin-secret + marketplace-api-
+  # secrets, #830/#887). Set false to opt out — operator pre-creates
+  # a SealedSecret OR the ExternalSecret block below is wired with a
+  # non-empty remoteRef.key (auto-provision auto-disables in that
+  # case, no double-bind).
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #10 the generated value is
+  # written ONLY into the Secret bytes — NEVER echoed or persisted
+  # elsewhere. It survives helm upgrade / Flux reconcile via lookup.
+  autoProvision:
+    enabled: true
   # ExternalSecret render gate — when true (default), the chart emits an
   # ExternalSecret that pulls the admin password from OpenBao. Disable
   # when the operator pre-creates the SealedSecret and wants no churn.
@@ -295,13 +322,23 @@ ingress:
 #     works from t=0.
 mailboxProvisioner:
   # Run-once setup Job (admin principal + OIDC client config in
-  # Stalwart). ALWAYS true on a fresh install; idempotent on upgrade.
+  # Stalwart). The Job's image is operator-tunable (#898) — until the
+  # canonical `ghcr.io/openova-io/openova/stalwart-cli` image is
+  # published, the Job re-uses the upstream stalwart container which
+  # ships `stalwart-cli` AND `curl` for HTTP calls. Disabled by
+  # default in 0.1.1 to avoid CrashLoopBackOff on tenants where the
+  # canonical CLI image is unavailable; SME admin can opt in via
+  # per-tenant overlay once the image is published.
   setupJob:
-    enabled: true
+    enabled: false
     image:
-      repository: ghcr.io/openova-io/openova/stalwart-cli
-      tag: "0.16.3"
-      digest: ""
+      # Re-use the upstream Stalwart image which already ships curl +
+      # stalwart-cli. SHA-pinned via the same digest as the StatefulSet
+      # so the bytes trace back to a single source (#898 / #560 ADR-0001
+      # §11.5 — Sovereign-local Harbor proxy-cache rewrites at runtime).
+      repository: stalwartlabs/stalwart
+      tag: "v0.16.3"
+      digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
       pullPolicy: IfNotPresent
     # Job timeout — the Stalwart pod must be Ready before the Job's
     # API calls succeed. 10 min is generous for cold starts on small

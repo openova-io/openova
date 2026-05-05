@@ -70,7 +70,7 @@ spec:
                   name: {{ .Values.keycloak.clientSecretName | quote }}
                   key: OIDC_CLIENT_SECRET
             - name: STALWART_DOMAIN
-              value: {{ .Values.domain.primary | quote }}
+              value: {{ include "bp-stalwart-tenant.tenantDomain" . | quote }}
             - name: STALWART_HOSTNAME
               value: {{ include "bp-stalwart-tenant.webmailHost" . | quote }}
           resources:
