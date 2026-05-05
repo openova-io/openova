@@ -760,6 +760,14 @@ func (d *Deployment) State() map[string]any {
 		if d.Result.Phase1Outcome != "" {
 			out["phase1Outcome"] = d.Result.Phase1Outcome
 		}
+		// Issue #923 — lift the live Phase-1 substate to the top
+		// level so the Sovereign Admin's wizard banner can render
+		// "reconnecting…" / "watching…" while Status itself stays
+		// "phase1-watching". Empty string is omitted so a UI client
+		// that pre-dates the substate field never sees a stray key.
+		if d.Result.Phase1Substate != "" {
+			out["phase1Substate"] = d.Result.Phase1Substate
+		}
 		// Issues #764 + #768 — lift the handover-fire surface to the
 		// top level so the wizard's provision-page reducer can drive
 		// the "Open your Sovereign console →" button + auto-redirect

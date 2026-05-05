@@ -75,6 +75,13 @@ const phase1LatePollTimeoutEnv = "CATALYST_PHASE1_LATE_POLL_TIMEOUT"
 // progress events. Default DefaultLatePollInterval (30s).
 const phase1LatePollIntervalEnv = "CATALYST_PHASE1_LATE_POLL_INTERVAL"
 
+// phase1ReachabilityBudgetEnv — env var override for the overall
+// budget of the pre-flight reachability probe (issue #923). Default
+// DefaultReachabilityOverallBudget (10m). Per docs/INVIOLABLE-
+// PRINCIPLES.md #4 every knob is runtime-configurable; production
+// reads this on every Pod start.
+const phase1ReachabilityBudgetEnv = "CATALYST_PHASE1_REACHABILITY_BUDGET"
+
 // kubeconfigArrivalTimeoutEnv — how long runPhase1Watch waits for the
 // cloud-init PUT to land /var/lib/catalyst/kubeconfigs/<id>.yaml on
 // disk before giving up with OutcomeKubeconfigMissing. Cloud-init
@@ -261,13 +268,30 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		latePollInterval = helmwatch.CompileLatePollInterval(envOrEmpty(phase1LatePollIntervalEnv))
 	}
 
+	reachabilityBudget := h.phase1ReachabilityBudget
+	if reachabilityBudget == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(phase1ReachabilityBudgetEnv)); v > 0 {
+			reachabilityBudget = v
+		}
+	}
+
 	cfg := helmwatch.Config{
-		KubeconfigYAML:     kubeconfig,
-		WatchTimeout:       timeout,
-		MinBootstrapKitHRs: minHRs,
-		FirstSeenTimeout:   firstSeen,
-		LatePollTimeout:    latePollTimeout,
-		LatePollInterval:   latePollInterval,
+		KubeconfigYAML:            kubeconfig,
+		WatchTimeout:              timeout,
+		MinBootstrapKitHRs:        minHRs,
+		FirstSeenTimeout:          firstSeen,
+		LatePollTimeout:           latePollTimeout,
+		LatePollInterval:          latePollInterval,
+		ReachabilityOverallBudget: reachabilityBudget,
+		// OnSubstate — issue #923. The watcher fires this on every
+		// Phase-1 substate transition (reconnecting → watching). We
+		// stamp Result.Phase1Substate under dep.mu so a /deployments/
+		// {id} GET that races the substate change reads the live
+		// value, not a stale "phase1-watching" with no further
+		// signal.
+		OnSubstate: func(substate string) {
+			h.setPhase1Substate(dep, substate)
+		},
 	}
 	if h.dynamicFactory != nil {
 		cfg.DynamicFactory = h.dynamicFactory
@@ -275,10 +299,50 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 	if h.coreFactory != nil {
 		cfg.CoreFactory = h.coreFactory
 	}
+	if h.phase1Reachability != nil {
+		cfg.Reachability = h.phase1Reachability
+	}
 	if h.phase1WatchResync > 0 {
 		cfg.Resync = h.phase1WatchResync
 	}
+	if h.phase1ReachabilitySleep != nil {
+		cfg.Sleep = h.phase1ReachabilitySleep
+	}
+	if h.phase1ReachabilityProbeTimeout > 0 {
+		cfg.ReachabilityProbeTimeout = h.phase1ReachabilityProbeTimeout
+	}
+	if h.phase1ReachabilityRetryInitial > 0 {
+		cfg.ReachabilityRetryInitialInterval = h.phase1ReachabilityRetryInitial
+	}
+	if h.phase1ReachabilityRetryMax > 0 {
+		cfg.ReachabilityRetryMaxInterval = h.phase1ReachabilityRetryMax
+	}
 	return cfg
+}
+
+// setPhase1Substate stamps the live Phase-1 substate onto the
+// deployment's Result under dep.mu, then persists the deployment
+// record so a Pod restart between transitions reads the same value
+// (issue #923).
+//
+// The substate field is intentionally informational — it does NOT
+// flip dep.Status. Status stays "phase1-watching" until markPhase1Done
+// runs the terminal classification. The wizard banner reads
+// Result.Phase1Substate to render "reconnecting…" or "watching…"
+// while Status itself is unchanged.
+func (h *Handler) setPhase1Substate(dep *Deployment, substate string) {
+	dep.mu.Lock()
+	if dep.Result == nil {
+		dep.mu.Unlock()
+		return
+	}
+	if dep.Result.Phase1Substate == substate {
+		dep.mu.Unlock()
+		return
+	}
+	dep.Result.Phase1Substate = substate
+	dep.mu.Unlock()
+	h.persistDeployment(dep)
 }
 
 // markPhase1Done writes the watch outcome onto dep.Result and flips
@@ -326,6 +390,11 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	dep.Result.ComponentStates = finalStates
 	dep.Result.Phase1FinishedAt = &now
 	dep.Result.Phase1Outcome = outcome
+	// Clear the in-flight substate (issue #923) — the watch has
+	// terminated and Phase1Outcome is the authoritative classification
+	// from this point. The wizard banner falls back to rendering the
+	// Status pill alone once Phase1Substate is empty.
+	dep.Result.Phase1Substate = ""
 
 	failed := 0
 	for _, s := range finalStates {

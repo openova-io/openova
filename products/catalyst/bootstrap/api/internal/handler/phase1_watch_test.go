@@ -32,11 +32,14 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1298,6 +1301,180 @@ func TestPhase1WatchConfig_LatePollFieldOverrideBeatsEnv(t *testing.T) {
 	}
 	if cfg.LatePollInterval != 250*time.Millisecond {
 		t.Errorf("LatePollInterval = %v, want 250ms (handler field override)", cfg.LatePollInterval)
+	}
+}
+
+// TestPhase1WatchConfig_ReachabilityBudgetEnvVarOverride proves the
+// CATALYST_PHASE1_REACHABILITY_BUDGET env var parses through
+// phase1WatchConfigForDeployment (issue #923).
+func TestPhase1WatchConfig_ReachabilityBudgetEnvVarOverride(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	t.Setenv("CATALYST_PHASE1_REACHABILITY_BUDGET", "3m")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-reach-budget-env", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.ReachabilityOverallBudget != 3*time.Minute {
+		t.Errorf("ReachabilityOverallBudget = %v, want 3m (from env)", cfg.ReachabilityOverallBudget)
+	}
+}
+
+// TestPhase1WatchConfig_ReachabilityFieldOverrideBeatsEnv proves the
+// test-injection precedence for the reachability budget (issue
+// #923). Mirrors the FieldOverrideBeatsEnv contract for every other
+// Phase-1 knob.
+func TestPhase1WatchConfig_ReachabilityFieldOverrideBeatsEnv(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.phase1ReachabilityBudget = 250 * time.Millisecond
+	t.Setenv("CATALYST_PHASE1_REACHABILITY_BUDGET", "3m")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-reach-budget-field", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.ReachabilityOverallBudget != 250*time.Millisecond {
+		t.Errorf("ReachabilityOverallBudget = %v, want 250ms (handler field override)", cfg.ReachabilityOverallBudget)
+	}
+}
+
+// TestRunPhase1Watch_OnSubstate_StampedOntoResult proves the wiring
+// from helmwatch.Watcher.OnSubstate → handler.setPhase1Substate →
+// dep.Result.Phase1Substate (issue #923).
+//
+// The fixture uses a Reachability factory that fails twice then
+// succeeds. The watcher's reconnect loop fires SubstateReconnecting
+// on the first failed probe and SubstateWatching on the eventual
+// success; markPhase1Done then clears Phase1Substate to "" once the
+// watch terminates cleanly. We assert the final value is empty AND
+// that during the run the field was non-empty at least once — the
+// presence-during-the-run signal the wizard banner reads.
+func TestRunPhase1Watch_OnSubstate_StampedOntoResult(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(makeReadyHR("bp-cilium"))
+	h.phase1WatchTimeout = 5 * time.Second
+
+	// Reachability probe: fail twice then succeed. We use atomic
+	// counter so the closure can be called concurrently without
+	// data race.
+	var probeCalls int32
+	h.phase1Reachability = func(_ string) func(ctx context.Context) error {
+		return func(_ context.Context) error {
+			n := atomic.AddInt32(&probeCalls, 1)
+			if n <= 2 {
+				return errors.New("net/http: TLS handshake timeout")
+			}
+			return nil
+		}
+	}
+	// Tiny intervals + no-op sleep so the loop runs in microseconds.
+	h.phase1ReachabilitySleep = func(_ context.Context, _ time.Duration) {}
+	h.phase1ReachabilityProbeTimeout = 100 * time.Millisecond
+	h.phase1ReachabilityRetryInitial = 1 * time.Millisecond
+	h.phase1ReachabilityRetryMax = 1 * time.Millisecond
+	h.phase1ReachabilityBudget = 5 * time.Second
+
+	// Custom test recorder: snapshot Phase1Substate every time it
+	// changes by hooking via a goroutine-safe poll on dep.Result.
+	// Since the watcher writes under dep.mu and we read under the
+	// same lock, no data race.
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-substate-wiring", "fake-kubeconfig: yaml")
+
+	// Spawn a poll goroutine that records every distinct Phase1Substate
+	// value. We start it BEFORE runPhase1Watch returns so we observe
+	// the in-flight transitions.
+	stopPoll := make(chan struct{})
+	pollDone := make(chan struct{})
+	var (
+		pollMu       sync.Mutex
+		distinctSubs []string
+	)
+	go func() {
+		defer close(pollDone)
+		var last string
+		t := time.NewTicker(1 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-stopPoll:
+				return
+			case <-t.C:
+				dep.mu.Lock()
+				cur := ""
+				if dep.Result != nil {
+					cur = dep.Result.Phase1Substate
+				}
+				dep.mu.Unlock()
+				if cur != last {
+					pollMu.Lock()
+					distinctSubs = append(distinctSubs, cur)
+					pollMu.Unlock()
+					last = cur
+				}
+			}
+		}
+	}()
+
+	h.runPhase1Watch(dep)
+
+	close(stopPoll)
+	<-pollDone
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	if dep.Status != "ready" {
+		t.Errorf("Status = %q, want %q", dep.Status, "ready")
+	}
+	// Phase1Substate must be cleared after terminal classification.
+	if dep.Result.Phase1Substate != "" {
+		t.Errorf("Phase1Substate = %q after terminate, want empty", dep.Result.Phase1Substate)
+	}
+
+	// During the run, the field must have transitioned through
+	// reconnecting → watching at least. The poll runs at 1ms so it's
+	// very likely to catch both — but we tolerate the race where the
+	// poll only catches one of the in-flight values, and assert at
+	// least one non-empty value was observed.
+	pollMu.Lock()
+	defer pollMu.Unlock()
+	sawNonEmpty := false
+	for _, v := range distinctSubs {
+		if v != "" {
+			sawNonEmpty = true
+		}
+	}
+	if !sawNonEmpty {
+		t.Errorf("expected Phase1Substate to be non-empty at some point during the run; observed transitions = %v", distinctSubs)
+	}
+}
+
+// TestState_SurfacesPhase1Substate proves the State() snapshot lifts
+// dep.Result.Phase1Substate to the top-level "phase1Substate" key
+// when non-empty, and omits it when empty (issue #923).
+func TestState_SurfacesPhase1Substate(t *testing.T) {
+	dep := &Deployment{
+		ID:        "phase1-substate-state",
+		Status:    "phase1-watching",
+		StartedAt: time.Now(),
+		Request:   provisioner.Request{SovereignFQDN: "test.example"},
+		Result: &provisioner.Result{
+			SovereignFQDN:  "test.example",
+			Phase1Substate: helmwatch.SubstateReconnecting,
+		},
+	}
+	state := dep.State()
+	got, ok := state["phase1Substate"]
+	if !ok {
+		t.Fatalf("State() missing phase1Substate key when Result.Phase1Substate is non-empty")
+	}
+	if got != helmwatch.SubstateReconnecting {
+		t.Errorf("State()[phase1Substate] = %v, want %q", got, helmwatch.SubstateReconnecting)
+	}
+
+	// Clear and re-check — empty substate must NOT surface in the
+	// snapshot (the wizard's reducer never receives a "" value).
+	dep.Result.Phase1Substate = ""
+	state2 := dep.State()
+	if _, ok := state2["phase1Substate"]; ok {
+		t.Errorf("State() still surfaces phase1Substate after clearing the field; should be omitted")
 	}
 }
 
