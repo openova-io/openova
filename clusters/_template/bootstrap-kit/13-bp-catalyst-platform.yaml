@@ -231,7 +231,7 @@ spec:
       # fallback (data renders the moment cutover-import lands without
       # waiting for the orchestrator's chart-values overlay write).
       # 2026-05-05.
-      version: 1.4.36
+      version: 1.4.37
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
