@@ -36,15 +36,39 @@ data:
             value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
           - name: BRANCH
             value: {{ .Values.upstream.branch | quote }}
+          # Issue #891 — the GitRepository ignore filter must be widened to
+          # include the Sovereign's own clusters/<sov-fqdn>/ subtree, or
+          # source-controller filters out every Sovereign-specific manifest
+          # (incl. SME tenant overlays at clusters/<sov-fqdn>/sme-tenants/
+          # <tenant-id>/) and Flux Kustomizations downstream all hit
+          # "kustomization path not found".
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             echo "[flux-gitrepository-patch] target=${GITREPO_NAMESPACE}/${GITREPO_NAME} -> ${LOCAL_GITEA_URL} (branch=${BRANCH})"
-            patch=$(printf '{"spec":{"url":"%s","ref":{"branch":"%s"}}}' "${LOCAL_GITEA_URL}" "${BRANCH}")
+            # Issue #891 — apply the patch via a YAML strategic-merge file
+            # so the multi-line ignore filter is shipped verbatim. JSON-
+            # patching a multi-line string from sh is a rabbit-hole of
+            # quoting; YAML lets us write it as a literal block.
+            cat >/tmp/patch.yaml <<EOF
+            spec:
+              url: ${LOCAL_GITEA_URL}
+              ref:
+                branch: ${BRANCH}
+              ignore: |
+                /*
+                !/clusters/_template
+                !/clusters/${SOVEREIGN_FQDN}
+                !/platform
+                !/products
+            EOF
+            echo "[flux-gitrepository-patch] applying patch (ignore widened to include clusters/${SOVEREIGN_FQDN}/)"
             kubectl patch gitrepository "${GITREPO_NAME}" \
               -n "${GITREPO_NAMESPACE}" \
-              --type=merge --patch "${patch}"
+              --type=merge --patch-file /tmp/patch.yaml
             kubectl annotate --overwrite gitrepository "${GITREPO_NAME}" \
               -n "${GITREPO_NAMESPACE}" \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)"
@@ -59,3 +83,11 @@ data:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
+        # Issue #891 — /tmp emptyDir for the kubectl patch-file
+        # (readOnlyRootFilesystem blocks writes to /tmp without it).
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+    volumes:
+      - name: tmp
+        emptyDir: {}
