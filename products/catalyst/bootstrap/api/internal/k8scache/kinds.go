@@ -60,6 +60,16 @@ type Kind struct {
 	// Secret. ConfigMap data is treated as PII-adjacent and also
 	// stripped (see redactObject).
 	Sensitive bool
+
+	// Optional — true when the GVR is provided by an add-on that may
+	// be absent from a given Sovereign (today: metrics.k8s.io served
+	// by the optional metrics-server). The factory probes discovery
+	// at AddCluster time and only spawns an informer for the cluster
+	// when the GVR is registered. Mandatory kinds (Optional=false)
+	// always get an informer; if the watch fails the informer retries
+	// — that path is reserved for kinds we know are part of any
+	// in-spec K8s distro (core/v1, apps/v1, networking.k8s.io/v1).
+	Optional bool
 }
 
 // DefaultKinds is the built-in registry — every Sovereign starts with
@@ -81,14 +91,23 @@ var DefaultKinds = []Kind{
 	{Name: "configmap", GVR: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, Namespaced: true, Sensitive: true},
 	{Name: "secret", GVR: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, Namespaced: true, Sensitive: true},
 	{Name: "persistentvolumeclaim", GVR: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}, Namespaced: true},
+	// PV is cluster-scoped; needed by the architecture-graph PVC→Volume.hcloud
+	// bridge (PV.csi.volumeAttributes carries the hcloud volume id).
+	{Name: "persistentvolume", GVR: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}, Namespaced: false},
 
 	// Workloads (apps/v1).
 	{Name: "deployment", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, Namespaced: true},
 	{Name: "statefulset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}, Namespaced: true},
 	{Name: "daemonset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "daemonsets"}, Namespaced: true},
+	// ReplicaSet — intermediate ownerRef hop on the Deployment→Pod chain.
+	// The graph adapter chases this hop to attribute Pods to their Deployment.
+	{Name: "replicaset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "replicasets"}, Namespaced: true},
 
 	// Networking (networking.k8s.io/v1).
 	{Name: "ingress", GVR: schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"}, Namespaced: true},
+	// EndpointSlice — exact Service→Pod membership without recomputing
+	// label-selector matches client-side for every Service-Pod pair.
+	{Name: "endpointslice", GVR: schema.GroupVersionResource{Group: "discovery.k8s.io", Version: "v1", Resource: "endpointslices"}, Namespaced: true},
 
 	// Crossplane managed resources — provider-hcloud's K8s projection
 	// of cloud-side objects (ADR-0001 §5: cloud + K8s data are
@@ -100,6 +119,13 @@ var DefaultKinds = []Kind{
 
 	// vCluster.io tenants.
 	{Name: "vcluster", GVR: schema.GroupVersionResource{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}, Namespaced: true},
+
+	// metrics-server projection. Optional — only registered on
+	// Sovereigns where metrics-server has installed the
+	// metrics.k8s.io APIService. The dashboard handler reads this
+	// indexer for color_by=utilization; when absent the handler
+	// returns percentage=null and the UI greys those cells.
+	{Name: "podmetrics", GVR: schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}, Namespaced: true, Optional: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It

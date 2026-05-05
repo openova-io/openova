@@ -11,11 +11,16 @@
 import {
   IconArrowsSplit,
   IconBox,
+  IconBoxMultiple,
   IconBucketDroplet,
+  IconCircleDot,
   IconCloud,
   IconCpu,
   IconDatabase,
   IconDisc,
+  IconFileText,
+  IconFolderOpen,
+  IconLayersDifference,
   IconMapPin,
   IconNetwork,
   IconRouteAltLeft,
@@ -40,4 +45,11 @@ export const NODE_ICON: Record<ArchNodeType, Icon> = {
   Volume: IconDisc,
   Service: IconWorld,
   Ingress: IconRouteAltLeft,
+  // K8s-side
+  Namespace: IconFolderOpen,
+  Pod: IconCircleDot,
+  Deployment: IconBoxMultiple,
+  StatefulSet: IconLayersDifference,
+  DaemonSet: IconLayersDifference,
+  ConfigMap: IconFileText,
 }
