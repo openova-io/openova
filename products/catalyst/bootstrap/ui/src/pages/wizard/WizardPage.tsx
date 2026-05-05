@@ -4,6 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useSession } from '@/shared/lib/useSession'
 import { useInflightDeployment } from '@/shared/lib/useInflightDeployment'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { StepOrg }         from './steps/StepOrg'
 import { StepDomain }      from './steps/StepDomain'
 import { StepTopology }    from './steps/StepTopology'
@@ -92,11 +93,32 @@ export function WizardPage() {
     // replace:true so the wizard URL doesn't sit in history — a
     // back-button press from /provision/<id> should land on the
     // referrer, not on a doomed wizard step.
-    navigate({
-      to: '/dashboard',
-      params: { deploymentId: inflight.id },
-      replace: true,
-    })
+    //
+    // Target depends on mode:
+    //   • mothership (catalyst-zero): /provision/$deploymentId/dashboard
+    //     — the parameterised mothership URL where deploymentId scopes
+    //     the surface.
+    //   • Sovereign self-mode: /dashboard (clean root, sovereign is
+    //     implicit from hostname).
+    //
+    // Bug history: pre-fix this called navigate({to:'/dashboard',
+    // params:{deploymentId}}) unconditionally. On the mothership the
+    // bare /dashboard matched the Sovereign-Console clean-root route
+    // which renders SovereignConsoleLayout — that layout's mothership
+    // guard then redirected back to /sovereign/, indexRoute redirected
+    // to /wizard, WizardPage saw inflight again and looped.
+    if (DETECTED_MODE.mode === 'sovereign') {
+      navigate({
+        to: '/dashboard',
+        replace: true,
+      })
+    } else {
+      navigate({
+        to: '/provision/$deploymentId/dashboard' as never,
+        params: { deploymentId: inflight.id } as never,
+        replace: true,
+      })
+    }
   }, [session.loading, session.signedIn, inflight, navigate])
 
   useEffect(() => {
