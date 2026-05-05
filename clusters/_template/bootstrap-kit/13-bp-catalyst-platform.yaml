@@ -114,7 +114,13 @@ spec:
       # orchestrator's write target. Gated on
       # ingress.marketplace.enabled — non-marketplace Sovereigns don't
       # run the SME tenant pipeline.
-      version: 1.4.13
+      # 1.4.14 (issue #879 follow-up): chart-version-only republish to
+      # bake catalyst-api image SHA 7bfd6df (the #879 fix commit) into
+      # values.yaml. 1.4.13 OCI bytes still reference the OLD image SHA
+      # because the deploy-bot updated values.yaml AFTER the chart was
+      # published. Same deploy-step race documented in 1.4.6 / 1.4.9 /
+      # 1.4.12 changelog.
+      version: 1.4.14
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
