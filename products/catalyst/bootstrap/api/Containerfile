@@ -77,13 +77,18 @@ FROM docker.io/library/alpine:3.20
 ARG KUBECTL_VERSION=v1.31.4
 ARG HELM_VERSION=v3.16.3
 
-RUN apk add --no-cache ca-certificates curl bash \
+RUN apk add --no-cache ca-certificates curl bash git \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl \
     && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && rm -rf /tmp/linux-amd64 \
     && chmod +x /usr/local/bin/helm
+# git is required by the SME tenant provisioning pipeline (#804) and the
+# marketplace-settings GitOps writer — both shell out to `git clone /
+# commit / push` against the catalyst-zero / Sovereign GitOps repo.
+# Without git on PATH the pipeline fails with `exec: "git": executable
+# file not found` at the first reconcile (issue #878).
 
 # tofu CLI from the verified-checksum builder stage. Installed mode 0755 so
 # every user (including UID 65534 from runAsUser) can execute it.

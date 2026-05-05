@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.10
-appVersion: 1.4.10
+version: 1.4.11
+appVersion: 1.4.11
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -614,6 +614,24 @@ description: |
   pipeline) but ultimately point at the Sovereign's public FQDN.
   optional=true since Catalyst-Zero (contabo) doesn't run the SME
   tenant pipeline. Lockstep slot 13 pin bumps to 1.4.10. 2026-05-05.
+
+  1.4.11 (issue #878): wire CATALYST_GITOPS_USER + CATALYST_GITOPS_TOKEN
+  env on the catalyst-api Deployment, sourced from the local Gitea
+  admin secret (`gitea-admin-secret`, keys `username` + `password`).
+  Without these, the SME tenant pipeline (#804) and the marketplace-
+  settings GitOps writer fail at the first reconcile with "gitops
+  token unconfigured" (post-cutover Sovereign has no GitHub PAT — the
+  GitOps target is the local Gitea). optional=true so Catalyst-Zero
+  (contabo) keeps using the existing GitHub PAT path. Pairs with a
+  catalyst-api code change (marketplace_settings.go +
+  sme_tenant_gitops.go): injectTokenIntoURL now takes a configurable
+  username (was hardcoded "x-access-token"; GitHub PAT-only) so the
+  same code path works for both GitHub and Gitea. Also adds `git` to
+  the catalyst-api Containerfile (Alpine 3.20 base + apk add git) —
+  the pipeline shells out to git clone/commit/push, and without the
+  binary the first reconcile fails with `exec: "git": executable
+  file not found in $PATH`. Lockstep slot 13 pin bumps to 1.4.11.
+  2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).

@@ -95,7 +95,7 @@ func (w DefaultSMETenantGitOpsWriter) WriteTenantOverlay(ctx context.Context, re
 		}
 	}()
 
-	authURL, err := injectTokenIntoURL(cfg.RepoURL, cfg.Token)
+	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
 	if err != nil {
 		return "", fmt.Errorf("rewrite repo URL: %w", err)
 	}
@@ -174,7 +174,7 @@ func (w DefaultSMETenantGitOpsWriter) DeleteTenantOverlay(ctx context.Context, r
 	}
 	defer os.RemoveAll(scratch)
 
-	authURL, err := injectTokenIntoURL(cfg.RepoURL, cfg.Token)
+	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
 	if err != nil {
 		return "", fmt.Errorf("rewrite repo URL: %w", err)
 	}

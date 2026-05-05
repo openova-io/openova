@@ -524,6 +524,30 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # CATALYST_GITOPS_USER + CATALYST_GITOPS_TOKEN — basic-auth
+            # credentials embedded in the GitOps clone URL (issue #878).
+            # Pre-cutover (Catalyst-Zero): User=x-access-token, Token=GitHub
+            # PAT (already wired via separate CATALYST_GITOPS_TOKEN secret on
+            # contabo). Post-cutover (Sovereign): User=gitea_admin,
+            # Token=<gitea-admin-password> from the local Gitea admin secret.
+            # The same secret (`gitea-admin-secret`) is mirrored into
+            # catalyst-system via the bp-reflector annotation block on
+            # bp-gitea (issue #866), so this Sovereign-side wiring works
+            # post-Day-2-Independence without a manual mirror step.
+            # optional=true: Catalyst-Zero (contabo) does not run the SME
+            # tenant pipeline.
+            - name: CATALYST_GITOPS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-admin-secret
+                  key: username
+                  optional: true
+            - name: CATALYST_GITOPS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-admin-secret
+                  key: password
+                  optional: true
             # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
             # catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
