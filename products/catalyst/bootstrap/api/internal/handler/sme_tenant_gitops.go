@@ -790,7 +790,9 @@ spec:
         name: bp-stalwart-tenant
         namespace: flux-system
   values:
-    domain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
+    domain:
+      primary: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
+      mode: {{.DomainMode}}
     ingress:
       host: {{.MailHost}}
       tls:
