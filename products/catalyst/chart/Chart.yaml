@@ -115,8 +115,17 @@ name: bp-catalyst-platform
 # proven catalyst-api PIN delivery path. When A5 ships the missing
 # host/port/from coverage these defaults become unused (source wins).
 # 2026-05-05.
-version: 1.4.25
-appVersion: 1.4.25
+# 1.4.26 (#957 follow-up): catalyst-api-cutover-driver ClusterRole
+# gains a `create tokenreviews.authentication.k8s.io` rule so that
+# HandleCutoverInternalTrigger can validate the auto-trigger Job's
+# projected SA token via the apiserver's TokenReview API. Without
+# this rule the endpoint returns 502 "token-review-failed" on every
+# call; PR #947 wired the endpoint but not its RBAC. Caught live on
+# otech113 2026-05-05 — chart 0.1.18 fixed the readiness-probe loop
+# but every trigger immediately got 502 in <10ms (synchronous
+# apiserver permission rejection). 2026-05-05.
+version: 1.4.26
+appVersion: 1.4.26
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
