@@ -133,7 +133,7 @@ images:
   console:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "95a06f5"
+  smeTag: "94ffe01"
 
 # bp-catalyst-platform umbrella values
 #

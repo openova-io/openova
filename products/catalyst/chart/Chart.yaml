@@ -115,8 +115,8 @@ name: bp-catalyst-platform
 # proven catalyst-api PIN delivery path. When A5 ships the missing
 # host/port/from coverage these defaults become unused (source wins).
 # 2026-05-05.
-version: 1.4.24
-appVersion: 1.4.24
+version: 1.4.25
+appVersion: 1.4.25
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
