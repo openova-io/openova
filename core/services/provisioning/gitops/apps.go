@@ -101,7 +101,14 @@ var KnownApps = map[string]AppSpec{
 		Image: "lscr.io/linuxserver/bookstack:latest", Port: 80,
 		NeedsDB: "mysql",
 		RAMMI: "256Mi", CPUMilli: "100m",
-		EnvVars: map[string]string{},
+		// linuxserver/bookstack reads DB_HOST/DB_USER/DB_PASS/DB_DATABASE
+		// (NOT WORDPRESS_DB_*) and refuses to start without APP_KEY. Without
+		// the bookstack DBEnvStyle the manifest emitted only WordPress-shape
+		// vars and the container halted in init with "The application key is
+		// missing, halting init!" — pod stayed 1/1 Running with no
+		// application listening, ingress returned 502.
+		DBEnvStyle: "bookstack",
+		EnvVars:    map[string]string{},
 	},
 	"nocodb": {
 		Image: "nocodb/nocodb:latest", Port: 8080,

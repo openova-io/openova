@@ -2,6 +2,7 @@ package gitops
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -667,6 +668,25 @@ func generateAppDeployment(ns, slug, appSlug string, spec AppSpec, dbPassword st
 		}
 	case "mysql":
 		switch spec.DBEnvStyle {
+		case "bookstack":
+			// linuxserver/bookstack reads DB_HOST/DB_USER/DB_PASS/DB_DATABASE
+			// (not WORDPRESS_DB_*) and refuses to start without APP_KEY +
+			// APP_URL. APP_KEY must be a Laravel-style base64:<32-byte> string.
+			envLines += fmt.Sprintf(`            - name: DB_HOST
+              value: "mysql"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: "app"
+            - name: DB_PASS
+              value: "%s"
+            - name: DB_DATABASE
+              value: "%s"
+            - name: APP_URL
+              value: "https://%s.omani.rest"
+            - name: APP_KEY
+              value: "%s"
+`, dbPassword, appDB, slug, randomAppKey())
 		case "ghost":
 			envLines += fmt.Sprintf(`            - name: database__client
               value: "mysql"
@@ -998,6 +1018,16 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// randomAppKey generates a Laravel-style APP_KEY of the form
+// "base64:<32-byte-base64>". BookStack (lscr.io/linuxserver/bookstack) and
+// other Laravel apps refuse to start when APP_KEY is missing — the linuxserver
+// container halts in init with "The application key is missing, halting init!".
+func randomAppKey() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return "base64:" + base64.StdEncoding.EncodeToString(b)
 }
 
 // ExtractDBPassword scans a tenant DB manifest (db-postgres.yaml or
