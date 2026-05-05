@@ -1066,10 +1066,13 @@ func TestWatch_11HRs_AllInstalled_TerminatesReady(t *testing.T) {
 }
 
 // TestWatch_11HRs_OneFailed_TerminatesFailed proves "failed" still
-// counts as terminal under the gate: the watch terminates fast (does
-// not wait for WatchTimeout) and reports Outcome=failed when at least
-// one of the ≥ MinBootstrapKitHRs observed components ended in
-// StateFailed.
+// counts as terminal under the gate: the watch terminates and reports
+// Outcome=failed when at least one of the ≥ MinBootstrapKitHRs observed
+// components ended in StateFailed AND the eventual-consistency late-
+// poll window (issue #910) exhausts without recovery. The test injects
+// a tiny LatePollTimeout so the failure classification path is
+// exercised in milliseconds — production has a 10-minute late-poll
+// where Flux helm-controller may retry/recover.
 func TestWatch_11HRs_OneFailed_TerminatesFailed(t *testing.T) {
 	scheme := newFakeScheme()
 	names := []string{
@@ -1102,6 +1105,13 @@ func TestWatch_11HRs_OneFailed_TerminatesFailed(t *testing.T) {
 		MinBootstrapKitHRs: 11,
 		DynamicFactory:     fakeFactory(client),
 		Resync:             0,
+		// Issue #910: shrink the eventual-consistency late-poll window
+		// to milliseconds so the failure classification path runs
+		// fast. The HR is permanently failed in this fixture
+		// (no concurrent helper flips it back), so late-poll just
+		// exhausts and we end up at OutcomeFailed.
+		LatePollTimeout:  300 * time.Millisecond,
+		LatePollInterval: 50 * time.Millisecond,
 	}
 	w, err := NewWatcher(cfg, rec.emit)
 	if err != nil {
@@ -1119,7 +1129,7 @@ func TestWatch_11HRs_OneFailed_TerminatesFailed(t *testing.T) {
 		t.Fatalf("Watch: %v", err)
 	}
 	if elapsed > 5*time.Second {
-		t.Errorf("watch took %v — expected fast all-done termination on terminal-with-failure", elapsed)
+		t.Errorf("watch took %v — expected fast all-done termination on terminal-with-failure (late-poll exhausted)", elapsed)
 	}
 	if got, want := len(final), 11; got != want {
 		t.Errorf("final states = %d, want %d: %v", got, want, final)
@@ -1287,4 +1297,422 @@ func TestWatch_SubscribeNilIsNoop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	_, _ = w.Watch(ctx)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Issue #910 — eventual-consistency late-poll coverage.
+//
+// Motivation: bp-catalyst-platform 1.4.17 hit InstallFailed on the
+// missing-sme-namespace bug. Flux retried via remediation.retries
+// and chart 1.4.18 succeeded a few minutes later — but the watcher
+// had already classified the deployment as failed at the moment of
+// the 1.4.17 terminal observation. Now: when the all-terminal trip
+// fires with at least one failed component, the watcher enters
+// late-poll mode and re-checks state until either:
+//   - every component reaches StateInstalled (return OutcomeReady)
+//   - LatePollTimeout elapses (return OutcomeFailed)
+// The informer is already attached + processEvent keeps updating
+// w.states for every transition Flux helm-controller emits, so the
+// late-poll just re-reads terminalStatesSnapshot until convergence.
+// ─────────────────────────────────────────────────────────────────────
+
+// TestWatch_LatePollRecoversFailedComponentToReady proves the
+// happy-path of issue #910: a failed HR that recovers during the
+// late-poll window flips the watcher's outcome from "would have been
+// failed" to OutcomeReady. The fixture seeds the failed HR upfront,
+// then a goroutine flips it to Ready after the all-terminal trip has
+// already fired — modelling Flux's helm-controller retrying with the
+// new chart version (1.4.17 → 1.4.18 in the otech105 incident).
+func TestWatch_LatePollRecoversFailedComponentToReady(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeReadyHelmRelease("bp-cert-manager"),
+		makeFailedHelmRelease("bp-catalyst-platform"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 3,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		LatePollTimeout:    2 * time.Second,
+		LatePollInterval:   50 * time.Millisecond,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	// Flip the failed HR to Ready on a delay so the all-terminal trip
+	// fires first (with the failure), the late-poll begins, and the
+	// flip arrives mid-late-poll. 200ms is well below LatePollTimeout
+	// (2s) so we exercise the "late-poll succeeded" path.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		updateHR(t, client, "bp-catalyst-platform", []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "Helm install succeeded after retry"},
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	final, err := w.Watch(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("watch took %v — late-poll should converge in milliseconds, not seconds", elapsed)
+	}
+
+	if got, want := w.Outcome(), OutcomeReady; got != want {
+		t.Errorf("Outcome() = %q, want %q (late-poll recovered the failed component to installed)", got, want)
+	}
+	if final["catalyst-platform"] != StateInstalled {
+		t.Errorf("final[catalyst-platform] = %q, want %q (late-poll recovery)", final["catalyst-platform"], StateInstalled)
+	}
+
+	// Late-poll started + late-poll succeeded events must both be
+	// present in the recorder so the wizard surfaces the recovery
+	// transition to the operator.
+	sawLatePollStarted := false
+	sawLatePollSucceeded := false
+	for _, ev := range rec.snapshot() {
+		if ev.Phase != PhaseComponent {
+			continue
+		}
+		if strings.Contains(ev.Message, "Entering eventual-consistency late-poll") {
+			sawLatePollStarted = true
+		}
+		if strings.Contains(ev.Message, "late-poll succeeded") {
+			sawLatePollSucceeded = true
+		}
+	}
+	if !sawLatePollStarted {
+		t.Errorf("expected a 'Entering eventual-consistency late-poll' warn event in: %+v", rec.snapshot())
+	}
+	if !sawLatePollSucceeded {
+		t.Errorf("expected a 'late-poll succeeded' info event in: %+v", rec.snapshot())
+	}
+}
+
+// TestWatch_LatePollExhaustsKeepsOutcomeFailed proves the
+// exhaustion path of issue #910: when the failed HR never recovers
+// during the late-poll window, the watcher classifies as
+// OutcomeFailed exactly as before. This is the regression guard: a
+// permanently broken bootstrap-kit must NOT be falsely marked ready
+// just because we added late-poll.
+func TestWatch_LatePollExhaustsKeepsOutcomeFailed(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeReadyHelmRelease("bp-cert-manager"),
+		makeFailedHelmRelease("bp-catalyst-platform"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 3,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		LatePollTimeout:    300 * time.Millisecond, // exhaust quickly
+		LatePollInterval:   50 * time.Millisecond,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	// NO recovery goroutine — the failed HR stays failed, so late-
+	// poll exhausts and we end up at OutcomeFailed.
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	final, err := w.Watch(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("watch took %v — late-poll exhaustion should be quick (300ms cap)", elapsed)
+	}
+	if elapsed < 250*time.Millisecond {
+		t.Errorf("watch took only %v — late-poll must have actually waited at least ~300ms before classifying as failed", elapsed)
+	}
+
+	if got, want := w.Outcome(), OutcomeFailed; got != want {
+		t.Errorf("Outcome() = %q, want %q (late-poll exhausted with HR still failed)", got, want)
+	}
+	if final["catalyst-platform"] != StateFailed {
+		t.Errorf("final[catalyst-platform] = %q, want %q", final["catalyst-platform"], StateFailed)
+	}
+
+	// Late-poll started + exhausted events must both appear so the
+	// wizard log pane shows the recovery window was attempted.
+	sawLatePollStarted := false
+	sawLatePollExhausted := false
+	for _, ev := range rec.snapshot() {
+		if ev.Phase != PhaseComponent {
+			continue
+		}
+		if strings.Contains(ev.Message, "Entering eventual-consistency late-poll") {
+			sawLatePollStarted = true
+		}
+		if strings.Contains(ev.Message, "late-poll exhausted") {
+			sawLatePollExhausted = true
+		}
+	}
+	if !sawLatePollStarted {
+		t.Errorf("expected 'Entering eventual-consistency late-poll' event in: %+v", rec.snapshot())
+	}
+	if !sawLatePollExhausted {
+		t.Errorf("expected 'late-poll exhausted' event in: %+v", rec.snapshot())
+	}
+}
+
+// TestWatch_LatePollMultipleFailedPartialRecovery proves the partial-
+// recovery path: two HRs failed, one recovers during late-poll, one
+// stays failed. Outcome must still be OutcomeFailed (one failed >
+// zero failed = failed deployment), and the final state map must
+// reflect the per-component truth (one installed, one failed).
+func TestWatch_LatePollMultipleFailedPartialRecovery(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeFailedHelmRelease("bp-cert-manager"),
+		makeFailedHelmRelease("bp-catalyst-platform"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 3,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		LatePollTimeout:    1 * time.Second,
+		LatePollInterval:   50 * time.Millisecond,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	// Recover only ONE of the two failed HRs.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		updateHR(t, client, "bp-cert-manager", []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "recovered after retry"},
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	final, err := w.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	if got, want := w.Outcome(), OutcomeFailed; got != want {
+		t.Errorf("Outcome() = %q, want %q (one HR still failed at end of late-poll)", got, want)
+	}
+	if final["cert-manager"] != StateInstalled {
+		t.Errorf("final[cert-manager] = %q, want %q (recovered during late-poll)", final["cert-manager"], StateInstalled)
+	}
+	if final["catalyst-platform"] != StateFailed {
+		t.Errorf("final[catalyst-platform] = %q, want %q (never recovered)", final["catalyst-platform"], StateFailed)
+	}
+}
+
+// TestWatch_LatePollDoesNotRunWhenNoFailures proves the happy-path
+// regression guard: when every observed HR reaches installed without
+// any failures, the watcher must NOT enter late-poll. Late-poll is
+// strictly the failure-recovery hook; the all-installed path stays
+// fast.
+func TestWatch_LatePollDoesNotRunWhenNoFailures(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeReadyHelmRelease("bp-cert-manager"),
+		makeReadyHelmRelease("bp-flux"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 1,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		// LatePollTimeout deliberately HIGH — if we accidentally enter
+		// late-poll the test will hang waiting; the assertion below
+		// catches that as a quick-termination test.
+		LatePollTimeout:  60 * time.Second,
+		LatePollInterval: 1 * time.Second,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	final, err := w.Watch(ctx)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if elapsed > 1*time.Second {
+		t.Errorf("watch took %v — happy path with no failures must NOT enter late-poll", elapsed)
+	}
+	if got, want := w.Outcome(), OutcomeReady; got != want {
+		t.Errorf("Outcome() = %q, want %q", got, want)
+	}
+	if got, want := len(final), 3; got != want {
+		t.Errorf("final states = %d, want %d", got, want)
+	}
+
+	// No late-poll events should have fired.
+	for _, ev := range rec.snapshot() {
+		if strings.Contains(ev.Message, "late-poll") {
+			t.Errorf("happy path emitted a late-poll event (none expected): %+v", ev)
+		}
+	}
+}
+
+// TestCompileLatePollTimeout_DefaultOnEmpty proves the env-var parse
+// helper falls back to DefaultLatePollTimeout for empty input — the
+// production CATALYST_PHASE1_LATE_POLL_TIMEOUT path.
+func TestCompileLatePollTimeout_DefaultOnEmpty(t *testing.T) {
+	if got := CompileLatePollTimeout(""); got != DefaultLatePollTimeout {
+		t.Fatalf("empty → expected %v, got %v", DefaultLatePollTimeout, got)
+	}
+	if got := CompileLatePollTimeout("not-a-duration"); got != DefaultLatePollTimeout {
+		t.Fatalf("invalid → expected %v, got %v", DefaultLatePollTimeout, got)
+	}
+	if got := CompileLatePollTimeout("-5m"); got != DefaultLatePollTimeout {
+		t.Fatalf("negative → expected %v, got %v", DefaultLatePollTimeout, got)
+	}
+	if got := CompileLatePollTimeout("15m"); got != 15*time.Minute {
+		t.Fatalf("15m → expected %v, got %v", 15*time.Minute, got)
+	}
+}
+
+// TestCompileLatePollInterval_DefaultOnEmpty same as above for the
+// interval helper.
+func TestCompileLatePollInterval_DefaultOnEmpty(t *testing.T) {
+	if got := CompileLatePollInterval(""); got != DefaultLatePollInterval {
+		t.Fatalf("empty → expected %v, got %v", DefaultLatePollInterval, got)
+	}
+	if got := CompileLatePollInterval("60s"); got != 60*time.Second {
+		t.Fatalf("60s → expected %v, got %v", 60*time.Second, got)
+	}
+}
+
+// TestLatePollActive_FlagToggles proves the LatePollActive() accessor
+// returns false outside late-poll mode and true inside it. The
+// /components/state HTTP handler reads this to render a "recovering
+// after install timeout" pill in the wizard.
+func TestLatePollActive_FlagToggles(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeFailedHelmRelease("bp-cert-manager"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 2,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		LatePollTimeout:    400 * time.Millisecond,
+		LatePollInterval:   50 * time.Millisecond,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	// Before Watch starts, LatePollActive must be false.
+	if w.LatePollActive() {
+		t.Errorf("LatePollActive() before Watch start = true, want false")
+	}
+
+	// Sample LatePollActive concurrently while Watch is running.
+	// With LatePollTimeout=400ms we expect at least one true reading
+	// during the late-poll window.
+	sawActive := false
+	stopSampling := make(chan struct{})
+	sampleDone := make(chan struct{})
+	go func() {
+		defer close(sampleDone)
+		for {
+			select {
+			case <-stopSampling:
+				return
+			default:
+				if w.LatePollActive() {
+					sawActive = true
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, _ = w.Watch(ctx)
+
+	close(stopSampling)
+	<-sampleDone
+
+	// After Watch returns, LatePollActive must be cleared.
+	if w.LatePollActive() {
+		t.Errorf("LatePollActive() after Watch return = true, want false (defer must clear)")
+	}
+	if !sawActive {
+		t.Errorf("LatePollActive() never observed true during late-poll — flag wiring broken")
+	}
 }

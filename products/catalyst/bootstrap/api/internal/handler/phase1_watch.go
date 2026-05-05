@@ -62,6 +62,19 @@ const phase1MinBootstrapKitHRsEnv = "CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS"
 // watch's overall budget is phase1WatchTimeoutEnv.
 const phase1FirstSeenTimeoutEnv = "CATALYST_PHASE1_FIRST_SEEN_TIMEOUT"
 
+// phase1LatePollTimeoutEnv — env var override for the eventual-
+// consistency late-poll window (issue #910). When the all-terminal
+// gate fires with at least one failed component, the watcher keeps
+// the informer running for this duration to give Flux helm-controller
+// remediation.retries room to flip the failed HR back to installing
+// → installed. Default DefaultLatePollTimeout (10m).
+const phase1LatePollTimeoutEnv = "CATALYST_PHASE1_LATE_POLL_TIMEOUT"
+
+// phase1LatePollIntervalEnv — env var override for the cadence at
+// which the late-poll mode emits "still waiting for X to recover"
+// progress events. Default DefaultLatePollInterval (30s).
+const phase1LatePollIntervalEnv = "CATALYST_PHASE1_LATE_POLL_INTERVAL"
+
 // kubeconfigArrivalTimeoutEnv — how long runPhase1Watch waits for the
 // cloud-init PUT to land /var/lib/catalyst/kubeconfigs/<id>.yaml on
 // disk before giving up with OutcomeKubeconfigMissing. Cloud-init
@@ -238,11 +251,23 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		firstSeen = helmwatch.CompileFirstSeenTimeout(envOrEmpty(phase1FirstSeenTimeoutEnv))
 	}
 
+	latePollTimeout := h.phase1LatePollTimeout
+	if latePollTimeout == 0 {
+		latePollTimeout = helmwatch.CompileLatePollTimeout(envOrEmpty(phase1LatePollTimeoutEnv))
+	}
+
+	latePollInterval := h.phase1LatePollInterval
+	if latePollInterval == 0 {
+		latePollInterval = helmwatch.CompileLatePollInterval(envOrEmpty(phase1LatePollIntervalEnv))
+	}
+
 	cfg := helmwatch.Config{
 		KubeconfigYAML:     kubeconfig,
 		WatchTimeout:       timeout,
 		MinBootstrapKitHRs: minHRs,
 		FirstSeenTimeout:   firstSeen,
+		LatePollTimeout:    latePollTimeout,
+		LatePollInterval:   latePollInterval,
 	}
 	if h.dynamicFactory != nil {
 		cfg.DynamicFactory = h.dynamicFactory

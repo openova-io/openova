@@ -142,6 +142,36 @@ const DefaultMinBootstrapKitHRs = 1
 // Operator override: CATALYST_PHASE1_FIRST_SEEN_TIMEOUT.
 const DefaultFirstSeenTimeout = 15 * time.Minute
 
+// DefaultLatePollTimeout — how long the watcher keeps re-checking
+// HelmRelease status AFTER the all-terminal gate fires with at least
+// one failed component. The Helm-controller `remediation.retries: N`
+// path can flip a failed HR back to installing (and eventually to
+// installed) when a NEW chart version is reconciled or a transient
+// dependency catches up. Without late-poll, the watch returns
+// OutcomeFailed the moment all HRs are terminal — even if Flux is
+// about to retry and converge.
+//
+// Issue #910 (otech105 incident, 2026-05-05): bp-catalyst-platform
+// 1.4.17 hit the missing-sme-namespace InstallFailed on first install,
+// 1.4.18 (chart-version bump) succeeded a few minutes later — the
+// cluster reached 40/40 HRs Ready=True but the orchestrator had
+// already marked the deployment FAILED at the moment of the 1.4.17
+// terminal-failure observation. 10 minutes is the upper bound on
+// observed Flux retry recovery for bp-catalyst-platform on otech105.
+//
+// Operator override: CATALYST_PHASE1_LATE_POLL_TIMEOUT.
+const DefaultLatePollTimeout = 10 * time.Minute
+
+// DefaultLatePollInterval — cadence at which the watcher's late-poll
+// loop emits progress events to the SSE stream. The actual state map
+// is updated event-driven via processEvent; the ticker's only role is
+// to surface "still waiting for component X to recover" diagnostics
+// so the wizard log pane shows the late-poll is alive instead of
+// going silent during the recovery window.
+//
+// Operator override: CATALYST_PHASE1_LATE_POLL_INTERVAL.
+const DefaultLatePollInterval = 30 * time.Second
+
 // Phase-1 outcome strings — Watcher.Outcome() returns one of these so
 // the handler can set Result.Phase1Outcome (read by the Sovereign
 // Admin banner). Empty string means the watch has not yet terminated.
@@ -278,6 +308,28 @@ type Config struct {
 	// DefaultFirstSeenTimeout (15m). The catalyst-api wires
 	// CATALYST_PHASE1_FIRST_SEEN_TIMEOUT into this.
 	FirstSeenTimeout time.Duration
+
+	// LatePollTimeout — duration the watcher keeps the informer running
+	// AFTER the all-terminal gate has fired with at least one failed
+	// component, giving Flux helm-controller's remediation.retries
+	// path time to flip the failed HR back to installing → installed.
+	// Defaults to DefaultLatePollTimeout (10m). Zero means "fall back
+	// to default"; the catalyst-api wires CATALYST_PHASE1_LATE_POLL_TIMEOUT
+	// into this. Tests inject a tiny value (e.g. 200ms) to exercise the
+	// late-poll-exhausted path deterministically.
+	//
+	// Issue #910 — see DefaultLatePollTimeout for the otech105 incident
+	// that motivated this.
+	LatePollTimeout time.Duration
+
+	// LatePollInterval — cadence at which the late-poll mode emits the
+	// "still waiting for X to recover" progress event so the wizard log
+	// pane stays alive during the recovery window. The actual state map
+	// is updated event-driven via processEvent; this is purely the
+	// diagnostic emit cadence. Defaults to DefaultLatePollInterval
+	// (30s). Zero means "fall back to default"; tests inject a tiny
+	// value (e.g. 50ms).
+	LatePollInterval time.Duration
 }
 
 func (c *Config) applyDefaults() {
@@ -295,6 +347,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.FirstSeenTimeout <= 0 {
 		c.FirstSeenTimeout = DefaultFirstSeenTimeout
+	}
+	if c.LatePollTimeout <= 0 {
+		c.LatePollTimeout = DefaultLatePollTimeout
+	}
+	if c.LatePollInterval <= 0 {
+		c.LatePollInterval = DefaultLatePollInterval
 	}
 }
 
@@ -357,6 +415,16 @@ type Watcher struct {
 	// post-sync stabilisation tick that re-evaluates the gate cannot
 	// double-emit. Mutated under w.mu.
 	readyTransitionEmitted bool
+
+	// latePollActive — set true while the watcher is in the
+	// eventual-consistency late-poll mode (issue #910): the all-
+	// terminal trip fired with at least one failed component, but the
+	// watcher is still attached and waiting for Flux helm-controller
+	// to retry/recover before declaring the deployment failed.
+	// Exposed via LatePollActive() for the SnapshotComponents-style
+	// callers that want to render "recovering after install
+	// timeout" in the wizard. Mutated under w.mu.
+	latePollActive bool
 
 	// outcome — terminal classification of the watch run, set
 	// exactly once by Watch on the path that returns. Read via
@@ -669,7 +737,24 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		case <-terminated:
 			// Clean termination — every observed component reached a
 			// terminal state AND ≥ MinBootstrapKitHRs were observed.
+			//
+			// Issue #910 — eventual-consistency late-poll: if the
+			// terminal snapshot contains at least one failed component,
+			// keep the informer running for LatePollTimeout to give
+			// Flux helm-controller's remediation.retries path room to
+			// flip the failed HR back to installing → installed (e.g.
+			// chart-version bump from 1.4.17 → 1.4.18 in the otech105
+			// incident). The informer is already attached and
+			// processEvent keeps updating w.states, so we just need to
+			// re-read terminalStatesSnapshot until it converges to
+			// all-installed or the late-poll deadline fires. If at the
+			// end of the late-poll window any HR is still failed, we
+			// classify as before (OutcomeFailed). If during the late-
+			// poll all HRs reach installed, classify as OutcomeReady.
 			final := w.terminalStatesSnapshot()
+			if hasFailures(final) {
+				final = w.runLatePoll(watchCtx, final)
+			}
 			w.setOutcome(w.classifyOutcomeOnTerminate(final))
 			return final, nil
 
@@ -691,6 +776,228 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 			w.maybeEmitFirstSeenWarn(firstSeenStart)
 			// Loop and keep waiting — first-seen timeout does NOT
 			// terminate the watch.
+		}
+	}
+}
+
+// hasFailures returns true when at least one component in the state
+// map sits in StateFailed. Used by the late-poll gate (issue #910) to
+// decide whether to enter eventual-consistency recovery mode after the
+// all-terminal trip fires.
+func hasFailures(states map[string]string) bool {
+	for _, s := range states {
+		if s == StateFailed {
+			return true
+		}
+	}
+	return false
+}
+
+// runLatePoll keeps the informer running for w.cfg.LatePollTimeout
+// AFTER the main all-terminal gate fired with at least one failed
+// component. The informer is already attached + processEvent keeps
+// updating w.states on every helm-controller transition; runLatePoll
+// re-reads terminalStatesSnapshot on each tick until the state
+// converges to all-installed (return early with OutcomeReady-shaped
+// state) OR the late-poll deadline fires (return current state, which
+// the caller then classifies as OutcomeFailed). Issue #910.
+//
+// The function takes the current `final` snapshot the caller observed
+// at the moment of the all-terminal trip, emits a single info-level
+// "late-poll started" event so the wizard surfaces the recovery
+// window, then ticks at w.cfg.LatePollInterval emitting progress
+// events naming the failed components still pending. On every tick
+// the live snapshot is re-read; the moment every observed component
+// is StateInstalled (no failed, no installing, no degraded), the
+// function emits a single info-level "late-poll succeeded" event and
+// returns. If the deadline elapses first, a single warn-level "late-
+// poll exhausted" event fires and the function returns the current
+// snapshot (which will still contain failures the caller classifies
+// as OutcomeFailed).
+//
+// watchCtx is the same context driving the informer + log tailer; if
+// it is cancelled (overall WatchTimeout, caller cancel) the late-poll
+// returns immediately without waiting for the deadline. The Watch()
+// caller's context.Done branch is NOT reachable from inside late-
+// poll because we're already on the <-terminated path; we still honor
+// watchCtx so a Cancel() racing the late-poll path tears down cleanly.
+func (w *Watcher) runLatePoll(watchCtx context.Context, initial map[string]string) map[string]string {
+	timeout := w.cfg.LatePollTimeout
+	interval := w.cfg.LatePollInterval
+
+	failed := failedComponents(initial)
+	w.dispatch(provisioner.Event{
+		Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+		Phase: PhaseComponent,
+		Level: "warn",
+		Message: fmt.Sprintf(
+			"Phase 1 watch: all components reached terminal state but %d failed (%s). Entering eventual-consistency late-poll for up to %s — Flux helm-controller may retry and recover.",
+			len(failed),
+			strings.Join(failed, ", "),
+			timeout,
+		),
+	})
+
+	deadline := w.cfg.Now().Add(timeout)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Mark late-poll active so processEvent / SnapshotComponents
+	// callers can observe the mode (kept under w.mu for the same
+	// reason every other state field is — concurrent reads from
+	// /components/state etc.).
+	w.mu.Lock()
+	w.latePollActive = true
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		w.latePollActive = false
+		w.mu.Unlock()
+	}()
+
+	for {
+		// Snapshot the current state under w.mu — processEvent has
+		// been updating it concurrently as Flux retries land.
+		current := w.terminalStatesSnapshot()
+		if isAllInstalled(current) {
+			w.dispatch(provisioner.Event{
+				Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+				Phase: PhaseComponent,
+				Level: "info",
+				Message: fmt.Sprintf(
+					"Phase 1 watch: late-poll succeeded — all %d components reached installed after Flux retry recovery. Sovereign ready for handover.",
+					len(current),
+				),
+			})
+			// Re-emit the per-component "ready transition" so the
+			// terminal status pill flips green even though
+			// maybeEmitReadyTransition already fired at the moment
+			// of the original <-terminated trip (it fires only on
+			// the first all-terminal observation; we want a clean
+			// success message after late-poll recovery).
+			w.maybeEmitReadyTransition()
+			return current
+		}
+
+		// Not yet all-installed — emit a progress event naming the
+		// components still pending so the wizard log pane stays
+		// alive during the recovery window. The state map mirrors
+		// reality, so we surface the per-component pending list.
+		stillFailed := failedComponents(current)
+		stillInstalling := installingComponents(current)
+
+		select {
+		case <-watchCtx.Done():
+			// Overall watch timeout fired during late-poll — return
+			// whatever we have. Classification follows the
+			// classifyOutcomeOnContextEnd path via the caller (we're
+			// on the <-terminated branch here, but this defends
+			// against a Cancel() racing the late-poll loop).
+			w.dispatch(provisioner.Event{
+				Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+				Phase: PhaseComponent,
+				Level: "warn",
+				Message: fmt.Sprintf(
+					"Phase 1 watch: late-poll cancelled by context (%s). Failed components at exit: %s.",
+					watchCtx.Err().Error(),
+					strings.Join(stillFailed, ", "),
+				),
+			})
+			return current
+
+		case <-ticker.C:
+			if w.cfg.Now().After(deadline) {
+				w.dispatch(provisioner.Event{
+					Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+					Phase: PhaseComponent,
+					Level: "error",
+					Message: fmt.Sprintf(
+						"Phase 1 watch: late-poll exhausted after %s — %d component(s) still failed (%s). Marking deployment failed.",
+						timeout,
+						len(stillFailed),
+						strings.Join(stillFailed, ", "),
+					),
+				})
+				return current
+			}
+
+			// Progress emit — only if there's something still
+			// pending recovery (otherwise we'd have hit
+			// isAllInstalled at the top of the loop).
+			parts := []string{}
+			if len(stillFailed) > 0 {
+				parts = append(parts, fmt.Sprintf("failed=[%s]", strings.Join(stillFailed, ", ")))
+			}
+			if len(stillInstalling) > 0 {
+				parts = append(parts, fmt.Sprintf("installing=[%s]", strings.Join(stillInstalling, ", ")))
+			}
+			w.dispatch(provisioner.Event{
+				Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+				Phase: PhaseComponent,
+				Level: "info",
+				Message: fmt.Sprintf(
+					"Phase 1 watch: late-poll waiting for recovery (%s remaining); %s.",
+					deadline.Sub(w.cfg.Now()).Round(time.Second),
+					strings.Join(parts, ", "),
+				),
+			})
+		}
+	}
+}
+
+// failedComponents returns the sorted list of component IDs sitting in
+// StateFailed in the supplied snapshot. Used by runLatePoll to surface
+// the per-component pending list in progress events.
+func failedComponents(states map[string]string) []string {
+	out := []string{}
+	for id, s := range states {
+		if s == StateFailed {
+			out = append(out, id)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// installingComponents returns the sorted list of component IDs in
+// any non-installed, non-failed state — these are the components that
+// Flux has flipped back to a transient state during late-poll
+// recovery.
+func installingComponents(states map[string]string) []string {
+	out := []string{}
+	for id, s := range states {
+		if s != StateInstalled && s != StateFailed {
+			out = append(out, id)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// isAllInstalled returns true when every component in the snapshot is
+// StateInstalled (no failed, no installing, no degraded). Used by the
+// late-poll loop to detect successful recovery.
+func isAllInstalled(states map[string]string) bool {
+	if len(states) == 0 {
+		return false
+	}
+	for _, s := range states {
+		if s != StateInstalled {
+			return false
+		}
+	}
+	return true
+}
+
+// sortStrings — small in-place sort so the test assertions and the
+// progress-event message ordering are deterministic. Pulled out so
+// helmwatch doesn't pull in the sort package transitively just for
+// the late-poll path; uses a 6-line bubble sort which is O(n²) but
+// fine for the bounded (~40) bp-* component count.
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
 		}
 	}
 }
@@ -786,6 +1093,23 @@ func (w *Watcher) Outcome() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.outcome
+}
+
+// LatePollActive reports whether the watcher is currently inside the
+// eventual-consistency late-poll loop (issue #910). Returns true
+// between the moment runLatePoll dispatches the "entering late-poll"
+// event and the moment it returns (either success or exhaustion).
+// Used by the /components/state handler to render a "recovering
+// after install timeout" pill in the wizard so the operator does not
+// see a stale "FAILED" while Flux is still retrying.
+//
+// Always false after Watch() returns — the deferred unlock-and-clear
+// in runLatePoll guarantees the flag is reset before the caller
+// reads Outcome().
+func (w *Watcher) LatePollActive() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.latePollActive
 }
 
 // Cancel interrupts a running Watch loop by invoking the per-watch
@@ -1190,6 +1514,36 @@ func CompileMinBootstrapKitHRs(raw string) int {
 		return DefaultMinBootstrapKitHRs
 	}
 	return n
+}
+
+// CompileLatePollTimeout — env-var parse helper for
+// CATALYST_PHASE1_LATE_POLL_TIMEOUT. Empty / unparseable /
+// non-positive input yields DefaultLatePollTimeout. Issue #910.
+func CompileLatePollTimeout(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultLatePollTimeout
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return DefaultLatePollTimeout
+	}
+	return d
+}
+
+// CompileLatePollInterval — env-var parse helper for
+// CATALYST_PHASE1_LATE_POLL_INTERVAL. Empty / unparseable /
+// non-positive input yields DefaultLatePollInterval. Issue #910.
+func CompileLatePollInterval(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultLatePollInterval
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return DefaultLatePollInterval
+	}
+	return d
 }
 
 // SnapshotComponents returns the current contents of the informer's

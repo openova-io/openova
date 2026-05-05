@@ -174,14 +174,23 @@ spec:
   # environment-controller, blueprint-controller, billing). Inter-service
   # readiness via OTel/NATS subjects is multi-minute and not Helm's
   # concern. Replaces PR #221 spec.timeout: 15m.
+  #
+  # Issue #910 (otech105 incident, 2026-05-05): 15m was too tight for
+  # bp-catalyst-platform on a fresh franchised Sovereign with the full
+  # SME service stack (sme-services + tenant-orchestration + post-install
+  # secret mirror Jobs). The chart genuinely needs ~20 minutes worst
+  # case before remediation.retries kicks in. Bumped to 25m
+  # specifically for this umbrella chart — every other bp-* chart
+  # remains at its previous (or default) timeout because they install
+  # in well under 5 minutes empirically.
   install:
     disableWait: true
-    timeout: 15m
+    timeout: 25m
     remediation:
       retries: 3
   upgrade:
     disableWait: true
-    timeout: 15m
+    timeout: 25m
     remediation:
       retries: 3
   # Per-Sovereign overrides for the umbrella — sovereign-FQDN-derived hostnames
