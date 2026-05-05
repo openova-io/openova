@@ -1,31 +1,37 @@
 {{- /*
-Run-once setup Job — bootstraps the Stalwart admin principal and seeds
-the SME's primary domain. Runs as a Helm post-install hook so it fires
-exactly once per fresh release; the upstream Stalwart instance is
-expected to be Ready before the Job's API calls succeed
-(activeDeadlineSeconds covers the cold-start window).
+Run-once setup Job — bootstraps the Stalwart admin principal, seeds
+the SME's primary domain, AND seeds the Keycloak OIDC directory entry
+(#915). Runs as a Helm post-install hook so it fires exactly once per
+fresh release; the upstream Stalwart instance is expected to be Ready
+before the Job's API calls succeed (activeDeadlineSeconds covers the
+cold-start window).
 
 Per ADR-0003 §3, ongoing per-user mailbox provisioning is event-driven:
 unified-rbac POSTs `/api/principal` against this Stalwart's HTTP admin
 API when the SME admin creates a user. The continuous subscriber
 (natsSubscriber.enabled below) is OFF by default; the Job here covers
-ONLY the bootstrap admin principal so the OIDC login path works from
-t=0.
+the bootstrap admin principal AND the OIDC directory definition so
+that webmail / IMAP / SMTP login flows through Keycloak from t=0.
 
-The Job uses a thin `stalwart-cli` image (operator-supplied via
-mailboxProvisioner.setupJob.image) that ships with curl + the Stalwart
-admin CLI. Operations performed:
+The Job uses the upstream Stalwart image (ships curl + `stalwart-cli`
+— no separate stalwart-cli image needed). Operations performed:
   1. wait until Stalwart's HTTP admin API at $STALWART_URL/api is
      reachable (60s ceiling, exits non-zero past that)
-  2. PATCH the admin principal with `email-receive` + `oidc-bypass`
-     permissions (the latter required for non-OIDC rescue access)
-  3. PATCH `lookup.sender-allow.<admin>|<admin>@<domain>` so the admin
-     can send-as the postmaster address (per stalwart_send_as.md)
-  4. exit 0
+  2. POST the OIDC directory entry to `/api/settings` with the
+     canonical camelCase keys (`directory.keycloak.@type = "Oidc"`,
+     `issuerUrl`, `claimUsername`, `claimName`, `claimGroups`,
+     `requireScopes`) verified against
+     crates/registry/src/schema/structs.rs in the upstream repo.
+     Idempotent (`assert_empty: false`) — re-runs on Helm upgrade
+     leave the existing directory entry in place.
+  3. PATCH the admin principal with `email-receive` permission so
+     inbound mail to the admin doesn't silently bounce.
+  4. POST `lookup.sender-allow.<admin>|<admin>@<domain>` so the admin
+     can send-as the postmaster address (per stalwart_send_as.md).
+  5. exit 0
 
-The script is intentionally minimal — full mailbox lifecycle lives in
-unified-rbac and the natsSubscriber subscriber. This Job ONLY covers
-"is the admin principal addressable on day 0".
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every value below is templated
+from chart values — no hardcoded URLs, claim names, or scopes.
 */}}
 {{- if and .Values.stalwart.enabled .Values.mailboxProvisioner.setupJob.enabled }}
 apiVersion: batch/v1
@@ -59,12 +65,24 @@ spec:
             {{- toYaml .Values.stalwart.containerSecurityContext | nindent 12 }}
           env:
             {{- include "bp-stalwart-tenant.adminPasswordEnv" . | nindent 12 }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.clientSecretName | quote }}
+                  key: OIDC_CLIENT_SECRET
+                  optional: true
             - name: STALWART_URL
               value: "http://{{ include "bp-stalwart-tenant.fullname" . }}-web:{{ .Values.service.web.ports.http }}"
             - name: ADMIN_USER
               value: {{ .Values.admin.username | quote }}
             - name: STALWART_DOMAIN
               value: {{ include "bp-stalwart-tenant.tenantDomain" . | quote }}
+            - name: KEYCLOAK_REALM_URL
+              value: {{ .Values.keycloak.realmURL | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.keycloak.clientID | quote }}
+            - name: KEYCLOAK_SCOPES
+              value: {{ join " " .Values.keycloak.scopes | quote }}
           command:
             - /bin/sh
             - -ec
@@ -78,6 +96,74 @@ spec:
                 fi
                 sleep 5
               done
+              # ─── Seed OIDC directory entry (#915) ─────────────────
+              # Upsert the per-tenant Keycloak realm as Stalwart's
+              # primary OIDC directory. Keys verified against the
+              # upstream registry schema (OidcDirectory in
+              # crates/registry/src/schema/structs.rs):
+              #   @type            = "Oidc"   (DirectoryType enum)
+              #   description      = human label
+              #   issuerUrl        = realm issuer URL
+              #   claimUsername    = JWT claim → Stalwart username
+              #   claimName        = JWT claim → display name
+              #   claimGroups      = JWT claim → groups (RBAC)
+              #   requireScopes    = list of OIDC scopes the JWT MUST
+              #                      contain to be accepted
+              # The settings POST is idempotent via `assert_empty:false`
+              # so Helm upgrades re-running this Job leave the existing
+              # directory entry in place without duplicating it.
+              if [ -n "${KEYCLOAK_REALM_URL}" ]; then
+                # Build the requireScopes JSON array from the
+                # space-delimited env (same shape as scopes list in
+                # values.yaml — the chart expects "openid email profile
+                # groups" and serdes them into an array).
+                SCOPES_JSON="["
+                _first=1
+                for s in ${KEYCLOAK_SCOPES}; do
+                  if [ ${_first} -eq 1 ]; then _first=0; else SCOPES_JSON="${SCOPES_JSON},"; fi
+                  SCOPES_JSON="${SCOPES_JSON}\"${s}\""
+                done
+                SCOPES_JSON="${SCOPES_JSON}]"
+                # The Stalwart OidcDirectory schema (verified upstream)
+                # validates bearer tokens against the issuer — Stalwart
+                # is the OIDC RESOURCE SERVER. Clients (webmail /
+                # Thunderbird / Apple Mail) initiate the authorization
+                # flow with Keycloak directly using the `stalwart`
+                # confidential client; they present the resulting
+                # bearer to Stalwart's IMAP/SMTP/JMAP/HTTP listeners
+                # which validate via the directory below.
+                curl -fsS -u "${ADMIN_USER}:${ADMIN_PASSWORD}" \
+                     -H 'Content-Type: application/json' \
+                     -X POST \
+                     "${STALWART_URL}/api/settings" \
+                     -d "[
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.@type\",\"value\":\"Oidc\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.description\",\"value\":\"Per-tenant Keycloak (${STALWART_DOMAIN})\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.issuerUrl\",\"value\":\"${KEYCLOAK_REALM_URL}\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.claimUsername\",\"value\":\"preferred_username\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.claimName\",\"value\":\"name\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.claimGroups\",\"value\":\"groups\"},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.requireScopes\",\"value\":${SCOPES_JSON}},
+                       {\"assert_empty\":false,\"key\":\"directory.keycloak.usernameDomain\",\"value\":\"${STALWART_DOMAIN}\"}
+                     ]" \
+                     || echo "warn: POST OIDC directory returned non-2xx"
+                # Promote the OIDC directory to be the primary
+                # authentication backend for IMAP/SMTP/JMAP. The
+                # `storage.directory` setting is the cross-protocol
+                # selector (matches `[storage].directory` in the
+                # bootstrap TOML — settings KV overrides at runtime).
+                curl -fsS -u "${ADMIN_USER}:${ADMIN_PASSWORD}" \
+                     -H 'Content-Type: application/json' \
+                     -X POST \
+                     "${STALWART_URL}/api/settings" \
+                     -d "[
+                       {\"assert_empty\":false,\"key\":\"storage.directory\",\"value\":\"keycloak\"}
+                     ]" \
+                     || echo "warn: POST storage.directory returned non-2xx"
+                echo "OIDC directory seeded for issuer ${KEYCLOAK_REALM_URL}."
+              else
+                echo "info: keycloak.realmURL unset — skipping OIDC directory seed."
+              fi
               # Grant email-receive on the admin principal (groups
               # without explicit email-receive silently bounce inbound;
               # documented gotcha in stalwart_send_as.md). Stalwart's
@@ -98,5 +184,5 @@ spec:
                    "${STALWART_URL}/api/settings" \
                    -d "[{\"assert_empty\":false,\"key\":\"lookup.sender-allow.${ADMIN_USER}|postmaster@${STALWART_DOMAIN}\",\"value\":\"1\"}]" \
                    || echo "warn: POST sender-allow returned non-2xx"
-              echo "Setup complete: admin principal seeded, send-allow row written."
+              echo "Setup complete: OIDC directory seeded, admin principal seeded, send-allow row written."
 {{- end }}

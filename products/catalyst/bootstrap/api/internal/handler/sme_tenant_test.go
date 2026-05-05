@@ -593,6 +593,62 @@ func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	}
 }
 
+// #915 (C2) — bp-stalwart-tenant.yaml MUST emit per-tenant Keycloak OIDC
+// values so the chart's setup Job seeds the OIDC directory entry against
+// the per-tenant Keycloak realm. Without these the chart falls back to
+// its empty default `keycloak.realmURL` and Stalwart's webmail / IMAP /
+// SMTP login flow can't reach Keycloak.
+func TestRenderSMETenantOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		CompanyName:     "Acme Corp",
+		OTECHFQDN:       "omantel.omani.works",
+		VClusterName:    "vc-acme",
+		TenantNamespace: "sme-t-acme",
+	}
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-stalwart-tenant.yaml"]
+	if !ok {
+		t.Fatalf("bp-stalwart-tenant.yaml missing")
+	}
+	// Per-tenant realm URL — must point at the SME's vcluster Keycloak,
+	// not a shared otech-level IdP.
+	wantRealmURL := "https://keycloak.acme.omantel.omani.works/realms/sme-acme"
+	if !strings.Contains(body, wantRealmURL) {
+		t.Errorf("realmURL missing — want %s in body", wantRealmURL)
+	}
+	// Confidential client ID + ExternalSecret-store remoteRef path.
+	for _, want := range []string{
+		"clientID: stalwart",
+		"clientSecretName: stalwart-oidc-client-secret",
+		"sovereign/omantel.omani.works/stalwart/t-acme/oidc",
+		"sovereign/omantel.omani.works/stalwart/t-acme/admin",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in bp-stalwart-tenant.yaml — got:\n%s", want, body)
+		}
+	}
+	// dependsOn: bp-keycloak so the Helm install order is deterministic.
+	if !strings.Contains(body, "name: bp-keycloak") {
+		t.Errorf("expected dependsOn bp-keycloak in bp-stalwart-tenant.yaml")
+	}
+	// Setup Job MUST be enabled — that's what seeds the OIDC directory
+	// into Stalwart's runtime settings store at t=0.
+	if !strings.Contains(body, "setupJob:\n        enabled: true") {
+		t.Errorf("expected mailboxProvisioner.setupJob.enabled=true")
+	}
+	// Webmail ingress host correctly composed for free-subdomain.
+	if !strings.Contains(body, "host: mail.acme.omantel.omani.works") {
+		t.Errorf("mail host missing in bp-stalwart-tenant.yaml")
+	}
+}
+
 func TestStepsForState(t *testing.T) {
 	cases := []struct {
 		state store.SMETenantProvisionState
