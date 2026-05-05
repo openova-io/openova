@@ -103,8 +103,8 @@ name: bp-catalyst-platform
 # carried only credentials and the chart fell back to
 # .Values.sovereign.smtp.* defaults — that fallback path remains as
 # the Sovereign-without-bp-stalwart-sovereign back-compat seam.
-version: 1.4.22
-appVersion: 1.4.22
+version: 1.4.23
+appVersion: 1.4.23
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
