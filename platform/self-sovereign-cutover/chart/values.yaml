@@ -292,13 +292,40 @@ stepTimeouts:
   egressBlockTestSeconds: 900   # 600 deny + buffer for assert sweep
 
 # Trigger configuration — surface here so operators see it in
-# `helm get values`. The chart itself does NOT auto-fire; catalyst-api
-# reads .Values.trigger.auto and either waits for operator click or
-# auto-fires after first successful operator login.
+# `helm get values`. When trigger.auto=true, the chart's Helm
+# post-install hook (templates/10-auto-trigger-job.yaml) POSTs
+# /api/v1/sovereign/cutover/start on catalyst-api after the chart's
+# ConfigMaps + RBAC land. catalyst-api handles idempotency via the
+# durable status ConfigMap, so the hook is safe to fire on every
+# install AND every upgrade.
 trigger:
-  # default false: operator must explicitly click "Achieve True
-  # Sovereignty" in admin console.
-  auto: false
-  # When auto=true, fire N seconds after the first successful operator
-  # login on the new Sovereign. Ignored when auto=false.
+  # Default true (founder rule per #933): handover is not "done" until
+  # cutover has run; the operator must NOT have to click a CTA on
+  # console.<sov-fqdn>/console/dashboard. Set to false in per-Sovereign
+  # overlay if a sandboxed test Sovereign should stay tethered.
+  auto: true
+  # Optional pre-flight delay before the hook POSTs /start. 0 = fire
+  # immediately. Useful for soak Sovereigns where the operator wants a
+  # short window to inspect the freshly-handed-over dashboard before
+  # the cutover starts.
   autoDelaySeconds: 0
+  # In-cluster URL the auto-trigger Job hits. Default points at the
+  # catalyst-api Service in `catalyst-system` (the post-handover
+  # Sovereign-side namespace per .Values.catalystAPI.namespace), which
+  # is reachable by the Job's catalyst-runner SA without any cross-
+  # namespace egress concerns. Override per-Sovereign if catalyst-api
+  # is exposed under a different Service name.
+  catalystAPIURL: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"
+  # How long the auto-trigger Job will wait for catalyst-api to be
+  # reachable before giving up (and exiting 0 so the operator can fire
+  # manually). 5 minutes is enough for a Sovereign mid-cold-start.
+  autoWaitForAPISeconds: 300
+  # Overall cap on the auto-trigger Job runtime. activeDeadlineSeconds
+  # on the Job spec — anything longer means catalyst-api is sick and
+  # the operator should investigate. The Job exiting at this deadline
+  # is non-fatal for the chart install (the cutover engine already
+  # runs detached inside catalyst-api once /start returns 200).
+  autoTimeoutSeconds: 600
+  # TTL on the completed Job — kept for audit so operators can read
+  # the trigger Pod logs if something looks wrong.
+  autoJobTTLSeconds: 86400

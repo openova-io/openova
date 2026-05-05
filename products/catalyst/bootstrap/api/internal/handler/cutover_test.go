@@ -586,6 +586,9 @@ func TestBuildCutoverStatusResponse_PromotesKeys(t *testing.T) {
 		"progressPercent":   "100",
 	}
 	resp := buildCutoverStatusResponseFromMap(status, []string{"x"})
+	if resp.State != "sovereign" {
+		t.Errorf("State = %q, want sovereign", resp.State)
+	}
 	if !resp.CutoverComplete {
 		t.Errorf("CutoverComplete = false, want true")
 	}
@@ -600,6 +603,103 @@ func TestBuildCutoverStatusResponse_PromotesKeys(t *testing.T) {
 	}
 	if len(resp.Steps) != 1 || resp.Steps[0].Name != "x" {
 		t.Errorf("Steps = %+v, want one step named x", resp.Steps)
+	}
+}
+
+// TestBuildCutoverStatusResponse_StateAlwaysDefined proves the
+// `state` field is ALWAYS one of the two UI-parseable values
+// (`tethered` | `sovereign`), regardless of how sparse or empty the
+// underlying ConfigMap is. This is the wire-side fix for the
+// `invalid CutoverState: <undefined>` regression seen on otech113
+// (issue #933) where the UI's branded `parseCutoverState` threw
+// because the API never emitted a state field.
+func TestBuildCutoverStatusResponse_StateAlwaysDefined(t *testing.T) {
+	cases := []struct {
+		name   string
+		status map[string]string
+		want   string
+	}{
+		{
+			name:   "empty status map → tethered",
+			status: map[string]string{},
+			want:   "tethered",
+		},
+		{
+			name: "cutoverComplete=false → tethered",
+			status: map[string]string{
+				"cutoverComplete": "false",
+			},
+			want: "tethered",
+		},
+		{
+			name: "cutoverComplete=true → sovereign",
+			status: map[string]string{
+				"cutoverComplete": "true",
+			},
+			want: "sovereign",
+		},
+		{
+			name: "cutoverComplete missing entirely → tethered (default)",
+			status: map[string]string{
+				"currentStep": "harbor-projects",
+			},
+			want: "tethered",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := buildCutoverStatusResponseFromMap(tc.status, nil)
+			if resp.State != tc.want {
+				t.Errorf("State = %q, want %q", resp.State, tc.want)
+			}
+			if resp.State == "" {
+				t.Error("State is empty — UI parseCutoverState would throw `invalid CutoverState: <undefined>`")
+			}
+		})
+	}
+}
+
+// TestHandleCutoverStatus_StateFieldEmittedOnFreshSovereign proves the
+// HTTP /status endpoint always includes a defined `state` field when
+// no cutover has run yet (the otech113 regression scenario). The chart
+// pre-creates the status ConfigMap with cutoverComplete="false"; the
+// API must emit state="tethered" so the UI's branded parser accepts it.
+func TestHandleCutoverStatus_StateFieldEmittedOnFreshSovereign(t *testing.T) {
+	freshStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete": "false",
+			"totalSteps":      "8",
+			"progressPercent": "0",
+		},
+	}
+	h, _ := fakeHandlerWithCutover(t, freshStatus)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/cutover/status", nil)
+	h.HandleCutoverStatus(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// Decode into a generic map so we can assert the presence of `state`
+	// at the JSON level — not the typed struct (which would default to "").
+	var rawResp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rawResp); err != nil {
+		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
+	}
+	state, ok := rawResp["state"]
+	if !ok {
+		t.Fatalf("response missing `state` field; body=%s", rec.Body.String())
+	}
+	stateStr, ok := state.(string)
+	if !ok {
+		t.Fatalf("state is not a string: %#v", state)
+	}
+	if stateStr != "tethered" {
+		t.Errorf("state = %q, want tethered", stateStr)
 	}
 }
 

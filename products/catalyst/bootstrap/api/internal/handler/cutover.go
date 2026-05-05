@@ -900,7 +900,15 @@ func (h *Handler) publishCutoverEvent(bus *cutoverBroadcaster, ev cutoverEvent) 
 // per-step keys are also surfaced under `raw` so a UI can render
 // arbitrary additional metadata the chart adds in the future without
 // a client-side change.
+//
+// `State` is ALWAYS populated: "tethered" when the cutover hasn't
+// completed (cold-start, mid-flight, or failed) and "sovereign" when
+// cutoverComplete=true. The UI's branded `CutoverState` parser refuses
+// any other value (or undefined), so the wire MUST never emit an empty
+// state — that's what was rendering `invalid CutoverState: <undefined>`
+// on otech113 (issue #933).
 type cutoverStatusResponse struct {
+	State             string              `json:"state"`
 	CutoverComplete   bool                `json:"cutoverComplete"`
 	CutoverStartedAt  string              `json:"cutoverStartedAt,omitempty"`
 	CutoverFinishedAt string              `json:"cutoverFinishedAt,omitempty"`
@@ -912,6 +920,20 @@ type cutoverStatusResponse struct {
 	LastError         string              `json:"lastError,omitempty"`
 	Steps             []cutoverStepStatus `json:"steps"`
 	Raw               map[string]string   `json:"raw,omitempty"`
+}
+
+// cutoverStateValue returns the canonical wire string for the overall
+// state, derived from the `cutoverComplete` flag. The UI's
+// `parseCutoverState` accepts only "tethered" or "sovereign"; any
+// other value (including the empty string or undefined) throws the
+// `invalid CutoverState: <…>` error that surfaced on otech113. We
+// canonicalise here so /status always answers a UI-parseable state
+// regardless of the underlying ConfigMap state.
+func cutoverStateValue(complete bool) string {
+	if complete {
+		return "sovereign"
+	}
+	return "tethered"
 }
 
 type cutoverStepStatus struct {
@@ -1143,6 +1165,7 @@ func buildCutoverStatusResponseFromMap(status map[string]string, stepNames []str
 		Raw: status,
 	}
 	resp.CutoverComplete = status["cutoverComplete"] == "true"
+	resp.State = cutoverStateValue(resp.CutoverComplete)
 	resp.CutoverStartedAt = status["cutoverStartedAt"]
 	resp.CutoverFinishedAt = status["cutoverFinishedAt"]
 	resp.CurrentStep = status["currentStep"]

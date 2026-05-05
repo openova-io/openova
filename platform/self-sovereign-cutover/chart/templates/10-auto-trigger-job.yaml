@@ -1,0 +1,198 @@
+{{- if .Values.trigger.auto }}
+{{- /*
+Step 10 — auto-trigger Job (issue #933).
+
+Helm post-install / post-upgrade hook that fires the cutover automatically
+after the chart's ConfigMaps + RBAC land. Founder rule: handover is not
+"done" until cutover has run; the operator must NOT have to click a CTA
+on console.<sov-fqdn>/console/dashboard.
+
+Idempotency comes from catalyst-api's own /start endpoint:
+  - cutoverComplete=true → 200, no Jobs created (already done)
+  - cutoverComplete=false + steps in flight → 409 (in-progress)
+  - cutoverComplete=false + no run → 200, kicks off the engine
+
+So this Job can run on every chart install AND every upgrade without
+side effects: it asks catalyst-api to start, and catalyst-api decides
+whether anything actually needs to happen.
+
+Hook ordering (helm.sh/hook-weight=20):
+  - The chart's ConfigMaps + RBAC + DaemonSet land at default weight 0
+    via normal install (no helm.sh/hook on those — they're regular
+    resources, not hooks).
+  - Helm orders hooks AFTER regular resources at install time, then
+    by hook-weight ascending. Weight 20 leaves room for other charts
+    to insert pre-cutover hooks at lower weights if needed.
+
+Why a Job (not an init container on catalyst-api):
+  - catalyst-api is provisioned at Phase-1 (long before the cutover
+    chart). We can't tell catalyst-api "auto-trigger when you install
+    the cutover chart" because catalyst-api has no awareness of which
+    sub-charts have landed when.
+  - A chart-side Helm hook is the canonical seam: "this chart has
+    finished installing, fire its trigger." That's exactly what
+    helm.sh/hook=post-install was designed for.
+
+Why it doesn't crash a still-tethered Sovereign:
+  - The catalyst-api /start endpoint returns 200 if cutoverComplete=true,
+    409 if a cutover is already running, and 424 (FailedDependency) if
+    the step ConfigMaps haven't landed yet (impossible here — we run
+    AFTER them by hook ordering).
+  - Network failure or catalyst-api unreachable at hook time? We poll
+    with a generous timeout (5 minutes) and exit 0 even on timeout
+    so a slow Sovereign cold-start doesn't fail the chart install. The
+    operator can re-trigger via the CTA if auto-trigger never lands.
+
+Re-trigger semantics:
+  - On chart upgrade, this hook fires again. catalyst-api treats the
+    re-trigger idempotently (skips already-success steps via the
+    durable status ConfigMap). Safe to fire repeatedly.
+
+Operator override:
+  - Set trigger.auto=false in the per-Sovereign overlay to disable the
+    auto-trigger and require the manual CTA. Default: true (founder rule).
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-self-sovereign-cutover.name" . }}-auto-trigger
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-auto-trigger
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: {{ .Values.trigger.autoJobTTLSeconds | default 86400 }}
+  activeDeadlineSeconds: {{ .Values.trigger.autoTimeoutSeconds | default 600 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "bp-self-sovereign-cutover.name" . }}
+        app.kubernetes.io/component: cutover-auto-trigger
+        catalyst.openova.io/blueprint: bp-self-sovereign-cutover
+    spec:
+      serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+      restartPolicy: Never
+      containers:
+        - name: trigger
+          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.curl.repository "tag" .Values.images.curl.tag "cutoverPhase" "pre" "Values" .Values) }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CATALYST_API_URL
+              value: {{ .Values.trigger.catalystAPIURL | quote }}
+            - name: AUTO_DELAY_SECONDS
+              value: {{ .Values.trigger.autoDelaySeconds | default 0 | quote }}
+            - name: WAIT_TIMEOUT_SECONDS
+              value: {{ .Values.trigger.autoWaitForAPISeconds | default 300 | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              # Optional pre-flight delay to let just-handed-over operators
+              # confirm the dashboard renders before the cutover hides the
+              # CTA. autoDelaySeconds=0 means "fire immediately".
+              if [ "${AUTO_DELAY_SECONDS}" -gt 0 ]; then
+                echo "[auto-trigger] sleeping ${AUTO_DELAY_SECONDS}s before firing cutover"
+                sleep "${AUTO_DELAY_SECONDS}"
+              fi
+
+              api="${CATALYST_API_URL%/}"
+              status_url="${api}/api/v1/sovereign/cutover/status"
+              start_url="${api}/api/v1/sovereign/cutover/start"
+
+              # 1. Wait for catalyst-api to be reachable. In a fresh
+              #    Sovereign, the cutover chart and catalyst-platform
+              #    chart land on slightly different timelines via Flux.
+              #    We poll /status (a read-only endpoint, idempotent) up
+              #    to WAIT_TIMEOUT_SECONDS so a transient unreachability
+              #    doesn't fail the hook.
+              echo "[auto-trigger] waiting for catalyst-api at ${api}"
+              deadline=$(( $(date +%s) + WAIT_TIMEOUT_SECONDS ))
+              api_ready="false"
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                code=$(curl -s -o /tmp/status.json -w "%{http_code}" \
+                  --connect-timeout 5 --max-time 15 \
+                  "${status_url}" 2>/dev/null || echo "000")
+                if [ "${code}" = "200" ]; then
+                  api_ready="true"
+                  break
+                fi
+                echo "[auto-trigger] catalyst-api not ready (HTTP ${code}); retrying in 10s"
+                sleep 10
+              done
+              if [ "${api_ready}" != "true" ]; then
+                echo "[auto-trigger] catalyst-api never became reachable within ${WAIT_TIMEOUT_SECONDS}s — exiting 0; operator can fire manually via CTA"
+                exit 0
+              fi
+
+              # 2. Read current state. If cutoverComplete=true, log and exit.
+              #    The /status endpoint is the durable record; we trust it
+              #    over any in-process state because catalyst-api Pods can
+              #    restart between cutover runs.
+              if grep -q '"cutoverComplete":true' /tmp/status.json 2>/dev/null; then
+                echo "[auto-trigger] cutover already complete on this Sovereign — no-op"
+                exit 0
+              fi
+
+              # 3. Fire POST /start. catalyst-api handles idempotency:
+              #    - cutoverComplete=true → 200 with the existing snapshot
+              #    - cutover already running on this Pod → 409 (benign)
+              #    - no steps found → 424 (chart not installed; impossible here)
+              #    - success → 200 with the freshly-seeded snapshot
+              echo "[auto-trigger] POSTing ${start_url}"
+              code=$(curl -s -o /tmp/start.json -w "%{http_code}" \
+                -X POST --connect-timeout 10 --max-time 60 \
+                -H "Content-Type: application/json" \
+                -d '{}' \
+                "${start_url}" 2>/dev/null || echo "000")
+
+              case "${code}" in
+                200)
+                  echo "[auto-trigger] cutover started successfully"
+                  cat /tmp/start.json 2>/dev/null || true
+                  ;;
+                409)
+                  echo "[auto-trigger] cutover already in progress on the catalyst-api Pod — no-op"
+                  ;;
+                424)
+                  echo "[auto-trigger] catalyst-api reports no step ConfigMaps — chart install ordering bug"
+                  cat /tmp/start.json 2>/dev/null || true
+                  exit 1
+                  ;;
+                *)
+                  echo "[auto-trigger] unexpected status ${code}"
+                  cat /tmp/start.json 2>/dev/null || true
+                  # Do NOT fail the hook — the operator can still fire
+                  # the cutover manually via the CTA. Exit 0 so the
+                  # chart install completes and Flux marks the
+                  # HelmRelease Ready.
+                  exit 0
+                  ;;
+              esac
+
+              echo "[auto-trigger] complete"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
