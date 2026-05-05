@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.2
-appVersion: 1.4.2
+version: 1.4.3
+appVersion: 1.4.3
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -339,6 +339,54 @@ description: |
   at its canonical release name; per-Sovereign overrides are still
   possible via the HelmRelease overlay's `catalystApi.env` additional-
   env patch (which takes precedence). 2026-05-04.
+
+  Bumped to 1.4.3 — auto-provision SME Postgres + secrets bundle on
+  Sovereign install (issue #859, 2026-05-04). The 11 SME service
+  Deployments (auth, billing, catalog, console, domain, gateway,
+  marketplace, notification, provisioning, tenant — plus admin which
+  has no DB/secret refs) reference two cluster-scoped resources:
+    - `sme-pg-app` Secret (basic-auth: username + password) backing the
+      sme-pg-rw.sme.svc.cluster.local Postgres Service
+    - `sme-secrets` Secret with 11 keys: JWT_SECRET, JWT_REFRESH_SECRET,
+      GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SMTP_HOST/PORT/FROM/USER/
+      PASS, ADMIN_EMAIL, ADMIN_PASSWORD
+  On contabo-mkt these are pre-provisioned in
+  clusters/contabo-mkt/apps/sme/data/{postgresql,secrets}.yaml. On a
+  freshly franchised Sovereign nothing equivalent existed — caught
+  live on otech103 (2026-05-04 23:18 Berlin) where 10 of 11 SME pods
+  landed in CreateContainerConfigError after MARKETPLACE_ENABLED=true.
+
+  Fix:
+  - templates/sme-services/cnpg-cluster.yaml — gated on the same
+    .Values.ingress.marketplace.enabled flag the rest of the SME
+    bundle uses. Renders postgresql.cnpg.io/v1.Cluster `sme-pg` in
+    `sme` namespace, instances=1, storage=10Gi, primary DB sme_auth
+    + secondary DB sme_billing via postInitApplicationSQL. CNPG
+    auto-creates `sme-pg-app` Secret and the `sme-pg-rw` Service.
+    Capabilities-gated on postgresql.cnpg.io/v1 so a misordered
+    overlay surfaces as "no Cluster yet" rather than chart install
+    failure (mirrors platform/powerdns/chart/templates/cnpg-cluster.
+    yaml). bp-catalyst-platform (slot 13) declares dependsOn:
+    bp-cnpg (slot 16) — already in place since 2026-05-02 (see
+    1.1.9 changelog) — so by reconcile time the CRD is registered.
+  - templates/sme-services/sme-secrets.yaml — gated on the same
+    flag. JWT_SECRET / JWT_REFRESH_SECRET / ADMIN_PASSWORD are
+    auto-generated via sprig randAlphaNum (64 / 64 / 32 chars
+    respectively) AND PERSISTED across reconciles via Helm `lookup`
+    — same load-bearing pattern as platform/gitea/chart/templates/
+    admin-secret.yaml (issue #830 Bug 2). Without lookup every
+    reconcile would invalidate every active SME session and lock
+    out every admin (feedback_passwords.md). Operator-supplied
+    GOOGLE_CLIENT_*, SMTP_* values default to empty placeholders;
+    operator brings real values via the per-Sovereign overlay or
+    the admin-console signup form. helm.sh/resource-policy: keep
+    so the Secret survives helm uninstall.
+  - values.yaml — add `smePostgres.cluster.*` (storage / pgVersion
+    / resources / ...) and `smeSecrets.{smtp,admin}.*` blocks; both
+    fully data-driven per Inviolable Principle #4.
+
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.2 → 1.4.3. 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
