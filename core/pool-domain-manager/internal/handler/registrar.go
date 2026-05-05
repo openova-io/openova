@@ -146,10 +146,21 @@ func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
 //
 // IMPORTANT: do NOT add struct tags that mark Token as loggable. The
 // handler intentionally avoids logging this struct directly.
+//
+// GlueIP is OPTIONAL. When supplied, and the chosen adapter implements
+// registrar.GlueRegistrar (today: Dynadot, per issue #900), the handler
+// pre-registers each NS hostname against the customer's account with
+// the supplied IPv4 BEFORE flipping the nameservers. This is what
+// unblocks the multi-domain Day-2 add-domain flow when the customer's
+// own domain is at Dynadot — Dynadot otherwise rejects set_ns with
+// "'ns1.<sov>.omani.works' needs to be registered with an ip address
+// before it can be used". Adapters that don't need glue ignore the
+// field; the call falls through to the existing SetNameservers path.
 type SetNSRequest struct {
 	Domain      string   `json:"domain"`
 	Token       string   `json:"token"`
 	Nameservers []string `json:"nameservers"`
+	GlueIP      string   `json:"glueIP,omitempty"`
 }
 
 // SetNSResponse is the JSON reply on success.
@@ -197,6 +208,7 @@ func (h *Handler) SetNS(w http.ResponseWriter, r *http.Request) {
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
 	token := req.Token // intentionally not normalised; some providers care
 	ns := normaliseNS(req.Nameservers)
+	glueIP := strings.TrimSpace(req.GlueIP)
 
 	if domain == "" {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
@@ -234,7 +246,44 @@ func (h *Handler) SetNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2) Flip the nameservers.
+	// 2) Pre-register glue records for out-of-bailiwick NS hostnames
+	//    BEFORE the set_ns flip — issue #900. Only adapters that
+	//    implement registrar.GlueRegistrar participate (today: Dynadot);
+	//    others fall through. Skipped when glueIP is empty: BYO Flow A
+	//    customers (the Sovereign's primary domain) flip to NS hostnames
+	//    that already have glue baked in by Day-1 cloud-init via
+	//    AddNSDelegation, so re-registration is unnecessary.
+	if glueIP != "" {
+		if glueRegistrar, ok := adapter.(registrar.GlueRegistrar); ok {
+			for _, host := range ns {
+				// Only register hosts that look like child-of-
+				// customer-domain ↔ pool-domain NS records — i.e. NOT a
+				// child of the customer's domain (those are
+				// in-bailiwick and Dynadot resolves them via
+				// child-zone DNS, no registered-host required).
+				if isInBailiwick(host, domain) {
+					continue
+				}
+				if err := glueRegistrar.RegisterGlueRecord(ctx, token, host, glueIP); err != nil {
+					h.Log.Info("registrar set-ns: glue register failed",
+						"registrar", registrarName,
+						"domain", domain,
+						"host", host,
+						"outcome", classifyOutcome(err),
+					)
+					writeRegistrarErr(w, err, registrarName, domain)
+					return
+				}
+			}
+			h.Log.Info("registrar set-ns: glue registered",
+				"registrar", registrarName,
+				"domain", domain,
+				"hosts", len(ns),
+			)
+		}
+	}
+
+	// 3) Flip the nameservers.
 	if err := adapter.SetNameservers(ctx, token, domain, ns); err != nil {
 		h.Log.Info("registrar set-ns: write failed",
 			"registrar", registrarName,
@@ -245,7 +294,7 @@ func (h *Handler) SetNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3) Read back the nameservers as a confirmation. Failure here is
+	// 4) Read back the nameservers as a confirmation. Failure here is
 	//    NOT fatal — the write succeeded, the read might race against
 	//    propagation. We log and return whatever we have.
 	confirmed, readErr := adapter.GetNameservers(ctx, token, domain)
@@ -336,6 +385,26 @@ func writeRegistrarErr(w http.ResponseWriter, err error, registrarName, domain s
 			"domain":    domain,
 		})
 	}
+}
+
+// isInBailiwick reports whether nsHost is a child of zone (the customer-
+// owned domain whose NS we are flipping). Used to skip glue registration
+// for in-bailiwick NS hostnames (RFC 1034 §4.2.1) — those are resolved
+// by the customer's own DNS via the zone's child A records and do not
+// need an account-level "registered host" entry.
+//
+// Both arguments are case-insensitive; the function tolerates either
+// being supplied with or without a trailing dot.
+func isInBailiwick(nsHost, zone string) bool {
+	nsHost = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(nsHost), "."))
+	zone = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zone), "."))
+	if nsHost == "" || zone == "" {
+		return false
+	}
+	if nsHost == zone {
+		return true
+	}
+	return strings.HasSuffix(nsHost, "."+zone)
 }
 
 // normaliseNS lowercases + trims each entry; drops empty strings and

@@ -13,6 +13,20 @@ global:
   # wildcard Certificate template (templates/sovereign-wildcard-certs.yaml,
   # issue #827) when parentZones is empty (single-zone fallback).
   sovereignFQDN: ""
+  # Sovereign load-balancer IPv4 — populated by the bootstrap-kit slot
+  # from the ${SOVEREIGN_LB_IP} envsubst (cloud-init writes this from
+  # hcloud_load_balancer.main.ipv4 / equivalent). Consumed by
+  # api-deployment.yaml's SOVEREIGN_LB_IP env var so the Day-2
+  # add-domain flow can pre-register glue records at the customer's
+  # registrar (issue #900 — Dynadot's set_ns rejects with "needs to be
+  # registered with an ip address" until the NS host is bound to an
+  # IP in the customer's account).
+  #
+  # Empty = not on a Sovereign cluster (Catalyst-Zero / contabo). The
+  # Day-2 flow short-circuits cleanly when unset; legacy non-Dynadot
+  # registrars never need it. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
+  # value is fully runtime-configurable.
+  sovereignLBIP: ""
 
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator

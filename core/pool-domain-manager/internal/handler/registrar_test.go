@@ -365,3 +365,198 @@ func TestSetNSResponseDoesNotEchoToken(t *testing.T) {
 		t.Fatalf("response body leaks token: %s", string(body))
 	}
 }
+
+// ── Glue-record path (issue #900) ───────────────────────────────────────
+//
+// fakeGlueAdapter extends fakeAdapter with the registrar.GlueRegistrar
+// surface. The HTTP handler's type-assertion on adapter.(GlueRegistrar)
+// MUST succeed for instances of this struct, exercising the SetNS code
+// path that pre-registers glue before the set_ns flip.
+type fakeGlueAdapter struct {
+	fakeAdapter
+	registerErr error
+	registered  []glueCall
+}
+
+type glueCall struct {
+	host string
+	ip   string
+}
+
+func (f *fakeGlueAdapter) RegisterGlueRecord(_ context.Context, _, host, ip string) error {
+	if f.registerErr != nil {
+		return f.registerErr
+	}
+	f.registered = append(f.registered, glueCall{host: host, ip: ip})
+	return nil
+}
+func (f *fakeGlueAdapter) GetGlueRecord(_ context.Context, _, host string) (string, error) {
+	for _, g := range f.registered {
+		if g.host == host {
+			return g.ip, nil
+		}
+	}
+	return "", nil
+}
+
+func newGlueTestHandler(t *testing.T, adapter *fakeGlueAdapter) *Handler {
+	t.Helper()
+	log, _ := captureLogger()
+	h := &Handler{Log: log}
+	h.SetRegistry(registrar.Registry{adapter.name: adapter})
+	return h
+}
+
+// TestSetNSGluePreRegistersBeforeFlip — when the request body carries a
+// non-empty glueIP and the adapter implements GlueRegistrar, the
+// handler MUST call RegisterGlueRecord for each NS hostname BEFORE
+// invoking SetNameservers. Verifies the canonical issue #900 unblock
+// path: register first, flip second.
+func TestSetNSGluePreRegistersBeforeFlip(t *testing.T) {
+	a := &fakeGlueAdapter{fakeAdapter: fakeAdapter{name: "dynadot"}}
+	h := newGlueTestHandler(t, a)
+	body := `{
+	  "domain":"customer-acme.tld",
+	  "token":"` + supersecretToken + `",
+	  "nameservers":["ns1.otech103.omani.works","ns2.otech103.omani.works"],
+	  "glueIP":"203.0.113.42"
+	}`
+	rec := doSetNS(t, h, "dynadot", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(a.registered) != 2 {
+		t.Fatalf("expected 2 glue registrations (one per NS), got %d (%+v)", len(a.registered), a.registered)
+	}
+	for i, exp := range []glueCall{
+		{"ns1.otech103.omani.works", "203.0.113.42"},
+		{"ns2.otech103.omani.works", "203.0.113.42"},
+	} {
+		if a.registered[i] != exp {
+			t.Errorf("registration[%d] = %+v, want %+v", i, a.registered[i], exp)
+		}
+	}
+}
+
+// TestSetNSGlueRegisterFails — when RegisterGlueRecord returns a typed
+// registrar error, the handler MUST surface the same status code as a
+// SetNameservers failure (e.g. 401 for ErrInvalidToken) and MUST NOT
+// proceed to set_ns. Verifies the fail-fast contract — a failed glue
+// pre-step never leaves the customer's NS in an intermediate state.
+func TestSetNSGlueRegisterFails(t *testing.T) {
+	a := &fakeGlueAdapter{
+		fakeAdapter: fakeAdapter{name: "dynadot"},
+		registerErr: registrar.ErrInvalidToken,
+	}
+	h := newGlueTestHandler(t, a)
+	body := `{
+	  "domain":"customer-acme.tld",
+	  "token":"t",
+	  "nameservers":["ns1.otech103.omani.works"],
+	  "glueIP":"203.0.113.42"
+	}`
+	rec := doSetNS(t, h, "dynadot", body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want 401 (ErrInvalidToken passthrough)", rec.Code, rec.Body.String())
+	}
+	// SetNameservers MUST NOT have been called — gotNS is still the
+	// fakeAdapter zero-value (nil), proving the flip was skipped.
+	if a.gotNS != nil {
+		t.Errorf("SetNameservers was called despite glue register failure; gotNS=%+v", a.gotNS)
+	}
+}
+
+// TestSetNSGlueSkipsInBailiwick — when an NS hostname IS a child of the
+// customer's own domain, glue pre-registration is a no-op (the customer
+// resolves it via their zone's own A records). The handler MUST skip
+// RegisterGlueRecord for that host, and call it only for out-of-bailiwick
+// hosts.
+func TestSetNSGlueSkipsInBailiwick(t *testing.T) {
+	a := &fakeGlueAdapter{fakeAdapter: fakeAdapter{name: "dynadot"}}
+	h := newGlueTestHandler(t, a)
+	// First NS is in-bailiwick (child of customer-acme.tld);
+	// second NS is out-of-bailiwick (omani.works subzone).
+	body := `{
+	  "domain":"customer-acme.tld",
+	  "token":"t",
+	  "nameservers":["ns.customer-acme.tld","ns1.otech103.omani.works"],
+	  "glueIP":"203.0.113.42"
+	}`
+	rec := doSetNS(t, h, "dynadot", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(a.registered) != 1 {
+		t.Fatalf("expected 1 glue registration (out-of-bailiwick only), got %d (%+v)", len(a.registered), a.registered)
+	}
+	if a.registered[0].host != "ns1.otech103.omani.works" {
+		t.Errorf("registered host = %q, want ns1.otech103.omani.works (in-bailiwick should be skipped)", a.registered[0].host)
+	}
+}
+
+// TestSetNSGlueOmittedSkipsRegister — when the request body has NO
+// glueIP field, the handler MUST NOT touch RegisterGlueRecord even
+// when the adapter implements GlueRegistrar. Backward-compat: existing
+// pdmFlipNS callers that pre-date #900 keep working unchanged.
+func TestSetNSGlueOmittedSkipsRegister(t *testing.T) {
+	a := &fakeGlueAdapter{fakeAdapter: fakeAdapter{name: "dynadot"}}
+	h := newGlueTestHandler(t, a)
+	body := `{
+	  "domain":"customer-acme.tld",
+	  "token":"t",
+	  "nameservers":["ns1.otech103.omani.works","ns2.otech103.omani.works"]
+	}`
+	rec := doSetNS(t, h, "dynadot", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(a.registered) != 0 {
+		t.Errorf("expected no glue registrations when glueIP omitted, got %d", len(a.registered))
+	}
+}
+
+// TestSetNSGlueIgnoredForNonGlueAdapter — when the adapter does NOT
+// implement GlueRegistrar (cloudflare/godaddy/etc), the handler MUST
+// skip the glue path entirely even if glueIP is supplied. The set_ns
+// flow proceeds as normal.
+func TestSetNSGlueIgnoredForNonGlueAdapter(t *testing.T) {
+	// Plain fakeAdapter does NOT embed glue methods.
+	a := &fakeAdapter{name: "cloudflare"}
+	h, _ := newTestHandler(t, a)
+	body := `{
+	  "domain":"customer-acme.tld",
+	  "token":"t",
+	  "nameservers":["ns1.otech103.omani.works"],
+	  "glueIP":"203.0.113.42"
+	}`
+	rec := doSetNS(t, h, "cloudflare", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestIsInBailiwick — pure unit coverage for the in-/out-of-bailiwick
+// classifier the SetNS handler uses to skip glue registration for NS
+// hostnames that the customer's own DNS resolves.
+func TestIsInBailiwick(t *testing.T) {
+	cases := []struct {
+		nsHost, zone string
+		want         bool
+	}{
+		{"ns.customer-acme.tld", "customer-acme.tld", true},
+		{"ns1.sub.customer-acme.tld", "customer-acme.tld", true},
+		{"customer-acme.tld", "customer-acme.tld", true},
+		{"ns1.otech103.omani.works", "customer-acme.tld", false},
+		{"NS1.OTECH103.omani.works", "customer-acme.tld", false},
+		{"ns.customer-acme.tld.", "customer-acme.tld.", true},
+		{"", "customer-acme.tld", false},
+		{"ns.x.com", "", false},
+		{"customer-acme.tld.evil.com", "customer-acme.tld", false},
+	}
+	for _, tc := range cases {
+		got := isInBailiwick(tc.nsHost, tc.zone)
+		if got != tc.want {
+			t.Errorf("isInBailiwick(%q, %q) = %v, want %v", tc.nsHost, tc.zone, got, tc.want)
+		}
+	}
+}

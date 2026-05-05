@@ -933,11 +933,31 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 	if len(nameservers) == 0 {
 		return fmt.Errorf("expected-ns-unavailable: cannot compute nameservers (primary domain unknown)")
 	}
-	body, _ := json.Marshal(map[string]any{
+	// glueIP — Sovereign's load-balancer public IPv4 (issue #900). When
+	// non-empty PDM pre-registers each NS hostname against the customer's
+	// account before the set_ns flip, unblocking Dynadot's "needs to be
+	// registered with an ip address" rejection. Source order:
+	//
+	//   1. SOVEREIGN_LB_IP env var (api-deployment.yaml mounts this from
+	//      the sovereign-fqdn ConfigMap key `lbIP`, which the chart
+	//      renders from `global.sovereignLBIP`).
+	//   2. The adopted Deployment's Result.LoadBalancerIP (when running
+	//      on Catalyst-Zero / contabo where SOVEREIGN_LB_IP is empty
+	//      but a deployment record exists with the result captured).
+	//   3. Empty — non-Dynadot adapters ignore the field; Dynadot
+	//      adapter falls through and set_ns runs as-is. This preserves
+	//      backward compat with pre-#900 deployments while making the
+	//      glue path the default on Sovereigns.
+	glueIP := h.lookupSovereignLBIP()
+	payload := map[string]any{
 		"domain":      domain,
 		"token":       token,
 		"nameservers": nameservers,
-	})
+	}
+	if glueIP != "" {
+		payload["glueIP"] = glueIP
+	}
+	body, _ := json.Marshal(payload)
 	target := fmt.Sprintf("%s/api/v1/registrar/%s/set-ns",
 		strings.TrimRight(pdmBase, "/"),
 		strings.ToLower(registrarKind),
@@ -965,6 +985,49 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 		return fmt.Errorf("pdm-status-%d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
+}
+
+// lookupSovereignLBIP resolves the Sovereign's load-balancer public
+// IPv4 for the multi-domain Day-2 add-domain flow's glue-record
+// pre-registration step (issue #900). Source order:
+//
+//  1. SOVEREIGN_LB_IP env var — wired on Sovereign Pods from the
+//     `sovereign-fqdn` ConfigMap key `lbIP` (chart renders from
+//     `global.sovereignLBIP`). This is the post-handover canonical
+//     source.
+//  2. Any adopted deployment's Result.LoadBalancerIP — covers the
+//     Catalyst-Zero (contabo) path where SOVEREIGN_LB_IP is unset
+//     but a finalised deployment record exists with the LB captured.
+//  3. "" — no Sovereign LB IP available. Day-2 add-domain still
+//     proceeds (legacy plain set_ns); Dynadot will reject only if
+//     the host hasn't been registered manually first.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the env var name is the only
+// runtime-configurable knob; nothing about the IP itself is hardcoded.
+func (h *Handler) lookupSovereignLBIP() string {
+	if v := strings.TrimSpace(os.Getenv("SOVEREIGN_LB_IP")); v != "" {
+		return v
+	}
+	var picked string
+	h.deployments.Range(func(_, v any) bool {
+		dep, ok := v.(*Deployment)
+		if !ok {
+			return true
+		}
+		dep.mu.Lock()
+		adopted := dep.AdoptedAt != nil
+		var lb string
+		if dep.Result != nil {
+			lb = strings.TrimSpace(dep.Result.LoadBalancerIP)
+		}
+		dep.mu.Unlock()
+		if adopted && lb != "" {
+			picked = lb
+			return false
+		}
+		return true
+	})
+	return picked
 }
 
 // pdmBasicAuth reads the basic-auth credentials for the PDM public

@@ -69,6 +69,48 @@ type Registrar interface {
 	GetNameservers(ctx context.Context, token, domain string) ([]string, error)
 }
 
+// GlueRegistrar is implemented by adapters whose registrar requires
+// out-of-bailiwick NS hostnames to be PRE-registered as account-level
+// "host records" before they can be referenced in a SetNameservers
+// call. Dynadot is the canonical example (issue #900): a set_ns call
+// pointing customer.tld at ns1.<sovereign>.omani.works fails with
+//
+//	"'ns1.<sovereign>.omani.works' needs to be registered with an ip
+//	 address before it can be used"
+//
+// unless the customer's account first runs the equivalent of:
+//
+//	register_ns(host="ns1.<sovereign>.omani.works", ip=<lbIP>)
+//
+// Adapters whose providers do NOT require this (Cloudflare, GoDaddy,
+// Namecheap, OVH all accept arbitrary NS hostnames in their set-ns
+// commands without an account-level "registered host" step) deliberately
+// do not implement this interface; the HTTP handler falls back to plain
+// SetNameservers for them. This keeps the common Registrar surface
+// minimal — only Dynadot pays the extra round-trip per NS hostname.
+//
+// Method semantics:
+//
+//   - RegisterGlueRecord(ctx, token, host, ip): register a glue record
+//     mapping `host` (an FQDN, e.g. "ns1.otech103.omani.works") to
+//     `ip` (an IPv4 string). MUST be idempotent — implementations
+//     short-circuit when the host is already registered with the same
+//     IP, and update the IP in place (e.g. via Dynadot's `set_ns_ip`
+//     command) when the host exists but the IP differs. This means a
+//     SetNameservers retry after a transient failure does not produce
+//     duplicate registrations or cost extra registrar API quota.
+//
+//   - GetGlueRecord(ctx, token, host): read the currently registered
+//     IPv4 for `host`, or ("", nil) when the host is not registered.
+//     Used by callers (and the adapter itself) for the idempotency
+//     check above. Errors are returned untouched so the caller can
+//     distinguish "not registered" (empty string, no error) from
+//     "API failed" (any non-nil error).
+type GlueRegistrar interface {
+	RegisterGlueRecord(ctx context.Context, token, host, ip string) error
+	GetGlueRecord(ctx context.Context, token, host string) (string, error)
+}
+
 // Typed errors that adapters return so HTTP handlers can map to status
 // codes without string matching.
 //

@@ -555,3 +555,145 @@ func TestGetPropagation_ResponseShape(t *testing.T) {
 		t.Fatalf("expected 0%% propagated when all errored, got %d", resp.Percentage)
 	}
 }
+
+// ── Issue #900 — glue IP forwarding through pdmFlipNS ───────────────────
+
+// TestAddParentDomain_ForwardsGlueIP — when SOVEREIGN_LB_IP is set on
+// the Pod env, AddParentDomain's pdmFlipNS step MUST include `glueIP`
+// in the JSON body it POSTs to PDM /set-ns. This is the carrier wire
+// that unblocks the Dynadot register_ns pre-step on the PDM side.
+func TestAddParentDomain_ForwardsGlueIP(t *testing.T) {
+	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
+	t.Setenv("SOVEREIGN_LB_IP", "203.0.113.42")
+
+	// Capture the raw body PDM receives so we can assert wire shape.
+	var observedBody []byte
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/set-ns") {
+			observedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"valid":true}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer stub.Close()
+	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
+
+	h := &Handler{log: slog.Default()}
+	seedActiveDeployment(t, h, "omani.works")
+
+	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	newParentDomainsRouter(h).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(observedBody, &got); err != nil {
+		t.Fatalf("PDM body not JSON: %v (raw=%s)", err, observedBody)
+	}
+	if got["domain"] != "customer-acme.tld" {
+		t.Errorf("PDM body domain=%v, want customer-acme.tld", got["domain"])
+	}
+	if got["glueIP"] != "203.0.113.42" {
+		t.Errorf("PDM body glueIP=%v, want 203.0.113.42 (from SOVEREIGN_LB_IP env)", got["glueIP"])
+	}
+	// nameservers must still be present — glue IP doesn't replace it.
+	if _, ok := got["nameservers"].([]any); !ok {
+		t.Errorf("PDM body missing nameservers array; raw=%s", observedBody)
+	}
+}
+
+// TestAddParentDomain_OmitsGlueIPWhenNoLBIP — when SOVEREIGN_LB_IP is
+// empty (Catalyst-Zero / contabo / pre-#900 Sovereigns) AND no adopted
+// deployment carries a Result.LoadBalancerIP, pdmFlipNS MUST omit the
+// glueIP field entirely (so PDM falls through to plain set_ns and
+// non-Dynadot adapters never see a stray field). Backward-compat
+// guarantee for the existing pool of franchised Sovereigns.
+func TestAddParentDomain_OmitsGlueIPWhenNoLBIP(t *testing.T) {
+	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
+	t.Setenv("SOVEREIGN_LB_IP", "")
+
+	var observedBody []byte
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/set-ns") {
+			observedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"valid":true}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer stub.Close()
+	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
+
+	h := &Handler{log: slog.Default()}
+	// Adopted deployment WITHOUT Result.LoadBalancerIP — fallback chain
+	// resolves to "" so glueIP is omitted from the wire payload.
+	seedActiveDeployment(t, h, "omani.works")
+
+	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	newParentDomainsRouter(h).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(observedBody, &got); err != nil {
+		t.Fatalf("PDM body not JSON: %v", err)
+	}
+	if _, present := got["glueIP"]; present {
+		t.Errorf("expected no glueIP in PDM body when SOVEREIGN_LB_IP is unset; got %v", got["glueIP"])
+	}
+}
+
+// TestAddParentDomain_GlueIPFromDeploymentResult — when SOVEREIGN_LB_IP
+// is empty but the adopted deployment's Result.LoadBalancerIP is set,
+// pdmFlipNS MUST fall through to the deployment-record source and
+// still forward the IP to PDM. Covers the Catalyst-Zero (contabo) path
+// during single-Sovereign sandbox runs of the Day-2 add-domain flow.
+func TestAddParentDomain_GlueIPFromDeploymentResult(t *testing.T) {
+	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
+	t.Setenv("SOVEREIGN_LB_IP", "")
+
+	var observedBody []byte
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/set-ns") {
+			observedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"valid":true}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer stub.Close()
+	t.Setenv("POOL_DOMAIN_MANAGER_URL", stub.URL)
+
+	h := &Handler{log: slog.Default()}
+	dep := seedActiveDeployment(t, h, "omani.works")
+	dep.Result = &provisioner.Result{LoadBalancerIP: "198.51.100.7"}
+
+	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	newParentDomainsRouter(h).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(observedBody, &got); err != nil {
+		t.Fatalf("PDM body not JSON: %v", err)
+	}
+	if got["glueIP"] != "198.51.100.7" {
+		t.Errorf("PDM body glueIP=%v, want 198.51.100.7 (from Deployment.Result.LoadBalancerIP)", got["glueIP"])
+	}
+}
