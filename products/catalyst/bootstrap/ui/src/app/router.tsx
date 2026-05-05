@@ -83,7 +83,6 @@ import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
-import { SovereignConsoleRedirect } from '@/pages/sovereign/SovereignConsoleRedirect'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
