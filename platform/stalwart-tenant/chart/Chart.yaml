@@ -1,30 +1,57 @@
 apiVersion: v2
 name: bp-stalwart-tenant
-# 0.1.1 (#898) — three fixes that left the 0.1.0 chart unbootable on
-# fresh otech provisions:
-#   1. accept legacy string-shape `domain: <fqdn>` values produced by
-#      pre-#897 catalyst-api builds (the live HR shape on otech103
-#      was `values.domain: acme.omani.works` which broke
-#      `.Values.domain.primary` indexing across config-configmap,
-#      deployment, dns-records-configmap, mailbox-provision-job, and
-#      the webmailHost helper). Resolved via a single `tenantDomain`
-#      helper in _helpers.tpl that handles both shapes (string OR
-#      `{primary,mode}` map).
-#   2. auto-provision the `stalwart-admin` Secret with a
-#      randomly-generated ADMIN_PASSWORD via lookup-persistence
-#      (mirrors marketplace-api/secret.yaml in catalyst chart). The
-#      0.1.0 chart referenced the Secret in deployment.yaml but never
-#      created it — every fresh tenant lands in
-#      CreateContainerConfigError until the operator hand-rolls one.
-#   3. make the pod sec context compatible with the upstream
-#      stalwart binary's file capabilities (`getcap` on
-#      docker.io/stalwartlabs/stalwart:v0.16.3 reports
-#      `cap_net_bind_service=ep`). The 0.1.0 sec ctx ran as UID 65534
-#      (image-default is 2000) AND dropped ALL caps — kernel refuses
-#      to elevate file caps with empty bounding set, so exec failed
-#      with `operation not permitted`. Now: runAsUser 2000, drop ALL
-#      then add NET_BIND_SERVICE explicitly.
-version: 0.1.1
+# 0.1.2 (#915) — wire Keycloak OIDC SSO end-to-end so the per-tenant
+# Stalwart authenticates webmail / IMAP / SMTP users against the SME's
+# vcluster-local Keycloak realm (epic #915 DoD #2 — alice's mailbox
+# logs in via her tenant Keycloak, NOT a shared otech-level IdP).
+#
+# What 0.1.1 had: the chart shipped values for `keycloak.realmURL`,
+# `keycloak.clientID`, `keycloak.clientSecretName` AND a placeholder
+# `[directory.keycloak]` block in the bootstrap config.toml. Three
+# things broke the actual SSO contract on a fresh tenant:
+#   a. the orchestrator's `smeTenantBPStalwart` template (catalyst-api/
+#      sme_tenant_gitops.go) emitted ONLY `domain.primary` + `ingress`
+#      values — never a `keycloak.*` block. Fresh tenants ran with the
+#      chart's empty default `keycloak.realmURL: ""` so no OIDC
+#      handshake was possible. Wordpress/openclaw both passed the
+#      realmURL — Stalwart was left out.
+#   b. the chart's TOML used the pre-0.16 Stalwart key layout
+#      (`type = "oidc"`, `url = ...`, `client-id = ...`, kebab-case).
+#      Stalwart 0.16+ moved directory definitions to the settings KV
+#      store; the OIDC schema serdes camelCase
+#      (`@type = "Oidc"`, `issuerUrl`, `claimUsername`, `claimName`,
+#      `claimGroups`, `requireScopes`) — verified against the upstream
+#      registry schema (crates/registry/src/schema/structs.rs). The
+#      kebab-case TOML block was silently ignored.
+#   c. the setupJob that registers the OIDC directory via the
+#      `/api/settings` admin endpoint was disabled by default
+#      (operator-opt-in) — so even when the values landed correctly
+#      the actual Stalwart instance still had no OIDC directory at
+#      runtime.
+#
+# 0.1.2 fixes:
+#   1. orchestrator emits per-tenant `keycloak.realmURL` =
+#      `https://keycloak.<sub>.<parent>/realms/sme-<sub>` + `clientID`
+#      = `stalwart` + `clientSecretName` = `stalwart-oidc-client-secret`
+#      + `oidcExternalSecret.remoteRef.key` =
+#      `sovereign/<otech-fqdn>/stalwart/<tenant>/oidc`. Mirrors the
+#      bp-wordpress-tenant + bp-openclaw shape so all three apps SSO
+#      against the SAME tenant realm with their distinct client IDs
+#      (#915 C1 registers all three clients in the realm).
+#   2. config.toml emits `[oauth]` block + setup Job seeds the
+#      directory entry into Stalwart's settings KV store via the
+#      `/api/settings` admin endpoint with the canonical camelCase
+#      keys (`directory.keycloak.@type = "Oidc"`, `issuerUrl`,
+#      `claimUsername`, `claimName`, `claimGroups`, `requireScopes`).
+#      The settings POST is idempotent (assert_empty=false) — re-runs
+#      on Helm upgrade without breaking existing logins.
+#   3. setupJob defaults to enabled (was off in 0.1.1 because the
+#      canonical stalwart-cli image was unpublished). The Job re-uses
+#      the upstream Stalwart container which already ships
+#      `stalwart-cli` + `curl` — no new image needed.
+#
+# Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
+version: 0.1.2
 appVersion: "0.16.3"
 description: |
   Catalyst Blueprint scratch chart for a per-SME (per-vcluster) dedicated

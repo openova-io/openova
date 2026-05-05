@@ -74,23 +74,38 @@ data:
     type = "internal"
     store = "rocksdb"
 
-    # ─── OIDC against SME-vcluster Keycloak ─────────────────────────────
-    # Stalwart's webmail authenticates users via OpenID Connect against
-    # the SME's per-vcluster Keycloak realm. The clientID is registered
-    # at vcluster provisioning time (#804); the client secret is mounted
-    # from the OIDC secret at runtime.
-    [directory.keycloak]
-    type = "oidc"
-    url = {{ .Values.keycloak.realmURL | quote }}
-    client-id = {{ .Values.keycloak.clientID | quote }}
-    client-secret = "%{env:OIDC_CLIENT_SECRET}%"
-    scopes = [{{- range $i, $s := .Values.keycloak.scopes }}{{ if $i }}, {{ end }}{{ $s | quote }}{{- end }}]
-    # Map Keycloak claims to Stalwart principal fields. `email_verified`
-    # is required to short-circuit the Stalwart account-creation flow on
-    # first login (otherwise Stalwart would prompt for password setup).
-    fields.email = "email"
-    fields.name = "name"
-    fields.username = "preferred_username"
+    # ─── OIDC SSO against per-tenant Keycloak (#915) ───────────────────
+    # Stalwart 0.16+ stores OIDC directory definitions in its runtime
+    # settings KV store (RocksDB), populated via the `/api/settings`
+    # admin endpoint — NOT in this bootstrap config.toml. The pre-0.16
+    # `[directory.keycloak] type = "oidc"` kebab-case TOML block is
+    # silently ignored by the upstream registry parser
+    # (verified against crates/registry/src/schema/structs.rs — the
+    # OidcDirectory struct serdes camelCase: `@type = "Oidc"`,
+    # `issuerUrl`, `claimUsername`, `claimName`, `claimGroups`,
+    # `requireScopes`). Stalwart acts as the OIDC RESOURCE SERVER:
+    # bearer JWTs minted by the per-tenant Keycloak are validated
+    # against the directory's issuer and claim mappings.
+    #
+    # The post-install setup Job in templates/mailbox-provision-job.yaml
+    # POSTs the canonical OIDC directory entry (with the per-tenant
+    # Keycloak realm URL the orchestrator emitted into
+    # `.Values.keycloak.realmURL`) AND flips `storage.directory` to
+    # `keycloak`, making the per-tenant realm the primary
+    # authentication backend for SMTP/IMAP/JMAP/HTTP. Until that Job
+    # runs, the `internal` directory below keeps Stalwart bootable so
+    # the admin user can log in via password.
+    #
+    # The OIDC client (`stalwart` confidential client registered in
+    # the realm by the orchestrator's bp-keycloak realmConfig.tenant
+    # block) is consumed by webmail / Thunderbird / Apple Mail to
+    # initiate the authorization flow against Keycloak directly; they
+    # then present the bearer to Stalwart for IMAP/SMTP/JMAP login.
+    # Stalwart itself does NOT mint OAuth2 redirects — the OIDC client
+    # secret in `keycloak.clientSecretName` is mounted as the
+    # `OIDC_CLIENT_SECRET` env var purely so the setup Job can echo it
+    # back to clients via `/api/oauth/.well-known` queries (mailbox
+    # provision flow consumed by unified-rbac per ADR-0003 §3).
 
     [auth.dkim]
     sign = [{if = "is_local_domain('*')", then = true}, {else = false}]

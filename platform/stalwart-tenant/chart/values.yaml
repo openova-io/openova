@@ -321,16 +321,21 @@ ingress:
 #     the OIDC client config inside Stalwart's RocksDB so OIDC login
 #     works from t=0.
 mailboxProvisioner:
-  # Run-once setup Job (admin principal + OIDC client config in
-  # Stalwart). The Job's image is operator-tunable (#898) — until the
-  # canonical `ghcr.io/openova-io/openova/stalwart-cli` image is
-  # published, the Job re-uses the upstream stalwart container which
-  # ships `stalwart-cli` AND `curl` for HTTP calls. Disabled by
-  # default in 0.1.1 to avoid CrashLoopBackOff on tenants where the
-  # canonical CLI image is unavailable; SME admin can opt in via
-  # per-tenant overlay once the image is published.
+  # Run-once setup Job (admin principal + OIDC directory entry in
+  # Stalwart's runtime settings KV store). Re-uses the upstream
+  # stalwart container (ships `stalwart-cli` AND `curl` for HTTP calls)
+  # — no separate `stalwart-cli` image needed (#915, replaces the
+  # 0.1.1 default-off posture).
+  #
+  # 0.1.2 (#915): defaults to enabled so a fresh tenant has working
+  # Keycloak OIDC at t=0. The Job POSTs the OIDC directory entry to
+  # `/api/settings` with the canonical camelCase keys
+  # (`directory.keycloak.@type = "Oidc"`, `issuerUrl`, `claimUsername`,
+  # `claimName`, `claimGroups`, `requireScopes`) the upstream registry
+  # schema expects. Idempotent: re-runs on Helm upgrade leave the
+  # existing directory in place.
   setupJob:
-    enabled: false
+    enabled: true
     image:
       # Re-use the upstream Stalwart image which already ships curl +
       # stalwart-cli. SHA-pinned via the same digest as the StatefulSet

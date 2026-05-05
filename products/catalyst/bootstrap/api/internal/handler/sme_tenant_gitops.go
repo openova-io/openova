@@ -906,7 +906,25 @@ spec:
         issuer: letsencrypt-prod
 `
 
-const smeTenantBPStalwart = `# bp-stalwart-tenant (#801) — dedicated mail server per SME.
+const smeTenantBPStalwart = `# bp-stalwart-tenant (#801, OIDC wiring #915) — dedicated mail server
+# per SME with Keycloak OIDC SSO against the per-tenant Keycloak realm.
+#
+# OIDC contract (#915): the per-tenant Keycloak (bp-keycloak above)
+# registers a confidential client ` + "`stalwart`" + ` with redirect URI
+# ` + "`https://<MailHost>/*`" + `. The realm-config-cli writes the client
+# secret into the per-tenant ExternalSecret store under
+# ` + "`sovereign/<otech-fqdn>/stalwart/<tenant>/oidc`" + ` (property
+# OIDC_CLIENT_SECRET); this HelmRelease wires the chart's
+# ` + "`oidcExternalSecret.remoteRef.key`" + ` to that path so the chart
+# materialises the in-namespace Secret without operator hand-rolling.
+#
+# Stalwart's setup Job (mailbox-provision-job in the chart) then POSTs
+# the OIDC directory definition to its ` + "`/api/settings`" + ` admin
+# endpoint with the camelCase keys the upstream registry schema
+# expects (issuerUrl/claimUsername/claimName/claimGroups). End result:
+# alice's webmail at https://<MailHost> redirects to her tenant
+# Keycloak, signs the JWT, returns to Stalwart, mailbox loads. Same
+# flow for IMAP/SMTP via OAuth2 SASL XOAUTH2.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -922,15 +940,54 @@ spec:
         kind: HelmRepository
         name: bp-stalwart-tenant
         namespace: flux-system
+  dependsOn:
+    - name: bp-keycloak
+      namespace: {{.Namespace}}
   values:
     domain:
       primary: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
       mode: {{.DomainMode}}
     ingress:
-      host: {{.MailHost}}
-      tls:
-        issuer: letsencrypt-prod
+      webmail:
+        host: {{.MailHost}}
+        tls:
+          enabled: true
+          issuer: letsencrypt-prod
     adminEmail: {{.AdminEmail}}
+    # Keycloak OIDC SSO — same realm + ExternalSecret-store path
+    # convention as bp-wordpress-tenant + bp-openclaw above so all
+    # three SME apps SSO against ONE tenant Keycloak with distinct
+    # client IDs. Realm-config-tenant (#910 C1) registers the
+    # ` + "`stalwart`" + ` client with redirect URIs covering the webmail
+    # host AND the OIDC callback path.
+    keycloak:
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      clientID: stalwart
+      clientSecretName: stalwart-oidc-client-secret
+      oidcExternalSecret:
+        enabled: true
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: vault-region1
+        remoteRef:
+          key: sovereign/{{.OTECHFQDN}}/stalwart/{{.TenantID}}/oidc
+          property: OIDC_CLIENT_SECRET
+    admin:
+      externalSecret:
+        enabled: true
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: vault-region1
+        remoteRef:
+          key: sovereign/{{.OTECHFQDN}}/stalwart/{{.TenantID}}/admin
+          property: ADMIN_PASSWORD
+    # The post-install setup Job seeds the OIDC directory entry into
+    # Stalwart's runtime settings KV store via ` + "`/api/settings`" + ` so
+    # the very first webmail/IMAP/SMTP login flows through Keycloak.
+    # Re-uses the upstream Stalwart image (ships stalwart-cli + curl).
+    mailboxProvisioner:
+      setupJob:
+        enabled: true
 `
 
 const smeTenantCertificate = `{{- if .IsBYO}}

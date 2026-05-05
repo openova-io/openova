@@ -6,20 +6,16 @@ metadata:
     catalyst.openova.io/category: communication
     catalyst.openova.io/section: pts-4-5-communication
 spec:
-  # 0.1.1 (#898) — three fixes from the otech103 fresh-tenant sweep:
-  #   1. `tenantDomain` helper accepts both `domain.primary` (canonical)
-  #      and the legacy string-shape `domain: <fqdn>` emitted by
-  #      pre-#897 catalyst-api builds, plus a forward-looking
-  #      `tenant.domain` field (#898 brief).
-  #   2. auto-provisioned `stalwart-admin` Secret with random
-  #      ADMIN_PASSWORD via lookup-persistence (no more
-  #      CreateContainerConfigError on fresh tenants).
-  #   3. pod sec ctx aligned to the upstream image's UID 2000 +
-  #      drop ALL caps then add NET_BIND_SERVICE so the binary's
-  #      `cap_net_bind_service=ep` file-cap can elevate (was failing
-  #      with `exec: operation not permitted` on every fresh tenant).
+  # 0.1.2 (#915) — Keycloak OIDC end-to-end. Orchestrator now emits
+  # `keycloak.realmURL` + `clientID` + `clientSecretName` for the
+  # per-tenant Keycloak realm; chart's bootstrap config.toml + the
+  # post-install Job seed the OIDC directory in Stalwart's settings
+  # store with the canonical camelCase keys
+  # (`directory.keycloak.@type = "Oidc"`, `issuerUrl`, `claimUsername`,
+  # `claimName`, `claimGroups`). setupJob defaults to enabled so a
+  # fresh tenant has working OIDC at t=0.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.1
+  version: 0.1.2
   card:
     title: Stalwart (per-tenant)
     summary: |
