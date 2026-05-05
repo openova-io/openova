@@ -205,3 +205,80 @@ marketplace:
       clientSecretRef:
         name: ""
         key: "client-secret"
+
+# ─── SME Postgres cluster (issue #859) ────────────────────────────────────
+# When ingress.marketplace.enabled=true the chart renders a
+# CloudNativePG `Cluster` resource backing the SME microservice mesh. CNPG
+# auto-creates the `<cluster>-app` Secret (basic-auth shape: username +
+# password) the SME services consume via secretKeyRef.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
+# meaningful value flows through .Values.smePostgres so per-Sovereign
+# overlays can right-size storage / instances / pgVersion without forking
+# the chart.
+smePostgres:
+  cluster:
+    name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser
+    namespace: sme                  # the SME services live here too
+    instances: 1                    # single-node by default; HA is a per-overlay decision
+    pgVersion: "16"                 # tracks contabo data/postgresql.yaml + ADR-0003
+    database: sme_auth              # primary DB owned by the `sme` user; sme_billing is created via postInitApplicationSQL
+    owner: sme                      # role name + secret username
+    storageSize: 10Gi
+    storageClass: local-path        # k3s default; per-Sovereign overlays may override
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+# ─── SME secrets bundle (issue #859) ──────────────────────────────────────
+# When ingress.marketplace.enabled=true the chart renders a `sme-secrets`
+# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 SME
+# service Deployments (auth, billing, catalog, console, domain, gateway,
+# marketplace, notification, provisioning, tenant).
+#
+# JWT_SECRET / JWT_REFRESH_SECRET / ADMIN_PASSWORD are auto-generated on
+# first install via sprig randAlphaNum and PERSIST across reconciles via
+# Helm `lookup` (same pattern as platform/gitea/chart/templates/
+# admin-secret.yaml — see issue #830 Bug 2). Without lookup every
+# reconcile would invalidate every active SME session and lock out every
+# admin.
+#
+# GOOGLE_CLIENT_* and SMTP_* are operator-supplied at provision time
+# (typically via the per-Sovereign overlay or admin-console signup).
+# Defaults are safe placeholders so the chart renders cleanly even when
+# the operator hasn't wired OAuth or SMTP yet — non-marketplace
+# Sovereigns simply don't render this Secret.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 + #10: no hardcoded plaintext
+# credentials; every value flows from .Values.smeSecrets or via lookup'd
+# external Secret refs.
+smeSecrets:
+  secretName: sme-secrets
+  namespace: sme
+  smtp:
+    # In-cluster Stalwart Service URL, or per-Sovereign override pointing
+    # at the operator's preferred relay. Empty default means non-
+    # marketplace Sovereigns stay clean (the Secret renders with empty
+    # SMTP_HOST and the SMTP-using services degrade gracefully — no
+    # outbound mail attempted).
+    host: ""                                  # e.g. "stalwart-mail.stalwart.svc.cluster.local"
+    port: ""                                  # e.g. "587"
+    from: ""                                  # e.g. "noreply@<sov-fqdn>"
+    user: ""                                  # SMTP submission username (often == from)
+    # SMTP_PASS is sensitive — never inline it. Reference an existing
+    # Secret in the `sme` namespace (the per-Sovereign overlay typically
+    # creates this from cloud-init or via OpenBao + ExternalSecret).
+    # Empty `name` skips the lookup and renders SMTP_PASS as empty.
+    passwordSecretRef:
+      name: ""                                # default: "" — no SMTP auth
+      key: "password"
+  admin:
+    # Bootstrap admin email rendered into Secret as ADMIN_EMAIL. The
+    # paired ADMIN_PASSWORD is auto-generated via lookup-persisted
+    # randAlphaNum (32 chars) on first install — never settable from
+    # values per Inviolable Principle #10.
+    email: "admin@openova.io"

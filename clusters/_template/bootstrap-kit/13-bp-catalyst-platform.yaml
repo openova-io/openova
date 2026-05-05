@@ -67,7 +67,14 @@ spec:
       # so existing provisioning paths keep working.
       # 1.4.1 (PR #839): RBAC dual-mode render fix (Helm + Kustomize).
       # 1.4.2 (PR #841): POWERDNS env literal (no envsubst-mid-render).
-      version: 1.4.2
+      # 1.4.3 (issue #859): auto-provision sme-pg CNPG Cluster +
+      # sme-secrets when ingress.marketplace.enabled=true so SME
+      # services land Ready on a fresh Sovereign without hand-rolled
+      # SealedSecrets. Catalyst-Zero (contabo) keeps its pre-existing
+      # clusters/contabo-mkt/apps/sme/data/* manifests — those are
+      # outside templates/kustomization.yaml's resource list so the
+      # contabo Kustomize-mode build is unaffected.
+      version: 1.4.3
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
