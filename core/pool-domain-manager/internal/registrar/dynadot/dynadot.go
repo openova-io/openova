@@ -85,14 +85,43 @@ func parseToken(token string) (key, secret string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// call invokes one Dynadot API3 command and returns the parsed envelope's
-// ResponseHeader so the caller can inspect Status/Error. The command's
-// content (NameServerSettings, etc.) is left in raw and decoded by the
-// caller into its specific shape.
+// respHeader carries the per-command status fields Dynadot returns. They
+// live DIRECTLY under each `<Command>Response` envelope — Dynadot does
+// NOT wrap them in a `ResponseHeader` sub-object the way an earlier read
+// of the docs assumed. Live api3.json output (`domain_info` against an
+// account-owned domain) returned 2026-05-05:
+//
+//	{"DomainInfoResponse":{"ResponseCode":0,"Status":"success",
+//	 "DomainInfo":{...}}}
+//
+// And the error envelope (`domain_info` for an unowned domain):
+//
+//	{"DomainInfoResponse":{"ResponseCode":"-1","Status":"error",
+//	 "Error":"could not find domain in your account"}}
+//
+// Note `ResponseCode` is JSON-typed `int` on success but `string` on
+// error — the same field flips representation across responses (see
+// issue #939). We decode into `json.Number` so both shapes round-trip
+// without an Unmarshal failure, then compare via the codeIsZero helper.
+//
+// The legacy `ResponseHeader` wrapper that this struct replaces was
+// fictional — every prior production call to ValidateToken / SetNs /
+// GetNs unmarshalled into a zero-value header (Status="", Code="") and
+// fell through to "unknown-error" → 500. Tests masked the bug because
+// the test fixtures used the same fictional shape. Refs: #939, #170.
 type respHeader struct {
-	ResponseCode string `json:"ResponseCode"`
-	Status       string `json:"Status"`
-	Error        string `json:"Error"`
+	ResponseCode json.Number `json:"ResponseCode"`
+	Status       string      `json:"Status"`
+	Error        string      `json:"Error"`
+}
+
+// codeIsZero reports whether the Dynadot response code indicates success.
+// Dynadot mixes int (`0`) and string (`"0"`) representations across
+// success/error paths, sometimes within the same command — this helper
+// normalises both so callers don't have to.
+func codeIsZero(c json.Number) bool {
+	s := strings.TrimSpace(c.String())
+	return s == "0" || s == ""
 }
 
 // classifyHTTP turns an HTTP-level outcome into a typed registrar error.
@@ -109,23 +138,35 @@ func classifyHTTP(statusCode int) error {
 	return nil
 }
 
-// classifyDynadotError inspects an api3.json ResponseHeader and maps to
-// a typed error. Dynadot's auth-failure messages are not rigidly coded;
-// we match the substring patterns the public docs document.
+// classifyDynadotError inspects an api3.json command response header and
+// maps to a typed error. Dynadot's auth-failure messages are not rigidly
+// coded; we match the substring patterns the public docs document.
 func classifyDynadotError(h respHeader) error {
-	if strings.EqualFold(h.Status, "success") || h.ResponseCode == "0" {
+	if strings.EqualFold(h.Status, "success") || codeIsZero(h.ResponseCode) {
 		return nil
 	}
 	msg := strings.ToLower(h.Error)
+	// Order matters: domain-not-in-account must precede the auth match
+	// because Dynadot's "could not find domain in your account" message
+	// would otherwise hit the auth branch on the substring "account".
 	switch {
-	case strings.Contains(msg, "invalid api"), strings.Contains(msg, "key"), strings.Contains(msg, "secret"), strings.Contains(msg, "auth"):
-		return fmt.Errorf("dynadot api: %s: %w", h.Error, registrar.ErrInvalidToken)
-	case strings.Contains(msg, "not found"), strings.Contains(msg, "not in your account"), strings.Contains(msg, "not own"):
+	case strings.Contains(msg, "not found"),
+		strings.Contains(msg, "could not find"),
+		strings.Contains(msg, "not in your account"),
+		strings.Contains(msg, "in your account"),
+		strings.Contains(msg, "not own"),
+		strings.Contains(msg, "no such domain"):
 		return fmt.Errorf("dynadot api: %s: %w", h.Error, registrar.ErrDomainNotInAccount)
+	case strings.Contains(msg, "invalid api"),
+		strings.Contains(msg, "invalid key"),
+		strings.Contains(msg, "invalid secret"),
+		strings.Contains(msg, "invalid token"),
+		strings.Contains(msg, "auth"):
+		return fmt.Errorf("dynadot api: %s: %w", h.Error, registrar.ErrInvalidToken)
 	case strings.Contains(msg, "rate"), strings.Contains(msg, "too many"):
 		return fmt.Errorf("dynadot api: %s: %w", h.Error, registrar.ErrRateLimited)
 	}
-	return fmt.Errorf("dynadot api error: code=%s status=%s err=%s", h.ResponseCode, h.Status, h.Error)
+	return fmt.Errorf("dynadot api error: code=%s status=%s err=%s", h.ResponseCode.String(), h.Status, h.Error)
 }
 
 // ValidateToken probes the registrar with `domain_info` for the named
@@ -146,15 +187,18 @@ func (a *Adapter) ValidateToken(ctx context.Context, token, domain string) error
 	if err != nil {
 		return err
 	}
+	// Dynadot's domain_info live response (verified 2026-05-05) puts
+	// ResponseCode/Status/Error DIRECTLY under DomainInfoResponse — there
+	// is no `ResponseHeader` wrapper. Refs #939.
 	var raw struct {
 		DomainInfoResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
+			respHeader
 		} `json:"DomainInfoResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse domain_info: %w", err)
 	}
-	return classifyDynadotError(raw.DomainInfoResponse.ResponseHeader)
+	return classifyDynadotError(raw.DomainInfoResponse.respHeader)
 }
 
 // SetNameservers replaces the domain's nameserver list via set_ns.
@@ -181,15 +225,18 @@ func (a *Adapter) SetNameservers(ctx context.Context, token, domain string, ns [
 	if err != nil {
 		return err
 	}
+	// set_ns live response shape per Dynadot api3.json docs:
+	//   {"SetNsResponse":{"ResponseCode":0,"Status":"success"}}
+	// Status fields live DIRECTLY under SetNsResponse (no wrapper).
 	var raw struct {
 		SetNsResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
+			respHeader
 		} `json:"SetNsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse set_ns: %w", err)
 	}
-	return classifyDynadotError(raw.SetNsResponse.ResponseHeader)
+	return classifyDynadotError(raw.SetNsResponse.respHeader)
 }
 
 // GetNameservers reads the current nameserver list via domain_info.
@@ -208,10 +255,19 @@ func (a *Adapter) GetNameservers(ctx context.Context, token, domain string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	// domain_info live response shape (verified 2026-05-05 against omani.works):
+	//   {"DomainInfoResponse":{
+	//      "ResponseCode": 0, "Status": "success",
+	//      "DomainInfo": {
+	//        "NameServerSettings": {"NameServers": [{"ServerName": "..."}]}
+	//      }
+	//   }}
+	// Status fields live directly under DomainInfoResponse (no
+	// `ResponseHeader` wrapper — see issue #939).
 	var raw struct {
 		DomainInfoResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
-			DomainInfo     struct {
+			respHeader
+			DomainInfo struct {
 				NameServerSettings struct {
 					NameServers []struct {
 						ServerName string `json:"ServerName"`
@@ -223,7 +279,7 @@ func (a *Adapter) GetNameservers(ctx context.Context, token, domain string) ([]s
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("dynadot: parse domain_info: %w", err)
 	}
-	if err := classifyDynadotError(raw.DomainInfoResponse.ResponseHeader); err != nil {
+	if err := classifyDynadotError(raw.DomainInfoResponse.respHeader); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(raw.DomainInfoResponse.DomainInfo.NameServerSettings.NameServers))
@@ -297,16 +353,17 @@ func (a *Adapter) GetGlueRecord(ctx context.Context, token, host string) (string
 	if err != nil {
 		return "", err
 	}
-	// Dynadot's get_ns response shape:
-	//   {"GetNsResponse":{"ResponseHeader":{...},
+	// Dynadot's get_ns response shape (Status fields live DIRECTLY under
+	// GetNsResponse — there is NO `ResponseHeader` wrapper, see #939):
+	//   {"GetNsResponse":{"ResponseCode":0,"Status":"success",
 	//    "NsInfo":{"NameServer":{"Host":"...","IP":["..."]}}}}
-	// On a host that is NOT registered, ResponseHeader.Status="error"
-	// with a "not found"-style message — we surface that as ("", nil)
-	// so callers can distinguish "missing" from "API failed".
+	// On a host that is NOT registered, Status="error" with a
+	// "not found"-style message — we surface that as ("", nil) so
+	// callers can distinguish "missing" from "API failed".
 	var raw struct {
 		GetNsResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
-			NsInfo         struct {
+			respHeader
+			NsInfo struct {
 				NameServer struct {
 					Host string   `json:"Host"`
 					IP   []string `json:"IP"`
@@ -317,8 +374,8 @@ func (a *Adapter) GetGlueRecord(ctx context.Context, token, host string) (string
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return "", fmt.Errorf("dynadot: parse get_ns: %w", err)
 	}
-	hdr := raw.GetNsResponse.ResponseHeader
-	if !strings.EqualFold(hdr.Status, "success") && hdr.ResponseCode != "0" {
+	hdr := raw.GetNsResponse.respHeader
+	if !strings.EqualFold(hdr.Status, "success") && !codeIsZero(hdr.ResponseCode) {
 		// "not registered" / "not found" → ("", nil). Anything else is a
 		// real error (auth, rate-limit, API down, ...).
 		msg := strings.ToLower(hdr.Error)
@@ -394,15 +451,17 @@ func (a *Adapter) RegisterGlueRecord(ctx context.Context, token, host, ip string
 		if err != nil {
 			return err
 		}
+		// set_ns_ip live shape: {"SetNsIpResponse":{"ResponseCode":0,
+		// "Status":"success"}} — no `ResponseHeader` wrapper (see #939).
 		var raw struct {
 			SetNsIpResponse struct {
-				ResponseHeader respHeader `json:"ResponseHeader"`
+				respHeader
 			} `json:"SetNsIpResponse"`
 		}
 		if err := json.Unmarshal(body, &raw); err != nil {
 			return fmt.Errorf("dynadot: parse set_ns_ip: %w", err)
 		}
-		return classifyDynadotError(raw.SetNsIpResponse.ResponseHeader)
+		return classifyDynadotError(raw.SetNsIpResponse.respHeader)
 	}
 
 	// 4. First-time registration.
@@ -417,15 +476,17 @@ func (a *Adapter) RegisterGlueRecord(ctx context.Context, token, host, ip string
 	if err != nil {
 		return err
 	}
+	// register_ns live shape: {"RegisterNsResponse":{"ResponseCode":0,
+	// "Status":"success"}} — no `ResponseHeader` wrapper (see #939).
 	var raw struct {
 		RegisterNsResponse struct {
-			ResponseHeader respHeader `json:"ResponseHeader"`
+			respHeader
 		} `json:"RegisterNsResponse"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return fmt.Errorf("dynadot: parse register_ns: %w", err)
 	}
-	return classifyDynadotError(raw.RegisterNsResponse.ResponseHeader)
+	return classifyDynadotError(raw.RegisterNsResponse.respHeader)
 }
 
 // compile-time guards.
