@@ -64,7 +64,7 @@ spec:
             - name: ADMIN_USER
               value: {{ .Values.admin.username | quote }}
             - name: STALWART_DOMAIN
-              value: {{ .Values.domain.primary | quote }}
+              value: {{ include "bp-stalwart-tenant.tenantDomain" . | quote }}
           command:
             - /bin/sh
             - -ec

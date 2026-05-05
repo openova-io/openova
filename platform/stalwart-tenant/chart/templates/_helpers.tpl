@@ -71,8 +71,62 @@ Surfaced by the unified-rbac console UI.
 {{- end }}
 
 {{/*
+Tenant primary mail domain — resolves the SME's mail FQDN regardless of
+the values shape the orchestrator supplies. Three accepted shapes (in
+priority order):
+
+  1. `tenant.domain: <string>`     — newer per-tenant overlay schema
+                                     (#898 forward-looking convention).
+  2. `domain: { primary: <str>,    — current chart canonical schema
+                mode: ... }`         (matches blueprint.yaml configSchema
+                                     and post-#897 catalyst-api emission).
+  3. `domain: <string>`            — LEGACY shape emitted by pre-#897
+                                     catalyst-api builds (live on
+                                     otech103: `values.domain: acme.omani.works`).
+                                     Kept for back-compat so a tenant
+                                     pinned to chart 0.1.1 reconciles
+                                     cleanly even when the catalyst-api
+                                     image upgrade lags behind.
+
+Returns "" (empty) when none of the three resolves, which is the
+smoke-render-safe default (CI's blueprint-release.yaml renders with
+empty values; per-template gates downstream skip on empty host).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) — no fallback
+to a literal domain anywhere in this file.
+*/}}
+{{- define "bp-stalwart-tenant.tenantDomain" -}}
+{{- $tenant := .Values.tenant | default dict -}}
+{{- $d := .Values.domain -}}
+{{- if $tenant.domain -}}
+{{- $tenant.domain -}}
+{{- else if kindIs "map" $d -}}
+{{- if $d.primary -}}{{- $d.primary -}}{{- end -}}
+{{- else if kindIs "string" $d -}}
+{{- $d -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Tenant domain mode — `free-subdomain` (default) or `byo`. Mirrors the
+shape resolution of tenantDomain so legacy string-shape `domain` falls
+back to the values-yaml `domain.mode` default of "free-subdomain".
+*/}}
+{{- define "bp-stalwart-tenant.tenantMode" -}}
+{{- $tenant := .Values.tenant | default dict -}}
+{{- $d := .Values.domain -}}
+{{- if $tenant.mode -}}
+{{- $tenant.mode -}}
+{{- else if and (kindIs "map" $d) $d.mode -}}
+{{- $d.mode -}}
+{{- else -}}
+free-subdomain
+{{- end -}}
+{{- end -}}
+
+{{/*
 Webmail host. If `ingress.webmail.host` is explicitly set, use it. Otherwise
-compose `mail.<domain.primary>`. Per docs/INVIOLABLE-PRINCIPLES.md #4 —
+compose `mail.<tenant-domain>`. Per docs/INVIOLABLE-PRINCIPLES.md #4 —
 no hardcoded base domain.
 
 Returns empty string when both are unset (smoke-render-safe). The
@@ -81,10 +135,11 @@ when host is empty, so a default-values render produces a syntactically
 valid (but non-functional) manifest tree.
 */}}
 {{- define "bp-stalwart-tenant.webmailHost" -}}
+{{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
 {{- if .Values.ingress.webmail.host -}}
 {{- .Values.ingress.webmail.host -}}
-{{- else if .Values.domain.primary -}}
-{{- printf "mail.%s" .Values.domain.primary -}}
+{{- else if $domain -}}
+{{- printf "mail.%s" $domain -}}
 {{- end -}}
 {{- end -}}
 

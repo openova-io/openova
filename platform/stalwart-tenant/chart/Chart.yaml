@@ -1,6 +1,30 @@
 apiVersion: v2
 name: bp-stalwart-tenant
-version: 0.1.0
+# 0.1.1 (#898) — three fixes that left the 0.1.0 chart unbootable on
+# fresh otech provisions:
+#   1. accept legacy string-shape `domain: <fqdn>` values produced by
+#      pre-#897 catalyst-api builds (the live HR shape on otech103
+#      was `values.domain: acme.omani.works` which broke
+#      `.Values.domain.primary` indexing across config-configmap,
+#      deployment, dns-records-configmap, mailbox-provision-job, and
+#      the webmailHost helper). Resolved via a single `tenantDomain`
+#      helper in _helpers.tpl that handles both shapes (string OR
+#      `{primary,mode}` map).
+#   2. auto-provision the `stalwart-admin` Secret with a
+#      randomly-generated ADMIN_PASSWORD via lookup-persistence
+#      (mirrors marketplace-api/secret.yaml in catalyst chart). The
+#      0.1.0 chart referenced the Secret in deployment.yaml but never
+#      created it — every fresh tenant lands in
+#      CreateContainerConfigError until the operator hand-rolls one.
+#   3. make the pod sec context compatible with the upstream
+#      stalwart binary's file capabilities (`getcap` on
+#      docker.io/stalwartlabs/stalwart:v0.16.3 reports
+#      `cap_net_bind_service=ep`). The 0.1.0 sec ctx ran as UID 65534
+#      (image-default is 2000) AND dropped ALL caps — kernel refuses
+#      to elevate file caps with empty bounding set, so exec failed
+#      with `operation not permitted`. Now: runAsUser 2000, drop ALL
+#      then add NET_BIND_SERVICE explicitly.
+version: 0.1.1
 appVersion: "0.16.3"
 description: |
   Catalyst Blueprint scratch chart for a per-SME (per-vcluster) dedicated
