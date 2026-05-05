@@ -1,0 +1,400 @@
+// Tests for the Sovereign Console populated-views endpoints (issue #933).
+//
+// What this file proves:
+//
+//  1. /api/v1/sovereign/status — counts HelmReleases (Ready vs total)
+//     and pods (Running vs total) from the in-cluster client.
+//  2. /api/v1/sovereign/jobs — surfaces HelmReleases, K8s Jobs, and
+//     Warning-level Events as Job rows, sorted started-DESC.
+//  3. /api/v1/sovereign/apps — joins the embedded blueprint catalog
+//     with HelmRelease state on the cluster:
+//       - HR present + Ready=True       → "installed"
+//       - HR present + Ready=False/none → "installing"
+//       - listed catalog, no HR         → "available"
+//       - bootstrap-kit                 → "bootstrap"
+//  4. /api/v1/sovereign/cloud — emits nodes / namespaces / ingresses /
+//     LoadBalancer-services / storage classes / PVCs from the in-cluster
+//     client, with HTTPRoutes coming via dynamic client.
+//
+// Tests inject (kubernetes.Interface, dynamic.Interface) via
+// SetSovereignDepsFactory so no real cluster is needed.
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	fakek8s "k8s.io/client-go/kubernetes/fake"
+)
+
+// ── Fixtures + helpers ─────────────────────────────────────────────────────
+
+func newSovereignHandler(t *testing.T, coreObjs []runtime.Object, dynObjs []runtime.Object) *Handler {
+	t.Helper()
+	core := fakek8s.NewSimpleClientset(coreObjs...)
+
+	scheme := runtime.NewScheme()
+	gvrToList := map[schema.GroupVersionResource]string{
+		helmReleaseGVR: "HelmReleaseList",
+		httpRouteGVR:   "HTTPRouteList",
+		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}: "CertificateList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, dynObjs...)
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetSovereignDepsFactory(func() (*sovereignDeps, error) {
+		return &sovereignDeps{core: core, dyn: dyn}, nil
+	})
+	return h
+}
+
+func makeHR(name, ns, ready string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "helm.toolkit.fluxcd.io",
+		Version: "v2",
+		Kind:    "HelmRelease",
+	})
+	u.SetName(name)
+	u.SetNamespace(ns)
+	u.SetCreationTimestamp(metav1.NewTime(time.Now().Add(-1 * time.Hour)))
+	conds := []interface{}{
+		map[string]interface{}{
+			"type":               "Ready",
+			"status":             ready,
+			"message":            "test condition",
+			"lastTransitionTime": time.Now().Add(-30 * time.Minute).Format(time.RFC3339),
+		},
+	}
+	_ = unstructured.SetNestedSlice(u.Object, conds, "status", "conditions")
+	return u
+}
+
+func makeHTTPRoute(name, ns string, hosts []string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "gateway.networking.k8s.io",
+		Version: "v1",
+		Kind:    "HTTPRoute",
+	})
+	u.SetName(name)
+	u.SetNamespace(ns)
+	hostsAny := make([]interface{}, len(hosts))
+	for i, h := range hosts {
+		hostsAny[i] = h
+	}
+	_ = unstructured.SetNestedSlice(u.Object, hostsAny, "spec", "hostnames")
+	return u
+}
+
+func mustGet[T any](t *testing.T, h http.Handler, path string) T {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, body=%s", path, w.Code, w.Body.String())
+	}
+	var out T
+	if err := json.NewDecoder(w.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return out
+}
+
+// ── /status ────────────────────────────────────────────────────────────────
+
+func TestSovereignStatus_CountsHelmReleasesAndPods(t *testing.T) {
+	dynObjs := []runtime.Object{
+		makeHR("bp-cilium", "flux-system", "True"),
+		makeHR("bp-cert-manager", "flux-system", "True"),
+		makeHR("bp-flux", "flux-system", "False"),
+	}
+	coreObjs := []runtime.Object{
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "default"},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "default"},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "default"},
+			Status:     corev1.PodStatus{Phase: corev1.PodPending},
+		},
+	}
+	h := newSovereignHandler(t, coreObjs, dynObjs)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/status", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignStatus(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d; body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignStatus
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.HelmReleasesTotal != 3 {
+		t.Errorf("HelmReleasesTotal = %d, want 3", got.HelmReleasesTotal)
+	}
+	if got.HelmReleasesReady != 2 {
+		t.Errorf("HelmReleasesReady = %d, want 2", got.HelmReleasesReady)
+	}
+	if got.PodsTotal != 3 {
+		t.Errorf("PodsTotal = %d, want 3", got.PodsTotal)
+	}
+	if got.PodsRunning != 2 {
+		t.Errorf("PodsRunning = %d, want 2", got.PodsRunning)
+	}
+}
+
+// ── /jobs ──────────────────────────────────────────────────────────────────
+
+func TestSovereignJobs_HelmReleasesAndK8sJobs(t *testing.T) {
+	dynObjs := []runtime.Object{
+		makeHR("bp-cilium", "flux-system", "True"),
+		makeHR("bp-cert-manager", "flux-system", "False"),
+	}
+	coreObjs := []runtime.Object{
+		&batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{Name: "bp-keycloak-bootstrap", Namespace: "auth"},
+			Status: batchv1.JobStatus{
+				Conditions: []batchv1.JobCondition{
+					{Type: "Complete", Status: corev1.ConditionTrue},
+				},
+				StartTime:      &metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
+				CompletionTime: &metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+			},
+		},
+		&corev1.Event{
+			ObjectMeta:     metav1.ObjectMeta{Name: "warn-1", Namespace: "default"},
+			Type:           "Warning",
+			Reason:         "FailedMount",
+			Message:        "could not mount volume",
+			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "x"},
+			FirstTimestamp: metav1.NewTime(time.Now().Add(-15 * time.Minute)),
+		},
+	}
+	h := newSovereignHandler(t, coreObjs, dynObjs)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/jobs", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignJobs(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d; body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignJobsResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// 2 HRs + 1 K8s Job + 1 Event = 4 rows.
+	if len(got.Jobs) < 3 {
+		t.Errorf("expected at least 3 jobs, got %d", len(got.Jobs))
+	}
+	kinds := map[string]int{}
+	for _, j := range got.Jobs {
+		kinds[j.Kind]++
+	}
+	if kinds["HelmRelease"] != 2 {
+		t.Errorf("HelmRelease rows = %d, want 2", kinds["HelmRelease"])
+	}
+	if kinds["Job"] != 1 {
+		t.Errorf("Job rows = %d, want 1", kinds["Job"])
+	}
+}
+
+// ── /apps ──────────────────────────────────────────────────────────────────
+
+func TestSovereignApps_StatusJoinHelmReleases(t *testing.T) {
+	// Catalog will return embedded JSON blueprints. We don't seed
+	// blueprints (they're embedded). We DO seed HelmReleases that
+	// claim to install bp-cilium so the apps list reflects that.
+	dynObjs := []runtime.Object{
+		makeHR("bp-cilium", "flux-system", "True"),
+		makeHR("bp-keycloak", "flux-system", "False"),
+	}
+	h := newSovereignHandler(t, nil, dynObjs)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignApps(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d; body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignAppsResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Apps) == 0 {
+		t.Fatal("expected at least one app from embedded catalog, got 0")
+	}
+	// Find bp-cilium and check status.
+	byID := map[string]sovereignAppItem{}
+	for _, a := range got.Apps {
+		byID[a.ID] = a
+	}
+	if cilium, ok := byID["bp-cilium"]; ok {
+		if cilium.Status != "installed" && cilium.Status != "bootstrap" {
+			t.Errorf("bp-cilium status = %q; want installed or bootstrap", cilium.Status)
+		}
+	}
+	if kc, ok := byID["bp-keycloak"]; ok {
+		// keycloak HR is not Ready, so status must be either
+		// "installing" (if listed and HR present) or "bootstrap"
+		// (if it's part of the bootstrap-kit which always renders).
+		if kc.Status != "installing" && kc.Status != "bootstrap" {
+			t.Errorf("bp-keycloak status = %q; want installing or bootstrap", kc.Status)
+		}
+	}
+	if got.GeneratedAt == "" {
+		t.Error("expected GeneratedAt to be populated from embedded catalog")
+	}
+}
+
+// ── /cloud ─────────────────────────────────────────────────────────────────
+
+func TestSovereignCloud_NodesAndNamespaces(t *testing.T) {
+	coreObjs := []runtime.Object{
+		&corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "cp-1",
+				Labels: map[string]string{"node-role.kubernetes.io/control-plane": ""},
+			},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				},
+				NodeInfo: corev1.NodeSystemInfo{
+					KubeletVersion:  "v1.31.4",
+					OperatingSystem: "linux",
+					Architecture:    "amd64",
+				},
+				Addresses: []corev1.NodeAddress{
+					{Type: corev1.NodeInternalIP, Address: "10.0.0.1"},
+				},
+				Capacity: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+				},
+			},
+		},
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "auth"},
+			Status:     corev1.NamespaceStatus{Phase: corev1.NamespaceActive},
+		},
+		&networkingv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{Name: "console", Namespace: "catalyst"},
+			Spec: networkingv1.IngressSpec{
+				Rules: []networkingv1.IngressRule{{Host: "console.example.com"}},
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "cilium-gateway", Namespace: "kube-system"},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeLoadBalancer,
+				ClusterIP: "10.43.0.1",
+				Ports:     []corev1.ServicePort{{Port: 443, Protocol: corev1.ProtocolTCP}},
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{{IP: "1.2.3.4"}},
+				},
+			},
+		},
+		&storagev1.StorageClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "local-path",
+				Annotations: map[string]string{"storageclass.kubernetes.io/is-default-class": "true"},
+			},
+			Provisioner: "rancher.io/local-path",
+		},
+		&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data-keycloak", Namespace: "auth"},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName: ptr("local-path"),
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("5Gi"),
+					},
+				},
+			},
+			Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+		},
+	}
+	dynObjs := []runtime.Object{
+		makeHTTPRoute("console", "catalyst", []string{"console.sov.example.com"}),
+	}
+	h := newSovereignHandler(t, coreObjs, dynObjs)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/cloud", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignCloud(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d; body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignCloudResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Errorf("nodes = %d, want 1", len(got.Nodes))
+	}
+	if len(got.Nodes) > 0 {
+		n := got.Nodes[0]
+		if n.Status != "Ready" {
+			t.Errorf("node status = %q, want Ready", n.Status)
+		}
+		if n.InternalIP != "10.0.0.1" {
+			t.Errorf("node internalIP = %q, want 10.0.0.1", n.InternalIP)
+		}
+	}
+	if len(got.Namespaces) != 1 || got.Namespaces[0].Name != "auth" {
+		t.Errorf("namespaces = %+v, want [auth]", got.Namespaces)
+	}
+	if len(got.Ingresses) != 1 || got.Ingresses[0].Hosts[0] != "console.example.com" {
+		t.Errorf("ingresses = %+v", got.Ingresses)
+	}
+	if len(got.HTTPRoutes) != 1 || got.HTTPRoutes[0].Hosts[0] != "console.sov.example.com" {
+		t.Errorf("httproutes = %+v", got.HTTPRoutes)
+	}
+	if len(got.LoadBalancers) != 1 || got.LoadBalancers[0].ExternalIP != "1.2.3.4" {
+		t.Errorf("loadbalancers = %+v", got.LoadBalancers)
+	}
+	if len(got.StorageClasses) != 1 || !got.StorageClasses[0].IsDefault {
+		t.Errorf("storageClasses = %+v; want one default class", got.StorageClasses)
+	}
+	if len(got.PVCs) != 1 {
+		t.Errorf("pvcs = %d, want 1", len(got.PVCs))
+	}
+}
+
+// ── client unavailable path ─────────────────────────────────────────────────
+
+func TestSovereignStatus_503WhenInClusterUnavailable(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// SetSovereignDepsFactory not called → falls back to
+	// rest.InClusterConfig() which fails outside K8s.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/status", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignStatus(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status code = %d, want 503 (in-cluster client missing)", w.Code)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

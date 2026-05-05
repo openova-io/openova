@@ -288,6 +288,15 @@ type Handler struct {
 	// handler returns 503 "powerdns client not wired" so callers can
 	// distinguish "config gap" from "powerdns down".
 	powerdnsZoneClient powerdnsZoneClient
+
+	// ── Sovereign Console populated views (issue #933) ─────────────────
+	// sovereignDepsFactory — test-only override that builds the
+	// in-cluster (kubernetes.Interface, dynamic.Interface) pair the
+	// /api/v1/sovereign/{status,jobs,apps,cloud} endpoints read.
+	// Production leaves this nil and sovereignDepsFromEnv runs against
+	// rest.InClusterConfig() — catalyst-api always runs in the cluster
+	// it serves (mothership AND post-handover Sovereign).
+	sovereignDepsFactory SovereignDepsFactory
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler

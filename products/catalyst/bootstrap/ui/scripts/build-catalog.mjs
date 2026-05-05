@@ -42,6 +42,13 @@ const PLATFORM_DIR = resolve(REPO_ROOT, 'platform')
 const PRODUCTS_DIR = resolve(REPO_ROOT, 'products')
 const BOOTSTRAP_KIT_DIR = resolve(REPO_ROOT, 'clusters/_template/bootstrap-kit')
 const OUT_FILE = resolve(__dirname, '../src/shared/constants/catalog.generated.ts')
+// Sister output for the Go catalyst-api side. The Sovereign Console's
+// /api/v1/sovereign/apps endpoint embeds this JSON via go:embed so the
+// in-cluster apps catalog mirrors the wizard's marketplace 1:1. Per
+// docs/INVIOLABLE-PRINCIPLES.md #4, the Blueprint catalog has exactly
+// ONE source of truth (blueprint.yaml files). This file is generated
+// alongside catalog.generated.ts and committed; CI catches drift.
+const OUT_FILE_JSON = resolve(REPO_ROOT, 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json')
 
 // Fail loudly if the source dirs are missing — silently producing an empty
 // BOOTSTRAP_KIT[] is what shipped a broken provision page where only the
@@ -387,7 +394,22 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = ${JSON.stringify(boot
   mkdirSync(dirname(OUT_FILE), { recursive: true })
   writeFileSync(OUT_FILE, tsBody)
 
+  // Sister JSON output for the Go catalyst-api side. The Sovereign
+  // Console's /api/v1/sovereign/apps endpoint embeds this via go:embed.
+  const jsonBody = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      blueprints: entries,
+      bootstrapKit,
+    },
+    null,
+    2,
+  )
+  mkdirSync(dirname(OUT_FILE_JSON), { recursive: true })
+  writeFileSync(OUT_FILE_JSON, jsonBody + '\n')
+
   console.log(`[build-catalog] wrote ${entries.length} blueprints to ${OUT_FILE}`)
+  console.log(`[build-catalog] wrote ${entries.length} blueprints to ${OUT_FILE_JSON}`)
   console.log(`[build-catalog]   listed:   ${entries.filter(e => e.visibility === 'listed').length}`)
   console.log(`[build-catalog]   unlisted: ${entries.filter(e => e.visibility === 'unlisted').length}`)
   console.log(`[build-catalog]   private:  ${entries.filter(e => e.visibility === 'private').length}`)
