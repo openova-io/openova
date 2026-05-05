@@ -57,9 +57,19 @@ spec:
         - path:
             type: PathPrefix
             value: "/api/"
+      # /api/* is the SME BSS REST surface (auth, catalog, tenant, billing,
+      # provisioning) served by the gateway Pod in the sme namespace, NOT
+      # the catalyst-system marketplace-api Service. Live debugging on
+      # otech103 (issue #868) showed catalyst-system/marketplace-api had
+      # zero backing Pods (selector matched nothing), so PIN-signin POSTs
+      # 503'd at the gateway before ever reaching the auth service. The
+      # gateway in sme already proxies /auth/* to services-auth, so we
+      # cross-namespace backendRef directly. ReferenceGrant
+      # marketplace-routes-to-sme (in sme ns) authorises this hop.
       backendRefs:
-        - name: marketplace-api
-          port: 80
+        - name: gateway
+          namespace: sme
+          port: 8080
     - matches:
         - path:
             type: PathPrefix

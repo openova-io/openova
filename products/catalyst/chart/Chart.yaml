@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.7
-appVersion: 1.4.7
+version: 1.4.8
+appVersion: 1.4.8
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -576,6 +576,20 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.6 → 1.4.7. 2026-05-04.
+
+  1.4.8 (issue #868): fix the marketplace UI PIN-signin flow that 503'd
+  on otech103 because the public /api/* HTTPRoute backend-ref'd a dead
+  Service (catalyst-system/marketplace-api with zero matching Pods).
+  Two template fixes:
+    - templates/sme-services/marketplace-routes.yaml: /api/* rule now
+      cross-namespace backendRef sme/gateway:8080 (the SME BSS gateway
+      Pod that already fronts services-auth, catalog, tenant, billing,
+      provisioning).
+    - templates/sme-services/marketplace-reference-grant.yaml: extend
+      `to:` list with the gateway Service so the cross-ns hop is
+      authorised by Gateway API.
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.7 → 1.4.8. 2026-05-04.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
