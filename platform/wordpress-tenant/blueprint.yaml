@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-sme-tenant
 spec:
-  version: 0.1.0
+  version: 0.2.0
   card:
     title: WordPress Tenant
     summary: |
@@ -29,7 +29,7 @@ spec:
     contact: catalyst@openova.io
   configSchema:
     type: object
-    required: [smeDomain, keycloak, adminUser]
+    required: [smeDomain, oidc, adminUser]
     properties:
       smeDomain:
         type: string
@@ -44,27 +44,58 @@ spec:
         default: 1
         minimum: 1
         maximum: 8
+      oidc:
+        type: object
+        required: [issuerURL, clientSecretName]
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: Master toggle — when false the post-install Job is rendered but short-circuits.
+          issuerURL:
+            type: string
+            description: |
+              Discovery URL of the per-tenant Keycloak realm. Example:
+              `https://keycloak.<sme-domain>/realms/sme-<subdomain>`.
+              The openid-connect-generic plugin uses this to derive the
+              token / userinfo / authorization / end-session endpoints.
+          clientId:
+            type: string
+            default: wordpress
+            description: OIDC client ID registered in the per-tenant realm.
+          clientSecretName:
+            type: string
+            default: wordpress-oidc-client-secret
+            description: |
+              K8s Secret carrying the OIDC client secret (key
+              `client-secret`). Provisioned by the bp-keycloak chart
+              (PR #918) at the same time as the realm import.
+          defaultRole:
+            type: string
+            default: subscriber
+            description: |
+              WordPress role assigned to a brand-new SSO user when
+              `create_if_does_not_exist=1`. Set to empty string to
+              create SSO users with no role.
+          identityKey:
+            type: string
+            default: preferred_username
+            description: Keycloak claim used to match id_token back to a WP user.
       keycloak:
         type: object
-        required: [realmURL, clientSecretName]
+        description: |
+          DEPRECATED — preserved as a backward-compat alias for chart
+          0.1.x clusters whose orchestrator overlays still emit
+          `keycloak.{realmURL,clientID,clientSecretName}`. New overlays
+          MUST emit `oidc.*`. Folded into oidc.* by _helpers.tpl when
+          oidc.* is at its values.yaml defaults.
         properties:
           realmURL:
             type: string
-            description: |
-              Discovery URL of the SME-vcluster Keycloak realm. Example:
-              `https://auth.acme.<otech-fqdn>/realms/sme`. The
-              openid-connect-generic plugin uses this to derive the
-              token / userinfo / authorization / end-session endpoints.
           clientID:
             type: string
-            default: wordpress
-            description: OIDC client ID registered in the SME realm.
           clientSecretName:
             type: string
-            description: |
-              ExternalSecret carrying the OIDC client secret (key
-              `client-secret`). Provisioned by the tenant-provisioning
-              pipeline before this chart installs.
       database:
         type: object
         properties:

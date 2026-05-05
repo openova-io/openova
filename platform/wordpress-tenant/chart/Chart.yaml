@@ -1,22 +1,47 @@
 apiVersion: v2
 name: bp-wordpress-tenant
-version: 0.1.0
+# 0.2.0 (2026-05-05) — umbrella issue #915 (D1):
+#   - Replaced direct PHP/SQL writes in templates/oidc-config-job.yaml
+#     with wp-cli commands run from the canonical `wordpress:cli`
+#     image. `wp plugin install openid-connect-generic --activate`
+#     replaces the previous `INSERT INTO wp_options ('active_plugins',
+#     ...)`; `wp option update openid_connect_generic_settings` replaces
+#     the previous serialised-PHP UPSERT. Idempotency via `wp plugin
+#     is-installed` + `wp core is-installed`.
+#   - New `oidc.*` block in values.yaml (canonical input contract):
+#     `oidc.{enabled,issuerURL,clientId,clientSecretName,defaultRole,
+#     identityKey,roleMapping,cliImage}`. The legacy `keycloak.*` block
+#     remains as a back-compat alias (chart 0.1.x clusters whose
+#     orchestrator hasn't been re-rendered keep working) — folding
+#     happens via _helpers.tpl `oidcIssuerURL/oidcClientId/
+#     oidcClientSecretName` definitions.
+#   - Default OIDC client secret name moved from `wordpress-oidc` to
+#     `wordpress-oidc-client-secret` to align with the Secret name
+#     emitted by PR #918 (bp-keycloak tenant-realm ConfigMap).
+#   - `oidc.defaultRole=subscriber` — newly auto-created SSO users land
+#     with subscriber capability (operator can override via overlay).
+#   - Orchestrator emit (products/catalyst/bootstrap/api/internal/handler/
+#     sme_tenant_gitops.go `smeTenantBPWordPress`) bumped to emit both
+#     `oidc.*` and `keycloak.*` so chart 0.1.x and 0.2.0 reconciles work.
+# 0.1.0 — initial release (#800).
+version: 0.2.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
   instance per SME tenant. Pre-wires:
 
-    - SSO via the SME-vcluster Keycloak realm using the
+    - SSO via the per-tenant Keycloak realm using the
       `openid-connect-generic` plugin (auto-create-on-first-login,
-      Keycloak-group → WP-role mapping).
+      configurable default role, Keycloak-group → WP-role mapping).
     - Postgres provisioned by bp-cnpg (Cluster CR) in the SME tenant
       namespace; password mirrored via reflector + post-install Job.
     - PVC-backed `/var/www/html/wp-content/` for theme/plugin/upload
       persistence.
     - Ingress at `wordpress.<sme-domain>` routed via the SME's ingress
       with cert-manager TLS.
-    - Idempotent post-install Jobs that (a) install + activate the
-      `openid-connect-generic` plugin and write its option row pointing
+    - Idempotent post-install Jobs run via `wp-cli` that (a) `wp core
+      install` + `wp plugin install openid-connect-generic --activate`
+      + `wp option update openid_connect_generic_settings` pointing
       at the operator-supplied Keycloak realm + client, (b) pre-seed
       the SME admin WP user with the SSO email mapping.
 

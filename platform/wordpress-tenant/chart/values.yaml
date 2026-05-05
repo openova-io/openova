@@ -148,37 +148,88 @@ database:
   secretName: "wordpress-database-secret"
 
 # ─── SSO via SME-vcluster Keycloak (openid-connect-generic plugin) ──────
-# The plugin is pre-installed by the WordPress entrypoint (initContainer)
-# from the wordpress.org plugin registry, then registered + configured
-# at first install via templates/oidc-config-job.yaml so the SME admin
-# never sees the WP setup wizard.
-keycloak:
-  # Discovery endpoint of the SME's realm — operator-supplied. Example:
-  #   https://auth.acme.<otech-fqdn>/realms/sme
+# The plugin is installed + activated + configured by the post-install
+# `oidc-config` Job (templates/oidc-config-job.yaml) using `wp-cli` so
+# the SME admin never sees the WordPress setup wizard.
+#
+# Canonical block — `oidc.*`. The legacy `keycloak.*` block below is
+# kept as a backward-compat alias for clusters that haven't been
+# re-rendered through the orchestrator yet (#804 emits both via
+# sme_tenant_gitops.go to keep the upgrade path zero-downtime).
+oidc:
+  # Master toggle. When `false` the post-install Job is rendered but
+  # short-circuits at the top — useful for `helm template` smoke
+  # renders that don't have a real Keycloak. Defaults true so that
+  # production installs are SSO-on by default; per-Sovereign overlays
+  # (e.g. an air-gapped install) may flip false.
+  enabled: true
+  # Discovery URL of the SME-vcluster Keycloak realm. Example:
+  #   https://keycloak.<sme-domain>/realms/sme-<subdomain>
   #
   # The placeholder default below is set ONLY so the `helm template`
   # smoke render in the Blueprint Release workflow (which runs with
   # no overrides) produces valid YAML; per-Sovereign overlays MUST
-  # override. The post-install `oidc-config` Job WILL fail at runtime
-  # if this remains the placeholder — that's the correct guardrail
-  # per docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded production
-  # values, but smoke-rendering must succeed).
-  realmURL: "https://auth.sme.local/realms/sme"
-  # OIDC client registered in the SME realm — provisioned by the
-  # tenant-provisioning pipeline (#804) before this chart installs.
-  clientID: "wordpress"
-  # ExternalSecret name carrying the OIDC client secret. Required
-  # key: client-secret. Provisioned by the tenant-provisioning
-  # pipeline at the same time as the Keycloak client registration.
-  clientSecretName: "wordpress-oidc"
+  # override. The post-install Job WILL fail at runtime if this
+  # remains the placeholder — that's the correct guardrail per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded production values,
+  # but smoke-rendering must succeed).
+  issuerURL: "https://keycloak.sme.local/realms/sme"
+  # OIDC client ID registered in the per-tenant Keycloak realm — see
+  # platform/keycloak/chart/templates/configmap-tenant-realm.yaml
+  # (PR #918) where the realm import ConfigMap registers the client.
+  clientId: "wordpress"
+  # K8s Secret carrying the OIDC client secret. Required key:
+  # `client-secret`. PR #918 emits this Secret as part of the
+  # bp-keycloak tenant-realm ConfigMap render so the realm JSON's
+  # `secret` field and these K8s Secret bytes never drift.
+  clientSecretName: "wordpress-oidc-client-secret"
+  # Default WordPress role assigned to a brand-new SSO user when the
+  # `create_if_does_not_exist` setting fires. Operators may tighten
+  # to `subscriber` or open up to `editor` via overlay. The plugin
+  # honours an empty string as "no role" (login allowed but no
+  # capabilities); we default to `subscriber` so SSO logins land with
+  # at least minimal access.
+  defaultRole: "subscriber"
+  # Identity claim used to match the Keycloak `id_token` payload back
+  # to a WP user. `preferred_username` is the canonical KC claim;
+  # `email` is also valid when KC's email-as-username is enforced.
+  identityKey: "preferred_username"
   # Keycloak group → WP role mapping. Default mirrors the SME unified-
-  # RBAC tier names. Operator may extend per their RBAC posture.
+  # RBAC tier names. Operator may extend per their RBAC posture. The
+  # plugin's `acl` setting consumes this when `acl_enabled=1`; default
+  # ACL is OFF (every authenticated SSO user lands with `defaultRole`).
   roleMapping:
     administrator: "administrator"
     editor: "editor"
     author: "author"
     contributor: "contributor"
     subscriber: "subscriber"
+  # `wp-cli` image (canonical wp-cli release). Used by the post-
+  # install Job to run `wp plugin install --activate` + `wp option
+  # update`. Pinned to a SemVer tag + manifest-list digest per
+  # docs/INVIOLABLE-PRINCIPLES.md #4. The image bundles wp-cli on
+  # top of the same WordPress core layout as the runtime image so
+  # pg4wp's db.php drop-in (mounted via the wp-content PVC) loads
+  # transparently — wp-cli boots core, core picks up the drop-in.
+  cliImage:
+    repository: "wordpress"
+    tag: "cli-2.12.0-php8.3"
+    # Manifest-list digest for `wordpress:cli-2.12.0-php8.3` (verified
+    # against registry-1.docker.io 2026-05-05).
+    digest: "sha256:cbdb19366ee143c5fb353181a0f0e2d4fea1562dd28b1c63cf4ec0d086f2fc2d"
+    pullPolicy: IfNotPresent
+
+# Legacy alias — preserves zero-downtime upgrade for clusters whose
+# orchestrator overlays still emit `keycloak.{realmURL,clientID,
+# clientSecretName}`. Fields below are deprecated and will be removed
+# in chart 0.3.0; new overlays MUST emit `oidc.*`. The post-install
+# Job in templates/oidc-config-job.yaml folds `keycloak.*` into
+# `oidc.*` when the modern keys are at their values.yaml default.
+keycloak:
+  realmURL: ""
+  clientID: ""
+  clientSecretName: ""
+  roleMapping: {}
 
 # ─── First-install admin user (created via SSO mapping) ─────────────────
 # The admin-user-job pre-seeds a wp_users row with `user_login = email`

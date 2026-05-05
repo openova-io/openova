@@ -801,7 +801,19 @@ spec:
         podMonitorEnabled: false
 `
 
-const smeTenantBPWordPress = `# bp-wordpress-tenant (#800) — SSO-pre-wired WordPress per SME.
+const smeTenantBPWordPress = `# bp-wordpress-tenant (#800, #915) — SSO-pre-wired WordPress per SME.
+#
+# Per umbrella epic #915 (D1 sub-task) the chart's post-install
+# oidc-config Job uses wp-cli to install + activate the openid-connect-
+# generic plugin and write its option row pointing at the per-tenant
+# Keycloak realm. The oidc.* block below is the canonical input contract
+# for chart >= 0.2.0; keycloak.* is emitted alongside for back-compat
+# with chart 0.1.x clusters that haven't picked up the new release yet.
+#
+# The wordpress-oidc-client-secret Secret carrying the client-secret key
+# is materialised by bp-keycloak's tenant-realm ConfigMap render
+# (PR #918, platform/keycloak/chart/templates/configmap-tenant-realm.yaml)
+# at the same time as the realm JSON so the two never drift.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -824,6 +836,15 @@ spec:
       namespace: {{.Namespace}}
   values:
     smeDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
+    # Canonical OIDC block (chart >= 0.2.0).
+    oidc:
+      enabled: true
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      clientId: wordpress
+      clientSecretName: wordpress-oidc-client-secret
+      defaultRole: subscriber
+      identityKey: preferred_username
+    # Legacy alias (chart 0.1.x back-compat). Removed in chart 0.3.0.
     keycloak:
       realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
       clientID: wordpress

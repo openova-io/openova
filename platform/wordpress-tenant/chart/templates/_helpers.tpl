@@ -111,3 +111,66 @@ from the Cluster CR; suffix is `-rw` per the CNPG operator convention.
 {{- define "bp-wordpress-tenant.cnpgRwHost" -}}
 {{- printf "%s-rw.%s.svc.cluster.local" .Values.database.cnpgClusterName (include "bp-wordpress-tenant.cnpgNamespace" .) -}}
 {{- end -}}
+
+{{/*
+wp-cli image reference, with optional `global.imageRegistry` rewrite for
+Sovereign Harbor proxy-cache. Mirrors `wordpressImage` so both runtime
+and CLI images route through the same proxy. Returns
+`{registry/}repository:tag@digest`.
+*/}}
+{{- define "bp-wordpress-tenant.wpCliImage" -}}
+{{- $reg := .Values.global.imageRegistry | default "" -}}
+{{- $repo := .Values.oidc.cliImage.repository -}}
+{{- $tag := .Values.oidc.cliImage.tag -}}
+{{- $digest := .Values.oidc.cliImage.digest -}}
+{{- if $reg -}}
+{{- printf "%s/%s:%s@%s" $reg $repo $tag $digest -}}
+{{- else -}}
+{{- printf "%s:%s@%s" $repo $tag $digest -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolved OIDC issuer URL. Folds the legacy `keycloak.realmURL` into
+`oidc.issuerURL` for clusters whose orchestrator overlays haven't been
+re-rendered with the canonical `oidc.*` block. Operator-supplied
+`oidc.issuerURL` always wins; only when it equals the values.yaml
+placeholder ("https://keycloak.sme.local/realms/sme") AND a non-empty
+`keycloak.realmURL` is present does the fallback take effect.
+*/}}
+{{- define "bp-wordpress-tenant.oidcIssuerURL" -}}
+{{- $modern := .Values.oidc.issuerURL -}}
+{{- $legacy := .Values.keycloak.realmURL -}}
+{{- $placeholder := "https://keycloak.sme.local/realms/sme" -}}
+{{- if and (eq $modern $placeholder) $legacy -}}
+{{- $legacy -}}
+{{- else -}}
+{{- $modern -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolved OIDC clientId. Same fold pattern as oidcIssuerURL.
+*/}}
+{{- define "bp-wordpress-tenant.oidcClientId" -}}
+{{- $modern := .Values.oidc.clientId -}}
+{{- $legacy := .Values.keycloak.clientID -}}
+{{- if and (eq $modern "wordpress") $legacy -}}
+{{- $legacy -}}
+{{- else -}}
+{{- $modern -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolved OIDC clientSecretName. Same fold pattern as oidcIssuerURL.
+*/}}
+{{- define "bp-wordpress-tenant.oidcClientSecretName" -}}
+{{- $modern := .Values.oidc.clientSecretName -}}
+{{- $legacy := .Values.keycloak.clientSecretName -}}
+{{- if and (eq $modern "wordpress-oidc-client-secret") $legacy -}}
+{{- $legacy -}}
+{{- else -}}
+{{- $modern -}}
+{{- end -}}
+{{- end -}}
