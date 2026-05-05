@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.11
-appVersion: 1.4.11
+version: 1.4.12
+appVersion: 1.4.12
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -632,6 +632,17 @@ description: |
   binary the first reconcile fails with `exec: "git": executable
   file not found in $PATH`. Lockstep slot 13 pin bumps to 1.4.11.
   2026-05-05.
+
+  1.4.12 (issue #878 follow-up): chart-version-only bump to republish
+  the OCI artifact with the new catalyst-api image SHA (7bdd14f) baked
+  into values.yaml. 1.4.11 was published from commit 7bdd14fc BEFORE
+  the deploy-bot updated values.yaml's catalystApi.tag from 20413ec ->
+  7bdd14f, so 1.4.11 OCI bytes still reference the OLD image without
+  the git binary. Same deploy-step race fixed in CI by #874 (services-
+  build auto-bumps chart patch + dispatches blueprint-release) — the
+  catalyst-build workflow needs the equivalent. Until then this manual
+  bump is required after every catalyst-api image change. Lockstep
+  slot 13 pin bumps to 1.4.12. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
