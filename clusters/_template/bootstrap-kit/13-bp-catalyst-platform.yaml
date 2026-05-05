@@ -155,7 +155,16 @@ spec:
       #      /sovereign/wizard (mothership-only) to /sovereign/components
       #      (post-handover Sovereign homepage). Per-Sovereign overlays
       #      override via catalystApi.env additional-env patch.
-      version: 1.4.17
+      # 1.4.18 (issue #910): NEW templates/sme-services/sme-namespace.yaml
+      # creates the `sme` namespace on Sovereigns where the marketplace
+      # is enabled. Without this, chart 1.4.17 install failed 23 times
+      # with `failed to create resource: namespaces "sme" not found` on
+      # every fresh franchised Sovereign with marketplace.enabled=true —
+      # caught live on otech105 (2026-05-05). Same dual-mode contract as
+      # the rest of templates/sme-services/* (gated on
+      # ingress.marketplace.enabled, excluded from kustomization.yaml's
+      # resources: list).
+      version: 1.4.18
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.17
-appVersion: 1.4.17
+version: 1.4.18
+appVersion: 1.4.18
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -835,6 +835,26 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.16 → 1.4.17. 2026-05-05.
+
+  1.4.18 (issue #910 — TBD): create the `sme` namespace on Sovereigns
+  where the marketplace is enabled. Every template under
+  templates/sme-services/* (billing, auth, ferretdb, valkey-cross-ns-
+  secret, sme-secrets, provisioning-github-token, cnpg-cluster, ...)
+  emits resources with `namespace: sme`. On Catalyst-Zero (contabo)
+  the `sme` namespace is pre-provisioned by clusters/contabo-mkt/apps/
+  sme/* — so the chart never created it. On a fresh franchised
+  Sovereign nothing else creates the `sme` namespace, so chart 1.4.17
+  install failed 23 times with `failed to create resource: namespaces
+  "sme" not found` — caught live on otech105 (2026-05-05). Fix: NEW
+  templates/sme-services/sme-namespace.yaml gated on the same
+  ingress.marketplace.enabled flag as the rest of the SME bundle so
+  non-marketplace Sovereigns and the Kustomize-mode contabo build
+  (which does NOT include sme-namespace.yaml in templates/sme-services/
+  kustomization.yaml's `resources:` list) skip this entirely.
+  helm.sh/resource-policy: keep — never cascade-delete the namespace
+  on chart uninstall (would erase every SME workload + tenant).
+  Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
+  13-bp-catalyst-platform.yaml bumps from 1.4.17 → 1.4.18. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
