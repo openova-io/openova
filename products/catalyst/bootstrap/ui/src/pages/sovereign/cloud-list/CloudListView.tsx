@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo } from 'react'
 import { useNavigate, useRouterState, useSearch } from '@tanstack/react-router'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useCloud } from '../CloudPage'
 import { CLOUD_LIST_CSS } from './cloudListCss'
 import {
@@ -66,7 +67,9 @@ export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
     if (search.kind === activeKind) return
     if (!pathname.endsWith('/cloud')) return
     navigate({
-      to: '/cloud' as never,
+      to: (DETECTED_MODE.mode === 'sovereign' || !deploymentId
+        ? '/cloud'
+        : `/provision/${deploymentId}/cloud`) as never,
       params: { deploymentId } as never,
       search: { view: 'list', kind: activeKind } as never,
       replace: true,

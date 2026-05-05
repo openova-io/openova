@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useSession } from '@/shared/lib/useSession'
 import { useInflightDeployment } from '@/shared/lib/useInflightDeployment'
@@ -71,14 +71,13 @@ export function WizardPage() {
   const idx = Math.max(0, Math.min(currentStep - 1, STEPS.length - 1))
   const StepComponent = STEPS[idx]!
 
-  // Issue #747 — auto-redirect a signed-in operator who already owns
-  // an in-flight deployment back to /provision/<id>. This is the bug
-  // surfaced when the founder refreshed the wizard tab during otech90
-  // provisioning and lost the progress page. We deliberately wait
-  // until the session is resolved before deciding — running the
-  // redirect during session.loading would race the cookie check and
-  // bounce an anonymous visitor erroneously.
-  const navigate = useNavigate()
+  // The operator may legitimately want to start a SECOND provision
+  // even when one is already in flight (founder framing 2026-05-05:
+  // 'maybe I'll provision one more'). So we DON'T auto-redirect; we
+  // surface a banner pointing at the inflight deployment's monitor
+  // and let the operator continue stepping through the wizard.
+  // Replaces the previous useEffect-redirect that bounced /sovereign/wizard
+  // → /provision/<id>/dashboard unconditionally on signed-in load.
   const session = useSession()
   const { inflight, completed } = useInflightDeployment({
     ownerEmail: session.email,
@@ -86,29 +85,8 @@ export function WizardPage() {
   })
 
   useEffect(() => {
-    if (session.loading) return
-    if (!session.signedIn) return
-    if (!inflight) return
-    // replace:true so the wizard URL doesn't sit in history — a
-    // back-button press from /provision/<id> should land on the
-    // referrer, not on a doomed wizard step.
-    navigate({
-      to: '/provision/$deploymentId/dashboard',
-      params: { deploymentId: inflight.id },
-      replace: true,
-    })
-  }, [session.loading, session.signedIn, inflight, navigate])
-
-  useEffect(() => {
     document.getElementById('wizard-body')?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
   }, [currentStep])
-
-  // While the redirect is pending render nothing — surfacing a
-  // half-rendered Step 1 for one frame before TanStack Router replaces
-  // the route is jarring.
-  if (!session.loading && session.signedIn && inflight) {
-    return null
-  }
 
   // History banner — operator has at least one completed/wiped/failed
   // deployment but no live one. Render a single-line strip pointing at
@@ -116,8 +94,53 @@ export function WizardPage() {
   const hasHistory =
     !session.loading && session.signedIn && !inflight && completed.length > 0
 
+  // Inflight banner — operator has a deployment currently provisioning.
+  // The wizard stays interactive (so they can start a SECOND), but a
+  // strip at the top points at the inflight monitor for one-click resume.
+  const hasInflight =
+    !session.loading && session.signedIn && inflight
+
   return (
     <>
+      {hasInflight && inflight && (
+        <div
+          role="status"
+          data-testid="wizard-inflight-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '8px 16px',
+            margin: '0 0 16px 0',
+            background: 'rgba(168,85,247,0.10)',
+            border: '1px solid rgba(168,85,247,0.30)',
+            borderRadius: 8,
+            fontSize: 13,
+            color: 'var(--wiz-text-md)',
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            You have a deployment in flight: <strong>{inflight.sovereignFQDN ?? inflight.id}</strong>.
+          </span>
+          <Link
+            to={'/provision/$deploymentId/dashboard' as never}
+            params={{ deploymentId: inflight.id } as never}
+            data-testid="wizard-inflight-banner-link"
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: 'rgba(168,85,247,0.20)',
+              color: '#a855f7',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+              border: '1px solid rgba(168,85,247,0.45)',
+            }}
+          >
+            Open monitor →
+          </Link>
+        </div>
+      )}
       {hasHistory && (
         <div
           role="status"

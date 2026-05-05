@@ -51,6 +51,7 @@ import {
 } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { PortalShell } from './PortalShell'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { Architecture } from './Architecture'
 import { CloudListView } from './cloud-list/CloudListView'
@@ -186,6 +187,14 @@ export function CloudPage({
   // rename window.
   const params = useParams({ strict: false }) as { deploymentId: string }
   const deploymentId = params.deploymentId
+  // Chroot-aware nav target: when the operator is monitoring an in-flight
+  // Sovereign from the mothership wizard, every link MUST stay scoped under
+  // /provision/<id>/cloud. On the Sovereign's adult hostname (DETECTED_MODE
+  // === 'sovereign') the deploymentId is implicit so we use clean /cloud.
+  const cloudPath = (id: string) =>
+    DETECTED_MODE.mode === 'sovereign' || !id
+      ? '/cloud'
+      : `/provision/${id}/cloud`
   const navigate = useNavigate()
 
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -310,7 +319,7 @@ export function CloudPage({
       next.kind = search.kind
     }
     navigate({
-      to: '/cloud' as never,
+      to: cloudPath(deploymentId) as never,
       params: { deploymentId } as never,
       search: next as never,
       replace: true,
@@ -325,7 +334,7 @@ export function CloudPage({
       target.kind = search.kind
     }
     navigate({
-      to: '/cloud' as never,
+      to: cloudPath(deploymentId) as never,
       params: { deploymentId } as never,
       search: target as never,
       replace: false,
@@ -341,7 +350,7 @@ export function CloudPage({
       target.kind = search.kind
     }
     navigate({
-      to: '/cloud' as never,
+      to: cloudPath(nextId) as never,
       params: { deploymentId: nextId } as never,
       search: target as never,
     })
@@ -398,7 +407,7 @@ export function CloudPage({
   const setKind = useCallback(
     (next: CloudListKind) => {
       navigate({
-        to: '/cloud' as never,
+        to: cloudPath(deploymentId) as never,
         params: { deploymentId } as never,
         search: { view: 'list', kind: next } as never,
         replace: false,
