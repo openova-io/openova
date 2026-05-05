@@ -77,7 +77,7 @@ function SovereignCallbackPage() {
         await handleCallback(sovereignFQDN, params)
         // Navigate to the console dashboard — replace so the callback
         // URL doesn't appear in browser history.
-        router.navigate({ to: '/console/dashboard' as never, replace: true })
+        router.navigate({ to: '/dashboard' as never, replace: true })
       } catch (err) {
         setState({
           status: 'error',
