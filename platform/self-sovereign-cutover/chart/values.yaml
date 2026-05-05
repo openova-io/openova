@@ -46,12 +46,22 @@ sovereign:
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"
 
-# Upstream openova-io read-only public clone — the source for the
-# cutover step 01 git push --mirror into local Gitea. Overrideable so a
-# Sovereign that ships from a fork can rebase the seed.
+# Upstream openova-io read-only public clone — the source for cutover
+# step 01. Step-1 calls Gitea's /repos/migrate API with mirror=true so
+# Gitea itself owns the recurring upstream sync going forward; the local
+# repo polls upstream on .Values.upstream.mirrorInterval. Overrideable
+# so a Sovereign that ships from a fork can rebase the seed.
 upstream:
   repoURL: "https://github.com/openova-io/openova"
   branch: "main"
+  # Gitea pull-mirror poll interval. Format = Go duration string parsed
+  # by Gitea (e.g. "10m0s", "1h0m0s"). Set to 10m by default — short
+  # enough that a chart bump → upstream merge → Sovereign reconcile
+  # cycle stays under 15 minutes end-to-end, long enough that GitHub
+  # anonymous-clone rate limits aren't a concern even with hundreds of
+  # Sovereigns. Caught the "drifts forever after cutover" bug live on
+  # otech103 2026-05-04 — chart 0.1.14 closes that loop. (#870)
+  mirrorInterval: "10m0s"
   # Mothership Harbor — the soft-tethered cold-start registry. Step 08
   # egress-block test asserts the cluster can survive without this URL.
   mothershipHarborURL: "https://harbor.openova.io"

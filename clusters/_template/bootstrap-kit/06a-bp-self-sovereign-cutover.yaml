@@ -127,7 +127,13 @@ spec:
       # verdict — sovereignty asks "did cutover break anything", not
       # "is the cluster perfect". Caught live otech103 — infrastructure
       # -config Kustomization had been NotReady for 4h pre-cutover.
-      version: 0.1.13
+      # 0.1.14: Step-1 gitea-mirror replaces one-shot create+push with
+      # Gitea native /repos/migrate `mirror=true` + mirror_interval=10m
+      # so the local Gitea polls upstream GitHub on a recurring 10-min
+      # interval. Closes the "Sovereign drifts from upstream main
+      # forever after Day-2 cutover" bug — hit twice on otech103
+      # 2026-05-04 requiring manual `git fetch` per chart rollout. (#870)
+      version: 0.1.14
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
