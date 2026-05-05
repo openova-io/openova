@@ -184,11 +184,27 @@ spec:
       #   one DNS miss was terminal and the cutover engine aborted all
       #   8 steps. Fix is dual: (a) catalyst-api now stamps Jobs with
       #   `backoffLimit=3` so a single miss is recoverable; (b) Step-01
-      #   bash script gains an explicit `nslookup` readiness loop (30 ×
+      #   bash script gains an explicit `nslookup` readiness loop (30 x
       #   5s) at the top, before any wget call. Both layers are needed —
       #   the in-script probe is fastest; the backoffLimit is the
       #   safety net for any other transient pre-cluster-stable race.
-      version: 0.1.19
+      # 0.1.20: Step-06 helmrepository-patches reverted by Flux (#970).
+      #   0.1.19 unblocked the cutover through Step-7, but Step-08
+      #   verify caught 38/38 HelmRepositories had reverted to
+      #   oci://ghcr.io/openova-io despite Step-06's job logs showing
+      #   `OK ${name} -> oci://harbor.<sov-fqdn>/openova-io` for each.
+      #   Root cause: Step-06 only `kubectl patch`ed the live K8s
+      #   objects; bootstrap-kit Kustomization reconciled YAML from
+      #   local Gitea every 1m, where the YAML still declared the
+      #   upstream URL, undoing each patch within ~30s. Fix: Step-06
+      #   now does both phases — (a) live kubectl patches as before,
+      #   then (b) clones local Gitea, sed-rewrites every
+      #   clusters/_template/bootstrap-kit/*.yaml declaration of
+      #   `url: oci://ghcr.io/openova-io` → local Harbor prefix,
+      #   commits, and pushes. Subsequent reconciles see local Harbor
+      #   as steady-state. Image bumped to alpine/k8s:1.31.4 (kubectl
+      #   + git in one image; verified live on otech116).
+      version: 0.1.20
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -29,7 +29,9 @@ data:
     activeDeadlineSeconds: {{ .Values.stepTimeouts.helmRepositoryPatchesSeconds }}
     containers:
       - name: helmrepository-patches
-        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        image: alpine/k8s:1.31.4   # ships kubectl + git so we can both
+                                   # patch the live K8s object AND push
+                                   # the YAML edit to local Gitea (#970).
         imagePullPolicy: IfNotPresent
         env:
           - name: HELMREPO_NAMESPACE
@@ -38,10 +40,30 @@ data:
             value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
             readOnly: true
+          - name: tmp
+            mountPath: /tmp
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -51,6 +73,7 @@ data:
 
             echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix}"
 
+            # ---- Phase 1: live K8s patches (immediate) ----
             ok=0
             skip=0
             fail=0
@@ -90,11 +113,89 @@ data:
               fi
             done < /work/helmrepository-names.txt
 
-            echo "[helmrepository-patches] ok=${ok} skip=${skip} fail=${fail}"
-            [ "${fail}" -eq 0 ]
+            echo "[helmrepository-patches] live-K8s ok=${ok} skip=${skip} fail=${fail}"
+            [ "${fail}" -eq 0 ] || exit 1
+
+            # ---- Phase 2: push YAML edit to local Gitea (#970) ----
+            #
+            # The kubectl patches above flip the live HelmRepository
+            # objects. But the bootstrap-kit Kustomization reconciles
+            # YAML from the Sovereign's local Gitea every minute, and
+            # those YAML files still declare `url: oci://ghcr.io/openova-io`.
+            # Without this phase, Flux reverts every patch within ~1m,
+            # and Step-08's verify catches the regression as "OFFENDER".
+            #
+            # Fix: clone the local Gitea, sed-rewrite every
+            # clusters/_template/bootstrap-kit/*.yaml that declares the
+            # upstream URL, commit, push. Subsequent reconciles pick up
+            # the local Harbor URL as the steady-state.
+            export HOME=/tmp
+            git config --global user.name "self-sovereign-cutover"
+            git config --global user.email "cutover@${SOVEREIGN_FQDN}"
+            git config --global advice.detachedHead false
+
+            # gitea-http is headless (#968); wait for DNS just in case.
+            gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+            for i in $(seq 1 30); do
+              if nslookup "${gitea_host}" >/dev/null 2>&1; then break; fi
+              sleep 5
+            done
+
+            # URL with embedded basic auth — credential goes to git via
+            # URL only, never echoed to stdout.
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
+
+            echo "[helmrepository-patches] cloning ${redacted}"
+            cd /tmp
+            rm -rf repo
+            git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1
+            cd repo
+
+            # Find every HelmRepository YAML that declares the upstream
+            # URL under clusters/_template/bootstrap-kit/. Rewrite to
+            # the local Harbor prefix in-place.
+            target_dir="clusters/_template/bootstrap-kit"
+            if [ ! -d "${target_dir}" ]; then
+              echo "[helmrepository-patches] FATAL: ${target_dir} not present in local mirror" >&2
+              exit 1
+            fi
+            edited=0
+            for f in $(grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${target_dir}"/*.yaml 2>/dev/null || true); do
+              sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
+              edited=$((edited+1))
+              echo "[helmrepository-patches] edited ${f}"
+            done
+            echo "[helmrepository-patches] sed edited ${edited} files"
+
+            if [ "${edited}" -eq 0 ]; then
+              echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present"
+              # Don't fail; phase-1 already succeeded.
+              exit 0
+            fi
+
+            git add "${target_dir}"
+            if git diff --staged --quiet; then
+              echo "[helmrepository-patches] git diff empty after sed — nothing to commit"
+              exit 0
+            fi
+            git commit -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor" >/dev/null
+            git push origin main >/dev/null 2>&1 || {
+              echo "[helmrepository-patches] FATAL: git push failed" >&2
+              exit 1
+            }
+            echo "[helmrepository-patches] pushed to ${redacted} (commit will reconcile via bootstrap-kit Kustomization)"
+
+            # Trigger an immediate Flux reconciliation so the new YAML
+            # lands without waiting for the polling interval.
+            kubectl annotate --overwrite gitrepository openova \
+              -n flux-system \
+              "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+
+            echo "[helmrepository-patches] step complete"
         resources:
-          requests: { cpu: 50m, memory: 64Mi }
-          limits:   { memory: 256Mi }
+          requests: { cpu: 50m, memory: 128Mi }
+          limits:   { memory: 384Mi }
         securityContext:
           runAsNonRoot: true
           runAsUser: 1001
@@ -109,3 +210,5 @@ data:
           items:
             - key: helmrepository-names.txt
               path: helmrepository-names.txt
+      - name: tmp
+        emptyDir: {}

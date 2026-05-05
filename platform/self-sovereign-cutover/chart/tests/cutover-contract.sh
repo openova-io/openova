@@ -267,4 +267,28 @@ if ! grep -q 'gitea_host=' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-01 has DNS readiness probe)"
 
+echo "[cutover-contract] Case 16: Step-06 helmrepository-patches pushes YAML edit to local Gitea (#970)"
+# 0.1.19 Step-06 only ran kubectl patch against live HelmRepository
+# objects. bootstrap-kit Kustomization reconciled YAML from local
+# Gitea every 1m and reverted each patch within ~30s — Step-08
+# verify caught 38/38 OFFENDERS (caught live on otech116 2026-05-05).
+#
+# 0.1.20 Step-06 has a Phase-2 that clones local Gitea, sed-rewrites
+# every clusters/_template/bootstrap-kit/*.yaml that declares the
+# upstream URL, commits, and pushes. This gate guards against future
+# regressions that drop the git-push.
+if ! grep -q 'git clone' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing git clone (no Gitea push — patches will be reverted by Flux) (#970)" >&2
+  exit 1
+fi
+if ! grep -q 'git push origin main' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing git push origin main (#970)" >&2
+  exit 1
+fi
+if ! grep -q 'clusters/_template/bootstrap-kit' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing target_dir reference (#970)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 pushes YAML edit to local Gitea)"
+
 echo "[cutover-contract] All gates green."
