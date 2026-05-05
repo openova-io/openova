@@ -53,15 +53,46 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      # contents: write — push the SHA + Chart.yaml patch bump back to main.
       contents: write
+      # actions: write — required for `gh workflow run` to dispatch
+      # blueprint-release.yaml after the deploy commit lands. Without
+      # this, the dispatch step returns HTTP 403 "Resource not
+      # accessible by integration" and blueprint-release never fires
+      # for deploy commits (issues #872, #712 — same root cause as the
+      # catalyst-build dispatch fix in PR #720).
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifests with new SHA tags
+      # ──────────────────────────────────────────────────────────────
+      # Helper: bump the Chart.yaml patch version atomically with the
+      # SHA-tag rewrite so blueprint-release publishes a single coherent
+      # chart that bundles the freshly committed image refs.
+      #
+      # Why this exists (issue #872): without the bump, the merge commit
+      # for a chart-version-bumping PR triggers blueprint-release IN
+      # PARALLEL with services-build. blueprint-release packages the
+      # working tree at the merge SHA — which still has the OLD image
+      # SHA in templates/sme-services/*.yaml because services-build has
+      # not yet committed its deploy update. The chart at that version
+      # ships with stale images, and a manual no-op chart bump PR is
+      # the only way to republish (PR #865 chasing PR #864 was the live
+      # incident).
+      #
+      # By having the deploy step bump the patch version itself, the
+      # dispatched blueprint-release publishes a NEW chart version that
+      # — by construction — was packaged AFTER the SHA rewrite. No race.
+      # The manual chart-version field in the PR becomes the floor; the
+      # CI auto-bumps from there.
+      # ──────────────────────────────────────────────────────────────
+      - name: Update deployment manifests + bump chart patch version
+        id: rewrite
         run: |
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+          CHART_YAML="products/catalyst/chart/Chart.yaml"
 
           for svc in auth catalog gateway tenant domain billing provisioning notification; do
             FILE="${DEPLOY_DIR}/${svc}.yaml"
@@ -71,44 +102,105 @@ jobs:
             fi
           done
 
+          # Patch-bump Chart.yaml `version:` and `appVersion:` (kept in
+          # lockstep — the chart reflects the bundled appVersion via
+          # convention). Pure-bash semver patch increment to avoid
+          # depending on yq in this job.
+          current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
+          if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Unparseable chart version::Chart.yaml version='${current}' is not semver MAJOR.MINOR.PATCH; refusing to auto-bump."
+            exit 1
+          fi
+          major=$(echo "$current" | cut -d. -f1)
+          minor=$(echo "$current" | cut -d. -f2)
+          patch=$(echo "$current" | cut -d. -f3)
+          next="${major}.${minor}.$((patch + 1))"
+          sed -i "s|^version: .*$|version: ${next}|" "${CHART_YAML}"
+          sed -i "s|^appVersion: .*$|appVersion: ${next}|" "${CHART_YAML}"
+          echo "Bumped Chart.yaml ${current} -> ${next}"
+          echo "next_version=${next}" >> "$GITHUB_OUTPUT"
+
       - name: Commit and push manifest updates
+        id: deploy_commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+          CHART_YAML="products/catalyst/chart/Chart.yaml"
 
-          # Re-applies the sed substitution against whatever state main is
-          # currently in. Needed because parallel/back-to-back CI runs both
-          # try to update the same image: lines — a plain `git pull --rebase`
-          # hits content conflicts since every SHA bump touches exactly the
-          # same lines a previous run just wrote. Idempotent reset-and-resed
-          # is conflict-free by construction.
-          apply_sed() {
+          # Idempotent reset-and-rewrite. Parallel/back-to-back CI runs
+          # both try to update the same `image:` lines AND the same
+          # version line — `git pull --rebase` would hit content
+          # conflicts. Idempotent reset-to-origin + re-apply is
+          # conflict-free by construction. On retry we re-read whatever
+          # version origin/main currently holds and bump from THAT, so
+          # two concurrent runs produce strictly increasing patch
+          # versions instead of clobbering each other.
+          rewrite() {
             for svc in auth catalog gateway tenant domain billing provisioning notification; do
               FILE="${DEPLOY_DIR}/${svc}.yaml"
               if [ -f "$FILE" ]; then
                 sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
               fi
             done
+            current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
+            if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error title=Unparseable chart version on retry::Chart.yaml version='${current}' is not semver."
+              exit 1
+            fi
+            major=$(echo "$current" | cut -d. -f1)
+            minor=$(echo "$current" | cut -d. -f2)
+            patch=$(echo "$current" | cut -d. -f3)
+            next="${major}.${minor}.$((patch + 1))"
+            sed -i "s|^version: .*$|version: ${next}|" "${CHART_YAML}"
+            sed -i "s|^appVersion: .*$|appVersion: ${next}|" "${CHART_YAML}"
+            echo "${next}"
           }
 
           git add products/
-          git diff --staged --quiet && echo "No changes to commit" && exit 0
-          git commit -m "deploy: update sme service images to ${SHA}"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NEXT="${{ steps.rewrite.outputs.next_version }}"
+          git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
 
           for i in 1 2 3; do
-            if git push; then exit 0; fi
-            echo "push attempt $i failed — resetting to origin/main and re-applying sed"
+            if git push; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              echo "next_version=${NEXT}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "push attempt $i failed — resetting to origin/main and re-applying rewrite"
             git fetch origin main
             git reset --hard origin/main
-            apply_sed
+            NEXT=$(rewrite)
             git add products/
             if git diff --staged --quiet; then
               echo "no changes after re-fetch — another run already shipped this SHA"
+              echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git commit -m "deploy: update sme service images to ${SHA}"
+            git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
           done
           echo "push failed after 3 attempts"
           exit 1
+
+      # GITHUB_TOKEN-authored pushes do NOT re-trigger workflows by
+      # design, so a `push` path-trigger on blueprint-release.yaml is
+      # not enough on its own — we must explicitly dispatch. Same
+      # mechanism catalyst-build.yaml uses (PR #720) to publish the
+      # bp-catalyst-platform OCI artifact for the bumped chart.
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products
+          echo "blueprint-release dispatched for products/catalyst @ main (chart ${{ steps.deploy_commit.outputs.next_version }})"
