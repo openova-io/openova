@@ -69,12 +69,13 @@ import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage
 import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
-import { ConsoleDashboardPage } from '@/pages/sovereign/console/ConsoleDashboardPage'
-import { ConsoleAppsPage } from '@/pages/sovereign/console/ConsoleAppsPage'
-import { ConsoleJobsPage } from '@/pages/sovereign/console/ConsoleJobsPage'
-import { ConsoleCloudPage } from '@/pages/sovereign/console/ConsoleCloudPage'
-import { ConsoleUsersPage } from '@/pages/sovereign/console/ConsoleUsersPage'
-import { ConsoleSettingsPage } from '@/pages/sovereign/console/ConsoleSettingsPage'
+// Sovereign-mode /console/* routes use the same canonical components as
+// /provision/$deploymentId/* — see the SovereignConsoleRedirect helper
+// near the bottom of this file. The duplicate ConsoleDashboardPage /
+// ConsoleAppsPage / ConsoleJobsPage / ConsoleCloudPage / ConsoleUsersPage
+// / ConsoleSettingsPage stubs have been DELETED (issue: pixel-byte-byte
+// identical UI between mothership-side /provision/$id/dashboard and
+// Sovereign-side post-handover console).
 import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
 import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
@@ -82,6 +83,7 @@ import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
+import { SovereignConsoleRedirect } from '@/pages/sovereign/SovereignConsoleRedirect'
 
 // Root
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -606,56 +608,66 @@ const marketplaceProductRoute = createRoute({
  *   /auth/handover            → redirect to /console/dashboard (safety net)
  */
 
+/**
+ * Sovereign-mode /console/* — REDIRECT-ONLY shell.
+ *
+ * The duplicate ConsoleDashboardPage / ConsoleAppsPage / ConsoleJobsPage /
+ * ConsoleCloudPage / ConsoleUsersPage / ConsoleSettingsPage stubs from
+ * PR #937 have been DELETED. There is now exactly ONE canonical implementation
+ * of every operator surface — Dashboard, AppsPage, JobsPage, CloudPage,
+ * UserAccessListPage, SettingsPage — under the `/provision/$deploymentId/*`
+ * route tree (the same the wizard renders at console.openova.io).
+ *
+ * For Sovereign-mode operators landing on `console.<sov-fqdn>/console/*`
+ * (the URL the SovereignSidebar links to), the routes below redirect to
+ * the canonical `/provision/$selfDeploymentId/*` after fetching the self
+ * deployment id from `/api/v1/sovereign/self`. Same components, same
+ * styling, same data — pixel-byte-byte identical to the mothership view.
+ *
+ * Iteration 2 will drop the `/sovereign/provision/$id/` URL prefix on
+ * Sovereigns by refactoring the canonical components to read deploymentId
+ * from a route-aware hook (useResolvedDeploymentId, already added).
+ */
 const consoleLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/console',
   component: SovereignConsoleLayout,
 })
 
-// /console → redirect to /console/dashboard
 const consoleIndexRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/console/dashboard' as never, replace: true })
-  },
-  component: () => null,
+  component: SovereignConsoleRedirect,
 })
-
 const consoleDashboardRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/dashboard',
-  component: ConsoleDashboardPage,
+  component: () => <SovereignConsoleRedirect to="dashboard" />,
 })
-
 const consoleAppsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/apps',
-  component: ConsoleAppsPage,
+  component: () => <SovereignConsoleRedirect to="" />,
 })
-
 const consoleJobsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs',
-  component: ConsoleJobsPage,
+  component: () => <SovereignConsoleRedirect to="jobs" />,
 })
-
 const consoleCloudRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/cloud',
-  component: ConsoleCloudPage,
+  component: () => <SovereignConsoleRedirect to="cloud" />,
 })
-
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/users',
-  component: ConsoleUsersPage,
+  component: () => <SovereignConsoleRedirect to="users" />,
 })
-
 const consoleSettingsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/settings',
-  component: ConsoleSettingsPage,
+  component: () => <SovereignConsoleRedirect to="settings" />,
 })
 
 // /console/settings/marketplace — operator toggles marketplace mode on a
