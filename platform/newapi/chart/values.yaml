@@ -15,6 +15,24 @@ catalystBlueprint:
     images:
       newapi: "ghcr.io/openova-io/openova/newapi-mirror"
 
+# ─── Image pull secrets (issue #952) ─────────────────────────────────────
+# Both the NewAPI mirror image and the metering sidecar live in PRIVATE
+# ghcr.io/openova-io/openova/* repositories. Without an imagePullSecret
+# on the Pod, kubelet cannot authenticate to pull them and the Pod stalls
+# in ImagePullBackOff with a 403 Forbidden — blocking alice signup gate
+# 5 (LLM) on every fresh Sovereign.
+#
+# `ghcr-pull` is the canonical name created in flux-system at cloud-init
+# (infra/hetzner/cloudinit-control-plane.tftpl) and reflected into every
+# bootstrap-kit namespace listed in the source Secret's
+# `reflector.v1.k8s.emberstack.com/reflection-{allowed,auto}-namespaces`
+# annotation. The newapi namespace is included in that list so this
+# default works on every Sovereign without operator intervention. Per
+# Inviolable Principle #4 the list is overrideable from per-Sovereign
+# overlays (set to `[]` for clusters that pull from public repos only).
+imagePullSecrets:
+  - name: ghcr-pull
+
 # ─── NewAPI application ──────────────────────────────────────────────────
 newapi:
   enabled: true

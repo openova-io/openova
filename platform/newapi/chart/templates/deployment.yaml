@@ -69,6 +69,19 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "bp-newapi.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      # Issue #952: NewAPI image (`newapi-mirror`) and the metering
+      # sidecar both live in PRIVATE ghcr.io/openova-io/openova/*
+      # repositories — kubelet must authenticate to pull. The canonical
+      # `ghcr-pull` Secret is reflected into every namespace listed in
+      # bp-reflector's annotations on flux-system/ghcr-pull (cloud-init
+      # writes the source Secret with `reflection-auto-namespaces`
+      # explicitly enumerating `newapi`). Without these references the
+      # Pod stalls in ImagePullBackOff with a 403 Forbidden, blocking
+      # alice signup gate 5 (LLM) on every fresh Sovereign.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.newapi.securityContext | nindent 8 }}
       containers:

@@ -190,10 +190,17 @@ write_files:
           # otech103 verified live. Future namespaces added to the
           # bootstrap-kit (a new bp-* slot) only need an addition here
           # plus a Pod restart to pick up the new mirror.
+          #
+          # Issue #952 (2026-05-05): added `newapi` — the bp-newapi
+          # bootstrap-kit slot 80 lands its Deployment in this namespace
+          # and pulls PRIVATE `newapi-mirror` + `services-metering-sidecar`
+          # images. Without `newapi` on this list the Pod stalls in
+          # ImagePullBackOff with 403 Forbidden, blocking alice signup
+          # gate 5 (LLM). Caught live on otech113.
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,newapi"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,newapi"
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: ${base64encode(jsonencode({

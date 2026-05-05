@@ -187,6 +187,16 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ $jobName }}
+      {{- with .Values.imagePullSecrets }}
+      # Issue #952: ensure the Job inherits the same `ghcr-pull` Secret
+      # as the NewAPI Deployment. The default `curlimages/curl` image
+      # lives on Docker Hub (public) so the Secret is harmless when
+      # unused, but operator overlays may swap in a private mirror at
+      # `ghcr.io/openova-io/openova/*` — in which case the imagePullSecret
+      # is REQUIRED for kubelet to authenticate the pull.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: tmp
           emptyDir:

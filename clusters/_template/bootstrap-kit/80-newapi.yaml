@@ -79,7 +79,12 @@ spec:
       # integration DoD: alice → OpenClaw → NewAPI → Qwen3.6@BankDhofar
       # end-to-end).
       # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-      version: 1.4.0
+      # 1.4.1 (issue #952, 2026-05-05): Pod imagePullSecrets templated +
+      # default to `[{name: ghcr-pull}]` so kubelet authenticates pulls
+      # of the PRIVATE newapi-mirror + metering-sidecar images. Paired
+      # with cloud-init adding `newapi` to flux-system/ghcr-pull's
+      # reflector auto-namespaces list.
+      version: 1.4.1
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
