@@ -55,6 +55,91 @@ import (
 // importing the pdm package at every call site.
 func pdmErrNotFound() error { return pdm.ErrNotFound }
 
+// wipeMinLifeProtectionEnv — issue #914. Env var override for the
+// minimum-age threshold below which an externally-triggered wipe is
+// REFUSED when the deployment is still in `phase1-watching`. Operator
+// override is the `?force=true` query param on the wipe URL.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4, every threshold is a runtime
+// knob. The default (DefaultWipeMinLifeProtection, 30m) is sized
+// against the Phase-1 watcher's DefaultWatchTimeout (60m) so a
+// converging Sovereign gets at least half the watch budget before any
+// external wipe can destroy it. otech106 incident, 2026-05-05.
+const wipeMinLifeProtectionEnv = "CATALYST_WIPE_MIN_LIFE_PROTECTION"
+
+// DefaultWipeMinLifeProtection — production default for the
+// minimum-life guard. Issue #914.
+//
+// 30 minutes covers the worst-observed bp-catalyst-platform install
+// window (15m install timer × multiple retries) plus headroom for the
+// 4-component install cascade (keycloak/openbao/powerdns/crossplane all
+// in their 15m windows simultaneously, which is exactly the otech106
+// snapshot). Below this age a still-converging deployment must be
+// protected from accidental external wipes — operator can override via
+// `?force=true` when they really mean it.
+const DefaultWipeMinLifeProtection = 30 * time.Minute
+
+// compileWipeMinLifeProtection — small parse helper. Returns
+// DefaultWipeMinLifeProtection for empty / unparseable / non-positive
+// input.
+func compileWipeMinLifeProtection(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultWipeMinLifeProtection
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return DefaultWipeMinLifeProtection
+	}
+	return d
+}
+
+// wipeMinLifeProtectionFor returns the effective protection threshold
+// for this Handler. Test override (h.wipeMinLifeProtection) wins;
+// production reads env → default.
+func (h *Handler) wipeMinLifeProtectionFor() time.Duration {
+	if h.wipeMinLifeProtection > 0 {
+		return h.wipeMinLifeProtection
+	}
+	return compileWipeMinLifeProtection(envOrEmpty(wipeMinLifeProtectionEnv))
+}
+
+// shouldRefuseWipe — pure decision function for issue #914's
+// minimum-life guard. Returns true when the wipe MUST be refused with
+// 409 because the deployment is still mid-converge.
+//
+// The four-input contract is intentional so tests can exercise each
+// branch deterministically without standing up a Handler:
+//
+//   - status            — current dep.Status snapshot
+//   - startedAt         — dep.StartedAt snapshot (zero = unknown)
+//   - now               — wall-clock at decision time
+//   - threshold         — minimum-life protection threshold
+//   - force             — operator override flag (?force=true)
+//
+// Refuse iff status is `phase1-watching` AND startedAt is non-zero AND
+// (now - startedAt) < threshold AND force is false. Every other shape
+// falls through to allow the wipe — including a finished deployment, a
+// failed deployment, a missing startedAt (legacy record from before the
+// field was stamped — can't enforce a threshold we have no anchor for),
+// or an explicit force override.
+func shouldRefuseWipe(status string, startedAt, now time.Time, threshold time.Duration, force bool) bool {
+	if force {
+		return false
+	}
+	if status != "phase1-watching" {
+		return false
+	}
+	if startedAt.IsZero() {
+		// Legacy record — without an anchor we can't compute age.
+		// Allow the wipe; the operator's intent is clearer than the
+		// guard's heuristic.
+		return false
+	}
+	age := now.Sub(startedAt)
+	return age < threshold
+}
+
 // wipeRequest is the body of POST /api/v1/deployments/{id}/wipe.
 //
 // HetznerToken is required ONLY when the on-disk Deployment record's
@@ -87,7 +172,12 @@ type wipeResponse struct {
 //   - 200 OK on full or partial success (errors in the body)
 //   - 400 Bad Request when the body cannot be parsed
 //   - 404 Not Found when the deployment id is unknown
-//   - 409 Conflict if a wipe is already in progress for this deployment
+//   - 409 Conflict if a wipe is already in progress for this deployment,
+//     OR (issue #914) if the deployment is still in `phase1-watching`
+//     AND younger than wipeMinLifeProtection (default 30m). The 409
+//     body carries `retryAfterSec` + `minLifeSec` so the wizard can
+//     render a "wait N minutes" countdown. Operator override:
+//     `?force=true` query param.
 //   - 500 on a fatal local-state error (workdir non-removable, etc.)
 //
 // The endpoint is idempotent: re-running on a partially-wiped deployment
@@ -120,6 +210,70 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(body.HetznerToken) == "" {
 		http.Error(w, "hetznerToken is required (re-prompt the operator before calling this endpoint)", http.StatusBadRequest)
+		return
+	}
+
+	// Issue #914 — minimum-life guard against externally-triggered
+	// wipes that destroy still-converging Sovereigns.
+	//
+	// otech106.omani.works (2026-05-05) was 28/40 components installed,
+	// 4 actively installing in their 15m install windows, when an
+	// external POST /wipe at T+24m destroyed it. Same shape as B2 #910
+	// (orchestrator marking deployment FAILED prematurely) but on the
+	// WIPE path. Whatever path triggered it (stale browser tab,
+	// decommission button on adjacent deployment, watchdog goroutine),
+	// the result is data destruction without warning.
+	//
+	// Guard logic: when status is `phase1-watching` AND the deployment
+	// is younger than wipeMinLifeProtection (default 30m, runtime-
+	// configurable per docs/INVIOLABLE-PRINCIPLES.md #4), refuse the
+	// wipe with 409 + a clear retry_after_sec hint. Operator can
+	// override with `?force=true` query param when they really mean
+	// it (after reading the wizard banner that says "this Sovereign is
+	// still converging — wait N minutes or click Force Wipe").
+	//
+	// Audit log emitted unconditionally so future incidents have a
+	// single grep target — see [WIPE-AUDIT] tag.
+	force := r.URL.Query().Get("force") == "true"
+	dep.mu.Lock()
+	depStatus := dep.Status
+	depStartedAt := dep.StartedAt
+	depFQDN := dep.Request.SovereignFQDN
+	dep.mu.Unlock()
+
+	now := time.Now()
+	age := now.Sub(depStartedAt)
+	threshold := h.wipeMinLifeProtectionFor()
+	refuse := shouldRefuseWipe(depStatus, depStartedAt, now, threshold, force)
+
+	h.log.Info("[WIPE-AUDIT] wipe request received",
+		"id", id,
+		"sovereignFQDN", depFQDN,
+		"status", depStatus,
+		"startedAt", depStartedAt.UTC().Format(time.RFC3339),
+		"ageSec", int(age.Seconds()),
+		"thresholdSec", int(threshold.Seconds()),
+		"refuse", refuse,
+		"force", force,
+		"remoteAddr", r.RemoteAddr,
+	)
+
+	if refuse {
+		retryAfter := int((threshold - age).Seconds())
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":         "deployment is still converging — wipe refused to protect a mid-provision Sovereign",
+			"deploymentId":  id,
+			"sovereignFQDN": depFQDN,
+			"status":        depStatus,
+			"startedAt":     depStartedAt.UTC().Format(time.RFC3339),
+			"ageSec":        int(age.Seconds()),
+			"minLifeSec":    int(threshold.Seconds()),
+			"retryAfterSec": retryAfter,
+			"hint":          "wait for status to leave 'phase1-watching', or re-issue with ?force=true to override (only use force if you truly intend to destroy a still-converging Sovereign — see issue #914)",
+		})
 		return
 	}
 
