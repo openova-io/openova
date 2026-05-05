@@ -4,8 +4,10 @@
  * Analogous to Sidebar.tsx (which is tied to the Catalyst-Zero
  * /provision/$deploymentId/* route tree), but in Sovereign mode:
  *
- *   - Routes use the /console/* prefix (no deploymentId param) — the
- *     Sovereign is implicit from the hostname.
+ *   - Routes are at clean root paths (/dashboard, /apps, /jobs, /cloud,
+ *     /users, /settings, /catalog, /parent-domains) — the Sovereign
+ *     is implicit from the hostname; no deploymentId param appears in
+ *     any URL the operator sees.
  *   - The tenant label shows the Sovereign FQDN.
  *   - The footer card shows the authenticated user's name (from
  *     OIDC tokens), not the generic "Operator" placeholder.
@@ -42,31 +44,31 @@ const FLAT_NAV: FlatNavItem[] = [
   {
     id: 'apps',
     label: 'Apps',
-    to: '/console/apps',
+    to: '/apps',
     icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
   },
   {
     id: 'jobs',
     label: 'Jobs',
-    to: '/console/jobs',
+    to: '/jobs',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   },
   {
     id: 'dashboard',
     label: 'Dashboard',
-    to: '/console/dashboard',
+    to: '/dashboard',
     icon: 'M3 3h7v9H3V3zm11 0h7v5h-7V3zM14 10h7v11h-7V10zM3 14h7v7H3v-7z',
   },
   {
     id: 'cloud',
     label: 'Cloud',
-    to: '/console/cloud',
+    to: '/cloud',
     icon: CLOUD_ICON,
   },
   {
     id: 'users',
     label: 'Users',
-    to: '/console/users',
+    to: '/users',
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
   {
@@ -74,7 +76,7 @@ const FLAT_NAV: FlatNavItem[] = [
     // publishing toggles (issue #710 wave 2.5).
     id: 'catalog',
     label: 'Catalog',
-    to: '/console/catalog',
+    to: '/catalog',
     icon: 'M3 7v13h18V7M3 7l9-4 9 4M3 7h18M9 11v6M15 11v6',
   },
 ]
@@ -82,7 +84,7 @@ const FLAT_NAV: FlatNavItem[] = [
 const SETTINGS_ITEM: FlatNavItem = {
   id: 'settings',
   label: 'Settings',
-  to: '/console/settings',
+  to: '/settings',
   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 
@@ -101,32 +103,32 @@ interface SubNavItem {
 }
 
 const SETTINGS_SUB_NAV: SubNavItem[] = [
-  { id: 'marketplace', label: 'Marketplace', to: '/console/settings/marketplace' },
+  { id: 'marketplace', label: 'Marketplace', to: '/settings/marketplace' },
   // Parent Domains — admin "Add another parent domain" + DNS propagation
   // status panel (issue #829). Lives under Settings so the sidebar
   // surface stays compact for the typical SME tenant who never sees
-  // this surface; operator-admins reach it via /console/parent-domains
-  // directly from the welcome email or by clicking through Settings.
-  { id: 'parent-domains', label: 'Parent Domains', to: '/console/parent-domains' },
+  // this surface; operator-admins reach it via /parent-domains directly
+  // from the welcome email or by clicking through Settings.
+  { id: 'parent-domains', label: 'Parent Domains', to: '/parent-domains' },
 ]
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
 type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'catalog' | 'settings'
 
-const CLOUD_PATH_RE = /\/console\/(cloud|infrastructure)(\/|$)/
+const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
 function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
-  if (/\/console\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
-  if (/\/console\/jobs(\/|$)/.test(pathname)) return 'jobs'
-  if (/\/console\/users(\/|$)/.test(pathname)) return 'users'
-  if (/\/console\/catalog(\/|$)/.test(pathname)) return 'catalog'
-  // /console/settings/* OR /console/parent-domains → 'settings' so the
-  // Settings nav item highlights and the sub-nav (Marketplace + Parent
-  // Domains) expands. Per inviolable principle #4, the path list is
-  // pulled from SETTINGS_SUB_NAV rather than re-typed here.
-  if (/\/console\/settings(\/|$)/.test(pathname)) return 'settings'
+  if (/^\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
+  if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
+  if (/^\/users(\/|$)/.test(pathname)) return 'users'
+  if (/^\/catalog(\/|$)/.test(pathname)) return 'catalog'
+  // /settings/* OR /parent-domains → 'settings' so the Settings nav
+  // item highlights and the sub-nav (Marketplace + Parent Domains)
+  // expands. Per inviolable principle #4, the path list is pulled
+  // from SETTINGS_SUB_NAV rather than re-typed here.
+  if (/^\/settings(\/|$)/.test(pathname)) return 'settings'
   if (SETTINGS_SUB_NAV.some((s) => pathname.startsWith(s.to))) return 'settings'
   return 'apps'
 }

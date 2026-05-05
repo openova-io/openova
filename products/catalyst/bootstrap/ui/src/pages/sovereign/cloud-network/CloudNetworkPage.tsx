@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useCloud } from '../CloudPage'
 import { CLOUD_LIST_CSS } from '../cloud-list/cloudListCss'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 interface NetworkTile {
   id: 'services' | 'ingresses' | 'load-balancers' | 'dns-zones'
@@ -97,8 +98,11 @@ export function CloudNetworkPage() {
             return (
               <Link
                 key={tile.id}
-                to={`/provision/$deploymentId/cloud/network/${tile.id}` as never}
-                params={{ deploymentId } as never}
+                to={
+                  (DETECTED_MODE.mode === 'sovereign'
+                    ? `/cloud/network/${tile.id}`
+                    : `/provision/${deploymentId}/cloud/network/${tile.id}`) as never
+                }
                 className="cloud-list-tile"
                 data-testid={`cloud-network-page-tile-${tile.id}`}
               >

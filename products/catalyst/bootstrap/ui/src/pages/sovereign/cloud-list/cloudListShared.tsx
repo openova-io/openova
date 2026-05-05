@@ -18,6 +18,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { TopologyStatus } from '@/lib/infrastructure.types'
 import type { SortState } from './sortState'
+import { sovereignPath } from '@/shared/lib/sovereignPaths'
 
 /* ── Header ──────────────────────────────────────────────────────── */
 
@@ -80,8 +81,7 @@ export function CloudListHeader({
           </button>
         )}
         <Link
-          to={'/provision/$deploymentId/cloud' as never}
-          params={{ deploymentId } as never}
+          to={sovereignPath('cloud', { deploymentId }) as never}
           className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid={`${testId}-back`}
         >

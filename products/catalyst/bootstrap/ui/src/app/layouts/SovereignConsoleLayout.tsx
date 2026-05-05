@@ -8,7 +8,7 @@
  *      `catalyst_session` cookie minted by the server-side /auth/handover
  *      handler. If 200, the operator is authenticated via the cookie —
  *      render the console without ever touching Keycloak.
- *   2. If 401, fall back to the legacy OIDC flow:
+ *   2. If 401, fall back to the OIDC flow:
  *      - read tokens from sessionStorage,
  *      - if missing/expired, attempt silentRefresh,
  *      - if that fails, initiateLogin (PKCE redirect to Keycloak).
@@ -28,7 +28,7 @@
  * otech49 + otech52 today, operator landed on a username/password
  * screen instead of the dashboard).
  *
- * The SovereignSidebar uses `/console/*` routes (no deploymentId param) —
+ * The SovereignSidebar uses clean root routes (/dashboard, /apps, …) —
  * in Sovereign mode the sovereign context is implicit from the hostname.
  *
  * Layout contract:
@@ -325,7 +325,7 @@ export function SovereignConsoleLayout({
                   {sovereignFQDN}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
-                  onClick={() => router.navigate({ to: '/console/settings' as never })}
+                  onClick={() => router.navigate({ to: '/settings' as never })}
                 >
                   <Settings className="h-3.5 w-3.5" />
                   Settings
