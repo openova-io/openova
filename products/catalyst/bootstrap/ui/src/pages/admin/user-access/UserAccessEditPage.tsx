@@ -26,6 +26,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from '@/pages/sovereign/PortalShell'
 import {
   createUserAccess,
@@ -130,7 +131,9 @@ export function UserAccessEditPage({
         await createUserAccess(deploymentId, req)
       }
       navigate({
-        to: '/users' as never,
+        to: (DETECTED_MODE.mode === 'sovereign' || !deploymentId
+          ? '/users'
+          : `/provision/${deploymentId}/users`) as never,
         params: { deploymentId } as never,
       })
     } catch (err) {
@@ -252,7 +255,9 @@ export function UserAccessEditPage({
               data-testid="ua-button-cancel"
               onClick={() =>
                 navigate({
-                  to: '/users' as never,
+                  to: (DETECTED_MODE.mode === 'sovereign' || !deploymentId
+                    ? '/users'
+                    : `/provision/${deploymentId}/users`) as never,
                   params: { deploymentId } as never,
                 })
               }
