@@ -41,6 +41,29 @@ func New(baseURL string) *Client {
 	}
 }
 
+// do executes the HTTP request, decorating it with basic-auth credentials
+// when CATALYST_PDM_BASIC_AUTH_USER/PASS are set in the Pod env. The PDM
+// public ingress at pool.openova.io is gated by Traefik basicAuth Middleware
+// — so every Reserve/Commit/Release/Check call from a Sovereign-side
+// catalyst-api MUST carry `Authorization: Basic …` or PDM returns 401.
+//
+// Read every call so a Secret rotation propagates without a Pod restart
+// (Reloader handles the env reload). Per Inviolable Principle #10, this
+// is the ONE call site in the pdm package that touches the credentials —
+// they never enter a struct that gets logged.
+//
+// On Catalyst-Zero (contabo) the in-cluster Service path bypasses the
+// public ingress entirely and BasicAuth is a no-op when the secret is
+// absent — same defensive shape as pdmFlipNS in handler/parent_domains.go.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	user := strings.TrimSpace(os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"))
+	pass := os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS")
+	if user != "" && pass != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	return c.HTTP.Do(req)
+}
+
 // CheckResult mirrors PDM's response shape — kept loose so the wizard can
 // surface PDM's reason/detail strings verbatim without an extra mapping.
 type CheckResult struct {
@@ -58,7 +81,7 @@ func (c *Client) Check(ctx context.Context, poolDomain, subdomain string) (*Chec
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pdm check: %w", err)
 	}
@@ -126,7 +149,7 @@ func (c *Client) Reserve(ctx context.Context, poolDomain, subdomain, createdBy s
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pdm reserve: %w", err)
 	}
@@ -189,7 +212,7 @@ func (c *Client) Commit(ctx context.Context, poolDomain string, in CommitInput) 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("pdm commit: %w", err)
 	}
@@ -339,7 +362,7 @@ func (c *Client) Release(ctx context.Context, poolDomain, subdomain string) erro
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("pdm release: %w", err)
 	}

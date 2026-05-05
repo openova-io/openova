@@ -315,3 +315,125 @@ func TestCommitWithRetry_NoReserveClosure_404Fails(t *testing.T) {
 		t.Errorf("err=%q should mention missing reserve closure", err.Error())
 	}
 }
+
+// TestClient_BasicAuth_AppliedFromEnv verifies the PDM client decorates
+// every outbound HTTP request with BasicAuth credentials read from
+// CATALYST_PDM_BASIC_AUTH_USER / _PASS — the same env-var seam that
+// pdmFlipNS uses in handler/parent_domains.go. Catalyst-Zero (contabo)
+// proves the issue: POOL_DOMAIN_MANAGER_URL=https://pool.openova.io is
+// gated by Traefik basicAuth Middleware, so unauthenticated POSTs to
+// /api/v1/pool/{domain}/reserve return 401 — surfacing as
+// "pdm-unavailable: pdm reserve status 401: 401 Unauthorized" in the
+// catalyst-api deployment-create handler. Without this fix, fresh
+// otechN provisions are blocked at the wizard's first PDM hop.
+//
+// The test sets the env vars, hits a fake PDM that asserts the
+// Authorization header arrived, and asserts every Client method
+// (Check, Reserve, Commit, Release) propagates the credentials.
+func TestClient_BasicAuth_AppliedFromEnv(t *testing.T) {
+	t.Setenv("CATALYST_PDM_BASIC_AUTH_USER", "operator")
+	t.Setenv("CATALYST_PDM_BASIC_AUTH_PASS", "supersecret")
+
+	var seenAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		// Reply with whichever shape matches the path so the call
+		// completes happily and we exercise the success branch.
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/check"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"available":true,"fqdn":"otech.omani.works"}`))
+		case strings.HasSuffix(r.URL.Path, "/reserve"):
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"poolDomain":"omani.works","subdomain":"otech","state":"reserved","reservedAt":"now","expiresAt":"later","reservationToken":"tok","createdBy":"test"}`))
+		case strings.HasSuffix(r.URL.Path, "/commit"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"committed":true}`))
+		case strings.HasSuffix(r.URL.Path, "/release"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"released":true}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+
+	// Every method must carry the same Authorization header.
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{
+			name: "Check",
+			fn: func() error {
+				_, err := c.Check(context.Background(), "omani.works", "otech")
+				return err
+			},
+		},
+		{
+			name: "Reserve",
+			fn: func() error {
+				_, err := c.Reserve(context.Background(), "omani.works", "otech", "test")
+				return err
+			},
+		},
+		{
+			name: "Commit",
+			fn: func() error {
+				return c.Commit(context.Background(), "omani.works", CommitInput{
+					Subdomain:        "otech",
+					ReservationToken: "tok",
+					SovereignFQDN:    "otech.omani.works",
+					LoadBalancerIP:   "1.2.3.4",
+				})
+			},
+		},
+		{
+			name: "Release",
+			fn: func() error {
+				return c.Release(context.Background(), "omani.works", "otech")
+			},
+		},
+	}
+
+	const wantAuth = "Basic b3BlcmF0b3I6c3VwZXJzZWNyZXQ=" // base64("operator:supersecret")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seenAuth = ""
+			if err := tc.fn(); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if seenAuth != wantAuth {
+				t.Errorf("%s: Authorization header = %q, want %q",
+					tc.name, seenAuth, wantAuth)
+			}
+		})
+	}
+}
+
+// TestClient_BasicAuth_OmittedWhenEnvUnset verifies the client does
+// NOT add Authorization when neither env var is set — preserving the
+// in-cluster Service path where catalyst-api dials the PDM Service
+// directly and Traefik basicAuth is not in front of the request.
+func TestClient_BasicAuth_OmittedWhenEnvUnset(t *testing.T) {
+	t.Setenv("CATALYST_PDM_BASIC_AUTH_USER", "")
+	t.Setenv("CATALYST_PDM_BASIC_AUTH_PASS", "")
+
+	var seenAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"available":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+	if _, err := c.Check(context.Background(), "omani.works", "otech"); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if seenAuth != "" {
+		t.Errorf("expected no Authorization header, got %q", seenAuth)
+	}
+}
