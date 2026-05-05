@@ -3,4 +3,3 @@ kind: Kustomization
 resources:
   - bakkal
   - test-2
-  - alice2
