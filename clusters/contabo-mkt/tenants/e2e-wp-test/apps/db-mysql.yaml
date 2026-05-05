@@ -5,9 +5,9 @@ metadata:
   namespace: apps
 type: Opaque
 stringData:
-  MYSQL_ROOT_PASSWORD: "6e06e7e16706661cc75e6ec935afc588"
+  MYSQL_ROOT_PASSWORD: "0c6cd48ebb3991570bd15d9223d06a89"
   MYSQL_USER: app
-  MYSQL_PASSWORD: "6e06e7e16706661cc75e6ec935afc588"
+  MYSQL_PASSWORD: "0c6cd48ebb3991570bd15d9223d06a89"
   MYSQL_DATABASE: db_wordpress
 ---
 apiVersion: v1

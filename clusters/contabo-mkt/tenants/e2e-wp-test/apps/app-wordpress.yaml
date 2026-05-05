@@ -30,7 +30,7 @@ spec:
             - name: WORDPRESS_DB_USER
               value: "app"
             - name: WORDPRESS_DB_PASSWORD
-              value: "6e06e7e16706661cc75e6ec935afc588"
+              value: "0c6cd48ebb3991570bd15d9223d06a89"
             - name: WORDPRESS_DB_NAME
               value: "db_wordpress"
             - name: MYSQL_HOST
@@ -38,7 +38,7 @@ spec:
             - name: MYSQL_USER
               value: "app"
             - name: MYSQL_PASSWORD
-              value: "6e06e7e16706661cc75e6ec935afc588"
+              value: "0c6cd48ebb3991570bd15d9223d06a89"
             - name: MYSQL_DATABASE
               value: "db_wordpress"
           resources:
