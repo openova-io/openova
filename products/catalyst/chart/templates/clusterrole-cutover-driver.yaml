@@ -80,3 +80,27 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["delete", "patch", "update"]
+
+  # ───────────────────────────────────────────────────────────────
+  # TokenReview — required by HandleCutoverInternalTrigger to
+  # validate the in-cluster auto-trigger Job's projected SA token
+  # against the apiserver's authentication chain (issue #957
+  # follow-up; PR #947 wired the endpoint but not its RBAC).
+  #
+  # Without this rule POST /api/v1/internal/cutover/trigger fails
+  # at TokenReviews().Create with HTTP 403 "tokenreviews is
+  # forbidden", which the handler maps to a generic 502
+  # "token-review-failed". Caught live on otech113 2026-05-05
+  # immediately after chart 0.1.18 fixed the readiness-probe loop:
+  # the trigger reached catalyst-api but every call returned 502
+  # in 8.87ms (well under any I/O latency, indicating a synchronous
+  # apiserver permission rejection).
+  #
+  # Per feedback_rbac_create_no_resourcenames.md (auto-memory
+  # anchor) `create` MUST be in its own Rule WITHOUT
+  # `resourceNames`. TokenReview is a virtual sub-resource of
+  # authentication.k8s.io — there is no name to scope to.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]

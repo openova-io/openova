@@ -218,7 +218,15 @@ spec:
       # so SME auth Pod's PIN delivery (gate 2) works on Sovereigns
       # whose A5-seeded sovereign-smtp-credentials Secret only carries
       # smtp-user + smtp-pass without host/port/from. 2026-05-05.
-      version: 1.4.24
+      # 1.4.25: deploy-bot auto-bump (sme-services 94ffe01 image roll).
+      # 1.4.26 (#957 follow-up): catalyst-api-cutover-driver
+      # ClusterRole gains `create tokenreviews.authentication.k8s.io`
+      # so /api/v1/internal/cutover/trigger can validate the
+      # auto-trigger Job's SA token via TokenReview. Without this rule
+      # every trigger call returned 502 "token-review-failed" on
+      # otech113 (chart 0.1.18 fixed the readiness loop but exposed
+      # this missing-RBAC bug as the next failure). 2026-05-05.
+      version: 1.4.26
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
