@@ -29,6 +29,16 @@ the bootstrap-kit consumed the full 16 GB. The fix is two-pronged:
   `flux-system/cloud-credentials.hcloud-token` (the canonical Secret
   cloud-init writes per ADR-0001 §11.3 — same Secret consumed by
   Crossplane provider-hcloud + provider-config-hcloud).
+- **Node bootstrap (issue #921)**: cluster-autoscaler 1.32.x's
+  Hetzner provider requires either `HCLOUD_CLUSTER_CONFIG` (per-pool
+  JSON, base64) or `HCLOUD_CLOUD_INIT` (cloud-init.yaml, base64) — it
+  FATALs at startup without one. This chart wires both via
+  `extraEnvSecrets` against the rendered `cluster-autoscaler/hetzner-
+  node-config` Secret. Per-Sovereign overlays populate the
+  `clusterAutoscalerHcloud.cloudInit` value via Flux `valuesFrom`
+  against `flux-system/cloud-credentials.hcloud-cloud-init`, which
+  cloud-init at Phase 0 stamps with the base64 of the same worker
+  cloud-init the Phase-0 worker fleet booted with.
 - **Node group**: a single canonical pool keyed off the Sovereign's
   worker SKU + region + cloud-init template. The pool's `min` is the
   operator's chosen worker count; `max` defaults to 10 (overridable

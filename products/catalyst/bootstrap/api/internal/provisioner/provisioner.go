@@ -412,6 +412,29 @@ func (r *Request) Validate() error {
 			if rs.WorkerCount > 0 && strings.TrimSpace(rs.WorkerSize) == "" {
 				return fmt.Errorf("region[%d] workerSize is required when workerCount > 0", i)
 			}
+
+			// Issue #916 — region/SKU availability gate. The wizard
+			// already filters its dropdowns by isSkuAvailableInRegion
+			// (providerSizes.ts), but we MUST re-check here at the
+			// catalyst-api boundary so a stale wizard build OR a
+			// direct API caller bypassing the UI cannot dispatch
+			// otech109's exact failure mode (cpx32 + ash → tofu
+			// rejected after CP + LB + firewall already created).
+			// See sku_availability.go for the matrix + rationale.
+			if !IsSkuAvailableInRegion(rs.Provider, rs.ControlPlaneSize, rs.CloudRegion) {
+				return fmt.Errorf(
+					"region[%d]: %s",
+					i,
+					formatSkuRegionError("controlPlaneSize", rs.Provider, rs.ControlPlaneSize, rs.CloudRegion),
+				)
+			}
+			if rs.WorkerCount > 0 && !IsSkuAvailableInRegion(rs.Provider, rs.WorkerSize, rs.CloudRegion) {
+				return fmt.Errorf(
+					"region[%d]: %s",
+					i,
+					formatSkuRegionError("workerSize", rs.Provider, rs.WorkerSize, rs.CloudRegion),
+				)
+			}
 		}
 
 		// Mirror Regions[0] into the legacy singular fields for the
@@ -433,6 +456,28 @@ func (r *Request) Validate() error {
 	}
 	if strings.TrimSpace(r.SovereignFQDN) == "" {
 		return errors.New("sovereign FQDN is required")
+	}
+
+	// Issue #916 — legacy single-region path SKU/region check. When
+	// the request did NOT supply r.Regions[] (back-compat payload from
+	// a pre-multi-region wizard or a direct API caller), the singular
+	// ControlPlaneSize / WorkerSize / Region fields ARE the canonical
+	// SKU+region pair. The legacy path is hetzner-only — there is no
+	// per-Sovereign provider field outside r.Regions, and the singular
+	// fields feed `infra/hetzner/main.tf` exclusively (every other
+	// provider's tofu module reads from r.Regions[]).
+	if len(r.Regions) == 0 && strings.TrimSpace(r.ControlPlaneSize) != "" {
+		if !IsSkuAvailableInRegion("hetzner", r.ControlPlaneSize, r.Region) {
+			return errors.New(formatSkuRegionError(
+				"controlPlaneSize", "hetzner", r.ControlPlaneSize, r.Region,
+			))
+		}
+		if r.WorkerCount > 0 && strings.TrimSpace(r.WorkerSize) != "" &&
+			!IsSkuAvailableInRegion("hetzner", r.WorkerSize, r.Region) {
+			return errors.New(formatSkuRegionError(
+				"workerSize", "hetzner", r.WorkerSize, r.Region,
+			))
+		}
 	}
 
 	// ParentDomains migration (issue #826 — backward compat with the

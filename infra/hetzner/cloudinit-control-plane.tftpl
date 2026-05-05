@@ -448,6 +448,17 @@ write_files:
       type: Opaque
       stringData:
         hcloud-token: ${hcloud_token}
+        # Issue #921 — base64-encoded cloud-init payload for cluster-
+        # autoscaler's HCLOUD_CLOUD_INIT env var. The bp-cluster-autoscaler-
+        # hcloud HelmRelease's `valuesFrom` lifts this key into
+        # `clusterAutoscalerHcloud.cloudInit`; the chart's
+        # extraEnvSecrets.HCLOUD_CLOUD_INIT then maps it onto the autoscaler
+        # Pod's env. Without this, cluster-autoscaler 1.32.x's Hetzner
+        # provider exits at startup with FATAL "HCLOUD_CLUSTER_CONFIG or
+        # HCLOUD_CLOUD_INIT is not specified". Same content as the Phase-0
+        # worker servers' user_data so autoscaler-spawned workers join the
+        # cluster identically.
+        hcloud-cloud-init: ${worker_cloud_init_b64}
 
   # ── Crossplane provider-hcloud + ProviderConfig (issue #425) ────────
   #

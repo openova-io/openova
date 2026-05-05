@@ -90,6 +90,37 @@ export interface NodeSize {
   description: string
   /** Marked as the "starter default" within its provider's catalog. */
   recommended?: boolean
+  /**
+   * Per-provider regional orderability matrix (issue #916).
+   *
+   * Cloud providers list every SKU in their global catalog but only
+   * sell some of them in some DCs. Hetzner, for example, lists `cpx32`
+   * with a global price but POST /v1/servers in `ash` (Ashburn) returns
+   * `{"error":{"code":"invalid_input","message":"unsupported location
+   * for server type"}}` — exactly the failure that broke otech109's
+   * `tofu apply` 41 seconds in, after Phase 0 had already created the
+   * CP + network + LB + firewall.
+   *
+   * - When `availableRegions` IS set, the wizard MUST hide the SKU when
+   *   the operator picks a region not in the list, and the catalyst-api
+   *   `provisioner.Request.Validate()` MUST reject the deployment with
+   *   400 BEFORE any cloud resource is created (see `isSkuAvailableIn`
+   *   below + the Go-side mirror in
+   *   internal/provisioner/sku_availability.go).
+   * - When `availableRegions` IS NOT set (undefined), the SKU is treated
+   *   as orderable in every region the provider offers — the explicit
+   *   "no constraint" shape, used by hyperscalers whose flex-shape SKUs
+   *   are uniformly available across regions (AWS / Azure / OCI / Huawei
+   *   today).
+   * - `availableRegions: []` (explicit empty list) means orderable
+   *   nowhere new — used to flag SKUs Hetzner still LISTS in
+   *   /v1/server_types but rejects on POST /v1/servers (cpx21, cpx31).
+   *
+   * The values are the SAME identifiers the provider's region catalog
+   * uses (PROVIDER_REGIONS in entities/deployment/model.ts) — for
+   * Hetzner: "fsn1" / "nbg1" / "hel1" / "ash" / "hil".
+   */
+  availableRegions?: string[]
 }
 
 /** USD → EUR conversion applied to hyperscaler list prices. Snapshot
@@ -138,7 +169,15 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
     { id: 'cpx11', label: 'CPX11', vcpu: 2, ram: 2, disk: 40, priceHour: 0.0096, priceMonth: 5.99,
       category: 'shared-amd', description: 'AMD shared vCPU — minimum, dev/POC (orderable in fsn1)' },
     { id: 'cpx21', label: 'CPX21', vcpu: 3, ram: 4, disk: 80, priceHour: 0.0176, priceMonth: 10.99,
-      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable in EU DCs (fsn1/nbg1/hel1)' },
+      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable for new servers in any region (POST /v1/servers rejects with "unsupported location" — issues #752 + #916)',
+      // Issue #916 — empty list ≡ "not orderable anywhere new". Hetzner
+      // lists this SKU under /v1/server_types but POST /v1/servers
+      // rejects every cpx21 order with "invalid_input: unsupported
+      // location for server type" in fsn1/nbg1/hel1 (verified
+      // 2026-05-04, issue #752). The wizard surfaces it greyed-out so
+      // existing Sovereigns provisioned on cpx21 can still be referenced
+      // in CRUD views; new wizard launches MUST NOT reach this SKU.
+      availableRegions: [] },
     // CPX22 — recommended cost-optimised CONTROL-PLANE default. 2 vCPU /
     // 4 GB AMD shared, ~€9.49/mo fsn1. The smallest AMD shared SKU
     // with ≥ 4 GB RAM that is orderable for new servers in EU DCs
@@ -155,12 +194,24 @@ export const PROVIDER_NODE_SIZES: Record<CloudProvider, NodeSize[]> = {
       category: 'shared-amd', description: 'AMD shared vCPU — cost-optimised CP default (2 vCPU / 4 GB) — paired with cpx32 workers for ~€42.5/mo total Sovereign',
       recommended: true },
     { id: 'cpx31', label: 'CPX31', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0328, priceMonth: 20.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable in EU DCs (fsn1/nbg1/hel1)' },
+      category: 'shared-amd', description: 'AMD shared vCPU — listed but NOT orderable for new servers in any region (POST /v1/servers rejects with "unsupported location" — issues #752 + #916)',
+      // Issue #916 — empty list ≡ "not orderable anywhere new"; same
+      // root cause as cpx21 above (Hetzner deprecated the cpx{1,2,3,4}1
+      // family for new orders, kept them in the catalog for billing
+      // continuity on already-provisioned servers).
+      availableRegions: [] },
     // CPX32 — recommended WORKER default. 4 vCPU / 8 GB AMD shared
     // at ~€16.49/mo fsn1. Smallest AMD shared SKU with 8 GB RAM
     // orderable for new servers in EU DCs as of 2026-05.
     { id: 'cpx32', label: 'CPX32', vcpu: 4, ram: 8, disk: 160, priceHour: 0.0264, priceMonth: 16.49,
-      category: 'shared-amd', description: 'AMD shared vCPU — multi-node worker default (4 vCPU / 8 GB) — paired with cpx22 CP for the canonical Sovereign topology' },
+      category: 'shared-amd', description: 'AMD shared vCPU — multi-node worker default (4 vCPU / 8 GB) — paired with cpx22 CP for the canonical Sovereign topology — orderable in EU DCs (fsn1/nbg1/hel1) only',
+      // Issue #916 — otech109 evidence: tofu apply rejected 3× cpx32
+      // workers in `ash` (Ashburn) with "unsupported location for
+      // server type" 41 seconds into the apply, after Phase-0 already
+      // created the CP + network + LB + firewall. EU-only orderability
+      // matches the line-50/162 commentary: "smallest AMD shared SKU
+      // with 8 GB RAM that is orderable in EU DCs as of 2026-05".
+      availableRegions: ['fsn1', 'nbg1', 'hel1'] },
     // CPX42 — fits a TRIMMED bootstrap-kit but otech29 showed 8 vCPU
     // is too tight for the full 35-component default — keycloak-config-cli
     // post-upgrade Job sits Pending forever with "Insufficient cpu".
@@ -487,4 +538,74 @@ export function defaultWorkerSizeId(provider: CloudProvider): string {
     return explicit
   }
   return defaultNodeSizeId(provider)
+}
+
+/**
+ * Region/SKU availability check (issue #916).
+ *
+ * The wizard's StepProvider calls this to filter the SKU dropdown when
+ * the operator picks a region — `cpx32` must NOT appear when region is
+ * `ash`/`hil` because Hetzner rejects POST /v1/servers for that pair
+ * 41 seconds into `tofu apply`, after Phase-0 has already created the
+ * CP + network + LB + firewall (otech109 evidence).
+ *
+ * The catalyst-api's provisioner.Request.Validate() runs the
+ * SAME predicate on the request payload before any tofu apply
+ * (see api/internal/provisioner/sku_availability.go). Two-sided
+ * enforcement is intentional — a stale wizard build or a direct API
+ * caller bypassing the UI MUST still hit this gate at the catalyst-api
+ * boundary.
+ *
+ * Returns true when:
+ *   - the SKU is unknown (treated as "skip — let downstream report")
+ *   - the SKU has no `availableRegions` constraint set (= orderable
+ *     in every region the provider lists)
+ *   - the SKU's `availableRegions` includes `region`
+ *
+ * Returns false when the SKU has an explicit `availableRegions` list
+ * and `region` is NOT in it — including the empty-list case (= "not
+ * orderable anywhere new", e.g. cpx21/cpx31).
+ *
+ * `region` is the provider-native region id (Hetzner: fsn1/nbg1/hel1/
+ * ash/hil; AWS: us-east-1/eu-west-1/...; mirrors PROVIDER_REGIONS in
+ * entities/deployment/model.ts).
+ */
+export function isSkuAvailableInRegion(
+  provider: CloudProvider,
+  skuId: string,
+  region: string,
+): boolean {
+  const sku = findNodeSize(provider, skuId)
+  if (!sku) return true
+  if (!sku.availableRegions) return true
+  return sku.availableRegions.includes(region)
+}
+
+/**
+ * Suggest alternative SKUs orderable in `region` from the same SKU
+ * category as the unavailable selection (issue #916). Used by the
+ * wizard's inline-error UI to recover from a mismatch without forcing
+ * the operator to re-scan the entire catalog.
+ *
+ * Strategy: same provider, same SkuCategory, available in `region`,
+ * sorted by ascending `priceMonth` (cheapest first). Returns at most
+ * `limit` ids. When no same-category alternative fits, returns an
+ * empty array — the UI then surfaces the catalog-wide
+ * "any region-orderable SKU" picker.
+ */
+export function suggestAlternativeSkus(
+  provider: CloudProvider,
+  unavailableSkuId: string,
+  region: string,
+  limit = 3,
+): string[] {
+  const sku = findNodeSize(provider, unavailableSkuId)
+  if (!sku) return []
+  return PROVIDER_NODE_SIZES[provider]
+    .filter((s) => s.id !== unavailableSkuId)
+    .filter((s) => s.category === sku.category)
+    .filter((s) => isSkuAvailableInRegion(provider, s.id, region))
+    .sort((a, b) => a.priceMonth - b.priceMonth)
+    .slice(0, limit)
+    .map((s) => s.id)
 }
