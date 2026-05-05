@@ -146,6 +146,33 @@ data:
             push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
             redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
 
+            # ---- Phase 1.5: convert pull-mirror to standalone (#1028) ----
+            #
+            # Step-01 created openova/openova as a Gitea pull-mirror so the
+            # Sovereign's local Gitea tracks upstream during early
+            # bootstrap. After cutover the Sovereign is self-hosted and
+            # MUST diverge from upstream — but Gitea blocks pushes to a
+            # mirror with HTTP 403 "remote: mirror repository is read-only".
+            # PATCH the repo to flip mirror=false BEFORE git push so
+            # subsequent push commands write to the now-standalone repo.
+            #
+            # Without this conversion, Step-06's git push (added in #970)
+            # always failed on 403, blocking handover. Caught on otech125
+            # 2026-05-05.
+            api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
+            demirror_code=$(curl -sS -o /tmp/.demirror.json -w '%{http_code}' \
+              -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
+              -X PATCH \
+              -H 'Content-Type: application/json' \
+              -d '{"mirror": false, "mirror_interval": "0"}' \
+              "${api}")
+            if [ "${demirror_code}" != "200" ]; then
+              echo "[helmrepository-patches] FATAL: demirror PATCH returned HTTP ${demirror_code}" >&2
+              cat /tmp/.demirror.json >&2 || true
+              exit 1
+            fi
+            echo "[helmrepository-patches] demirror PATCH OK — repo is now standalone"
+
             echo "[helmrepository-patches] cloning ${redacted}"
             cd /tmp
             rm -rf repo
