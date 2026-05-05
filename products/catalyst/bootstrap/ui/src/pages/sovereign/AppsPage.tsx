@@ -31,8 +31,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter, Link } from '@tanstack/react-router'
+import { useRouter, Link, useParams } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
@@ -507,10 +508,21 @@ interface AppCardProps {
 
 function AppCard({ app, status, isService }: AppCardProps) {
   const stateClass = `state-${status}`
+  // Chroot-aware target: on the mother monitor surface
+  // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
+  // scoped under /provision/<id>/... — escaping to the clean root /app/<id>
+  // produces the broken /sovereign/app/<id> path the founder hit on
+  // otech122. On the Sovereign's adult hostname the deploymentId is
+  // implicit so /app/<id> is correct.
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  const depId = params.deploymentId ?? ''
+  const target =
+    DETECTED_MODE.mode === 'sovereign' || !depId
+      ? `/app/${app.id}`
+      : `/provision/${depId}/app/${app.id}`
   return (
     <Link
-      to={`/app/$componentId` as never}
-      params={{ componentId: app.id } as never}
+      to={target as never}
       className={`app-card ${stateClass}${isService ? ' is-service' : ''}`}
       data-testid={`sov-app-card-${app.id}`}
       data-status={status}

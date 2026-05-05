@@ -325,7 +325,7 @@ export function SovereignConsoleLayout({
                   {sovereignFQDN}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
-                  onClick={() => router.navigate({ to: '/console/settings' as never })}
+                  onClick={() => router.navigate({ to: '/settings' as never })}
                 >
                   <Settings className="h-3.5 w-3.5" />
                   Settings
