@@ -335,18 +335,14 @@ slots:
     depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
     wave: present
 
-  # ---- Slot 95 — bp-stalwart-sovereign Sovereign-local Stalwart for the
-  # Sovereign Console PIN/magic-link mail surface. Issue #924 (Phase-2
-  # follow-up to #883). Sequenced AFTER bp-catalyst-platform (slot 13)
-  # so the chart's post-install Job lands its
-  # catalyst-system/sovereign-smtp-credentials mirror Secret in an
-  # already-existing namespace; the next bp-catalyst-platform reconcile
-  # picks up the Sovereign-local SMTP coordinates and PIN delivery flips
-  # from mothership relay (mail.openova.io) to Sovereign-local relay
-  # (mail.<sovereignFQDN>) without operator action. Sequenced AFTER
-  # bp-cert-manager so the wildcard cert covering mail.<sovereignFQDN>
-  # is already issued before mail-server STARTTLS handshakes start.
-  - slot: 95
-    name: bp-stalwart-sovereign
-    depends_on: [bp-cert-manager, bp-catalyst-platform]
-    wave: present
+  # ---- Slot 95 — bp-stalwart-sovereign REMOVED 2026-05-05.
+  # Phase-2 Sovereign-local mail surface (umbrella #924) is OUT OF SCOPE
+  # for the current Phase-1 cutover. The chart's post-install Job was
+  # timing out on otech113 and blocking the bootstrap-kit Kustomization.
+  # Phase-1 Console PIN/magic-link delivery uses the mothership SMTP
+  # relay (mail.openova.io:587) per
+  # products/catalyst/chart/values.yaml#sovereign.smtp.* and
+  # products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go.
+  # Re-introduce this slot only when Phase-2 is explicitly back in scope
+  # and the chart's readiness gate has been hardened. The chart itself
+  # remains in-tree at platform/stalwart-sovereign/ for future work.

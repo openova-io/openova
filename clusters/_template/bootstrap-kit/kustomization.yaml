@@ -55,12 +55,14 @@ resources:
   # See clusters/_template/bootstrap-kit/80-newapi.yaml for full
   # dependsOn rationale and per-Sovereign override surface.
   - 80-newapi.yaml
-  # bp-stalwart-sovereign (slot 95) — Sovereign-local Stalwart for the
-  # Sovereign Console PIN/magic-link mail surface (Phase-2 follow-up to
-  # #883 / umbrella #924). Materialises
-  # `catalyst-system/sovereign-smtp-credentials` so bp-catalyst-platform's
-  # `lookup` picks up Sovereign-local SMTP coordinates and Console mail
-  # originates from `noreply@<sovereignFQDN>`. Sequenced AFTER
-  # bp-catalyst-platform (slot 13) so the catalyst-system namespace
-  # exists when the chart's post-install Job applies the mirror Secret.
-  - 95-bp-stalwart-sovereign.yaml
+  # bp-stalwart-sovereign (slot 95) — REMOVED 2026-05-05.
+  # Phase-2 Sovereign-local mail (per-Sovereign Stalwart for Console
+  # PIN/magic-link delivery, umbrella #924) is OUT OF SCOPE for the
+  # current Phase-1 cutover. The Phase-1 design is mothership SMTP
+  # relay (mail.openova.io:587) — see products/catalyst/chart/values.yaml
+  # `sovereign.smtp.*` and the catalyst-api `sovereign_smtp_seed.go`
+  # path. The chart's post-install Job was timing out on otech113 and
+  # blocking the bootstrap-kit Kustomization. Re-introduce this slot
+  # only when Phase-2 is explicitly in scope and the chart's readiness
+  # gate is reliable. See platform/stalwart-sovereign/ for the chart
+  # itself (kept in-tree for future Phase-2 work).
