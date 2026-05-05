@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-catalyst-platform
-version: 1.4.13
-appVersion: 1.4.13
+version: 1.4.14
+appVersion: 1.4.14
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
@@ -747,6 +747,18 @@ description: |
 
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
   13-bp-catalyst-platform.yaml bumps from 1.4.12 → 1.4.13. 2026-05-05.
+
+  1.4.14 (issue #879 follow-up): chart-version-only republish so the OCI
+  artifact carries the catalyst-api image SHA 7bfd6df (the #879 fix
+  commit). Chart 1.4.13 was published from commit 7bfd6df5 BEFORE the
+  deploy-bot updated values.yaml's catalystApi.tag from aa226df ->
+  7bfd6df, so 1.4.13 OCI bytes still reference the OLD catalyst-api
+  image without the pdmFlipNS basic-auth + nameservers + lookup-
+  primary-domain SOVEREIGN_FQDN-fallback fixes. Same deploy-step race
+  fixed in CI by #874 (services-build auto-bumps chart patch + dispatches
+  blueprint-release) — the catalyst-build workflow needs the equivalent.
+  Until then this manual bump is required after every catalyst-api
+  image change. Lockstep slot 13 pin bumps to 1.4.14. 2026-05-05.
 type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
