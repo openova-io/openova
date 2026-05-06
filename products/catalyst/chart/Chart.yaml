@@ -124,8 +124,8 @@ name: bp-catalyst-platform
 # otech113 2026-05-05 — chart 0.1.18 fixed the readiness-probe loop
 # but every trigger immediately got 502 in <10ms (synchronous
 # apiserver permission rejection). 2026-05-05.
-version: 1.4.75
-appVersion: 1.4.75
+version: 1.4.76
+appVersion: 1.4.76
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
