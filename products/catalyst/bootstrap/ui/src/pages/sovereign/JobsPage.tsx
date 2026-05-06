@@ -27,6 +27,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -65,11 +66,20 @@ export function JobsPage({
   // the backend's Jobs API gives us the current ground-truth list and
   // the merge below ensures live data wins on conflict. Polling stops
   // automatically when the deployment reaches a terminal state.
+  // On Sovereign mode the imported snapshot from mother is FROZEN at
+  // mother's last reducer state (always streamStatus="completed" by the
+  // time handover fires), so the inFlight gate would never poll the
+  // live /api/v1/sovereign/jobs endpoint. The Sovereign Console MUST
+  // always show ground-truth from the local cluster, so override the
+  // gate when we're running on chroot Sovereign mode. Caught on
+  // omantel.biz 2026-05-06 — every job rendered "Pending" because
+  // mergeJobs fell through to the imported snapshot.
+  const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const inFlight = streamStatus !== 'completed' && streamStatus !== 'failed'
   const { liveJobs } = useLiveJobsBackfill({
     deploymentId,
     enabled: !disableJobsBackfill,
-    disablePolling: disableJobsBackfill || !inFlight,
+    disablePolling: disableJobsBackfill || (!inFlight && !isSovereignMode),
   })
 
   const flatJobs = useMemo(
