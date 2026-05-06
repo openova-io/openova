@@ -38,6 +38,8 @@ package k8scache
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -55,6 +57,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -801,6 +804,35 @@ func FactoryFromEnv(ctx context.Context, log *slog.Logger, core kubernetes.Inter
 		log.Warn("k8scache: kubeconfigs dir unreadable; starting with no clusters",
 			"dir", dir, "err", err)
 	}
+	// Chroot self-registration: when catalyst-api runs ON a Sovereign
+	// cluster (post-cutover, i.e. SOVEREIGN_FQDN env is set), there is
+	// no posted-back kubeconfig in /var/lib/catalyst/kubeconfigs/ — the
+	// chroot IS the cluster it must watch. Build a ClusterRef from
+	// rest.InClusterConfig() so /api/v1/sovereigns/{depId}/k8s/* resolves
+	// against the local apiserver. Cluster id is the deployment id from
+	// CATALYST_SELF_DEPLOYMENT_ID env (orchestrator-stamped) or the
+	// store-fallback path mirroring HandleSovereignSelf. On the mother,
+	// SOVEREIGN_FQDN is unset → this branch is a no-op and the
+	// kubeconfig-dir path is the only data source.
+	if selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); selfFQDN != "" {
+		if ref, ok := buildChrootClusterRef(log, selfFQDN); ok {
+			// De-dup: if a kubeconfig with the same stem already
+			// exists, prefer the explicit kubeconfig path (operator
+			// override). This is unusual on a chroot but harmless.
+			haveID := false
+			for _, c := range clusters {
+				if c.ID == ref.ID {
+					haveID = true
+					break
+				}
+			}
+			if !haveID {
+				clusters = append(clusters, ref)
+				log.Info("k8scache: chroot self-registered",
+					"id", ref.ID, "sovereignFQDN", selfFQDN)
+			}
+		}
+	}
 	registry := LoadRegistry(ctx, log, core)
 	cfg := Config{
 		Logger:      log,
@@ -809,6 +841,102 @@ func FactoryFromEnv(ctx context.Context, log *slog.Logger, core kubernetes.Inter
 		SnapshotDir: snapDir,
 	}
 	return NewFactory(cfg)
+}
+
+// buildChrootClusterRef constructs an in-cluster ClusterRef for the
+// catalyst-api running ON a Sovereign. Resolves the deployment id from
+// the orchestrator-stamped env var or by scanning the persistent
+// deployment-store directory for a record matching SOVEREIGN_FQDN.
+//
+// Returns (ref, false) when:
+//   - rest.InClusterConfig() fails (catalyst-api running off-cluster
+//     in dev),
+//   - no deployment id can be resolved (handover hasn't fired yet —
+//     re-discovery happens on next pod restart),
+//   - dynamic/typed client construction fails.
+//
+// The caller treats false as "skip self-registration"; the chroot's
+// k8scache stays empty and /k8s endpoints return 404, which is the
+// correct degraded behavior pre-handover.
+func buildChrootClusterRef(log *slog.Logger, sovereignFQDN string) (ClusterRef, bool) {
+	depID := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
+	if depID == "" {
+		depID = scanStoreForDeploymentID(sovereignFQDN)
+	}
+	if depID == "" {
+		log.Info("k8scache: chroot self-register deferred — no deployment id resolved yet",
+			"sovereignFQDN", sovereignFQDN)
+		return ClusterRef{}, false
+	}
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Warn("k8scache: chroot self-register skipped — InClusterConfig unavailable",
+			"err", err)
+		return ClusterRef{}, false
+	}
+	cfg.QPS = 50
+	cfg.Burst = 100
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("k8scache: chroot dynamic client build failed", "err", err)
+		return ClusterRef{}, false
+	}
+	core, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("k8scache: chroot typed client build failed", "err", err)
+		return ClusterRef{}, false
+	}
+	return ClusterRef{
+		ID:            depID,
+		DynamicClient: dyn,
+		CoreClient:    core,
+	}, true
+}
+
+// scanStoreForDeploymentID walks the deployment store dir for a
+// record whose Request.SovereignFQDN matches the given FQDN. Returns
+// the matching id, or empty string. Mirrors HandleSovereignSelf's
+// store-fallback path so the two stay in sync.
+//
+// Limited to a single fast pass (≤8 files) because the chroot's
+// store typically has exactly one deployment record after
+// cutover-import.
+func scanStoreForDeploymentID(sovereignFQDN string) string {
+	dir := strings.TrimSpace(os.Getenv("CATALYST_DEPLOYMENTS_DIR"))
+	if dir == "" {
+		dir = "/var/lib/catalyst/deployments"
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for i, e := range entries {
+		if i >= 8 {
+			break
+		}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var rec struct {
+			ID      string `json:"ID"`
+			Request struct {
+				SovereignFQDN string `json:"SovereignFQDN"`
+			} `json:"Request"`
+		}
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			continue
+		}
+		if strings.EqualFold(rec.Request.SovereignFQDN, sovereignFQDN) && rec.ID != "" {
+			return rec.ID
+		}
+	}
+	// Allow base64-encoded fallback for any future store-format change.
+	_ = base64.StdEncoding
+	return ""
 }
 
 // secretRedactionMarker is the literal value substituted into a

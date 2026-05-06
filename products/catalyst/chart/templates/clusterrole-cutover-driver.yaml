@@ -158,3 +158,50 @@ rules:
   - apiGroups: ["access.openova.io"]
     resources: ["useraccesses"]
     verbs: ["get", "list", "watch", "update", "patch", "delete"]
+
+  # ───────────────────────────────────────────────────────────────
+  # K8SCACHE DATA PLANE — chroot Sovereign-side k8scache.Factory
+  # registers the local cluster via rest.InClusterConfig() and
+  # spawns one informer per kind in the registry. Those informers
+  # need cluster-wide watch on every kind to feed the
+  # /api/v1/sovereigns/{depId}/k8s/stream SSE consumer.
+  #
+  # Kinds list from internal/k8scache/kinds.go:
+  #   - core/v1: pods, services, configmaps, persistentvolumeclaims
+  #     (already covered above for HandleSovereignCloud reads;
+  #      re-listed here for clarity — RBAC merging is idempotent),
+  #     plus endpointslices, nodes, namespaces, persistentvolumes,
+  #     secrets (sensitive — values are stripped by k8scache.redact).
+  #   - apps/v1: deployments, statefulsets, daemonsets, replicasets
+  #   - networking.k8s.io/v1: ingresses
+  #   - hcloud.crossplane.io/v1alpha1: servers, loadbalancers,
+  #     networks, volumes
+  #   - vcluster.com/v1alpha1: vclusters
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpointslices
+      - pods
+      - secrets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["hcloud.crossplane.io"]
+    resources: ["servers", "loadbalancers", "networks", "volumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["vcluster.com"]
+    resources: ["vclusters"]
+    verbs: ["get", "list", "watch"]
+  # SubjectAccessReview — k8scache's per-event SAR cache calls
+  # AuthorizationV1().SubjectAccessReviews().Create() for every
+  # SSE delivery to gate per-namespace visibility. Without this
+  # the Subscribe path would 403 every event silently and the
+  # stream would deliver nothing.
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
