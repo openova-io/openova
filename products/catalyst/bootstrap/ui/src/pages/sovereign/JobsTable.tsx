@@ -365,10 +365,17 @@ function useJobLinkBuilder(): (jobId: string) => string {
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const isSovereign = DETECTED_MODE.mode === 'sovereign'
   const depId = params.deploymentId ?? ''
-  return (jobId: string) =>
-    isSovereign || !depId
-      ? `/jobs/${jobId}`
-      : `/provision/${depId}/jobs/${jobId}`
+  // URL-encode the jobId so live K8s job ids that contain `/`
+  // (e.g. "job/syft-grype/syft-grype-bp-syft-grype-29633910" from
+  // /api/v1/sovereign/jobs) don't fragment the route. tan-stack's
+  // `/jobs/$jobId` matches a single path segment and would 404 on
+  // multi-segment ids. Caught on omantel.biz 2026-05-06.
+  return (jobId: string) => {
+    const encoded = encodeURIComponent(jobId)
+    return isSovereign || !depId
+      ? `/jobs/${encoded}`
+      : `/provision/${depId}/jobs/${encoded}`
+  }
 }
 
 function JobRow({ job, parentLabel }: JobRowProps) {
