@@ -45,6 +45,7 @@ import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { deriveJobs, fmtTime, statusBadge } from './jobs'
 import type { Job as DerivedJob, JobUiStatus, JobStep } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
@@ -66,10 +67,19 @@ export function JobDetail({
   disableStream = false,
   disableJobsBackfill = false,
 }: JobDetailProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/jobs/$jobId' as never,
-  }) as { deploymentId: string; jobId: string }
-  const { deploymentId, jobId } = params
+  // strict:false params + useResolvedDeploymentId so this page works
+  // on BOTH /provision/$deploymentId/jobs/$jobId AND the chroot
+  // Sovereign route /jobs/$jobId. Strict-mode useParams throws
+  // Invariant on chroot. Caught on omantel.biz 2026-05-06.
+  const params = useParams({ strict: false }) as { deploymentId?: string; jobId?: string }
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = params.deploymentId ?? resolvedId ?? ''
+  // Decode in case the link source URL-encoded the id (live K8s job
+  // ids contain `/`).
+  const rawJobId = params.jobId ?? ''
+  const jobId = (() => {
+    try { return decodeURIComponent(rawJobId) } catch { return rawJobId }
+  })()
   const store = useWizardStore()
 
   const applications = useMemo(
