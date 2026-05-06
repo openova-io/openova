@@ -1,12 +1,17 @@
 /**
  * cloud-list/kinds.ts — single source of truth for the Cloud parent
- * surface's resource-kind catalogue (issue #366 item 1).
+ * surface's resource-kind catalogue.
+ *
+ * Two layers of kinds:
+ *   1. Catalyst-projected kinds (Clusters, vClusters, Node Pools, Load
+ *      Balancers, Buckets) — composed from the topology API.
+ *   2. Native K8s kinds (Pods, Deployments, …) — read live via the
+ *      catalyst-api k8scache SSE stream that PR #1062 wired up.
  *
  * Both CloudListView (active-list dispatch) and CloudKindChips (toolbar
  * chip strip) import from here. Per docs/INVIOLABLE-PRINCIPLES.md #4
  * (never hardcode), the kind list, default, storage key and icon glyph
- * shapes are exported as typed constants — there are no inline literal
- * lists at any call site.
+ * shapes are exported as typed constants.
  */
 
 import type { JSX } from 'react'
@@ -16,13 +21,26 @@ import { VClustersPage } from '../cloud-compute/VClustersPage'
 import { NodePoolsPage } from '../cloud-compute/NodePoolsPage'
 import { WorkerNodesPage } from '../cloud-compute/WorkerNodesPage'
 import { LoadBalancersPage } from '../cloud-network/LoadBalancersPage'
-import { ServicesPage } from '../cloud-network/ServicesPage'
-import { IngressesPage } from '../cloud-network/IngressesPage'
-import { DnsZonesPage } from '../cloud-network/DnsZonesPage'
 import { PvcsPage } from '../cloud-storage/PvcsPage'
 import { BucketsPage } from '../cloud-storage/BucketsPage'
 import { VolumesPage } from '../cloud-storage/VolumesPage'
-import { StorageClassesPage } from '../cloud-storage/StorageClassesPage'
+import {
+  PodsListPage,
+  DeploymentsListPage,
+  StatefulSetsListPage,
+  DaemonSetsListPage,
+  ReplicaSetsListPage,
+  ConfigMapsListPage,
+  SecretsListPage,
+  NamespacesListPage,
+  NodesListPage,
+  PersistentVolumesListPage,
+  EndpointSlicesListPage,
+  ServicesListPage,
+  IngressesListPage,
+  StorageClassesListPage,
+  DnsZonesListPage,
+} from './kindsPages'
 
 export type CloudListKind =
   | 'clusters'
@@ -32,11 +50,47 @@ export type CloudListKind =
   | 'load-balancers'
   | 'services'
   | 'ingresses'
-  | 'dns-zones'
   | 'pvcs'
   | 'buckets'
   | 'volumes'
+  // Live K8s kinds — backed by the SSE data plane (PR #1062).
+  | 'pods'
+  | 'deployments'
+  | 'statefulsets'
+  | 'daemonsets'
+  | 'replicasets'
+  | 'configmaps'
+  | 'secrets'
+  | 'namespaces'
+  | 'nodes'
+  | 'persistentvolumes'
+  | 'endpointslices'
   | 'storage-classes'
+  | 'dns-zones'
+
+/**
+ * Mapping from CloudListKind id → registry kind name on the
+ * /api/v1/sovereigns/{id}/k8s/{kind} surface. Used by chip-count
+ * derivation in CloudPage to read live counts from the snapshot.
+ *
+ * Catalyst-projected kinds (clusters, vclusters, …) are absent — they
+ * still come from the topology API.
+ */
+export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
+  pods: 'pod',
+  deployments: 'deployment',
+  statefulsets: 'statefulset',
+  daemonsets: 'daemonset',
+  replicasets: 'replicaset',
+  services: 'service',
+  ingresses: 'ingress',
+  configmaps: 'configmap',
+  secrets: 'secret',
+  namespaces: 'namespace',
+  nodes: 'node',
+  persistentvolumes: 'persistentvolume',
+  endpointslices: 'endpointslice',
+}
 
 export interface CloudKindEntry {
   id: CloudListKind
@@ -50,10 +104,10 @@ export interface CloudKindEntry {
   /** SVG path data on the canonical 24x24 viewBox — Tabler-style. */
   icon: string
   /** Conceptual category (drives the chip-tint colour). */
-  category: 'compute' | 'network' | 'storage'
+  category: 'compute' | 'network' | 'storage' | 'workload' | 'config'
   Component: () => JSX.Element
   /** True when this kind is in the default chip strip; false → it lives
-   *  in the `+ More` overflow popover (issue #366 item 1). */
+   *  in the `+ More` overflow popover. */
   primary: boolean
 }
 
@@ -80,27 +134,64 @@ const ICON_BUCKET =
 const ICON_VOLUME =
   'M5 4a7 3 0 0 0 14 0A7 3 0 0 0 5 4zM5 4v16a7 3 0 0 0 14 0V4'
 const ICON_STORAGE_CLASS = 'M4 6h16M4 12h16M4 18h16M8 6v12M16 6v12'
+const ICON_POD =
+  'M3 12c0 -1.66 4 -3 9 -3s9 1.34 9 3M3 12c0 1.66 4 3 9 3s9 -1.34 9 -3M3 12v6c0 1.66 4 3 9 3s9 -1.34 9 -3v-6'
+const ICON_DEPLOY =
+  'M5 4h6v6H5zM13 4h6v6h-6zM5 14h6v6H5zM13 14h6v6h-6z'
+const ICON_STS = ICON_DEPLOY
+const ICON_DS =
+  'M3 6h18M3 12h18M3 18h18M6 6v12M12 6v12M18 6v12'
+const ICON_RS = ICON_DEPLOY
+const ICON_CFG =
+  'M4 7h16M4 12h16M4 17h10M14 17l3 3 3 -5'
+const ICON_SECRET =
+  'M12 2l9 4v6c0 5 -4 9 -9 10 -5 -1 -9 -5 -9 -10V6z'
+const ICON_NS = 'M5 5h14v14H5zM5 9h14M9 5v14'
+const ICON_NODE = ICON_WORKER_NODE
+const ICON_PV = ICON_PVC
+const ICON_EPS =
+  'M5 12a7 7 0 0 0 14 0M5 12a7 7 0 0 1 14 0M12 5v14M9 5h6M9 19h6'
 
 /**
  * Canonical kind catalogue. Order matters — `primary: true` entries
  * render in the toolbar chip strip; everything else lives in the
- * `+ More` popover (issue #366 item 1). Founder priority order:
- * Clusters, vClusters, Node Pools, PVCs, Load Balancers, Buckets.
+ * `+ More` popover.
  */
 export const KINDS: readonly CloudKindEntry[] = [
+  // Primary chips — the 6 most-used surfaces stay inline.
   { id: 'clusters', label: 'Clusters', tagline: 'k3s / k8s control planes', hasData: true, Component: ClustersPage, icon: ICON_CLUSTER, category: 'compute', primary: true },
   { id: 'vclusters', label: 'vClusters', tagline: 'Logical isolation per Sovereign tenant', hasData: true, Component: VClustersPage, icon: ICON_VCLUSTER, category: 'compute', primary: true },
   { id: 'node-pools', label: 'Node Pools', tagline: 'Worker pools grouped by SKU + role', hasData: true, Component: NodePoolsPage, icon: ICON_NODE_POOL, category: 'compute', primary: true },
   { id: 'pvcs', label: 'PVCs', tagline: 'Persistent volume claims', hasData: true, Component: PvcsPage, icon: ICON_PVC, category: 'storage', primary: true },
   { id: 'load-balancers', label: 'Load Balancers', tagline: 'Cloud-provisioned LBs fronting clusters', hasData: true, Component: LoadBalancersPage, icon: ICON_LB, category: 'network', primary: true },
   { id: 'buckets', label: 'Buckets', tagline: 'S3-compatible (SeaweedFS / provider)', hasData: true, Component: BucketsPage, icon: ICON_BUCKET, category: 'storage', primary: true },
-  // Overflow — accessible via the `+ More` popover.
-  { id: 'worker-nodes', label: 'Worker Nodes', tagline: 'Individual VMs / kubelets reporting in', hasData: true, Component: WorkerNodesPage, icon: ICON_WORKER_NODE, category: 'compute', primary: false },
-  { id: 'services', label: 'Services', tagline: 'Awaiting service informer (#321)', hasData: false, Component: ServicesPage, icon: ICON_SERVICE, category: 'network', primary: false },
-  { id: 'ingresses', label: 'Ingresses', tagline: 'Awaiting ingress informer (#321)', hasData: false, Component: IngressesPage, icon: ICON_INGRESS, category: 'network', primary: false },
-  { id: 'dns-zones', label: 'DNS Zones', tagline: 'Awaiting external-dns informer (#321)', hasData: false, Component: DnsZonesPage, icon: ICON_DNS, category: 'network', primary: false },
-  { id: 'volumes', label: 'Volumes', tagline: 'Cloud block volumes attached to nodes', hasData: true, Component: VolumesPage, icon: ICON_VOLUME, category: 'storage', primary: false },
-  { id: 'storage-classes', label: 'Storage Classes', tagline: 'Awaiting storage-class informer (#321)', hasData: false, Component: StorageClassesPage, icon: ICON_STORAGE_CLASS, category: 'storage', primary: false },
+
+  /* ── Overflow — accessible via the `+ More` popover ───────────── */
+
+  // Compute & infrastructure
+  { id: 'worker-nodes', label: 'Worker Nodes', tagline: 'Hetzner Server CRs (Crossplane projection)', hasData: true, Component: WorkerNodesPage, icon: ICON_WORKER_NODE, category: 'compute', primary: false },
+  { id: 'nodes', label: 'Nodes', tagline: 'Raw Kubelets reporting to the cluster', hasData: true, Component: NodesListPage, icon: ICON_NODE, category: 'compute', primary: false },
+  { id: 'namespaces', label: 'Namespaces', tagline: 'Logical partitions', hasData: true, Component: NamespacesListPage, icon: ICON_NS, category: 'config', primary: false },
+
+  // Workloads
+  { id: 'pods', label: 'Pods', tagline: 'Running containers across all namespaces', hasData: true, Component: PodsListPage, icon: ICON_POD, category: 'workload', primary: false },
+  { id: 'deployments', label: 'Deployments', tagline: 'Stateless replicated workloads', hasData: true, Component: DeploymentsListPage, icon: ICON_DEPLOY, category: 'workload', primary: false },
+  { id: 'statefulsets', label: 'StatefulSets', tagline: 'Ordered, persistent workloads', hasData: true, Component: StatefulSetsListPage, icon: ICON_STS, category: 'workload', primary: false },
+  { id: 'daemonsets', label: 'DaemonSets', tagline: 'One pod per node', hasData: true, Component: DaemonSetsListPage, icon: ICON_DS, category: 'workload', primary: false },
+  { id: 'replicasets', label: 'ReplicaSets', tagline: 'Owned by Deployments', hasData: true, Component: ReplicaSetsListPage, icon: ICON_RS, category: 'workload', primary: false },
+
+  // Networking
+  { id: 'services', label: 'Services', tagline: 'ClusterIP / NodePort / LoadBalancer routes', hasData: true, Component: ServicesListPage, icon: ICON_SERVICE, category: 'network', primary: false },
+  { id: 'ingresses', label: 'Ingresses', tagline: 'HTTP routing + TLS terminators', hasData: true, Component: IngressesListPage, icon: ICON_INGRESS, category: 'network', primary: false },
+  { id: 'endpointslices', label: 'EndpointSlices', tagline: 'Service backend addresses', hasData: true, Component: EndpointSlicesListPage, icon: ICON_EPS, category: 'network', primary: false },
+  { id: 'dns-zones', label: 'DNS Zones', tagline: 'PowerDNS zones (Sovereign-side)', hasData: false, Component: DnsZonesListPage, icon: ICON_DNS, category: 'network', primary: false },
+
+  // Config & storage
+  { id: 'configmaps', label: 'ConfigMaps', tagline: 'Key-value config bundles', hasData: true, Component: ConfigMapsListPage, icon: ICON_CFG, category: 'config', primary: false },
+  { id: 'secrets', label: 'Secrets', tagline: 'Sensitive bundles (values redacted)', hasData: true, Component: SecretsListPage, icon: ICON_SECRET, category: 'config', primary: false },
+  { id: 'volumes', label: 'Volumes', tagline: 'Cloud block volumes', hasData: true, Component: VolumesPage, icon: ICON_VOLUME, category: 'storage', primary: false },
+  { id: 'persistentvolumes', label: 'PersistentVolumes', tagline: 'Cluster-scoped backing volumes', hasData: true, Component: PersistentVolumesListPage, icon: ICON_PV, category: 'storage', primary: false },
+  { id: 'storage-classes', label: 'Storage Classes', tagline: 'Provisioner + reclaim policy presets', hasData: false, Component: StorageClassesListPage, icon: ICON_STORAGE_CLASS, category: 'storage', primary: false },
 ] as const
 
 export const KIND_IDS: readonly CloudListKind[] = KINDS.map((k) => k.id)
