@@ -172,19 +172,27 @@ function physicsFor(nodeCount: number): {
    */
   centerGravity: number
 } {
+  // Tuning notes (founder feedback 2026-05-06): the previous gravity
+  // values (0.08 → 0.02) left bubbles drifting to the canvas edges on
+  // a ~300-node graph (omantel.biz live cluster). Charge magnitudes
+  // also reduced — the prior values were calibrated against a small
+  // topology stub (~20 nodes), and now that the live K8s data plane
+  // delivers Pods/Services/etc the simulation has to handle 10–50×
+  // more nodes per Sovereign. Stronger gravity + softer charge keeps
+  // the graph clustered toward the centre.
   if (nodeCount <= 50) {
-    return { charge: -160, linkDistance: 80, linkStrength: 0.6, collide: 30, alphaDecay: 0.02, centerGravity: 0.08 }
+    return { charge: -90, linkDistance: 70, linkStrength: 0.6, collide: 26, alphaDecay: 0.02, centerGravity: 0.18 }
   }
   if (nodeCount <= 200) {
-    return { charge: -120, linkDistance: 60, linkStrength: 0.45, collide: 22, alphaDecay: 0.025, centerGravity: 0.06 }
+    return { charge: -70, linkDistance: 55, linkStrength: 0.5, collide: 20, alphaDecay: 0.025, centerGravity: 0.16 }
   }
   if (nodeCount <= 1000) {
-    return { charge: -70, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03, centerGravity: 0.04 }
+    return { charge: -50, linkDistance: 38, linkStrength: 0.4, collide: 14, alphaDecay: 0.03, centerGravity: 0.14 }
   }
   if (nodeCount <= 5000) {
-    return { charge: -32, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04, centerGravity: 0.03 }
+    return { charge: -25, linkDistance: 22, linkStrength: 0.25, collide: 9, alphaDecay: 0.04, centerGravity: 0.1 }
   }
-  return { charge: -16, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05, centerGravity: 0.02 }
+  return { charge: -14, linkDistance: 13, linkStrength: 0.15, collide: 5, alphaDecay: 0.05, centerGravity: 0.08 }
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */

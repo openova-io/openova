@@ -59,10 +59,12 @@ import { CloudListView } from './cloud-list/CloudListView'
 import { CloudKindChips } from './cloud-list/CloudKindChips'
 import {
   DEFAULT_KIND,
+  KIND_TO_REGISTRY,
   isValidKind,
   readPersistedKind,
   type CloudListKind,
 } from './cloud-list/kinds'
+import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
@@ -369,6 +371,16 @@ export function CloudPage({
     return readPersistedKind() ?? DEFAULT_KIND
   }, [search.kind])
 
+  // Live K8s snapshot — feeds the chip-count badges for all kinds
+  // backed by the catalyst-api k8scache (Pods, Deployments, Services,
+  // Namespaces, ConfigMaps, …). The same hook is used by the
+  // architecture-graph widget; React Query / useState collapse
+  // duplicate subscriptions so opening the graph view doesn't double
+  // the SSE traffic. PR #1062 wired this end-to-end.
+  const k8sStream = useK8sCacheStream(deploymentId, {
+    enabled: !!deploymentId && !disableStream,
+  })
+
   const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
     const c: Record<CloudListKind, number | null> = {
       'clusters': 0,
@@ -383,6 +395,17 @@ export function CloudPage({
       'buckets': 0,
       'volumes': 0,
       'storage-classes': null,
+      'pods': null,
+      'deployments': null,
+      'statefulsets': null,
+      'daemonsets': null,
+      'replicasets': null,
+      'configmaps': null,
+      'secrets': null,
+      'namespaces': null,
+      'nodes': null,
+      'persistentvolumes': null,
+      'endpointslices': null,
     }
     if (data) {
       let clusters = 0
@@ -408,8 +431,29 @@ export function CloudPage({
       c['buckets'] = data.storage?.buckets?.length ?? 0
       c['volumes'] = data.storage?.volumes?.length ?? 0
     }
+    // Override every K8s-backed count from the live snapshot. Counts
+    // start at null until the SSE connection delivers initialState=1.
+    if (k8sStream.snapshot.size > 0) {
+      const liveCounts: Partial<Record<CloudListKind, number>> = {}
+      for (const key of k8sStream.snapshot.keys()) {
+        const kind = key.split(':', 1)[0]
+        for (const [chipId, registryKind] of Object.entries(KIND_TO_REGISTRY)) {
+          if (registryKind === kind) {
+            const id = chipId as CloudListKind
+            liveCounts[id] = (liveCounts[id] ?? 0) + 1
+          }
+        }
+      }
+      // Always set to 0 (not null) for K8s-backed kinds once the
+      // stream has *any* data — that means initialState=1 has
+      // arrived and a kind with 0 count is genuinely empty, not
+      // unconnected.
+      for (const chipId of Object.keys(KIND_TO_REGISTRY) as CloudListKind[]) {
+        c[chipId] = liveCounts[chipId] ?? 0
+      }
+    }
     return c
-  }, [data])
+  }, [data, k8sStream.snapshot, k8sStream.revision])
 
   const setKind = useCallback(
     (next: CloudListKind) => {
