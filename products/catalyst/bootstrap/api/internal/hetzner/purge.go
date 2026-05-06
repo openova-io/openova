@@ -36,13 +36,30 @@ type PurgeReport struct {
 	Firewalls        []string `json:"firewalls"`
 	SSHKeys          []string `json:"ssh_keys"`
 	S3Buckets        []string `json:"s3_buckets"`
+	// Volumes — Hetzner Cloud Volumes. Frequently created post-handover
+	// by the CSI driver (e.g. CNPG / Harbor / Loki / Mimir PVCs backed
+	// by Hetzner Cloud Volume) and therefore NOT in tofu state. Purge
+	// catches these via a label OR name-prefix sweep so the operator
+	// doesn't have to scrub them manually after a Cancel & Wipe.
+	Volumes []string `json:"volumes"`
+	// PrimaryIPs — standalone primary IPs (Hetzner decoupled them from
+	// servers in 2023). Auto-created by the CCM when a LoadBalancer
+	// service requests an IP; left as orphans when the LB delete
+	// raced ahead of the IP-detach.
+	PrimaryIPs []string `json:"primary_ips"`
+	// FloatingIPs — manually-allocated portable IPs. Rarely used in
+	// Catalyst's stack but listed here for completeness so the next
+	// re-provision starts with a clean slate.
+	FloatingIPs      []string `json:"floating_ips"`
 	FirewallsRetried int      `json:"firewalls_retried"`
 	Errors           []string `json:"errors"`
 }
 
 // Total returns Report's deleted-resource fields summed for the SSE log.
 func (r PurgeReport) Total() int {
-	return len(r.Servers) + len(r.LoadBalancers) + len(r.Networks) + len(r.Firewalls) + len(r.SSHKeys) + len(r.S3Buckets)
+	return len(r.Servers) + len(r.LoadBalancers) + len(r.Networks) +
+		len(r.Firewalls) + len(r.SSHKeys) + len(r.S3Buckets) +
+		len(r.Volumes) + len(r.PrimaryIPs) + len(r.FloatingIPs)
 }
 
 // firewallRetryAttempts caps the number of firewall-delete retries we run
@@ -200,6 +217,66 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 		progress(fmt.Sprintf("deleted ssh-key %s", r.Name))
 	}
 
+	// Volumes — Hetzner Cloud Volumes. Detached automatically when the
+	// owning server is deleted (servers go first, above), so by the
+	// time we get here volumes are unattached and DELETE succeeds.
+	// Created either by tofu (rare; tofu module doesn't currently emit
+	// Volumes) or by the Hetzner CSI driver post-handover (common —
+	// every CNPG/Harbor/Loki/Mimir StatefulSet backed by RWO storage
+	// allocates one). The CSI driver labels its volumes with
+	// `csi.hetzner.cloud/csi-driver-name=...` plus the per-cluster
+	// label; if our canonical label was applied via Crossplane's
+	// composition (preferred path), this label sweep catches them.
+	// Otherwise the name-prefix pass below picks up only those whose
+	// names start with `catalyst-<fqdn-dashes>-`. Volumes named by the
+	// CSI driver (PVC-uid form `pvc-xxx`) are NOT caught by either pass
+	// — operator must clean those manually OR the Crossplane composition
+	// must be extended to label them. Tracked separately.
+	volumes, err := listResources(ctx, token, "/v1/volumes", labelSelector, "volumes")
+	if err != nil {
+		report.Errors = append(report.Errors, "list volumes: "+err.Error())
+	}
+	for _, r := range volumes {
+		if err := deleteResource(ctx, token, "/v1/volumes/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete volume %s: %s", r.Name, err.Error()))
+			continue
+		}
+		report.Volumes = append(report.Volumes, r.Name)
+		progress(fmt.Sprintf("deleted volume %s", r.Name))
+	}
+
+	// Primary IPs — standalone since Hetzner's 2023 IP-decoupling. The
+	// CCM creates these for LoadBalancer services and tags them with
+	// our canonical label via the Crossplane composition. With LBs
+	// deleted above, primary IPs are unassigned and DELETE succeeds.
+	primaryIPs, err := listResources(ctx, token, "/v1/primary_ips", labelSelector, "primary_ips")
+	if err != nil {
+		report.Errors = append(report.Errors, "list primary_ips: "+err.Error())
+	}
+	for _, r := range primaryIPs {
+		if err := deleteResource(ctx, token, "/v1/primary_ips/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete primary_ip %s: %s", r.Name, err.Error()))
+			continue
+		}
+		report.PrimaryIPs = append(report.PrimaryIPs, r.Name)
+		progress(fmt.Sprintf("deleted primary_ip %s", r.Name))
+	}
+
+	// Floating IPs — older portable-IP API; rarely used in Catalyst
+	// today but caught here so a stack that uses them doesn't leak.
+	floatingIPs, err := listResources(ctx, token, "/v1/floating_ips", labelSelector, "floating_ips")
+	if err != nil {
+		report.Errors = append(report.Errors, "list floating_ips: "+err.Error())
+	}
+	for _, r := range floatingIPs {
+		if err := deleteResource(ctx, token, "/v1/floating_ips/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete floating_ip %s: %s", r.Name, err.Error()))
+			continue
+		}
+		report.FloatingIPs = append(report.FloatingIPs, r.Name)
+		progress(fmt.Sprintf("deleted floating_ip %s", r.Name))
+	}
+
 	// Second pass — name-prefix fallback (issue #732).
 	//
 	// The label-based sweep above is the canonical path. But it depends on
@@ -253,6 +330,9 @@ func purgeByNamePrefix(ctx context.Context, token, prefix string, report *PurgeR
 	already["firewalls"] = sliceToSet(report.Firewalls)
 	already["networks"] = sliceToSet(report.Networks)
 	already["ssh_keys"] = sliceToSet(report.SSHKeys)
+	already["volumes"] = sliceToSet(report.Volumes)
+	already["primary_ips"] = sliceToSet(report.PrimaryIPs)
+	already["floating_ips"] = sliceToSet(report.FloatingIPs)
 
 	// Servers — delete first so LBs / firewalls / networks they reference
 	// can be cleaned up after.
@@ -362,6 +442,70 @@ func purgeByNamePrefix(ctx context.Context, token, prefix string, report *PurgeR
 		}
 		report.SSHKeys = append(report.SSHKeys, r.Name)
 		progress(fmt.Sprintf("deleted ssh-key %s (name-prefix fallback)", r.Name))
+	}
+
+	// Volumes (name-prefix fallback). After all servers above are gone,
+	// volumes are unattached and DELETE succeeds. Volumes named via the
+	// CSI driver's PVC-uid scheme (`pvc-xxx`) won't match the prefix —
+	// those need the canonical label which the Crossplane composition
+	// applies (or, when the composition lags, manual operator cleanup).
+	volumes, err := listAllResources(ctx, token, "/v1/volumes", "volumes")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list volumes: "+err.Error())
+	}
+	for _, r := range volumes {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["volumes"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/volumes/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete volume %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.Volumes = append(report.Volumes, r.Name)
+		progress(fmt.Sprintf("deleted volume %s (name-prefix fallback)", r.Name))
+	}
+
+	// Primary IPs (name-prefix fallback).
+	primaryIPs, err := listAllResources(ctx, token, "/v1/primary_ips", "primary_ips")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list primary_ips: "+err.Error())
+	}
+	for _, r := range primaryIPs {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["primary_ips"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/primary_ips/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete primary_ip %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.PrimaryIPs = append(report.PrimaryIPs, r.Name)
+		progress(fmt.Sprintf("deleted primary_ip %s (name-prefix fallback)", r.Name))
+	}
+
+	// Floating IPs (name-prefix fallback).
+	floatingIPs, err := listAllResources(ctx, token, "/v1/floating_ips", "floating_ips")
+	if err != nil {
+		report.Errors = append(report.Errors, "name-prefix list floating_ips: "+err.Error())
+	}
+	for _, r := range floatingIPs {
+		if !strings.HasPrefix(r.Name, prefix) {
+			continue
+		}
+		if _, seen := already["floating_ips"][r.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/floating_ips/"+strconv.FormatInt(r.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete floating_ip %s (name-prefix): %s", r.Name, err.Error()))
+			continue
+		}
+		report.FloatingIPs = append(report.FloatingIPs, r.Name)
+		progress(fmt.Sprintf("deleted floating_ip %s (name-prefix fallback)", r.Name))
 	}
 }
 
