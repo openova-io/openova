@@ -104,3 +104,35 @@ rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
     verbs: ["create"]
+
+  # ───────────────────────────────────────────────────────────────
+  # SOVEREIGN ENDPOINT READS — backing the chroot Sovereign Console
+  # at console.<sov-fqdn>. Handlers (`HandleSovereignCloud`,
+  # `HandleSovereignApps`) live in catalyst-api and use the
+  # in-cluster client to enumerate cluster-wide resources for the
+  # /cloud and /apps panes. Caught live on otech130 2026-05-06:
+  # /api/v1/sovereign/cloud returned `{nodes:[], namespaces:[], …}`
+  # because the SA was silently rejected by the apiserver on the
+  # Nodes().List call (handler's err branch falls through to an
+  # empty response).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - namespaces
+      - services
+      - persistentvolumes
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "gateways"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
