@@ -339,17 +339,29 @@ jobs:
           echo "values.yaml after update:"
           grep -A2 "catalystUi\|catalystApi" "${VALUES}" | head -10
 
-          # NOTE: the literal image refs in templates/api-deployment.yaml and
-          # templates/ui-deployment.yaml are deliberately NOT auto-bumped here.
-          # Those manifests are what contabo's Kustomize-path Flux reconciles —
-          # auto-bumping them auto-rolls contabo on every PR, which broke
-          # contabo on 2026-05-05 (k8scache startup loop on dead Sovereign
-          # kubeconfigs in PR #975's image). contabo rolls ONLY when an
-          # operator manually edits + commits those files (see
-          # docs/RUNBOOK-CONTABO-IMAGE-BUMP.md). Sovereigns are unaffected:
-          # they install via OCI chart whose values.yaml carries the new SHA
-          # (bumped above), which gets picked up at the next blueprint-release
-          # publish below.
+          # ALSO bump the literal image refs in the chart templates.
+          # Sovereigns Helm-install this chart and contabo applies it
+          # via Kustomize — both consume the literal directly because
+          # kustomize-controller can't render Helm templates. Without
+          # this auto-bump, every Sovereign provisioned after 2026-05-06
+          # was installing :2122fb8 (frozen at PR #1040's chart-touch),
+          # so PRs #1051..#1059 never reached anyone except via manual
+          # `kubectl set image` patches on omantel.
+          API_TPL="products/catalyst/chart/templates/api-deployment.yaml"
+          UI_TPL="products/catalyst/chart/templates/ui-deployment.yaml"
+          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-api:)[^\"]*\"|\1${SHA_SHORT}\"|" "${API_TPL}"
+          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-ui:)[^\"]*\"|\1${SHA_SHORT}\"|"  "${UI_TPL}"
+          echo "templates after update:"
+          grep -E "image: \".*catalyst-(api|ui):" "${API_TPL}" "${UI_TPL}"
+
+          # contabo's catalyst-platform Kustomization at
+          # ./products/catalyst/chart/templates reconciles every 10 min
+          # — it will pick up the bumped literal on the next interval.
+          # If the new image breaks contabo, an operator can revert the
+          # template SHA via a follow-up PR; the previous "freeze"
+          # behaviour was masking real bugs (contabo silently ran an
+          # old image while the Sovereign provisioning churned through
+          # the same SHA being fixed downstream).
 
       - name: Commit and push manifest updates
         id: deploy_commit
@@ -358,12 +370,16 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only the chart's values.yaml is auto-bumped — Sovereigns consume
-          # the OCI chart bump via blueprint-release. Contabo's Kustomize-path
-          # deployment manifests are intentionally NOT touched here so contabo
-          # never auto-rolls; an operator manually bumps those files when a
-          # specific catalyst-api/ui SHA has been validated against contabo.
-          git add products/catalyst/chart/values.yaml
+          # values.yaml + the two literal-image templates (api-deployment,
+          # ui-deployment) are bumped together so:
+          #   - Sovereigns get the new SHA via the next OCI chart publish
+          #     (blueprint-release fires below).
+          #   - contabo's Kustomize-path Flux reconciles the bumped literal
+          #     within 10 min.
+          # Both surfaces converge on the same SHA on every push.
+          git add products/catalyst/chart/values.yaml \
+                  products/catalyst/chart/templates/api-deployment.yaml \
+                  products/catalyst/chart/templates/ui-deployment.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
             echo "pushed=false" >> "$GITHUB_OUTPUT"
