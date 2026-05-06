@@ -54,6 +54,7 @@ import { PortalShell } from './PortalShell'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { Architecture } from './Architecture'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { CloudListView } from './cloud-list/CloudListView'
 import { CloudKindChips } from './cloud-list/CloudKindChips'
 import {
@@ -184,8 +185,14 @@ export function CloudPage({
   // parent expose the same `deploymentId` param, and the strict:false
   // option lets us share this component across both during the
   // rename window.
-  const params = useParams({ strict: false }) as { deploymentId: string }
-  const deploymentId = params.deploymentId
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  // Chroot fallback: on the Sovereign's adult hostname the URL carries
+  // no deploymentId — resolve it from the JWT cookie via /sovereign/self
+  // (same pattern as JobDetail). Without this the topology query fires
+  // against /deployments/undefined/infrastructure/topology and the page
+  // shows "Couldn't load architecture".
+  const { deploymentId: resolvedDepId } = useResolvedDeploymentId()
+  const deploymentId = params.deploymentId ?? resolvedDepId ?? ''
   // Chroot-aware nav target: when the operator is monitoring an in-flight
   // Sovereign from the mothership wizard, every link MUST stay scoped under
   // /provision/<id>/cloud. On the Sovereign's adult hostname (DETECTED_MODE
@@ -207,11 +214,15 @@ export function CloudPage({
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
   // Single hierarchical-topology fetch — every sub-page reads off this.
+  // Don't fire with an empty deploymentId — the URL would resolve to
+  // /deployments//infrastructure/topology and surface as "Couldn't
+  // load architecture". On the chroot the cookie-resolution may take a
+  // tick; the query auto-runs once deploymentId lands.
   const topologyQuery = useQuery<HierarchicalInfrastructure>({
     queryKey: ['infra-hierarchical', deploymentId],
     queryFn: () => getHierarchicalInfrastructure(deploymentId),
     staleTime: STALE_MS,
-    enabled: !initialDataOverride,
+    enabled: !initialDataOverride && !!deploymentId,
     retry: 1,
   })
 
