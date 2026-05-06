@@ -136,3 +136,25 @@ rules:
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # USER ACCESS CRD — backs /users on the chroot Sovereign Console.
+  # The mother-side handlers (ListUserAccess, CreateUserAccess,
+  # UpdateUserAccess, DeleteUserAccess) read/write the
+  # access.openova.io/v1alpha1 UserAccess CR via the in-cluster
+  # dynamic client (issue #322). On the Sovereign chroot the
+  # catalyst-api SA needs full CRUD on this CRD to render and edit
+  # the User Access list. Caught live on omantel.biz 2026-05-06:
+  # GET /api/v1/deployments/{depId}/admin/user-access returned 500
+  # "useraccesses.access.openova.io is forbidden" because the SA
+  # had no rule covering this GVR.
+  #
+  # `create` MUST be in its own rule WITHOUT resourceNames per
+  # feedback_rbac_create_no_resourcenames.md.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["create"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]

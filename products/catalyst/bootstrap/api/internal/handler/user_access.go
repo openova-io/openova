@@ -153,6 +153,15 @@ func (h *Handler) ListUserAccess(w http.ResponseWriter, r *http.Request) {
 	// is preserved in the metadata for any caller that wants it.
 	listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
 	if err != nil {
+		// CRD not installed → return empty list, not 500. The
+		// access.openova.io UserAccess CRD ships via a separate
+		// blueprint that may not yet be installed on a fresh
+		// Sovereign. The page should render its empty state, not
+		// an error toast.
+		if apierrors.IsNotFound(err) {
+			writeJSON(w, http.StatusOK, userAccessListResponse{Items: []userAccessItem{}})
+			return
+		}
 		h.log.Warn("user-access: list failed", "depId", depID, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "list-failed",
