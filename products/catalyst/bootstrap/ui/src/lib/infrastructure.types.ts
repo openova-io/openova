@@ -399,15 +399,10 @@ export async function getNetwork(deploymentId: string): Promise<NetworkResponse>
 export async function getHierarchicalInfrastructure(
   deploymentId: string,
 ): Promise<HierarchicalInfrastructure> {
-  // Mode-aware: on chroot Sovereign Console (console.<sov-fqdn>) hit
-  // the FQDN-scoped /api/v1/sovereign/topology endpoint instead of the
-  // deployment-keyed mother-side path. The latter 404s with empty
-  // deploymentId on Sovereign mode. Caught on omantel.biz 2026-05-06.
-  let url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/infrastructure/topology`
-  if (typeof window !== 'undefined' && window.location.hostname !== 'console.openova.io') {
-    url = `${API_BASE}/v1/sovereign/topology`
-  }
-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  const res = await fetch(
+    `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/infrastructure/topology`,
+    { headers: { Accept: 'application/json' } },
+  )
   if (!res.ok) {
     throw new Error(`topology fetch failed: ${res.status}`)
   }
