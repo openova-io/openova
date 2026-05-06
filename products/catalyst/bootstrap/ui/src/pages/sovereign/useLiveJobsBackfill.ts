@@ -112,10 +112,17 @@ export function useLiveJobsBackfill(
 ): UseLiveJobsBackfillResult {
   const { deploymentId, disablePolling = false, fetcher = defaultFetchJobs, enabled = true } = opts
 
+  // On Sovereign mode the URL doesn't need a deploymentId path segment
+  // (/api/v1/sovereign/jobs is FQDN-scoped from the cookie), so an
+  // empty deploymentId must NOT disable the query — otherwise jobs
+  // never poll on chroot Sovereign Console where /sovereign/self may
+  // return 503 (deployment-id-not-yet-stamped) and the URL params
+  // route doesn't carry the id.
+  const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const query = useQuery<Job[]>({
-    queryKey: ['live-jobs-backfill', deploymentId],
+    queryKey: ['live-jobs-backfill', isSovereignMode ? 'sovereign' : deploymentId],
     queryFn: () => fetcher(deploymentId),
-    enabled: enabled && !!deploymentId,
+    enabled: enabled && (isSovereignMode || !!deploymentId),
     refetchInterval: () => {
       if (disablePolling) return false
       return POLL_INTERVAL_MS
