@@ -13,8 +13,8 @@
  */
 
 import { useMemo } from 'react'
-import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { useK8sCacheStream, type K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { useCloud } from '../CloudPage'
+import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 
 export interface K8sListColumn {
   /** Column header — short, ≤24 chars. */
@@ -97,21 +97,23 @@ export function K8sListPage({
   columns,
   sortByName = true,
 }: K8sListPageProps) {
-  const { deploymentId } = useResolvedDeploymentId()
-  const { snapshot, status } = useK8sCacheStream(deploymentId ?? '', {
-    enabled: !!deploymentId,
-    kinds: [kind],
-  })
+  // Read from the page-level shared snapshot owned by CloudPage.
+  // ONE EventSource per page (subscribing to all kinds) feeds every
+  // chip count, every list page, and the architecture graph — the
+  // alternative (per-page subscriptions) starved under the HTTP/1.1
+  // 6-connections-per-origin limit because each open SSE stream
+  // holds a connection slot for its lifetime.
+  const { k8sSnapshot, k8sStatus, k8sRevision } = useCloud()
+  void k8sRevision // dependency hint for future memo passes
 
   const rows = useMemo(() => {
     const out: K8sObject[] = []
-    for (const [key, obj] of snapshot.entries()) {
+    if (!k8sSnapshot) return out
+    for (const [key, obj] of k8sSnapshot.entries()) {
       // Snapshot keys are `${kind}:${ns}/${name}` or `${kind}:${name}`
-      // for cluster-scoped. Filter to the requested kind only — the
-      // shared cache may carry other kinds when this page is mounted
-      // alongside the graph (which subscribes to a wider set).
+      // for cluster-scoped. Filter to the requested kind only.
       if (!key.startsWith(`${kind}:`)) continue
-      out.push(obj)
+      out.push(obj as K8sObject)
     }
     if (sortByName) {
       out.sort((a, b) => {
@@ -122,7 +124,7 @@ export function K8sListPage({
       })
     }
     return out
-  }, [snapshot, kind, sortByName])
+  }, [k8sSnapshot, kind, sortByName])
 
   return (
     <div data-testid={`cloud-${kind}-list`}>
@@ -130,11 +132,11 @@ export function K8sListPage({
         <h2 className="text-lg font-semibold text-[var(--color-text-strong)]">{title}</h2>
         <p className="text-sm text-[var(--color-text-dim)]">{tagline}</p>
       </div>
-      {status === 'connecting' && rows.length === 0 ? (
+      {k8sStatus ==='connecting' && rows.length === 0 ? (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
           Connecting to live cluster stream…
         </div>
-      ) : status === 'error' && rows.length === 0 ? (
+      ) : k8sStatus ==='error' && rows.length === 0 ? (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
           Stream temporarily unreachable; reconnecting automatically.
         </div>

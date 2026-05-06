@@ -138,6 +138,13 @@ export interface CloudContextValue {
   isLoading: boolean
   isError: boolean
   refetch: () => void
+  /** Live K8s snapshot from useK8sCacheStream — single subscription
+   *  shared across the whole page (chip counts + every list page +
+   *  the architecture graph). K8sListPage reads from this instead of
+   *  opening a duplicate SSE connection. */
+  k8sSnapshot: ReadonlyMap<string, unknown> | null
+  k8sStatus: 'connecting' | 'open' | 'closed' | 'error'
+  k8sRevision: number
 }
 
 const CloudContext = createContext<CloudContextValue | null>(null)
@@ -287,8 +294,17 @@ export function CloudPage({
       isLoading: !initialDataOverride && topologyQuery.isLoading && !data,
       isError: topologyQuery.isError && !initialDataOverride,
       refetch: () => topologyQuery.refetch(),
+      // Share the live K8s snapshot via context so list pages and the
+      // graph widget read off ONE subscription instead of each opening
+      // its own EventSource. Two SSE streams from the same browser to
+      // the same origin can starve under HTTP/1.1 connection limits;
+      // a single shared stream avoids that and matches the single-
+      // tenant single-cluster shape on the chroot.
+      k8sSnapshot: k8sStream.snapshot,
+      k8sStatus: k8sStream.status,
+      k8sRevision: k8sStream.revision,
     }),
-    [deploymentId, data, initialDataOverride, topologyQuery],
+    [deploymentId, data, initialDataOverride, topologyQuery, k8sStream.snapshot, k8sStream.status, k8sStream.revision],
   )
 
   const deployments = deploymentsOverride ?? deploymentsQuery.data ?? []
