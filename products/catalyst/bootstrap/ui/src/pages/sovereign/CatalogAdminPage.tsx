@@ -74,7 +74,15 @@ type LoadState =
  * `credentials: 'include'` is set.
  */
 async function fetchApps(): Promise<CatalogApp[]> {
-  const resp = await fetch(`${API_BASE}/catalog/apps`, {
+  // Mode-aware: chroot Sovereign Console uses /api/v1/sovereign/catalog;
+  // mother-side /catalog/apps doesn't exist on Sovereign clusters.
+  // Caught on omantel.biz 2026-05-06.
+  const isSovereignMode =
+    typeof window !== 'undefined' && window.location.hostname !== 'console.openova.io'
+  const url = isSovereignMode
+    ? `${API_BASE}/v1/sovereign/catalog`
+    : `${API_BASE}/catalog/apps`
+  const resp = await fetch(url, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },

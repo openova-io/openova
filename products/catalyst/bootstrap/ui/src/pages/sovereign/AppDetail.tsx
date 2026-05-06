@@ -41,6 +41,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import type { ApplicationStatus } from './eventReducer'
 
 interface AppDetailProps {
@@ -49,13 +50,18 @@ interface AppDetailProps {
 }
 
 export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/app/$componentId' as never,
-  }) as {
-    deploymentId: string
-    componentId: string
+  // Use strict:false params + useResolvedDeploymentId so this page
+  // works on BOTH /provision/$deploymentId/app/$componentId AND the
+  // chroot Sovereign route /app/$componentId. Strict-mode useParams
+  // throws Invariant when the path doesn't match. Caught on
+  // omantel.biz 2026-05-06.
+  const params = useParams({ strict: false }) as {
+    deploymentId?: string
+    componentId?: string
   }
-  const { deploymentId, componentId } = params
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = params.deploymentId ?? resolvedId ?? ''
+  const componentId = params.componentId ?? ''
   const store = useWizardStore()
 
   const applications = useMemo(

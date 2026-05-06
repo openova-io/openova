@@ -687,6 +687,10 @@ func main() {
 		rg.Get("/api/v1/sovereign/jobs", h.HandleSovereignJobs)
 		rg.Get("/api/v1/sovereign/apps", h.HandleSovereignApps)
 		rg.Get("/api/v1/sovereign/cloud", h.HandleSovereignCloud)
+		rg.Get("/api/v1/sovereign/users", h.HandleSovereignUsers)
+		rg.Get("/api/v1/sovereign/catalog", h.HandleSovereignCatalog)
+		rg.Get("/api/v1/sovereign/settings", h.HandleSovereignSettings)
+		rg.Get("/api/v1/sovereign/topology", h.HandleSovereignTopology)
 
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining

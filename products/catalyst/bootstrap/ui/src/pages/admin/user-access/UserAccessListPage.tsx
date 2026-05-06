@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { PortalShell } from '@/pages/sovereign/PortalShell'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import {
   deleteUserAccess,
   grantsSummary,
@@ -41,10 +42,13 @@ export function UserAccessListPage({
   initialItems,
   disableFetch = false,
 }: UserAccessListPageProps = {}) {
-  const params = useParams({ from: '/provision/$deploymentId/users' as never }) as {
-    deploymentId: string
-  }
-  const deploymentId = params.deploymentId
+  // strict:false params + useResolvedDeploymentId so this page works
+  // on BOTH /provision/$deploymentId/users AND the chroot /users
+  // route. Strict-mode useParams throws Invariant on chroot because
+  // the path doesn't match. Caught on omantel.biz 2026-05-06.
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = params.deploymentId ?? resolvedId ?? ''
 
   const [items, setItems] = useState<UserAccessItem[]>(initialItems ?? [])
   const [loading, setLoading] = useState<boolean>(!initialItems && !disableFetch)

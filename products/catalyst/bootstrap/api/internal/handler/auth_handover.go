@@ -66,6 +66,17 @@ type authHandoverClaims struct {
 
 	// Role must equal "sovereign-admin".
 	Role string `json:"role"`
+
+	// SovereignFQDN is the new Sovereign's FQDN (mother stamps this).
+	// Used to enrich the Sovereign session cookie so /sovereign/self
+	// and other chroot endpoints can resolve the Sovereign identity
+	// without falling back to env or store-fallback.
+	SovereignFQDN string `json:"sovereign_fqdn"`
+
+	// DeploymentID is the Catalyst-Zero deployment record ID (16-char
+	// hex). Used by chroot pages to scope deployment-keyed API paths
+	// once /sovereign/self resolution is JWT-driven.
+	DeploymentID string `json:"deployment_id"`
 }
 
 // AuthHandover handles GET /auth/handover?token=<jwt>.
@@ -210,6 +221,14 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		"jti":            uuid.NewString(),
 		"typ":            "session",
 		"keycloak_uid":   userID,
+		// Carry Sovereign identity into the session token so downstream
+		// handlers (HandleSovereignSelf, /users, /catalog, /settings)
+		// can resolve the deployment id WITHOUT depending on the
+		// orchestrator overlay write or store-fallback. Caught on
+		// omantel.biz 2026-05-06: every chroot page broke because
+		// /sovereign/self returned 503 (no env populated post-handover).
+		"sovereign_fqdn": claims.SovereignFQDN,
+		"deployment_id":  claims.DeploymentID,
 	}
 	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
