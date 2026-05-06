@@ -70,7 +70,6 @@ import {
   type HierarchicalInfrastructure,
   type TopologyTree,
 } from '@/lib/infrastructure.types'
-import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 
 /* ── View mode ──────────────────────────────────────────────────── */
 
@@ -226,10 +225,7 @@ export function CloudPage({
   })
 
   const data = useMemo<HierarchicalInfrastructure | null>(() => {
-    const raw =
-      initialDataOverride ??
-      topologyQuery.data ??
-      (topologyQuery.isError ? infrastructureTopologyFixture : null)
+    const raw = initialDataOverride ?? topologyQuery.data ?? null
     if (!raw) return null
     return {
       cloud: raw.cloud ?? inferCloudFromTopology(raw.topology),
