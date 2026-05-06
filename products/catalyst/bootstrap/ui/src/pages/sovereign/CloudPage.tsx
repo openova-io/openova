@@ -509,8 +509,8 @@ export function CloudPage({
           className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-xs text-[var(--color-text)]"
         >
           {switcherOptions.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.sovereignFQDN || d.id.slice(0, 8)}
+            <option key={d.id ?? ''} value={d.id ?? ''}>
+              {d.sovereignFQDN || (d.id ?? '').slice(0, 8) || '(unknown)'}
             </option>
           ))}
         </select>
