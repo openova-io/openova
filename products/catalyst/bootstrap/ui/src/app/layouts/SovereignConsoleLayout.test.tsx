@@ -113,12 +113,10 @@ describe('SovereignConsoleLayout — auth-guard order of operations', () => {
       return new Response(null, { status: 404 })
     })
 
-    render(<SovereignConsoleLayout pageTitle="Dashboard" />)
+    render(<SovereignConsoleLayout />)
 
-    // Console shell appears — auth gate passed via cookie.
-    await screen.findByTestId('sov-console-shell')
-    expect(screen.getByTestId('sov-outlet-stub')).toBeTruthy()
-    expect(screen.getByTestId('sov-sidebar-stub')).toBeTruthy()
+    // Auth gate passed via cookie — Outlet renders the page tree.
+    await screen.findByTestId('sov-outlet-stub')
 
     // The decisive assertion: NO Keycloak redirect was attempted.
     expect(initiateLoginSpy).not.toHaveBeenCalled()

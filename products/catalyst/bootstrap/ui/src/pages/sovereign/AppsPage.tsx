@@ -264,7 +264,10 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const handoverURL = handoverReady?.handoverURL ?? ''
   useEffect(() => {
     const id = `handover-ready:${deploymentId}`
-    if (!isHandoverReady) {
+    // Suppress handover toast on chroot — operator is already on the
+    // Sovereign Console; "Sovereign is ready" is the mother's wizard
+    // UX leaking through via the imported deployment's event history.
+    if (!isHandoverReady || isSovereignMode) {
       dismiss(id)
       return
     }
@@ -300,11 +303,10 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   }, [isHandoverReady, handoverURL, sovereignFQDN, deploymentId, notify, dismiss])
 
   // Auto-redirect timer — 5 seconds from the moment handoverReady
-  // arrives. We capture the URL into a stable ref so a re-render
-  // mid-countdown doesn't reset the timer; the cleanup callback
-  // runs only on unmount or URL change.
+  // arrives. Mother-only: on the chroot the operator is already at
+  // the destination; auto-redirecting back to the same URL would loop.
   useEffect(() => {
-    if (!isHandoverReady) return
+    if (!isHandoverReady || isSovereignMode) return
     const target = handoverURL
     const timeoutMs = 5000
     const timer = window.setTimeout(() => {
@@ -316,7 +318,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     return () => {
       window.clearTimeout(timer)
     }
-  }, [isHandoverReady, handoverURL])
+  }, [isHandoverReady, handoverURL, isSovereignMode])
 
   // Document-title flip on handover-ready (founder feedback
   // 2026-05-04 — a backgrounded tab must surface the completion in
@@ -449,7 +451,14 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
        * console, which is exactly what the auto-redirect timer does
        * after 5 seconds.
        */}
-      {isHandoverReady ? (
+      {/* Handover banner is the mother's wizard UX — "you can jump to
+       * your new Sovereign now." On the chroot the operator IS already
+       * on the Sovereign Console; there's nowhere to "redirect" to,
+       * and the banner is content from a foreign context that bleeds
+       * through because the imported deployment record carries the
+       * mother's handover-ready event. Suppress on chroot.
+       */}
+      {isHandoverReady && !isSovereignMode ? (
         <div className="handover-ready-banner" data-testid="sov-handover-ready-banner">
           <div className="handover-ready-body">
             <span className="handover-ready-title">
