@@ -190,22 +190,60 @@ func (h *Handler) HandleSovereignSettings(w http.ResponseWriter, r *http.Request
 // On any error returns the well-shaped empty topology so the canvas
 // renders its "Provisioning…" overlay rather than crashing the page.
 
+type hierCloudSpec struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	RegionCount int    `json:"regionCount"`
+	QuotaUsed   int    `json:"quotaUsed"`
+	QuotaLimit  int    `json:"quotaLimit"`
+}
+
+type hierStorageBlock struct {
+	StorageClasses []interface{} `json:"storageClasses"`
+	Pools          []interface{} `json:"pools"`
+	Volumes        []interface{} `json:"volumes"`
+	Buckets        []interface{} `json:"buckets"`
+}
+
+// hierTopologyResponse matches HierarchicalInfrastructure in the UI:
+//   cloud: CloudSpec[]   — array, NOT an object (CloudPage iterates).
+//   topology: { pattern, regions: [...] }
+//   storage: { storageClasses, pools, volumes, buckets }
 type hierTopologyResponse struct {
-	Cloud    map[string]interface{}   `json:"cloud"`
-	Topology map[string]interface{}   `json:"topology"`
+	Cloud    []hierCloudSpec        `json:"cloud"`
+	Topology map[string]interface{} `json:"topology"`
+	Storage  hierStorageBlock       `json:"storage"`
 }
 
 // HandleSovereignTopology — GET /api/v1/sovereign/topology.
 func (h *Handler) HandleSovereignTopology(w http.ResponseWriter, r *http.Request) {
+	provider := strings.TrimSpace(os.Getenv("CATALYST_PROVIDER"))
+	if provider == "" {
+		provider = "hetzner"
+	}
+	region := strings.TrimSpace(os.Getenv("CATALYST_REGION"))
+	cloudSpec := hierCloudSpec{
+		ID:          provider + ":" + region,
+		Name:        provider + " " + region,
+		Provider:    provider,
+		RegionCount: 1,
+		QuotaUsed:   0,
+		QuotaLimit:  0,
+	}
+	emptyStorage := hierStorageBlock{
+		StorageClasses: []interface{}{},
+		Pools:          []interface{}{},
+		Volumes:        []interface{}{},
+		Buckets:        []interface{}{},
+	}
 	emptyResp := hierTopologyResponse{
-		Cloud: map[string]interface{}{
-			"provider":       strings.TrimSpace(os.Getenv("CATALYST_PROVIDER")),
-			"providerRegion": strings.TrimSpace(os.Getenv("CATALYST_REGION")),
-		},
+		Cloud: []hierCloudSpec{cloudSpec},
 		Topology: map[string]interface{}{
 			"pattern": "solo",
 			"regions": []interface{}{},
 		},
+		Storage: emptyStorage,
 	}
 
 	deps, err := h.sovereignDepsFor()
@@ -278,7 +316,7 @@ func (h *Handler) HandleSovereignTopology(w http.ResponseWriter, r *http.Request
 		"status":        "healthy",
 	}
 
-	region := map[string]interface{}{
+	regionMap := map[string]interface{}{
 		"id":          strings.TrimSpace(os.Getenv("CATALYST_REGION")),
 		"name":        strings.TrimSpace(os.Getenv("CATALYST_REGION")),
 		"provider":    strings.TrimSpace(os.Getenv("CATALYST_PROVIDER")),
@@ -291,8 +329,9 @@ func (h *Handler) HandleSovereignTopology(w http.ResponseWriter, r *http.Request
 		Cloud: emptyResp.Cloud,
 		Topology: map[string]interface{}{
 			"pattern": "solo",
-			"regions": []interface{}{region},
+			"regions": []interface{}{regionMap},
 		},
+		Storage: emptyStorage,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
