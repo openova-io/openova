@@ -624,9 +624,19 @@ function AlwaysIncludedTab({ groups: _groups, cols }: { groups: readonly GroupDe
   // so transitive-mandatory promotions (cnpg, valkey) surface in their
   // owning product section rather than vanishing into Tab 1's pool. Hide
   // any product that has zero mandatories.
+  //
+  // Critical filter: only PRODUCT FAMILIES with `tier: 'mandatory'`
+  // (PILOT, SPINE, SURGE, SILO, GUARDIAN) contribute their mandatories
+  // here. Opt-in families (CORTEX/RELAY tier:optional, INSIGHTS/FABRIC
+  // tier:recommended) carry `tier: 'mandatory'` components INTERNAL to
+  // their family — those are mandatory ONLY IF the family is selected.
+  // Without this filter, KServe (CORTEX-internal mandatory) misleadingly
+  // appears in "Always Included" even on Sovereigns that don't pick
+  // CORTEX. Caught on omantel.biz wizard 2026-05-06.
   void _groups // keep prop for callsite back-compat (#175 cleanup deferred)
   const productSections = useMemo(() => {
     return PRODUCTS
+      .filter((product) => product.tier === 'mandatory')
       .map((product) => ({
         product,
         mandatories: componentsByProduct(product.id).filter(c => c.tier === 'mandatory'),

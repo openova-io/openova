@@ -309,7 +309,19 @@ export const GROUPS: GroupDef[] = [
       // any CORTEX member triggers the family cascade, adding every
       // remaining CORTEX component and every component of FABRIC (CORTEX's
       // family dependency).
-      { id: 'kserve',    name: 'KServe',    desc: 'Kubernetes-native model serving with autoscaling and canaries', tier: 'mandatory', dependencies: [] },
+      // KServe was tier:'mandatory' — semantically wrong because the
+      // tier 'mandatory' is consumed by the wizard as "always-on
+      // regardless of family selection" (auto-seeded at init,
+      // surfaced under "Always Included", auto-installed on every
+      // Sovereign). KServe is mandatory ONLY IF the CORTEX family is
+      // selected; with CORTEX `tier: 'optional'` and
+      // `cascadeOnMemberSelection: true`, picking any CORTEX member
+      // pulls KServe in via the cascade. Demoting to 'recommended'
+      // means: visible in Tab 1 under CORTEX, not auto-seeded, joins
+      // the install only when CORTEX is opted into.
+      // Caught on omantel.biz wizard 2026-05-06 — KServe was showing
+      // under Section-4 "Always Included" on every fresh provisioning.
+      { id: 'kserve',    name: 'KServe',    desc: 'Kubernetes-native model serving with autoscaling and canaries', tier: 'recommended', dependencies: [] },
       { id: 'knative',   name: 'Knative',   desc: 'Scale-to-zero runtime for HTTP and event-driven workloads',     tier: 'optional',  dependencies: [] },
       // Axon is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
