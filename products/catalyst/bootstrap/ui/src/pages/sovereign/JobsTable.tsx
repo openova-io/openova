@@ -365,13 +365,19 @@ function useJobLinkBuilder(): (jobId: string) => string {
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const isSovereign = DETECTED_MODE.mode === 'sovereign'
   const depId = params.deploymentId ?? ''
-  // URL-encode the jobId so live K8s job ids that contain `/`
-  // (e.g. "job/syft-grype/syft-grype-bp-syft-grype-29633910" from
-  // /api/v1/sovereign/jobs) don't fragment the route. tan-stack's
-  // `/jobs/$jobId` matches a single path segment and would 404 on
-  // multi-segment ids. Caught on omantel.biz 2026-05-06.
+  // Strip the "<deploymentId>:" prefix from the canonical Job id so the
+  // URL carries the bare jobName ("install-keycloak", not
+  // "69e73b3abe673840:install-keycloak"). Traefik (and other upstream
+  // proxies) silently drop the URL-encoding of `:` in path segments,
+  // so a route URL like `/jobs/<id>%3Ainstall-keycloak` arrives at the
+  // backend with %3A unprocessed and Store.GetJob's exact-match path
+  // misses. The bare-jobName lookup is unambiguous per (depId, name)
+  // and is the path Store.GetJob already documents (lines 781–789).
+  // URL-encode the rest so live K8s job ids that contain `/` (e.g.
+  // "job/syft-grype/...") don't fragment the route.
   return (jobId: string) => {
-    const encoded = encodeURIComponent(jobId)
+    const bare = jobId.includes(':') ? jobId.slice(jobId.indexOf(':') + 1) : jobId
+    const encoded = encodeURIComponent(bare)
     return isSovereign || !depId
       ? `/jobs/${encoded}`
       : `/provision/${depId}/jobs/${encoded}`

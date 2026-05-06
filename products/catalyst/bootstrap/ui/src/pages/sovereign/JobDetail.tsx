@@ -113,9 +113,18 @@ export function JobDetail({
     () => mergeJobs(reducerJobs, liveJobs),
     [reducerJobs, liveJobs],
   )
+  // Key by BOTH canonical id ("69e73b3abe673840:install-keycloak") and
+  // bare jobName ("install-keycloak") so the URL param resolves whether
+  // it's the full id or the bare name. The link builder strips the
+  // ":" prefix to produce a Traefik-safe URL (proxies drop %3A
+  // encoding), so `params.jobId` is typically the bare name on the
+  // chroot Sovereign Console.
   const jobsById = useMemo<Record<string, Job>>(() => {
     const out: Record<string, Job> = {}
-    for (const j of jobs) out[j.id] = j
+    for (const j of jobs) {
+      out[j.id] = j
+      if (j.jobName && !out[j.jobName]) out[j.jobName] = j
+    }
     return out
   }, [jobs])
   const job = jobsById[jobId]
