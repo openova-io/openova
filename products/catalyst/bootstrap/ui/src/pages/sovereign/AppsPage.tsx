@@ -32,8 +32,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, Link, useParams } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { API_BASE } from '@/shared/config/urls'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
@@ -77,6 +79,49 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     applicationIds,
     disableStream,
   })
+
+  // On Sovereign mode the imported reducer state is FROZEN at mother's
+  // last snapshot (every app reads "pending"). Layer in live status
+  // from /api/v1/sovereign/apps so the AppCards reflect ground truth.
+  // Server status enum: "installed" | "installing" | "bootstrap" |
+  // "available" — map to the UI's ApplicationStatus vocabulary.
+  // Caught on omantel.biz 2026-05-06.
+  const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
+  const liveAppsQuery = useQuery<Record<string, ApplicationStatus>>({
+    queryKey: ['sovereign-apps-live'],
+    enabled: isSovereignMode,
+    refetchInterval: 5_000,
+    queryFn: async () => {
+      const r = await fetch(`${API_BASE}/v1/sovereign/apps`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      })
+      if (!r.ok) throw new Error(`live apps fetch ${r.status}`)
+      const body = (await r.json()) as { apps?: Array<{ id: string; status?: string }> }
+      const out: Record<string, ApplicationStatus> = {}
+      for (const a of body.apps ?? []) {
+        if (!a.id) continue
+        switch (a.status) {
+          case 'installed':
+          case 'bootstrap':
+            out[a.id] = 'installed'
+            break
+          case 'installing':
+            out[a.id] = 'installing'
+            break
+          case 'available':
+            out[a.id] = 'pending'
+            break
+          default:
+            out[a.id] = 'pending'
+        }
+      }
+      return out
+    },
+    retry: false,
+    placeholderData: (prev) => prev,
+  })
+  const liveAppStatus = liveAppsQuery.data ?? {}
 
   const isFailed = streamStatus === 'failed' || streamStatus === 'unreachable'
   const failureMessage = streamError ?? snapshot?.error ?? null
@@ -484,7 +529,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             <AppCard
               key={app.id}
               app={app}
-              status={state.apps[app.id]?.status ?? 'pending'}
+              status={liveAppStatus[app.id] ?? state.apps[app.id]?.status ?? 'pending'}
               isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
             />
           ))}
