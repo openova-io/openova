@@ -66,6 +66,8 @@ import {
   forceCenter,
   forceCollide,
   forceLink,
+  forceX,
+  forceY,
   forceManyBody,
   forceSimulation,
   type Simulation,
@@ -160,20 +162,29 @@ function physicsFor(nodeCount: number): {
   linkStrength: number
   collide: number
   alphaDecay: number
+  /**
+   * Center-gravity strength — applied via forceX(cx) + forceY(cy).
+   * Small graphs need stronger inward pull because link forces are
+   * sparse and charge repulsion would otherwise blow nodes to the
+   * edges of the canvas (where the bound clamp parks them).
+   * forceCenter() shifts the centroid but does NOT pull individual
+   * nodes inward, so we need this complementary force.
+   */
+  centerGravity: number
 } {
   if (nodeCount <= 50) {
-    return { charge: -160, linkDistance: 80, linkStrength: 0.6, collide: 30, alphaDecay: 0.02 }
+    return { charge: -160, linkDistance: 80, linkStrength: 0.6, collide: 30, alphaDecay: 0.02, centerGravity: 0.08 }
   }
   if (nodeCount <= 200) {
-    return { charge: -120, linkDistance: 60, linkStrength: 0.45, collide: 22, alphaDecay: 0.025 }
+    return { charge: -120, linkDistance: 60, linkStrength: 0.45, collide: 22, alphaDecay: 0.025, centerGravity: 0.06 }
   }
   if (nodeCount <= 1000) {
-    return { charge: -70, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03 }
+    return { charge: -70, linkDistance: 40, linkStrength: 0.3, collide: 16, alphaDecay: 0.03, centerGravity: 0.04 }
   }
   if (nodeCount <= 5000) {
-    return { charge: -32, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04 }
+    return { charge: -32, linkDistance: 24, linkStrength: 0.2, collide: 10, alphaDecay: 0.04, centerGravity: 0.03 }
   }
-  return { charge: -16, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05 }
+  return { charge: -16, linkDistance: 14, linkStrength: 0.1, collide: 6, alphaDecay: 0.05, centerGravity: 0.02 }
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -207,8 +218,15 @@ function makeForceBound(
   padding = BOUND_PADDING,
 ) {
   let nodes: LiveNode[] = []
-  // d3-force calls force(alpha) every tick. We ignore alpha — the
-  // bound is a hard clamp that should NOT scale with cooling.
+  // d3-force calls force(alpha) every tick. The bound combines:
+  //   - Hard clamp on PINNED positions (drag past the edge snaps in).
+  //   - Soft elastic bounce on free nodes: when a node touches the
+  //     wall, reflect its velocity inward (instead of arresting it
+  //     to a dead stop, which causes nodes to stack at the edges
+  //     and produces the "bubbles escape to edges" complaint).
+  // Velocity reflection costs nothing extra and lets the simulation
+  // actually relax — the kinetic energy returns to the system rather
+  // than being silently zeroed by a hard clamp.
   const force = () => {
     for (const n of nodes) {
       const r = radiusForDegree(n.degree)
@@ -216,12 +234,22 @@ function makeForceBound(
       const minY = r + padding
       const maxX = Math.max(minX, width - r - padding)
       const maxY = Math.max(minY, height - r - padding)
-      if (n.x < minX) n.x = minX
-      else if (n.x > maxX) n.x = maxX
-      if (n.y < minY) n.y = minY
-      else if (n.y > maxY) n.y = maxY
-      // Also clamp pinned positions so a manual drag past the edge
-      // instantly snaps inside.
+      if (n.x < minX) {
+        n.x = minX
+        if (n.vx < 0) n.vx = -n.vx * 0.4
+      } else if (n.x > maxX) {
+        n.x = maxX
+        if (n.vx > 0) n.vx = -n.vx * 0.4
+      }
+      if (n.y < minY) {
+        n.y = minY
+        if (n.vy < 0) n.vy = -n.vy * 0.4
+      } else if (n.y > maxY) {
+        n.y = maxY
+        if (n.vy > 0) n.vy = -n.vy * 0.4
+      }
+      // Pinned positions still hard-clamp so a manual drag past the
+      // edge instantly snaps inside.
       if (n.fx !== null) {
         n.fx = Math.max(minX, Math.min(maxX, n.fx))
       }
@@ -549,6 +577,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         .force('charge', forceManyBody())
         .force('collide', forceCollide())
         .force('center', forceCenter(cx, cy))
+        // Center-gravity forces — pull every individual node toward
+        // (cx, cy). Without these, charge repulsion drifts nodes to
+        // the canvas edge with nothing to oppose it, producing the
+        // "bubbles escape to edges, center empty" failure mode on
+        // small graphs (omantel.biz topology, ~25 nodes).
+        .force('gravityX', forceX(cx).strength(0))
+        .force('gravityY', forceY(cy).strength(0))
     }
 
     const sim = simRef.current!
@@ -568,6 +603,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     ;(sim.force('charge') as ReturnType<typeof forceManyBody>).strength(phys.charge)
     ;(sim.force('collide') as ReturnType<typeof forceCollide>).radius(phys.collide)
     ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
+    ;(sim.force('gravityX') as ReturnType<typeof forceX>).x(cx).strength(phys.centerGravity)
+    ;(sim.force('gravityY') as ReturnType<typeof forceY>).y(cy).strength(phys.centerGravity)
 
     // Bounded-physics force — re-install every tick-tune so the box
     // matches the current container size. d3-force's `force()` setter
