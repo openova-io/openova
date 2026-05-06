@@ -77,7 +77,6 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // identical UI between mothership-side /provision/$id/dashboard and
 // Sovereign-side post-handover console).
 import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
-import { CatalogAdminPage } from '@/pages/sovereign/CatalogAdminPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
@@ -706,15 +705,6 @@ const consoleSettingsMarketplaceRoute = createRoute({
   component: MarketplaceSettings,
 })
 
-// /console/catalog — Sovereign-console operator's per-row marketplace
-// publishing toggle (issue #710 wave 2.5). Backend support shipped in
-// PR #724: GET /catalog/apps + PATCH /catalog/admin/apps/{slug}/publish.
-const consoleCatalogRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/catalog',
-  component: CatalogAdminPage,
-})
-
 /* ── SME-tier console routes (issue #802) ────────────────────────────
  *
  * Mounted under the same /console/* tree as the otech-tier routes —
@@ -822,7 +812,6 @@ const routeTree = rootRoute.addChildren([
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,
-    consoleCatalogRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,

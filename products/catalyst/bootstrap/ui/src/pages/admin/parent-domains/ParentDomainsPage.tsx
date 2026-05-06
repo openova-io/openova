@@ -36,6 +36,9 @@ import {
   type ParentDomainRole,
 } from './parentDomains.api'
 import { PropagationPanel } from './PropagationPanel'
+import { PortalShell } from '@/pages/sovereign/PortalShell'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 
 export interface ParentDomainsPageProps {
   /** Test seam — supplies the initial list synchronously. */
@@ -48,6 +51,8 @@ export function ParentDomainsPage({
   initialItems,
   disableFetch = false,
 }: ParentDomainsPageProps = {}) {
+  const sovereignFQDN = DETECTED_MODE.sovereignFQDN ?? ''
+  const { deploymentId } = useResolvedDeploymentId()
   const [items, setItems] = useState<ParentDomain[]>(initialItems ?? [])
   const [loading, setLoading] = useState<boolean>(!initialItems && !disableFetch)
   const [error, setError] = useState<string | null>(null)
@@ -95,10 +100,14 @@ export function ParentDomainsPage({
   }
 
   return (
-    <div data-testid="parent-domains-page" className="px-6 py-4">
+    <PortalShell
+      deploymentId={deploymentId ?? ''}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Parent Domains"
+    >
+    <div data-testid="parent-domains-page">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Parent Domains</h1>
           <p className="text-sm text-[var(--color-text-dim)]">
             Domains served by this Sovereign's PowerDNS. The primary hosts your console + API; sme-pool domains are offered to SME tenants for free subdomain allocation.
           </p>
@@ -180,6 +189,7 @@ export function ParentDomainsPage({
         />
       )}
     </div>
+    </PortalShell>
   )
 }
 

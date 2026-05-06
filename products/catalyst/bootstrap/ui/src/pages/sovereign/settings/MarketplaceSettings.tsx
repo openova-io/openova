@@ -36,6 +36,8 @@ import { useEffect, useState } from 'react'
 import { Store, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { API_BASE } from '@/shared/config/urls'
+import { PortalShell } from '@/pages/sovereign/PortalShell'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 
 interface MarketplaceBrand {
   name: string
@@ -80,7 +82,12 @@ function resolveDeploymentId(): string {
 
 export function MarketplaceSettings() {
   const sovereignFQDN = DETECTED_MODE.sovereignFQDN ?? ''
-  const deploymentId = resolveDeploymentId()
+  // Prefer the cookie-resolved deployment id over the legacy
+  // resolveDeploymentId() helper (which returns the FQDN, not the id —
+  // a separate bug not in scope here). Falls back to the legacy value
+  // so SSR/test paths without a cookie still get a deterministic id.
+  const { deploymentId: cookieDepId } = useResolvedDeploymentId()
+  const deploymentId = cookieDepId ?? resolveDeploymentId()
 
   // Initial state — defaulting to disabled. A future iteration will GET
   // the current overlay state from catalyst-api so the toggle reflects
@@ -173,11 +180,13 @@ export function MarketplaceSettings() {
   }
 
   return (
+    <PortalShell
+      deploymentId={deploymentId}
+      sovereignFQDN={sovereignFQDN}
+      pageTitle="Marketplace mode"
+    >
     <div data-testid="marketplace-settings-page">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[var(--color-text-strong)]">
-          Marketplace mode
-        </h1>
         <p className="mt-1 text-sm text-[var(--color-text-dim)]">
           Enable a public-facing marketplace storefront on this Sovereign. When enabled, the
           Catalyst chart renders the marketplace HTTPRoutes and the storefront ConfigMap with
@@ -334,6 +343,7 @@ export function MarketplaceSettings() {
         </div>
       </div>
     </div>
+    </PortalShell>
   )
 }
 
