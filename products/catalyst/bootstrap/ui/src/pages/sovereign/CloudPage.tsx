@@ -231,43 +231,75 @@ export function CloudPage({
       topologyQuery.data ??
       (topologyQuery.isError ? infrastructureTopologyFixture : null)
     if (!raw) return null
-    return {
-      cloud: raw.cloud ?? inferCloudFromTopology(raw.topology),
-      topology: {
-        pattern: raw.topology?.pattern ?? 'solo',
-        regions: (raw.topology?.regions ?? []).map((r) => ({
-          ...r,
-          clusters: (r.clusters ?? []).map((c) => ({
-            ...c,
-            vclusters: c.vclusters ?? [],
-            loadBalancers: (c.loadBalancers ?? []).map((lb) => ({
-              ...lb,
-              listeners:
-                lb.listeners ??
-                (typeof (lb as unknown as { ports?: string }).ports === 'string'
-                  ? ((lb as unknown as { ports: string }).ports || '')
-                      .split(',')
-                      .map((p) => p.trim())
-                      .filter(Boolean)
-                      .map((p) => ({ port: parseInt(p, 10), protocol: 'tcp' }))
-                  : []),
-              targets: lb.targets ?? [],
+    // Defensive guards — Sovereign-mode /api/v1/sovereign/topology may
+    // return slimmer node/cluster/region shapes than the wizard's
+    // mother-side endpoint. Coerce every nested array to the full
+    // shape so downstream count/lookup code never reads .length on
+    // undefined. Caught on omantel.biz 2026-05-06.
+    try {
+      return {
+        cloud: Array.isArray(raw.cloud) && raw.cloud.length > 0
+          ? raw.cloud
+          : inferCloudFromTopology(raw.topology),
+        topology: {
+          pattern: raw.topology?.pattern ?? 'solo',
+          regions: (raw.topology?.regions ?? []).map((r: any) => ({
+            id: r?.id ?? '',
+            name: r?.name ?? '',
+            provider: r?.provider ?? '',
+            workerCount: r?.workerCount ?? 0,
+            ...r,
+            clusters: (r?.clusters ?? []).map((c: any) => ({
+              id: c?.id ?? '',
+              name: c?.name ?? '',
+              version: c?.version ?? '',
+              status: c?.status ?? 'unknown',
+              ...c,
+              vclusters: c?.vclusters ?? [],
+              loadBalancers: (c?.loadBalancers ?? []).map((lb: any) => ({
+                ...lb,
+                listeners:
+                  lb?.listeners ??
+                  (typeof (lb as unknown as { ports?: string })?.ports === 'string'
+                    ? ((lb as unknown as { ports: string }).ports || '')
+                        .split(',')
+                        .map((p) => p.trim())
+                        .filter(Boolean)
+                        .map((p) => ({ port: parseInt(p, 10), protocol: 'tcp' }))
+                    : []),
+                targets: lb?.targets ?? [],
+              })),
+              nodePools: c?.nodePools ?? [],
+              nodes: (c?.nodes ?? []).map((n: any) => ({
+                region: n?.region ?? r?.id ?? '',
+                ...n,
+              })),
             })),
-            nodePools: c.nodePools ?? [],
-            nodes: c.nodes ?? [],
+            networks: (r?.networks ?? []).map((n: any) => ({
+              id: n?.id ?? '',
+              name: n?.name ?? '',
+              ...n,
+              peerings: n?.peerings ?? [],
+              firewalls: n?.firewalls ?? [],
+            })),
           })),
-          networks: (r.networks ?? []).map((n) => ({
-            ...n,
-            peerings: n.peerings ?? [],
-            firewalls: n.firewalls ?? [],
-          })),
-        })),
-      },
-      storage: {
-        pvcs: raw.storage?.pvcs ?? [],
-        buckets: raw.storage?.buckets ?? [],
-        volumes: raw.storage?.volumes ?? [],
-      },
+        },
+        storage: {
+          pvcs: raw.storage?.pvcs ?? [],
+          buckets: raw.storage?.buckets ?? [],
+          volumes: raw.storage?.volumes ?? [],
+        },
+      }
+    } catch (err) {
+      // Last-resort fallback — if any unexpected shape mismatch
+      // throws here, render an empty topology rather than crashing
+      // the entire /cloud page with the React error boundary.
+      console.warn('[CloudPage] data normalize threw, using empty fallback:', err)
+      return {
+        cloud: [],
+        topology: { pattern: 'solo', regions: [] },
+        storage: { pvcs: [], buckets: [], volumes: [] },
+      } as unknown as HierarchicalInfrastructure
     }
   }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
 
