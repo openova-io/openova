@@ -49,6 +49,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/infrastructure"
@@ -1548,19 +1549,39 @@ func noopJobsStore() *jobs.Store {
 	return st
 }
 
-// sovereignDynamicClient — builds a dynamic.Interface from the
-// deployment's persisted kubeconfig. Returns an error when the
-// kubeconfig is missing (cloud-init hasn't posted back yet) or
-// unreadable (PVC unmount). Per docs/INVIOLABLE-PRINCIPLES.md #3
-// this is the ONLY path through which catalyst-api obtains a
-// mutation-capable client against the Sovereign cluster.
+// sovereignDynamicClient — builds a dynamic.Interface for the
+// Sovereign cluster owning the given Deployment. Resolution order:
+//
+//  1. If catalyst-api is running ON the Sovereign cluster itself
+//     (chroot mode — SOVEREIGN_FQDN env matches dep.Request.SovereignFQDN),
+//     use rest.InClusterConfig(). The chroot's catalyst-api lives in
+//     the same cluster as the Sovereign workloads it serves.
+//  2. Otherwise (mother mode), read the deployment's persisted
+//     kubeconfig that cloud-init posted back during provisioning.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #3 this is the ONLY path through
+// which catalyst-api obtains a mutation-capable client against the
+// Sovereign cluster.
 func (h *Handler) sovereignDynamicClient(dep *Deployment) (dynamic.Interface, error) {
 	dep.mu.Lock()
 	kubeconfigPath := ""
 	if dep.Result != nil {
 		kubeconfigPath = dep.Result.KubeconfigPath
 	}
+	depFQDN := ""
+	if dep.Request.SovereignFQDN != "" {
+		depFQDN = dep.Request.SovereignFQDN
+	}
 	dep.mu.Unlock()
+
+	if selfFQDN := os.Getenv("SOVEREIGN_FQDN"); selfFQDN != "" && selfFQDN == depFQDN {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("chroot in-cluster config: %w", err)
+		}
+		return dynamic.NewForConfig(cfg)
+	}
+
 	if kubeconfigPath == "" {
 		return nil, errors.New("sovereign cluster kubeconfig not yet posted back — cloud-init in flight or PUT /kubeconfig missed; retry once the wizard's success screen reaches Phase-1 ready")
 	}
@@ -1601,7 +1622,23 @@ func (h *Handler) loaderInputFor(dep *Deployment) infrastructure.LoaderInput {
 // today). A failure (kubeconfig missing, parse error) returns nil
 // without surfacing through to the loader; the loader treats nil
 // as "no live data" and returns empty arrays.
+//
+// Chroot fallback: when catalyst-api runs ON the Sovereign cluster
+// (SOVEREIGN_FQDN env matches dep.Request.SovereignFQDN), use the
+// in-cluster ServiceAccount instead of looking for a posted-back
+// kubeconfig — the chroot is its own kubeconfig.
 func (h *Handler) tryDynamicClientLocked(dep *Deployment) dynamic.Interface {
+	if selfFQDN := os.Getenv("SOVEREIGN_FQDN"); selfFQDN != "" && selfFQDN == dep.Request.SovereignFQDN {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil
+		}
+		c, err := dynamic.NewForConfig(cfg)
+		if err != nil {
+			return nil
+		}
+		return c
+	}
 	kubeconfigPath := ""
 	if dep.Result != nil {
 		kubeconfigPath = dep.Result.KubeconfigPath
