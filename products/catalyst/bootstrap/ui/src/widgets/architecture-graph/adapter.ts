@@ -127,8 +127,8 @@ function addRegion(
   nodes.push({
     id: regionId,
     type: 'Region',
-    label: region.name || region.providerRegion || region.id || 'region',
-    sublabel: `${region.provider ?? ''} · ${region.providerRegion ?? ''}`,
+    label: region.name || region.providerRegion,
+    sublabel: `${region.provider} · ${region.providerRegion}`,
     status: region.status,
     metadata: {
       provider: region.provider,
@@ -188,13 +188,13 @@ function addCluster(
   nodes.push({
     id: clusterId,
     type: 'Cluster',
-    label: cluster.name || cluster.id || 'cluster',
-    sublabel: cluster.version ?? '',
+    label: cluster.name,
+    sublabel: cluster.version,
     status: cluster.status,
     metadata: {
-      version: cluster.version ?? '',
-      nodes: String(cluster.nodeCount ?? 0),
-      vclusters: String((cluster.vclusters ?? []).length),
+      version: cluster.version,
+      nodes: String(cluster.nodeCount),
+      vclusters: String(cluster.vclusters.length),
     },
   })
   edges.push({
