@@ -287,6 +287,16 @@ export function CloudPage({
     }
   }, [initialDataOverride, topologyQuery.data, topologyQuery.isError])
 
+  // Live K8s snapshot — feeds the chip-count badges AND every list
+  // page via CloudContext. Single subscription per page (subscribing
+  // to all kinds) avoids the HTTP/1.1 connection-budget starvation
+  // that hangs duplicate streams at "connecting" indefinitely.
+  // PR #1062 wired the backend; PR #1065 hoisted this above the ctx
+  // build so list pages can read from the same snapshot.
+  const k8sStream = useK8sCacheStream(deploymentId, {
+    enabled: !!deploymentId && !disableStream,
+  })
+
   const ctx: CloudContextValue = useMemo(
     () => ({
       deploymentId,
@@ -294,12 +304,6 @@ export function CloudPage({
       isLoading: !initialDataOverride && topologyQuery.isLoading && !data,
       isError: topologyQuery.isError && !initialDataOverride,
       refetch: () => topologyQuery.refetch(),
-      // Share the live K8s snapshot via context so list pages and the
-      // graph widget read off ONE subscription instead of each opening
-      // its own EventSource. Two SSE streams from the same browser to
-      // the same origin can starve under HTTP/1.1 connection limits;
-      // a single shared stream avoids that and matches the single-
-      // tenant single-cluster shape on the chroot.
       k8sSnapshot: k8sStream.snapshot,
       k8sStatus: k8sStream.status,
       k8sRevision: k8sStream.revision,
@@ -386,16 +390,6 @@ export function CloudPage({
     if (isValidKind(search.kind)) return search.kind
     return readPersistedKind() ?? DEFAULT_KIND
   }, [search.kind])
-
-  // Live K8s snapshot — feeds the chip-count badges for all kinds
-  // backed by the catalyst-api k8scache (Pods, Deployments, Services,
-  // Namespaces, ConfigMaps, …). The same hook is used by the
-  // architecture-graph widget; React Query / useState collapse
-  // duplicate subscriptions so opening the graph view doesn't double
-  // the SSE traffic. PR #1062 wired this end-to-end.
-  const k8sStream = useK8sCacheStream(deploymentId, {
-    enabled: !!deploymentId && !disableStream,
-  })
 
   const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
     const c: Record<CloudListKind, number | null> = {
