@@ -975,10 +975,20 @@ func planLimits(slug string) planLimit {
 }
 
 // UpdateParentKustomization adds a tenant entry to the parent kustomization.
+//
+// The "already listed" check used to be a substring match against the literal
+// "  - <slug>", which falsely triggered when <slug> was a prefix of any
+// existing entry (e.g. trying to add "test" when the file already listed
+// "test11" or "test13"). Live race observed 2026-05-06: tenant "test"'s
+// commit silently no-op'd the parent update, leaving its directory orphan
+// and Flux's tenants Kustomization unable to apply it. Fix: exact line
+// match on the resources entry.
 func UpdateParentKustomization(current, tenantSlug string) string {
 	entry := fmt.Sprintf("  - %s", tenantSlug)
-	if strings.Contains(current, entry) {
-		return current
+	for _, ln := range strings.Split(current, "\n") {
+		if strings.TrimRight(ln, " \t") == entry {
+			return current
+		}
 	}
 	if strings.Contains(current, "resources: []") {
 		return strings.Replace(current, "resources: []", fmt.Sprintf("resources:\n%s", entry), 1)

@@ -607,8 +607,18 @@ func DeployableAppSlugs() map[string]bool {
 		"invoiceshelf":  true,
 		"formbricks":    true,
 		"listmonk":      true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
-		"openclaw":      true, // #941 — bp-openclaw + bp-newapi via SME-tenant overlay
-		"stalwart-mail": true, // #941 — bp-stalwart-tenant via SME-tenant overlay
+		// openclaw + stalwart-mail were flagged Deployable in #941 but have
+		// no entry in core/services/provisioning/gitops/apps.go KnownApps —
+		// the SME provisioning service generates manifests via a single
+		// Deployment template that requires Image + Port; both apps need
+		// HelmRelease-shaped overlays (controller + runtime for openclaw;
+		// IMAP/SMTP services for stalwart-mail). Live failure 2026-05-06
+		// on tenant "test11": tenant-test11-apps Kustomization rejected
+		// `Deployment.apps "openclaw" is invalid: containers[0].image
+		// Required value`. Re-enabling these requires per-app overlay
+		// templates beyond the one-Deployment generator.
+		// "openclaw":      true, // #941 — disabled until proper overlay
+		// "stalwart-mail": true, // #941 — disabled until proper overlay
 		// Backing services are always deployable — they come bundled with
 		// whichever business app needs them. Marking them true so the
 		// catalog UI doesn't draw a 'Coming soon' overlay on them. #112.
