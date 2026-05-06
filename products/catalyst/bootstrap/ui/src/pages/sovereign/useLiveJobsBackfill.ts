@@ -65,48 +65,23 @@ export interface UseLiveJobsBackfillResult {
  * without monkey-patching `globalThis.fetch`.
  */
 async function defaultFetchJobs(deploymentId: string): Promise<Job[]> {
-  // On Sovereign mode (console.<sov-fqdn>) prefer the LIVE local-cluster
-  // endpoint /api/v1/sovereign/jobs over the imported-snapshot endpoint
-  // /api/v1/deployments/<id>/jobs. The imported snapshot is captured at
-  // mother's phase1-watching state and remains frozen at "Pending" — the
-  // operator's complaint on otech122. Sovereign-side endpoint reads
-  // from local helm-controller HelmRelease history + Kubernetes Jobs
-  // and returns up-to-date status. See sovereign.go for the wire shape
-  // (compatible with this Job type).
-  const url =
-    DETECTED_MODE.mode === 'sovereign'
-      ? `${API_BASE}/v1/sovereign/jobs`
-      : `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`
-  const res = await fetch(url, {
-    credentials: 'include',
-    headers: { Accept: 'application/json' },
-  })
+  // Single endpoint on both surfaces (mother + chroot). The chroot
+  // catalyst-api lazily seeds its per-deployment jobs.Store from the
+  // live cluster on first read (see chrootSeedJobsStoreIfEmpty) so
+  // the wire shape is byte-identical to the mother's. No more
+  // parallel-baby /api/v1/sovereign/jobs path.
+  const res = await fetch(
+    `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`,
+    {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    },
+  )
   if (!res.ok) {
     throw new Error(`Failed to fetch jobs: ${res.status}`)
   }
   const body = (await res.json()) as JobsResponse
-  // Sovereign endpoint returns a minimal shape (no appId/parentId/
-  // dependsOn/childIds). JobsTable iterates `for (const d of
-  // job.dependsOn)` and reads `job.appId.toLowerCase()` etc., which
-  // crashes on undefined. Coerce missing fields to safe defaults so
-  // the table renders. Caught on omantel.biz 2026-05-06 — table
-  // rendered 0 rows because TypeError 'cannot read length of
-  // undefined' on dependsOn.
-  const raw = Array.isArray(body.jobs) ? body.jobs : []
-  return raw.map((j) => ({
-    id: j.id ?? '',
-    jobName: (j as { jobName?: string }).jobName ?? (j as { name?: string }).name ?? j.id ?? '',
-    displayName: (j as { displayName?: string }).displayName,
-    type: (j as { type?: 'install' | 'group' }).type ?? 'install',
-    appId: (j as { appId?: string }).appId ?? '',
-    parentId: (j as { parentId?: string }).parentId ?? '',
-    dependsOn: (j as { dependsOn?: string[] }).dependsOn ?? [],
-    childIds: (j as { childIds?: string[] }).childIds ?? [],
-    status: ((j as { status?: string }).status ?? 'pending') as Job['status'],
-    startedAt: (j as { startedAt?: string }).startedAt ?? null,
-    finishedAt: (j as { finishedAt?: string }).finishedAt ?? null,
-    durationMs: (j as { durationMs?: number }).durationMs ?? 0,
-  })) as Job[]
+  return Array.isArray(body.jobs) ? body.jobs : []
 }
 
 export interface UseLiveJobsBackfillOptions {

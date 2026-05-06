@@ -21,15 +21,81 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 )
+
+// chrootSeedJobsStoreIfEmpty — when the chroot Sovereign-side
+// catalyst-api gets a /jobs read for an imported deployment whose
+// per-deployment jobs.Store has no records, lazily seed the store
+// from a one-shot live-cluster HelmRelease list. Same shape as the
+// mother's Phase-1 informer initial-list seed (snapshotsToSeeds +
+// Bridge.SeedJobsFromInformerList) so the read returns byte-identical
+// rich Job records (deps + parent + status) just like the mother.
+//
+// No-op when:
+//   - SOVEREIGN_FQDN env is unset (mother mode)
+//   - dep.Request.SovereignFQDN doesn't match SOVEREIGN_FQDN
+//   - jobs.Store already has records for this deployment
+//   - sovereignDynamicClient errors (handler returns the existing
+//     empty list — caller already handles that case)
+func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deployment) {
+	if h.jobs == nil {
+		return
+	}
+	selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if selfFQDN == "" {
+		return
+	}
+	if !strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN) {
+		return
+	}
+	existing, err := h.jobs.ListJobs(dep.ID)
+	if err == nil && len(existing) > 0 {
+		return
+	}
+	dyn, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		h.log.Debug("chroot seed: sovereignDynamicClient unavailable", "depId", dep.ID, "err", err)
+		return
+	}
+	snap, err := helmwatch.ListAndSnapshotHelmReleases(ctx, dyn)
+	if err != nil {
+		h.log.Warn("chroot seed: list HelmReleases failed", "depId", dep.ID, "err", err)
+		return
+	}
+	if len(snap) == 0 {
+		return
+	}
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, dep.ID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+	seeds := snapshotsToSeeds(snap)
+	jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
+	if err != nil {
+		h.log.Warn("chroot seed: bridge seed failed", "depId", dep.ID, "err", err)
+		return
+	}
+	h.log.Info("chroot seed: per-deployment jobs.Store populated from live cluster",
+		"depId", dep.ID,
+		"helmReleases", len(snap),
+		"jobsWritten", jobsCount,
+		"executionsSeeded", execsSeeded,
+	)
+}
 
 // jobsStore returns the Handler's jobs.Store. Returns nil when
 // persistence is disabled (CI runners without write access to
@@ -67,9 +133,14 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	// in-memory map returns no entry; treat that as 404. If the entry
 	// exists, the helper writes 404 on cross-tenant access.
 	if val, ok := h.deployments.Load(depID); ok {
-		if !h.checkOwnership(w, r, val.(*Deployment)) {
+		dep := val.(*Deployment)
+		if !h.checkOwnership(w, r, dep) {
 			return
 		}
+		// Chroot lazy seed — populates the per-deployment jobs.Store
+		// from a one-shot live HelmRelease list when running on the
+		// Sovereign cluster itself. Mother behaviour unchanged.
+		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
 	}
 	out, err := st.ListJobs(depID)
 	if err != nil {
@@ -115,9 +186,14 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// Issue #689 — ownership check (404 on cross-tenant).
 	if val, ok := h.deployments.Load(depID); ok {
-		if !h.checkOwnership(w, r, val.(*Deployment)) {
+		dep := val.(*Deployment)
+		if !h.checkOwnership(w, r, dep) {
 			return
 		}
+		// Chroot lazy seed — same path as ListJobs, ensures GetJob
+		// returns the rich record on first hit even if ListJobs was
+		// never called.
+		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
 	}
 	job, execs, err := st.GetJob(depID, jobID)
 	if err != nil {

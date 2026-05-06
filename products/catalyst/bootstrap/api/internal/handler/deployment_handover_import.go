@@ -88,6 +88,13 @@ func (h *Handler) HandleDeploymentImport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Load into the in-memory map so /deployments/{id}/* endpoints
+	// (jobs, infrastructure, events, …) answer immediately without
+	// waiting for the next pod restart's restoreFromStore. fromRecord
+	// also rewrites in-flight Status fields to "failed" — irrelevant
+	// here since the mother only exports terminal-state records.
+	h.deployments.Store(rec.ID, fromRecord(rec))
+
 	h.log.Info("deployment-import: persisted",
 		"id", rec.ID,
 		"fqdn", rec.Request.SovereignFQDN,

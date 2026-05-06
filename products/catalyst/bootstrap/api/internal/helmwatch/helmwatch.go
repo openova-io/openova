@@ -1934,6 +1934,58 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 	return out
 }
 
+// ListAndSnapshotHelmReleases performs a ONE-SHOT list of bp-* HRs
+// in FluxNamespace via the supplied dynamic.Interface and returns the
+// equivalent of SnapshotComponents() without spinning up an informer.
+//
+// Used by the chroot Sovereign-side catalyst-api to seed its own
+// per-deployment jobs.Store on first ListJobs/GetJob hit, with
+// byte-identical ComponentSnapshot shape so the existing
+// snapshotsToSeeds + Bridge.SeedJobsFromInformerList pipeline drops
+// in unchanged. The chroot has no posted-back kubeconfig and no
+// long-running watcher attached to the imported deployment — it just
+// reads the live cluster state on demand.
+//
+// Returns an empty slice (not nil) when the list is empty.
+func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]ComponentSnapshot, error) {
+	if dyn == nil {
+		return nil, errors.New("helmwatch: dynamic client is required")
+	}
+	list, err := dyn.Resource(HelmReleaseGVR).Namespace(FluxNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("helmwatch: list HelmReleases: %w", err)
+	}
+	out := make([]ComponentSnapshot, 0, len(list.Items))
+	for i := range list.Items {
+		u := &list.Items[i]
+		name := u.GetName()
+		if !strings.HasPrefix(name, "bp-") {
+			continue
+		}
+		conds, _ := extractConditions(u)
+		state := DeriveState(conds)
+		message := messageFromConditions(conds, state)
+		var lastTransitionAt time.Time
+		if ready := findCondition(conds, "Ready"); ready != nil {
+			lastTransitionAt = ready.LastTransitionTime.Time
+		}
+		ns := u.GetNamespace()
+		if ns == "" {
+			ns = FluxNamespace
+		}
+		out = append(out, ComponentSnapshot{
+			AppID:            ComponentIDFromHelmRelease(name),
+			Status:           state,
+			HelmReleaseName:  name,
+			Namespace:        ns,
+			LastTransitionAt: lastTransitionAt.UTC(),
+			Message:          message,
+			DependsOn:        extractDependsOn(u),
+		})
+	}
+	return out, nil
+}
+
 // Subscribe registers a callback the Watcher invokes for EVERY event
 // it emits, in addition to the primary `emit` Emit callback supplied at
 // construction. Callbacks fire synchronously on the same goroutine that
