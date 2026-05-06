@@ -687,6 +687,12 @@ func main() {
 		rg.Get("/api/v1/sovereign/jobs", h.HandleSovereignJobs)
 		rg.Get("/api/v1/sovereign/apps", h.HandleSovereignApps)
 		rg.Get("/api/v1/sovereign/cloud", h.HandleSovereignCloud)
+		// PATCH /api/v1/sovereign/apps/{slug}/publish — operator-admin
+		// toggle to publish/unpublish a SaaS app on this Sovereign's
+		// marketplace. Replaces the deleted /catalog page (PR #1058);
+		// chip lives on each AppsPage card, proxies to the in-cluster
+		// SME catalog service.
+		rg.Patch("/api/v1/sovereign/apps/{slug}/publish", h.HandleSovereignAppPublish)
 
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining

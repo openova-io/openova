@@ -42,12 +42,14 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -474,6 +476,13 @@ type sovereignAppItem struct {
 	Depends      []string `json:"depends"`
 	Status       string   `json:"status"` // installed | available | bootstrap
 	BootstrapKit bool     `json:"bootstrapKit"`
+
+	// MarketplacePublished — null when the slug isn't in the SME
+	// catalog (bootstrap components, or marketplace not deployed on
+	// this Sovereign). When non-null, the FE renders a Publish chip
+	// on the app card. The deleted /catalog page's per-row toggle has
+	// moved here. Toggled via PATCH /api/v1/sovereign/apps/{slug}/publish.
+	MarketplacePublished *bool `json:"marketplacePublished,omitempty"`
 }
 
 type sovereignAppsResponse struct {
@@ -585,11 +594,83 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Best-effort SME catalog join. When marketplace.enabled=false on
+	// this Sovereign, the SME catalog service is not deployed; the
+	// client returns (nil, nil) and every app stays with
+	// MarketplacePublished=nil (the FE then suppresses the Publish
+	// chip). When SME IS deployed and reachable, decorate matching
+	// slugs with the published flag.
+	smeCtx, smeCancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	defer smeCancel()
+	if pub, _ := smeCatalog().PublishedBySlug(smeCtx); pub != nil {
+		for i := range apps {
+			if v, ok := pub[apps[i].Slug]; ok {
+				vCopy := v
+				apps[i].MarketplacePublished = &vCopy
+			}
+		}
+	}
+
 	gen, _ := catalog.GeneratedAt()
 	writeJSON(w, http.StatusOK, sovereignAppsResponse{
 		Apps:         apps,
 		GeneratedAt:  gen,
 		BootstrapKit: bootstrapList,
+	})
+}
+
+// HandleSovereignAppPublish — PATCH /api/v1/sovereign/apps/{slug}/publish.
+//
+// Operator-admin toggle to publish/unpublish a SaaS app on the
+// Sovereign's marketplace. Replaces the deleted /catalog page's
+// per-row toggle: the chip lives on each AppsPage card now. The
+// chroot's catalyst-api proxies the PATCH to the in-cluster SME
+// catalog service at http://catalog.sme.svc.cluster.local:8082 —
+// same data plane the deleted /catalog page used.
+//
+// 503 when the SME catalog is not deployed on this Sovereign
+// (marketplace.enabled=false in the chart values). 404 when the slug
+// isn't in the SME catalog. The upstream status is surfaced verbatim.
+//
+// Body shape: {"published": true|false}.
+func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimSpace(chi.URLParam(r, "slug"))
+	if slug == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "missing-slug",
+		})
+		return
+	}
+	var body struct {
+		Published bool `json:"published"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":  "bad-body",
+			"detail": err.Error(),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	defer cancel()
+	status, err := smeCatalog().SetPublished(ctx, slug, body.Published)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "sme-catalog-unreachable",
+			"detail": err.Error(),
+		})
+		return
+	}
+	if status >= 200 && status < 300 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"slug":      slug,
+			"published": body.Published,
+		})
+		return
+	}
+	writeJSON(w, status, map[string]string{
+		"error":  "sme-catalog-rejected",
+		"detail": fmt.Sprintf("upstream returned %d", status),
 	})
 }
 

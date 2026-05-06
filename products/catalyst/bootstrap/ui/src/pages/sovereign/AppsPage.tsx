@@ -87,7 +87,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   // "available" — map to the UI's ApplicationStatus vocabulary.
   // Caught on omantel.biz 2026-05-06.
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
-  const liveAppsQuery = useQuery<Record<string, ApplicationStatus>>({
+  interface LiveAppsData {
+    statusById: Record<string, ApplicationStatus>
+    publishedBySlug: Record<string, boolean>
+  }
+  const liveAppsQuery = useQuery<LiveAppsData>({
     queryKey: ['sovereign-apps-live'],
     enabled: isSovereignMode,
     refetchInterval: 5_000,
@@ -97,31 +101,44 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         headers: { Accept: 'application/json' },
       })
       if (!r.ok) throw new Error(`live apps fetch ${r.status}`)
-      const body = (await r.json()) as { apps?: Array<{ id: string; status?: string }> }
-      const out: Record<string, ApplicationStatus> = {}
+      const body = (await r.json()) as {
+        apps?: Array<{
+          id: string
+          slug?: string
+          status?: string
+          marketplacePublished?: boolean
+        }>
+      }
+      const statusById: Record<string, ApplicationStatus> = {}
+      const publishedBySlug: Record<string, boolean> = {}
       for (const a of body.apps ?? []) {
         if (!a.id) continue
         switch (a.status) {
           case 'installed':
           case 'bootstrap':
-            out[a.id] = 'installed'
+            statusById[a.id] = 'installed'
             break
           case 'installing':
-            out[a.id] = 'installing'
+            statusById[a.id] = 'installing'
             break
           case 'available':
-            out[a.id] = 'pending'
+            statusById[a.id] = 'pending'
             break
           default:
-            out[a.id] = 'pending'
+            statusById[a.id] = 'pending'
+        }
+        if (a.slug && typeof a.marketplacePublished === 'boolean') {
+          publishedBySlug[a.slug] = a.marketplacePublished
         }
       }
-      return out
+      return { statusById, publishedBySlug }
     },
     retry: false,
     placeholderData: (prev) => prev,
   })
-  const liveAppStatus = liveAppsQuery.data ?? {}
+  const liveAppStatus = liveAppsQuery.data?.statusById ?? {}
+  const publishedBySlug = liveAppsQuery.data?.publishedBySlug ?? {}
+  const refetchLive = liveAppsQuery.refetch
 
   const isFailed = streamStatus === 'failed' || streamStatus === 'unreachable'
   const failureMessage = streamError ?? snapshot?.error ?? null
@@ -534,14 +551,40 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       ) : (
         <div className="apps-grid" data-testid="sov-apps-grid">
-          {visibleApps.map((app) => (
-            <AppCard
-              key={app.id}
-              app={app}
-              status={liveAppStatus[app.id] ?? state.apps[app.id]?.status ?? 'pending'}
-              isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
-            />
-          ))}
+          {visibleApps.map((app) => {
+            const slug = app.id.replace(/^bp-/, '')
+            const published = Object.prototype.hasOwnProperty.call(publishedBySlug, slug)
+              ? publishedBySlug[slug]
+              : null
+            return (
+              <AppCard
+                key={app.id}
+                app={app}
+                status={liveAppStatus[app.id] ?? state.apps[app.id]?.status ?? 'pending'}
+                isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
+                marketplacePublished={published}
+                slug={slug}
+                onPublishedChange={async (next) => {
+                  const r = await fetch(
+                    `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
+                    {
+                      method: 'PATCH',
+                      credentials: 'include',
+                      headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ published: next }),
+                    },
+                  )
+                  if (!r.ok) {
+                    throw new Error(`publish toggle failed: ${r.status}`)
+                  }
+                  await refetchLive()
+                }}
+              />
+            )
+          })}
         </div>
       )}
     </PortalShell>
@@ -558,9 +601,18 @@ interface AppCardProps {
    * Application surface.
    */
   isService: boolean
+  /**
+   * Marketplace publish state for this app's slug. `null` ⇒ this app
+   * isn't in the SME marketplace catalog (bootstrap component, or
+   * marketplace not deployed on this Sovereign) → don't render the
+   * Publish chip. true/false ⇒ render the toggle.
+   */
+  marketplacePublished?: boolean | null
+  slug?: string
+  onPublishedChange?: (next: boolean) => Promise<void>
 }
 
-function AppCard({ app, status, isService }: AppCardProps) {
+function AppCard({ app, status, isService, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
   const stateClass = `state-${status}`
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
@@ -610,6 +662,29 @@ function AppCard({ app, status, isService }: AppCardProps) {
       </div>
 
       <div className="status-corner">
+        {marketplacePublished !== null && marketplacePublished !== undefined && slug ? (
+          <button
+            type="button"
+            className={`publish-chip ${marketplacePublished ? 'is-published' : 'is-unpublished'}`}
+            data-testid={`sov-app-publish-${slug}`}
+            data-published={marketplacePublished}
+            title={
+              marketplacePublished
+                ? 'Click to unpublish from marketplace'
+                : 'Click to publish to marketplace'
+            }
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (onPublishedChange) {
+                void onPublishedChange(!marketplacePublished)
+              }
+            }}
+          >
+            <span className="dot" />
+            {marketplacePublished ? 'PUBLISHED' : 'UNPUBLISHED'}
+          </button>
+        ) : null}
         {status === 'installed' ? (
           <span className="status-chip s-installed">
             <span className="dot" /> INSTALLED
@@ -849,7 +924,34 @@ const APPS_PAGE_CSS = `
 .chip-free { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
 .chip-dep { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); font-weight: 500; }
 
-.status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; pointer-events: none; }
+.status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; display: flex; gap: 0.4rem; align-items: center; }
+.publish-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.4;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: filter 120ms ease;
+}
+.publish-chip:hover { filter: brightness(1.15); }
+.publish-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.publish-chip.is-published {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+.publish-chip.is-unpublished {
+  background: color-mix(in srgb, var(--color-text-dim) 14%, transparent);
+  color: var(--color-text-dim);
+  border-color: color-mix(in srgb, var(--color-text-dim) 30%, transparent);
+}
 .status-chip {
   display: inline-flex;
   align-items: center;
