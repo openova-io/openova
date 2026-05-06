@@ -28,6 +28,9 @@
 package handler
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -56,9 +59,27 @@ type SovereignSelfResponse struct {
 //      stamp the env via a chart-values overlay write.
 //   3. CATALYST_OTECH_FQDN populated but no record yet — return 503.
 //   4. Both env empty AND no record → return 404 (mothership).
-func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, r *http.Request) {
 	deploymentID := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
 	fqdn := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+
+	// Step 1.5: read the Sovereign session cookie's deployment_id /
+	// sovereign_fqdn claims (populated by auth_handover.go after the
+	// operator follows the handover JWT redirect). The cookie is the
+	// authoritative post-handover source — env vars are populated
+	// only on the slow path via the orchestrator's chart-values
+	// overlay write, which can lag handover by minutes. The store
+	// fallback further requires mother to have POSTed the deployment
+	// record to the Sovereign (not always the case on BYO).
+	// Caught on omantel.biz 2026-05-06.
+	if jwtFQDN, jwtDepID, ok := readSessionClaimsFromCookie(r); ok {
+		if fqdn == "" {
+			fqdn = jwtFQDN
+		}
+		if deploymentID == "" {
+			deploymentID = jwtDepID
+		}
+	}
 
 	// Mothership: neither env is set — surface 404 so the UI hook treats
 	// this as "not on a Sovereign" and uses URL params instead.
@@ -101,4 +122,42 @@ func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, _ *http.Request) {
 		SovereignFQDN: fqdn,
 	})
 }
+
+// readSessionClaimsFromCookie peeks at the catalyst_session cookie's
+// payload (middle base64 segment) and extracts sovereign_fqdn +
+// deployment_id without verifying the signature. This handler is OUTSIDE
+// RequireSession by design (it must serve anonymous bootstrap on
+// Catalyst-Zero), so we do best-effort extraction. On Sovereign mode
+// the catalyst-api is the same process that minted the cookie at
+// /auth/handover, so there's no trust boundary worry — a tampered
+// cookie at most flips deploymentId resolution back to the env path.
+//
+// Returns ok=false on any parse failure (no cookie / malformed JWT /
+// unparseable payload). Caller falls through to the env+store path.
+func readSessionClaimsFromCookie(r *http.Request) (fqdn, deploymentID string, ok bool) {
+	c, err := r.Cookie("catalyst_session")
+	if err != nil || c == nil || c.Value == "" {
+		return "", "", false
+	}
+	parts := strings.Split(c.Value, ".")
+	if len(parts) != 3 {
+		return "", "", false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", false
+	}
+	var claims struct {
+		SovereignFQDN string `json:"sovereign_fqdn"`
+		DeploymentID  string `json:"deployment_id"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", "", false
+	}
+	return claims.SovereignFQDN, claims.DeploymentID, true
+}
+
+// silence unused-import warning when context isn't directly referenced
+// elsewhere in this file's variable wiring.
+var _ = context.Background
 

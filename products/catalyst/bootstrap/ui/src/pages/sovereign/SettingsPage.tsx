@@ -57,6 +57,7 @@ import { Link, useParams } from '@tanstack/react-router'
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { useWizardStore } from '@/entities/deployment/store'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
@@ -104,10 +105,14 @@ export interface SettingsPageProps {
 }
 
 export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) {
-  const params = useParams({ from: '/provision/$deploymentId/settings' as never }) as {
-    deploymentId: string
-  }
-  const deploymentId = params.deploymentId
+  // Use strict:false params + useResolvedDeploymentId so this page
+  // works on BOTH the mother route (/provision/$deploymentId/settings)
+  // AND the chroot Sovereign route (/settings). Strict-mode useParams
+  // throws Invariant on the chroot route since the path doesn't match.
+  // Caught on omantel.biz 2026-05-06.
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = params.deploymentId ?? resolvedId ?? ''
 
   const store = useWizardStore()
 

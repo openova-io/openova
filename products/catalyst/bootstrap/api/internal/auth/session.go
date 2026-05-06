@@ -32,6 +32,18 @@ type Claims struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 	PreferredName string `json:"preferred_username"`
+
+	// SovereignFQDN — populated by the Sovereign session minted at
+	// /auth/handover (auth_handover.go). Empty on Catalyst-Zero
+	// sessions. Used by HandleSovereignSelf to resolve the Sovereign
+	// identity post-handover when env CATALYST_OTECH_FQDN /
+	// CATALYST_SELF_DEPLOYMENT_ID may still be unset. 2026-05-06.
+	SovereignFQDN string `json:"sovereign_fqdn"`
+
+	// DeploymentID — populated alongside SovereignFQDN. The chroot
+	// Sovereign Console reads this via /api/v1/sovereign/self so
+	// useResolvedDeploymentId never returns empty post-handover.
+	DeploymentID string `json:"deployment_id"`
 }
 
 // Config holds the runtime configuration for the auth package.
