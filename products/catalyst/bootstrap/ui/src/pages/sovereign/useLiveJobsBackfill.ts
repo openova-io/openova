@@ -85,7 +85,28 @@ async function defaultFetchJobs(deploymentId: string): Promise<Job[]> {
     throw new Error(`Failed to fetch jobs: ${res.status}`)
   }
   const body = (await res.json()) as JobsResponse
-  return Array.isArray(body.jobs) ? body.jobs : []
+  // Sovereign endpoint returns a minimal shape (no appId/parentId/
+  // dependsOn/childIds). JobsTable iterates `for (const d of
+  // job.dependsOn)` and reads `job.appId.toLowerCase()` etc., which
+  // crashes on undefined. Coerce missing fields to safe defaults so
+  // the table renders. Caught on omantel.biz 2026-05-06 — table
+  // rendered 0 rows because TypeError 'cannot read length of
+  // undefined' on dependsOn.
+  const raw = Array.isArray(body.jobs) ? body.jobs : []
+  return raw.map((j) => ({
+    id: j.id ?? '',
+    jobName: (j as { jobName?: string }).jobName ?? (j as { name?: string }).name ?? j.id ?? '',
+    displayName: (j as { displayName?: string }).displayName,
+    type: (j as { type?: 'install' | 'group' }).type ?? 'install',
+    appId: (j as { appId?: string }).appId ?? '',
+    parentId: (j as { parentId?: string }).parentId ?? '',
+    dependsOn: (j as { dependsOn?: string[] }).dependsOn ?? [],
+    childIds: (j as { childIds?: string[] }).childIds ?? [],
+    status: ((j as { status?: string }).status ?? 'pending') as Job['status'],
+    startedAt: (j as { startedAt?: string }).startedAt ?? null,
+    finishedAt: (j as { finishedAt?: string }).finishedAt ?? null,
+    durationMs: (j as { durationMs?: number }).durationMs ?? 0,
+  })) as Job[]
 }
 
 export interface UseLiveJobsBackfillOptions {
