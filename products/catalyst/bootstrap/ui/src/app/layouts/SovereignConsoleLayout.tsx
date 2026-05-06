@@ -45,9 +45,8 @@
  *          Phase-8b followup (session-cookie precedence).
  */
 
-import { useEffect, useState, type ReactNode } from 'react'
-import { Outlet, useRouter } from '@tanstack/react-router'
-import { LogOut, Settings } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Outlet } from '@tanstack/react-router'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { API_BASE } from '@/shared/config/urls'
 import {
@@ -55,24 +54,10 @@ import {
   isTokenExpired,
   silentRefresh,
   initiateLogin,
-  initiateLogout,
-  parseJWTClaims,
   getRequiredActions,
 } from '@/shared/lib/oidc'
 import type { TokenSet } from '@/shared/lib/oidc'
 import { RequiredActionsModal } from '@/components/RequiredActionsModal'
-import { SovereignSidebar } from '@/pages/sovereign/SovereignSidebar'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { NotificationBell } from '@/shared/ui/notifications'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-} from '@/shared/ui/dropdown-menu'
-import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 
 /**
  * Shape returned by GET /api/v1/whoami when the catalyst_session cookie
@@ -121,18 +106,9 @@ async function probeSessionCookie(): Promise<WhoamiClaims | null> {
   }
 }
 
-interface SovereignConsoleLayoutProps {
-  pageTitle?: string
-  headerSlotRight?: ReactNode
-}
-
-export function SovereignConsoleLayout({
-  pageTitle,
-  headerSlotRight,
-}: SovereignConsoleLayoutProps) {
+export function SovereignConsoleLayout() {
   const [authState, setAuthState] = useState<AuthState>({ status: 'loading' })
   const sovereignFQDN = DETECTED_MODE.sovereignFQDN ?? ''
-  const router = useRouter()
 
   useEffect(() => {
     async function initAuth() {
@@ -190,28 +166,6 @@ export function SovereignConsoleLayout({
     setAuthState({ status: 'authenticated', tokens, requiredActions: [] })
   }
 
-  async function handleLogout() {
-    // Cookie-authenticated session: clear the server-side cookie via
-    // the DELETE /api/v1/auth/session endpoint, then hard-reload to '/'
-    // so the layout re-runs initAuth from a clean state. The OIDC
-    // logout endpoint isn't relevant in this branch — there is no
-    // Keycloak session to terminate.
-    if (authState.status === 'cookie-authenticated') {
-      try {
-        await fetch(`${API_BASE}/v1/auth/session`, {
-          method: 'DELETE',
-          credentials: 'include',
-        })
-      } catch {
-        // Network failures don't block client-side sign-out; the cookie
-        // will be cleared on the next request that gets a 401 anyway.
-      }
-      window.location.replace('/')
-      return
-    }
-    if (sovereignFQDN) initiateLogout(sovereignFQDN)
-  }
-
   // Loading — blank page while we check sessionStorage + maybe redirect to KC
   if (authState.status === 'loading' || authState.status === 'unauthenticated') {
     return (
@@ -239,40 +193,17 @@ export function SovereignConsoleLayout({
     )
   }
 
-  // Two authenticated branches feed the same shell: the cookie path
-  // (post-handover, no OIDC tokens) and the OIDC path (returning user
-  // whose KC session is fresh). Normalise both to a (userName,
-  // requiredActions) pair so the chrome below stays branch-agnostic.
-  let userName: string
-  let requiredActions: string[]
-  if (authState.status === 'cookie-authenticated') {
-    userName = authState.claims.email || 'User'
-    // No id_token in the cookie path — required actions are gated by
-    // the server-side middleware before the cookie is ever issued, so
-    // there is nothing for the client to enforce here.
-    requiredActions = []
-  } else {
-    const { tokens, requiredActions: ra } = authState
-    const claims = parseJWTClaims(tokens.idToken)
-    userName =
-      (claims.name as string | undefined) ??
-      (claims.preferred_username as string | undefined) ??
-      (claims.email as string | undefined) ??
-      'User'
-    requiredActions = ra
-  }
-  const userInitials = userName
-    .split(/\s+/)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .slice(0, 2)
-    .join('')
-
+  // Chroot byte-identical chrome: this layout is auth-gate + the
+  // required-actions modal only. The page's PortalShell brings the
+  // sidebar + header (PortalShell renders SovereignSidebar on chroot
+  // for the clean-root URLs). Rendering both this layout's chrome AND
+  // PortalShell's chrome at once produced a visible "frame in frame" —
+  // two stacked headers, two sidebars-worth of nav. Caught on
+  // omantel.biz 2026-05-06.
+  const requiredActions =
+    authState.status === 'cookie-authenticated' ? [] : authState.requiredActions
   return (
-    <div
-      className="flex min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]"
-      data-testid="sov-console-shell"
-    >
-      {/* Required-actions blocking modal */}
+    <>
       {requiredActions.length > 0 ? (
         <RequiredActionsModal
           sovereignFQDN={sovereignFQDN}
@@ -280,75 +211,7 @@ export function SovereignConsoleLayout({
           onComplete={handleRequiredActionsComplete}
         />
       ) : null}
-
-      {/* Left sidebar */}
-      <SovereignSidebar sovereignFQDN={sovereignFQDN} />
-
-      {/* Main content area */}
-      <div className="ml-56 flex flex-1 flex-col">
-        {/* Top header band */}
-        <header
-          data-testid="sov-console-header"
-          className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg-2)]/90 px-4 backdrop-blur"
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {pageTitle ? (
-              <h1 className="truncate text-base font-semibold text-[var(--color-text-strong)]">
-                {pageTitle}
-              </h1>
-            ) : null}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-3">
-            {headerSlotRight}
-            <NotificationBell />
-            <ThemeToggle />
-
-            {/* User menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--color-surface-hover)]"
-                  data-testid="sov-user-menu-trigger"
-                  aria-label="User menu"
-                >
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-xs">{userInitials}</AvatarFallback>
-                  </Avatar>
-                  <span className="hidden max-w-[120px] truncate text-xs font-medium text-[var(--color-text)] sm:block">
-                    {userName}
-                  </span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end" className="w-48">
-                <DropdownMenuLabel className="text-xs text-[var(--color-text-dim)]">
-                  {sovereignFQDN}
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  onClick={() => router.navigate({ to: '/settings' as never })}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-[var(--color-error)] focus:text-[var(--color-error)]"
-                  onClick={handleLogout}
-                  data-testid="sov-logout-btn"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
-
-        {/* Page content */}
-        <main className="flex-1 p-8">
-          <Outlet />
-        </main>
-      </div>
-    </div>
+      <Outlet />
+    </>
   )
 }

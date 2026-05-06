@@ -44,6 +44,7 @@
 
 import type { ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
+import { SovereignSidebar } from './SovereignSidebar'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { NotificationBell } from '@/shared/ui/notifications'
 import { ProfileMenu } from '@/widgets/auth/ProfileMenu'
@@ -74,27 +75,25 @@ export function PortalShell({
   headerSlotRight,
   children,
 }: PortalShellProps) {
-  // On Sovereign mode (chroot Sovereign Console at console.<sov-fqdn>),
-  // SovereignConsoleLayout already mounts SovereignSidebar with the
-  // chroot-correct clean-root URLs (/jobs, /apps, etc.). PortalShell is
-  // shared with the wizard's mother-mode pages (/provision/$id/X) which
-  // use the deploymentId-templated Sidebar below. Rendering both at once
-  // produces TWO overlapping sidebars whose links resolve differently —
-  // the inner Sidebar renders /provision//jobs (empty $deploymentId)
-  // because the chroot route doesn't carry that param. Skip the inner
-  // Sidebar in Sovereign mode; the outer SovereignSidebar covers it.
-  // Caught on otech127 2026-05-05.
-  const renderSidebar = DETECTED_MODE.mode !== 'sovereign'
-  const mainOffset = renderSidebar ? 'ml-56' : ''
+  // PortalShell is the single chrome owner for both surfaces (mother +
+  // chroot). The ONLY mode-aware bit is the sidebar's URL prefix:
+  //   - Mother (/sovereign/provision/$id): Sidebar with /provision/$id/X URLs
+  //   - Chroot (console.<sov-fqdn>):       SovereignSidebar with clean /X URLs
+  // Both render the same shape (w-56 fixed aside, same nav layout).
+  // SovereignConsoleLayout above is auth-only on chroot — it does not
+  // render its own sidebar/header any more (would produce frame-in-frame).
+  const isSovereign = DETECTED_MODE.mode === 'sovereign'
   return (
     <div
       className="flex min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]"
       data-testid="sov-portal-shell"
     >
-      {renderSidebar ? (
+      {isSovereign ? (
+        <SovereignSidebar sovereignFQDN={sovereignFQDN ?? ''} />
+      ) : (
         <Sidebar deploymentId={deploymentId} sovereignFQDN={sovereignFQDN} />
-      ) : null}
-      <div className={`${mainOffset} flex flex-1 flex-col`}>
+      )}
+      <div className="ml-56 flex flex-1 flex-col">
         {/* Sovereign portal top header band — title-left, controls-right. */}
         <header
           data-testid="portal-header"
