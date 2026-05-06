@@ -20,7 +20,8 @@
  * component is a pure renderer.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   KINDS,
   type CloudKindEntry,
@@ -134,15 +135,23 @@ function MoreChipPopover({
   onChange,
 }: MoreChipPopoverProps) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement | null>(null)
+  // The wrapper hosts the +More button; the popover renders via
+  // portal to document.body so an ancestor's `overflow: auto` (the
+  // chips strip's horizontal-scroll wrapper) cannot clip it.
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null)
 
-  // Click-outside dismissal — same pattern as AddChipPopover in the
-  // architecture-graph widget.
+  // Click-outside dismissal — must match against BOTH the +More
+  // button AND the portaled popover (different DOM trees).
   useEffect(() => {
     if (!open) return
     function onDoc(ev: MouseEvent) {
-      const t = ev.target as HTMLElement | null
-      if (!ref.current?.contains(t)) {
+      const t = ev.target as Node | null
+      if (
+        !wrapRef.current?.contains(t) &&
+        !popoverRef.current?.contains(t)
+      ) {
         setOpen(false)
       }
     }
@@ -150,8 +159,93 @@ function MoreChipPopover({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  // Position the portaled popover under the +More button. Recompute
+  // on open + on viewport scroll/resize so the anchor stays correct
+  // when the toolbar scrolls horizontally or the page reflows.
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null)
+      return
+    }
+    function reposition() {
+      const btn = wrapRef.current?.querySelector(
+        '[data-testid="cloud-kind-chip-more"]',
+      ) as HTMLElement | null
+      if (!btn) return
+      const r = btn.getBoundingClientRect()
+      // Popover is right-aligned to the +More button's right edge.
+      // Width is unknown until it renders; we set `right` via inline
+      // style by computing left = r.right - estimatedWidth, but a
+      // simpler approach is to anchor by the right edge using
+      // `position: fixed; left: r.right; transform: translateX(-100%)`.
+      setCoords({ left: r.right, top: r.bottom + 6 })
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open])
+
+  const popover = open && coords && typeof document !== 'undefined' ? (
+    createPortal(
+      <div
+        ref={popoverRef}
+        data-testid="cloud-kind-chip-more-popover"
+        role="menu"
+        className="cloud-kind-chip-more-pop"
+        style={{
+          position: 'fixed',
+          left: coords.left,
+          top: coords.top,
+          transform: 'translateX(-100%)',
+        }}
+      >
+        {items.map((k) => {
+          const c = counts[k.id]
+          const showCount = k.hasData && c !== null
+          const active = k.id === activeKind
+          return (
+            <button
+              key={k.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              data-testid={`cloud-kind-chip-more-item-${k.id}`}
+              onClick={() => {
+                onChange(k.id)
+                setOpen(false)
+              }}
+              className={`cloud-kind-chip-more-item${
+                active ? ' cloud-kind-chip-more-item-active' : ''
+              }`}
+            >
+              <span className="cloud-kind-chip-icon" aria-hidden>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={k.icon} />
+                </svg>
+              </span>
+              <span className="cloud-kind-chip-more-item-label">{k.label}</span>
+              <span className="cloud-kind-chip-count">{showCount ? c : '—'}</span>
+            </button>
+          )
+        })}
+      </div>,
+      document.body,
+    )
+  ) : null
+
   return (
-    <div className="cloud-kind-chip-more-wrap" ref={ref}>
+    <div className="cloud-kind-chip-more-wrap" ref={wrapRef}>
       <button
         type="button"
         data-testid="cloud-kind-chip-more"
@@ -166,50 +260,7 @@ function MoreChipPopover({
         <span aria-hidden>+</span>
         <span className="cloud-kind-chip-label">More</span>
       </button>
-      {open && (
-        <div
-          data-testid="cloud-kind-chip-more-popover"
-          role="menu"
-          className="cloud-kind-chip-more-pop"
-        >
-          {items.map((k) => {
-            const c = counts[k.id]
-            const showCount = k.hasData && c !== null
-            const active = k.id === activeKind
-            return (
-              <button
-                key={k.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                data-testid={`cloud-kind-chip-more-item-${k.id}`}
-                onClick={() => {
-                  onChange(k.id)
-                  setOpen(false)
-                }}
-                className={`cloud-kind-chip-more-item${
-                  active ? ' cloud-kind-chip-more-item-active' : ''
-                }`}
-              >
-                <span className="cloud-kind-chip-icon" aria-hidden>
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.6}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d={k.icon} />
-                  </svg>
-                </span>
-                <span className="cloud-kind-chip-more-item-label">{k.label}</span>
-                <span className="cloud-kind-chip-count">{showCount ? c : '—'}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
+      {popover}
     </div>
   )
 }
