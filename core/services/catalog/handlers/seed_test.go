@@ -2,23 +2,23 @@ package handlers
 
 import "testing"
 
-// TestDeployableAppSlugs_Issue941 asserts that openclaw + stalwart-mail
-// are present in the deployable map (issue #941). C5-final hit "27 apps
-// COMING SOON" on otech113 because both were missing — gates 4 (LLM)
-// and 5 (mail) blocked before alice could click Install.
-func TestDeployableAppSlugs_Issue941(t *testing.T) {
+// TestDeployableAppSlugs_OpenclawStalwartDisabled asserts that openclaw and
+// stalwart-mail are NOT in the deployable map. They were briefly enabled by
+// #941 (catalog flag flipped) but the SME provisioning generator at
+// core/services/provisioning/gitops/apps.go has no AppSpec for either, so
+// the rendered Deployment manifests are invalid (missing image + ports).
+// Live failure 2026-05-06 on tenant "test11":
+//
+//	tenant-test11-apps Kustomization rejected:
+//	Deployment.apps "openclaw" is invalid: containers[0].image: Required value
+//
+// Re-enabling these requires per-app HelmRelease overlays beyond the single
+// Deployment template the generator currently supports.
+func TestDeployableAppSlugs_OpenclawStalwartDisabled(t *testing.T) {
 	d := DeployableAppSlugs()
-	wantTrue := []string{
-		"openclaw",      // #941 — bp-openclaw via SME-tenant overlay
-		"stalwart-mail", // #941 — bp-stalwart-tenant via SME-tenant overlay
-		// Sanity — the canonical alice baseline apps.
-		"wordpress",
-		"ghost",
-		"nextcloud",
-	}
-	for _, slug := range wantTrue {
-		if !d[slug] {
-			t.Errorf("expected %q to be deployable, got false (or missing)", slug)
+	for _, slug := range []string{"openclaw", "stalwart-mail"} {
+		if d[slug] {
+			t.Errorf("%q must NOT be deployable until per-app overlay exists in the SME provisioning generator", slug)
 		}
 	}
 }
@@ -32,7 +32,6 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 		"wordpress", "ghost", "nextcloud", "bookstack", "uptime-kuma",
 		"gitea", "vaultwarden", "umami", "nocodb", "cal-com",
 		"invoiceshelf", "formbricks", "listmonk",
-		"openclaw", "stalwart-mail",
 		"postgres", "mysql", "redis",
 	}
 	if got, want := len(d), len(expected); got != want {
