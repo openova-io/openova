@@ -972,10 +972,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                   fill="var(--color-text)"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {(() => {
-                    const lbl = n.label ?? ''
-                    return lbl.length > 24 ? lbl.slice(0, 23) + '…' : lbl
-                  })()}
+                  {n.label.length > 24 ? n.label.slice(0, 23) + '…' : n.label}
                 </text>
               </g>
             )

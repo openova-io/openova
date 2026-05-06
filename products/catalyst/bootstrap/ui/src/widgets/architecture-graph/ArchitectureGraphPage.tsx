@@ -203,25 +203,8 @@ export function ArchitectureGraphPage({
 
   /* ── 1. Adapter — tree → nodes/edges, merged with K8s side ─── */
   const { nodes: allNodes, edges: allEdges } = useMemo(() => {
-    // hierarchyToGraph reads many nested fields that the Sovereign
-    // chroot /api/v1/sovereign/topology shape may not carry (legacy
-    // assumes mother-side shape). Wrap in try/catch so a missing
-    // field never crashes the entire /cloud page via the React
-    // error boundary. Caught on omantel.biz 2026-05-06.
-    let cloud: { nodes: GraphNode[]; edges: GraphEdge[] }
-    try {
-      cloud = hierarchyToGraph(data)
-    } catch (err) {
-      console.warn('[ArchitectureGraph] hierarchyToGraph threw, using empty:', err)
-      cloud = { nodes: [], edges: [] }
-    }
-    let k8s: { nodes: GraphNode[]; edges: GraphEdge[] }
-    try {
-      k8s = k8sToGraph(k8sSnapshot)
-    } catch (err) {
-      console.warn('[ArchitectureGraph] k8sToGraph threw, using empty:', err)
-      k8s = { nodes: [], edges: [] }
-    }
+    const cloud = hierarchyToGraph(data)
+    const k8s = k8sToGraph(k8sSnapshot)
     return mergeGraphs(cloud, k8s)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, k8sRevision])
