@@ -254,8 +254,8 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// ReadSessionToken extracts the access token from the session cookie
-// OR the Authorization header.
+// ReadSessionToken extracts the access token from the Authorization header,
+// the `?access_token=` query parameter, or the session cookie.
 //
 // Token sources (first match wins):
 //
@@ -265,10 +265,23 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 //     during that flow (token exchange happens entirely client-side via
 //     PKCE), so the SPA must attach the token to every API fetch as
 //     Authorization: Bearer. ValidateToken handles signature verification
-//     against the same JWKS regardless of whether the JWT arrived via
-//     cookie or header.
+//     against the same JWKS regardless of which channel carried the JWT.
 //
-//  2. catalyst_session cookie — two shapes accepted:
+//  2. ?access_token=<jwt> URL query parameter — the EventSource browser
+//     API does not support custom request headers. The chroot Sovereign
+//     Console therefore can't attach Authorization: Bearer to its SSE
+//     connections (e.g. /sovereigns/{id}/k8s/stream), and the chroot has
+//     no PIN-minted catalyst_session cookie to fall back on. Following
+//     the standard SSE auth pattern used by Grafana / Loki, we accept the
+//     access token as a query parameter — same JWT, same JWKS validation
+//     path. The token MUST NEVER be logged: HandleK8sStream and any
+//     middleware in the request path treat r.URL.RawQuery as opaque and
+//     never log it; structured loggers in this codebase log r.URL.Path
+//     only (see the *.access logger in main.go). Operators inspecting
+//     envoy access logs should configure the listener to redact the
+//     access_token query param if access logs are enabled.
+//
+//  3. catalyst_session cookie — two shapes accepted:
 //     a. HMAC-wrapped (Option A legacy): "<token>.<hmac>" — produced by
 //        IssueSessionCookie. The HMAC suffix is verified and stripped.
 //     b. Raw self-signed JWT (PIN auth, issue #688): the cookie value is
@@ -279,7 +292,8 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 //
 // Returns "" when no valid token source is present.
 func (c *Config) ReadSessionToken(r *http.Request) string {
-	// Bearer header — used by the chroot SPA after its own OIDC callback.
+	// Bearer header — used by the chroot SPA after its own OIDC callback
+	// for every fetch() request. Preferred when available.
 	if hdr := r.Header.Get("Authorization"); hdr != "" {
 		const prefix = "Bearer "
 		if len(hdr) > len(prefix) && strings.EqualFold(hdr[:len(prefix)], prefix) {
@@ -288,6 +302,18 @@ func (c *Config) ReadSessionToken(r *http.Request) string {
 			if len(parts) == 3 {
 				return tok
 			}
+		}
+	}
+
+	// Query parameter — used by the chroot SPA for EventSource (SSE)
+	// connections, which can't carry a custom Authorization header.
+	// Same JWT shape (3 base64url segments) is enforced before the
+	// validator runs so a malformed value short-circuits to 401 with
+	// no JWKS round-trip.
+	if qtok := strings.TrimSpace(r.URL.Query().Get("access_token")); qtok != "" {
+		parts := strings.Split(qtok, ".")
+		if len(parts) == 3 {
+			return qtok
 		}
 	}
 

@@ -198,4 +198,35 @@ describe('useK8sStream', () => {
     renderHook(() => useK8sStream({ sovereignId: 'alpha', kinds: [] }))
     expect(activeES?.url).not.toContain('kinds=')
   })
+
+  // Regression: chroot Sovereign Console SSE auth — EventSource cannot
+  // attach Authorization: Bearer, so the hook must append the OIDC
+  // access token from sessionStorage as a `?access_token=<jwt>` query
+  // parameter. catalyst-api ReadSessionToken accepts the param. Closes
+  // the 13-page chroot list-view 401 incident (TC-066/067/071-076/etc).
+  it('appends access_token query param when an OIDC token is in sessionStorage', () => {
+    sessionStorage.setItem('oidc:id_token', 'fake.id.tok')
+    sessionStorage.setItem('oidc:access_token', 'fake.access.tok')
+    sessionStorage.setItem('oidc:expires_at', String(Date.now() + 60_000))
+    try {
+      renderHook(() =>
+        useK8sStream({ sovereignId: 'alpha', kinds: ['pod'] }),
+      )
+      expect(activeES?.url).toContain('access_token=fake.access.tok')
+    } finally {
+      sessionStorage.removeItem('oidc:id_token')
+      sessionStorage.removeItem('oidc:access_token')
+      sessionStorage.removeItem('oidc:expires_at')
+    }
+  })
+
+  it('omits access_token query param when no OIDC token is stored (mother / cookie path)', () => {
+    sessionStorage.removeItem('oidc:id_token')
+    sessionStorage.removeItem('oidc:access_token')
+    sessionStorage.removeItem('oidc:expires_at')
+    renderHook(() =>
+      useK8sStream({ sovereignId: 'alpha', kinds: ['pod'] }),
+    )
+    expect(activeES?.url ?? '').not.toContain('access_token=')
+  })
 })
