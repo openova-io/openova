@@ -113,11 +113,216 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 			WorkerCount:      in.WorkerCount,
 		}
 		regions = append(regions, buildRegion(ctx, in, legacy))
+	} else if in.DynamicClient != nil && in.SovereignFQDN != "" {
+		// Chroot post-cutover path: the synthesised Deployment record
+		// has empty Regions + empty Region (the wizard data lives on
+		// the mother). Probe the live cluster's Nodes via the dynamic
+		// client, group by `node.kubernetes.io/instance-type`, and
+		// emit one Region with one Cluster carrying all real Nodes +
+		// derived NodePools. Result: /cloud kind=clusters /node-pools
+		// /worker-nodes render real data on the chroot.
+		if rs, ok := buildRegionFromLiveNodes(ctx, in); ok {
+			regions = append(regions, rs)
+		}
+	}
+	if len(regions) > 0 && pattern == "unknown" {
+		pattern = "solo"
 	}
 	return TopologyData{
 		Pattern: pattern,
 		Regions: regions,
 	}
+}
+
+// nodeGVR — schema reference for core/v1 Node listing via dynamic client.
+var nodeGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
+
+// buildRegionFromLiveNodes synthesises a Region from the live cluster's
+// Node list when the deployment record has no declared Regions (the
+// chroot post-cutover case). Groups Nodes by SKU label to derive
+// NodePools; emits one Cluster carrying all real Nodes. Returns
+// (zero, false) when the Node list is empty or unreachable.
+func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool) {
+	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	list, err := in.DynamicClient.Resource(nodeGVR).List(listCtx, metav1.ListOptions{})
+	if err != nil || list == nil || len(list.Items) == 0 {
+		return Region{}, false
+	}
+
+	// Pick a region from a Node label if any node carries one; else
+	// fall back to the SovereignFQDN as the region label.
+	regionName := ""
+	for _, n := range list.Items {
+		for _, k := range []string{"topology.kubernetes.io/region", "failure-domain.beta.kubernetes.io/region"} {
+			if v, ok := n.GetLabels()[k]; ok && v != "" {
+				regionName = v
+				break
+			}
+		}
+		if regionName != "" {
+			break
+		}
+	}
+	if regionName == "" {
+		regionName = in.SovereignFQDN
+	}
+
+	type poolKey struct {
+		role string // control-plane or worker
+		sku  string
+	}
+	poolNodes := map[poolKey][]Node{}
+	cpSKU := ""
+	workerSKU := ""
+	cpCount, workerCount := 0, 0
+	for _, n := range list.Items {
+		labels := n.GetLabels()
+		role := "worker"
+		if _, ok := labels["node-role.kubernetes.io/control-plane"]; ok {
+			role = "control-plane"
+		} else if _, ok := labels["node-role.kubernetes.io/master"]; ok {
+			role = "control-plane"
+		}
+		sku := labels["node.kubernetes.io/instance-type"]
+		if sku == "" {
+			sku = labels["beta.kubernetes.io/instance-type"]
+		}
+		// Read the first InternalIP for display.
+		ip := ""
+		if addrs, found, _ := unstructuredAddresses(n.Object); found {
+			for _, a := range addrs {
+				m, ok := a.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, _ := m["type"].(string); t == "InternalIP" {
+					ip, _ = m["address"].(string)
+					break
+				}
+			}
+		}
+		key := poolKey{role: role, sku: sku}
+		nodeID := "node-" + n.GetName()
+		statusReady := nodeReadyStatus(n.Object)
+		nodeStatus := in.Status
+		if statusReady == "True" {
+			nodeStatus = "healthy"
+		} else if statusReady == "False" {
+			nodeStatus = "degraded"
+		}
+		poolNodes[key] = append(poolNodes[key], Node{
+			ID:         nodeID,
+			Name:       n.GetName(),
+			SKU:        sku,
+			Region:     regionName,
+			Role:       role,
+			IP:         ip,
+			Status:     nodeStatus,
+			NodePoolID: "pool-" + role + "-" + regionName,
+		})
+		if role == "control-plane" {
+			cpCount++
+			if cpSKU == "" {
+				cpSKU = sku
+			}
+		} else {
+			workerCount++
+			if workerSKU == "" {
+				workerSKU = sku
+			}
+		}
+	}
+
+	allNodes := make([]Node, 0, len(list.Items))
+	pools := make([]NodePool, 0, len(poolNodes))
+	for k, ns := range poolNodes {
+		allNodes = append(allNodes, ns...)
+		pools = append(pools, NodePool{
+			ID:          "pool-" + k.role + "-" + regionName,
+			Name:        k.role + "-" + regionName,
+			Role:        k.role,
+			SKU:         k.sku,
+			Region:      regionName,
+			DesiredSize: len(ns),
+			CurrentSize: len(ns),
+			Status:      in.Status,
+		})
+	}
+
+	clusterName := in.SovereignFQDN
+	if clusterName == "" {
+		clusterName = "cluster-" + in.DeploymentID
+	}
+	clusterID := "cluster-" + in.DeploymentID
+	cluster := Cluster{
+		ID:            clusterID,
+		Name:          clusterName,
+		Version:       "v1.31",
+		Status:        in.Status,
+		NodeCount:     len(allNodes),
+		VClusters:     loadVClusters(ctx, in),
+		LoadBalancers: []LoadBalancer{},
+		NodePools:     pools,
+		Nodes:         allNodes,
+	}
+	provider := in.Provider
+	if provider == "" {
+		provider = "hetzner"
+	}
+	region := Region{
+		ID:             "region-" + regionName,
+		Name:           regionName,
+		Provider:       provider,
+		ProviderRegion: regionName,
+		SkuCP:          cpSKU,
+		SkuWorker:      workerSKU,
+		WorkerCount:    workerCount,
+		Status:         in.Status,
+		Clusters:       []Cluster{cluster},
+		Networks:       []Network{},
+	}
+	_ = cpCount
+	return region, true
+}
+
+// unstructuredAddresses returns status.addresses[] from a Node's
+// unstructured object payload.
+func unstructuredAddresses(obj map[string]any) ([]any, bool, error) {
+	st, ok := obj["status"].(map[string]any)
+	if !ok {
+		return nil, false, nil
+	}
+	addrs, ok := st["addresses"].([]any)
+	if !ok {
+		return nil, false, nil
+	}
+	return addrs, true, nil
+}
+
+// nodeReadyStatus returns the Ready condition status string ("True" /
+// "False" / "Unknown") from the Node's status.conditions[]. Returns
+// empty string when not found.
+func nodeReadyStatus(obj map[string]any) string {
+	st, ok := obj["status"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	conds, ok := st["conditions"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, c := range conds {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t == "Ready" {
+			s, _ := m["status"].(string)
+			return s
+		}
+	}
+	return ""
 }
 
 func derivePattern(in LoaderInput) string {

@@ -1735,14 +1735,20 @@ func writeBadRequest(w http.ResponseWriter, code, detail string) {
 // on miss so the caller can write a 404 with a contextual error body.
 func (h *Handler) lookupDeploymentForInfra(id string) (*Deployment, bool) {
 	val, ok := h.deployments.Load(id)
-	if !ok {
-		return nil, false
+	if ok {
+		dep, ok := val.(*Deployment)
+		if ok {
+			return dep, true
+		}
 	}
-	dep, ok := val.(*Deployment)
-	if !ok {
-		return nil, false
+	// Chroot post-cutover: synthesise an in-memory Deployment from
+	// SOVEREIGN_FQDN so the topology loader gets a non-nil dep with
+	// SovereignFQDN set; the loader's chroot fallback then probes the
+	// live cluster for Nodes via the in-cluster dynamic client.
+	if dep := h.chrootEnsureDeployment(id); dep != nil {
+		return dep, true
 	}
-	return dep, true
+	return nil, false
 }
 
 // statusForDeployment maps the Deployment.Status string to the canonical
