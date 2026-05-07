@@ -3,10 +3,14 @@
  * Admin landing page renders.
  *
  * Inputs:
- *   • BOOTSTRAP_KIT (catalog.generated.ts) — 11 always-installed
- *     Blueprints (cilium, cert-manager, flux, crossplane, sealed-secrets,
- *     spire, nats-jetstream, openbao, keycloak, gitea,
- *     bp-catalyst-platform).
+ *   • BOOTSTRAP_KIT (catalog.generated.ts) — always-installed Blueprints
+ *     defined by the NN-prefixed files under
+ *     clusters/_template/bootstrap-kit/. The exact set is generated
+ *     from the filesystem at build time (see catalog.generated.ts);
+ *     bp-spire is NOT in this kit (deploying SPIRE is a tier-up choice,
+ *     not a bootstrap default), so /app/bp-spire on a deployed Sovereign
+ *     correctly renders the App-not-found surface unless the operator
+ *     selected it in the wizard.
  *   • The wizard store's `selectedComponents` (string[] of bare ids
  *     without the bp- prefix, e.g. "harbor", "kserve", "axon"). Each
  *     gets normalised to its Blueprint id for display alongside the

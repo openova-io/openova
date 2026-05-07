@@ -659,6 +659,18 @@ const consoleJobsRoute = createRoute({
   path: '/jobs',
   component: JobsPage,
 })
+// Jobs timeline (Gantt-style retrospective) — chroot Sovereign Console.
+// MUST be registered BEFORE the dynamic $jobId route below so TanStack
+// Router resolves `/jobs/timeline` to this surface, not to JobDetail with
+// jobId="timeline" (which would render the canonical "Job not found"
+// branch). Sibling parity with provisionJobsTimelineRoute on the
+// /provision/$deploymentId/* tree. Caught on console.omantel.biz QA pass
+// 2026-05-07 (TC-050).
+const consoleJobsTimelineRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/jobs/timeline',
+  component: JobsTimeline,
+})
 const consoleJobDetailRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs/$jobId',
@@ -807,6 +819,7 @@ const routeTree = rootRoute.addChildren([
     consoleAppsRoute,
     consoleAppDetailRoute,
     consoleJobsRoute,
+    consoleJobsTimelineRoute,
     consoleJobDetailRoute,
     consoleCloudRoute,
     consoleUsersRoute,
