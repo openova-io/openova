@@ -1,6 +1,8 @@
 /**
  * JobsTimeline — fullscreen Gantt-style retrospective view of all jobs.
- * (Stretch deliverable for #206; route at /provision/$deploymentId/jobs/timeline.)
+ * (Stretch deliverable for #206; routes:
+ *   • mothership tenant: /provision/$deploymentId/jobs/timeline
+ *   • Sovereign chroot:  /jobs/timeline (added by PR #1073, fixed in #1076).)
  *
  * Each row is one job; a horizontal bar spans `startedAt` → `finishedAt`
  * (or "now" if the job is still running). Bars are colour-coded by
@@ -23,7 +25,8 @@
  */
 
 import { useMemo } from 'react'
-import { useParams, Link } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
@@ -77,10 +80,17 @@ export function JobsTimeline({
   nowOverride,
   jobsOverride,
 }: JobsTimelineProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/jobs/timeline' as never,
-  }) as { deploymentId: string }
-  const { deploymentId } = params
+  // Resolve deploymentId from either:
+  //   • URL :deploymentId param (mothership tenant route /provision/$id/jobs/timeline)
+  //   • /api/v1/sovereign/self (Sovereign chroot route /jobs/timeline, no URL param)
+  // Mirrors the pattern used by JobsPage / NotificationsPage / Dashboard.
+  // Caught on console.omantel.biz QA pass 2026-05-07 (TC-050): the previous
+  // strict useParams({ from: '/provision/$deploymentId/jobs/timeline' })
+  // threw "Invariant failed" when the route tree-match was the chroot
+  // consoleJobsTimelineRoute (path '/jobs/timeline'), tripping the React
+  // Error Boundary and replacing the surface with the error overlay.
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = resolvedId ?? ''
   const store = useWizardStore()
 
   const applications = useMemo(
