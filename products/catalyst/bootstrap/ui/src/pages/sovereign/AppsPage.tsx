@@ -564,19 +564,32 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               <AppCard
                 key={app.id}
                 app={app}
-                status={
-                  liveAppStatus[app.id] ??
-                  state.apps[app.id]?.status ??
-                  // No live API entry AND no reducer state — the
-                  // wizard catalog references a Blueprint the BE
-                  // catalog doesn't ship (data drift between
-                  // componentGroups.ts and blueprints.json). Render
-                  // 'available' (with AVAILABLE pill) rather than
-                  // 'pending' which implies an install in progress.
-                  // Surfaces drift to the operator without the
-                  // misleading spinner-without-spinner.
-                  'available'
-                }
+                status={(() => {
+                  // Live API status wins when present.
+                  const live = liveAppStatus[app.id]
+                  if (live) return live
+                  // SSE reducer state — but ignore the default
+                  // "pending" init which fires for every app at
+                  // boot regardless of installation status. Only
+                  // honour explicit non-pending transitions
+                  // (installing / installed / failed / degraded).
+                  const reducerStatus = state.apps[app.id]?.status
+                  if (reducerStatus && reducerStatus !== 'pending') {
+                    return reducerStatus
+                  }
+                  // On Sovereign mode (chroot post-cutover) the
+                  // live query has loaded — if app.id is missing
+                  // from its keys, the wizard catalog references a
+                  // Blueprint the BE catalog doesn't ship (data
+                  // drift between componentGroups.ts and
+                  // blueprints.json). Render 'available' with the
+                  // AVAILABLE pill rather than the misleading
+                  // PENDING pill that suggests install in progress.
+                  if (isSovereignMode && liveAppsQuery.isSuccess) {
+                    return 'available'
+                  }
+                  return reducerStatus ?? 'pending'
+                })()}
                 isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
                 marketplacePublished={published}
                 slug={slug}
