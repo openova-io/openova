@@ -1199,12 +1199,27 @@ func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// chroot fallback: empty until deployment record settles.
+	// On the chroot (SOVEREIGN_FQDN env set), the cutover does NOT
+	// import the mother's deployment record into the chroot's
+	// in-memory map. The first dashboard load after handover races
+	// the synthesis path so without this fallback the wizard's SSE
+	// reconnect loop sees a transient 404 (TC-229).
+	// chrootEnsureDeployment synthesises a record with pre-closed
+	// channels, so the "completed deployment, replay buffer + emit
+	// done" branch fires below — empty buffer + done frame is the
+	// right shape for a freshly-handed-over Sovereign. Once the
+	// chroot lazy-seed populates jobs/events the next reconnect
+	// returns the real history. On the mother (no SOVEREIGN_FQDN)
+	// chrootEnsureDeployment returns nil and the legacy 404 stands.
 	val, ok := h.deployments.Load(id)
-	if !ok {
+	var dep *Deployment
+	if ok {
+		dep = val.(*Deployment)
+	} else if dep = h.chrootEnsureDeployment(id); dep == nil {
 		http.Error(w, "deployment not found", http.StatusNotFound)
 		return
 	}
-	dep := val.(*Deployment)
 	// Issue #689 — ownership check BEFORE any SSE bytes are written. Once
 	// the response is hijacked into text/event-stream mode the helper's
 	// JSON 404 path can't fire, so this MUST happen before the SSE headers.
@@ -1325,12 +1340,26 @@ func writeSSEEvent(w http.ResponseWriter, ev provisioner.Event) {
 // agree by construction.
 func (h *Handler) GetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// chroot fallback: empty until deployment record settles.
+	// On the chroot (SOVEREIGN_FQDN env set), the cutover does NOT
+	// import the mother's deployment record. The first dashboard
+	// load races the in-memory synthesis path so without this
+	// fallback the wizard sees a transient 404 (TC-229) on
+	// /api/v1/deployments/<id>/events. Synthesise a minimal record
+	// — snapshotEvents() returns an empty slice on the synthetic
+	// record so the wizard renders its empty state and reconnects;
+	// once Phase-1 watch starts emitting (chroot lazy-seed path),
+	// subsequent reads return the populated buffer. On the mother
+	// (no SOVEREIGN_FQDN) chrootEnsureDeployment returns nil and
+	// the legacy 404 path is preserved.
 	val, ok := h.deployments.Load(id)
-	if !ok {
+	var dep *Deployment
+	if ok {
+		dep = val.(*Deployment)
+	} else if dep = h.chrootEnsureDeployment(id); dep == nil {
 		http.Error(w, "deployment not found", http.StatusNotFound)
 		return
 	}
-	dep := val.(*Deployment)
 	// Issue #689 — ownership check (404 on mismatch — never leak existence).
 	if !h.checkOwnership(w, r, dep) {
 		return

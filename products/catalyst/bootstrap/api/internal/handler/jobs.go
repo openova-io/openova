@@ -58,12 +58,26 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	if val, ok := h.deployments.Load(depID); ok {
 		return val.(*Deployment)
 	}
+	// chroot fallback: empty until deployment record settles.
+	// Channels are pre-closed so consumers that select on them
+	// (StreamLogs, isDone) treat the synthetic record as a
+	// completed deployment with an empty event buffer instead of
+	// blocking on a nil channel forever. This matches fromRecord's
+	// "post-Pod-restart, runProvisioning is gone" branch — on the
+	// chroot, runProvisioning never runs at all (cutover already
+	// happened on the mother), so the same shape is correct.
+	closedCh := make(chan provisioner.Event)
+	closedDone := make(chan struct{})
+	close(closedCh)
+	close(closedDone)
 	dep := &Deployment{
 		ID: depID,
 		Request: provisioner.Request{
 			SovereignFQDN: selfFQDN,
 		},
-		Status: "ready",
+		Status:   "ready",
+		eventsCh: closedCh,
+		done:     closedDone,
 	}
 	h.deployments.Store(depID, dep)
 	h.log.Info("chroot: synthesised in-memory deployment record",
