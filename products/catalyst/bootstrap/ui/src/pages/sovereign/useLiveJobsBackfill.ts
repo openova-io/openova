@@ -108,17 +108,21 @@ export function useLiveJobsBackfill(
 ): UseLiveJobsBackfillResult {
   const { deploymentId, disablePolling = false, fetcher = defaultFetchJobs, enabled = true } = opts
 
-  // On Sovereign mode the URL doesn't need a deploymentId path segment
-  // (/api/v1/sovereign/jobs is FQDN-scoped from the cookie), so an
-  // empty deploymentId must NOT disable the query — otherwise jobs
-  // never poll on chroot Sovereign Console where /sovereign/self may
-  // return 503 (deployment-id-not-yet-stamped) and the URL params
-  // route doesn't carry the id.
+  // The query MUST be keyed by the actual deploymentId (not a static
+  // 'sovereign' constant) — otherwise on the chroot Sovereign Console,
+  // where useResolvedDeploymentId resolves the id asynchronously from
+  // /api/v1/sovereign/self, the first render fires the fetch with
+  // deploymentId="" → /api/v1/deployments//jobs → 400 → React Query
+  // caches the failure under the constant key and never refetches when
+  // the real id arrives. Result: JobDetail renders "Job not found"
+  // forever because liveJobs stays empty. Caught on omantel.biz
+  // 2026-05-07. Fix: gate the query on `!!deploymentId` and key by
+  // the resolved id.
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const query = useQuery<Job[]>({
-    queryKey: ['live-jobs-backfill', isSovereignMode ? 'sovereign' : deploymentId],
+    queryKey: ['live-jobs-backfill', isSovereignMode ? 'sovereign' : 'mother', deploymentId],
     queryFn: () => fetcher(deploymentId),
-    enabled: enabled && (isSovereignMode || !!deploymentId),
+    enabled: enabled && !!deploymentId,
     refetchInterval: () => {
       if (disablePolling) return false
       return POLL_INTERVAL_MS

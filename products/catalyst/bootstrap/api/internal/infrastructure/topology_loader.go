@@ -203,7 +203,13 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 			}
 		}
 		key := poolKey{role: role, sku: sku}
-		nodeID := "node-" + n.GetName()
+		// Use the bare K8s node name as the topology node id so the
+		// architecture-graph adapter's WorkerNode composite id
+		// matches the k8sAdapter's `WorkerNode:<name>` exactly. With
+		// the legacy "node-" prefix the IDs diverged and mergeGraphs
+		// couldn't dedupe → 8 WorkerNodes rendered for 4 real Nodes.
+		// Caught on omantel.biz 2026-05-07.
+		nodeID := n.GetName()
 		statusReady := nodeReadyStatus(n.Object)
 		nodeStatus := in.Status
 		if statusReady == "True" {
