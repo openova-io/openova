@@ -66,7 +66,7 @@ import type {
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
 import { hierarchyToGraph } from './adapter'
 import { k8sToGraph, mergeGraphs } from './k8sAdapter'
-import { useK8sCacheStream } from './useK8sCacheStream'
+import { useK8sCacheStream, type K8sSnapshot } from './useK8sCacheStream'
 import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
@@ -126,6 +126,22 @@ export interface ArchitectureGraphPageProps {
   isLoading: boolean
   isError: boolean
   onRefetch: () => void
+  /**
+   * Live K8s cache snapshot fed by the page-level useK8sCacheStream
+   * subscription on CloudPage. When provided, this widget reads from
+   * the shared snapshot instead of opening its own EventSource —
+   * ONE SSE connection per page is the canonical pattern (see
+   * useK8sCacheStream's design notes about HTTP/1.1 connection-budget
+   * starvation when the same origin opens duplicate streams).
+   *
+   * When omitted (e.g. in standalone storybook usage or tests), the
+   * widget falls back to opening its own subscription.
+   */
+  k8sSnapshot?: K8sSnapshot | null
+  /** Companion revision counter from useK8sCacheStream — bumps on every
+   *  applied delta so memoised adapters re-derive when the in-place
+   *  Map mutates. */
+  k8sRevision?: number
 }
 
 /* ── Component ───────────────────────────────────────────────────── */
@@ -191,15 +207,30 @@ export function ArchitectureGraphPage({
   isLoading,
   isError,
   onRefetch,
+  k8sSnapshot: k8sSnapshotProp,
+  k8sRevision: k8sRevisionProp,
 }: ArchitectureGraphPageProps) {
   const handleRef = useRef<GraphCanvasHandle | null>(null)
 
   /* ── 0. Live K8s cache stream — feeds the K8s-side adapter
-   *     alongside the cloud-side hierarchy fetch. The hook opens an
-   *     EventSource against /api/v1/sovereigns/{deploymentId}/k8s/
-   *     stream?initialState=1 and accumulates a snapshot map as
-   *     ADDED/MODIFIED/DELETED events arrive. */
-  const { snapshot: k8sSnapshot, revision: k8sRevision } = useK8sCacheStream(deploymentId)
+   *     alongside the cloud-side hierarchy fetch.
+   *
+   *     PRIMARY: read from the page-level shared snapshot passed in
+   *     via props. CloudPage holds ONE EventSource subscribing to all
+   *     kinds; the snapshot is broadcast to (a) the chip counts in
+   *     the toolbar, (b) every K8sListPage in list view, and (c) this
+   *     graph view. Sharing one subscription avoids the HTTP/1.1
+   *     6-connections-per-origin starvation that otherwise leaves
+   *     consumers stuck on the "connecting" placeholder forever.
+   *
+   *     FALLBACK: when no snapshot is supplied (storybook / tests /
+   *     direct embed), open an internal stream so the widget remains
+   *     self-sufficient. */
+  const fallback = useK8sCacheStream(deploymentId, {
+    enabled: k8sSnapshotProp == null,
+  })
+  const k8sSnapshot = k8sSnapshotProp ?? fallback.snapshot
+  const k8sRevision = k8sRevisionProp ?? fallback.revision
 
   /* ── 1. Adapter — tree → nodes/edges, merged with K8s side ─── */
   const { nodes: allNodes, edges: allEdges } = useMemo(() => {

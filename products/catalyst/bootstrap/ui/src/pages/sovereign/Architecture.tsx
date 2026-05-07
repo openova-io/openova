@@ -19,11 +19,19 @@
  *      or the type/edge palette in widgets/architecture-graph/types.ts.
  */
 
-import { ArchitectureGraphPage } from '@/widgets/architecture-graph'
+import { ArchitectureGraphPage, type K8sSnapshot } from '@/widgets/architecture-graph'
 import { useCloud } from './CloudPage'
 
 export function Architecture() {
-  const { deploymentId, data, isLoading, isError, refetch } = useCloud()
+  const {
+    deploymentId,
+    data,
+    isLoading,
+    isError,
+    refetch,
+    k8sSnapshot,
+    k8sRevision,
+  } = useCloud()
   return (
     <ArchitectureGraphPage
       deploymentId={deploymentId}
@@ -31,6 +39,15 @@ export function Architecture() {
       isLoading={isLoading}
       isError={isError}
       onRefetch={refetch}
+      // Forward the shared SSE snapshot so the graph widget consumes
+      // the SAME live snapshot the chip counts and every K8s list view
+      // read from. Without this the widget would open a duplicate
+      // EventSource and the per-page snapshot read by CloudListView /
+      // K8sListPage would starve under the HTTP/1.1 connection budget,
+      // leaving services / ingresses / deployments / statefulsets /
+      // daemonsets / namespaces / nodes rendering "No X objects".
+      k8sSnapshot={(k8sSnapshot as unknown as K8sSnapshot | null) ?? null}
+      k8sRevision={k8sRevision}
     />
   )
 }
