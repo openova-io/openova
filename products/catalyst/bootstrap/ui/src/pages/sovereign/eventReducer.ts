@@ -68,6 +68,7 @@ export type ApplicationStatus =
   | 'installed'
   | 'failed'
   | 'degraded'
+  | 'available'
   | 'unknown'
 
 export type PhaseStatus = 'pending' | 'running' | 'done' | 'failed'

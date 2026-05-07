@@ -122,7 +122,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             statusById[a.id] = 'installing'
             break
           case 'available':
-            statusById[a.id] = 'pending'
+            // Catalog item not yet installed → render as "AVAILABLE"
+            // with an "Install" affordance, NOT a misleading "PENDING"
+            // pill. Caught on omantel.biz 2026-05-07 — KEDA showed
+            // PENDING with no install action.
+            statusById[a.id] = 'available'
             break
           default:
             statusById[a.id] = 'pending'
@@ -700,6 +704,10 @@ function AppCard({ app, status, isService, marketplacePublished, slug, onPublish
           <span className="status-chip s-failed">
             <span className="dot" /> DEGRADED
           </span>
+        ) : status === 'available' ? (
+          <span className="status-chip s-available">
+            <span className="dot" /> AVAILABLE
+          </span>
         ) : (
           <span className="status-chip s-pending">
             <span className="dot" /> PENDING
@@ -966,6 +974,7 @@ const APPS_PAGE_CSS = `
 .s-installed { background: color-mix(in srgb, var(--color-success) 16%, transparent); color: var(--color-success); }
 .s-installing { background: color-mix(in srgb, var(--color-accent) 16%, transparent); color: var(--color-accent); }
 .s-pending { background: color-mix(in srgb, var(--color-text-dim) 16%, transparent); color: var(--color-text-dim); }
+.s-available { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent); }
 .s-failed { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
 
 @keyframes sov-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

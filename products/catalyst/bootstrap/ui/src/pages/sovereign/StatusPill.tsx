@@ -28,6 +28,7 @@ export const STATUS_TONE: Record<PillStatus, ToneSpec> = {
   installed:  { bg: 'rgba(74,222,128,0.10)',  border: 'rgba(74,222,128,0.35)',  fg: '#4ADE80',            label: 'Installed',  pulsing: false },
   failed:     { bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.35)', fg: '#F87171',            label: 'Failed',     pulsing: false },
   degraded:   { bg: 'rgba(245,158,11,0.10)',  border: 'rgba(245,158,11,0.35)',  fg: '#F59E0B',            label: 'Degraded',   pulsing: false },
+  available:  { bg: 'rgba(56,189,248,0.08)',  border: 'rgba(56,189,248,0.40)',  fg: '#38BDF8',            label: 'Available',  pulsing: false },
   unknown:    { bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.30)', fg: 'var(--wiz-text-sub)', label: 'Unknown',    pulsing: false },
   connecting: { bg: 'rgba(56,189,248,0.10)',  border: 'rgba(56,189,248,0.35)',  fg: '#38BDF8',            label: 'Connecting', pulsing: true  },
   streaming:  { bg: 'rgba(56,189,248,0.10)',  border: 'rgba(56,189,248,0.35)',  fg: '#38BDF8',            label: 'Provisioning', pulsing: true },

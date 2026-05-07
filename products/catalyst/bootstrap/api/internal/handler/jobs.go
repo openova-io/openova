@@ -27,6 +27,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -124,6 +125,20 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	if err != nil {
 		h.log.Warn("chroot seed: bridge seed failed", "depId", dep.ID, "err", err)
 		return
+	}
+	// Phase-0 lifecycle history — by the time we've reached the chroot
+	// post-cutover, every Phase-0 step (tofu-init/plan/apply/output,
+	// cluster-bootstrap) has provably completed (the cluster exists,
+	// kubeconfig was posted back, Phase-1 ran, cutover triggered, the
+	// chroot's own catalyst-api is now serving). Seed all 5 lifecycle
+	// Jobs as Succeeded under the "provisioner" group so /jobs on the
+	// chroot shows the full history alongside bootstrap-kit children.
+	// Idempotent (UpsertJob's monotonic merge).
+	if err := bridge.SeedProvisionerJobs(); err != nil {
+		h.log.Warn("chroot seed: provisioner lifecycle seed failed", "depId", dep.ID, "err", err)
+	}
+	if err := bridge.MarkProvisionerComplete(time.Now().UTC()); err != nil {
+		h.log.Warn("chroot seed: mark Phase-0 complete failed", "depId", dep.ID, "err", err)
 	}
 	h.log.Info("chroot seed: per-deployment jobs.Store populated from live cluster",
 		"depId", dep.ID,
