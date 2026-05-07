@@ -742,6 +742,61 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// pathOnlyLogFormatter implements chi's middleware.LogFormatter so the
+// access log line includes r.URL.Path but never the query string. The
+// chroot Sovereign Console SPA appends `?access_token=<jwt>` to
+// EventSource URLs (see auth/session.go ReadSessionToken) because the
+// browser EventSource API cannot carry an Authorization header. Using
+// chi's DefaultLogFormatter would emit r.RequestURI verbatim and leak
+// the access token to stdout. Credential hygiene per CLAUDE.md §10.
+type pathOnlyLogFormatter struct{}
+
+// NewLogEntry captures the per-request fields we want to log AT request
+// start time, mirroring chi's DefaultLogFormatter contract but stripping
+// the query string entirely.
+func (pathOnlyLogFormatter) NewLogEntry(r *http.Request) middleware.LogEntry {
+	return &pathOnlyLogEntry{
+		method: r.Method,
+		path:   r.URL.Path,
+		proto:  r.Proto,
+		remote: r.RemoteAddr,
+		start:  time.Now(),
+	}
+}
+
+type pathOnlyLogEntry struct {
+	method string
+	path   string
+	proto  string
+	remote string
+	start  time.Time
+}
+
+// Write is invoked by chi.middleware.RequestLogger when the response
+// has been fully sent. The function signature matches the LogEntry
+// interface exactly — extra args are intentionally discarded.
+func (e *pathOnlyLogEntry) Write(status, bytes int, _ http.Header, elapsed time.Duration, _ interface{}) {
+	slog.Default().Info("http",
+		"method", e.method,
+		"path", e.path,
+		"proto", e.proto,
+		"status", status,
+		"bytes", bytes,
+		"elapsedMs", elapsed.Milliseconds(),
+		"remote", e.remote,
+	)
+}
+
+// Panic is invoked by chi.middleware.Recoverer when a downstream handler
+// panics; the path-only contract still applies.
+func (e *pathOnlyLogEntry) Panic(v interface{}, _ []byte) {
+	slog.Default().Error("http panic",
+		"method", e.method,
+		"path", e.path,
+		"panic", v,
+	)
+}
+
 // mustHomeCoreClient returns a typed kubernetes.Interface for the
 // catalyst-api's own (home) cluster. Used to read the optional
 // kinds-registry ConfigMap. A nil return value disables ConfigMap

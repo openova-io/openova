@@ -29,6 +29,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { API_BASE } from '@/shared/config/urls'
+import { loadTokens } from '@/shared/lib/oidc'
 
 /**
  * Kinds the architecture graph subscribes to. The list lives at the
@@ -174,9 +175,23 @@ export function useK8sCacheStream(
     snapshotRef.current = new Map()
     setState({ snapshot: snapshotRef.current, status: 'connecting', revision: 0 })
 
+    // EventSource cannot carry custom headers (no Authorization: Bearer
+    // path), so on Sovereign mode the chroot SPA must attach the OIDC
+    // access token as a query parameter. The catalyst-api ReadSessionToken
+    // accepts `?access_token=<jwt>` as a fallback channel and validates
+    // it through the same JWKS path as the header. Mother (Catalyst-Zero)
+    // sessions have no OIDC tokens in sessionStorage, so the param is
+    // omitted and the existing catalyst_session cookie carries auth.
+    const params = new URLSearchParams()
+    params.set('kinds', kinds.join(','))
+    params.set('initialState', '1')
+    const tokens = loadTokens()
+    if (tokens?.accessToken) {
+      params.set('access_token', tokens.accessToken)
+    }
     const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
       deploymentId,
-    )}/k8s/stream?kinds=${kinds.join(',')}&initialState=1`
+    )}/k8s/stream?${params.toString()}`
     const es = new EventSource(url, { withCredentials: true })
 
     es.onopen = () => {

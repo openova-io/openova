@@ -35,6 +35,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE } from '@/shared/config/urls'
+import { loadTokens } from '@/shared/lib/oidc'
 
 /* ── Wire types ──────────────────────────────────────────────────── */
 
@@ -142,6 +143,18 @@ function buildStreamURL(sovereignId: string, kinds: readonly string[], initialSt
   }
   if (initialState) {
     params.set('initialState', '1')
+  }
+  // EventSource cannot carry custom request headers, so the chroot SPA
+  // must attach the OIDC access token as a `?access_token=<jwt>` query
+  // parameter. catalyst-api's ReadSessionToken treats the param as a
+  // fallback channel after Authorization: Bearer and validates it via
+  // the same JWKS path. Mother (Catalyst-Zero) sessions store no OIDC
+  // tokens, so the param is omitted and the catalyst_session cookie
+  // continues to carry auth via withCredentials. Aligns with Grafana /
+  // Loki SSE auth conventions.
+  const tokens = loadTokens()
+  if (tokens?.accessToken) {
+    params.set('access_token', tokens.accessToken)
   }
   const qs = params.toString()
   return `${API_BASE}/v1/sovereigns/${safeId}/k8s/stream${qs ? '?' + qs : ''}`
