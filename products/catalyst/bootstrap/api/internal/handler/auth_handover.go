@@ -84,6 +84,31 @@ type authHandoverClaims struct {
 func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("token")
 	if raw == "" {
+		// TC-004 / 2026-05-07 — three-way branch on no-token visits.
+		//
+		// 1. Authenticated browser (valid catalyst_session cookie + bearer
+		//    fallback): the operator already has a live Sovereign session,
+		//    so a bare /auth/handover URL is meaningless to them. Send
+		//    them to the Sovereign Console root instead of the
+		//    "Handover incomplete" copy that confuses people who are
+		//    already logged in. The same redirect target as the happy
+		//    path post-cookie-set, so an authed user landing here for
+		//    any reason ends up at the same page they would have hit
+		//    after a successful handover.
+		//
+		// 2. Unauthenticated browser: SPA-rendered friendly error page
+		//    (Fix #2 PR #1075 contract).
+		//
+		// 3. Programmatic caller (Accept: application/json): legacy
+		//    401 JSON, unchanged.
+		if h.hasValidCatalystSession(r) {
+			redirectTarget := h.authHandoverRedirect
+			if redirectTarget == "" {
+				redirectTarget = "/dashboard"
+			}
+			http.Redirect(w, r, redirectTarget, http.StatusFound)
+			return
+		}
 		// Browser visits (e.g. an operator pasting the bare /auth/handover
 		// URL, or following a stale email link with the token stripped) get
 		// a SPA-rendered friendly error page instead of bare JSON. Programmatic
@@ -414,6 +439,41 @@ func writeAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(authHandoverError{Error: msg}) //nolint:errcheck
+}
+
+// hasValidCatalystSession reports whether the request carries a valid,
+// non-expired catalyst_session (or Bearer / access_token) JWT signed by
+// either Keycloak's JWKS or the local handover signer's public key.
+//
+// Used by AuthHandover (TC-004, 2026-05-07) to short-circuit a bare
+// `/auth/handover` browser visit by an already-authed operator straight
+// to the Sovereign Console root, instead of showing the "Handover
+// incomplete" error page that exists for unauthenticated visitors.
+//
+// Returns false when:
+//   - h.authConfig is nil (Sovereign not yet configured / CI). In that
+//     case the redirect-on-authed branch is skipped and the existing
+//     html-vs-json branches handle the response.
+//   - No session token is present in any of the supported channels
+//     (cookie / bearer / query — see auth.Config.ReadSessionToken).
+//   - The token is malformed, expired, or fails signature verification.
+//
+// Logs at Debug — operators don't need a per-request line, but stale
+// cookies are useful when triaging session-loss reports.
+func (h *Handler) hasValidCatalystSession(r *http.Request) bool {
+	if h.authConfig == nil {
+		return false
+	}
+	tok := h.authConfig.ReadSessionToken(r)
+	if tok == "" {
+		return false
+	}
+	if _, err := h.authConfig.ValidateToken(r.Context(), tok); err != nil {
+		h.log.Debug("auth_handover: session present but invalid; falling through to error page",
+			"err", err)
+		return false
+	}
+	return true
 }
 
 // wantsHTML returns true when the caller's Accept header prefers

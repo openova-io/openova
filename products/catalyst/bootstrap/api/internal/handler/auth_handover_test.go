@@ -20,6 +20,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore"
 )
@@ -214,6 +215,150 @@ func TestAuthHandover_MissingTokenJSONClient(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.AuthHandover(w, req)
 	assertAuthError(t, w, http.StatusUnauthorized, "missing token parameter")
+}
+
+// TC-004 / 2026-05-07 — an authenticated browser visit to /auth/handover
+// without a token must be redirected to the post-handover landing
+// (h.authHandoverRedirect) instead of seeing the "Handover incomplete"
+// error page. Repeats the same fix on three session-token channels:
+// HMAC-wrapped catalyst_session cookie, raw-JWT catalyst_session
+// cookie, Authorization: Bearer header.
+func TestAuthHandover_MissingTokenAuthedRedirectsToDashboard(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	// Wire authConfig so hasValidCatalystSession can run. Sovereign-side
+	// uses the local handover signer's public key as the validator key
+	// (Keycloak token-exchange was removed in 26 — every session JWT is
+	// self-signed with no kid header).
+	h.authConfig = &auth.Config{
+		LocalPublicKey: &privKey.PublicKey,
+		// JWKSCache stays nil — ValidateToken short-circuits on
+		// LocalPublicKey when the JWT has no kid header.
+	}
+	sessionTok := mintSessionJWT(t, privKey)
+
+	cases := []struct {
+		name    string
+		setAuth func(r *http.Request)
+	}{
+		{
+			name: "raw JWT cookie",
+			setAuth: func(r *http.Request) {
+				r.AddCookie(&http.Cookie{Name: "catalyst_session", Value: sessionTok})
+			},
+		},
+		{
+			name: "Authorization Bearer header",
+			setAuth: func(r *http.Request) {
+				r.Header.Set("Authorization", "Bearer "+sessionTok)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+			req.Header.Set("Accept", "text/html")
+			tc.setAuth(req)
+			w := httptest.NewRecorder()
+			h.AuthHandover(w, req)
+			if w.Code != http.StatusFound {
+				t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusFound, w.Body.String())
+			}
+			if loc := w.Header().Get("Location"); loc != "/dashboard" {
+				t.Errorf("Location: got %q want /dashboard", loc)
+			}
+		})
+	}
+}
+
+// TC-004 / 2026-05-07 — an EXPIRED catalyst_session cookie on a no-token
+// browser visit MUST fall through to the handover-error page (NOT to
+// /dashboard). Confirms hasValidCatalystSession enforces expiry.
+func TestAuthHandover_MissingTokenExpiredSessionFallsThrough(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	h.authConfig = &auth.Config{LocalPublicKey: &privKey.PublicKey}
+	expired := mintSessionJWTExpired(t, privKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: expired})
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status: got %d want %d", w.Code, http.StatusFound)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/handover-error?reason=missing_token" {
+		t.Errorf("Location: got %q want handover-error page", loc)
+	}
+}
+
+// TC-004 / 2026-05-07 — when h.authConfig is nil (Sovereign not yet
+// configured / CI), the authed-redirect branch is skipped and the
+// existing html-vs-json branches keep working.
+func TestAuthHandover_MissingTokenNoAuthConfigKeepsHTMLBranch(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+	h.authConfig = nil
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+	req.Header.Set("Accept", "text/html")
+	// Even a (now unverifiable) cookie present — must NOT short-circuit.
+	req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: "some.cookie.value"})
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status: got %d want %d", w.Code, http.StatusFound)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/handover-error?reason=missing_token" {
+		t.Errorf("Location: got %q want handover-error page", loc)
+	}
+}
+
+// mintSessionJWT signs a session-shaped JWT (matching the shape minted
+// by AuthHandover after a successful handover) with privKey and returns
+// the compact 3-part string. No `kid` header — exercises the
+// LocalPublicKey fallback in auth.Config.ValidateToken.
+func mintSessionJWT(t *testing.T, privKey *rsa.PrivateKey) string {
+	t.Helper()
+	claims := jwt.MapClaims{
+		"iss":            "https://console.openova.io",
+		"sub":            "operator@sov.test",
+		"email":          "operator@sov.test",
+		"email_verified": true,
+		"role":           "sovereign-admin",
+		"iat":            time.Now().Unix(),
+		"exp":            time.Now().Add(1 * time.Hour).Unix(),
+		"jti":            "test-session-jti",
+		"typ":            "session",
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := tok.SignedString(privKey)
+	if err != nil {
+		t.Fatalf("mintSessionJWT: %v", err)
+	}
+	return signed
+}
+
+// mintSessionJWTExpired returns a session JWT whose exp is in the past.
+func mintSessionJWTExpired(t *testing.T, privKey *rsa.PrivateKey) string {
+	t.Helper()
+	claims := jwt.MapClaims{
+		"iss":            "https://console.openova.io",
+		"sub":            "operator@sov.test",
+		"email":          "operator@sov.test",
+		"email_verified": true,
+		"role":           "sovereign-admin",
+		"iat":            time.Now().Add(-2 * time.Hour).Unix(),
+		"exp":            time.Now().Add(-1 * time.Hour).Unix(),
+		"jti":            "test-session-jti-expired",
+		"typ":            "session",
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := tok.SignedString(privKey)
+	if err != nil {
+		t.Fatalf("mintSessionJWTExpired: %v", err)
+	}
+	return signed
 }
 
 func TestAuthHandover_MalformedToken(t *testing.T) {

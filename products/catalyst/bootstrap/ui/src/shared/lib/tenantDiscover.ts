@@ -29,6 +29,7 @@
  */
 
 import { apiUrl } from '@/shared/config/urls'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import {
   parseTenantID,
   parseTenantKind,
@@ -125,12 +126,35 @@ let cachedResult: DiscoveryResult | null = null
  * the same host return the cached value. Components that need
  * synchronous access after the bootstrap can read
  * `getTenantContext()`.
+ *
+ * Skipped on Sovereign chroot mode (TC-229, 2026-05-07): the
+ * `/api/v1/tenant/discover` endpoint is mother-only — only the
+ * Catalyst-Zero apex (`console.openova.io`) registers it. A chroot
+ * Sovereign Console (e.g. `console.<sov-fqdn>`) IS its own tenant by
+ * definition, so calling tenant-discover there is both meaningless
+ * and noisy: the chroot's catalyst-api returns 404 on every request
+ * and the SPA's React-Query layer (DashboardLayout etc.) keeps
+ * re-issuing the call as the Dashboard mounts/unmounts — 50+ HTTP
+ * 404 spam per navigation was observed live on console.omantel.biz.
+ *
+ * Short-circuit returns `status: 'unwired'` (the contract for "no
+ * registry available; proceed on the host's own identity") and
+ * caches it so a second call is a no-op. Downstream code that
+ * inspects `getTenantContext()` (sidebar nav, OIDC bootstrap) treats
+ * unwired the same as a successful no-op on the chroot path —
+ * tenant identity is already encoded in the session JWT
+ * (sovereign_fqdn / deployment_id claims) so no registry payload is
+ * needed for any chroot UI.
  */
 export async function bootstrapTenant(
   host: string = typeof window !== 'undefined' ? window.location.host : '',
   fetchImpl: typeof fetch = fetch,
 ): Promise<DiscoveryResult> {
   if (cachedResult) return cachedResult
+  if (DETECTED_MODE.mode === 'sovereign') {
+    cachedResult = { status: 'unwired' }
+    return cachedResult
+  }
   cachedResult = await discoverTenant(host, fetchImpl)
   return cachedResult
 }
