@@ -35,7 +35,10 @@ func TestEmitWatchEvent_PopulatesJobsStore(t *testing.T) {
 		done:      make(chan struct{}),
 	}
 
-	// Phase-0 event must NOT create a Job (filtered by bridge).
+	// Phase-0 event materialises the 5 lifecycle Jobs under the
+	// "provisioner" group (no-disappear contract). The current phase
+	// transitions to running; earlier phases are stamped Succeeded;
+	// later phases stay Pending.
 	h.emitWatchEvent(dep, provisioner.Event{
 		Time:    time.Now().UTC().Format(time.RFC3339),
 		Phase:   "tofu-apply",
@@ -47,8 +50,9 @@ func TestEmitWatchEvent_PopulatesJobsStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Errorf("Phase-0 event must not create jobs, got %+v", got)
+	// 5 leaf lifecycle phases + 1 group ("provisioner") = 6.
+	if len(got) != 6 {
+		t.Errorf("Phase-0 event must materialise 5 lifecycle Jobs + provisioner group (=6), got %d (%+v)", len(got), got)
 	}
 
 	// Phase-1 component event → Job + Execution + LogLine.
@@ -74,9 +78,10 @@ func TestEmitWatchEvent_PopulatesJobsStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 1 leaf install + 1 synthesised bootstrap-kit parent group.
-	if len(got) != 2 {
-		t.Fatalf("expected 2 jobs (1 leaf + 1 group), got %d (%+v)", len(got), got)
+	// 5 lifecycle leaves + 1 install-cilium leaf + 2 groups
+	// (provisioner + bootstrap-kit) = 8.
+	if len(got) != 8 {
+		t.Fatalf("expected 8 jobs (5 lifecycle + 1 install + 2 groups), got %d (%+v)", len(got), got)
 	}
 	var job *jobs.Job
 	for i := range got {
@@ -95,6 +100,22 @@ func TestEmitWatchEvent_PopulatesJobsStore(t *testing.T) {
 	}
 	if job.Status != jobs.StatusSucceeded {
 		t.Errorf("status: want succeeded, got %q", job.Status)
+	}
+
+	// Lifecycle Phase-0 leaves must STILL be present after Phase-1
+	// children land — the no-disappear contract.
+	hasLifecycle := func(name string) bool {
+		for _, j := range got {
+			if j.JobName == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, name := range []string{"tofu-init", "tofu-plan", "tofu-apply", "tofu-output", "cluster-bootstrap"} {
+		if !hasLifecycle(name) {
+			t.Errorf("lifecycle leaf %q vanished after Phase-1 child landed", name)
+		}
 	}
 
 	// Bridge must NOT break the SSE stream — eventsBuf still records

@@ -864,9 +864,24 @@ func buildChrootClusterRef(log *slog.Logger, sovereignFQDN string) (ClusterRef, 
 		depID = scanStoreForDeploymentID(sovereignFQDN)
 	}
 	if depID == "" {
-		log.Info("k8scache: chroot self-register deferred — no deployment id resolved yet",
-			"sovereignFQDN", sovereignFQDN)
-		return ClusterRef{}, false
+		// Post-cutover the chroot's catalyst-api typically has neither
+		// CATALYST_SELF_DEPLOYMENT_ID stamped (cutover step-07 patches
+		// CATALYST_GITOPS_REPO_URL only) nor a per-deployment record
+		// imported into the local store (no cutover step POSTs the
+		// mother's record to /api/v1/internal/deployments/import).
+		// Earlier builds deferred chroot self-register here and left
+		// /k8s/stream returning 404 forever — every Cloud list-view
+		// chip showed "Stream temporarily unreachable".
+		//
+		// Fall back to a deterministic ID derived from SOVEREIGN_FQDN
+		// (which IS guaranteed to be set on every chroot via the
+		// Helm chart). The handler layer already aliases unknown URL
+		// cluster IDs onto the single chroot cluster when SOVEREIGN_FQDN
+		// is set, so the FE's existing behaviour (URL still carries
+		// the mother's deployment id) keeps working.
+		depID = "sovereign-" + sovereignFQDN
+		log.Info("k8scache: chroot self-register using SOVEREIGN_FQDN-derived id",
+			"sovereignFQDN", sovereignFQDN, "deploymentID", depID)
 	}
 	cfg, err := rest.InClusterConfig()
 	if err != nil {

@@ -87,6 +87,7 @@ const (
 const (
 	GroupBootstrapKit   = "bootstrap-kit"
 	GroupDay2Mutations  = "day-2-mutations"
+	GroupProvisioner    = "provisioner"
 )
 
 // Group display names — user-visible labels for the synthesised
@@ -95,6 +96,19 @@ const (
 const (
 	GroupBootstrapKitDisplay   = "Bootstrap"
 	GroupDay2MutationsDisplay  = "Day-2 Mutations"
+	GroupProvisionerDisplay    = "Provision Hetzner"
+)
+
+// Phase-0 lifecycle phase slugs — durable Job rows the bridge writes
+// when the provisioner.Provision goroutine emits the corresponding
+// named-phase events. The slugs match provisioner.go's emit() phase
+// strings 1:1 so OnProvisionerLifecycleEvent's lookup is direct.
+const (
+	PhaseTofuInit         = "tofu-init"
+	PhaseTofuPlan         = "tofu-plan"
+	PhaseTofuApply        = "tofu-apply"
+	PhaseTofuOutput       = "tofu-output"
+	PhaseClusterBootstrap = "cluster-bootstrap"
 )
 
 // JobNamePrefix — every Phase-1 leaf install Job is named
