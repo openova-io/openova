@@ -96,8 +96,42 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	if !strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN) {
 		return
 	}
-	existing, err := h.jobs.ListJobs(dep.ID)
-	if err == nil && len(existing) > 0 {
+	existing, _ := h.jobs.ListJobs(dep.ID)
+	hasBootstrapKit := false
+	hasProvisioner := false
+	for _, j := range existing {
+		if j.JobName == jobs.GroupBootstrapKit {
+			hasBootstrapKit = true
+		}
+		if j.JobName == jobs.GroupProvisioner {
+			hasProvisioner = true
+		}
+	}
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, dep.ID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+
+	// Phase-0 lifecycle history — independent of the bootstrap-kit
+	// seed because the lifecycle Jobs live on the mother only and the
+	// chroot's prior runs may have populated bootstrap-kit children
+	// without touching the lifecycle group. Seed lazily when missing
+	// and stamp every phase Succeeded (cutover guarantees Phase-0
+	// completed). Idempotent (UpsertJob monotonic merge).
+	if !hasProvisioner {
+		if err := bridge.SeedProvisionerJobs(); err != nil {
+			h.log.Warn("chroot seed: provisioner lifecycle seed failed", "depId", dep.ID, "err", err)
+		} else if err := bridge.MarkProvisionerComplete(time.Now().UTC()); err != nil {
+			h.log.Warn("chroot seed: mark Phase-0 complete failed", "depId", dep.ID, "err", err)
+		}
+	}
+
+	// Bootstrap-kit children — only seed when the group is missing
+	// (a fresh cutover or never-before-seeded chroot).
+	if hasBootstrapKit {
 		return
 	}
 	dyn, err := h.sovereignDynamicClient(dep)
@@ -113,32 +147,11 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	if len(snap) == 0 {
 		return
 	}
-	dep.mu.Lock()
-	bridge := dep.jobsBridge
-	if bridge == nil {
-		bridge = jobs.NewBridge(h.jobs, dep.ID)
-		dep.jobsBridge = bridge
-	}
-	dep.mu.Unlock()
 	seeds := snapshotsToSeeds(snap)
 	jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
 	if err != nil {
 		h.log.Warn("chroot seed: bridge seed failed", "depId", dep.ID, "err", err)
 		return
-	}
-	// Phase-0 lifecycle history — by the time we've reached the chroot
-	// post-cutover, every Phase-0 step (tofu-init/plan/apply/output,
-	// cluster-bootstrap) has provably completed (the cluster exists,
-	// kubeconfig was posted back, Phase-1 ran, cutover triggered, the
-	// chroot's own catalyst-api is now serving). Seed all 5 lifecycle
-	// Jobs as Succeeded under the "provisioner" group so /jobs on the
-	// chroot shows the full history alongside bootstrap-kit children.
-	// Idempotent (UpsertJob's monotonic merge).
-	if err := bridge.SeedProvisionerJobs(); err != nil {
-		h.log.Warn("chroot seed: provisioner lifecycle seed failed", "depId", dep.ID, "err", err)
-	}
-	if err := bridge.MarkProvisionerComplete(time.Now().UTC()); err != nil {
-		h.log.Warn("chroot seed: mark Phase-0 complete failed", "depId", dep.ID, "err", err)
 	}
 	h.log.Info("chroot seed: per-deployment jobs.Store populated from live cluster",
 		"depId", dep.ID,
