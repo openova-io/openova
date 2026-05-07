@@ -358,6 +358,80 @@ func TestStreamLogs_NotFound(t *testing.T) {
 	}
 }
 
+// TestGetDeploymentEvents_ChrootFallback — TC-229 regression.
+//
+// On the Sovereign chroot, the cutover does NOT import the mother's
+// deployment record into the chroot's in-memory map. The first
+// dashboard load after handover races the synthesis path so without
+// chrootEnsureDeployment the wizard sees a transient 404.
+//
+// With SOVEREIGN_FQDN set, /events on an unknown id MUST return 200
+// with an empty events slice (and done=true so the wizard renders
+// the empty state, doesn't poll forever, and reconnects when Phase-1
+// watch starts emitting via the chroot lazy-seed path).
+func TestGetDeploymentEvents_ChrootFallback(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "sovereign-omantel.biz")
+	h := New(slog.Default())
+	r := chi.NewRouter()
+	r.Get("/api/v1/deployments/{id}/events", h.GetDeploymentEvents)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/deployments/sovereign-omantel.biz/events")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (chroot fallback)", resp.StatusCode)
+	}
+	var body struct {
+		Events []provisioner.Event `json:"events"`
+		State  map[string]any      `json:"state"`
+		Done   bool                `json:"done"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Events == nil || len(body.Events) != 0 {
+		t.Errorf("events = %v, want empty slice", body.Events)
+	}
+	if !body.Done {
+		t.Errorf("done = false, want true (synthetic record is closed)")
+	}
+}
+
+// TestStreamLogs_ChrootFallback — TC-229 regression on the SSE side.
+// Same race as the /events test — chroot must replay an empty buffer
+// + emit `done` instead of returning 404.
+func TestStreamLogs_ChrootFallback(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "sovereign-omantel.biz")
+	h := New(slog.Default())
+	r := chi.NewRouter()
+	r.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/deployments/sovereign-omantel.biz/logs")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (chroot fallback SSE)", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want text/event-stream", got)
+	}
+	frames := readSSEFrames(t, resp.Body)
+	if len(frames.dataFrames) != 0 {
+		t.Errorf("dataFrames = %d, want 0 (synthetic record has empty buffer)", len(frames.dataFrames))
+	}
+	if frames.doneFrame == nil {
+		t.Errorf("doneFrame = nil, want a `done` event with state JSON")
+	}
+}
+
 /* ── SSE frame parsing helpers ───────────────────────────────────────── */
 
 type parsedFrames struct {
