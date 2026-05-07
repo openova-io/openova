@@ -103,8 +103,17 @@ export function K8sListPage({
   // alternative (per-page subscriptions) starved under the HTTP/1.1
   // 6-connections-per-origin limit because each open SSE stream
   // holds a connection slot for its lifetime.
+  //
+  // The snapshot Map is mutated in-place by useK8sCacheStream so its
+  // reference is STABLE across deltas — listing `k8sSnapshot` alone in
+  // the useMemo deps would never recompute past the first render. The
+  // `k8sRevision` counter bumps on every applied event, so adding it to
+  // the deps is what actually makes the list re-derive when new objects
+  // arrive over SSE. Without this, services / ingresses / deployments /
+  // statefulsets / daemonsets / namespaces / nodes all rendered "No X
+  // objects" while the graph view (which keeps its own revision-keyed
+  // memo) showed full counts.
   const { k8sSnapshot, k8sStatus, k8sRevision } = useCloud()
-  void k8sRevision // dependency hint for future memo passes
 
   const rows = useMemo(() => {
     const out: K8sObject[] = []
@@ -124,7 +133,8 @@ export function K8sListPage({
       })
     }
     return out
-  }, [k8sSnapshot, kind, sortByName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [k8sSnapshot, k8sRevision, kind, sortByName])
 
   return (
     <div data-testid={`cloud-${kind}-list`}>
