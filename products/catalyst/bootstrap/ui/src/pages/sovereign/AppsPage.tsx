@@ -564,7 +564,19 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               <AppCard
                 key={app.id}
                 app={app}
-                status={liveAppStatus[app.id] ?? state.apps[app.id]?.status ?? 'pending'}
+                status={
+                  liveAppStatus[app.id] ??
+                  state.apps[app.id]?.status ??
+                  // No live API entry AND no reducer state — the
+                  // wizard catalog references a Blueprint the BE
+                  // catalog doesn't ship (data drift between
+                  // componentGroups.ts and blueprints.json). Render
+                  // 'available' (with AVAILABLE pill) rather than
+                  // 'pending' which implies an install in progress.
+                  // Surfaces drift to the operator without the
+                  // misleading spinner-without-spinner.
+                  'available'
+                }
                 isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
                 marketplacePublished={published}
                 slug={slug}
