@@ -1343,6 +1343,33 @@ func (h *Handler) GetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) runProvisioning(dep *Deployment) {
+	// Pre-seed the 5 Phase-0 lifecycle Job rows ("provisioner" group)
+	// BEFORE prov.Provision starts. This guarantees:
+	//
+	//   1. Deep-links to /jobs/tofu-init|tofu-plan|tofu-apply|
+	//      tofu-output|cluster-bootstrap resolve from the very first
+	//      wizard render, not just after the corresponding emit.
+	//   2. The JobsTable can never "drop" the Phase-0 rows when
+	//      bootstrap-kit children land later (they're durable in
+	//      jobs.Store, not derived from the live event stream).
+	//
+	// The bridge initialiser is the same path emitWatchEvent uses;
+	// pre-allocating it here means SeedProvisionerJobs fires once per
+	// deployment regardless of whether the first emit beats this
+	// goroutine.
+	if h.jobs != nil {
+		dep.mu.Lock()
+		if dep.jobsBridge == nil {
+			dep.jobsBridge = jobs.NewBridge(h.jobs, dep.ID)
+		}
+		bridge := dep.jobsBridge
+		dep.mu.Unlock()
+		if seedErr := bridge.SeedProvisionerJobs(); seedErr != nil {
+			h.log.Warn("jobs bridge: seed Phase-0 lifecycle jobs failed",
+				"id", dep.ID, "err", seedErr)
+		}
+	}
+
 	// Tee — provisioner.Provision writes events into producer; this
 	// goroutine records every event in the durable buffer AND forwards
 	// it to the live SSE channel. recordEvent is the single emit path,
@@ -1366,6 +1393,26 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	result, err := prov.Provision(ctx, dep.Request, producer)
 	close(producer)
 	<-teeDone
+
+	// Stamp the Phase-0 lifecycle Jobs into terminal state so the
+	// JobsTable's Started/Finished/Duration columns populate without
+	// waiting for Phase-1 events. Failure stamps the in-flight phase
+	// as Failed (with the error captured as a final LogLine);
+	// success rolls every phase to Succeeded.
+	now := time.Now().UTC()
+	if h.jobs != nil && dep.jobsBridge != nil {
+		if err != nil {
+			if mErr := dep.jobsBridge.MarkProvisionerFailed(err.Error(), now); mErr != nil {
+				h.log.Warn("jobs bridge: mark Phase-0 failed",
+					"id", dep.ID, "err", mErr)
+			}
+		} else {
+			if mErr := dep.jobsBridge.MarkProvisionerComplete(now); mErr != nil {
+				h.log.Warn("jobs bridge: mark Phase-0 complete",
+					"id", dep.ID, "err", mErr)
+			}
+		}
+	}
 
 	// Capture Phase-0 outcome under the lock.
 	dep.mu.Lock()

@@ -62,7 +62,69 @@ const (
 const (
 	phaseComponent    = "component"
 	phaseComponentLog = "component-log"
+	// Phase-0 stdout/stderr stream tag. provisioner.go's runTofu uses
+	// Phase="tofu" for every line of tofu's stdout/stderr; the bridge
+	// appends them to the currently-active lifecycle phase's Execution
+	// so /jobs/tofu-<step> exec logs render the full transcript.
+	phaseTofuStream = "tofu"
+	// Legacy alias the provisioner emits at the end of Phase-0; treated
+	// as cluster-bootstrap (it's the human-readable tail of the phase).
+	phaseFluxBootstrap = "flux-bootstrap"
 )
+
+// provisionerLifecyclePhases — ordered Phase-0 jobs the bridge
+// pre-seeds + transitions through. The order is the canonical
+// dependency chain (init → plan → apply → output → cluster-bootstrap)
+// and feeds DependsOn for graph rendering.
+var provisionerLifecyclePhases = []string{
+	PhaseTofuInit,
+	PhaseTofuPlan,
+	PhaseTofuApply,
+	PhaseTofuOutput,
+	PhaseClusterBootstrap,
+}
+
+// provisionerLifecycleDisplay — user-visible display names per phase.
+var provisionerLifecycleDisplay = map[string]string{
+	PhaseTofuInit:         "Terraform Init",
+	PhaseTofuPlan:         "Terraform Plan",
+	PhaseTofuApply:        "Terraform Apply",
+	PhaseTofuOutput:       "Terraform Output",
+	PhaseClusterBootstrap: "Bootstrap Cluster",
+}
+
+// lifecyclePhaseIndex returns the position of phase in
+// provisionerLifecyclePhases, or -1 if unknown. The legacy
+// "flux-bootstrap" emit alias maps onto the cluster-bootstrap slot.
+func lifecyclePhaseIndex(phase string) int {
+	if phase == phaseFluxBootstrap {
+		phase = PhaseClusterBootstrap
+	}
+	for i, p := range provisionerLifecyclePhases {
+		if p == phase {
+			return i
+		}
+	}
+	return -1
+}
+
+// dependsOnForLifecyclePhase returns the previous-phase Job ID list
+// (length 0 for the first phase, length 1 thereafter) so the graph
+// view's edges render the linear chain.
+func dependsOnForLifecyclePhase(deploymentID, phase string) []string {
+	idx := lifecyclePhaseIndex(phase)
+	if idx <= 0 {
+		return []string{}
+	}
+	return []string{JobID(deploymentID, provisionerLifecyclePhases[idx-1])}
+}
+
+// lifecycleCursorKey — namespaces the in-memory activeExecID map so
+// lifecycle cursors don't collide with helmwatch component cursors
+// (which key off the bare component id like "cilium").
+func lifecycleCursorKey(phase string) string {
+	return "lifecycle:" + phase
+}
 
 // Bridge holds the per-deployment cursor the helmwatch consumer needs:
 // which Execution is currently active for which Job. The cursor is
@@ -494,35 +556,291 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 }
 
 // OnProvisionerEvent is the adapter the handler's emit path calls with
-// every provisioner.Event the helmwatch.Watcher emits. Two phase
-// classes have a Job/Execution analogue:
+// every provisioner.Event. Three phase classes have a Job/Execution
+// analogue:
 //
-//   - Phase=="component"     — HelmRelease state transition. Routes to
-//     OnHelmReleaseEvent which upserts the Job, allocates an Execution
-//     on the first non-pending edge, and closes the Execution on
-//     terminal transitions.
-//   - Phase=="component-log" — raw helm-controller log line tagged
-//     with the bp-* HR it relates to. Routes to OnRawComponentLog
-//     which appends the line verbatim to the active Execution so the
-//     GitLab-CI-style viewer renders the full helm-controller stdout
-//     for the install attempt.
-//
-// Phase-0 OpenTofu events ("phase-0", "tofu-init", etc.) have no
-// component-Job analogue and fall through silently.
+//   - Phase=="component"           — HelmRelease state transition.
+//     Routes to OnHelmReleaseEvent which upserts the Job, allocates an
+//     Execution on the first non-pending edge, and closes the Execution
+//     on terminal transitions.
+//   - Phase=="component-log"       — raw helm-controller log line
+//     tagged with the bp-* HR it relates to. Routes to
+//     OnRawComponentLog which appends the line verbatim to the active
+//     Execution.
+//   - Phase=="tofu-init|tofu-plan|tofu-apply|tofu-output|
+//     cluster-bootstrap|flux-bootstrap" — Phase-0 lifecycle markers
+//     emitted by the OpenTofu provisioner. Routes to
+//     OnProvisionerLifecycleEvent which transitions the corresponding
+//     pre-seeded Job into Running, marks earlier phases Succeeded, and
+//     allocates an Execution so the per-phase Exec Log surface
+//     resolves.
+//   - Phase=="tofu"                — raw stdout/stderr line from the
+//     in-flight tofu command. Routes to OnProvisionerStreamLog which
+//     appends to the currently-active lifecycle phase's Execution.
 func (b *Bridge) OnProvisionerEvent(ev provisioner.Event) error {
-	if ev.Component == "" {
-		return nil
-	}
 	t := parseEventTime(ev.Time)
 	switch ev.Phase {
 	case phaseComponent:
-		if ev.State == "" {
+		if ev.Component == "" || ev.State == "" {
 			return nil
 		}
 		return b.OnHelmReleaseEvent(ev.Component, ev.State, ev.Level, ev.Message, t)
 	case phaseComponentLog:
+		if ev.Component == "" {
+			return nil
+		}
 		return b.OnRawComponentLog(ev.Component, ev.Level, ev.Message, t)
+	case PhaseTofuInit, PhaseTofuPlan, PhaseTofuApply, PhaseTofuOutput,
+		PhaseClusterBootstrap, phaseFluxBootstrap:
+		return b.OnProvisionerLifecycleEvent(ev.Phase, ev.Level, ev.Message, t)
+	case phaseTofuStream:
+		return b.OnProvisionerStreamLog(ev.Level, ev.Message, t)
 	}
+	return nil
+}
+
+// SeedProvisionerJobs registers the 5 Phase-0 lifecycle Jobs (under the
+// "provisioner" parent group) in a pending state so deep links to
+// /jobs/tofu-<step> resolve from the very first wizard render, and
+// the JobsTable never drops the rows when bootstrap-kit children
+// arrive later. Idempotent — UpsertJob's mergeJob preserves
+// monotonic timestamps and any prior status.
+func (b *Bridge) SeedProvisionerJobs() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.ensureGroupJob(GroupProvisioner, GroupProvisionerDisplay); err != nil {
+		return err
+	}
+	parent := JobID(b.deploymentID, GroupProvisioner)
+	for _, phase := range provisionerLifecyclePhases {
+		if err := b.store.UpsertJob(Job{
+			DeploymentID: b.deploymentID,
+			JobName:      phase,
+			DisplayName:  provisionerLifecycleDisplay[phase],
+			Type:         JobTypeInstall,
+			ParentID:     parent,
+			DependsOn:    dependsOnForLifecyclePhase(b.deploymentID, phase),
+			Status:       StatusPending,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OnProvisionerLifecycleEvent transitions the named Phase-0 phase
+// into Running (allocating an Execution + StartedAt on the first
+// edge), marks every earlier phase Succeeded if not already terminal,
+// and appends an INFO LogLine for the human-readable phase header
+// the provisioner emits. Idempotent — re-emitting the same phase is
+// a no-op once it's in Running.
+func (b *Bridge) OnProvisionerLifecycleEvent(phase, level, message string, t time.Time) error {
+	idx := lifecyclePhaseIndex(phase)
+	if idx < 0 {
+		return nil
+	}
+	canonical := provisionerLifecyclePhases[idx]
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.ensureGroupJob(GroupProvisioner, GroupProvisionerDisplay); err != nil {
+		return err
+	}
+
+	// Lazy-seed every lifecycle Job (idempotent — UpsertJob's
+	// mergeJob preserves any prior status). This is the "no job
+	// should disappear" guard: once a single Phase-0 emit lands, the
+	// JobsTable shows all 5 lifecycle rows regardless of which phase
+	// fired first or whether SeedProvisionerJobs ran.
+	for _, phase := range provisionerLifecyclePhases {
+		if err := b.ensureLifecycleJobLocked(phase); err != nil {
+			return err
+		}
+	}
+
+	// Promote earlier phases to Succeeded — once a later phase has
+	// emitted, every prior step has provably finished. The sentinel
+	// "flux-bootstrap" emit lands at the END of Phase-0 so the four
+	// tofu phases all roll up cleanly.
+	for i := 0; i < idx; i++ {
+		if err := b.markLifecyclePhaseTerminalLocked(provisionerLifecyclePhases[i], StatusSucceeded, t, ""); err != nil {
+			return err
+		}
+	}
+
+	// Allocate a fresh Execution if the cursor is empty for this
+	// phase. StartExecution stamps the Job's StartedAt + Status=running
+	// + LatestExecutionID inside the same persistIndex.
+	cursor := lifecycleCursorKey(canonical)
+	execID := b.activeExecID[cursor]
+	if execID == "" {
+		exec, err := b.store.StartExecution(b.deploymentID, canonical, t)
+		if err != nil {
+			return err
+		}
+		execID = exec.ID
+		b.activeExecID[cursor] = execID
+	}
+
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		msg = "[" + canonical + "] starting"
+	}
+	return b.store.AppendLogLines(b.deploymentID, execID, []LogLine{{
+		Timestamp: t.UTC(),
+		Level:     mapLevel(level),
+		Message:   msg,
+	}})
+}
+
+// OnProvisionerStreamLog appends a raw "tofu" stdout/stderr line to
+// the currently-active lifecycle phase's Execution. The stream tag
+// ("tofu") covers every line of init/plan/apply/output stdout +
+// stderr — we route to whichever phase is currently in flight by
+// scanning the cursor map newest-first.
+func (b *Bridge) OnProvisionerStreamLog(level, message string, t time.Time) error {
+	if strings.TrimSpace(message) == "" {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for i := len(provisionerLifecyclePhases) - 1; i >= 0; i-- {
+		execID := b.activeExecID[lifecycleCursorKey(provisionerLifecyclePhases[i])]
+		if execID != "" {
+			return b.store.AppendLogLines(b.deploymentID, execID, []LogLine{{
+				Timestamp: t.UTC(),
+				Level:     mapLevel(level),
+				Message:   message,
+			}})
+		}
+	}
+	// No active lifecycle execution — drop the line. The provisioner
+	// only emits "tofu" streams between an init/plan/apply marker and
+	// the next phase marker, so this branch is unexpected; logging it
+	// would risk amplifying noise.
+	return nil
+}
+
+// MarkProvisionerComplete is called from runProvisioning after
+// prov.Provision returns successfully. Every lifecycle phase that
+// hasn't reached terminal yet is stamped Succeeded — the cluster
+// bootstrap is the last emit before Provision returns, and Phase-1
+// HR events take over the Job feed thereafter.
+func (b *Bridge) MarkProvisionerComplete(t time.Time) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, phase := range provisionerLifecyclePhases {
+		if err := b.markLifecyclePhaseTerminalLocked(phase, StatusSucceeded, t, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MarkProvisionerFailed is called from runProvisioning after
+// prov.Provision returns an error. The most-recent non-terminal phase
+// is stamped Failed (with the error message captured as a final
+// LogLine); earlier phases are stamped Succeeded since their
+// emission is the proof of completion.
+func (b *Bridge) MarkProvisionerFailed(message string, t time.Time) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	failedSet := false
+	for i := len(provisionerLifecyclePhases) - 1; i >= 0; i-- {
+		phase := provisionerLifecyclePhases[i]
+		jobID := JobID(b.deploymentID, phase)
+		job, _, err := b.store.GetJob(b.deploymentID, jobID)
+		if err != nil {
+			continue
+		}
+		if IsTerminal(job.Status) {
+			continue
+		}
+		if !failedSet {
+			if err := b.markLifecyclePhaseTerminalLocked(phase, StatusFailed, t, message); err != nil {
+				return err
+			}
+			failedSet = true
+			continue
+		}
+		// Earlier non-terminal phases — their emission is implied by
+		// the failed phase being downstream of them, but the failed
+		// phase MAY have started without prior phases ever entering
+		// running (e.g. validation failure pre tofu-init). Leave them
+		// Pending in that case so the FE renders accurately.
+	}
+	return nil
+}
+
+// ensureLifecycleJobLocked idempotently materialises the durable Job
+// row for a single Phase-0 lifecycle phase. Used by paths that may
+// run before SeedProvisionerJobs (e.g. a fast emit, a test that
+// constructs the Bridge without calling Seed). Caller MUST hold b.mu.
+func (b *Bridge) ensureLifecycleJobLocked(phase string) error {
+	if lifecyclePhaseIndex(phase) < 0 {
+		return nil
+	}
+	return b.store.UpsertJob(Job{
+		DeploymentID: b.deploymentID,
+		JobName:      phase,
+		DisplayName:  provisionerLifecycleDisplay[phase],
+		Type:         JobTypeInstall,
+		ParentID:     JobID(b.deploymentID, GroupProvisioner),
+		DependsOn:    dependsOnForLifecyclePhase(b.deploymentID, phase),
+		Status:       StatusPending,
+	})
+}
+
+// markLifecyclePhaseTerminalLocked stamps a single lifecycle phase as
+// terminal (Succeeded or Failed). If the phase has an active
+// Execution it is finished with the same status; an optional final
+// LogLine is appended (used by MarkProvisionerFailed to capture the
+// error). If the phase had no Execution yet (was still Pending), one
+// is allocated retroactively so the Exec Log surface has at least
+// one line — the JobsTable never renders an `—` duration cell.
+//
+// Caller MUST hold b.mu.
+func (b *Bridge) markLifecyclePhaseTerminalLocked(phase, status string, t time.Time, finalMessage string) error {
+	jobID := JobID(b.deploymentID, phase)
+	job, _, err := b.store.GetJob(b.deploymentID, jobID)
+	if err != nil {
+		return nil // unknown phase — bridge is stateless about phases it didn't seed
+	}
+	if IsTerminal(job.Status) {
+		return nil
+	}
+
+	cursor := lifecycleCursorKey(phase)
+	execID := b.activeExecID[cursor]
+	if execID == "" && job.LatestExecutionID != "" {
+		execID = job.LatestExecutionID
+	}
+	if execID == "" {
+		exec, startErr := b.store.StartExecution(b.deploymentID, phase, t)
+		if startErr != nil {
+			return startErr
+		}
+		execID = exec.ID
+	}
+
+	if msg := strings.TrimSpace(finalMessage); msg != "" {
+		level := LevelInfo
+		if status == StatusFailed {
+			level = LevelError
+		}
+		_ = b.store.AppendLogLines(b.deploymentID, execID, []LogLine{{
+			Timestamp: t.UTC(),
+			Level:     level,
+			Message:   msg,
+		}})
+	}
+
+	if err := b.store.FinishExecution(b.deploymentID, execID, status, t); err != nil {
+		return err
+	}
+	b.activeExecID[cursor] = ""
 	return nil
 }
 

@@ -32,7 +32,43 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// chrootEnsureDeployment — when the catalyst-api is running inside a
+// Sovereign chroot (SOVEREIGN_FQDN env set) and the requested
+// deployment id is not in the in-memory map, synthesise a minimal
+// Deployment record so chrootSeedJobsStoreIfEmpty can fire and
+// HandleK8sStream/list/sync's URL ID resolves to the chroot's single
+// self-registered cluster. Cutover steps don't import the mother's
+// deployment record onto the chroot — but the chroot has all the
+// authority it needs (SOVEREIGN_FQDN + in-cluster RBAC) to serve the
+// per-deployment views by ID alone.
+//
+// Returns the synthesised Deployment, or nil when not in chroot mode
+// or when the synthesis isn't safe (auth failure on the future
+// owner-check path is already covered by the caller's checkOwnership
+// gate; we only pre-load the record here).
+func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
+	selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if selfFQDN == "" {
+		return nil
+	}
+	if val, ok := h.deployments.Load(depID); ok {
+		return val.(*Deployment)
+	}
+	dep := &Deployment{
+		ID: depID,
+		Request: provisioner.Request{
+			SovereignFQDN: selfFQDN,
+		},
+		Status: "ready",
+	}
+	h.deployments.Store(depID, dep)
+	h.log.Info("chroot: synthesised in-memory deployment record",
+		"depId", depID, "sovereignFQDN", selfFQDN)
+	return dep
+}
 
 // chrootSeedJobsStoreIfEmpty — when the chroot Sovereign-side
 // catalyst-api gets a /jobs read for an imported deployment whose
@@ -132,8 +168,13 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	// Issue #689 — ownership check. If the deployment is unknown the
 	// in-memory map returns no entry; treat that as 404. If the entry
 	// exists, the helper writes 404 on cross-tenant access.
-	if val, ok := h.deployments.Load(depID); ok {
-		dep := val.(*Deployment)
+	dep := h.chrootEnsureDeployment(depID)
+	if dep == nil {
+		if val, ok := h.deployments.Load(depID); ok {
+			dep = val.(*Deployment)
+		}
+	}
+	if dep != nil {
 		if !h.checkOwnership(w, r, dep) {
 			return
 		}
@@ -185,8 +226,13 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Issue #689 — ownership check (404 on cross-tenant).
-	if val, ok := h.deployments.Load(depID); ok {
-		dep := val.(*Deployment)
+	dep := h.chrootEnsureDeployment(depID)
+	if dep == nil {
+		if val, ok := h.deployments.Load(depID); ok {
+			dep = val.(*Deployment)
+		}
+	}
+	if dep != nil {
 		if !h.checkOwnership(w, r, dep) {
 			return
 		}

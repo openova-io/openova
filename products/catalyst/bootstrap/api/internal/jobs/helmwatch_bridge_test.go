@@ -221,24 +221,43 @@ func TestBridge_DuplicateStateSuppressed(t *testing.T) {
 	}
 }
 
-func TestBridge_OnProvisionerEvent_FiltersPhase0(t *testing.T) {
+func TestBridge_OnProvisionerEvent_Phase0Lifecycle(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
-	// Phase-0 OpenTofu event has no Component/State — bridge must drop.
+	// Phase-0 lifecycle event creates a durable Job under the
+	// "provisioner" group so deep-links to /jobs/tofu-apply resolve
+	// AND the JobsTable doesn't drop the row when bootstrap-kit
+	// children land later.
 	if err := br.OnProvisionerEvent(provisioner.Event{
 		Time:    time.Now().UTC().Format(time.RFC3339),
 		Phase:   "tofu-apply",
 		Level:   "info",
-		Message: "Apply complete",
+		Message: "Applying — this provisions real Hetzner resources, please wait",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := st.ListJobs(depID)
-	if len(got) != 0 {
-		t.Errorf("Phase-0 event must not create jobs, got %+v", got)
+	all, _ := st.ListJobs(depID)
+	leaves := leafJobs(all)
+	// 5 lifecycle phases: tofu-init, tofu-plan, tofu-apply, tofu-output,
+	// cluster-bootstrap. tofu-apply is running; init+plan promoted to
+	// succeeded; output+cluster-bootstrap remain pending.
+	if len(leaves) != 5 {
+		t.Fatalf("expected 5 lifecycle leaves, got %d: %+v", len(leaves), leaves)
+	}
+	apply := leafByName(t, leaves, "tofu-apply")
+	if apply.Status != StatusRunning {
+		t.Errorf("tofu-apply: status=%q want %q", apply.Status, StatusRunning)
+	}
+	plan := leafByName(t, leaves, "tofu-plan")
+	if plan.Status != StatusSucceeded {
+		t.Errorf("tofu-plan: status=%q want %q (promoted on later phase emit)", plan.Status, StatusSucceeded)
+	}
+	output := leafByName(t, leaves, "tofu-output")
+	if output.Status != StatusPending {
+		t.Errorf("tofu-output: status=%q want %q (not yet emitted)", output.Status, StatusPending)
 	}
 
-	// Phase-1 component event creates a leaf Job (and lazily the
-	// bootstrap-kit parent group).
+	// Phase-1 component event creates a leaf Job under the
+	// bootstrap-kit parent — the lifecycle leaves are unchanged.
 	if err := br.OnProvisionerEvent(provisioner.Event{
 		Time:      time.Now().UTC().Format(time.RFC3339),
 		Phase:     "component",
@@ -249,11 +268,12 @@ func TestBridge_OnProvisionerEvent_FiltersPhase0(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	leaves := leafJobs(mustList(t, st, depID))
-	if len(leaves) != 1 {
-		t.Fatalf("expected exactly 1 leaf, got %+v", leaves)
+	leaves = leafJobs(mustList(t, st, depID))
+	if len(leaves) != 6 {
+		t.Fatalf("expected 5 lifecycle + 1 install = 6 leaves, got %d: %+v", len(leaves), leaves)
 	}
 	leafByName(t, leaves, "install-cilium")
+	leafByName(t, leaves, "tofu-apply") // still present — must not vanish
 }
 
 func TestMapLevel(t *testing.T) {
@@ -680,12 +700,13 @@ func TestOnRawComponentLog_dropsAfterTerminal(t *testing.T) {
 }
 
 // TestOnProvisionerEvent_dropsUnknownPhases keeps the bridge inert for
-// Phase-0 OpenTofu events (Phase="phase-0", Phase="tofu-init") that
-// have no Job analogue — a regression guard against accidentally
-// materialising Jobs for opentofu output.
+// truly unknown phases ("phase-0", empty). Named Phase-0 lifecycle
+// phases (tofu-init / tofu-plan / tofu-apply / tofu-output /
+// cluster-bootstrap) are now durable Jobs and have their own coverage
+// in TestBridge_OnProvisionerEvent_Phase0Lifecycle.
 func TestOnProvisionerEvent_dropsUnknownPhases(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
-	for _, ph := range []string{"phase-0", "tofu-init", "tofu-apply", ""} {
+	for _, ph := range []string{"phase-0", "", "ham-sandwich"} {
 		if err := br.OnProvisionerEvent(provisioner.Event{
 			Time:      time.Now().UTC().Format(time.RFC3339),
 			Phase:     ph,
@@ -697,7 +718,7 @@ func TestOnProvisionerEvent_dropsUnknownPhases(t *testing.T) {
 	}
 	got, _ := st.ListJobs(depID)
 	if len(got) != 0 {
-		t.Errorf("non-component phases must not allocate Jobs, got %d", len(got))
+		t.Errorf("unknown phases must not allocate Jobs, got %d", len(got))
 	}
 }
 

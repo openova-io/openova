@@ -40,6 +40,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +83,7 @@ func (h *Handler) HandleK8sList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path parameters", http.StatusBadRequest)
 		return
 	}
+	clusterID = h.resolveChrootClusterID(clusterID)
 	if _, ok := h.k8sCache.Registry().Get(kindName); !ok {
 		// Helpful 404 lists every registered kind. Shaped this
 		// way so `curl /...invalid` self-documents the registry.
@@ -225,6 +227,7 @@ func (h *Handler) HandleK8sStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing sovereign id", http.StatusBadRequest)
 		return
 	}
+	clusterID = h.resolveChrootClusterID(clusterID)
 	if !h.k8sCacheHasCluster(clusterID) {
 		http.Error(w, fmt.Sprintf("sovereign %q not registered", clusterID), http.StatusNotFound)
 		return
@@ -386,6 +389,7 @@ func (h *Handler) HandleK8sSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clusterID := chi.URLParam(r, "id")
+	clusterID = h.resolveChrootClusterID(clusterID)
 	all := h.k8sCache.Synced()
 	resp, ok := all[clusterID]
 	if !ok {
@@ -405,6 +409,33 @@ func (h *Handler) k8sCacheHasCluster(id string) bool {
 		}
 	}
 	return false
+}
+
+// resolveChrootClusterID rewrites an incoming URL cluster ID onto the
+// chroot's single self-registered cluster when running inside a
+// Sovereign (SOVEREIGN_FQDN env set) and the URL ID isn't directly
+// registered. The mother stamps the FE with the deployment ID it
+// generated; post-cutover the chroot has no deployment record for
+// that ID, but its k8scache.Factory.FromEnv self-registers exactly
+// one cluster (the local cluster) under a SOVEREIGN_FQDN-derived
+// alias. Aliasing here makes /sovereigns/<any>/k8s/{stream,list,sync}
+// resolve to the chroot's local cluster regardless of which id the
+// FE asserts — no per-Sovereign import step required.
+func (h *Handler) resolveChrootClusterID(clusterID string) string {
+	if h.k8sCache == nil {
+		return clusterID
+	}
+	if h.k8sCacheHasCluster(clusterID) {
+		return clusterID
+	}
+	if strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) == "" {
+		return clusterID
+	}
+	clusters := h.k8sCache.Clusters()
+	if len(clusters) != 1 {
+		return clusterID
+	}
+	return clusters[0]
 }
 
 // k8sUser extracts the authenticated user identifier from the request.
