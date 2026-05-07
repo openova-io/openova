@@ -62,6 +62,13 @@ type SovereignSelfResponse struct {
 func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, r *http.Request) {
 	deploymentID := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
 	fqdn := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+	// SOVEREIGN_FQDN is the standard env every chroot already has from
+	// the bp-catalyst-platform chart's sovereign-fqdn ConfigMap; treat
+	// it as a synonym for CATALYST_OTECH_FQDN so a chroot pod where
+	// either name is set resolves correctly.
+	if fqdn == "" {
+		fqdn = strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	}
 
 	// Step 1.5: read the Sovereign session cookie's deployment_id /
 	// sovereign_fqdn claims (populated by auth_handover.go after the
@@ -107,14 +114,18 @@ func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 3: still no id — handover hasn't fired yet.
+	// Step 3: still no id — synthesize one from SOVEREIGN_FQDN. The
+	// chroot post-cutover often has neither CATALYST_SELF_DEPLOYMENT_ID
+	// stamped (cutover step-07 only patches GITOPS_REPO_URL) nor the
+	// mother's deployment record imported. Returning 503 here breaks
+	// every downstream view (apps/jobs/cloud) for users who logged in
+	// directly via Keycloak (no handover JWT). Fall back to a stable
+	// id derived from SOVEREIGN_FQDN — k8scache.factory.go and the
+	// chroot k8s handler aliases agree on this convention so the FE's
+	// subsequent /api/v1/sovereigns/{id}/* calls resolve to the chroot's
+	// single self-registered cluster.
 	if deploymentID == "" {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "deployment-id-not-yet-stamped",
-			"detail": "Sovereign FQDN is known but the contabo orchestrator has not yet POSTed the deployment id to this cluster. The handover step is behind — retry shortly.",
-			"fqdn":   fqdn,
-		})
-		return
+		deploymentID = "sovereign-" + fqdn
 	}
 
 	writeJSON(w, http.StatusOK, SovereignSelfResponse{

@@ -254,21 +254,43 @@ func (c *Config) ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// ReadSessionToken extracts the access token from the session cookie.
+// ReadSessionToken extracts the access token from the session cookie
+// OR the Authorization header.
 //
-// Two cookie shapes are accepted:
+// Token sources (first match wins):
 //
-//  1. HMAC-wrapped (Option A legacy): "<token>.<hmac>" — produced by
-//     IssueSessionCookie. The HMAC suffix is verified and stripped.
+//  1. Authorization: Bearer <jwt> header — used by the chroot Sovereign
+//     Console SPA, which holds the Keycloak access_token in sessionStorage
+//     after its own OIDC callback. The BE has no chance to mint a cookie
+//     during that flow (token exchange happens entirely client-side via
+//     PKCE), so the SPA must attach the token to every API fetch as
+//     Authorization: Bearer. ValidateToken handles signature verification
+//     against the same JWKS regardless of whether the JWT arrived via
+//     cookie or header.
 //
-//  2. Raw self-signed JWT (PIN auth, issue #688): the cookie value is a
-//     compact JWT ("<header>.<payload>.<sig>"). Recognised by the absence
-//     of an additional "." after the third segment. When CookieSecret is
-//     empty, only this path is used so existing single-component deployments
-//     (Sovereign clusters) continue to work unchanged.
+//  2. catalyst_session cookie — two shapes accepted:
+//     a. HMAC-wrapped (Option A legacy): "<token>.<hmac>" — produced by
+//        IssueSessionCookie. The HMAC suffix is verified and stripped.
+//     b. Raw self-signed JWT (PIN auth, issue #688): the cookie value is
+//        a compact JWT ("<header>.<payload>.<sig>"). Recognised by exactly
+//        3 base64url segments. When CookieSecret is empty, only this path
+//        is used so existing single-component deployments (Sovereign
+//        clusters) continue to work unchanged.
 //
-// Returns "" when no valid cookie is present.
+// Returns "" when no valid token source is present.
 func (c *Config) ReadSessionToken(r *http.Request) string {
+	// Bearer header — used by the chroot SPA after its own OIDC callback.
+	if hdr := r.Header.Get("Authorization"); hdr != "" {
+		const prefix = "Bearer "
+		if len(hdr) > len(prefix) && strings.EqualFold(hdr[:len(prefix)], prefix) {
+			tok := strings.TrimSpace(hdr[len(prefix):])
+			parts := strings.Split(tok, ".")
+			if len(parts) == 3 {
+				return tok
+			}
+		}
+	}
+
 	cookie, err := r.Cookie(SessionCookieName)
 	if err != nil || cookie.Value == "" {
 		return ""
