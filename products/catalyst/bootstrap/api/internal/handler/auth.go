@@ -715,12 +715,58 @@ func resolvePostLogoutPath() string {
 	return "/sovereign/login"
 }
 
+// whoamiResponse is the wire shape of GET /api/v1/whoami.
+//
+// On Catalyst-Zero (mother) the sovereign fields are empty and the
+// `omitempty` JSON tags drop them, preserving the original
+// {email, sub, verified} shape that pre-#608 callers depend on.
+//
+// On a chroot Sovereign the fields are populated so the SPA can
+// discover its sovereign context from a single round-trip without a
+// follow-up /api/v1/sovereign/self call. This is the contract
+// SovereignConsoleLayout + chroot SPA features assert in TC-232.
+type whoamiResponse struct {
+	Email         string `json:"email"`
+	Sub           string `json:"sub"`
+	Verified      bool   `json:"verified"`
+	DeploymentID  string `json:"deploymentId,omitempty"`
+	SovereignFQDN string `json:"sovereignFQDN,omitempty"`
+	Mode          string `json:"mode,omitempty"`
+}
+
 // HandleWhoami handles GET /api/v1/whoami.
 //
 // Returns the authenticated operator's claims from context. The
 // RequireSession middleware has already validated the session cookie
 // before this handler is reached, so a nil claims is a logic error.
-// Returns {"email":"...","sub":"...","verified":true/false}.
+//
+// Mother (Catalyst-Zero) returns:
+//
+//	{"email":"...","sub":"...","verified":true}
+//
+// Chroot (Sovereign) additionally returns:
+//
+//	{..., "deploymentId":"sovereign-<fqdn>",
+//	      "sovereignFQDN":"<fqdn>",
+//	      "mode":"sovereign"}
+//
+// The chroot enrichment uses the same resolution precedence as
+// HandleSovereignSelf (sovereign_self.go) so both endpoints converge on
+// the same identifiers post-handover:
+//
+//  1. Session-JWT claims SovereignFQDN + DeploymentID (set by
+//     /auth/handover when the operator arrived from the wizard).
+//  2. Env CATALYST_SELF_DEPLOYMENT_ID / CATALYST_OTECH_FQDN /
+//     SOVEREIGN_FQDN (stamped on every chroot catalyst-api by the
+//     bp-catalyst-platform sovereign-fqdn ConfigMap).
+//  3. If the chroot is identifiable by FQDN but lacks a stamped
+//     deployment id (typical post-cutover before orchestrator overlay
+//     write lands), synthesize the canonical
+//     `sovereign-<fqdn>` id — the same convention as
+//     sovereign_self.go's step-3 fallback so URL routing stays stable.
+//
+// Mothership (no FQDN env, no claim-fqdn) → fields stay empty and
+// `omitempty` drops them: pre-#608 wire compatibility preserved.
 func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -728,9 +774,37 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"email":    claims.Email,
-		"sub":      claims.Sub,
-		"verified": claims.EmailVerified,
-	})
+
+	resp := whoamiResponse{
+		Email:    claims.Email,
+		Sub:      claims.Sub,
+		Verified: claims.EmailVerified,
+	}
+
+	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
+	// so the two endpoints never disagree about which sovereign this is.
+	deploymentID := strings.TrimSpace(claims.DeploymentID)
+	fqdn := strings.TrimSpace(claims.SovereignFQDN)
+	if fqdn == "" {
+		fqdn = strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+	}
+	if fqdn == "" {
+		fqdn = strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	}
+	if deploymentID == "" {
+		deploymentID = strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
+	}
+	// Synthesize the canonical chroot id when FQDN is known but no id
+	// has been stamped yet — matches sovereign_self.go step-3.
+	if deploymentID == "" && fqdn != "" {
+		deploymentID = "sovereign-" + fqdn
+	}
+
+	if fqdn != "" {
+		resp.SovereignFQDN = fqdn
+		resp.DeploymentID = deploymentID
+		resp.Mode = "sovereign"
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
