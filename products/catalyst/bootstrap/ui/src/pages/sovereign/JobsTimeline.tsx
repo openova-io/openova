@@ -1,6 +1,8 @@
 /**
  * JobsTimeline — fullscreen Gantt-style retrospective view of all jobs.
- * (Stretch deliverable for #206; route at /provision/$deploymentId/jobs/timeline.)
+ * (Stretch deliverable for #206; routes:
+ *   • mothership tenant: /provision/$deploymentId/jobs/timeline
+ *   • Sovereign chroot:  /jobs/timeline (added by PR #1073, fixed in #1076).)
  *
  * Each row is one job; a horizontal bar spans `startedAt` → `finishedAt`
  * (or "now" if the job is still running). Bars are colour-coded by
