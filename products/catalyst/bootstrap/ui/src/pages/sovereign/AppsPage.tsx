@@ -36,6 +36,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { API_BASE } from '@/shared/config/urls'
+import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
@@ -96,8 +97,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     enabled: isSovereignMode,
     refetchInterval: 5_000,
     queryFn: async () => {
-      const r = await fetch(`${API_BASE}/v1/sovereign/apps`, {
-        credentials: 'include',
+      const r = await authedFetch(`${API_BASE}/v1/sovereign/apps`, {
         headers: { Accept: 'application/json' },
       })
       if (!r.ok) throw new Error(`live apps fetch ${r.status}`)
@@ -565,11 +565,10 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                 marketplacePublished={published}
                 slug={slug}
                 onPublishedChange={async (next) => {
-                  const r = await fetch(
+                  const r = await authedFetch(
                     `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
                     {
                       method: 'PATCH',
-                      credentials: 'include',
                       headers: {
                         Accept: 'application/json',
                         'Content-Type': 'application/json',

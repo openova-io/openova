@@ -4,7 +4,18 @@ import { RouterProvider } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { router } from './app/router'
 import { bootstrapTenant } from './shared/lib/tenantDiscover'
+import { installFetchAuthInterceptor } from './shared/lib/authedFetch'
 import './app/globals.css'
+
+// Install the OIDC bearer-token fetch interceptor BEFORE any module
+// touches fetch(). Sovereign Console (chroot) holds the access_token
+// in sessionStorage after its own PKCE OIDC flow; without this
+// interceptor every /api/v1/ fetch would 401 because the SPA can't
+// set the catalyst_session cookie that the BE's session middleware
+// expects on mother. Mother itself keeps using cookies — the
+// interceptor is a transparent no-op when sessionStorage has no OIDC
+// tokens.
+installFetchAuthInterceptor()
 
 const queryClient = new QueryClient({
   defaultOptions: {
