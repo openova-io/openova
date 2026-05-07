@@ -133,8 +133,14 @@ function useJobHints(args: {
     const liveIdByBare = new Map<string, string>()
     for (const j of jobs) {
       if (j.type === 'group') continue
-      const bare = j.appId.startsWith('bp-') ? j.appId.slice(3) : j.appId
-      if (!liveIdByBare.has(bare)) liveIdByBare.set(bare, j.id)
+      // Phase-0 lifecycle jobs (tofu-init/plan/apply/output,
+      // cluster-bootstrap) have empty appId by design — they are
+      // not Sovereign components. Serialised with omitempty so
+      // j.appId is undefined on the wire. Coerce to '' to keep
+      // .startsWith safe; the bare-id falls back to jobName below.
+      const appId = j.appId ?? ''
+      const bare = appId.startsWith('bp-') ? appId.slice(3) : appId
+      if (bare && !liveIdByBare.has(bare)) liveIdByBare.set(bare, j.id)
       const m = j.jobName.match(/^install-(.+)$/)
       if (m) {
         const fromName = m[1]
@@ -152,8 +158,9 @@ function useJobHints(args: {
       if (m) return m[1]
       const m2 = j.id.match(/install-([a-z0-9-]+)/)
       if (m2) return m2[1]
-      const m3 = j.appId.startsWith('bp-') ? j.appId.slice(3) : j.appId
-      return m3
+      const appId = j.appId ?? ''
+      const m3 = appId.startsWith('bp-') ? appId.slice(3) : appId
+      return m3 || j.jobName
     }
 
     function bootstrapDepsFor(bare: string): string[] {
