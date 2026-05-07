@@ -1174,7 +1174,16 @@ func writeTfvars(deployDir string, req Request) error {
 		"ssh_public_key": req.SSHPublicKey,
 
 		// Domain
-		"domain_mode":    req.SovereignDomainMode, // pool | byo
+		// The wizard exposes three modes (pool / byo-manual / byo-api) so
+		// the StepDomain UX can branch the operator into the right
+		// flow. The OpenTofu module only cares about the binary
+		// pool/byo distinction (pool means "we own the parent zone via
+		// Dynadot"; byo means "operator is bringing their own
+		// domain"). Collapse byo-manual + byo-api → "byo" before
+		// writing the tfvars. Caught live on omantel.biz 2026-05-07
+		// — provisioning failed at `tofu plan` with
+		// `Invalid value for variable: var.domain_mode is "byo-manual" — Domain mode must be 'pool' or 'byo'`.
+		"domain_mode":    mapDomainModeForTofu(req.SovereignDomainMode),
 		"pool_domain":    req.SovereignPoolDomain,
 		"dynadot_key":    req.DynadotAPIKey, // empty when domain_mode != "pool"
 		"dynadot_secret": req.DynadotAPISecret,
@@ -1598,4 +1607,27 @@ func coalesceParentDomains(pds []ParentDomain) []ParentDomain {
 		return []ParentDomain{}
 	}
 	return pds
+}
+
+// mapDomainModeForTofu collapses the wizard's three-mode domain
+// selector (`pool` / `byo-manual` / `byo-api`) into the binary
+// pool/byo enum the OpenTofu module's `variable "domain_mode"`
+// validation accepts.
+//
+// The wizard's tri-state exists for UX branching — pool flows through
+// the OpenOva PDM + Dynadot path; byo-manual asks the operator to
+// paste the NS records into their registrar manually; byo-api drives
+// the registrar API automatically. From the cloud-infrastructure
+// layer (Hetzner servers, network, LB) NONE of those distinctions
+// matter — the only thing tofu needs to know is "do I need to call
+// Dynadot at apply time?" which is `pool` only.
+//
+// An empty string maps to "byo" so the test path that leaves
+// SovereignDomainMode unset doesn't accidentally trigger the pool
+// branch.
+func mapDomainModeForTofu(wizardMode string) string {
+	if wizardMode == "pool" {
+		return "pool"
+	}
+	return "byo"
 }
