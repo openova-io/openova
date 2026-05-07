@@ -16,13 +16,13 @@
  * the page can never drift apart.
  */
 
-import { useParams } from '@tanstack/react-router'
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import {
   NotificationListPanel,
   useNotifications,
 } from '@/shared/ui/notifications'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 
 export interface NotificationsPageProps {
   /** Test seam — disables the live SSE attach. */
@@ -32,10 +32,13 @@ export interface NotificationsPageProps {
 export function NotificationsPage({
   disableStream = false,
 }: NotificationsPageProps = {}) {
-  const params = useParams({
-    from: '/provision/$deploymentId/notifications' as never,
-  }) as { deploymentId: string }
-  const deploymentId = params.deploymentId
+  // Resolve deployment id from either:
+  //   • URL :deploymentId param (Catalyst-Zero route /provision/$id/notifications)
+  //   • /api/v1/sovereign/self (Sovereign mode /notifications, no URL param)
+  // Mirrors the pattern used by JobsPage / SettingsPage / Dashboard so the
+  // standalone notifications surface works on both topologies.
+  const { deploymentId: resolvedId } = useResolvedDeploymentId()
+  const deploymentId = resolvedId ?? ''
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,

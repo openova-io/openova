@@ -34,6 +34,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -83,6 +84,20 @@ type authHandoverClaims struct {
 func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("token")
 	if raw == "" {
+		// Browser visits (e.g. an operator pasting the bare /auth/handover
+		// URL, or following a stale email link with the token stripped) get
+		// a SPA-rendered friendly error page instead of bare JSON. Programmatic
+		// callers (curl / health probes / API clients with explicit
+		// `Accept: application/json`) keep the legacy 401 JSON contract that
+		// auth_handover_test.go pins.
+		//
+		// Caught live on omantel.biz 2026-05-07 (TC-004): pasting
+		// https://console.<sov>/auth/handover with no token returned raw
+		// JSON to the browser, breaking the seamless-handover UX promise.
+		if wantsHTML(r) {
+			http.Redirect(w, r, "/auth/handover-error?reason=missing_token", http.StatusFound)
+			return
+		}
 		writeAuthError(w, "missing token parameter")
 		return
 	}
@@ -399,4 +414,36 @@ func writeAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(authHandoverError{Error: msg}) //nolint:errcheck
+}
+
+// wantsHTML returns true when the caller's Accept header prefers
+// text/html over application/json. Used by AuthHandover to render a
+// SPA-friendly error page for browser visits while preserving the legacy
+// JSON contract for programmatic callers (tests + monitors).
+//
+// Heuristic: an HTML-prefering browser sends `Accept: text/html,...` or
+// `Accept: */*` with `Sec-Fetch-Mode: navigate`. We check both — the
+// first catches modern browsers, the second catches some legacy clients
+// that send `Accept: */*`. JSON-first programmatic callers that send
+// `Accept: application/json` (the auth_handover_test cases that send
+// no Accept header at all also fall through to the JSON branch because
+// neither marker fires) get the legacy 401 JSON.
+func wantsHTML(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	// Explicit non-HTML preference (e.g. `Accept: application/json`) —
+	// definitely a programmatic caller.
+	if accept != "" && !strings.Contains(accept, "text/html") &&
+		!strings.Contains(accept, "*/*") {
+		return false
+	}
+	// text/html anywhere in the Accept header → browser.
+	if strings.Contains(accept, "text/html") {
+		return true
+	}
+	// `Sec-Fetch-Mode: navigate` is the W3C marker for top-level browser
+	// navigation. Catches `Accept: */*` browser cases.
+	if r.Header.Get("Sec-Fetch-Mode") == "navigate" {
+		return true
+	}
+	return false
 }

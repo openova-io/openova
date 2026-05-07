@@ -164,6 +164,67 @@ const authHandoverRoute = createRoute({
   component: () => null,
 })
 
+/**
+ * Handover-error landing page (TC-004 / 2026-05-07).
+ *
+ * The catalyst-api `AuthHandover` Go handler 302-redirects browser
+ * visits without a valid token to this URL with `?reason=<code>`. This
+ * keeps the seamless-handover UX promise even when the operator pastes
+ * a bare `/auth/handover` URL or follows a stale email link with the
+ * token stripped — they see a SPA-rendered error surface instead of
+ * raw `{"error":"missing token parameter"}` JSON.
+ *
+ * Programmatic callers (curl / monitors with `Accept: application/json`)
+ * still get the legacy 401 JSON contract — `wantsHTML` in the Go
+ * handler discriminates by Accept header.
+ */
+function HandoverErrorPage() {
+  const search =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams()
+  const reason = search.get('reason') ?? 'unknown'
+  const message =
+    reason === 'missing_token'
+      ? 'The handover link did not include a token. Please open the link from your most recent email exactly as it was delivered, or request a fresh handover from the OpenOva mothership.'
+      : reason === 'expired'
+        ? 'This handover link has expired. Handover tokens are valid for a few minutes — please request a fresh one from the OpenOva mothership.'
+        : reason === 'replayed'
+          ? 'This handover link has already been used. Each token is single-use; request a fresh one from the OpenOva mothership.'
+          : 'We could not complete the handover. Please request a fresh handover link from the OpenOva mothership.'
+  return (
+    <div
+      className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-6 px-6 text-center"
+      data-testid="handover-error-page"
+    >
+      <h1 className="text-2xl font-semibold text-[var(--color-text)]">
+        Handover incomplete
+      </h1>
+      <p className="text-sm leading-relaxed text-[var(--color-text-dim)]">
+        {message}
+      </p>
+      <a
+        href="/dashboard"
+        className="rounded-md border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      >
+        Continue to console
+      </a>
+    </div>
+  )
+}
+
+const authHandoverErrorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/handover-error',
+  validateSearch: (raw: Record<string, unknown>): { reason?: string } => {
+    if (typeof raw.reason === 'string' && raw.reason.length > 0) {
+      return { reason: raw.reason }
+    }
+    return {}
+  },
+  component: HandoverErrorPage,
+})
+
 // App routes
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/dashboard', component: DashboardPage })
@@ -680,6 +741,15 @@ const consoleCloudRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/cloud',
   component: CloudPage,
+  // Mirrors provisionCloudRoute.validateSearch so child legacy-redirect
+  // routes (TC-090..092) can pass `view` and `kind` through cleanly and
+  // CloudPage's useSearch reads typed values.
+  validateSearch: (raw: Record<string, unknown>): CloudSearch => {
+    const out: CloudSearch = {}
+    if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    return out
+  },
 })
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -779,6 +849,51 @@ const consoleSMECreateTenantRoute = createRoute({
   component: SMECreateTenantPage,
 })
 
+/**
+ * Standalone notifications surface for sovereign mode (TC-160 / 2026-05-07).
+ *
+ * Sister to `provisionNotificationsRoute` (mothership-side at
+ * `/provision/$id/notifications`). On a Sovereign console the operator
+ * has no `:deploymentId` in the URL — `NotificationsPage` resolves the
+ * id via `useResolvedDeploymentId` (URL param, then /sovereign/self).
+ *
+ * Mounted under `consoleLayoutRoute` so it inherits the sidebar + header
+ * + auth gate the rest of the Sovereign console pages share.
+ */
+const consoleNotificationsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/notifications',
+  component: NotificationsPage,
+})
+
+/* ── Sovereign-mode cloud legacy redirects (TC-090..092 / 2026-05-07) ─
+ *
+ * Sister set to LEGACY_CLOUD_REDIRECTS (which is mounted under the
+ * mothership `/provision/$id/cloud` subtree). These are the SAME
+ * redirects but rooted at sovereign-mode `/cloud/<legacy-path>`, so
+ * deep-links / bookmarks / external links into a Sovereign console at
+ * `console.<sov>/cloud/architecture`, `/cloud/compute`, etc. resolve
+ * cleanly to the canonical `/cloud?view=...&kind=...` query shape
+ * instead of TanStack Router's bare 404 page.
+ *
+ * Reuses LEGACY_CLOUD_REDIRECTS verbatim so the two redirect sets
+ * cannot drift.
+ */
+const consoleLegacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
+  createRoute({
+    getParentRoute: () => consoleCloudRoute,
+    path: r.path,
+    component: NoopRedirectComponent,
+    beforeLoad: () => {
+      throw redirect({
+        to: '/cloud' as never,
+        search: r.search as never,
+        replace: true,
+      })
+    },
+  }),
+)
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -787,6 +902,7 @@ const routeTree = rootRoute.addChildren([
   signupRoute,
   forgotRoute,
   authHandoverRoute,
+  authHandoverErrorRoute,
   appRoute.addChildren([dashboardRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
@@ -821,7 +937,7 @@ const routeTree = rootRoute.addChildren([
     consoleJobsRoute,
     consoleJobsTimelineRoute,
     consoleJobDetailRoute,
-    consoleCloudRoute,
+    consoleCloudRoute.addChildren(consoleLegacyCloudRedirectRoutes),
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,
@@ -831,6 +947,7 @@ const routeTree = rootRoute.addChildren([
     consoleSMERolesRoute,
     consoleParentDomainsRoute,
     consoleSMECreateTenantRoute,
+    consoleNotificationsRoute,
   ]),
 ])
 

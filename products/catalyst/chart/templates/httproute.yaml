@@ -43,6 +43,28 @@ spec:
   hostnames:
     - {{ $consoleHost | quote }}
   rules:
+    # /readyz and /healthz on the console hostname route to catalyst-api,
+    # not catalyst-ui. The SPA's catch-all router would otherwise shadow
+    # these paths with the React shell (HTTP 200 + index.html), making
+    # them useless as health probes for any external monitor that points
+    # at console.<sov>/readyz expecting a real Go-handler probe response.
+    #
+    # The catalyst-ui Pod's own k8s probes still hit the nginx-internal
+    # /healthz at port 8080 inside the pod (see ui-deployment.yaml) —
+    # this Gateway rule only affects external traffic on the console
+    # hostname. Caught live on omantel.biz 2026-05-07: TC-211 surfaced
+    # /readyz returning the SPA shell because no Gateway rule routed it
+    # to catalyst-api.
+    - matches:
+        - path:
+            type: Exact
+            value: "/readyz"
+        - path:
+            type: Exact
+            value: "/healthz"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
     # /auth/handover on the console hostname routes to catalyst-api
     # (the Go backend), not catalyst-ui (the React shell). The handover
     # JWT lands at GET /auth/handover?token=… which is implemented in
@@ -62,9 +84,10 @@ spec:
     # operator cannot log into the Sovereign Console at all (Keycloak
     # bounces between login and a 404). Verified live on otech103,
     # 2026-05-05. By using Exact /auth/handover here, every other
-    # /auth/* path (including /auth/callback, /auth/silent-renew, any
-    # future client-side OIDC routes) falls through to the catalyst-ui
-    # default rule below and the React Router resolves them.
+    # /auth/* path (including /auth/callback, /auth/silent-renew,
+    # /auth/handover-error, any future client-side OIDC routes) falls
+    # through to the catalyst-ui default rule below and the React
+    # Router resolves them.
     - matches:
         - path:
             type: Exact

@@ -164,6 +164,58 @@ func TestAuthHandover_MissingToken(t *testing.T) {
 	assertAuthError(t, w, http.StatusUnauthorized, "missing token parameter")
 }
 
+// TC-004 / 2026-05-07 — browser visits to /auth/handover without a
+// token receive a 302 redirect to the SPA error page, NOT raw JSON.
+// Two browser markers exercised: explicit `Accept: text/html` and
+// `Sec-Fetch-Mode: navigate` (handles `Accept: */*` browsers).
+func TestAuthHandover_MissingTokenHTMLBrowser(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+	cases := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{
+			name:    "Accept text/html",
+			headers: map[string]string{"Accept": "text/html,application/xhtml+xml"},
+		},
+		{
+			name: "Sec-Fetch-Mode navigate",
+			headers: map[string]string{
+				"Accept":         "*/*",
+				"Sec-Fetch-Mode": "navigate",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			w := httptest.NewRecorder()
+			h.AuthHandover(w, req)
+			if w.Code != http.StatusFound {
+				t.Errorf("status: got %d, want %d", w.Code, http.StatusFound)
+			}
+			loc := w.Header().Get("Location")
+			if loc != "/auth/handover-error?reason=missing_token" {
+				t.Errorf("Location: got %q", loc)
+			}
+		})
+	}
+}
+
+// TC-004 / 2026-05-07 — programmatic callers (explicit JSON Accept)
+// keep the legacy 401 JSON contract unchanged.
+func TestAuthHandover_MissingTokenJSONClient(t *testing.T) {
+	h, _, _ := testHandoverSetup(t)
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
+	req.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+	assertAuthError(t, w, http.StatusUnauthorized, "missing token parameter")
+}
+
 func TestAuthHandover_MalformedToken(t *testing.T) {
 	h, _, _ := testHandoverSetup(t)
 	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token=not-a-jwt", nil)
