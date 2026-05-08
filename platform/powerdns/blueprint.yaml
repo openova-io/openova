@@ -61,6 +61,6 @@ spec:
   #   - traefik.io/v1alpha1.Middleware CRD — Traefik is the Catalyst-Zero
   #     ingress controller and is a fixture of every Sovereign.
   depends:
-    - bp-cert-manager
+    - blueprint: bp-cert-manager
   upgrades:
     from: ["0.x"]

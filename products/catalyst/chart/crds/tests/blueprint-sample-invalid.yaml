@@ -1,0 +1,33 @@
+# Invalid sample — must FAIL schema validation. Seeded errors:
+#   spec.version: "1.3" — not strict semver
+#   spec.card missing — required
+#   spec.visibility: "secret" — not in enum listed|unlisted|private
+#   spec.placementSchema.modes[0]: "round-robin" — not in enum
+#   spec.depends[0]: bare string — must be object {blueprint: ...}
+#   spec.depends[1].blueprint: "Foo" — uppercase fails pattern
+#   spec.rotation[0].ttl: "5 days" — wrong format
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad
+spec:
+  version: "1.3"
+  visibility: secret
+  placementSchema:
+    modes: [round-robin]
+  depends:
+    - bp-bad-string
+    - blueprint: Foo
+  rotation:
+    - kind: oauth-client-secret
+      ttl: "5 days"
+---
+# Second invalid case — title missing in card
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-2
+spec:
+  version: 1.0.0
+  card:
+    summary: A card without a title.

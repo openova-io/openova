@@ -26,7 +26,7 @@ spec:
     # waterfall locked in by docs/INVIOLABLE-PRINCIPLES.md (intra-chart
     # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
     # is Ready — Flux dependsOn enforces that at the HelmRelease level.
-    - bp-cert-manager
+    - blueprint: bp-cert-manager
     # NOTE: bp-powerdns dependency intentionally REMOVED. The webhook
     # calls contabo's central PowerDNS (https://pdns.openova.io) — an
     # out-of-cluster endpoint — not the Sovereign's local PowerDNS. The

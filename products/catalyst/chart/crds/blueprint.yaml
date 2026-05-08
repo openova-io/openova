@@ -1,0 +1,267 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: blueprints.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: blueprint
+spec:
+  group: catalyst.openova.io
+  scope: Cluster
+  names:
+    kind: Blueprint
+    listKind: BlueprintList
+    singular: blueprint
+    plural: blueprints
+    shortNames:
+      - bp
+      - bps
+    categories:
+      - catalyst
+      - openova
+  # Two versions served from identical inline schemas. v1 is storage. v1alpha1
+  # stays served so the 38 existing v1alpha1 files validate as-is. Future
+  # tightening / migration to v1 is a follow-up slice.
+  versions:
+    - &VERSION_v1
+      name: v1alpha1
+      served: true
+      storage: false
+      additionalPrinterColumns: &PRINTER_COLS
+        - name: Version
+          type: string
+          jsonPath: .spec.version
+        - name: Visibility
+          type: string
+          jsonPath: .spec.visibility
+        - name: Title
+          type: string
+          jsonPath: .spec.card.title
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema: &SCHEMA
+          type: object
+          description: |
+            Blueprint is the unified unit of installable software. See
+            docs/BLUEPRINT-AUTHORING.md §3 for the contract.
+
+            Schema is intentionally permissive (x-kubernetes-preserve-unknown-fields
+            on free-form sub-trees: configSchema, manifests.values, depends[].values,
+            and the spec root) because:
+              - configSchema is per-Blueprint JSON Schema — its shape is
+                arbitrary by design.
+              - 58 existing blueprint.yaml files (38 v1alpha1 + 20 v1) carry
+                a union of card variants (summary|description, category|family,
+                docs|documentation), optional manifests blocks for catalog-
+                metadata-only entries, and one-off fields (outputs, etc.).
+              - Tightening happens via follow-up slices that author specific
+                ClusterPolicies or schema bumps.
+
+            Required at this layer: spec.version, spec.card.title. Everything
+            else is optional / preserve-unknown.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [version, card]
+              properties:
+                version:
+                  type: string
+                  pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$'
+                card:
+                  type: object
+                  required: [title]
+                  properties:
+                    title:
+                      type: string
+                      minLength: 1
+                    summary:
+                      type: string
+                    description:
+                      type: string
+                    tagline:
+                      type: string
+                    icon:
+                      type: string
+                    category:
+                      type: string
+                    family:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+                    documentation:
+                      type: string
+                    docs:
+                      type: string
+                    license:
+                      type: string
+                    screenshots:
+                      type: array
+                      items:
+                        type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                visibility:
+                  type: string
+                  enum: [listed, unlisted, private]
+                owner:
+                  type: object
+                  properties:
+                    team:
+                      type: string
+                    contact:
+                      type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                configSchema:
+                  type: object
+                  description: |
+                    Per-Blueprint JSON Schema that drives the install form
+                    in the console. Free-form by design — preserve-unknown.
+                  x-kubernetes-preserve-unknown-fields: true
+                placementSchema:
+                  type: object
+                  properties:
+                    modes:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: string
+                        enum: [single-region, active-active, active-hotstandby]
+                    default:
+                      type: string
+                      enum: [single-region, active-active, active-hotstandby]
+                    minRegions:
+                      type: integer
+                      minimum: 1
+                      maximum: 5
+                    maxRegions:
+                      type: integer
+                      minimum: 1
+                      maximum: 5
+                  x-kubernetes-preserve-unknown-fields: true
+                depends:
+                  type: array
+                  items:
+                    type: object
+                    required: [blueprint]
+                    properties:
+                      blueprint:
+                        type: string
+                        pattern: '^(bp-)?[a-z][a-z0-9-]{1,62}$'
+                      version:
+                        type: string
+                      alias:
+                        type: string
+                      when:
+                        type: string
+                      values:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    x-kubernetes-preserve-unknown-fields: true
+                manifests:
+                  type: object
+                  properties:
+                    chart:
+                      type: string
+                    source:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum: [HelmChart, Kustomize, OAM]
+                        ref:
+                          type: string
+                      x-kubernetes-preserve-unknown-fields: true
+                    overlays:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    values:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                upgrades:
+                  type: object
+                  properties:
+                    from:
+                      type: array
+                      items:
+                        type: string
+                    blocks:
+                      type: array
+                      items:
+                        type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                rotation:
+                  type: array
+                  items:
+                    type: object
+                    required: [kind]
+                    properties:
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      ttl:
+                        type: string
+                        pattern: '^[0-9]+(s|m|h|d)$'
+                    x-kubernetes-preserve-unknown-fields: true
+                observability:
+                  type: object
+                  properties:
+                    metrics:
+                      type: string
+                    logs:
+                      type: string
+                    traces:
+                      type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                outputs:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Draft, Published, Deprecated, Withdrawn]
+                publishedAt:
+                  type: string
+                  format: date-time
+                deprecatedAt:
+                  type: string
+                  format: date-time
+                ociDigest:
+                  type: string
+                  description: cosign-signed OCI artifact digest (set by CI on publish).
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
+    - <<: *VERSION_v1
+      name: v1
+      storage: true
