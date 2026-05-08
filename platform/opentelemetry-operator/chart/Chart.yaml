@@ -1,0 +1,20 @@
+apiVersion: v2
+name: bp-opentelemetry-operator
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for the OpenTelemetry
+  Operator. Wraps the upstream open-telemetry/opentelemetry-helm-charts
+  `opentelemetry-operator` chart and ships the default Instrumentation CR.
+  Default off — operator opts in deliberately per-Sovereign per
+  docs/INVIOLABLE-PRINCIPLES.md #4.
+type: application
+keywords: [catalyst, blueprint, opentelemetry, observability, instrumentation]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+dependencies:
+  - name: opentelemetry-operator
+    version: "0.61.0"
+    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+    condition: enabled

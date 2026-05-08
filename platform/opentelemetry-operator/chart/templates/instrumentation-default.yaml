@@ -1,0 +1,52 @@
+{{/*
+Default Instrumentation CR. When enabled, Pods in the configured namespace
+opt-in to per-language auto-injection via these annotations:
+
+  instrumentation.opentelemetry.io/inject-java:    "default"
+  instrumentation.opentelemetry.io/inject-nodejs:  "default"
+  instrumentation.opentelemetry.io/inject-python:  "default"
+  instrumentation.opentelemetry.io/inject-dotnet:  "default"
+
+Where "default" is the name of THIS Instrumentation CR.
+
+Default OFF (.Values.defaultInstrumentation.enabled). The CRD itself is
+installed by the upstream operator subchart; the operator runs without
+this CR and only mutates Pods that opt in via annotation, so an empty
+Instrumentation set is a safe baseline.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 5 + §8.4 (EPIC-5).
+*/}}
+{{- if and .Values.enabled .Values.defaultInstrumentation.enabled -}}
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: {{ .Values.defaultInstrumentation.name | quote }}
+  namespace: {{ .Values.defaultInstrumentation.namespace | quote }}
+  labels:
+    app.kubernetes.io/name: bp-opentelemetry-operator
+    app.kubernetes.io/component: instrumentation-default
+    catalyst.openova.io/blueprint: bp-opentelemetry-operator
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  exporter:
+    endpoint: {{ .Values.defaultInstrumentation.exporterEndpoint | quote }}
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: {{ .Values.defaultInstrumentation.sampler.type | quote }}
+    argument: {{ .Values.defaultInstrumentation.sampler.argument | quote }}
+{{- if .Values.defaultInstrumentation.java.enabled }}
+  java: {}
+{{- end }}
+{{- if .Values.defaultInstrumentation.nodejs.enabled }}
+  nodejs: {}
+{{- end }}
+{{- if .Values.defaultInstrumentation.python.enabled }}
+  python: {}
+{{- end }}
+{{- if .Values.defaultInstrumentation.dotnet.enabled }}
+  dotnet: {}
+{{- end }}
+{{- end -}}
