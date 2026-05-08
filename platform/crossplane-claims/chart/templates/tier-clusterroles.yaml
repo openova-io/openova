@@ -1,0 +1,49 @@
+{{/*
+5-tier catalog ClusterRoles per EPIC-3 (#1098) slice T1.
+
+Renders 5 ClusterRoles `openova:tier-{viewer,developer,operator,admin,owner}`.
+Each ClusterRole's rules are computed by walking the inherit chain in
+.Values.tierActions (helper "catalyst.tierRules" in _tier-helpers.tpl)
+and concatenating each ancestor's `extras[]` rule slices.
+
+The find-or-create-role endpoint (slice A1, future) targets these via
+roleRef on UserAccess CRs.
+
+Per ADR-0001 §2.7 these are ClusterRoles (not Roles) so the same role
+works for both namespace-scoped (RoleBinding) and cluster-scoped
+(ClusterRoleBinding) UserAccess targets.
+
+The `enforcedScopes[]` per tier (e.g. developer's `env-type=dev`)
+surface as ClusterRole annotations — useraccess-controller (slice T3,
+follow-up) reads them and auto-injects matching scope tags onto
+UserAccess CRs at the developer tier.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every action set is a
+.Values.tierActions[name].extras list — operators extend per-Sovereign
+without editing this template.
+*/}}
+{{- if .Values.tiers.enabled }}
+{{- range $tier := list "viewer" "developer" "operator" "admin" "owner" }}
+{{- $level := index $.Values.tiers.levels $tier }}
+{{- $actions := index $.Values.tierActions $tier }}
+{{- $rulesYaml := include "catalyst.tierRules" (dict "name" $tier "values" $.Values) }}
+{{- $enforcedScopes := default (list) $actions.enforcedScopes }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openova:tier-{{ $tier }}
+  labels:
+    app.kubernetes.io/name: bp-crossplane-claims
+    app.kubernetes.io/component: tier-clusterrole
+    catalyst.openova.io/policy-tier: catalog-tier
+    catalyst.openova.io/tier-name: {{ $tier | quote }}
+    catalyst.openova.io/tier-level: {{ $level | quote }}
+  annotations:
+{{- if $enforcedScopes }}
+    catalyst.openova.io/enforced-scopes: {{ toJson $enforcedScopes | quote }}
+{{- end }}
+rules:
+{{ $rulesYaml | indent 0 }}
+{{- end }}
+{{- end }}
