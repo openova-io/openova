@@ -1,0 +1,37 @@
+{{/*
+Catalyst control-plane namespaces stay fully reachable. Without these
+exemptions, default-deny would cut Flux from kube-apiserver, Cilium
+operator from etcd, cert-manager from external ACME, etc. — every
+Sovereign would be unreachable within minutes.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 8.
+*/}}
+{{- if and .Values.enabled .Values.allowSystemNamespaces -}}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: 10-allow-system-namespaces
+  labels:
+    app.kubernetes.io/name: bp-network-policies
+    app.kubernetes.io/component: zero-trust-allow
+    catalyst.openova.io/policy-tier: allow-system
+spec:
+  description: |
+    Full ingress + egress for Catalyst control-plane namespaces. The set
+    is parametric (.Values.allowSystemNamespaces) so per-Sovereign
+    overlays can extend it (e.g. add `gitea`, `harbor`, `loki` if those
+    live in their own namespaces).
+  # Apply this allow rule to Pods in any of the listed namespaces.
+  endpointSelector:
+    matchExpressions:
+      - key: io.kubernetes.pod.namespace
+        operator: In
+        values:
+          {{- range .Values.allowSystemNamespaces }}
+          - {{ . | quote }}
+          {{- end }}
+  ingress:
+    - {}
+  egress:
+    - {}
+{{- end -}}

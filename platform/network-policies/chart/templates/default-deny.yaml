@@ -1,0 +1,32 @@
+{{/*
+Default-deny CiliumClusterwideNetworkPolicy. Order intentionally not set
+(Cilium evaluates ALL matching policies and a single allow rule on a
+flow grants it — there is no "deny wins" priority in Cilium's L3/L4
+model). The allow-templates that follow this file express the
+exemptions; without them, this policy alone would sever every flow.
+
+This is THE primitive that makes the cluster zero-trust by default.
+Per docs/EPICS-1-6-unified-design.md §3.9 row 8 + §8 (EPIC-5 Networking)
++ ADR-0001 §2 (zero-trust). Installing this without the allow-templates
+is a misconfiguration that breaks the platform — both must ride together.
+*/}}
+{{- if .Values.enabled -}}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: 00-default-deny
+  labels:
+    app.kubernetes.io/name: bp-network-policies
+    app.kubernetes.io/component: zero-trust-baseline
+    catalyst.openova.io/policy-tier: default-deny
+spec:
+  description: |
+    Default-deny baseline. All ingress + egress denied unless explicitly
+    allowed by another CiliumClusterwideNetworkPolicy. Allow templates
+    that ship with this Blueprint cover Catalyst control-plane namespaces,
+    intra-namespace traffic, and DNS egress; per-Application policies are
+    authored by application-controller from Blueprint.spec.networking.egress.
+  endpointSelector: {}
+  ingress: []
+  egress: []
+{{- end -}}
