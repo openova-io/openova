@@ -1,6 +1,6 @@
 # `infra/hetzner/` — Catalyst Sovereign provisioning module
 
-Canonical Phase 0 OpenTofu module that provisions a single-region Catalyst Sovereign on Hetzner Cloud and bootstraps it onto Flux-driven GitOps. After `tofu apply` finishes, every subsequent change to the Sovereign goes through Crossplane (cloud resources) and Flux (Kubernetes resources). OpenTofu state is archived and never touched again.
+Canonical Phase 0 OpenTofu module that provisions a single-region OR multi-region Catalyst Sovereign on Hetzner Cloud and bootstraps it onto Flux-driven GitOps. After `tofu apply` finishes, every subsequent change to the Sovereign goes through Crossplane (cloud resources) and Flux (Kubernetes resources). OpenTofu state is archived and never touched again.
 
 This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) §3 (Phase 0 — Bootstrap) and follows [`docs/INVIOLABLE-PRINCIPLES.md`](../../docs/INVIOLABLE-PRINCIPLES.md) — every value the wizard or operator picks is a variable; nothing is hardcoded.
 
@@ -19,6 +19,107 @@ This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../do
 | `null_resource.dns_pool` | Calls `/usr/local/bin/catalyst-dns` (a helper inside the catalyst-api container) when `domain_mode=pool` to write Dynadot A records for the new sovereign FQDN. |
 
 After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the public OpenOva monorepo and installs the 11-component bootstrap kit (Cilium → cert-manager → Crossplane → ESO → SPIRE → NATS → OpenBao → Keycloak → Gitea → catalyst-platform). Hetzner adoption by Crossplane happens once `provider-hcloud` is up.
+
+---
+
+## Multi-region wiring (slice G1, EPIC-0 #1095)
+
+The module accepts a `var.regions[]` list-of-objects payload that captures the wizard's per-region sizing. Slice G1 wires every entry in that list end-to-end:
+
+| `var.regions[i]` | Realised by | Notes |
+|---|---|---|
+| `regions[0]` | Legacy singular path (`hcloud_server.control_plane[0]`, `hcloud_load_balancer.main`, …) | Identity-preserving — no resource-address change for any Sovereign provisioned before slice G1. The catalyst-api provisioner mirrors `regions[0]` into `var.region` / `var.control_plane_size` / `var.worker_size` / `var.worker_count` before `tofu apply`. |
+| `regions[1+]` | Multi-region overlay (`hcloud_server.secondary_control_plane["fsn1-1"]`, `hcloud_load_balancer.secondary["hel1-2"]`, …) | New resources keyed by `for_each = local.secondary_regions`. Same `hcloud_network.main` + `hcloud_firewall.main` + `hcloud_ssh_key.main` (one tenant boundary per Sovereign). Each secondary region gets its own `/24` subnet inside the shared `/16` and its own `lb11`. |
+
+The hybrid (singular path + secondary-region overlay) is purely **additive**: no existing Sovereign state has entries in `local.secondary_regions` (the iteration filter `if i > 0` excludes `regions[0]`), so legacy `tofu plan` outputs are unchanged for any Sovereign whose request body has `len(regions) ≤ 1`. **No `tofu state mv` is required for any pre-G1 state.**
+
+### EPIC-6 (#1101) example: 3-region Continuum DR shape
+
+Per [`docs/EPICS-1-6-unified-design.md`](../../docs/EPICS-1-6-unified-design.md) §3.8 + §11, the EPIC-6 demo brings up one mgmt cluster + two data-plane clusters with Cilium ClusterMesh between them. Slice G1 provisions the cloud substrate; slice G3 wires ClusterMesh.
+
+```jsonc
+{
+  "sovereign_fqdn":     "demo.example.com",
+  "org_name":           "Demo Org",
+  "org_email":          "ops@example.com",
+  "hcloud_token":       "<rotate>",
+  "hcloud_project_id":  "12345",
+  "ssh_public_key":     "ssh-ed25519 AAAA... operator@laptop",
+
+  // Legacy singular fields — derived from regions[0] by the catalyst-api
+  // provisioner before tofu apply. No need to set these by hand when
+  // regions[] is supplied; they're shown here for reference.
+  "region":             "nbg1",
+  "control_plane_size": "cpx32",
+  "worker_size":        "cpx32",
+  "worker_count":       1,
+
+  // Per-region payload — slice G1 wires every entry in this list.
+  // regions[0] = mgmt (Nuremberg), regions[1] = fsn data plane (Falkenstein),
+  // regions[2] = hel data plane (Helsinki) per the EPIC-6 §3.8 cluster table.
+  "regions": [
+    { "provider": "hetzner", "cloudRegion": "nbg1", "controlPlaneSize": "cpx32", "workerSize": "cpx32", "workerCount": 1 },
+    { "provider": "hetzner", "cloudRegion": "fsn1", "controlPlaneSize": "cpx32", "workerSize": "cpx32", "workerCount": 2 },
+    { "provider": "hetzner", "cloudRegion": "hel1", "controlPlaneSize": "cpx32", "workerSize": "cpx32", "workerCount": 2 }
+  ],
+
+  "k3s_version":        "v1.31.4+k3s1",
+  "object_storage_region":      "nbg1",
+  "object_storage_access_key":  "<from Hetzner Console>",
+  "object_storage_secret_key":  "<from Hetzner Console>",
+  "object_storage_bucket_name": "catalyst-demo-example-com",
+  "domain_mode":        "byo"
+}
+```
+
+Outputs after `tofu apply`:
+
+| Output | Shape | EPIC-6 example value |
+|---|---|---|
+| `control_plane_ip` | string | `203.0.113.10` (mgmt CP, Nuremberg) |
+| `load_balancer_ip` | string | `203.0.113.11` (mgmt LB, Nuremberg) |
+| `secondary_region_keys` | `list(string)` | `["fsn1-1", "hel1-2"]` |
+| `control_plane_ips_by_region` | `map(string)` | `{"fsn1-1": "203.0.113.20", "hel1-2": "203.0.113.30"}` |
+| `load_balancer_ips_by_region` | `map(string)` | `{"fsn1-1": "203.0.113.21", "hel1-2": "203.0.113.31"}` |
+
+The catalyst-api joins `secondary_region_keys` with `Request.Regions[1+]` to project per-region status into the deployment record. PowerDNS lua-records (`docs/MULTI-REGION-DNS.md`) aggregate every LB IP in `load_balancer_ips_by_region` into the Sovereign FQDN's A-record set so a single hostname spans every region with `ifurlup` health checking.
+
+### Out of scope for slice G1
+
+- **Cilium ClusterMesh wiring** — slice G3 (joins separate clusters into a single mesh).
+- **Per-cluster GitOps differentiation** — every secondary CP today renders an identical Flux Kustomization pointed at `clusters/<sovereign_fqdn>/`. Per-cluster paths (`clusters/hz-fsn-rtz-prod/`, etc., per [`docs/NAMING-CONVENTION.md`](../../docs/NAMING-CONVENTION.md) §4.1) ship in slice G3 alongside ClusterMesh.
+- **Non-Hetzner regions** — `var.regions[]` may carry `oci` / `aws` / `huawei` / `azure` entries; the Hetzner overlay filters them out (`if r.provider == "hetzner"`). Sister-provider modules (slice G2 / G4 / …) own their own iteration.
+
+### Resource address contract
+
+Every legacy resource keeps its existing address. New addresses introduced by slice G1, all keyed `for_each = local.secondary_regions` (key shape: `{cloudRegion}-{index}` where `index` is the position in `var.regions[]`):
+
+```
+hcloud_network_subnet.secondary["{key}"]
+hcloud_server.secondary_control_plane["{key}"]
+hcloud_server.secondary_worker["{key}-w{i}"]   # i = 1..workerCount
+hcloud_load_balancer.secondary["{key}"]
+hcloud_load_balancer_network.secondary["{key}"]
+hcloud_load_balancer_target.secondary_control_plane["{key}"]
+hcloud_load_balancer_target.secondary_workers["{key}-w{i}"]
+hcloud_load_balancer_service.secondary_http["{key}"]
+hcloud_load_balancer_service.secondary_https["{key}"]
+hcloud_load_balancer_service.secondary_dns["{key}"]
+```
+
+### Tests
+
+Module-local tests live under `tests/multi_region.tftest.hcl`. They exercise five scenarios offline (no real Hetzner) via `mock_provider` + `override_resource`:
+
+```bash
+cd infra/hetzner
+tofu init -backend=false
+tofu validate
+tofu fmt -check
+tofu test
+```
+
+CI runs these on every PR touching `infra/hetzner/**` via `.github/workflows/infra-hetzner-tofu.yaml`.
 
 ---
 

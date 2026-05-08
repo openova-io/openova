@@ -119,14 +119,86 @@ locals {
   # Workers join with this; k3s rotates it after first join.
   k3s_token = sha256("${var.hcloud_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
 
-  # Network zone derived from the Hetzner region — required by hcloud_network_subnet.
-  network_zone = lookup({
+  # ── Hetzner location → network-zone lookup ───────────────────────────────
+  # Hetzner Network Subnets are zoned (eu-central / us-east / us-west /
+  # ap-southeast). The mapping is documented in the hcloud Terraform
+  # provider's hcloud_network_subnet docs. Adding a new Hetzner location
+  # means updating this lookup AND the var.region validation in
+  # variables.tf in the same PR (so the multi-region for_each below cannot
+  # land in a location whose zone we can't resolve).
+  hetzner_network_zones = {
     fsn1 = "eu-central"
     nbg1 = "eu-central"
     hel1 = "eu-central"
     ash  = "us-east"
     hil  = "us-west"
-  }, var.region, "eu-central")
+    sin  = "ap-southeast"
+  }
+
+  # Legacy singular-region path's network zone — preserved as a separate
+  # local so existing single-region applies (every Sovereign provisioned
+  # before slice G1) keep producing identical plans. The multi-region
+  # for_each path below uses the same lookup table per region entry.
+  network_zone = lookup(local.hetzner_network_zones, var.region, "eu-central")
+
+  # ── Multi-region overlay (slice G1, EPIC-0 #1095) ────────────────────────
+  # Slice G1 wires every entry in var.regions[] end-to-end. The legacy
+  # singular-region path (var.region + var.control_plane_size + var.worker_*
+  # + count = local.control_plane_count) stays untouched so existing
+  # Sovereign state (omantel, otech*) continues to plan-clean — those
+  # resources keep their addresses (hcloud_server.control_plane[0],
+  # hcloud_load_balancer.main, etc).
+  #
+  # New regions (regions[1+]) are realised via a parallel for_each set of
+  # resources keyed by a deterministic per-region key. The legacy path
+  # owns regions[0] semantically — when var.regions is non-empty,
+  # provisioner.go writes regions[0]'s SKU/size into the singular fields
+  # so the singular path drives regions[0] verbatim. Slice G1 layers in
+  # the additional regions; slice G3 wires Cilium ClusterMesh between
+  # them (out of scope here).
+  #
+  # Why a hybrid (singular path + for_each overlay) instead of a full
+  # for_each refactor: a full refactor would change every existing
+  # resource address from hcloud_server.control_plane[0] to
+  # hcloud_server.control_plane["mgmt"], forcing every running Sovereign
+  # to run `tofu state mv` for ~12 resources or face destructive
+  # plan-time recreates. The brief explicitly bans that. Hybrid is
+  # additive: secondary-region resources are NEW addresses that no
+  # existing state carries, so legacy `tofu plan` outputs are unchanged
+  # for any Sovereign whose request body has len(regions) ≤ 1.
+  #
+  # Key shape: "{cloudRegion}-{index}". Including the index protects
+  # against same-region duplicates (e.g. fsn1 mgmt + fsn1 dataplane in
+  # the same Sovereign — legal, even if uncommon). Index starts at 1
+  # because regions[0] is owned by the singular path.
+  secondary_regions = {
+    for i, r in var.regions :
+    "${r.cloudRegion}-${i}" => r
+    if i > 0 && r.provider == "hetzner"
+  }
+
+  # Per-secondary-region subnet CIDR. The legacy singular subnet uses
+  # 10.0.1.0/24 (cp at .2, workers at .10+). Secondary regions allocate
+  # 10.0.<10+index>.0/24 so the slash-16 hcloud_network can hold up to
+  # 245 secondary subnets without collision. Subnet allocation is
+  # deterministic on the region's index in var.regions[] — re-running
+  # `tofu apply` after an intra-list reorder would shift subnets, so
+  # the catalyst-api MUST keep regions[] order stable across re-applies
+  # of the same deployment (it does — the wizard's StepProvider emits
+  # regions in the operator's selection order and provisioner.go never
+  # reorders).
+  secondary_region_subnets = {
+    for k, r in local.secondary_regions :
+    k => format("10.0.%d.0/24", 10 + index(keys(local.secondary_regions), k))
+  }
+
+  # Per-secondary-region first-IP for control plane. Mirrors the legacy
+  # singular path's "10.0.1.2" — first usable host of the subnet. Workers
+  # in the same region count up from .10 within their own subnet.
+  secondary_region_cp_ips = {
+    for k, _ in local.secondary_regions :
+    k => cidrhost(local.secondary_region_subnets[k], 2)
+  }
 
   # GHCR pull token + the dockerconfigjson `auth` field, computed once here
   # so the cloud-init template stays a clean string-interpolation.
@@ -142,8 +214,8 @@ locals {
   # token-based auth — GitHub validates the token, not the username. We use
   # `openova-bot` as a stable identity string so audit logs in CI / GHCR
   # pulls show a recognisable principal.
-  ghcr_pull_username  = "openova-bot"
-  ghcr_pull_auth_b64  = base64encode("${local.ghcr_pull_username}:${var.ghcr_pull_token}")
+  ghcr_pull_username = "openova-bot"
+  ghcr_pull_auth_b64 = base64encode("${local.ghcr_pull_username}:${var.ghcr_pull_token}")
 
   # Cloud-init for the control-plane node — installs k3s, then Flux, then
   # writes the Flux GitRepository + Kustomization that points at
@@ -199,9 +271,9 @@ locals {
   # Guardrail in this same module: see `validate_user_data_size` precondition
   # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-    sovereign_fqdn             = var.sovereign_fqdn
-    sovereign_subdomain        = var.sovereign_subdomain
-    marketplace_enabled        = var.marketplace_enabled
+    sovereign_fqdn      = var.sovereign_fqdn
+    sovereign_subdomain = var.sovereign_subdomain
+    marketplace_enabled = var.marketplace_enabled
 
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
@@ -250,7 +322,7 @@ locals {
     # Sovereign is ready to accept Day-2 XRC writes — at which point
     # the catalyst-api's bespoke Hetzner-API hatching is retired in
     # favour of XRC writes per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3.
-    hcloud_token               = var.hcloud_token
+    hcloud_token = var.hcloud_token
 
     # Dynadot credentials — injected into cert-manager/dynadot-api-credentials
     # K8s Secret at cloud-init time so the bp-cert-manager-dynadot-webhook Pod
@@ -279,13 +351,13 @@ locals {
     # Harbor pull-through mirror token (issue #557, Option A).
     # Passed into registries.yaml written at cloud-init time so containerd
     # authenticates against harbor.openova.io proxy-cache projects.
-    harbor_robot_token      = var.harbor_robot_token
+    harbor_robot_token = var.harbor_robot_token
 
     # Contabo PowerDNS API key (PR #686, F3 followup). Interpolated into
     # the Sovereign's cert-manager/powerdns-api-credentials Secret so
     # bp-cert-manager-powerdns-webhook can write DNS-01 challenge TXT
     # records to contabo's authoritative omani.works zone.
-    powerdns_api_key        = var.powerdns_api_key
+    powerdns_api_key = var.powerdns_api_key
 
     # PDM (Pool Domain Manager) basic-auth credentials (issue #879 Bug 2).
     # Interpolated into the Sovereign's `flux-system/pdm-basicauth` Secret
@@ -295,8 +367,8 @@ locals {
     # auto-mirrors the Secret into `catalyst-system` (same canonical
     # pattern flux-system/ghcr-pull and flux-system/harbor-robot-token
     # already use). Sensitive — never logged, never committed.
-    pdm_basic_auth_user     = var.pdm_basic_auth_user
-    pdm_basic_auth_pass     = var.pdm_basic_auth_pass
+    pdm_basic_auth_user = var.pdm_basic_auth_user
+    pdm_basic_auth_pass = var.pdm_basic_auth_pass
 
     deployment_id           = var.deployment_id
     kubeconfig_bearer_token = var.kubeconfig_bearer_token
@@ -312,7 +384,7 @@ locals {
     # autoscaler-hcloud HelmRelease's HCLOUD_CLOUD_INIT env var. Same
     # bootstrap content the Phase-0 workers receive, so autoscaler-spawned
     # workers join the cluster identically.
-    worker_cloud_init_b64      = base64encode(local.worker_cloud_init)
+    worker_cloud_init_b64 = base64encode(local.worker_cloud_init)
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
@@ -567,4 +639,313 @@ resource "minio_s3_bucket" "main" {
   # immutable image layers but doesn't require object lock — the layer
   # content-addressed digest IS the immutability guarantee.
   object_locking = false
+}
+
+# ── Multi-region overlay (slice G1, EPIC-0 #1095) ─────────────────────────
+#
+# Realises every var.regions[1+] entry as a parallel set of Hetzner
+# resources keyed off local.secondary_regions. Slice G3 wires Cilium
+# ClusterMesh between these and the primary region; this slice only
+# provisions the cloud substrate so the network + compute exist for G3
+# to connect.
+#
+# Architectural decision (slice G1): hybrid singular-path-plus-overlay,
+# NOT a wholesale refactor of every existing resource into a `for_each`.
+# The hybrid is purely additive — every new resource address below
+# (`hcloud_network_subnet.secondary`, `hcloud_server.secondary_control_plane`,
+# `hcloud_load_balancer.secondary`, …) is keyed on `for_each =
+# local.secondary_regions` and therefore shares NO address space with
+# the legacy singular resources above. Existing Sovereign state that
+# was provisioned with var.regions = [] or len(var.regions) == 1
+# carries no entries in `local.secondary_regions` (the iteration filter
+# `if i > 0` excludes regions[0]; regions[0] is owned by the singular
+# path) and thus produces a no-op plan diff for the entire overlay
+# block. No `tofu state mv` runbook is required for any pre-G1 state.
+#
+# When a new Sovereign request body carries len(regions) ≥ 2 (the
+# EPIC-6 mgmt + fsn + hel shape per docs/EPICS-1-6-unified-design.md
+# §3.8 + §11), the for_each fires and creates one network subnet, one
+# CP server, N worker servers, and one LB per secondary region — all
+# wrapped under the same hcloud_network.main and hcloud_firewall.main
+# the primary region uses (Hetzner Networks span multiple network
+# zones; one Network + one Firewall per Sovereign is the canonical
+# tenant boundary).
+
+# Per-secondary-region subnet — separate /24 inside the shared /16
+# hcloud_network.main. Sub-zoning is allocated deterministically off
+# the region's index in var.regions[] (see local.secondary_region_subnets
+# above). Subnets in different network_zones inside the same Network
+# are supported by Hetzner; cross-zone routing is what Cilium ClusterMesh
+# (slice G3) consumes.
+resource "hcloud_network_subnet" "secondary" {
+  for_each = local.secondary_regions
+
+  network_id   = hcloud_network.main.id
+  type         = "cloud"
+  network_zone = lookup(local.hetzner_network_zones, each.value.cloudRegion, "eu-central")
+  ip_range     = local.secondary_region_subnets[each.key]
+}
+
+# Per-secondary-region cloud-init — same template as the primary CP,
+# parameterised with the secondary region's LB IPv4 and CP private IP
+# in its own subnet. Sovereign FQDN, Org name, GitOps repo, secrets,
+# region label etc. are SHARED with the primary so the secondary CP
+# bootstraps as another node in the same logical Sovereign.
+#
+# Note for slice G3: a future per-cluster GitOps path differentiation
+# (clusters/<provider>-<region>-<bb>-<env>/ per docs/NAMING-CONVENTION.md
+# §4.1) will require a per-region `cluster_name` template knob; that
+# is intentionally NOT introduced in slice G1 to keep this slice purely
+# additive. Today every secondary CP renders an identical Flux
+# Kustomization pointed at clusters/<sovereign_fqdn>/ — functionally
+# valid k3s clusters for the EPIC-6 #1101 cloud-substrate gate; G3
+# refines path separation when ClusterMesh + per-cluster Flux land.
+locals {
+  secondary_region_cloud_init = {
+    for k, r in local.secondary_regions :
+    k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
+      sovereign_fqdn      = var.sovereign_fqdn
+      sovereign_subdomain = var.sovereign_subdomain
+      marketplace_enabled = var.marketplace_enabled
+      parent_domains_yaml = coalesce(
+        var.parent_domains_yaml,
+        format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
+      )
+      org_name                   = var.org_name
+      org_email                  = var.org_email
+      region                     = r.cloudRegion
+      ha_enabled                 = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
+      worker_count               = r.workerCount
+      k3s_version                = var.k3s_version
+      k3s_token                  = local.k3s_token
+      gitops_repo_url            = var.gitops_repo_url
+      gitops_branch              = var.gitops_branch
+      enable_unattended_upgrades = var.enable_unattended_upgrades
+      enable_fail2ban            = var.enable_fail2ban
+      ghcr_pull_username         = local.ghcr_pull_username
+      ghcr_pull_token            = var.ghcr_pull_token
+      ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
+      object_storage_endpoint    = local.object_storage_endpoint
+      object_storage_region      = var.object_storage_region
+      object_storage_bucket_name = var.object_storage_bucket_name
+      object_storage_access_key  = var.object_storage_access_key
+      object_storage_secret_key  = var.object_storage_secret_key
+      hcloud_token               = var.hcloud_token
+      dynadot_key                = var.dynadot_key
+      dynadot_secret             = var.dynadot_secret
+      dynadot_managed_domains    = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
+      harbor_robot_token         = var.harbor_robot_token
+      powerdns_api_key           = var.powerdns_api_key
+      pdm_basic_auth_user        = var.pdm_basic_auth_user
+      pdm_basic_auth_pass        = var.pdm_basic_auth_pass
+      deployment_id              = var.deployment_id
+      kubeconfig_bearer_token    = var.kubeconfig_bearer_token
+      catalyst_api_url           = var.catalyst_api_url
+      handover_jwt_public_key    = var.handover_jwt_public_key
+      load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
+      worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
+    }), "/(?m)^[ ]*#( |$).*\n/", "")
+  }
+
+  # Per-secondary-region worker cloud-init — joins the secondary region's
+  # own k3s CP via the secondary subnet's first usable IP (cidrhost(.../24, 2)).
+  # Phase-0 workers use this; cluster-autoscaler-spawned workers in the
+  # secondary region use the b64 form threaded into the secondary CP's
+  # cloudinit (HCLOUD_CLOUD_INIT env var on bp-cluster-autoscaler-hcloud,
+  # per issue #921).
+  secondary_region_worker_cloud_init = {
+    for k, r in local.secondary_regions :
+    k => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
+      sovereign_fqdn             = var.sovereign_fqdn
+      k3s_version                = var.k3s_version
+      k3s_token                  = local.k3s_token
+      cp_private_ip              = local.secondary_region_cp_ips[k]
+      enable_unattended_upgrades = var.enable_unattended_upgrades
+      enable_fail2ban            = var.enable_fail2ban
+    }), "/(?m)^[ ]*#( |$).*\n/", "")
+  }
+}
+
+# Per-secondary-region control-plane node — slice G1 lands single-CP per
+# secondary region (HA in secondaries comes with G3 alongside ClusterMesh
+# wiring). Each secondary CP shares the same hcloud_ssh_key.main and
+# hcloud_firewall.main as the primary; only the network subnet, location,
+# and cloud-init differ.
+resource "hcloud_server" "secondary_control_plane" {
+  for_each = local.secondary_regions
+
+  name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.key}-cp1"
+  image        = "ubuntu-24.04"
+  server_type  = each.value.controlPlaneSize
+  location     = each.value.cloudRegion
+  ssh_keys     = [hcloud_ssh_key.main.id]
+  firewall_ids = [hcloud_firewall.main.id]
+  user_data    = local.secondary_region_cloud_init[each.key]
+
+  network {
+    network_id = hcloud_network.main.id
+    ip         = local.secondary_region_cp_ips[each.key]
+  }
+
+  labels = {
+    "catalyst.openova.io/sovereign" = var.sovereign_fqdn
+    "catalyst.openova.io/role"      = "control-plane"
+    "catalyst.openova.io/region"    = each.value.cloudRegion
+    "catalyst.openova.io/region-id" = each.key
+  }
+
+  # Same 32 KiB user_data hard cap applies to secondary regions —
+  # mirror the precondition from the primary CP (issue #966).
+  lifecycle {
+    precondition {
+      condition     = length(local.secondary_region_cloud_init[each.key]) <= 30720
+      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768)."
+    }
+    precondition {
+      condition     = length(local.secondary_region_worker_cloud_init[each.key]) <= 30720
+      error_message = "Rendered worker cloud-init for secondary region ${each.key} is ${length(local.secondary_region_worker_cloud_init[each.key])} bytes, exceeds 30720 (30 KiB) guardrail."
+    }
+  }
+
+  depends_on = [hcloud_network_subnet.secondary]
+}
+
+# Per-secondary-region workers. Hetzner's `count` semantics inside a
+# `for_each` map require flattening — we expand the (region, worker-index)
+# product into a single map keyed on "{region-key}-w{index}".
+locals {
+  secondary_workers = {
+    for pair in flatten([
+      for k, r in local.secondary_regions : [
+        for i in range(r.workerCount) : {
+          key        = "${k}-w${i + 1}"
+          region_key = k
+          region     = r
+          worker_idx = i
+          private_ip = cidrhost(local.secondary_region_subnets[k], 10 + i)
+        }
+      ]
+    ]) :
+    pair.key => pair
+  }
+}
+
+resource "hcloud_server" "secondary_worker" {
+  for_each = local.secondary_workers
+
+  name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.value.region_key}-w${each.value.worker_idx + 1}"
+  image        = "ubuntu-24.04"
+  server_type  = each.value.region.workerSize
+  location     = each.value.region.cloudRegion
+  ssh_keys     = [hcloud_ssh_key.main.id]
+  firewall_ids = [hcloud_firewall.main.id]
+  user_data    = local.secondary_region_worker_cloud_init[each.value.region_key]
+
+  network {
+    network_id = hcloud_network.main.id
+    ip         = each.value.private_ip
+  }
+
+  labels = {
+    "catalyst.openova.io/sovereign" = var.sovereign_fqdn
+    "catalyst.openova.io/role"      = "worker"
+    "catalyst.openova.io/region"    = each.value.region.cloudRegion
+    "catalyst.openova.io/region-id" = each.value.region_key
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(local.secondary_region_worker_cloud_init[each.value.region_key]) <= 30720
+      error_message = "Rendered worker cloud-init for secondary region ${each.value.region_key} is ${length(local.secondary_region_worker_cloud_init[each.value.region_key])} bytes, exceeds 30720 (30 KiB) guardrail."
+    }
+  }
+
+  depends_on = [hcloud_server.secondary_control_plane]
+}
+
+# Per-secondary-region load balancer — separate lb11 in each region's
+# location so traffic terminates region-locally. PowerDNS lua-records
+# (`ifurlup` health probes per docs/MULTI-REGION-DNS.md) point a single
+# FQDN at the union of LB IPs and steer per-client based on geographic
+# proximity + liveness.
+resource "hcloud_load_balancer" "secondary" {
+  for_each = local.secondary_regions
+
+  name               = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.key}-lb"
+  load_balancer_type = "lb11"
+  location           = each.value.cloudRegion
+  algorithm {
+    type = "round_robin"
+  }
+  labels = {
+    "catalyst.openova.io/sovereign" = var.sovereign_fqdn
+    "catalyst.openova.io/region"    = each.value.cloudRegion
+    "catalyst.openova.io/region-id" = each.key
+  }
+}
+
+resource "hcloud_load_balancer_network" "secondary" {
+  for_each = local.secondary_regions
+
+  load_balancer_id = hcloud_load_balancer.secondary[each.key].id
+  network_id       = hcloud_network.main.id
+}
+
+resource "hcloud_load_balancer_target" "secondary_control_plane" {
+  for_each = local.secondary_regions
+
+  type             = "server"
+  load_balancer_id = hcloud_load_balancer.secondary[each.key].id
+  server_id        = hcloud_server.secondary_control_plane[each.key].id
+  use_private_ip   = true
+
+  depends_on = [hcloud_load_balancer_network.secondary]
+}
+
+resource "hcloud_load_balancer_target" "secondary_workers" {
+  for_each = local.secondary_workers
+
+  type             = "server"
+  load_balancer_id = hcloud_load_balancer.secondary[each.value.region_key].id
+  server_id        = hcloud_server.secondary_worker[each.key].id
+  use_private_ip   = true
+
+  depends_on = [
+    hcloud_load_balancer_network.secondary,
+    hcloud_server.secondary_worker,
+  ]
+}
+
+resource "hcloud_load_balancer_service" "secondary_http" {
+  for_each = local.secondary_regions
+
+  load_balancer_id = hcloud_load_balancer.secondary[each.key].id
+  protocol         = "tcp"
+  listen_port      = 80
+  destination_port = 30080
+}
+
+resource "hcloud_load_balancer_service" "secondary_https" {
+  for_each = local.secondary_regions
+
+  load_balancer_id = hcloud_load_balancer.secondary[each.key].id
+  protocol         = "tcp"
+  listen_port      = 443
+  destination_port = 30443
+}
+
+resource "hcloud_load_balancer_service" "secondary_dns" {
+  for_each = local.secondary_regions
+
+  load_balancer_id = hcloud_load_balancer.secondary[each.key].id
+  protocol         = "tcp"
+  listen_port      = 53
+  destination_port = 30053
+  health_check {
+    protocol = "tcp"
+    port     = 30053
+    interval = 15
+    timeout  = 10
+    retries  = 3
+  }
 }
