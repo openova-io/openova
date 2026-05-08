@@ -1,0 +1,265 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: continuums.dr.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: continuum
+spec:
+  group: dr.openova.io
+  scope: Namespaced
+  names:
+    kind: Continuum
+    listKind: ContinuumList
+    singular: continuum
+    plural: continuums
+    shortNames:
+      - dr
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Application
+          type: string
+          jsonPath: .spec.applicationRef
+        - name: Primary
+          type: string
+          jsonPath: .status.primaryRegion
+        - name: Lease
+          type: string
+          jsonPath: .status.leaseHolder
+        - name: Lag
+          type: string
+          jsonPath: .status.maxReplicationLag
+          priority: 1
+        - name: RTO
+          type: string
+          jsonPath: .spec.rto
+          priority: 1
+        - name: RPO
+          type: string
+          jsonPath: .spec.rpo
+          priority: 1
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Continuum is the declarative DR contract for an Application
+            running with placement: active-hotstandby across two or more
+            regions. Watched by the continuum-controller (EPIC-6 #1101).
+
+            Per docs/SRE.md §2.4 + docs/MULTI-REGION-DNS.md, switchover
+            is gated by a lease witness (Cloudflare KV or 3-DNS quorum)
+            and effected by flipping a PowerDNS lua-record probe target
+            via PDM /v1/commit. ClusterMesh carries the replication
+            traffic; Application.spec.placement remains the single
+            source of truth for which regions exist.
+
+            See docs/EPICS-1-6-unified-design.md §3.2.8 and §9.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [applicationRef, primaryRegion, hotStandbyRegions, leaseClient]
+              properties:
+                applicationRef:
+                  type: string
+                  description: |
+                    Name of the Application CR this Continuum governs.
+                    Application.spec.placement MUST be active-hotstandby
+                    (the controller refuses other modes at admission).
+                primaryRegion:
+                  type: string
+                  description: Currently-primary host cluster name. Switched on failover.
+                  pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                hotStandbyRegions:
+                  type: array
+                  minItems: 1
+                  maxItems: 4
+                  description: Host clusters running standby replicas. Promoted on failover.
+                  items:
+                    type: string
+                    pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                leaseClient:
+                  type: object
+                  required: [kind]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [cloudflare-kv, dns-quorum]
+                      description: |
+                        cloudflare-kv = lease in a Cloudflare Worker KV
+                        namespace (recommended per SRE.md §2.4).
+                        dns-quorum = 2-of-3 DNS resolver quorum
+                        (fallback when CF KV is unavailable).
+                    config:
+                      type: object
+                      description: |
+                        Kind-specific config. cloudflare-kv expects
+                        kvNamespaceId + accountId + tokenSecretRef.
+                        dns-quorum expects resolvers[] (2-of-3 voting set).
+                      properties:
+                        kvNamespaceId:
+                          type: string
+                        accountId:
+                          type: string
+                        tokenSecretRef:
+                          type: object
+                          required: [name, key]
+                          description: SealedSecret reference; plaintext NEVER on the CR.
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                              default: token
+                          x-kubernetes-preserve-unknown-fields: true
+                        resolvers:
+                          type: array
+                          minItems: 3
+                          maxItems: 5
+                          items:
+                            type: string
+                            description: IPv4 resolver address.
+                            pattern: '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+                        ttlSeconds:
+                          type: integer
+                          minimum: 5
+                          maximum: 600
+                          description: Lease TTL. Default applied by controller (30s).
+                        renewSeconds:
+                          type: integer
+                          minimum: 1
+                          maximum: 60
+                          description: Lease renewal interval (must be < ttlSeconds/2). Default 10s.
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                luaRecord:
+                  type: object
+                  description: |
+                    Per docs/MULTI-REGION-DNS.md, the controller writes
+                    the Application's HTTPRoute hostnames as PowerDNS
+                    lua-records via PDM /v1/commit. selector picks the
+                    behaviour; healthCheck drives the probe target.
+                  properties:
+                    selector:
+                      type: string
+                      enum: [ifurlup, pickclosest, pickfirst, pickwhashed]
+                      default: ifurlup
+                    healthCheck:
+                      type: object
+                      required: [url]
+                      properties:
+                        url:
+                          type: string
+                          pattern: '^https?://.+'
+                        intervalSeconds:
+                          type: integer
+                          minimum: 1
+                          maximum: 60
+                          default: 5
+                        timeoutSeconds:
+                          type: integer
+                          minimum: 1
+                          maximum: 30
+                          default: 2
+                rto:
+                  type: string
+                  description: Recovery Time Objective. Format `^[0-9]+(s|m|h)$`.
+                  pattern: '^[0-9]+(s|m|h)$'
+                rpo:
+                  type: string
+                  description: Recovery Point Objective. Format `^[0-9]+(s|m|h)$`.
+                  pattern: '^[0-9]+(s|m|h)$'
+                autoFailover:
+                  type: boolean
+                  default: false
+                  description: |
+                    If true, controller initiates switchover when health
+                    check fails for ≥3 consecutive intervals + lease
+                    quorum confirms primary unreachable. If false,
+                    controller surfaces alarm only and waits for manual
+                    switchover via the Application page (UI in #1101).
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Healthy
+                    - Degraded
+                    - SwitchingOver
+                    - FailedOver
+                    - Failed
+                primaryRegion:
+                  type: string
+                leaseHolder:
+                  type: string
+                  description: Cluster that currently holds the lease.
+                leaseExpiresAt:
+                  type: string
+                  format: date-time
+                replicationLag:
+                  type: object
+                  description: 'Per-standby-region replication lag — keyed by host-cluster name, value is a duration string.'
+                  additionalProperties:
+                    type: string
+                maxReplicationLag:
+                  type: string
+                  description: Convenience printer column = max(replicationLag values).
+                lastSwitchover:
+                  type: object
+                  properties:
+                    at:
+                      type: string
+                      format: date-time
+                    from:
+                      type: string
+                    to:
+                      type: string
+                    reason:
+                      type: string
+                    rtoObserved:
+                      type: string
+                    rpoObserved:
+                      type: string
+                    initiatedBy:
+                      type: string
+                      description: User email or 'auto-failover'.
+                  x-kubernetes-preserve-unknown-fields: true
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
