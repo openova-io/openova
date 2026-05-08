@@ -1,0 +1,31 @@
+# Fixture: useraccess-boundary policy FAIL case — cross-Org grant.
+#
+# A UserAccess CR whose openova.io/org scope is `other-corp` while the
+# (simulated) requester's org claim is `acme`. The policy MUST deny
+# this CR when:
+#   - validationFailureAction = Enforce
+#   - the requester's tier is NOT in
+#     .Values.userAccessBoundary.allowedCrossOrgTiers (default:
+#     ["owner", "catalyst-owner"])
+#
+# Audit-mode default surfaces a PolicyReport entry without blocking.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-cross-org-wp-grant
+  labels:
+    catalyst.openova.io/tier: admin
+    catalyst.openova.io/managed-by: rbac-assign
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-admin
+  scopes:
+    # Requester's org claim (per fixture context) is `acme` — this
+    # scope assigns access to a different Org's resources, which MUST
+    # require management-Org-owner approval.
+    - key: openova.io/org
+      value: other-corp
+    - key: openova.io/application
+      value: wordpress

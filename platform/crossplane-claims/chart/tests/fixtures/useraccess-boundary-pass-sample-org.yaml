@@ -1,0 +1,29 @@
+# Fixture: useraccess-boundary policy PASS case — same-Org grant.
+#
+# A UserAccess CR whose openova.io/org scope matches the requester's
+# org claim. The policy MUST allow this grant (no Audit warning, no
+# Enforce block) regardless of the requester's tier.
+#
+# Used by:
+#   - The Kyverno test runner (`kyverno apply --resource <this>` —
+#     follow-up integration test)
+#   - As a documented example of the contract surface
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-acme-developer-wp
+  labels:
+    catalyst.openova.io/tier: developer
+    catalyst.openova.io/managed-by: rbac-assign
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-developer
+  scopes:
+    - key: openova.io/org
+      value: acme
+    - key: openova.io/application
+      value: wordpress
+    - key: openova.io/env-type
+      value: dev

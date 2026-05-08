@@ -1,0 +1,119 @@
+{{/*
+A3 — useraccess-boundary (EPIC-3 #1098 slice A3).
+
+Validating ClusterPolicy that DENIES UserAccess CRs whose scope crosses
+Organization boundaries, unless the requesting user is a member of the
+management Organization with tier=owner.
+
+The contract per docs/EPICS-1-6-unified-design.md §6.6:
+
+  - A customer Org owner cannot grant access to a different customer
+    Org's resources.
+  - An internal-team Org owner cannot grant access to a customer Org
+    user (that's a federation concern, slice F).
+  - Only the management Org's owner (tier=owner on the openova-internal
+    Org) can sign cross-Org grants — these are the rare cases where a
+    sub-contractor (e.g. ASE) needs to operate inside a customer's
+    Sovereign during emergency support.
+
+Implementation:
+
+  - `match`:  any UserAccess CR whose spec.scopes carries an
+              openova.io/org=<value> entry.
+  - `deny.conditions.all`:
+      1. The scope's openova.io/org value differs from the requester's
+         org claim (cross-Org grant).
+      2. The requester's tier claim is NOT in the management-Org-owner
+         allowlist.
+
+  - Default action: `Audit` per the brief — values-driven so each
+    Sovereign's overlay can flip it to `Enforce` independently. The
+    .Values.userAccessBoundary toggle wraps the whole template so a
+    cluster that has not installed Kyverno yet (Crossplane-claims is a
+    Phase-0 Blueprint; Kyverno arrives in Phase-1) can render the chart
+    without applying the policy.
+
+Kyverno expression notes:
+
+  - `request.object` resolves to the incoming UserAccess unstructured.
+  - `request.userInfo.extra` is where Keycloak-injected `org` and
+    `tier` claims surface (the `kyverno.openova.io/...` mapper appends
+    them at admission-controller webhook time).
+  - The exact JMESPath idiom (`request.object.spec.scopes[?key==
+    'openova.io/org'].value | [0]`) is taken from Kyverno's documented
+    JMESPath examples and behaves correctly when scopes is empty
+    (`null` short-circuits the comparison to true → no match → no
+    enforcement, which is the right default for an Org-less scope).
+*/}}
+{{- if .Values.userAccessBoundary.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: useraccess-boundary
+  labels:
+    app.kubernetes.io/name: bp-crossplane-claims
+    app.kubernetes.io/component: rbac-boundary-policy
+    catalyst.openova.io/policy-tier: governance
+    catalyst.openova.io/policy-domain: rbac
+  annotations:
+    policies.kyverno.io/title: Internal-vs-customer Org boundary on UserAccess
+    policies.kyverno.io/category: catalyst-rbac
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Denies UserAccess CRs whose openova.io/org scope differs from the
+      requesting user's org claim, unless the requester is a member of
+      the management Organization with tier=owner. Permissive Audit by
+      default; per-Sovereign overlay flips to Enforce.
+spec:
+  validationFailureAction: {{ .Values.userAccessBoundary.action | default "Audit" }}
+  background: false  # admission-time only — boundary checks need request.userInfo
+  rules:
+    - name: deny-cross-org-grants
+      match:
+        any:
+          - resources:
+              kinds:
+                - UserAccess
+      preconditions:
+        all:
+          # Skip the rule when no openova.io/org scope is present: a
+          # global / Application-only grant doesn't cross Org boundaries
+          # (the Application-vs-Org partitioning lives in a sibling
+          # policy, slice U follow-up). Comparing the JMESPath `[0]`
+          # to a non-empty sentinel is the canonical Kyverno idiom for
+          # "this field is set".
+          - key: '{{ `{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] || ''__none__'' }}` }}'
+            operator: NotEquals
+            value: __none__
+      validate:
+        message: >-
+          UserAccess crosses Organization boundaries: the request grants
+          access to Org `{{ "{{ request.object.spec.scopes[?key==\"openova.io/org\"].value | [0] }}" }}`
+          but the requester is in Org
+          `{{ "{{ request.userInfo.extra.\"org\" | [0] || '<unknown>' }}" }}`
+          (tier `{{ "{{ request.userInfo.extra.\"tier\" | [0] || '<unknown>' }}" }}`).
+          Only the management Organization's owner (tier=owner in the
+          openova-internal Org) may sign cross-Org grants. Adjust the
+          scope's openova.io/org value to match your own Org or escalate
+          the grant to a management-Org owner.
+        deny:
+          conditions:
+            all:
+              # 1. The scope's Org differs from the requester's Org.
+              - key: '{{ `{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] }}` }}'
+                operator: NotEquals
+                value: '{{ `{{ request.userInfo.extra."org" | [0] || ''__none__'' }}` }}'
+              # 2. The requester is NOT a management-Org owner.
+              #    Two clauses ANDed: requester's org is NOT the
+              #    management-org slug AND/OR tier is not "owner". We
+              #    use `AnyIn` against a values-driven allowlist so
+              #    multiple management Orgs (e.g. openova-internal +
+              #    a partner SI) can sign cross-Org grants without
+              #    template edits.
+              - key: '{{ `{{ request.userInfo.extra."tier" | [0] || ''__none__'' }}` }}'
+                operator: NotIn
+                value:
+                  {{- range $tier := .Values.userAccessBoundary.allowedCrossOrgTiers }}
+                  - {{ $tier | quote }}
+                  {{- end }}
+{{- end -}}

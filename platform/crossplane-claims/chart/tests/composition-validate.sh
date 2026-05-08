@@ -71,13 +71,29 @@ if [ "$COMPOSITION_COUNT" -lt 7 ]; then
 fi
 echo "  PASS ($COMPOSITION_COUNT Compositions)"
 
-echo "[composition-validate] Case 3b: render contains 3 ClusterRoles (Sovereign IAM)"
+echo "[composition-validate] Case 3b: render contains 8 ClusterRoles (Sovereign IAM + 5 catalog tiers)"
+# 3 legacy openova:application-{admin,editor,viewer} + 5 EPIC-3 tier-*
+# ClusterRoles (viewer/developer/operator/admin/owner). When the
+# tier-clusterroles toggle is off (.Values.tiers.enabled=false) only
+# the 3 legacy roles render; the count check below tracks the default
+# values.yaml shape (tiers.enabled=true).
 CLUSTERROLE_COUNT="$(grep -c '^kind: ClusterRole$' "$TMP/render.yaml" || true)"
-if [ "$CLUSTERROLE_COUNT" -ne 3 ]; then
-  echo "FAIL: expected 3 ClusterRoles (openova:application-{admin,editor,viewer}), found $CLUSTERROLE_COUNT" >&2
+if [ "$CLUSTERROLE_COUNT" -ne 8 ]; then
+  echo "FAIL: expected 8 ClusterRoles (3 application-* + 5 tier-*), found $CLUSTERROLE_COUNT" >&2
   exit 1
 fi
 echo "  PASS ($CLUSTERROLE_COUNT ClusterRoles)"
+
+echo "[composition-validate] Case 3c: render contains 1 ClusterPolicy (useraccess-boundary)"
+# EPIC-3 (#1098) slice A3 ships a single Kyverno ClusterPolicy. The
+# default (.Values.userAccessBoundary.enabled=true) renders it; per-
+# Sovereign overlays may flip it off in which case the count is 0.
+POLICY_COUNT="$(grep -c '^kind: ClusterPolicy$' "$TMP/render.yaml" || true)"
+if [ "$POLICY_COUNT" -ne 1 ]; then
+  echo "FAIL: expected 1 ClusterPolicy (useraccess-boundary), found $POLICY_COUNT" >&2
+  exit 1
+fi
+echo "  PASS ($POLICY_COUNT ClusterPolicy)"
 
 echo "[composition-validate] Case 4: every expected claim kind is present"
 EXPECTED_KINDS=(
