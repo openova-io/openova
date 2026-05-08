@@ -162,6 +162,8 @@ export function SovereignConsoleLayout() {
       if (!sovereignFQDN) {
         const cookieClaims = await probeSessionCookie()
         if (cookieClaims) {
+          // Mark the rootRoute auth gate (#1090 cluster A2) as satisfied.
+          try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private browsing */ }
           setAuthState({ status: 'cookie-authenticated', claims: cookieClaims })
           return
         }
@@ -188,6 +190,7 @@ export function SovereignConsoleLayout() {
       // server-issued session.
       const cookieClaims = await probeSessionCookie()
       if (cookieClaims) {
+        try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private browsing */ }
         setAuthState({ status: 'cookie-authenticated', claims: cookieClaims })
         return
       }
