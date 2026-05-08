@@ -1,0 +1,107 @@
+# RBAC for environment-controller (slice C2 of EPIC-0 #1095).
+#
+# The controller runs in `catalyst-system` and watches Environment
+# CRs cluster-scoped; it writes status on those Environments via the
+# /status subresource. Gitea repo writes go via the Gitea API (HTTP,
+# token in env) — there is no in-cluster permission needed for that.
+#
+# Lease/coordination permissions are required for leader election
+# (single-active replica HA pattern).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-system
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/managed-by: flux
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: environment-controller
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: environment-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: environment-controller
+  labels:
+    app.kubernetes.io/name: environment-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+rules:
+  # Watch + status-update on Environment CRs.
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments/finalizers"]
+    verbs: ["update"]
+  # controller-runtime emits Events for every reconcile error.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: environment-controller
+  labels:
+    app.kubernetes.io/name: environment-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: environment-controller
+subjects:
+  - kind: ServiceAccount
+    name: environment-controller
+    namespace: catalyst-system
+---
+# Leader election lease — namespace-scoped to catalyst-system so the
+# controller can't race with leaders of other controllers in other
+# namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: environment-controller-leader-election
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: environment-controller
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: environment-controller-leader-election
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: environment-controller
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: environment-controller-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: environment-controller
+    namespace: catalyst-system
