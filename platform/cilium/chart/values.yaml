@@ -98,6 +98,9 @@ cilium:
   hubble:
     enabled: true
     relay:
+      # Default false — every Sovereign in production runs without the relay.
+      # EPIC-5 (#1100) flips this on per-Sovereign via clusters/<sov>/bootstrap-kit/01-cilium.yaml
+      # values overlay alongside the catalystOverlay.hubbleUI block below.
       enabled: false
     ui:
       enabled: false
@@ -179,3 +182,45 @@ cilium:
     enabled: false
     serviceMonitor:
       enabled: false
+
+# ─── Catalyst overlay templates (chart/templates/) ─────────────────────
+#
+# Templates that ride alongside the upstream cilium subchart. Every block
+# is gated by an explicit `enabled: false` so installing the chart never
+# regresses production behaviour — operator opts in via per-Sovereign
+# overlay at clusters/<sov>/bootstrap-kit/01-cilium.yaml.
+
+catalystOverlay:
+  # Hubble UI exposed via Cilium Gateway with Keycloak OIDC. Activated
+  # by EPIC-5 (#1100) as part of the zero-trust observability roll-out.
+  #
+  # Prerequisite to enable:
+  #   1. cilium.hubble.relay.enabled = true
+  #   2. cilium.hubble.ui.enabled    = true
+  #   3. Keycloak realm has a `hubble-ui` OIDC client (ConfigMap
+  #      configmap-sovereign-realm.yaml in bp-keycloak — wired by
+  #      slice D1).
+  #   4. Cilium Gateway exists with the wildcard cert (every Sovereign
+  #      has this from clusters/_template/sovereign-tls/).
+  hubbleUI:
+    enabled: false
+    # Hostname under the Sovereign domain. Per docs/NAMING-CONVENTION.md
+    # §5.1 the canonical form is `{component}.{location-code}.{sovereign-domain}`,
+    # but operators MAY pick a flat `hubble.{sovereign-domain}` for SME
+    # Sovereigns where the location-code prefix is not yet wired. Empty
+    # = no HTTPRoute rendered.
+    hostname: ""
+    # Reference to the Cilium Gateway that fronts this Sovereign's wildcard
+    # cert. Defaults match clusters/_template/sovereign-tls/cilium-gateway.yaml.
+    gatewayRef:
+      name: cilium-gateway
+      namespace: cilium-gateway
+    # Authentication mode at the gateway boundary. `oidc` requires the
+    # Keycloak realm to have an `hubble-ui` client (slice D1). `none` is
+    # only acceptable for fully air-gapped lab Sovereigns.
+    auth: oidc
+    # Hubble UI Service ref in the cilium namespace.
+    serviceRef:
+      name: hubble-ui
+      namespace: cilium
+      port: 80
