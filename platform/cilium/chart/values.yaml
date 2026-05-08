@@ -19,7 +19,10 @@ global:
   imageRegistry: ""
 
 catalystBlueprint:
-  upstream: { chart: cilium, version: "1.19.3", repo: "https://helm.cilium.io" }
+  # Pinned to match Chart.lock (truth-on-disk). Aligned with Chart.yaml's
+  # dependencies version. The previous "1.19.3" was provenance drift —
+  # Chart.lock had been resolving 1.16.5 the whole time (EPIC-0 #1095 audit).
+  upstream: { chart: cilium, version: "1.16.5", repo: "https://helm.cilium.io" }
 
 # Catalyst-curated Cilium values per platform/cilium/README.md.
 #
