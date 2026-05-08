@@ -43,6 +43,7 @@ import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import type { ApplicationStatus } from './eventReducer'
+import { ComplianceTab } from './AppDetail/ComplianceTab'
 
 interface AppDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -111,10 +112,11 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     [flatJobs, componentId],
   )
 
-  // Tab state for the Jobs/Dependencies tabset (founder spec item #9 +
-  // item #8b). Default landing is the Jobs tab so the operator sees
-  // their app's jobs immediately on opening AppDetail.
-  const [appTab, setAppTab] = useState<'jobs' | 'dependencies'>('jobs')
+  // Tab state for the Jobs/Dependencies/Compliance tabset (founder
+  // spec item #9 + item #8b; Compliance tab added in slice U3 #1096).
+  // Default landing is the Jobs tab so the operator sees their app's
+  // jobs immediately on opening AppDetail.
+  const [appTab, setAppTab] = useState<'jobs' | 'dependencies' | 'compliance'>('jobs')
 
   // The Connection section renders only for backing-service Applications.
   // Future-proofed: descriptors will gain a `kind` field in a later
@@ -326,11 +328,31 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 {deps.length + reverseDeps.length}
               </span>
             </button>
+            {/* Compliance tab — slice U3 (#1096). Embeds the App owner
+                compliance view alongside Jobs + Dependencies. */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'compliance'}
+              data-testid="sov-app-tab-compliance"
+              className={`app-tab ${appTab === 'compliance' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('compliance')}
+            >
+              Compliance
+            </button>
           </div>
 
           {appTab === 'jobs' ? (
             <div role="tabpanel" data-testid="sov-app-tabpanel-jobs" className="app-tabpanel">
               <JobsTable jobs={flatJobs} appIdFilter={componentId} />
+            </div>
+          ) : appTab === 'compliance' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-compliance" className="app-tabpanel">
+              <ComplianceTab
+                sovereignId={deploymentId}
+                applicationName={componentId}
+                disableStream={disableStream}
+              />
             </div>
           ) : (
             <div role="tabpanel" data-testid="sov-app-tabpanel-dependencies" className="app-tabpanel">

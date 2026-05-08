@@ -68,6 +68,9 @@ import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
 import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
+import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
+import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
+import { PolicyDrilldownPage } from '@/pages/admin/compliance/PolicyDrilldownPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // Sovereign-mode /console/* routes use the same canonical components as
@@ -694,6 +697,40 @@ const provisionNotificationsRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+/* ── Compliance dashboards (slice U, #1096) ──────────────────────────
+ *
+ * Mother-side admin surface. Mounted at root under `/admin/compliance/*`
+ * (per the slice brief) — sibling to the /provision/$id tree because
+ * compliance is fleet-scoped, not per-deployment. The auth gate is the
+ * same provisionAuthGuard used by every other admin surface.
+ *
+ *   /admin/compliance/sre                  — SRE Lead dashboard (U1)
+ *   /admin/compliance/security             — Security Lead dashboard (U2)
+ *   /admin/compliance/policy/$policyName   — per-policy drill-down (U4)
+ *
+ * Chroot Sovereign Console mirrors live under `/sre/compliance`,
+ * `/sec/compliance`, `/compliance/policy/$policyName` (added below in
+ * the consoleLayoutRoute children).
+ */
+const adminComplianceSREDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/compliance/sre',
+  component: SREDashboardPage,
+  beforeLoad: provisionAuthGuard,
+})
+const adminComplianceSecurityDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/compliance/security',
+  component: SecLeadDashboardPage,
+  beforeLoad: provisionAuthGuard,
+})
+const adminCompliancePolicyDrilldownRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/compliance/policy/$policyName',
+  component: PolicyDrilldownPage,
+  beforeLoad: provisionAuthGuard,
+})
+
 // Legacy DAG provision view — preserved at a sub-path so existing
 // links and CI smoke tests (which still curl `/provision/legacy/...`)
 // don't 404 mid-rollout.
@@ -941,6 +978,30 @@ const consoleSMECreateTenantRoute = createRoute({
   component: SMECreateTenantPage,
 })
 
+/* ── Compliance dashboards — chroot Sovereign Console (slice U, #1096) ──
+ *
+ * Chroot mounts: `/sre/compliance`, `/sec/compliance`,
+ * `/compliance/policy/$policyName`. Pages are the same components as
+ * the mother-side `/admin/compliance/*` routes — `useResolvedDeploymentId`
+ * resolves the active sovereign id from `/api/v1/sovereign/self` so the
+ * components stay component-id agnostic.
+ */
+const consoleSREComplianceRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sre/compliance',
+  component: SREDashboardPage,
+})
+const consoleSecComplianceRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sec/compliance',
+  component: SecLeadDashboardPage,
+})
+const consoleCompliancePolicyDrilldownRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/compliance/policy/$policyName',
+  component: PolicyDrilldownPage,
+})
+
 /**
  * Standalone notifications surface for sovereign mode (TC-160 / 2026-05-07).
  *
@@ -1016,6 +1077,10 @@ const routeTree = rootRoute.addChildren([
   provisionUsersEditRoute,
   provisionSettingsRoute,
   provisionNotificationsRoute,
+  // Compliance — slice U (#1096). Mother-side admin routes.
+  adminComplianceSREDashboardRoute,
+  adminComplianceSecurityDashboardRoute,
+  adminCompliancePolicyDrilldownRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,
@@ -1039,6 +1104,10 @@ const routeTree = rootRoute.addChildren([
     consoleSMERolesRoute,
     consoleParentDomainsRoute,
     consoleSMECreateTenantRoute,
+    // Compliance dashboards — chroot routes (slice U, #1096).
+    consoleSREComplianceRoute,
+    consoleSecComplianceRoute,
+    consoleCompliancePolicyDrilldownRoute,
     consoleNotificationsRoute,
   ]),
 ])
