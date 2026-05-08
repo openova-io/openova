@@ -3,6 +3,7 @@ import { IS_SAAS } from '@/shared/constants/env'
 import { API_BASE } from '@/shared/config/urls'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { setProvisionFlashBanner } from '@/shared/lib/flashBanner'
+import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 
 /**
  * Runtime basepath detection (issue #618).
@@ -111,7 +112,23 @@ const indexRoute = createRoute({
 })
 
 // Auth routes
-const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login', component: LoginPage })
+// /login — search params: `next` (deep-link target preserved across the
+// PIN flow, issue #1090 cluster B), `error` (post-redirect error code
+// from VerifyPinPage's expired/attempts-exceeded branch). validateSearch
+// is required so TanStack Router preserves both keys on
+// `redirect({ to: '/login', search: { next, error } })` calls — without
+// it the search type defaults to `{}` and the params are stripped.
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+  validateSearch: (raw: Record<string, unknown>): { next?: string; error?: string } => {
+    const out: { next?: string; error?: string } = {}
+    if (typeof raw.next === 'string' && raw.next.length > 0) out.next = raw.next
+    if (typeof raw.error === 'string' && raw.error.length > 0) out.error = raw.error
+    return out
+  },
+})
 // /login/verify — PIN-entry step of the 6-digit auth flow (issue #688).
 // Mounted at sibling depth (not nested under /login) so a refresh on the
 // verify URL doesn't lose its email/requestId search params to a parent
@@ -120,6 +137,24 @@ const loginVerifyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login/verify',
   component: VerifyPinPage,
+  // Search params: `email` + `requestId` (issued by /login PIN POST),
+  // and `next` (deep-link target, issue #1090 cluster B) preserved
+  // across the PIN flow so VerifyPinPage can navigate back to the
+  // requested deployment surface after a successful 6-digit verify
+  // instead of dropping the operator on /wizard.
+  validateSearch: (raw: Record<string, unknown>): {
+    email?: string
+    requestId?: string
+    next?: string
+  } => {
+    const out: { email?: string; requestId?: string; next?: string } = {}
+    if (typeof raw.email === 'string' && raw.email.length > 0) out.email = raw.email
+    if (typeof raw.requestId === 'string' && raw.requestId.length > 0) {
+      out.requestId = raw.requestId
+    }
+    if (typeof raw.next === 'string' && raw.next.length > 0) out.next = raw.next
+    return out
+  },
 })
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage })
 const forgotRoute = createRoute({ getParentRoute: () => rootRoute, path: '/forgot', component: ForgotPage })
@@ -256,9 +291,30 @@ async function provisionAuthGuard() {
       headers: { Accept: 'application/json' },
     })
     if (res.status === 401) {
-      // Anonymous — flash a banner the wizard can render, then redirect.
+      // Anonymous — flash the banner AND preserve the deep-link target as
+      // ?next= so the PIN flow lands the operator BACK on the requested
+      // page after verify. The flash banner is kept for the case where
+      // the operator dismisses /login and clicks "Wizard" — they still
+      // see a contextual hint.
+      //
+      // Issue #1090 (cluster B): /sovereign/provision/<id>/{jobs/timeline,
+      // cloud,users,settings} previously bounced to /wizard step-1 with
+      // a banner but lost the deep link entirely — no sessionStorage of
+      // the path, no next= param, so post-PIN the operator landed on
+      // /wizard, never on the requested deployment surface.
+      //
+      // The `next` value is the post-basepath route path so
+      // VerifyPinPage's `navigate({ to: next })` resolves cleanly through
+      // the router (basepath is added back automatically). On contabo
+      // the browser URL is `/sovereign/provision/...`; we strip
+      // `/sovereign` here so the round-trip doesn't double up.
       setProvisionFlashBanner('Sign in to view your deployments')
-      throw redirect({ to: '/wizard', replace: true })
+      const here = currentPathRelativeToBasepath()
+      throw redirect({
+        to: '/login',
+        search: { next: here } as never,
+        replace: true,
+      })
     }
     // Any other status (200, 5xx) — allow through. A 5xx that locks the
     // user out of `/provision` would erase their post-launch progress

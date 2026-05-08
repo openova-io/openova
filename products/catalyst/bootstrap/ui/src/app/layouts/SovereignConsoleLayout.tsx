@@ -48,7 +48,8 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from '@tanstack/react-router'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import { API_BASE } from '@/shared/config/urls'
+import { API_BASE, BASE } from '@/shared/config/urls'
+import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 import {
   loadTokens,
   isTokenExpired,
@@ -112,8 +113,37 @@ export function SovereignConsoleLayout() {
 
   useEffect(() => {
     async function initAuth() {
+      // Catalyst-Zero (mothership) mode: the same SovereignConsoleLayout
+      // mounts at console.openova.io/sovereign/* under the basepath strip.
+      // There's no Sovereign FQDN and no Keycloak — auth is the mothership
+      // PIN-cookie flow (/login → /login/verify → catalyst_session).
+      //
+      // On a 200 from /whoami, render the console. On 401, hard-redirect
+      // to /sovereign/login?next=<currentPath> so VerifyPinPage routes
+      // back to the deep-link after the 6-digit code lands. The OIDC
+      // fallback below is sovereign-cluster-only and must NOT fire here
+      // (no Keycloak issuer is configured for the mothership host).
+      //
+      // Issue #1090 (cluster B): /sovereign/{dashboard,jobs/timeline,
+      // cloud,users,settings,notifications,apps} previously hung on the
+      // "Authenticating…" spinner forever because the early-return on
+      // !sovereignFQDN never navigated.
       if (!sovereignFQDN) {
-        // Should not happen in sovereign mode, but guard defensively.
+        const cookieClaims = await probeSessionCookie()
+        if (cookieClaims) {
+          setAuthState({ status: 'cookie-authenticated', claims: cookieClaims })
+          return
+        }
+        if (typeof window !== 'undefined') {
+          // `next` is the POST-basepath route path so VerifyPinPage's
+          // navigate({ to: next }) resolves cleanly through the router
+          // (basepath is added back automatically). The hard-redirect
+          // target itself uses BASE so the browser lands at the
+          // /sovereign/login URL — only the `next` value is stripped.
+          const here = currentPathRelativeToBasepath()
+          const target = `${BASE}login?next=${encodeURIComponent(here)}`
+          window.location.replace(target)
+        }
         setAuthState({ status: 'unauthenticated' })
         return
       }
