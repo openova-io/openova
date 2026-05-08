@@ -368,12 +368,62 @@ func TestTenantDiscover_Public(t *testing.T) {
 		t.Errorf("unknown host status = %d, want 404", w.Code)
 	}
 
-	// 400 — missing host.
+	// 400 — missing query host AND no Host header. Conformant clients
+	// always send Host, but the contract still rejects the empty case.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenant/discover", nil)
+	req.Host = ""
 	w = httptest.NewRecorder()
 	h.HandleTenantDiscover(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("missing host status = %d, want 400", w.Code)
+	}
+}
+
+// TestTenantDiscover_HostHeaderFallback asserts the canonical
+// pre-auth bootstrap flow: when the SPA hits /api/v1/tenant/discover
+// without an explicit `?host=` query param, the handler falls back
+// to the Host header that the upstream proxy preserved (TC-R-045).
+func TestTenantDiscover_HostHeaderFallback(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithSME(t)
+
+	// No ?host= query param — Host header carries the registered tenant.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenant/discover", nil)
+	req.Host = "console.acme.otech.example"
+	w := httptest.NewRecorder()
+	h.HandleTenantDiscover(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Host-header fallback status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp tenantDiscoverResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Host != "console.acme.otech.example" {
+		t.Errorf("Host = %q, want console.acme.otech.example", resp.Host)
+	}
+	if resp.TenantKind != store.TenantKindSME {
+		t.Errorf("TenantKind = %q, want sme", resp.TenantKind)
+	}
+
+	// Host header carries port (HTTP/1.1 :443 form) — port must still
+	// be stripped before registry lookup, same as the query-param path.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenant/discover", nil)
+	req.Host = "console.acme.otech.example:443"
+	w = httptest.NewRecorder()
+	h.HandleTenantDiscover(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Host-header-with-port status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	// Explicit query param wins over Host header (callers who pass it
+	// are looking up a different tenant; preserve that semantic).
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/v1/tenant/discover?host=unknown.example", nil)
+	req.Host = "console.acme.otech.example"
+	w = httptest.NewRecorder()
+	h.HandleTenantDiscover(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("query-param wins status = %d, want 404", w.Code)
 	}
 }
 

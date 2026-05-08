@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,12 @@ import (
 	"strings"
 	"time"
 )
+
+// errUserAlreadyExists is returned by createUser when KC responds with
+// 409 Conflict because the email is already registered. EnsureUser
+// catches this sentinel and re-finds the user by email so the
+// concurrent-/pin/issue race (TC-R-089) doesn't surface as a 502.
+var errUserAlreadyExists = errors.New("keycloak: user already exists")
 
 // Client wraps the Keycloak Admin REST API for the /auth/handover flow.
 type Client struct {
@@ -79,9 +86,23 @@ func (c *Client) EnsureUser(ctx context.Context, email, group string) (string, e
 	}
 
 	if userID == "" {
-		// Create the user.
+		// Create the user. createUser returns errUserAlreadyExists on a
+		// 409 Conflict — that happens when a concurrent caller (e.g.
+		// another /pin/issue for the same email arriving on a sibling
+		// connection) won the race to POST /users first. Re-find by
+		// email in that case so EnsureUser stays idempotent under
+		// concurrency rather than surfacing the 409 as a 5xx to the
+		// operator (TC-R-089 regression).
 		userID, err = c.createUser(ctx, saToken, email)
-		if err != nil {
+		if errors.Is(err, errUserAlreadyExists) {
+			userID, err = c.findUserByEmail(ctx, saToken, email)
+			if err != nil {
+				return "", fmt.Errorf("keycloak.EnsureUser: re-find after 409: %w", err)
+			}
+			if userID == "" {
+				return "", fmt.Errorf("keycloak.EnsureUser: 409 from createUser but user still not findable for email %q", email)
+			}
+		} else if err != nil {
 			return "", fmt.Errorf("keycloak.EnsureUser: create user: %w", err)
 		}
 	}
@@ -251,12 +272,19 @@ func (c *Client) createUser(ctx context.Context, saToken, email string) (string,
 		return "", fmt.Errorf("keycloak: POST users: %w", err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 
+	if resp.StatusCode == http.StatusConflict {
+		// A concurrent caller already created the user (TC-R-089
+		// rapid-fire race). Drain + signal the sentinel so EnsureUser
+		// can re-find by email instead of surfacing 409 as 5xx.
+		io.Copy(io.Discard, resp.Body)
+		return "", errUserAlreadyExists
+	}
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("keycloak: create user %d: %s", resp.StatusCode, respBody)
 	}
+	io.Copy(io.Discard, resp.Body)
 
 	// Location header contains the new user URL, last segment is the user ID.
 	loc := resp.Header.Get("Location")

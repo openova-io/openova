@@ -44,9 +44,18 @@ type tenantDiscoverResponse struct {
 
 // HandleTenantDiscover serves GET /api/v1/tenant/discover?host=<host>.
 //
+// The host can also be implicit — when the `?host=` query param is
+// missing or empty the handler falls back to the request's Host
+// header. The pre-auth bootstrap call is served on the same origin
+// as the tenant being looked up, so the Host header already names
+// it; requiring an explicit query param broke any caller that relied
+// on Host-only discovery (TC-R-045 regression).
+//
 // 200 → registered tenant (subset of TenantRegistration above).
-// 400 → host query param missing or empty.
 // 404 → host not in the registry.
+// 400 → both `?host=` AND r.Host are empty (only when an HTTP client
+//       elides the Host header entirely; conformant clients always
+//       send one).
 // 503 → registry not wired (catalyst-api running without the store
 //       initialised; rare — only test/CI without a writable PVC).
 func (h *Handler) HandleTenantDiscover(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +69,15 @@ func (h *Handler) HandleTenantDiscover(w http.ResponseWriter, r *http.Request) {
 
 	host := strings.TrimSpace(r.URL.Query().Get("host"))
 	if host == "" {
-		writeBadRequest(w, "host-required", "?host= query parameter is required")
+		// Fall back to the request's Host header (HTTP/1.1 Host:, or
+		// HTTP/2 :authority — both surfaced through r.Host). The
+		// upstream proxy chain (Envoy / Traefik) preserves the
+		// originator's Host so this resolves to the tenant the operator
+		// actually visited.
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		writeBadRequest(w, "host-required", "?host= query parameter is required when the request carries no Host header")
 		return
 	}
 
