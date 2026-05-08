@@ -1,0 +1,67 @@
+# organization-controller ClusterRole.
+#
+# Minimum-permission grants for the reconciler:
+#
+#  - get/list/watch + status patch on Organization CRs
+#  - get/list/watch + create/update/patch on UserAccess CRs
+#    (so the per-owner UserAccesses can be (re)written)
+#  - get on Secrets in the Keycloak SA + Gitea SA Secret namespaces
+#    (the deployment mounts these directly via env-from-secret-ref;
+#     get is sufficient — no list/watch since we don't subscribe)
+#
+# Per ADR-0001 §2.7 the controller does NOT touch Namespace, Pod,
+# Deployment, or any other workload resource — those are reconciled by
+# Flux on the host cluster from the manifests we write into the per-Org
+# Gitea repo.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: organization-controller
+  labels:
+    app.kubernetes.io/name: organization-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: catalyst
+rules:
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Leader-election lease — required when --leader-elect=true.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Event recorder — controller-runtime managers emit Events for failed
+  # reconciles. Read access on configmaps is the controller-runtime
+  # leader election fallback path.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: organization-controller
+  labels:
+    app.kubernetes.io/name: organization-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: catalyst
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: organization-controller
+subjects:
+  - kind: ServiceAccount
+    name: organization-controller
+    namespace: catalyst-controllers

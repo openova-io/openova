@@ -1,0 +1,46 @@
+# organization-controller — slice C1 of EPIC-0 #1095.
+#
+# A Catalyst-built Go binary that reconciles Organization CRs into
+# vCluster + Keycloak group + Gitea Org + base RBAC. Per
+# docs/INVIOLABLE-PRINCIPLES.md the image is statically compiled, runs
+# as a non-root numeric UID, and ships nothing beyond the binary + CA
+# bundle.
+#
+# Build context: this Containerfile is invoked with the repository ROOT
+# as the build context. The COPY paths below assume that — only the
+# core/controllers/organization/ tree is needed to build (no cross-
+# module replace directives).
+#
+# Two stages:
+#   build  — golang:1.23-alpine
+#   final  — alpine:3.20 minimal runtime (CA certs + the binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /workspace
+
+# Stage 1: cache module downloads.
+COPY core/controllers/organization/go.mod core/controllers/organization/go.sum core/controllers/organization/
+WORKDIR /workspace/core/controllers/organization
+RUN go mod download
+
+# Stage 2: copy source + build.
+COPY core/controllers/organization /workspace/core/controllers/organization
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /organization-controller ./cmd
+
+# Stage 3: minimal runtime.
+FROM docker.io/library/alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=build /organization-controller /organization-controller
+
+# Alpine 3.20 already ships UID 65534 as `nobody`. The numeric form
+# satisfies runAsNonRoot=true + runAsUser=65534 in the chart's
+# Deployment.
+USER 65534:65534
+
+EXPOSE 8080 8081
+
+ENTRYPOINT ["/organization-controller"]

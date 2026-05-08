@@ -1,0 +1,132 @@
+# organization-controller Deployment scaffolding.
+#
+# This file is the reference shape Flux/Helm consumers extract values
+# from. The slice F1 chart (vcluster-controller authoring) will adopt
+# this same skeleton; for slice C1 we ship the YAML so the controller
+# can be deployed directly via `kubectl apply -k config/` on a dev
+# cluster (NOT a production path — production goes through Flux per
+# ADR-0001 §2.1).
+#
+# Image tag is intentionally empty here; CI rewrites it to the SHA of
+# the merged commit per the SHA-pinning rule.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-controllers
+  labels:
+    app.kubernetes.io/name: catalyst-controllers
+    openova.io/managed-by: catalyst
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: organization-controller
+  namespace: catalyst-controllers
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: organization-controller
+  namespace: catalyst-controllers
+  labels:
+    app.kubernetes.io/name: organization-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: catalyst
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: organization-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: organization-controller
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: organization-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ghcr.io/openova-io/openova/organization-controller:REPLACE_WITH_SHA
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--leader-elect=true"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: probes
+              containerPort: 8081
+          env:
+            - name: CATALYST_HOST_CLUSTER
+              valueFrom:
+                configMapKeyRef:
+                  name: organization-controller
+                  key: host-cluster
+            - name: CATALYST_KC_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: organization-controller
+                  key: keycloak-addr
+            - name: CATALYST_KC_REALM
+              valueFrom:
+                configMapKeyRef:
+                  name: organization-controller
+                  key: keycloak-realm
+            - name: CATALYST_KC_SA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: organization-controller-keycloak
+                  key: client-id
+            - name: CATALYST_KC_SA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: organization-controller-keycloak
+                  key: client-secret
+            - name: CATALYST_GITEA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: organization-controller
+                  key: gitea-url
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: organization-controller-gitea
+                  key: token
+            - name: CATALYST_VCLUSTER_CHART_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: organization-controller
+                  key: vcluster-chart-version
+                  optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
