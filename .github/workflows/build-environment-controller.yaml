@@ -14,11 +14,17 @@ on:
   push:
     paths:
       - 'core/controllers/environment/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
       - '.github/workflows/build-environment-controller.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'core/controllers/environment/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
       - '.github/workflows/build-environment-controller.yaml'
   workflow_dispatch:
 
@@ -50,15 +56,18 @@ jobs:
         with:
           go-version: '1.23'
           cache-dependency-path: |
-            core/controllers/environment/go.sum
+            core/controllers/go.sum
 
       - name: go vet
-        working-directory: core/controllers/environment
-        run: go vet ./...
+        working-directory: core/controllers
+        # Slice CC1 (#1095) consolidated the 5 Group C controllers into
+        # a single shared go.mod. Vet scoped to this controller's tree
+        # plus the shared internal/ helpers it depends on.
+        run: go vet ./environment/... ./internal/...
 
       - name: Run unit tests
-        working-directory: core/controllers/environment
-        run: go test -count=1 -race ./...
+        working-directory: core/controllers
+        run: go test -count=1 -race ./environment/... ./internal/...
 
       # On pull_request runs we stop here — image push requires
       # `packages: write` which only main-branch authors hold.

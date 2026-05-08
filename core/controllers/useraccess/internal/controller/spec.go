@@ -31,7 +31,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/openova-io/openova/core/controllers/useraccess/internal/labels"
+	"github.com/openova-io/openova/core/controllers/internal/labels"
 )
 
 // UserAccessSpec is the parsed, typed view of a single UserAccess CR's

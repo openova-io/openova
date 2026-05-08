@@ -48,7 +48,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/openova-io/openova/core/controllers/blueprint/internal/semver"
+	"github.com/openova-io/openova/core/controllers/internal/semver"
 )
 
 // canonicalPlacementModes — must mirror the enum in
