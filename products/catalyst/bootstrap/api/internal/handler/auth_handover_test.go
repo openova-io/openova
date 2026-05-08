@@ -48,11 +48,22 @@ func testHandoverSetup(t *testing.T) (h *Handler, privKey *rsa.PrivateKey, keyPa
 		t.Fatalf("ParseRSAPrivateKeyFromPEM: %v", err)
 	}
 
+	// Build the same handover signer the production main.go wires up
+	// (commit b1ff09bf moved AuthHandover off Keycloak token-exchange
+	// to a locally-minted RS256 session JWT signed by handoverSigner).
+	// Without this the happy-path test panics in
+	// (*handoverjwt.Signer).SignCustomClaims with a nil-pointer deref.
+	signer, err := handoverjwt.New(privPEM, "https://console.openova.io", 8*time.Hour)
+	if err != nil {
+		t.Fatalf("handoverjwt.New: %v", err)
+	}
+
 	jtiSt := jtistore.New(filepath.Join(dir, "jti.log"))
 
 	h = &Handler{
 		log:                       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		handoverJWTPublicKeyPath:  keyPath,
+		handoverSigner:            signer,
 		authHandoverSovereignFQDN: "sov.test",
 		authHandoverRedirect:      "/dashboard",
 		jtiStore:                  jtiSt,
@@ -144,16 +155,56 @@ func TestAuthHandover_HappyPath(t *testing.T) {
 	if sessionCookie.SameSite != http.SameSiteLaxMode {
 		t.Error("catalyst_session must be SameSite=Lax")
 	}
-	if sessionCookie.Value != "test-access-token" {
-		t.Errorf("catalyst_session value: got %q want test-access-token", sessionCookie.Value)
+	// Session cookie carries a locally-minted RS256 JWT (commit b1ff09bf
+	// retired the Keycloak token-exchange flow per Inviolable Principle
+	// #11 — Sovereigns must not depend on the mothership). Decode the
+	// JWT and assert the canonical claims rather than a fixed stub
+	// value.
+	if sessionCookie.Value == "" {
+		t.Fatal("catalyst_session must contain a session JWT, got empty")
+	}
+	parsedSession, err := jwt.Parse(sessionCookie.Value, func(t *jwt.Token) (interface{}, error) {
+		return &privKey.PublicKey, nil
+	})
+	if err != nil || !parsedSession.Valid {
+		t.Fatalf("catalyst_session JWT did not validate against handover public key: err=%v valid=%v", err, parsedSession != nil && parsedSession.Valid)
+	}
+	sessionMap, ok := parsedSession.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatalf("catalyst_session JWT claims unexpected type %T", parsedSession.Claims)
+	}
+	if got, want := sessionMap["typ"], "session"; got != want {
+		t.Errorf("catalyst_session.typ: got %v want %v", got, want)
+	}
+	if got, want := sessionMap["email"], "admin@sov.test"; got != want {
+		t.Errorf("catalyst_session.email: got %v want %v", got, want)
+	}
+	if got, want := sessionMap["sovereign_fqdn"], "sov.test"; got != want {
+		t.Errorf("catalyst_session.sovereign_fqdn: got %v want %v", got, want)
+	}
+	if got, want := sessionMap["deployment_id"], "dep-001"; got != want {
+		t.Errorf("catalyst_session.deployment_id: got %v want %v", got, want)
+	}
+	if got, want := sessionMap["keycloak_uid"], "user-uuid-001"; got != want {
+		t.Errorf("catalyst_session.keycloak_uid: got %v want %v", got, want)
+	}
+	if got, want := sessionMap["role"], "sovereign-admin"; got != want {
+		t.Errorf("catalyst_session.role: got %v want %v", got, want)
 	}
 
+	// catalyst_refresh is the legacy token-exchange refresh cookie. The
+	// new local-mint flow clears it (MaxAge=-1, empty value) on every
+	// successful handover so any stale cookie from an earlier
+	// token-exchange-era login does not linger.
 	refreshCookie := findCookie(cookies, "catalyst_refresh")
 	if refreshCookie == nil {
-		t.Fatal("catalyst_refresh cookie not set")
+		t.Fatal("catalyst_refresh cookie not set (handler must explicitly clear it)")
 	}
-	if refreshCookie.Value != "test-refresh-token" {
-		t.Errorf("catalyst_refresh value: got %q", refreshCookie.Value)
+	if refreshCookie.Value != "" {
+		t.Errorf("catalyst_refresh value: got %q want empty (cookie should be cleared)", refreshCookie.Value)
+	}
+	if refreshCookie.MaxAge >= 0 {
+		t.Errorf("catalyst_refresh MaxAge: got %d want negative (cookie should be cleared)", refreshCookie.MaxAge)
 	}
 }
 
@@ -465,17 +516,42 @@ func TestAuthHandover_KCEnsureUserFailure(t *testing.T) {
 	assertAuthError(t, w, http.StatusUnauthorized, "keycloak error: ensure user")
 }
 
+// TestAuthHandover_KCImpersonateFailure proves AuthHandover NO LONGER
+// depends on the Keycloak Admin token-exchange flow. Commit b1ff09bf
+// retired ImpersonateToken in favour of a locally-minted RS256 session
+// JWT signed by handoverSigner — the migration was driven by Keycloak
+// v26 dropping `requested_subject` ("Parameter 'requested_subject' is
+// not supported for standard token exchange") AND by Inviolable
+// Principle #11 (Sovereigns must not stay tethered to the mothership).
+//
+// Pre-migration this test asserted that an ImpersonateToken error
+// produced a 401. Post-migration the production code never calls
+// ImpersonateToken on the AuthHandover path; this test now asserts
+// the migration is durable: a stub Keycloak whose ImpersonateToken
+// errors must NOT block the handover, and the operator must still
+// reach /dashboard with a valid catalyst_session JWT.
 func TestAuthHandover_KCImpersonateFailure(t *testing.T) {
 	h, privKey, _ := testHandoverSetup(t)
 	h.kc = &stubKeycloakClient{
-		impersonateErr: fmt.Errorf("token exchange denied"),
+		impersonateErr: fmt.Errorf("token exchange denied — must not reach this path"),
 	}
 	tok := mintValidToken(t, privKey)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
 	w := httptest.NewRecorder()
 	h.AuthHandover(w, req)
-	assertAuthError(t, w, http.StatusUnauthorized, "keycloak error: token exchange")
+	if w.Code != http.StatusFound {
+		t.Fatalf("status: got %d want 302 (AuthHandover must NOT call ImpersonateToken; body: %s)", w.Code, w.Body.String())
+	}
+	if loc := w.Header().Get("Location"); loc != "/dashboard" {
+		t.Errorf("Location: got %q want /dashboard", loc)
+	}
+	// Sanity: the catalyst_session cookie carries a non-empty locally-
+	// minted JWT (NOT the stub's impersonate-access value).
+	sessionCookie := findCookie(w.Result().Cookies(), "catalyst_session")
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatal("catalyst_session must be set with a locally-minted JWT")
+	}
 }
 
 func TestAuthHandover_KCNotConfigured(t *testing.T) {

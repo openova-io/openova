@@ -18,6 +18,13 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
+// CATALYST_HARBOR_ROBOT_TOKEN — issue #557 tightened
+// provisioner.Validate to reject any deployment without the env-stamped
+// Harbor proxy-cache robot token (Inviolable Principle #11). The
+// CreateDeployment handler reads this env at request time. Tests that
+// exercise the success path must set it; the negative-path tests
+// (RejectsMismatchedOrgEmail / AcceptsMatchingOrgEmail at L200/L251
+// already do).
 func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	// Pool-mode deployments require a GHCR pull token (Phase 1 pulls
@@ -25,6 +32,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 	// mounts CATALYST_GHCR_PULL_TOKEN from the catalyst-ghcr-pull-token
 	// Secret; tests inject a placeholder so Validate() does not 400.
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}
@@ -68,6 +76,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{
@@ -104,6 +113,7 @@ func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 
 func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}
@@ -147,6 +157,7 @@ func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 // finds a non-empty bucket name when writeTfvars renders.
 func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}

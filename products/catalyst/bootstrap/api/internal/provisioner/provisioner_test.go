@@ -49,6 +49,13 @@ func validBase() Request {
 		HetznerToken:           "TEST-TOKEN-NOT-REAL",
 		HetznerProjectID:       "test-project",
 		SSHPublicKey:           "ssh-ed25519 AAAA test-not-a-real-key",
+		// HarborRobotToken — issue #557 tightened Validate() to require
+		// this on every Request (Inviolable Principle #11: every Sovereign
+		// image pull MUST go through harbor.openova.io; falling through to
+		// docker.io is not allowed). Production catalyst-api reads
+		// CATALYST_HARBOR_ROBOT_TOKEN from the env at New() and stamps
+		// it into every Request; the tests need to mirror that contract.
+		HarborRobotToken:       "test-harbor-robot-token-not-real",
 		ObjectStorageRegion:    "fsn1",
 		ObjectStorageAccessKey: "TESTACCESSKEY1234567",
 		ObjectStorageSecretKey: "TESTSECRETKEY1234567890123456789012345678",

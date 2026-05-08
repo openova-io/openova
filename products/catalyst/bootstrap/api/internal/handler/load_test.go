@@ -104,6 +104,11 @@ func validRequest(idx int) map[string]any {
 // from #148. The body is the test for every "no cross-contamination"
 // invariant the ticket calls out.
 func TestLoad_TenConcurrentDeploymentsAreIsolated(t *testing.T) {
+	// issue #557 — provisioner.Validate now rejects every deployment
+	// without the env-stamped Harbor robot token (Inviolable Principle
+	// #11). The handler reads CATALYST_HARBOR_ROBOT_TOKEN at request
+	// time; tests using validRequest() must set it.
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	const N = 10
 	srv, h := newLoadTestServer(t)
 
@@ -376,6 +381,11 @@ func TestLoad_DeploymentValidationContractKeepsLoadTestFromHangingForever(t *tes
 		// the meta-check exercises the SAME validation contract the live
 		// CreateDeployment path runs.
 		ObjectStorageBucket: "catalyst-" + strings.ReplaceAll(body["sovereignFQDN"].(string), ".", "-"),
+		// HarborRobotToken is `json:"-"` so the wizard payload cannot
+		// carry it — production stamps it from CATALYST_HARBOR_ROBOT_TOKEN
+		// in CreateDeployment (issue #557). Mirror that stamp here so
+		// the meta-check exercises the same Validate() contract.
+		HarborRobotToken: "harbor_TEST_PLACEHOLDER",
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatalf("validRequest() builds an invalid payload — load test would silently measure the 400 path: %v", err)
