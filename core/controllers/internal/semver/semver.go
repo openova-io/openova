@@ -1,4 +1,6 @@
-// Package semver — minimal in-tree semver-range parser.
+// Package semver — minimal in-tree semver-range parser shared across
+// every Group C controller (slices C1-C5) per `02-implementer-canon.md`
+// §1+§2 and consolidated by slice CC1 (#1095).
 //
 // Per slice C3 brief: "Use a small in-tree validator — do NOT add a new
 // go.mod dep just for this." The blueprint-controller validates
@@ -24,6 +26,12 @@
 // validation error rather than silently accepting it — the controller
 // surfaces the error as a Pending condition with reason
 // "InvalidUpgradeRange".
+//
+// `IsExact` is the secondary entry point used by application-controller
+// (slice C4) to validate `Application.spec.blueprintRef.version` — the
+// CRD pattern enforces MAJOR.MINOR.PATCH there, but the controller
+// double-checks server-side patches that can slip range-form into the
+// field.
 package semver
 
 import (
@@ -61,6 +69,35 @@ func IsValidRange(s string) error {
 	}
 
 	return validAtom(s)
+}
+
+// IsExact reports whether s is an exact `MAJOR.MINOR.PATCH` version
+// (with optional pre-release suffix). The CRD pattern enforces this
+// shape on Application.spec.blueprintRef.version; the controller calls
+// IsExact() during semantic validation to catch mismatches the schema
+// wouldn't (e.g. range-form snuck in via a server-side patch).
+func IsExact(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	core := s
+	if i := strings.IndexAny(s, "-+"); i >= 0 {
+		core = s[:i]
+	}
+	segs := strings.Split(core, ".")
+	if len(segs) != 3 {
+		return false
+	}
+	for _, seg := range segs {
+		if seg == "" {
+			return false
+		}
+		if _, err := strconv.ParseUint(seg, 10, 32); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // validAtom validates a single range atom. See package doc for the

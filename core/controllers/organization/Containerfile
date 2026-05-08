@@ -7,9 +7,11 @@
 # bundle.
 #
 # Build context: this Containerfile is invoked with the repository ROOT
-# as the build context. The COPY paths below assume that — only the
-# core/controllers/organization/ tree is needed to build (no cross-
-# module replace directives).
+# as the build context.
+#
+# Slice CC1 (#1095) consolidated the 5 Group C controllers under a
+# single shared go.mod at core/controllers/go.mod and shared helpers
+# under core/controllers/internal/. The COPY layout below mirrors that.
 #
 # Two stages:
 #   build  — golang:1.23-alpine
@@ -18,14 +20,17 @@
 FROM docker.io/library/golang:1.23-alpine AS build
 WORKDIR /workspace
 
-# Stage 1: cache module downloads.
-COPY core/controllers/organization/go.mod core/controllers/organization/go.sum core/controllers/organization/
-WORKDIR /workspace/core/controllers/organization
+# Stage 1: cache module downloads — go.mod/go.sum at the shared root.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+WORKDIR /workspace/core/controllers
 RUN go mod download
 
 # Stage 2: copy source + build.
+WORKDIR /workspace
+COPY core/controllers/internal /workspace/core/controllers/internal
 COPY core/controllers/organization /workspace/core/controllers/organization
 
+WORKDIR /workspace/core/controllers/organization
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /organization-controller ./cmd

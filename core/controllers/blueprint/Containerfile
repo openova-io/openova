@@ -7,18 +7,22 @@
 #
 # Build context: the repo root (so we can COPY core/controllers/...
 # directly).
+#
+# Slice CC1 (#1095) consolidated the 5 Group C controllers under a
+# single shared go.mod at core/controllers/go.mod and shared helpers
+# under core/controllers/internal/. The COPY layout below mirrors that.
 
-FROM golang:1.22-alpine AS build
+FROM golang:1.23-alpine AS build
 WORKDIR /src
 
-# Cache go.mod / go.sum first.
-COPY core/controllers/blueprint/go.mod core/controllers/blueprint/
-COPY core/controllers/blueprint/go.sum core/controllers/blueprint/
-WORKDIR /src/core/controllers/blueprint
+# Cache go.mod / go.sum first — lives at the shared module root.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+WORKDIR /src/core/controllers
 RUN go mod download
 
-# Copy the controller package tree.
+# Copy the controller package tree + shared internal/ helpers.
 WORKDIR /src
+COPY core/controllers/internal/ core/controllers/internal/
 COPY core/controllers/blueprint/ core/controllers/blueprint/
 
 WORKDIR /src/core/controllers/blueprint

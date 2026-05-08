@@ -1,32 +1,17 @@
-// organization-controller — slice C1 of EPIC-0 #1095.
-//
-// A thin in-cluster controller that watches Organization CRs
-// (orgs.openova.io/v1) and reconciles four downstream artifacts per the
-// EPICs-1-6 unified design §3.3 + §3.7:
-//
-//   1. A vCluster HelmRelease in the per-Org Gitea repo (NOT direct apply
-//      — Flux on the host cluster reconciles).
-//   2. A Keycloak group at path "/{org-slug}" with the canonical attribute
-//      set (org=<slug>, tier=<sme|corporate>) via the catalyst-api
-//      Keycloak Admin client (slice D1c).
-//   3. A Gitea Organization with the slug (via the Gitea Admin REST API).
-//   4. One UserAccess CR (access.openova.io/v1alpha1) per spec.owners[]
-//      entry — feeds slice C5 (useraccess-controller) which materializes
-//      the RoleBindings.
-//
-// Per ADR-0001 §2.2 (Crossplane is cloud-only) and §2.7 (Tenancy is
-// K8s-native) this is K8s-to-K8s reconciliation NOT a Crossplane
-// Composition. Per §2.1 (Flux is the only deployment path) the controller
-// writes manifests to Gitea repos that Flux reconciles — never
-// `kubectl apply`, never `helm install`, never `exec.Command("helm", ...)`.
-module github.com/openova-io/openova/core/controllers/organization
+// Module path canonicalized by slice CC1 (#1095) per
+// `02-implementer-canon.md` §1: ONE go.mod for ALL Group C controllers
+// (slices C1-C5) + the shared core/controllers/internal/* helpers.
+module github.com/openova-io/openova/core/controllers
 
 go 1.23
 
 require (
 	github.com/go-logr/logr v1.4.2
-	k8s.io/apimachinery v0.31.0
-	k8s.io/client-go v0.31.0
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+	github.com/stretchr/testify v1.9.0
+	k8s.io/api v0.31.1
+	k8s.io/apimachinery v0.31.1
+	k8s.io/client-go v0.31.1
 	sigs.k8s.io/controller-runtime v0.19.0
 	sigs.k8s.io/yaml v1.4.0
 )
@@ -58,6 +43,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.19.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
@@ -79,7 +65,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.31.0 // indirect
 	k8s.io/apiextensions-apiserver v0.31.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240228011516-70dd3763d340 // indirect

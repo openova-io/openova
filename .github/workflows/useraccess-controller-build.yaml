@@ -16,12 +16,18 @@ on:
   push:
     paths:
       - 'core/controllers/useraccess/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
       - '.github/workflows/useraccess-controller-build.yaml'
     branches: [main]
   workflow_dispatch:
   pull_request:
     paths:
       - 'core/controllers/useraccess/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
       - '.github/workflows/useraccess-controller-build.yaml'
 
 env:
@@ -41,18 +47,21 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-          cache-dependency-path: core/controllers/useraccess/go.sum
+          cache-dependency-path: core/controllers/go.sum
 
       - name: go vet
-        working-directory: core/controllers/useraccess
-        run: go vet ./...
+        working-directory: core/controllers
+        # Slice CC1 (#1095) consolidated the 5 Group C controllers into
+        # a single shared go.mod. Vet scoped to this controller's tree
+        # plus the shared internal/ helpers it depends on.
+        run: go vet ./useraccess/... ./internal/...
 
       - name: go test (race + count=1)
-        working-directory: core/controllers/useraccess
+        working-directory: core/controllers
         # Race + count=1 catches flakes that a cached run would hide.
         # The reconciler suite uses controller-runtime's fake client —
         # no envtest binaries needed, so the runner stays light.
-        run: go test -count=1 -race ./...
+        run: go test -count=1 -race ./useraccess/... ./internal/...
 
   build:
     needs: test
@@ -87,7 +96,11 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: core/controllers/useraccess
+          # Build context is the repository root so the Containerfile's
+          # COPY paths can reach both core/controllers/go.mod (the shared
+          # module root after slice CC1, #1095) and the per-controller
+          # tree under core/controllers/useraccess/.
+          context: .
           file: core/controllers/useraccess/Containerfile
           push: true
           # SHA-pinned tag is the contract — production manifests

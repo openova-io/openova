@@ -8,6 +8,10 @@
 # invoked by .github/workflows/build-application-controller.yaml with
 # the repository ROOT as the build context.
 #
+# Slice CC1 (#1095) consolidated the 5 Group C controllers under a
+# single shared go.mod at core/controllers/go.mod and shared helpers
+# under core/controllers/internal/. The COPY layout below mirrors that.
+#
 # Two stages:
 #   build  — golang:1.23-alpine, vendored stdlib + module cache
 #   final  — alpine:3.20 minimal runtime (CA certs + the binary)
@@ -15,14 +19,16 @@
 FROM docker.io/library/golang:1.23-alpine AS build
 WORKDIR /workspace
 
-# Cache module downloads.
-COPY core/controllers/application/go.mod core/controllers/application/go.sum core/controllers/application/
+# Cache module downloads — go.mod/go.sum live at the shared module root.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
 
-WORKDIR /workspace/core/controllers/application
+WORKDIR /workspace/core/controllers
 RUN go mod download
 
-# Copy source + build.
+# Copy source + build. The shared internal/ packages and the per-
+# controller tree are both needed at compile time.
 WORKDIR /workspace
+COPY core/controllers/internal /workspace/core/controllers/internal
 COPY core/controllers/application /workspace/core/controllers/application
 
 WORKDIR /workspace/core/controllers/application

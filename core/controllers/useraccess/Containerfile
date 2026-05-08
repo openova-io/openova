@@ -10,19 +10,29 @@
 # core/controllers/useraccess/ — never via `docker build` on a laptop
 # (per principle #4a IMAGES: GITHUB ACTIONS IS THE ONLY BUILD PATH).
 #
+# Slice CC1 (#1095) consolidated the 5 Group C controllers under a
+# single shared go.mod at core/controllers/go.mod and shared helpers
+# under core/controllers/internal/. Build context is the repository
+# ROOT (not core/controllers/useraccess/) so the COPY paths can reach
+# both the shared module root and the per-controller tree.
+#
 # Two stages:
 #   build  — golang:1.23-alpine with go mod cache
 #   final  — alpine:3.20 minimal runtime (CA certs + tzdata + binary)
 
 FROM docker.io/library/golang:1.23-alpine AS build
-WORKDIR /app
+WORKDIR /workspace
 
-# Cache layer for go.mod / go.sum so source-only rebuilds skip the
-# module download.
-COPY go.mod go.sum ./
+# Cache layer for go.mod / go.sum at the shared module root.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+WORKDIR /workspace/core/controllers
 RUN go mod download
 
-COPY . .
+WORKDIR /workspace
+COPY core/controllers/internal /workspace/core/controllers/internal
+COPY core/controllers/useraccess /workspace/core/controllers/useraccess
+
+WORKDIR /workspace/core/controllers/useraccess
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /useraccess-controller ./cmd
