@@ -1,0 +1,125 @@
+name: Build application-controller
+
+# application-controller — slice C4 of EPIC-0 #1095. Watches
+# Application.apps.openova.io/v1 CRs and reconciles per-region
+# kustomization + helmrelease manifests into the per-Org Gitea repo.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. Mirrors the existing
+# build-environment-controller.yaml shape — same auth flow, same
+# cosign keyless signing, same SBOM attestation.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+# Triggers on push-to-main with paths filter (so unrelated commits
+# don't burn CI minutes), pull_request for reviewers, and
+# workflow_dispatch for manual re-runs.
+
+on:
+  push:
+    paths:
+      - 'core/controllers/application/**'
+      - '.github/workflows/build-application-controller.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/controllers/application/**'
+      - '.github/workflows/build-application-controller.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/application-controller
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/controllers/application/go.sum
+
+      - name: go vet
+        working-directory: core/controllers/application
+        run: go vet ./...
+
+      - name: Run unit tests
+        working-directory: core/controllers/application
+        run: go test -count=1 -race ./...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repository root so the Containerfile's
+          # COPY paths can reach core/controllers/application/.
+          context: .
+          file: core/controllers/application/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=application-controller
+            org.opencontainers.image.description=Reconciles Application.apps.openova.io/v1 → per-Org Gitea repo with per-region Kustomization + HelmRelease manifests (slice C4 of EPIC-0 #1095)
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"

@@ -1,0 +1,133 @@
+# RBAC for application-controller (slice C4 of EPIC-0 #1095).
+#
+# The controller runs in `catalyst-system` and watches Application CRs
+# across all namespaces; it reads Environment + Organization + Blueprint
+# CRs cluster-scoped to resolve the per-Application work plan; it
+# writes status + finalizers on Application CRs via the /status and
+# /finalizers subresources.
+#
+# Gitea repo writes go via the Gitea API (HTTP, token in env) — there
+# is no in-cluster permission needed for that.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 the controller does NOT directly
+# create or edit HelmRelease / Kustomization / Service objects — it
+# writes manifests to a Gitea repo and Flux applies. So RBAC is
+# read-only on every K8s kind except Application.{status,finalizers}.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-system
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/managed-by: flux
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: application-controller
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: application-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: application-controller
+  labels:
+    app.kubernetes.io/name: application-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+rules:
+  # Watch + update Application CRs (namespace-scoped). The controller
+  # never edits .spec; it only adds/removes its finalizer and writes
+  # /status. The verbs `update` + `patch` are needed for the finalizer
+  # add/remove path which is a metadata.finalizers mutation, not a
+  # status subresource patch.
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications/finalizers"]
+    verbs: ["update"]
+
+  # Read parent Environment + Organization (cluster-scoped) for parent
+  # resolution + the per-Org Gitea Org slug.
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+
+  # Read Blueprint (cluster-scoped, both versions).
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]
+    verbs: ["get", "list", "watch"]
+
+  # Events for audit trail on every reconcile error / status flip.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: application-controller
+  labels:
+    app.kubernetes.io/name: application-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: application-controller
+subjects:
+  - kind: ServiceAccount
+    name: application-controller
+    namespace: catalyst-system
+---
+# Leader election lease — namespace-scoped to catalyst-system so the
+# controller can't race with leaders of other controllers in other
+# namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: application-controller-leader-election
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: application-controller
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: application-controller-leader-election
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: application-controller
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: application-controller-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: application-controller
+    namespace: catalyst-system
