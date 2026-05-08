@@ -118,5 +118,32 @@ const (
 	LabelUserAccessName = "access.openova.io/useraccess"
 	LabelUserAccessApp  = "access.openova.io/application"
 	LabelUserAccessRole = "access.openova.io/role"
+	LabelUserAccessTier = "access.openova.io/tier"
 	LabelSovereignKey   = "catalyst.openova.io/sovereign"
+
+	// LabelTier is the canonical CR label that names the tier (per slice
+	// T1 #1142 + slice A1 #1143). The reconciler reads it as the
+	// source-of-truth for tier resolution; the new spec.tierRoleRef
+	// field is the apiserver-side proof but the label is what
+	// `kubectl get useraccess -l catalyst.openova.io/tier=developer`
+	// works against, so it stays primary for the reconciler.
+	LabelTier = "catalyst.openova.io/tier"
+
+	// AnnotationEnforcedScopes is the JSON-encoded list of scope rows
+	// the tier ClusterRole pins per slice T1 (#1142). Each entry is
+	// `{"key":"<openova.io/...>","value":"<v>"}`. Read by the
+	// useraccess-controller's tier auto-injection path (slice T3).
+	AnnotationEnforcedScopes = "catalyst.openova.io/enforced-scopes"
+
+	// TierClusterRolePrefix is the prefix for the 5 catalog tier
+	// ClusterRoles per slice T1 — `openova:tier-<tier>`.
+	TierClusterRolePrefix = "openova:tier-"
+
+	// Canonical scope keys (Manara DNA — NAMING-CONVENTION.md §6).
+	// Used by the scope-to-namespace translator in tier_bindings.go.
+	ScopeKeyApplication = "openova.io/application"
+	ScopeKeyEnvironment = "openova.io/environment"
+	ScopeKeyOrg         = "openova.io/org"
+	ScopeKeyOrganization = "openova.io/organization"
+	ScopeKeyEnvType     = "openova.io/env-type"
 )

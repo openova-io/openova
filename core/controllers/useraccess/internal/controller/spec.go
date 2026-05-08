@@ -47,18 +47,30 @@ type UserAccessSpec struct {
 	// labels-on-output and (eventually) cross-Sovereign scope filtering.
 	SovereignRef string
 
-	// Apps is the list of (application × role) grant entries.
+	// Apps is the list of (application × role) grant entries (legacy
+	// shape — pre-EPIC-3). May be empty when the CR is authored via
+	// /rbac/assign with only TierRoleRef + Scopes.
 	Apps []AppGrant
 
 	// Scopes is the Manara-DNA label-set the reconciler matches against
-	// candidate target labels. Empty = global (the controller still
-	// materializes the bindings; scopes only filter when EPIC-3's
-	// candidate-target evaluator runs).
+	// candidate target labels. Empty (combined with the tier path) means
+	// cluster-wide. The CRD permits both `{key, value}` (post-slice-A1
+	// shape, EPIC-3 #1098 #1143) and the legacy `{labelKey, labelValue}`
+	// shape — ParseSpec accepts both for forward/back-compat.
 	Scopes []labels.Scope
 
-	// Tier (catalog tier) auto-injects scope rows per
-	// internal/labels.EnforcedScopes. Empty Tier = no auto-injection.
+	// Tier (catalog tier) auto-injects scope rows per the tier
+	// ClusterRole's `catalyst.openova.io/enforced-scopes` annotation.
+	// Sourced from the CR's `catalyst.openova.io/tier=<tier>` label
+	// (the canonical source per slice T1) with a fallback to spec.tier
+	// for back-compat.
 	Tier string
+
+	// TierRoleRef is the ClusterRole the tier-aware emission path uses
+	// as roleRef — e.g. `openova:tier-developer` (post-EPIC-3 slice A1
+	// #1143). When empty, the reconciler falls back to the legacy
+	// per-application path.
+	TierRoleRef string
 }
 
 // Subject is one RoleBinding subject (User or Group) materialized from
@@ -188,8 +200,10 @@ func ParseSpec(u *unstructured.Unstructured) (UserAccessSpec, string) {
 		}
 	}
 
-	// scopes: [{labelKey, labelValue}] — the EPIC-3 (#1098) extension.
-	// Tolerate the field's absence on today's CRD shape.
+	// scopes: [{key, value}] (post-A1 #1143) OR [{labelKey, labelValue}]
+	// (legacy shape; tolerated for back-compat). Either entry is a
+	// labels.Scope; the reconciler doesn't care which CRD revision
+	// authored it.
 	if rawScopes, ok, _ := unstructured.NestedSlice(u.Object, "spec", "scopes"); ok {
 		for _, raw := range rawScopes {
 			m, ok := raw.(map[string]any)
@@ -197,11 +211,24 @@ func ParseSpec(u *unstructured.Unstructured) (UserAccessSpec, string) {
 				continue
 			}
 			s := labels.Scope{}
-			if k, ok := m["labelKey"].(string); ok {
+			// New CRD shape (post-A1).
+			if k, ok := m["key"].(string); ok && strings.TrimSpace(k) != "" {
 				s.Key = strings.TrimSpace(k)
 			}
-			if v, ok := m["labelValue"].(string); ok {
+			if v, ok := m["value"].(string); ok && strings.TrimSpace(v) != "" {
 				s.Value = strings.TrimSpace(v)
+			}
+			// Legacy CRD shape (pre-A1) — only applied when new shape
+			// fields were absent on this entry.
+			if s.Key == "" {
+				if k, ok := m["labelKey"].(string); ok {
+					s.Key = strings.TrimSpace(k)
+				}
+			}
+			if s.Value == "" {
+				if v, ok := m["labelValue"].(string); ok {
+					s.Value = strings.TrimSpace(v)
+				}
 			}
 			if s.Key == "" && s.Value == "" {
 				continue
@@ -210,8 +237,20 @@ func ParseSpec(u *unstructured.Unstructured) (UserAccessSpec, string) {
 		}
 	}
 
-	if t, ok, _ := unstructured.NestedString(u.Object, "spec", "tier"); ok {
+	// tier — preferred source is the canonical label
+	// `catalyst.openova.io/tier=<tier>` per slice T1 (#1142). Fall back
+	// to spec.tier (legacy / non-A1 callers) if the label is missing.
+	if v := strings.TrimSpace(u.GetLabels()[LabelTier]); v != "" {
+		out.Tier = v
+	} else if t, ok, _ := unstructured.NestedString(u.Object, "spec", "tier"); ok {
 		out.Tier = strings.TrimSpace(t)
+	}
+
+	// tierRoleRef — the post-A1 shape used by /rbac/assign. Stays empty
+	// for legacy CRs; the reconciler falls back to the per-application
+	// path in that case.
+	if v, ok, _ := unstructured.NestedString(u.Object, "spec", "tierRoleRef"); ok {
+		out.TierRoleRef = strings.TrimSpace(v)
 	}
 
 	// Validation — return error message for caller to surface as
@@ -222,8 +261,12 @@ func ParseSpec(u *unstructured.Unstructured) (UserAccessSpec, string) {
 	if strings.TrimSpace(out.SovereignRef) == "" {
 		return out, "spec.sovereignRef is required"
 	}
-	if len(out.Apps) == 0 {
-		return out, "spec.applications must contain at least one entry"
+	// A CR is valid as long as at least ONE materialization path is
+	// authored — either the legacy applications[] path OR the new
+	// tier path (TierRoleRef). A CR with NEITHER cannot result in any
+	// binding and is rejected.
+	if len(out.Apps) == 0 && out.TierRoleRef == "" {
+		return out, "spec.applications must contain at least one entry (or set spec.tierRoleRef for the tier-aware path)"
 	}
 	for i, a := range out.Apps {
 		if a.App == "" {
