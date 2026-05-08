@@ -26,6 +26,21 @@ const (
 	sessionCookieDuration = 4 * time.Hour
 )
 
+// RealmAccess mirrors the Keycloak `realm_access` claim — list of realm
+// roles the bearer holds (e.g. `catalyst-admin`, `viewer`). Used by
+// useraccess-controller (slice C5 of #1095) to materialize per-cluster
+// RoleBindings.
+type RealmAccess struct {
+	Roles []string `json:"roles,omitempty"`
+}
+
+// ResourceAccess mirrors the Keycloak `resource_access` claim — map of
+// OIDC client name → roles assigned to the bearer for that client.
+// Used to express per-client (per-Application) role grants.
+type ResourceAccess map[string]struct {
+	Roles []string `json:"roles,omitempty"`
+}
+
 // Claims represents the parsed claims from a Keycloak-issued ID/access token.
 type Claims struct {
 	Sub           string `json:"sub"`
@@ -44,6 +59,82 @@ type Claims struct {
 	// Sovereign Console reads this via /api/v1/sovereign/self so
 	// useResolvedDeploymentId never returns empty post-handover.
 	DeploymentID string `json:"deployment_id"`
+
+	// ── RBAC claims (slice D2 of #1095, EPIC-3 #1098 consumer) ─────────
+	//
+	// These fields carry the authorization context Keycloak emits on
+	// every access token. Parsed but not enforced in catalyst-api
+	// itself — the useraccess-controller (slice C5) and the per-handler
+	// @RequireResourceAccess decorator (slice D2 follow-up) consume them.
+	//
+	// All omitempty so existing tokens (without these claims) parse
+	// cleanly without zero-valued slices polluting downstream JSON.
+
+	// Groups carries the Keycloak `groups` claim — full group paths
+	// (e.g. "/acme/admins", "/openova-internal/sre"). Mapped to
+	// Organizations + tier via the configured Keycloak group mapper.
+	Groups []string `json:"groups,omitempty"`
+
+	// RealmAccess carries the Keycloak realm-role list. Mapped to the
+	// 5 catalog tiers (viewer/developer/operator/admin/owner) per
+	// docs/EPICS-1-6-unified-design.md §6.2.
+	RealmAccess RealmAccess `json:"realm_access,omitempty"`
+
+	// ResourceAccess carries per-OIDC-client role assignments. Used for
+	// per-Application role grants where a customer Org has its own OIDC
+	// client (corporate Sovereign federation pattern).
+	ResourceAccess ResourceAccess `json:"resource_access,omitempty"`
+
+	// Org is a custom Keycloak claim populated by the realm's group-to-
+	// attribute mapper. Set to the Organization slug (e.g. "acme") so
+	// catalyst-api handlers can scope queries without re-parsing groups.
+	Org string `json:"org,omitempty"`
+
+	// Tier is a custom Keycloak claim that flattens RealmAccess.Roles
+	// to the highest-precedence catalog tier (viewer < developer <
+	// operator < admin < owner). Computed by the Keycloak protocol
+	// mapper at token-mint time. Empty when no tier role is assigned.
+	Tier string `json:"tier,omitempty"`
+
+	// Scopes carries label-based scope tags per the Manara model
+	// (docs/EPICS-1-6-unified-design.md §6.3). Each entry is a
+	// `key=value` label expression (e.g. "application=wordpress",
+	// "env-type=dev"). Populated by the Keycloak group-attribute
+	// mapper that flattens UserAccess CR scopes into the access token.
+	Scopes []string `json:"openova_scopes,omitempty"`
+}
+
+// HasRealmRole returns true if the bearer holds the given Keycloak
+// realm role. Convenience helper for handler authorization checks
+// before useraccess-controller wires the full label-based scope
+// matching (slice C5 of #1095).
+func (c *Claims) HasRealmRole(role string) bool {
+	if c == nil {
+		return false
+	}
+	for _, r := range c.RealmAccess.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// HasGroup returns true if the bearer's group list contains the given
+// path. Both `/acme/admins` and `acme/admins` (leading slash optional)
+// are accepted to absorb the Keycloak group-path convention difference
+// between v22 and v24.
+func (c *Claims) HasGroup(path string) bool {
+	if c == nil {
+		return false
+	}
+	want := strings.TrimPrefix(path, "/")
+	for _, g := range c.Groups {
+		if strings.TrimPrefix(g, "/") == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Config holds the runtime configuration for the auth package.

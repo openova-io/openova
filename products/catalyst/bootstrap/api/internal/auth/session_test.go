@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -144,4 +145,104 @@ func TestReadSessionToken_QueryParamWhitespace(t *testing.T) {
 	if got := cfg.ReadSessionToken(r2); got != "" {
 		t.Fatalf("expected empty for whitespace-only token, got %q", got)
 	}
+}
+
+// ── RBAC field tests (slice D2 of #1095) ────────────────────────────────
+
+func TestParseJWTClaims_LegacyTokenStillParses(t *testing.T) {
+	// A token without any of the new RBAC claims must continue to parse —
+	// every existing Catalyst-Zero session falls in this bucket.
+	payload := `{"sub":"u-1","email":"a@b.com","email_verified":true,"preferred_username":"a","sovereign_fqdn":"omantel.omani.works","deployment_id":"dep-x"}`
+	tok := makeJWT(t, payload)
+	c, err := parseJWTClaims(tok)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c.Email != "a@b.com" || c.SovereignFQDN != "omantel.omani.works" {
+		t.Fatalf("unexpected legacy parse: %+v", c)
+	}
+	if len(c.Groups) != 0 || len(c.RealmAccess.Roles) != 0 || c.Org != "" || c.Tier != "" || len(c.Scopes) != 0 {
+		t.Fatalf("legacy token populated RBAC fields: %+v", c)
+	}
+}
+
+func TestParseJWTClaims_RBACFields(t *testing.T) {
+	// A token with the full Keycloak shape: groups, realm_access.roles,
+	// resource_access.<client>.roles, plus the Catalyst custom claims
+	// (org, tier, openova_scopes).
+	payload := `{
+		"sub":"u-2",
+		"email":"ops@acme.com",
+		"email_verified":true,
+		"preferred_username":"ops",
+		"groups":["/acme/admins","/openova-internal/sre"],
+		"realm_access":{"roles":["catalyst-admin","viewer"]},
+		"resource_access":{"hubble-ui":{"roles":["read"]},"catalyst-ui":{"roles":["operator"]}},
+		"org":"acme",
+		"tier":"admin",
+		"openova_scopes":["application=wordpress","env-type=dev"]
+	}`
+	tok := makeJWT(t, payload)
+	c, err := parseJWTClaims(tok)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c.Org != "acme" || c.Tier != "admin" {
+		t.Fatalf("custom claims: %+v", c)
+	}
+	if len(c.Groups) != 2 || c.Groups[0] != "/acme/admins" {
+		t.Fatalf("groups: %+v", c.Groups)
+	}
+	if len(c.RealmAccess.Roles) != 2 || c.RealmAccess.Roles[0] != "catalyst-admin" {
+		t.Fatalf("realm roles: %+v", c.RealmAccess.Roles)
+	}
+	if got := c.ResourceAccess["catalyst-ui"].Roles; len(got) != 1 || got[0] != "operator" {
+		t.Fatalf("resource access: %+v", c.ResourceAccess)
+	}
+	if len(c.Scopes) != 2 || c.Scopes[0] != "application=wordpress" {
+		t.Fatalf("scopes: %+v", c.Scopes)
+	}
+}
+
+func TestClaims_HasRealmRole(t *testing.T) {
+	c := &Claims{RealmAccess: RealmAccess{Roles: []string{"viewer", "developer"}}}
+	if !c.HasRealmRole("developer") {
+		t.Fatal("should match developer")
+	}
+	if c.HasRealmRole("admin") {
+		t.Fatal("should not match admin")
+	}
+	if (*Claims)(nil).HasRealmRole("viewer") {
+		t.Fatal("nil receiver should return false, not panic")
+	}
+}
+
+func TestClaims_HasGroup_LeadingSlashTolerant(t *testing.T) {
+	// Keycloak v22 emits "acme/admins"; v24 emits "/acme/admins". The
+	// helper must accept both equally so a Keycloak version bump doesn't
+	// silently break authorization.
+	c := &Claims{Groups: []string{"/acme/admins", "openova-internal/sre"}}
+	if !c.HasGroup("/acme/admins") {
+		t.Fatal("with-leading-slash query should match with-leading-slash group")
+	}
+	if !c.HasGroup("acme/admins") {
+		t.Fatal("no-leading-slash query should match with-leading-slash group")
+	}
+	if !c.HasGroup("/openova-internal/sre") {
+		t.Fatal("with-leading-slash query should match no-leading-slash group")
+	}
+	if c.HasGroup("/acme/devs") {
+		t.Fatal("non-member should not match")
+	}
+}
+
+// makeJWT crafts a JWT-shaped string with `header.payload.sig`. The
+// signature is a placeholder — parseJWTClaims doesn't verify, it just
+// base64-decodes the payload.
+func makeJWT(t *testing.T, payload string) string {
+	t.Helper()
+	h := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	p := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	s := base64.RawURLEncoding.EncodeToString([]byte("sig"))
+	return h + "." + p + "." + s
 }
