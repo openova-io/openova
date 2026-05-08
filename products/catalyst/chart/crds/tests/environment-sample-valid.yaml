@@ -1,0 +1,30 @@
+# Valid samples: single-region prod and multi-region prod for the same Org.
+apiVersion: catalyst.openova.io/v1
+kind: Environment
+metadata:
+  name: acme-dev
+spec:
+  organizationRef: acme
+  envType: dev
+  placement: single-region
+  regions:
+    - provider: hetzner
+      region: fsn
+      buildingBlock: rtz
+---
+apiVersion: catalyst.openova.io/v1
+kind: Environment
+metadata:
+  name: acme-prod
+spec:
+  organizationRef: acme
+  envType: prod
+  placement: multi-region
+  regions:
+    - provider: hetzner
+      region: fsn
+      buildingBlock: rtz
+    - provider: hetzner
+      region: hel
+      buildingBlock: rtz
+  policyRef: acme-prod-policy

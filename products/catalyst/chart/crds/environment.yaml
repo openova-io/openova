@@ -1,0 +1,194 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: environments.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: environment
+spec:
+  group: catalyst.openova.io
+  scope: Cluster
+  names:
+    kind: Environment
+    listKind: EnvironmentList
+    singular: environment
+    plural: environments
+    shortNames:
+      - env
+      - envs
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Org
+          type: string
+          jsonPath: .spec.organizationRef
+        - name: Type
+          type: string
+          jsonPath: .spec.envType
+        - name: Placement
+          type: string
+          jsonPath: .spec.placement
+        - name: Regions
+          type: integer
+          jsonPath: .status.regionCount
+          priority: 1
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Environment is the user-facing scope where Applications are
+            installed. Logical concept: one Environment can be realized by
+            N vClusters across regions × building blocks.
+
+            Naming: spec.organizationRef + spec.envType compose the
+            Environment name `{org}-{envType}` per NAMING-CONVENTION.md
+            §11. Examples: acme-prod, bankdhofar-uat.
+
+            DR is a Placement on the *Application*, not an Env Type — there
+            is no `*-dr` Environment. Multi-region disaster-recovery
+            topology lives on Application.spec.placement.
+
+            See docs/EPICS-1-6-unified-design.md §3.2.2 and
+            docs/NAMING-CONVENTION.md §11.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [organizationRef, envType, placement, regions]
+              properties:
+                organizationRef:
+                  type: string
+                  description: Slug of the parent Organization CR.
+                  pattern: '^[a-z][a-z0-9-]{2,31}$'
+                envType:
+                  type: string
+                  enum: [prod, stg, uat, dev, poc]
+                  description: |
+                    Per NAMING §2.4. The full Env name is composed as
+                    {organizationRef}-{envType} (e.g. acme-prod). DR is
+                    NOT an envType — see Application.spec.placement.
+                placement:
+                  type: string
+                  enum: [single-region, multi-region]
+                  description: |
+                    single-region = exactly 1 region in regions[].
+                    multi-region = 2+ regions, vClusters realized in each.
+                regions:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  description: |
+                    Host clusters this Environment is realized on. For
+                    single-region, exactly 1 entry. For multi-region, 2+.
+                    Format mirrors NAMING §4.1: {provider}-{region}-{bb}-{envType}
+                  items:
+                    type: object
+                    required: [provider, region, buildingBlock]
+                    properties:
+                      provider:
+                        type: string
+                        enum: [hetzner, huawei, oci, aws, gcp, azure, contabo]
+                      region:
+                        type: string
+                        pattern: '^[a-z]{3}[a-z0-9]?$'
+                      buildingBlock:
+                        type: string
+                        enum: [rtz, dmz, mgt]
+                      hostCluster:
+                        type: string
+                        description: |
+                          Optional explicit host-cluster name override. If empty,
+                          environment-controller derives {provider}-{region}-{buildingBlock}-{envType}.
+                policyRef:
+                  type: string
+                  description: |
+                    Optional name of an EnvironmentPolicy CR that gates
+                    promotion (approvers, soak duration) and configures
+                    compliance weights for this Environment.
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Provisioning
+                    - Ready
+                    - Degraded
+                    - Failed
+                regionCount:
+                  type: integer
+                  minimum: 0
+                  description: Number of regions in spec.regions[] — convenient printer column.
+                vclusters:
+                  type: array
+                  description: Per-region vCluster realization summary.
+                  items:
+                    type: object
+                    required: [host, name]
+                    properties:
+                      host:
+                        type: string
+                        description: Host cluster name.
+                      name:
+                        type: string
+                        description: vCluster name (typically equals organizationRef).
+                      phase:
+                        type: string
+                        enum: [Pending, Provisioning, Ready, Failed]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                giteaRepoRef:
+                  type: object
+                  description: |
+                    Per Naming §11.2 each Application gets its own Gitea
+                    repo; the Environment maps to a *branch* across those
+                    repos (develop/staging/main ↔ dev/stg/prod).
+                  properties:
+                    org:
+                      type: string
+                    branch:
+                      type: string
+                jetstreamSubjectPrefix:
+                  type: string
+                  description: |
+                    Per ARCHITECTURE.md §5 + NAMING §11.2 item 4, the
+                    JetStream subject prefix for this Environment is
+                    ws.{organizationRef}-{envType}.>
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
