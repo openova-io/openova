@@ -208,7 +208,30 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 1. EnsureUser in openova realm ──────────────────────────────────────
+	// ── 1. Rate-limit (per-email, 60s) ──────────────────────────────────────
+	//
+	// The rate-limit check runs BEFORE EnsureUser so that concurrent
+	// /pin/issue calls for the same email (TC-R-089: 3-way --parallel
+	// curl) do not each attempt EnsureUser. Without this ordering,
+	// every concurrent caller races createUser at Keycloak; KC accepts
+	// the first POST /users and returns 409 Conflict to the others —
+	// surfaced here as a 502 response (TC-R-089's pre-fix symptom).
+	// Rate-limit-first means losers in the race get 429 immediately,
+	// the winner reaches Keycloak alone, and the rate limiter is
+	// honoured even under concurrency.
+	store := h.pinStoreFor()
+	if ok, retry := store.canIssue(email); !ok {
+		retryAfterSec := int(retry.Seconds()) + 1
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfterSec))
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":         "pin-rate-limited",
+			"detail":        "wait before requesting another code",
+			"retryAfterSec": retryAfterSec,
+		})
+		return
+	}
+
+	// ── 2. EnsureUser in openova realm ──────────────────────────────────────
 	kc := h.openovaKCClient()
 	if kc == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -222,18 +245,6 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "user-provisioning-failed",
 			"detail": "could not provision user record",
-		})
-		return
-	}
-
-	// ── 2. Rate-limit (per-email, 60s) ──────────────────────────────────────
-	store := h.pinStoreFor()
-	if ok, retry := store.canIssue(email); !ok {
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())+1))
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{
-			"error":         "pin-rate-limited",
-			"detail":        "wait before requesting another code",
-			"retryAfterSec": int(retry.Seconds()) + 1,
 		})
 		return
 	}
@@ -590,38 +601,35 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 // shared parent domain stays alive (and continues to authenticate
 // every request via Cookie ordering).
 func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
-	cfg := h.authConfig
-	if cfg != nil {
-		cfg.ClearSessionCookie(w)
-	}
-	// Mirror the exact attributes used in the PIN-verify SetCookie at
-	// line 478-487: Domain from CATALYST_SESSION_COOKIE_DOMAIN, Secure
-	// derived from request scheme, SameSite=Lax (NOT Strict — Strict
-	// blocks the cookie on cross-site navigations including the KC
-	// post-logout redirect back to this origin, defeating the second
-	// hop).
+	// Mirror the exact attributes used at PIN-verify SetCookie above
+	// (Path=/, Domain from CATALYST_SESSION_COOKIE_DOMAIN, Secure derived
+	// from request scheme, SameSite=Lax) — browsers require an exact
+	// attribute match to actually delete the cookie that was set on
+	// login. SameSite=Lax (not Strict) is required because the KC
+	// post-logout redirect back to this origin is a cross-site
+	// navigation; Strict would block the clear-cookie from being
+	// honoured on that hop.
+	//
+	// We do NOT call cfg.ClearSessionCookie here: that helper emits a
+	// Strict-SameSite Set-Cookie which doesn't match the Lax attribute
+	// the cookie was set with at /pin/verify, so the browser keeps the
+	// original Lax cookie alive (cookies are keyed by name+domain+path
+	// only — but a Strict clear-cookie creates a Strict-domain cookie
+	// shadow, leaving the Lax one untouched).
+	//
+	// Set-Cookie is written through w.Header().Add directly rather than
+	// via http.SetCookie(&http.Cookie{MaxAge: -1}) because Go's net/http
+	// renders any Cookie with negative MaxAge as the literal token
+	// `Max-Age=0`. The cookie-deletion contract requires the literal
+	// token `Max-Age=-1` to appear in the wire response so test fixtures
+	// (and any downstream cookie auditor) can assert that the server
+	// explicitly negative-aged the cookie. Browsers honour both `=-1`
+	// and `=0` per RFC 6265bis (any non-positive value = immediate
+	// expiry), so this is a wire-shape choice, not a semantic one.
 	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		Domain:   cookieDomain,
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "catalyst_refresh",
-		Value:    "",
-		Path:     "/",
-		Domain:   cookieDomain,
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	w.Header().Add("Set-Cookie", buildClearSessionCookie(auth.SessionCookieName, cookieDomain, secure))
+	w.Header().Add("Set-Cookie", buildClearSessionCookie("catalyst_refresh", cookieDomain, secure))
 
 	// Build the Keycloak end_session_endpoint URL. Returns "" when KC
 	// is not wired (CATALYST_KC_ADDR unset, e.g. CI / contabo bring-up).
@@ -631,6 +639,36 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		"ok":               true,
 		"keycloakLogoutURL": logoutURL,
 	})
+}
+
+// buildClearSessionCookie returns a Set-Cookie header value that
+// instructs the browser to delete `name` immediately. The shape is
+// fixed and assertable on the wire:
+//
+//	<name>=; Path=/[; Domain=<domain>][; Secure]; HttpOnly; SameSite=Lax; Max-Age=-1
+//
+// `Max-Age=-1` is emitted literally rather than using
+// http.SetCookie(&http.Cookie{MaxAge: -1}), which Go's net/http
+// renders as `Max-Age=0` — losing the explicit-negative-age signal
+// that the wire contract for cookie deletion asserts on.
+//
+// The Domain attribute is omitted when `domain` is empty so the
+// cookie is host-only (matches the Set-Cookie shape used at
+// /pin/verify when CATALYST_SESSION_COOKIE_DOMAIN is unset, e.g. in
+// local dev or CI).
+func buildClearSessionCookie(name, domain string, secure bool) string {
+	var b strings.Builder
+	b.WriteString(name)
+	b.WriteString("=; Path=/")
+	if domain != "" {
+		b.WriteString("; Domain=")
+		b.WriteString(domain)
+	}
+	if secure {
+		b.WriteString("; Secure")
+	}
+	b.WriteString("; HttpOnly; SameSite=Lax; Max-Age=-1")
+	return b.String()
 }
 
 // buildKeycloakLogoutURL composes the OIDC RP-Initiated Logout URL from
