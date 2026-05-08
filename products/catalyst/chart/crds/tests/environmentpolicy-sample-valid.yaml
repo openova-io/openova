@@ -1,0 +1,58 @@
+# Valid sample — full bank-tier compliance config matching design doc §3.2.5.
+# Weights use the object form `{weight, scope}` per K8s structural-schema rules.
+apiVersion: catalyst.openova.io/v1
+kind: EnvironmentPolicy
+metadata:
+  name: acme-prod-policy
+spec:
+  promotion:
+    requiredApprovers: 2
+    soakHours: 4
+    requiredComplianceScore: 80
+  compliance:
+    weights:
+      multiReplica:           { weight: 15 }
+      pdb:                    { weight: 15 }
+      topologySpread:         { weight: 10 }
+      probesPresent:          { weight: 5 }
+      resourceRequests:       { weight: 8 }
+      resourceLimits:         { weight: 4 }
+      pvcExpansion:           { weight: 5,  scope: stateful }
+      hpaEffective:           { weight: 8 }
+      cilium-l7-mtls:         { weight: 10 }
+      flux-managed:           { weight: 10 }
+      harbor-proxy-pull:      { weight: 5 }
+      image-tag-pinned:       { weight: 5 }
+      prometheus-scrape:      { weight: 5 }
+      networkpolicy-present:  { weight: 0 }
+      otel-injected:          { weight: 0 }
+      hubble-flows-seen:      { weight: 0 }
+      run-as-non-root:        { weight: 0 }
+      readonly-root-fs:       { weight: 0 }
+      cosign-verified:        { weight: 0 }
+      secret-not-in-env:      { weight: 0 }
+      backup-configured:      { weight: 0, scope: stateful }
+    modes:
+      multiReplica: permissive
+      pdb: permissive
+      topologySpread: permissive
+      probesPresent: enforcing
+      resourceRequests: enforcing
+      resourceLimits: permissive
+      pvcExpansion: permissive
+      hpaEffective: permissive
+      cilium-l7-mtls: enforcing
+      flux-managed: enforcing
+      harbor-proxy-pull: enforcing
+      image-tag-pinned: enforcing
+      prometheus-scrape: permissive
+---
+# Minimal sample — promotion-only, no compliance config
+apiVersion: catalyst.openova.io/v1
+kind: EnvironmentPolicy
+metadata:
+  name: dev-policy-loose
+spec:
+  promotion:
+    requiredApprovers: 0
+    soakHours: 0

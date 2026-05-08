@@ -1,0 +1,23 @@
+# Invalid sample — must FAIL schema validation. Seeded errors:
+#   promotion.requiredApprovers: 99 — exceeds maximum 10
+#   promotion.soakHours: -1 — below minimum
+#   promotion.requiredComplianceScore: 150 — exceeds 100
+#   weights value: 200 — exceeds 100
+#   weights.{name}.scope: "ephemeral" — not in enum stateful|stateless|all
+#   modes value: "block" — not in enum permissive|enforcing
+apiVersion: catalyst.openova.io/v1
+kind: EnvironmentPolicy
+metadata:
+  name: bad-policy
+spec:
+  promotion:
+    requiredApprovers: 99
+    soakHours: -1
+    requiredComplianceScore: 150
+  compliance:
+    weights:
+      multiReplica:    { weight: 200 }
+      pvcExpansion:    { weight: 5, scope: ephemeral }
+      noWeightField:   {}
+    modes:
+      multiReplica: block
