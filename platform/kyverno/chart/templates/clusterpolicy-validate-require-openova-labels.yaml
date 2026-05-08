@@ -1,0 +1,65 @@
+{{/*
+E2 — validate-require-openova-labels.
+
+Validating ClusterPolicy that REJECTS workload resources missing the
+required openova.io/* labels. Default OFF (.Values.kyvernoOverlay.
+labelVocab.validate.enabled). When enabled, action is `Audit` (permissive)
+by default — EnvironmentPolicy.spec.compliance.modes flips per-Environment
+to `Enforce` (blocking) in EPIC-1 #1096.
+
+Required labels are .Values.kyvernoOverlay.labelVocab.validate.requiredLabels;
+exempted namespaces are .Values.kyvernoOverlay.labelVocab.validate.excludeNamespaces.
+Both lists are operator-overrideable per docs/INVIOLABLE-PRINCIPLES.md #4.
+*/}}
+{{- if .Values.kyvernoOverlay.labelVocab.validate.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: validate-require-openova-labels
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: label-vocab-validate
+    catalyst.openova.io/policy-tier: label-vocab
+  annotations:
+    policies.kyverno.io/title: Require openova.io/* labels on workloads
+    policies.kyverno.io/category: catalyst
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: |
+      Rejects workload resources missing required openova.io/* labels.
+      Permissive Audit by default; per-Environment overlay flips to
+      Enforce via EnvironmentPolicy in EPIC-1 #1096.
+spec:
+  validationFailureAction: {{ .Values.kyvernoOverlay.labelVocab.validate.action | default "Audit" }}
+  background: true
+  rules:
+{{- range $label := .Values.kyvernoOverlay.labelVocab.validate.requiredLabels }}
+    - name: require-{{ regexReplaceAll "[^a-z0-9-]" $label "-" }}
+      match:
+        any:
+          - resources:
+              kinds:
+                {{- range $kind := $.Values.kyvernoOverlay.labelVocab.validate.resourceKinds }}
+                - {{ $kind }}
+                {{- end }}
+              namespaces:
+                # Inverted match — every namespace EXCEPT the exempt list.
+                - "*"
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $.Values.kyvernoOverlay.labelVocab.validate.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Resource is missing required label `{{ $label }}`. Add it to
+          metadata.labels (catalyst-managed resources get this from the
+          Catalyst overlay's mutating policy; manually-applied resources
+          must set it explicitly per docs/EPICS-1-6-unified-design.md §1).
+        pattern:
+          metadata:
+            labels:
+              {{ $label }}: "?*"
+{{- end }}
+{{- end -}}

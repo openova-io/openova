@@ -1,0 +1,127 @@
+{{/*
+E1 — mutate-add-openova-labels.
+
+At admission time, Kyverno mutates incoming workload resources to add
+missing openova.io/* labels derived from their namespace + ownerReferences.
+The label-set defined in docs/EPICS-1-6-unified-design.md §1 is the join
+key across compliance scoring (#1096), RBAC scope matching (#1098),
+billing (post-Phase-1), and networking (#1100). If the labels are
+missing, every downstream consumer is blind.
+
+What gets derived (best-effort — the controllers in slices C1+C2+C4
+are the AUTHORITATIVE source; this Kyverno rule is the safety net for
+resources created outside the controller path):
+
+  - openova.io/organization  ← namespace's openova.io/organization annotation
+  - openova.io/environment   ← namespace's openova.io/environment annotation
+  - openova.io/application   ← app.kubernetes.io/instance label (legacy fallback)
+  - openova.io/blueprint     ← namespace's openova.io/blueprint annotation
+  - openova.io/managed-by    ← "flux" if the resource has app.kubernetes.io/managed-by=flux
+
+Default OFF (.Values.kyvernoOverlay.labelVocab.mutate.enabled). EPIC-2
+(#1097) flips it on once the Organization (slice B1) + Environment
+(slice B2) CRs are present and organization-controller (slice C1)
+populates the namespace annotations the rule reads from.
+*/}}
+{{- if .Values.kyvernoOverlay.labelVocab.mutate.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-add-openova-labels
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: label-vocab-mutate
+    catalyst.openova.io/policy-tier: label-vocab
+  annotations:
+    policies.kyverno.io/title: Add openova.io/* labels at admission
+    policies.kyverno.io/category: catalyst
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: |
+      Derives missing openova.io/* labels from the resource's namespace
+      annotations + ownerReferences and adds them at admission. Catalyst
+      controllers (C1/C2/C4 of #1095) are the authoritative source; this
+      policy is the safety net for resources created outside the
+      controller path.
+spec:
+  background: false
+  rules:
+    - name: add-org-from-namespace-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Service
+                - Ingress
+      preconditions:
+        all:
+          - key: "{{ "{{" }} request.object.metadata.labels.\"openova.io/organization\" || '' {{ "}}" }}"
+            operator: Equals
+            value: ""
+      context:
+        - name: nsorg
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ "{{" }}request.namespace{{ "}}" }}"
+            jmesPath: "metadata.annotations.\"openova.io/organization\" || ''"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              openova.io/organization: "{{ "{{" }}nsorg{{ "}}" }}"
+    - name: add-env-from-namespace-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Service
+                - Ingress
+      preconditions:
+        all:
+          - key: "{{ "{{" }} request.object.metadata.labels.\"openova.io/environment\" || '' {{ "}}" }}"
+            operator: Equals
+            value: ""
+      context:
+        - name: nsenv
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ "{{" }}request.namespace{{ "}}" }}"
+            jmesPath: "metadata.annotations.\"openova.io/environment\" || ''"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              openova.io/environment: "{{ "{{" }}nsenv{{ "}}" }}"
+    - name: add-managed-by-flux-when-flux-instance-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Service
+                - Ingress
+      preconditions:
+        all:
+          - key: "{{ "{{" }} request.object.metadata.labels.\"app.kubernetes.io/managed-by\" || '' {{ "}}" }}"
+            operator: Equals
+            value: flux
+          - key: "{{ "{{" }} request.object.metadata.labels.\"openova.io/managed-by\" || '' {{ "}}" }}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              openova.io/managed-by: flux
+{{- end -}}
