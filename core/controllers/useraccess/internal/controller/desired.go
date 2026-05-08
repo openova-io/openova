@@ -152,10 +152,16 @@ func bindingName(uaName, app, role string) string {
 	if len(raw) <= 63 {
 		return raw
 	}
+	return truncatedBindingName(raw)
+}
+
+// truncatedBindingName returns a deterministic <=63 char name derived
+// from `raw` by appending a fnv-32 base-36 suffix. Shared with the
+// tier-aware emission path in tier_bindings.go.
+func truncatedBindingName(raw string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(raw))
 	suffix := "-" + strconv.FormatUint(uint64(h.Sum32()), 36)
-	// Reserve the suffix length, slice the prefix to fit.
 	keep := 63 - len(suffix)
 	if keep < 0 {
 		keep = 0

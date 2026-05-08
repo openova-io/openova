@@ -129,9 +129,52 @@ func (r *UserAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
-	// Build desired sets.
-	desiredRBs := desiredRoleBindings(ua, spec)
-	desiredCRBs := desiredClusterRoleBindings(ua, spec)
+	// ── Slice T3: tier-driven scope auto-injection (annotation-driven,
+	//    generic across tiers per docs/EPICS-1-6-unified-design.md §6.2).
+	autoInject, err := r.reconcileTierAutoInject(ctx, ua, spec)
+	if err != nil {
+		// Errors here surface as condition + status; we still attempt
+		// the binding emission step so a transient annotation read
+		// failure doesn't block grant materialization.
+		logger.Info("tier auto-inject failed (continuing)", "err", err)
+	}
+	// If auto-inject patched the CR, refresh the parsed spec so the
+	// emission path sees the merged scope set on the same pass. Without
+	// this, the post-patch ResourceVersion and the auto-injected scope
+	// would only be visible on the NEXT reconcile.
+	if len(autoInject.Added) > 0 {
+		// The Patch returned, rewriting spec.scopes to the combined
+		// list. Re-fetch + re-parse so subsequent steps see the merged
+		// view.
+		fresh := &unstructured.Unstructured{}
+		fresh.SetGroupVersionKind(UserAccessGVK())
+		if getErr := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, fresh); getErr == nil {
+			ua = fresh
+			if reparsed, vmsg2 := ParseSpec(ua); vmsg2 == "" {
+				spec = reparsed
+			}
+		}
+	}
+
+	// ── C5-followup: tier-aware emission (when spec.tierRoleRef set).
+	tierRBs, tierCRBs, tierRes, tierErr := r.computeTierBindings(ctx, ua, spec)
+	if tierErr != nil {
+		_ = r.writeFailedStatus(ctx, ua, tierErr.Error())
+		return ctrl.Result{}, tierErr
+	}
+
+	// Build the desired sets. When the tier path is in use, prefer it
+	// (per the brief: tier path wins; legacy applications[] ignored
+	// with a status note).
+	var desiredRBs []rbacv1.RoleBinding
+	var desiredCRBs []rbacv1.ClusterRoleBinding
+	if tierRes.Used {
+		desiredRBs = tierRBs
+		desiredCRBs = tierCRBs
+	} else {
+		desiredRBs = desiredRoleBindings(ua, spec)
+		desiredCRBs = desiredClusterRoleBindings(ua, spec)
+	}
 
 	// Read live sets via label selector.
 	liveRBs, err := r.listLiveRoleBindings(ctx, ua.GetName())
@@ -178,8 +221,9 @@ func (r *UserAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Status: Pending → Active. Drift surfaces as a Condition the UI
 	// can render but does not block Active (the controller restored
-	// the desired state in the same pass).
-	if err := r.writeActiveStatus(ctx, ua, desiredRBs, desiredCRBs, driftSeen); err != nil {
+	// the desired state in the same pass). New conditions:
+	// EnforcedScopeApplied, TierResolved, BindingsReconciled.
+	if err := r.writeActiveStatusWithTier(ctx, ua, desiredRBs, desiredCRBs, driftSeen, autoInject, tierRes); err != nil {
 		// Non-fatal: log and let the next reconcile retry.
 		logger.V(1).Info("status update failed (will retry)", "err", err)
 	}
@@ -378,6 +422,25 @@ func (r *UserAccessReconciler) writeFailedStatus(ctx context.Context, ua *unstru
 func (r *UserAccessReconciler) writeActiveStatus(ctx context.Context, ua *unstructured.Unstructured, rbs []rbacv1.RoleBinding, crbs []rbacv1.ClusterRoleBinding, drift bool) error {
 	count := len(rbs) + len(crbs)
 	patch := newStatusPatch(ua, phaseActive, count, true, drift, "", ua.GetGeneration())
+	return r.Client.Status().Patch(ctx, ua, client.RawPatch(types.MergePatchType, patch))
+}
+
+// writeActiveStatusWithTier extends writeActiveStatus to include the
+// EPIC-3 slice T3 + C5-followup conditions (EnforcedScopeApplied,
+// TierResolved, BindingsReconciled). The tier inputs may be a no-op
+// (auto.Tier == "" + tier.Used == false) — in which case the new
+// conditions are simply omitted.
+func (r *UserAccessReconciler) writeActiveStatusWithTier(
+	ctx context.Context,
+	ua *unstructured.Unstructured,
+	rbs []rbacv1.RoleBinding,
+	crbs []rbacv1.ClusterRoleBinding,
+	drift bool,
+	auto tierAutoInjectResult,
+	tier tierEmissionResult,
+) error {
+	count := len(rbs) + len(crbs)
+	patch := newStatusPatchWithTier(ua, phaseActive, count, true, drift, "", ua.GetGeneration(), &auto, &tier)
 	return r.Client.Status().Patch(ctx, ua, client.RawPatch(types.MergePatchType, patch))
 }
 

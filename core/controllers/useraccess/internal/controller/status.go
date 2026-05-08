@@ -27,6 +27,28 @@ import (
 // subresource. Calling code passes it to client.Status().Patch() with
 // types.MergePatchType.
 func newStatusPatch(ua *unstructured.Unstructured, phase string, count int, ready bool, drift bool, msg string, observedGen int64) []byte {
+	return newStatusPatchWithTier(ua, phase, count, ready, drift, msg, observedGen, nil, nil)
+}
+
+// newStatusPatchWithTier extends newStatusPatch with the EPIC-3 slice
+// T3 + C5-followup conditions:
+//   - EnforcedScopeApplied — tier auto-injection outcome
+//   - TierResolved         — tier ClusterRole lookup outcome
+//   - BindingsReconciled   — emission outcome (legacy or tier path)
+//
+// `auto` and `tier` may be nil (legacy code path) — in which case the
+// new conditions are omitted.
+func newStatusPatchWithTier(
+	ua *unstructured.Unstructured,
+	phase string,
+	count int,
+	ready bool,
+	drift bool,
+	msg string,
+	observedGen int64,
+	auto *tierAutoInjectResult,
+	tier *tierEmissionResult,
+) []byte {
 	now := time.Now().UTC().Format(time.RFC3339)
 	conditions := []map[string]any{
 		buildCondition(condReady, ready, conditionReason(ready), msg, now),
@@ -35,6 +57,35 @@ func newStatusPatch(ua *unstructured.Unstructured, phase string, count int, read
 	if drift {
 		conditions = append(conditions, buildCondition(condDrift, true, reasonDriftFixed,
 			"hand-mutated rolebinding restored to desired shape", now))
+	}
+	if auto != nil {
+		ok, reason, message := autoInjectReason(*auto)
+		conditions = append(conditions, buildCondition(condEnforcedScopeApplied, ok, reason, message, now))
+		if auto.Tier != "" {
+			conditions = append(conditions, buildCondition(
+				condTierResolved,
+				auto.TierClusterRoleFound,
+				tierResolvedReason(auto.TierClusterRoleFound),
+				tierResolvedMessage(auto),
+				now,
+			))
+		}
+	}
+	if tier != nil && tier.Used {
+		message := tier.Message
+		if tier.LegacyApplicationsIgnored {
+			if message != "" {
+				message += "; "
+			}
+			message += "spec.applications[] ignored — tier path takes precedence"
+		}
+		conditions = append(conditions, buildCondition(
+			condBindingsReconciled,
+			ready,
+			tier.Reason,
+			message,
+			now,
+		))
 	}
 	status := map[string]any{
 		"phase":               phase,
@@ -49,6 +100,24 @@ func newStatusPatch(ua *unstructured.Unstructured, phase string, count int, read
 	// Suppress unused warning when older callers don't reach this branch.
 	_ = ua
 	return b
+}
+
+// tierResolvedReason returns the Condition reason for TierResolved
+// based on whether the lookup succeeded.
+func tierResolvedReason(found bool) string {
+	if found {
+		return reasonTierResolved
+	}
+	return reasonTierClusterRoleNotFound
+}
+
+// tierResolvedMessage renders a short human-facing message for the
+// TierResolved Condition.
+func tierResolvedMessage(auto *tierAutoInjectResult) string {
+	if auto.TierClusterRoleFound {
+		return "tier ClusterRole openova:tier-" + auto.Tier + " present"
+	}
+	return "tier ClusterRole openova:tier-" + auto.Tier + " not found"
 }
 
 func buildCondition(condType string, ok bool, reason, msg, now string) map[string]any {
