@@ -73,6 +73,9 @@ func makeStoreHandler(t *testing.T) (*Handler, string) {
 // the goroutine-spawn gap still leaves the deployment reachable.
 func TestPersistence_CreateDeploymentWritesRowImmediately(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	// issue #557 — every Sovereign image pull MUST go through harbor.openova.io;
+	// provisioner.Validate rejects the deployment without the env-stamped token.
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	h, dir := makeStoreHandler(t)
@@ -314,6 +317,7 @@ func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 	// must NOT appear on disk (the redaction invariant covers it via
 	// the json:"-" tag on Request.GHCRPullToken).
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_REDACT_PLACEHOLDER_DO_NOT_LEAK")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	dir := t.TempDir()
@@ -460,6 +464,7 @@ func TestPersistence_StoreAbsentNoOpForExistingTests(t *testing.T) {
 // browser hits.
 func TestPersistence_DockerStyleRoundTrip(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
 
 	dir := t.TempDir()

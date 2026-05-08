@@ -81,14 +81,19 @@ func newFakeDynadot() (*httptest.Server, *fakeDynadot) {
 		f.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
+		// Real Dynadot api3.json set_dns2 envelope (verified live 2026-05-05,
+		// see internal/dynadot/dynadot.go #939): the status fields live
+		// DIRECTLY under SetDnsResponse with no `ResponseHeader` wrapper,
+		// and the JSON key is "SetDnsResponse" (not "SetDns2Response").
+		// The previous wrapper-shaped fake silently produced empty headers
+		// in the production decoder, so error envelopes were treated as
+		// successes and TestRun_FailsFastOnDynadotError got a nil error.
 		if shouldFail {
 			body, _ := json.Marshal(map[string]any{
-				"SetDns2Response": map[string]any{
-					"ResponseHeader": map[string]any{
-						"ResponseCode": "-1",
-						"Status":       "failed",
-						"Error":        failMsg,
-					},
+				"SetDnsResponse": map[string]any{
+					"ResponseCode": "-1",
+					"Status":       "failed",
+					"Error":        failMsg,
 				},
 			})
 			w.WriteHeader(http.StatusOK)
@@ -96,7 +101,7 @@ func newFakeDynadot() (*httptest.Server, *fakeDynadot) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"SetDns2Response":{"ResponseHeader":{"ResponseCode":"0","Status":"success"}}}`))
+		_, _ = w.Write([]byte(`{"SetDnsResponse":{"ResponseCode":0,"Status":"success"}}`))
 	}))
 	return srv, f
 }
