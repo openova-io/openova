@@ -1,0 +1,61 @@
+# Valid sample — tier-1 bank DR config: Cloudflare-KV lease, ifurlup
+# lua-record selector, RTO 60s / RPO 5s.
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: marketing-site-dr
+  namespace: acme
+spec:
+  applicationRef: marketing-site
+  primaryRegion: hz-fsn-rtz-prod
+  hotStandbyRegions:
+    - hz-hel-rtz-prod
+  leaseClient:
+    kind: cloudflare-kv
+    config:
+      kvNamespaceId: 9b1c0a2eXXXXXXXXXXXXXXXXXXXXXXXX
+      accountId: a1b2c3d4XXXXXXXXXXXXXXXXXXXXXXXX
+      tokenSecretRef:
+        name: continuum-cf-token
+        key: token
+      ttlSeconds: 30
+      renewSeconds: 10
+  luaRecord:
+    selector: ifurlup
+    healthCheck:
+      url: https://marketing.acme-prod.omantel.openova.io/health
+      intervalSeconds: 5
+      timeoutSeconds: 2
+  rto: 60s
+  rpo: 5s
+  autoFailover: true
+---
+# Manual-failover sample — DNS-quorum lease (no Cloudflare), 2-of-3 resolvers,
+# pickclosest selector for latency-aware routing.
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: api-active-passive
+  namespace: bank
+spec:
+  applicationRef: api-gateway
+  primaryRegion: hz-fsn-rtz-prod
+  hotStandbyRegions:
+    - hz-hel-rtz-prod
+    - hz-nbg-rtz-prod
+  leaseClient:
+    kind: dns-quorum
+    config:
+      resolvers:
+        - 8.8.8.8
+        - 1.1.1.1
+        - 9.9.9.9
+      ttlSeconds: 60
+      renewSeconds: 20
+  luaRecord:
+    selector: pickclosest
+    healthCheck:
+      url: https://api.bank-prod.bank.example/healthz
+  rto: 5m
+  rpo: 1m
+  autoFailover: false

@@ -1,0 +1,44 @@
+# Invalid sample — must FAIL schema validation. Seeded errors:
+#   primaryRegion pattern: "fsn" - too short
+#   hotStandbyRegions: empty - minItems=1
+#   leaseClient.kind: "etcd" - not in enum
+#   luaRecord.selector: "round-robin" - not in enum
+#   luaRecord.healthCheck.url: "marketing.acme.com/health" - missing scheme
+#   rto: "1minute" - wrong format
+#   rpo: "fast" - wrong format
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: bad-dr
+  namespace: acme
+spec:
+  applicationRef: marketing-site
+  primaryRegion: fsn
+  hotStandbyRegions: []
+  leaseClient:
+    kind: etcd
+  luaRecord:
+    selector: round-robin
+    healthCheck:
+      url: marketing.acme.com/health
+  rto: 1minute
+  rpo: fast
+---
+# Second invalid case — dns-quorum with too few resolvers
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: bad-dr-2
+  namespace: bank
+spec:
+  applicationRef: api
+  primaryRegion: hz-fsn-rtz-prod
+  hotStandbyRegions:
+    - hz-hel-rtz-prod
+  leaseClient:
+    kind: dns-quorum
+    config:
+      resolvers:
+        - 8.8.8.8
+        - "not-an-ip"
+      ttlSeconds: 1
