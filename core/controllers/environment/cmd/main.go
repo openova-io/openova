@@ -28,7 +28,7 @@ import (
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
 	"github.com/openova-io/openova/core/controllers/environment/internal/controller"
-	"github.com/openova-io/openova/core/controllers/environment/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 var (
@@ -74,8 +74,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	giteaClient := gitea.NewClient(
-		getEnvDefault("GITEA_API_URL", "http://gitea-http.gitea.svc.cluster.local:3000/api/v1"),
+	// CC2 SUPERSET client: BaseURL is the Gitea root WITHOUT /api/v1;
+	// the client appends /api/v1 internally.
+	giteaClient := gitea.New(
+		getEnvDefault("GITEA_API_URL", "http://gitea-http.gitea.svc.cluster.local:3000"),
 		os.Getenv("GITEA_TOKEN"),
 	)
 

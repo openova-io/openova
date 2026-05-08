@@ -24,8 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	"github.com/openova-io/openova/core/controllers/organization/internal/controller"
-	"github.com/openova-io/openova/core/controllers/organization/internal/gitea"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
 

@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/openova-io/openova/core/controllers/organization/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -228,12 +228,11 @@ func (g *giteaServer) handle(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
-			writeJSON(w, http.StatusOK, gitea.FileContent{
-				Name:    pathLeaf(filePath),
-				Path:    filePath,
-				SHA:     f.sha,
-				Type:    "file",
-				Content: base64.StdEncoding.EncodeToString(f.content),
+			writeJSON(w, http.StatusOK, gitea.File{
+				Path:          filePath,
+				SHA:           f.sha,
+				Type:          "file",
+				ContentBase64: base64.StdEncoding.EncodeToString(f.content),
 			})
 			return
 		case http.MethodPost, http.MethodPut:
@@ -266,8 +265,7 @@ func (g *giteaServer) handle(w http.ResponseWriter, r *http.Request) {
 				content: data,
 			}
 			writeJSON(w, http.StatusCreated, map[string]any{
-				"content": gitea.FileContent{
-					Name: pathLeaf(filePath),
+				"content": gitea.File{
 					Path: filePath,
 					SHA:  g.files[key].sha,
 					Type: "file",
@@ -279,13 +277,6 @@ func (g *giteaServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	g.t.Logf("giteaServer: unhandled %s %s", r.Method, r.URL.Path)
 	http.Error(w, "not found", http.StatusNotFound)
-}
-
-func pathLeaf(p string) string {
-	if i := strings.LastIndex(p, "/"); i >= 0 {
-		return p[i+1:]
-	}
-	return p
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

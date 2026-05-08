@@ -36,7 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openova-io/openova/core/controllers/organization/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
@@ -186,8 +186,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		branch = "main"
 	}
 	for path, data := range manifests {
-		if _, err := r.GiteaClient.PutFile(ctx,
-			gOrg.Username, repoName, path, branch, data,
+		if _, _, err := r.GiteaClient.PutFile(ctx,
+			gOrg.Username, repoName, branch, path, data,
 			fmt.Sprintf("organization-controller: reconcile %s for %s", path, org.Spec.Slug)); err != nil {
 			return r.fail(ctx, &org, "GitopsWriteFailed",
 				fmt.Sprintf("write %s: %s", path, err))

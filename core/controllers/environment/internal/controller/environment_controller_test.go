@@ -17,11 +17,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
-	"github.com/openova-io/openova/core/controllers/environment/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 // fakeGitea is a deterministic test double for the GiteaClient
-// interface. It records every UpsertFile call so tests can assert
+// interface. It records every PutFile call so tests can assert
 // idempotency, multi-region fan-out, and drift handling.
 type fakeGitea struct {
 	orgs            map[string]*gitea.Org
@@ -46,25 +46,26 @@ func newFakeGitea() *fakeGitea {
 	}
 }
 
-func (f *fakeGitea) GetOrg(_ context.Context, org string) (*gitea.Org, error) {
+func (f *fakeGitea) GetOrg(_ context.Context, org string) (gitea.Org, error) {
 	if err, ok := f.orgErrors[org]; ok {
-		return nil, err
+		return gitea.Org{}, err
 	}
 	if o, ok := f.orgs[org]; ok {
-		return o, nil
+		return *o, nil
 	}
-	return nil, gitea.ErrOrgNotFound
+	return gitea.Org{}, gitea.ErrOrgNotFound
 }
 
-func (f *fakeGitea) UpsertFile(
+func (f *fakeGitea) PutFile(
 	_ context.Context,
 	org, repo, branch, path string,
 	content []byte,
-	_, _, _ string,
-) (bool, error) {
+	_ string,
+	_ ...gitea.PutFileOpts,
+) (gitea.File, bool, error) {
 	if f.upsertErrorPath != "" && path == f.upsertErrorPath {
 		f.upsertCalls = append(f.upsertCalls, upsertCall{Org: org, Repo: repo, Branch: branch, Path: path, Content: content, Committed: false})
-		return false, f.upsertError
+		return gitea.File{}, false, f.upsertError
 	}
 	key := org + "|" + repo + "|" + branch + "|" + path
 	committed := true
@@ -80,7 +81,7 @@ func (f *fakeGitea) UpsertFile(
 		Content:   append([]byte(nil), content...),
 		Committed: committed,
 	})
-	return committed, nil
+	return gitea.File{Path: path}, committed, nil
 }
 
 func newScheme(t *testing.T) *runtime.Scheme {

@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
-	"github.com/openova-io/openova/core/controllers/environment/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	"github.com/openova-io/openova/core/controllers/environment/internal/gitops"
 )
 
@@ -55,13 +55,14 @@ import (
 // inject a fake without spinning up a real Gitea server, AND keeps
 // the production gitea.Client free of test-only behavior.
 type GiteaClient interface {
-	GetOrg(ctx context.Context, org string) (*gitea.Org, error)
-	UpsertFile(
+	GetOrg(ctx context.Context, org string) (gitea.Org, error)
+	PutFile(
 		ctx context.Context,
 		org, repo, branch, path string,
 		content []byte,
-		message, authorName, authorEmail string,
-	) (committed bool, err error)
+		message string,
+		opts ...gitea.PutFileOpts,
+	) (file gitea.File, committed bool, err error)
 }
 
 // Config holds the reconciler's runtime configuration. Per Inviolable
@@ -235,7 +236,7 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		message := fmt.Sprintf("environment-controller: reconcile %s on %s", envName, host)
-		committed, err := r.Gitea.UpsertFile(
+		_, committed, err := r.Gitea.PutFile(
 			ctx,
 			env.Spec.OrganizationRef,
 			repo,
@@ -243,8 +244,10 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			path,
 			manifest,
 			message,
-			cfg.CommitAuthorName,
-			cfg.CommitAuthorEmail,
+			gitea.PutFileOpts{
+				AuthorName:  cfg.CommitAuthorName,
+				AuthorEmail: cfg.CommitAuthorEmail,
+			},
 		)
 		if err != nil {
 			if errors.Is(err, gitea.ErrRepoNotFound) {
