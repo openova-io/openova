@@ -1,0 +1,115 @@
+{{- /*
+application-controller Deployment.
+
+Reconciles Application.apps.openova.io/v1 CRs:
+  - Resolves parent Environment + grandparent Organization
+  - Renders per-region Kustomization + HelmRelease manifests for the
+    referenced Blueprint
+  - Idempotently commits manifests into the per-Org Gitea repo via HTTP
+  - Writes status (conditions + giteaRepo + commitSHA) on the Application
+
+All configuration env-driven per Inviolable Principle #4.
+*/ -}}
+{{- if .Values.controllers.application.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controllers.fullname" "application" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "application" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.application.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "controllers.selectorLabels" (dict "name" "application") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "controllers.labels" (dict "name" "application" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "controllers.fullname" "application" }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "controllers.image" (dict "name" "application" "cfg" .Values.controllers.application "root" .) | quote }}
+          imagePullPolicy: {{ .Values.controllers.application.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.controllers.application.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GITEA_API_URL
+              value: {{ .Values.controllers.application.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
+            - name: GITEA_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: gitea-public-url
+                  optional: true
+            - name: SOURCE_NAMESPACE
+              value: {{ .Values.controllers.application.sourceNamespace | default "flux-system" | quote }}
+            - name: CATALOG_SOURCE_REF
+              value: {{ .Values.controllers.application.catalogSourceRef | default "openova-catalog" | quote }}
+            - name: HELMRELEASE_INTERVAL
+              value: {{ .Values.controllers.application.helmReleaseIntervalSeconds | default 600 | quote }}
+            - name: REQUEUE_AFTER_SECONDS
+              value: {{ .Values.controllers.application.requeueAfterSeconds | default 300 | quote }}
+            {{- range $k, $v := .Values.controllers.application.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controllers.application.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.controllers.application.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.application.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.application.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}

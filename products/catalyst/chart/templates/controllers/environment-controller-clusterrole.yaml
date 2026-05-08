@@ -1,0 +1,47 @@
+{{- /*
+ClusterRole for environment-controller.
+
+Least-privilege grants (CC3 audit, #1095):
+
+  agent's deploy/rbac.yaml grants                              keep?  why
+  ----------------------------------------------------------------------------
+  environments:get/list/watch                                  yes    primary watch
+  environments/status:get/update/patch                         yes    status writes
+  environments/finalizers:update                               yes    finalizer add/remove
+  events:create/patch                                          yes    controller-runtime emits Events
+  organizations:get/list/watch                                 ADD    parent-resolution at reconcile time
+                                                                       (the agent's RBAC missed this — surfaces as
+                                                                       "Forbidden" reading parent Org during reconcile)
+  Note: GitRepository writes go via the Gitea API (HTTP, token in env),
+  NOT the K8s API — no in-cluster Flux source-controller RBAC needed.
+
+Net delta vs the agent's original ClusterRole shape:
+  - ADDED orgs.openova.io/organizations:get/list/watch (parent ref read).
+*/ -}}
+{{- if .Values.controllers.environment.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "controllers.fullname" "environment" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "environment" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}

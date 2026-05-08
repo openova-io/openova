@@ -1,0 +1,16 @@
+{{- if .Values.controllers.organization.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "controllers.fullname" "organization" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "controllers.fullname" "organization" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "controllers.fullname" "organization" }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,125 @@
+{{- /*
+environment-controller Deployment.
+
+Reconciles Environment.catalyst.openova.io/v1 CRs:
+  - Verifies the per-Org Gitea Org exists (parent dependency)
+  - Renders + idempotently commits the per-vCluster Flux GitRepository
+    manifest into the Org's Gitea repo
+  - Surfaces canonical branch + JetStream subject prefix on .status
+
+Note: the agent's original deploy/ shipped no Deployment manifest — this
+chart-template IS the canonical deployment shape. cmd/main.go reads
+GITEA_API_URL / GITEA_TOKEN / FLUX_NAMESPACE / GITEA_PUBLIC_URL
+/ COMMIT_AUTHOR_{NAME,EMAIL} / ENV_REPO_SUFFIX / REQUEUE_AFTER_SECONDS
+/ FLUX_INTERVAL_SECONDS — every value here is overridable via
+.Values.controllers.environment.env.<KEY> per Inviolable Principle #4.
+*/ -}}
+{{- if .Values.controllers.environment.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controllers.fullname" "environment" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "environment" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.environment.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "controllers.selectorLabels" (dict "name" "environment") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "controllers.labels" (dict "name" "environment" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "controllers.fullname" "environment" }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "controllers.image" (dict "name" "environment" "cfg" .Values.controllers.environment "root" .) | quote }}
+          imagePullPolicy: {{ .Values.controllers.environment.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.controllers.environment.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GITEA_API_URL
+              value: {{ .Values.controllers.environment.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000/api/v1" | quote }}
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
+            - name: GITEA_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: gitea-public-url
+                  optional: true
+            - name: GITEA_SECRET_REF
+              value: {{ .Values.controllers.environment.giteaSecretRef | default "gitea-flux-token" | quote }}
+            - name: FLUX_NAMESPACE
+              value: {{ .Values.controllers.environment.fluxNamespace | default "flux-system" | quote }}
+            - name: FLUX_INTERVAL_SECONDS
+              value: {{ .Values.controllers.environment.fluxIntervalSeconds | default 60 | quote }}
+            - name: COMMIT_AUTHOR_NAME
+              value: {{ .Values.controllers.environment.commitAuthor.name | default "environment-controller" | quote }}
+            - name: COMMIT_AUTHOR_EMAIL
+              value: {{ .Values.controllers.environment.commitAuthor.email | default "environment-controller@openova.io" | quote }}
+            - name: ENV_REPO_SUFFIX
+              value: {{ .Values.controllers.environment.envRepoSuffix | default "-environment" | quote }}
+            - name: REQUEUE_AFTER_SECONDS
+              value: {{ .Values.controllers.environment.requeueAfterSeconds | default 300 | quote }}
+            {{- range $k, $v := .Values.controllers.environment.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controllers.environment.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.controllers.environment.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.environment.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.environment.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}

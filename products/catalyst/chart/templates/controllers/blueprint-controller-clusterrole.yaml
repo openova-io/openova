@@ -1,0 +1,40 @@
+{{- /*
+ClusterRole for blueprint-controller.
+
+Least-privilege grants (CC3 audit, #1095):
+
+  agent's deploy/clusterrole.yaml grants                       keep?  why
+  ----------------------------------------------------------------------------
+  blueprints:get/list/watch                                    yes    primary watch
+  blueprints/status:update/patch                               yes    status writes
+  leases:get/list/watch/create/update/patch/delete             yes    leader election
+  events:create/patch                                          ADD    controller-runtime emits Events on every error;
+                                                                       missing events RBAC was a pre-existing gap.
+
+Note: all Gitea mirror writes go via HTTP API authenticated by
+CATALYST_GITEA_TOKEN — no in-cluster K8s API permissions needed.
+
+Net delta vs the agent's original ClusterRole:
+  - ADDED events:create/patch (was missing).
+*/ -}}
+{{- if .Values.controllers.blueprint.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "controllers.fullname" "blueprint" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "blueprint" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}

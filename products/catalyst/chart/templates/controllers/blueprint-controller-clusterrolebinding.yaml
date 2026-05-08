@@ -1,0 +1,16 @@
+{{- if .Values.controllers.blueprint.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "controllers.fullname" "blueprint" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "blueprint" "root" .) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "controllers.fullname" "blueprint" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "controllers.fullname" "blueprint" }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

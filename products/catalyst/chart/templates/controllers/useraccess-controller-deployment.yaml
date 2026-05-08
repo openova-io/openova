@@ -1,0 +1,104 @@
+{{- /*
+useraccess-controller Deployment.
+
+Reconciles UserAccess.access.openova.io/v1 CRs:
+  - Materialises grants as RoleBinding (per-namespace) +
+    ClusterRoleBinding (cluster-scoped) objects bound to the canonical
+    openova:application-{admin,editor,viewer} ClusterRoles
+  - Tracks parent UserAccess `Owns()` relationship for drift detection
+  - Surfaces ready / error state on .status.conditions
+
+Sequencing note: when both `useraccess.enabled=true` AND the legacy
+Crossplane Composition path are simultaneously true (transition window),
+the controller and Crossplane will fight over the same RoleBinding
+resources. Operators MUST disable the Crossplane path (delete the
+UserAccess Composition) BEFORE flipping `useraccess.enabled=true` on a
+Sovereign — see core/controllers/README.md for the cutover playbook.
+*/ -}}
+{{- if .Values.controllers.useraccess.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controllers.fullname" "useraccess" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "useraccess" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.useraccess.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "controllers.selectorLabels" (dict "name" "useraccess") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "controllers.labels" (dict "name" "useraccess" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "controllers.fullname" "useraccess" }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "controllers.image" (dict "name" "useraccess" "cfg" .Values.controllers.useraccess "root" .) | quote }}
+          imagePullPolicy: {{ .Values.controllers.useraccess.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.controllers.useraccess.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: METRICS_ADDR
+              value: ":8080"
+            - name: HEALTH_ADDR
+              value: ":8081"
+            - name: LOG_LEVEL
+              value: {{ .Values.controllers.useraccess.logLevel | default "info" | quote }}
+            {{- range $k, $v := .Values.controllers.useraccess.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controllers.useraccess.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.controllers.useraccess.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.useraccess.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.useraccess.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}
