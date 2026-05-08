@@ -1,0 +1,179 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: runbooks.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: runbook
+spec:
+  group: catalyst.openova.io
+  scope: Namespaced
+  names:
+    kind: Runbook
+    listKind: RunbookList
+    singular: runbook
+    plural: runbooks
+    shortNames:
+      - rb
+      - rbs
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Trigger
+          type: string
+          jsonPath: .spec.trigger.kind
+        - name: Action
+          type: string
+          jsonPath: .spec.action.kind
+        - name: Last
+          type: string
+          jsonPath: .status.lastFiredAt
+          priority: 1
+        - name: Fires
+          type: integer
+          jsonPath: .status.fireCount
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Runbook declares an auto-remediation rule: when a trigger
+            fires (alert from Prometheus, condition on a CR, audit event
+            on NATS), execute an action (scale, restart, rollback, run
+            a Job, switchover via Continuum, send-to-NATS).
+
+            Phase-0 lands the schema; the SRE Lead populates the rule
+            set per Sovereign post-Phase-0. The runbook executor is a
+            future thin in-cluster controller (out of scope here).
+
+            See docs/EPICS-1-6-unified-design.md §3.2.7 and
+            docs/SRE.md §3 (auto-remediation).
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [trigger, action]
+              properties:
+                description:
+                  type: string
+                  maxLength: 1024
+                trigger:
+                  type: object
+                  required: [kind]
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - prometheus-alert
+                        - cr-condition
+                        - nats-event
+                        - schedule
+                      description: |
+                        How this runbook is fired. prometheus-alert
+                        listens for Alertmanager webhook delivery.
+                        cr-condition watches a K8s resource for a
+                        specific condition. nats-event subscribes to
+                        a JetStream subject. schedule fires on cron.
+                    config:
+                      type: object
+                      description: |
+                        Kind-specific config. prometheus-alert wants
+                        alertName + matchers. cr-condition wants
+                        gvr + name + condition.{type,status}.
+                        nats-event wants subject + filter. schedule
+                        wants cron.
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                action:
+                  type: object
+                  required: [kind]
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - scale
+                        - restart
+                        - rollback
+                        - run-job
+                        - switchover
+                        - send-to-nats
+                        - create-incident
+                        - patch
+                      description: |
+                        What the runbook does when triggered.
+                    config:
+                      type: object
+                      description: Kind-specific config (target, args, gvr+patch, etc.).
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                cooldown:
+                  type: string
+                  pattern: '^[0-9]+(s|m|h)$'
+                  description: |
+                    Minimum interval between consecutive fires.
+                    Prevents flapping. Default 5m applied by controller.
+                approval:
+                  type: object
+                  description: |
+                    Optional approval gate. If approvers > 0, the
+                    runbook surfaces a pending action requiring N
+                    distinct human approvals before executing.
+                  properties:
+                    approvers:
+                      type: integer
+                      minimum: 0
+                      maximum: 10
+                      default: 0
+                    timeoutSeconds:
+                      type: integer
+                      minimum: 60
+                      maximum: 86400
+                      description: After timeout, the action is dropped.
+                  x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                fireCount:
+                  type: integer
+                  minimum: 0
+                lastFiredAt:
+                  type: string
+                  format: date-time
+                lastResult:
+                  type: string
+                  enum: [success, failure, skipped, awaiting-approval]
+                lastError:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
