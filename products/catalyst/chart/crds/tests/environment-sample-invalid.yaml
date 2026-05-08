@@ -1,0 +1,29 @@
+# Invalid sample — must FAIL schema validation. Seeded errors:
+#   organizationRef pattern: "ACME" uppercase
+#   envType: "dr" — not in enum (DR is a Placement on Application, not an Env Type)
+#   placement: "active-active" — not in enum (multi-region/single-region only here)
+#   regions: empty — minItems=1
+#   regions[0].provider: "linode" — not in enum
+#   regions[0].buildingBlock: "core" — not in enum
+apiVersion: catalyst.openova.io/v1
+kind: Environment
+metadata:
+  name: bad-env
+spec:
+  organizationRef: ACME
+  envType: dr
+  placement: active-active
+  regions:
+    - provider: linode
+      region: fra
+      buildingBlock: core
+---
+apiVersion: catalyst.openova.io/v1
+kind: Environment
+metadata:
+  name: empty-regions
+spec:
+  organizationRef: acme
+  envType: prod
+  placement: multi-region
+  regions: []
