@@ -1,0 +1,166 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: environmentpolicies.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: environment-policy
+spec:
+  group: catalyst.openova.io
+  scope: Cluster
+  names:
+    kind: EnvironmentPolicy
+    listKind: EnvironmentPolicyList
+    singular: environmentpolicy
+    plural: environmentpolicies
+    shortNames:
+      - envpol
+      - envpols
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Approvers
+          type: integer
+          jsonPath: .spec.promotion.requiredApprovers
+        - name: SoakHrs
+          type: integer
+          jsonPath: .spec.promotion.soakHours
+        - name: Policies
+          type: integer
+          jsonPath: .status.policyCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            EnvironmentPolicy gates promotion (approvers + soak duration)
+            and configures compliance scoring (per-policy weight + mode
+            permissive|enforcing) for a given Environment.
+
+            Referenced by Environment.spec.policyRef. Consumed by:
+            - environment-controller for promotion gating (slice C2)
+            - compliance-aggregator for weighted score rollups (#1096)
+            - Kyverno policy renderer (#1096) — `mode` flips between
+              `validationFailureAction: Audit` (permissive) and `Enforce`
+
+            See docs/EPICS-1-6-unified-design.md §3.2.5 and §4 (EPIC-1).
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                promotion:
+                  type: object
+                  description: Promotion gates between Environments (e.g. dev → prod).
+                  properties:
+                    requiredApprovers:
+                      type: integer
+                      minimum: 0
+                      maximum: 10
+                      default: 0
+                      description: |
+                        Number of distinct human approvers required to
+                        promote into THIS Environment from a lower
+                        env_type. 0 = automatic.
+                    soakHours:
+                      type: integer
+                      minimum: 0
+                      maximum: 720
+                      default: 0
+                      description: |
+                        Required time the candidate version must have run
+                        in the lower env_type before promotion. 0 = no soak.
+                    requiredComplianceScore:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                      description: |
+                        Optional compliance-score floor. If set, the
+                        candidate Application's score in the lower
+                        Environment must meet or exceed this value before
+                        promotion. Tied to spec.compliance.weights.
+                compliance:
+                  type: object
+                  description: |
+                    Per-Environment compliance configuration. The set of
+                    policy names is the public contract (mirror the docs);
+                    weights and modes are tunable.
+                  properties:
+                    weights:
+                      type: object
+                      description: |
+                        Policy name → weight config. Each entry carries
+                        a numeric weight (0-100) and an optional scope
+                        (stateful|stateless|all — default 'all' applied
+                        by the compliance-aggregator at read time, not
+                        by the schema, per K8s structural-schema rules).
+                        Sum is normalized across applicable policies;
+                        scope=stateful entries are dropped from the
+                        denominator on stateless workloads.
+                      additionalProperties:
+                        type: object
+                        required: [weight]
+                        properties:
+                          weight:
+                            type: integer
+                            minimum: 0
+                            maximum: 100
+                          scope:
+                            type: string
+                            enum: [stateful, stateless, all]
+                            description: |
+                              Restrict this policy to a workload class.
+                              Compliance-aggregator treats unset as 'all'.
+                    modes:
+                      type: object
+                      description: |
+                        Policy name → mode (permissive|enforcing). Permissive
+                        = audit-only (Kyverno validationFailureAction=Audit).
+                        Enforcing = blocks at admission (=Enforce).
+                      additionalProperties:
+                        type: string
+                        enum: [permissive, enforcing]
+                  x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                policyCount:
+                  type: integer
+                  minimum: 0
+                  description: Number of compliance policies declared in spec.compliance.weights.
+                appliedAt:
+                  type: string
+                  format: date-time
+                  description: When environment-controller last reconciled this policy onto its Environments.
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
