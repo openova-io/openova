@@ -1,0 +1,36 @@
+# Invalid sample — must FAIL schema validation. Each line carries an error
+# vector the schema MUST catch:
+#   slug: "system"                    — reserved name
+#   slug pattern: "AC"                — too short / uppercase (covered by 2nd doc)
+#   kind: "vendor"                    — not in enum
+#   tier: "premium"                   — not in enum
+#   billingMode: "invoice"            — not in enum (real|chargeback|showback)
+#   sovereignRef: "not a domain"      — pattern fails
+#   owners: []                        — minItems=1
+#   identity.federationProvider: "saml" — not in enum
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: bad-org
+spec:
+  slug: system
+  displayName: ""
+  kind: vendor
+  tier: premium
+  billingMode: invoice
+  sovereignRef: "not a domain"
+  defaultEnvironmentType: production
+  owners: []
+  identity:
+    federationProvider: saml
+---
+# Second invalid case — short / uppercase slug, missing required fields
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: another-bad
+spec:
+  slug: AC
+  kind: customer
+  tier: sme
+  billingMode: real
