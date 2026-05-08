@@ -1,0 +1,36 @@
+# blueprint-controller — slice C3 of EPIC-0 (#1095).
+#
+# Distroless-static final image; non-root UID 65532; size ~30-40 MiB.
+# Per Inviolable Principle #4a, this image must be built ONLY by the
+# GitHub Actions pipeline and tagged with the git SHA. Local builds
+# never reach GHCR.
+#
+# Build context: the repo root (so we can COPY core/controllers/...
+# directly).
+
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+
+# Cache go.mod / go.sum first.
+COPY core/controllers/blueprint/go.mod core/controllers/blueprint/
+COPY core/controllers/blueprint/go.sum core/controllers/blueprint/
+WORKDIR /src/core/controllers/blueprint
+RUN go mod download
+
+# Copy the controller package tree.
+WORKDIR /src
+COPY core/controllers/blueprint/ core/controllers/blueprint/
+
+WORKDIR /src/core/controllers/blueprint
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/blueprint-controller \
+    ./cmd
+
+# Runtime stage — distroless static for a minimal, non-root,
+# CVE-narrow image.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/blueprint-controller /blueprint-controller
+USER 65532:65532
+ENTRYPOINT ["/blueprint-controller"]
