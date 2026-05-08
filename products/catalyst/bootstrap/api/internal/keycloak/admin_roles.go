@@ -27,6 +27,11 @@ package keycloak
 //   GET    /admin/realms/{realm}/groups/{group-uuid}/role-mappings/realm
 //   POST   /admin/realms/{realm}/groups/{group-uuid}/role-mappings/realm
 //   DELETE /admin/realms/{realm}/groups/{group-uuid}/role-mappings/realm
+//
+//   Composite realm-role children (slice T2 — tier hierarchy bootstrap):
+//   GET    /admin/realms/{realm}/roles/{parent-role-name}/composites/realm
+//   POST   /admin/realms/{realm}/roles/{parent-role-name}/composites
+//   DELETE /admin/realms/{realm}/roles/{parent-role-name}/composites
 
 import (
 	"bytes"
@@ -451,4 +456,149 @@ func (c *Client) deleteRoleMappingsRealm(ctx context.Context, resourceKind, uuid
 	default:
 		return fmt.Errorf("keycloak: DELETE role-mappings %d: %s", resp.StatusCode, respBody)
 	}
+}
+
+// ── Composite realm-role children (slice T2) ──────────────────────────
+//
+// Catalyst's tier hierarchy (per docs/EPICS-1-6-unified-design.md §6.2)
+// uses Keycloak composite realm-roles to express transitive containment:
+// a user assigned the `catalyst-admin` realm role automatically inherits
+// every action on `catalyst-operator`, `catalyst-developer`, and
+// `catalyst-viewer` via Keycloak's role-resolver. The composition is
+// flat (each tier composes only its immediate child) — Keycloak expands
+// the chain transitively at token-mint time.
+//
+// The Keycloak Admin REST API for composite realm-roles is asymmetric:
+// the GET endpoint requires the `/realm` suffix to filter to realm-only
+// composites (excluding any client-role composites that may be attached),
+// but the POST/DELETE endpoints take the bare `/composites` path with a
+// JSON array of RoleRepresentation objects whose `clientRole=false`
+// distinguishes them as realm composites.
+
+// ListRealmRoleComposites returns the realm roles directly attached as
+// composites to the given parent role. Used by EnsureCompositeRealmRole
+// to short-circuit when the desired composite is already present
+// (idempotency anchor for re-runs of EnsureTierRealmRoles).
+func (c *Client) ListRealmRoleComposites(ctx context.Context, parentName string) ([]RealmRole, error) {
+	saToken, err := c.serviceAccountToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak.ListRealmRoleComposites: service account token: %w", err)
+	}
+	return c.listRealmRoleComposites(ctx, saToken, parentName)
+}
+
+func (c *Client) listRealmRoleComposites(ctx context.Context, saToken, parentName string) ([]RealmRole, error) {
+	u := fmt.Sprintf("%s/admin/realms/%s/roles/%s/composites/realm",
+		c.addr, c.realm, url.PathEscape(parentName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+saToken)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak: GET composites: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrRoleNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("keycloak: GET composites %d: %s", resp.StatusCode, body)
+	}
+	var roles []RealmRole
+	if err := json.Unmarshal(body, &roles); err != nil {
+		return nil, fmt.Errorf("keycloak: decode composites: %w", err)
+	}
+	return roles, nil
+}
+
+// AddRealmRoleComposites attaches the given child realm roles to the
+// parent role. Each child must carry its `ID` (Keycloak UUID) and
+// `Name`; the marshalled body sets `clientRole=false` implicitly via the
+// RealmRole struct's zero-value `ClientRole`. Empty child list is a
+// no-op (Keycloak returns 204 for an empty array, but we short-circuit
+// to avoid the round-trip).
+//
+// Keycloak responds 204 No Content on success. Re-attaching an already-
+// composed child also returns 204 (idempotent on the server side), but
+// we still pre-filter via ListRealmRoleComposites to keep the audit log
+// quiet.
+func (c *Client) AddRealmRoleComposites(ctx context.Context, parentName string, children []RealmRole) error {
+	if len(children) == 0 {
+		return nil
+	}
+	saToken, err := c.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.AddRealmRoleComposites: service account token: %w", err)
+	}
+	return c.addRealmRoleComposites(ctx, saToken, parentName, children)
+}
+
+func (c *Client) addRealmRoleComposites(ctx context.Context, saToken, parentName string, children []RealmRole) error {
+	body, err := json.Marshal(children)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/roles/%s/composites",
+		c.addr, c.realm, url.PathEscape(parentName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+saToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: POST composites: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK, http.StatusCreated:
+		return nil
+	case http.StatusNotFound:
+		return ErrRoleNotFound
+	default:
+		return fmt.Errorf("keycloak: POST composites %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+// EnsureCompositeRealmRole is the idempotent attach: if `child` is
+// already a composite of `parent`, the call is a no-op (one GET, no
+// write); otherwise the child is POSTed onto the parent's composite
+// list. Both `parent` and `child` are looked up by name to resolve their
+// Keycloak UUIDs (POST /composites requires the child's `id` field).
+//
+// Used by EnsureTierRealmRoles (realm_bootstrap.go) to wire the catalog
+// tier hierarchy at catalyst-api startup. Re-runs are no-ops.
+func (c *Client) EnsureCompositeRealmRole(ctx context.Context, parentName, childName string) error {
+	saToken, err := c.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureCompositeRealmRole: service account token: %w", err)
+	}
+
+	existing, err := c.listRealmRoleComposites(ctx, saToken, parentName)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureCompositeRealmRole: list composites: %w", err)
+	}
+	for _, r := range existing {
+		if r.Name == childName {
+			// Already attached — idempotent no-op.
+			return nil
+		}
+	}
+
+	// Resolve the child role's UUID — Keycloak's POST /composites needs
+	// the `id` field, the `name` alone is not enough.
+	child, err := c.getRealmRole(ctx, saToken, childName)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureCompositeRealmRole: resolve child %q: %w", childName, err)
+	}
+
+	if err := c.addRealmRoleComposites(ctx, saToken, parentName, []RealmRole{child}); err != nil {
+		return fmt.Errorf("keycloak.EnsureCompositeRealmRole: attach %q→%q: %w", childName, parentName, err)
+	}
+	return nil
 }
