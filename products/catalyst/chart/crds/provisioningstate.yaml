@@ -1,0 +1,195 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: provisioningstates.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: provisioning-state
+spec:
+  group: catalyst.openova.io
+  scope: Namespaced
+  names:
+    kind: ProvisioningState
+    listKind: ProvisioningStateList
+    singular: provisioningstate
+    plural: provisioningstates
+    shortNames:
+      - psv
+      - prov
+    categories:
+      - catalyst
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Sovereign
+          type: string
+          jsonPath: .spec.sovereignFQDN
+        - name: Region
+          type: string
+          jsonPath: .spec.region
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ProvisioningState projects the Catalyst-Zero per-deployment
+            provisioning record onto the K8s API. The flat-file event log
+            on the catalyst-api Pod's PVC is the long-term source of truth
+            for fine-grained events; the CRD carries only the coarse state
+            machine so operators can `kubectl get provisioningstates -A`
+            and watch transitions without an HTTP round-trip.
+
+            See products/catalyst/bootstrap/api/internal/store/crd_store.go
+            for the writer; that file's package doc enumerates the
+            invariants this schema must satisfy.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [deploymentID]
+              properties:
+                deploymentID:
+                  type: string
+                  description: Stable identifier the catalyst-api uses for this provisioning run. Mirrors metadata.name.
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'
+                orgName:
+                  type: string
+                  description: Customer-facing organization name as supplied to the wizard.
+                orgEmail:
+                  type: string
+                  format: email
+                sovereignFQDN:
+                  type: string
+                  description: Final FQDN of the Sovereign (e.g. omantel.omani.works). Authoritative once Phase 0 completes.
+                sovereignDomainMode:
+                  type: string
+                  enum: [pool, byo, ""]
+                  description: pool — sub of openova-managed pool; byo — operator-supplied registrar.
+                sovereignPoolDomain:
+                  type: string
+                sovereignSubdomain:
+                  type: string
+                region:
+                  type: string
+                  description: Primary cloud region (e.g. fsn1, hel1, nbg1). Multi-region deployments populate spec.regions[] in addition.
+                controlPlaneSize:
+                  type: string
+                workerSize:
+                  type: string
+                workerCount:
+                  type: integer
+                  minimum: 0
+                haEnabled:
+                  type: boolean
+                hetznerProjectID:
+                  type: string
+                regions:
+                  type: array
+                  description: Multi-region payload (post-Phase-0). Each entry is an independent cluster.
+                  items:
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      cloudRegion:
+                        type: string
+                      controlPlaneSize:
+                        type: string
+                      workerSize:
+                        type: string
+                      workerCount:
+                        type: integer
+                        minimum: 0
+                parentDomains:
+                  type: array
+                  description: |
+                    Multi-domain pool. registrarCredsRef points at a SealedSecret;
+                    plaintext registrar credentials are NEVER stored on the CRD.
+                  items:
+                    type: object
+                    required: [name, role]
+                    properties:
+                      name:
+                        type: string
+                      role:
+                        type: string
+                        enum: [primary, secondary]
+                      registrarKind:
+                        type: string
+                      registrarCredsRef:
+                        type: string
+                      addedAt:
+                        type: string
+                        format: date-time
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - pending
+                    - bootstrapping
+                    - installing-control-plane
+                    - registering-dns
+                    - tls-issuing
+                    - ready
+                    - failed
+                  description: |
+                    Coarse state machine. Mirror catalyst-api's in-memory
+                    states via toCRDPhase in crd_store.go. Watchers should
+                    treat this as a one-way progression except via failed.
+                startedAt:
+                  type: string
+                  format: date-time
+                lastTransitionAt:
+                  type: string
+                  format: date-time
+                finishedAt:
+                  type: string
+                  format: date-time
+                failureReason:
+                  type: string
+                  description: Populated when phase=failed; mirrored to the Ready condition message.
+                controlPlaneIP:
+                  type: string
+                loadBalancerIP:
+                  type: string
+                componentStates:
+                  type: object
+                  description: |
+                    Per-bp-* component status snapshots (cilium, cert-manager,
+                    flux, etc.). Map of HelmRelease name → coarse state.
+                  additionalProperties:
+                    type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+              x-kubernetes-preserve-unknown-fields: true
