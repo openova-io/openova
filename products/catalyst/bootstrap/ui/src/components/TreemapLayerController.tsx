@@ -36,10 +36,14 @@ import {
 } from '@/lib/treemap.types'
 
 const SIZE_OPTIONS: { value: TreemapSizeBy; label: string }[] = [
-  { value: 'cpu_limit',     label: 'CPU limit' },
-  { value: 'memory_limit',  label: 'Memory limit' },
-  { value: 'storage_limit', label: 'Storage limit' },
-  { value: 'replica_count', label: 'Replica count' },
+  { value: 'cpu_request',    label: 'CPU request' },
+  { value: 'memory_request', label: 'Memory request' },
+  { value: 'cpu_usage',      label: 'CPU usage (live)' },
+  { value: 'memory_usage',   label: 'Memory usage (live)' },
+  { value: 'cpu_limit',      label: 'CPU limit' },
+  { value: 'memory_limit',   label: 'Memory limit' },
+  { value: 'storage_limit',  label: 'Storage limit' },
+  { value: 'replica_count',  label: 'Replica count' },
 ]
 
 const COLOR_OPTIONS: { value: TreemapColorBy; label: string }[] = [

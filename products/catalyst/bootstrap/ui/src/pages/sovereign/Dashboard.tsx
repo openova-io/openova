@@ -43,11 +43,10 @@
  * named constants exported for tests.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, Link } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useQuery } from '@tanstack/react-query'
-import { ResponsiveContainer, Treemap } from 'recharts'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
@@ -64,6 +63,11 @@ import {
   type TreemapItem,
   type TreemapSizeBy,
 } from '@/lib/treemap.types'
+import {
+  computeSquarifiedLayout,
+  NESTED_HEADER_HEIGHT_PX as SQ_HEADER,
+  type SquarifiedRect,
+} from '@/lib/treemap-squarified'
 
 /* ── Constants (named, not inline literals) ─────────────────────── */
 
@@ -145,7 +149,7 @@ export function Dashboard({
     initialLayers ?? ['family', 'application'],
   )
   const [colorBy, setColorBy] = useState<TreemapColorBy>(initialColorBy ?? 'utilization')
-  const [sizeBy, setSizeBy] = useState<TreemapSizeBy>(initialSizeBy ?? 'cpu_limit')
+  const [sizeBy, setSizeBy] = useState<TreemapSizeBy>(initialSizeBy ?? 'cpu_request')
 
   /** Drill stack — each entry is a (dimension, id, name) triple. The
    *  visible items are derived by walking the in-memory tree. The
@@ -394,22 +398,13 @@ export function Dashboard({
           )}
 
           {!isEmpty && treemapData && visibleItems.length > 0 && (
-            <ResponsiveContainer width="100%" height={600}>
-              <Treemap
-                data={visibleItems as unknown as Array<Record<string, unknown>>}
-                dataKey="size_value"
-                /* aspectRatio=1 → recharts squarifies aggressively;
-                 * cells render as close to square as the value
-                 * distribution permits (founder feedback 2026-05-05). */
-                aspectRatio={1}
-                isAnimationActive={false}
-                content={
-                  isNested
-                    ? (NestedTreemapContent as unknown as React.ReactElement)
-                    : (TreemapContent as unknown as React.ReactElement)
-                }
-              />
-            </ResponsiveContainer>
+            <SquarifiedSurface
+              items={visibleItems}
+              isNested={isNested}
+              colorFn={colorFn}
+              onCellHover={(info) => _onCellHover?.(info)}
+              onCellClick={(item) => _onCellClick?.(item)}
+            />
           )}
 
           {/* Hover tooltip — absolute-positioned Paper. Viewport-clamped
@@ -461,13 +456,21 @@ function HoverTooltip({
   const colorLabel = colorBy === 'utilization'
     ? 'Utilisation'
     : colorBy === 'health' ? 'Health' : 'Age'
-  const sizeLabel = sizeBy === 'cpu_limit'
-    ? 'CPU limit'
-    : sizeBy === 'memory_limit'
-      ? 'Memory'
-      : sizeBy === 'storage_limit'
-        ? 'Storage'
-        : 'Replicas'
+  const sizeLabel = sizeBy === 'cpu_request'
+    ? 'CPU request'
+    : sizeBy === 'memory_request'
+      ? 'Memory request'
+      : sizeBy === 'cpu_usage'
+        ? 'CPU usage'
+        : sizeBy === 'memory_usage'
+          ? 'Memory usage'
+          : sizeBy === 'cpu_limit'
+            ? 'CPU limit'
+            : sizeBy === 'memory_limit'
+              ? 'Memory limit'
+              : sizeBy === 'storage_limit'
+                ? 'Storage'
+                : 'Replicas'
 
   const isApp = currentDimension === 'application'
   const componentId = isApp ? (item.id ?? '') : ''
@@ -524,8 +527,12 @@ function HoverTooltip({
 function formatSizeValue(v: number | undefined, sizeBy: TreemapSizeBy): string {
   if (v === undefined || v === null) return '—'
   switch (sizeBy) {
+    case 'cpu_request':
+    case 'cpu_usage':
     case 'cpu_limit':
       return `${(v / 1000).toFixed(2)} cores`
+    case 'memory_request':
+    case 'memory_usage':
     case 'memory_limit':
     case 'storage_limit':
       return formatBytes(v)
@@ -908,3 +915,223 @@ function truncateLabel(name: string, width: number): string {
   return name.slice(0, Math.max(1, maxChars - 1)) + '…'
 }
 
+/* ── Squarified treemap surface ─────────────────────────────────────
+ *
+ * Replaces the recharts <Treemap> with a pure-SVG renderer driven by
+ * our squarified layout algorithm (lib/treemap-squarified.ts). The
+ * cell content (fill, label, sub-label, hover/click handlers) is
+ * inlined here — there's no need for the recharts module-level mailbox
+ * pattern because we render the cells directly without a foreign
+ * cloning step.
+ *
+ * Sizing: ResizeObserver tracks the container's width; height is
+ * fixed at 600px to match the prior recharts layout. Re-layout fires
+ * automatically when the width or items change.
+ */
+
+interface SquarifiedSurfaceProps {
+  items: readonly TreemapItem[]
+  isNested: boolean
+  colorFn: (pct: number) => string
+  onCellHover: (info: CellHoverInfo | null) => void
+  onCellClick: (item: TreemapItem) => void
+}
+
+const SURFACE_HEIGHT_PX = 600
+
+function SquarifiedSurface({
+  items,
+  isNested,
+  colorFn,
+  onCellHover,
+  onCellClick,
+}: SquarifiedSurfaceProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState<number>(0)
+
+  useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    function measure() {
+      if (!el) return
+      setWidth(el.clientWidth)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Always pass children when isNested — that's what triggers the
+  // depth-1 cell emission in the squarified algorithm. When the
+  // dashboard is in flat mode (drilled in / single layer), strip
+  // children so only the visible level renders.
+  const layoutItems = useMemo<TreemapItem[]>(() => {
+    if (isNested) return items as TreemapItem[]
+    return (items as TreemapItem[]).map((it) => ({ ...it, children: undefined }))
+  }, [items, isNested])
+
+  const rects = useMemo<SquarifiedRect[]>(() => {
+    if (width <= 0) return []
+    return computeSquarifiedLayout(layoutItems, width, SURFACE_HEIGHT_PX)
+  }, [layoutItems, width])
+
+  return (
+    <div
+      ref={containerRef}
+      data-testid="dashboard-treemap-surface"
+      style={{ width: '100%', height: SURFACE_HEIGHT_PX }}
+    >
+      {width > 0 && (
+        <svg
+          width={width}
+          height={SURFACE_HEIGHT_PX}
+          role="img"
+          aria-label="Resource utilisation treemap"
+          style={{ display: 'block' }}
+        >
+          {rects.map((r, i) => (
+            <SquarifiedCell
+              key={`${r.item.name}-${r.depth}-${i}`}
+              rect={r}
+              colorFn={colorFn}
+              onHover={onCellHover}
+              onClick={onCellClick}
+            />
+          ))}
+        </svg>
+      )}
+    </div>
+  )
+}
+
+interface SquarifiedCellProps {
+  rect: SquarifiedRect
+  colorFn: (pct: number) => string
+  onHover: (info: CellHoverInfo | null) => void
+  onClick: (item: TreemapItem) => void
+}
+
+function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps) {
+  const { x0, y0, x1, y1, item, isParent, depth } = rect
+  const w = x1 - x0
+  const h = y1 - y0
+  if (w <= 0 || h <= 0) return null
+
+  const pct = item.percentage
+  // Parent cells in nested mode get a transparent body (the children
+  // tile inside) so only the header strip carries colour. Leaf cells
+  // get the full gradient fill.
+  const fill = isParent
+    ? 'rgba(255, 255, 255, 0.04)'
+    : pct === null
+      ? NULL_PERCENTAGE_FILL
+      : colorFn(pct)
+
+  const showLabel = w >= LABEL_MIN_WIDTH_PX && h >= LABEL_MIN_HEIGHT_PX
+  const cursor = item.children?.length ? 'pointer' : 'default'
+
+  function handleEnter(e: React.MouseEvent) {
+    onHover({ item, x: e.clientX, y: e.clientY })
+  }
+  function handleLeave() {
+    onHover(null)
+  }
+  function handleClick() {
+    if (item.children?.length) onClick(item)
+  }
+
+  if (isParent) {
+    // Header strip + outline frame.
+    return (
+      <g
+        onMouseEnter={handleEnter}
+        onMouseMove={handleEnter}
+        onMouseLeave={handleLeave}
+        onClick={handleClick}
+        style={{ cursor }}
+      >
+        <rect
+          x={x0}
+          y={y0}
+          width={w}
+          height={h}
+          style={{
+            fill,
+            stroke: 'rgba(255, 255, 255, 0.18)',
+            strokeWidth: 1,
+          }}
+        />
+        <rect
+          x={x0}
+          y={y0}
+          width={w}
+          height={SQ_HEADER}
+          style={{
+            fill: pct === null ? NULL_PERCENTAGE_FILL : colorFn(pct),
+            stroke: 'rgba(255, 255, 255, 0.18)',
+            strokeWidth: 1,
+          }}
+        />
+        {showLabel && (
+          <text
+            x={x0 + 8}
+            y={y0 + 16}
+            fill="rgba(255, 255, 255, 0.95)"
+            fontSize={11}
+            fontWeight={600}
+            style={{ pointerEvents: 'none' }}
+          >
+            {truncateLabel(item.name, w)}
+          </text>
+        )}
+      </g>
+    )
+  }
+
+  // Leaf cell.
+  return (
+    <g
+      onMouseEnter={handleEnter}
+      onMouseMove={handleEnter}
+      onMouseLeave={handleLeave}
+      onClick={handleClick}
+      style={{ cursor }}
+    >
+      <rect
+        x={x0}
+        y={y0}
+        width={w}
+        height={h}
+        style={{
+          fill,
+          stroke: 'rgba(255, 255, 255, 0.18)',
+          strokeWidth: depth > 0 ? 0.5 : 1,
+        }}
+      />
+      {showLabel && (
+        <>
+          <text
+            x={x0 + 8}
+            y={y0 + 16}
+            fill="rgba(255, 255, 255, 0.95)"
+            fontSize={11}
+            fontWeight={600}
+            style={{ pointerEvents: 'none' }}
+          >
+            {truncateLabel(item.name, w)}
+          </text>
+          <text
+            x={x0 + 8}
+            y={y0 + 30}
+            fill="rgba(255, 255, 255, 0.7)"
+            fontSize={10}
+            style={{ pointerEvents: 'none' }}
+          >
+            {pct === null ? '— %' : `${Math.round(pct)}%`}
+          </text>
+        </>
+      )}
+    </g>
+  )
+}
