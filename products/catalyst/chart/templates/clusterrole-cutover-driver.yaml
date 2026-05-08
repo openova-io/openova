@@ -205,3 +205,14 @@ rules:
   - apiGroups: ["authorization.k8s.io"]
     resources: ["subjectaccessreviews"]
     verbs: ["create"]
+  # PodMetrics + NodeMetrics — required for the Sovereign Dashboard's
+  # `color_by=utilization` overlay. Without this rule the dynamic
+  # client returns 403 on every metrics.k8s.io list and the dashboard
+  # falls back to null-percentage grey cells. metrics-server is
+  # always installed by bp-metrics-server in the platform bundle, so
+  # the only thing standing between the dashboard and a working
+  # gradient was this RBAC rule. (#1084 follow-up — the chart-side
+  # half of the treemap utilization fix.)
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
