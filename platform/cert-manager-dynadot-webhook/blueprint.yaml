@@ -23,7 +23,7 @@ spec:
     # waterfall locked in by docs/INVIOLABLE-PRINCIPLES.md (intra-chart
     # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
     # is Ready — Flux dependsOn enforces that at the HelmRelease level.
-    - bp-cert-manager
+    - blueprint: bp-cert-manager
   outputs:
     # Tells dependents (bp-cilium-gateway's wildcard Certificate, etc.)
     # which solverName the ClusterIssuer's solvers[].dns01.webhook

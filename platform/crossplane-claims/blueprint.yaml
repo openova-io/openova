@@ -19,4 +19,4 @@ spec:
   manifests:
     chart: ./chart
   depends:
-    - bp-crossplane
+    - blueprint: bp-crossplane
