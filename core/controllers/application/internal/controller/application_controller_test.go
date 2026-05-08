@@ -39,6 +39,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 // fakeGitea is a deterministic test double for the Gitea interface.
@@ -81,11 +83,11 @@ func newFakeGitea() *fakeGitea {
 
 func (f *fakeGitea) repoKey(org, repo string) string { return org + "/" + repo }
 
-func (f *fakeGitea) EnsureRepo(_ context.Context, org, repo string) error {
+func (f *fakeGitea) EnsureRepo(_ context.Context, org, repo, _ string, _ bool) (gitea.Repo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.orgsExist[org] {
-		return errOrgNotFound
+		return gitea.Repo{}, errOrgNotFound
 	}
 	key := f.repoKey(org, repo)
 	if _, ok := f.repos[key]; !ok {
@@ -93,7 +95,7 @@ func (f *fakeGitea) EnsureRepo(_ context.Context, org, repo string) error {
 			"main": {},
 		}
 	}
-	return nil
+	return gitea.Repo{Name: repo, FullName: key}, nil
 }
 
 func (f *fakeGitea) EnsureBranch(_ context.Context, org, repo, branch string) error {
@@ -109,11 +111,11 @@ func (f *fakeGitea) EnsureBranch(_ context.Context, org, repo, branch string) er
 	return nil
 }
 
-func (f *fakeGitea) PutFile(_ context.Context, org, repo, branch, path string, content []byte, _ string) (string, bool, error) {
+func (f *fakeGitea) PutFile(_ context.Context, org, repo, branch, path string, content []byte, _ string, _ ...gitea.PutFileOpts) (gitea.File, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failOnPath != "" && path == f.failOnPath {
-		return "", false, f.failPathErr
+		return gitea.File{}, false, f.failPathErr
 	}
 	key := f.repoKey(org, repo)
 	if _, ok := f.repos[key]; !ok {
@@ -124,11 +126,11 @@ func (f *fakeGitea) PutFile(_ context.Context, org, repo, branch, path string, c
 	}
 	existing, exists := f.repos[key][branch][path]
 	if exists && string(existing) == string(content) {
-		return "stable", false, nil
+		return gitea.File{Path: path, SHA: "stable"}, false, nil
 	}
 	f.repos[key][branch][path] = append([]byte(nil), content...)
 	f.puts++
-	return "newsha", true, nil
+	return gitea.File{Path: path, SHA: "newsha"}, true, nil
 }
 
 func (f *fakeGitea) DeleteFile(_ context.Context, org, repo, branch, path, _ string) (bool, error) {

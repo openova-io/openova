@@ -57,7 +57,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 
-	"github.com/openova-io/openova/core/controllers/blueprint/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	"github.com/openova-io/openova/core/controllers/blueprint/internal/validate"
 )
 
@@ -368,10 +368,12 @@ func (r *Reconciler) mirrorBlueprint(ctx context.Context, bp *unstructured.Unstr
 
 	switch visibility {
 	case VisibilityListed:
-		if err := r.cfg.Gitea.EnsureRepo(ctx, CatalogOrg, repo); err != nil {
+		if _, err := r.cfg.Gitea.EnsureRepo(ctx, CatalogOrg, repo,
+			"Catalyst Blueprint mirror — auto-managed by blueprint-controller. Do not edit manually.",
+			false); err != nil {
 			return fmt.Errorf("EnsureRepo: %w", err)
 		}
-		_, err := r.cfg.Gitea.PutFile(ctx, CatalogOrg, repo, "main", "blueprint.yaml",
+		_, _, err := r.cfg.Gitea.PutFile(ctx, CatalogOrg, repo, "main", "blueprint.yaml",
 			mirrorYAML, fmt.Sprintf("publish %s @ %s", repo, stringFromSpec(bp, "version")))
 		return err
 

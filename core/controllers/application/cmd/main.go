@@ -43,6 +43,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -58,7 +59,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/openova-io/openova/core/controllers/application/internal/controller"
-	"github.com/openova-io/openova/core/controllers/application/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 func main() {
@@ -92,7 +93,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	giteaClient := gitea.NewClient(env("GITEA_API_URL", "http://gitea-http.gitea.svc.cluster.local:3000"), os.Getenv("GITEA_TOKEN"))
+	giteaClient := gitea.New(env("GITEA_API_URL", "http://gitea-http.gitea.svc.cluster.local:3000"), os.Getenv("GITEA_TOKEN"))
 
 	r := controller.New(dyn, giteaClient, giteaClassifier{}, cfg, logger)
 
@@ -131,7 +132,7 @@ func loadConfigFromEnv() controller.Config {
 type giteaClassifier struct{}
 
 func (giteaClassifier) IsNotFound(err error) bool    { return gitea.IsNotFound(err) }
-func (giteaClassifier) IsOrgNotFound(err error) bool { return err == gitea.ErrOrgNotFound }
+func (giteaClassifier) IsOrgNotFound(err error) bool { return errors.Is(err, gitea.ErrOrgNotFound) }
 
 // runProbes runs a tiny http.Server with /healthz, /readyz, and a
 // stub /metrics endpoint. Per Inviolable Principle #4 the addresses

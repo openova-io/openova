@@ -37,7 +37,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/openova-io/openova/core/controllers/blueprint/internal/controller"
-	"github.com/openova-io/openova/core/controllers/blueprint/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 func main() {
@@ -76,7 +76,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	case giteaToken == "":
 		log.Warn("CATALYST_GITEA_TOKEN is empty; mirror writes are DISABLED — controller will validate + update status only")
 	default:
-		giteaClient = gitea.NewClient(giteaURL, giteaToken)
+		giteaClient = gitea.New(giteaURL, giteaToken)
 		log.Info("Gitea mirror enabled", "url", giteaURL)
 	}
 

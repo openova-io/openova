@@ -59,10 +59,11 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/core/controllers/application/internal/validate"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/render"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
-	"github.com/openova-io/openova/core/controllers/application/internal/validate"
 )
 
 // GVR pins for the three CRDs the controller reads. Storage versions
@@ -136,9 +137,9 @@ const FinalizerName = "application.apps.openova.io/finalizer"
 // for idempotency, so the controller never needs to read existing
 // content directly.
 type Gitea interface {
-	EnsureRepo(ctx context.Context, org, repo string) error
+	EnsureRepo(ctx context.Context, org, name, description string, private bool) (gitea.Repo, error)
 	EnsureBranch(ctx context.Context, org, repo, branch string) error
-	PutFile(ctx context.Context, org, repo, branch, path string, content []byte, message string) (sha string, committed bool, err error)
+	PutFile(ctx context.Context, org, repo, branch, path string, content []byte, message string, opts ...gitea.PutFileOpts) (file gitea.File, committed bool, err error)
 	DeleteFile(ctx context.Context, org, repo, branch, path, message string) (bool, error)
 }
 
@@ -418,7 +419,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 
 	// 8. Ensure the per-Application Gitea repo exists.
 	branch := branchForEnvType(envSpec.EnvType)
-	if err := r.Gitea.EnsureRepo(ctx, envSpec.OrganizationRef, app.GetName()); err != nil {
+	if _, err := r.Gitea.EnsureRepo(ctx, envSpec.OrganizationRef, app.GetName(),
+		"Application manifests — auto-managed by application-controller. Do not edit manually.",
+		true); err != nil {
 		if r.GiteaErrors != nil && r.GiteaErrors.IsOrgNotFound(err) {
 			return r.markPending(ctx, app, ReasonOrgGiteaMissing,
 				fmt.Sprintf("Gitea Org %q does not exist; organization-controller (C1) creates it",

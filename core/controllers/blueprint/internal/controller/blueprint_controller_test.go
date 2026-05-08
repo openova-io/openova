@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/openova-io/openova/core/controllers/blueprint/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/internal/gitea"
 )
 
 // newScheme wires the Blueprint GVR into a runtime.Scheme so the fake
@@ -234,7 +234,7 @@ func makeReconciler(t *testing.T, items ...*unstructured.Unstructured) (*Reconci
 	fc := newFakeGiteaCounter()
 	srv := httptest.NewServer(fc.handler())
 	t.Cleanup(srv.Close)
-	cli := gitea.NewClient(srv.URL, "test-token")
+	cli := gitea.New(srv.URL, "test-token")
 	cli.HTTP = srv.Client()
 	r := New(Config{
 		DynamicClient: dc,
