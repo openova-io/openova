@@ -114,17 +114,13 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		"ingress",
 		// graph + dashboard depend on these
 		"persistentvolume", "replicaset", "endpointslice",
+		// dashboard color_by=utilization depends on this (#1084)
+		"podmetrics",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {
 			t.Errorf("DefaultKinds missing %q — required by architecture-graph or dashboard", name)
 		}
-	}
-	// PodMetrics is intentionally NOT in DefaultKinds — see kinds.go
-	// for the rationale (the synchronous discovery probe that gated
-	// it caused contabo startup to block on dead kubeconfigs).
-	if _, ok := r.Get("podmetrics"); ok {
-		t.Errorf("podmetrics must not be in DefaultKinds; the discovery-gate path was reverted")
 	}
 }
 

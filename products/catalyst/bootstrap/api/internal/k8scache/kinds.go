@@ -110,14 +110,16 @@ var DefaultKinds = []Kind{
 	// vCluster.io tenants.
 	{Name: "vcluster", GVR: schema.GroupVersionResource{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}, Namespaced: true},
 
-	// NOTE: metrics.k8s.io/PodMetrics is NOT in DefaultKinds. The
-	// optional metrics-server APIService isn't installed on every
-	// Sovereign, and the original AddCluster discovery probe that
-	// gated this kind made startup block on dead kubeconfigs. Until
-	// a non-blocking activation path lands the dashboard's
-	// color_by=utilization stays null when no PodMetrics indexer is
-	// available; healthy + age + size paths still render off Pod /
-	// PVC indexers.
+	// metrics.k8s.io/PodMetrics — drives the dashboard's
+	// `color_by=utilization` overlay (#1084). Earlier versions excluded
+	// this kind because the synchronous AddCluster discovery probe
+	// blocked startup on dead kubeconfigs. With that probe removed,
+	// dynamicinformer can attempt LIST+WATCH directly — when the API
+	// isn't served the informer logs a soft error and retries with
+	// exponential backoff (no hot loop, no startup block). Every
+	// real Sovereign ships bp-metrics-server in the platform bundle,
+	// so the utilization gradient renders out of the box.
+	{Name: "podmetrics", GVR: schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
