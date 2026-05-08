@@ -1,0 +1,47 @@
+# application-controller — slice C4 of EPIC-0 #1095. Watches
+# Application.apps.openova.io/v1 CRs and reconciles per-region
+# Kustomization + HelmRelease manifests into the per-Org Gitea repo.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. This Containerfile is
+# invoked by .github/workflows/build-application-controller.yaml with
+# the repository ROOT as the build context.
+#
+# Two stages:
+#   build  — golang:1.23-alpine, vendored stdlib + module cache
+#   final  — alpine:3.20 minimal runtime (CA certs + the binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /workspace
+
+# Cache module downloads.
+COPY core/controllers/application/go.mod core/controllers/application/go.sum core/controllers/application/
+
+WORKDIR /workspace/core/controllers/application
+RUN go mod download
+
+# Copy source + build.
+WORKDIR /workspace
+COPY core/controllers/application /workspace/core/controllers/application
+
+WORKDIR /workspace/core/controllers/application
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /application-controller ./cmd
+
+FROM docker.io/library/alpine:3.20
+
+# CA certs for HTTPS calls to Gitea (the in-cluster service is plain
+# HTTP, but cross-Sovereign instances may use HTTPS). tzdata so log
+# timestamps render correctly.
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=build /application-controller /application-controller
+
+# UID 65534 (nobody on Alpine 3.20) — non-root, satisfies the
+# `runAsNonRoot: true` securityContext check k8s requires when the
+# spec uses numeric form (not the name `nobody`).
+USER 65534:65534
+
+ENTRYPOINT ["/application-controller"]
