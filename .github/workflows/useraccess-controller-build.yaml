@@ -1,0 +1,103 @@
+name: Build useraccess-controller
+
+# useraccess-controller — UserAccess CR reconciler that REPLACES the
+# silently-broken Crossplane Composition path described in
+# docs/EPICS-1-6-unified-design.md §3.5. Slice C5 of EPIC-0 (#1095, P0).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a "GitHub Actions is the only build
+# path" — this workflow is the canonical (and only) way to produce a
+# `ghcr.io/openova-io/openova/useraccess-controller:<sha>` image.
+#
+# Trigger model is event-driven per the openova-private CLAUDE.md
+# coupled rule: push-on-main is the canonical trigger; workflow_dispatch
+# is the manual override for ad-hoc rebuilds. NO cron.
+
+on:
+  push:
+    paths:
+      - 'core/controllers/useraccess/**'
+      - '.github/workflows/useraccess-controller-build.yaml'
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'core/controllers/useraccess/**'
+      - '.github/workflows/useraccess-controller-build.yaml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/useraccess-controller
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: core/controllers/useraccess/go.sum
+
+      - name: go vet
+        working-directory: core/controllers/useraccess
+        run: go vet ./...
+
+      - name: go test (race + count=1)
+        working-directory: core/controllers/useraccess
+        # Race + count=1 catches flakes that a cached run would hide.
+        # The reconciler suite uses controller-runtime's fake client —
+        # no envtest binaries needed, so the runner stays light.
+        run: go test -count=1 -race ./...
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: core/controllers/useraccess
+          file: core/controllers/useraccess/Containerfile
+          push: true
+          # SHA-pinned tag is the contract — production manifests
+          # consume :<sha>, never :latest. Two tags emitted:
+          #   :<short-sha>   — what cluster manifests reference
+          #   :<full-sha>    — long form for audit trails
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:${{ github.sha }}
+          provenance: false
+          # Keep the image small and reproducible: no labels added by
+          # build-push-action's defaults; the Containerfile is the
+          # single source of truth.
