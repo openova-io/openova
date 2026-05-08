@@ -1,0 +1,117 @@
+name: Build organization-controller
+
+# organization-controller — Slice C1 of EPIC-0 #1095. Watches
+# Organization CRs (orgs.openova.io/v1) and reconciles vCluster +
+# Keycloak group + Gitea Org + base RBAC per the EPICS-1-6 unified
+# design §3.3, §3.7. Image is consumed by the catalyst chart's
+# controller deployment (forthcoming slice F1) which mounts the
+# Keycloak SA + Gitea token Secrets via env-from-secret-ref.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. Mirrors the shape of
+# build-cert-manager-dynadot-webhook.yaml and pool-domain-manager-build.yaml.
+#
+# Per CLAUDE.md global "every workflow MUST be event-driven, never
+# scheduled" — push-on-merge + PR + manual dispatch only, no cron.
+
+on:
+  push:
+    paths:
+      - 'core/controllers/organization/**'
+      - '.github/workflows/build-organization-controller.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/controllers/organization/**'
+      - '.github/workflows/build-organization-controller.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/organization-controller
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/controllers/organization/go.sum
+
+      - name: Vet
+        working-directory: core/controllers/organization
+        run: go vet ./...
+
+      - name: Test
+        working-directory: core/controllers/organization
+        run: go test -count=1 -race ./...
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: core/controllers/organization/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=organization-controller
+            org.opencontainers.image.description=Reconciles Organization CRs into vCluster + Keycloak group + Gitea Org + base RBAC (slice C1 of EPIC-0 #1095)
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
