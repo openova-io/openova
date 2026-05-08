@@ -1,0 +1,88 @@
+{{/*
+Catalyst-curated JetStream Streams. Reconciled by NACK (nats-io/nack)
+when it is installed and `.Values.catalystStreams.enabled` is true.
+
+Default: disabled. NACK is NOT a current dependency of this Blueprint
+— a follow-up slice installs it as a sibling Blueprint, then the
+operator flips this toggle in the per-Sovereign overlay.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 7 + ADR-0001 §6:
+  - catalyst.audit  : every operator action, RBAC mutation, Sovereign
+                      lifecycle event. R=3 quorum. 90-day retention.
+                      Mirrored to DR region (#1101).
+  - catalyst.events : cross-replica fan-out for SSE consumers. R=3.
+                      24-hour retention (replay window for cold-start).
+  - catalyst.billing: subscription / invoice events. R=3. Long retention.
+                      Consumed by the billing service (post-Phase-1).
+
+Per-Org and per-Application streams (org.<id>.events, app.<id>.events)
+are NOT shipped here — they are created dynamically by organization-
+controller (slice C1) and application-controller (slice C4) at install
+time so they can scale per tenant.
+*/}}
+{{- if .Values.catalystStreams.enabled -}}
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: catalyst-audit
+  labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
+    catalyst.openova.io/stream: audit
+spec:
+  name: catalyst.audit
+  servers:
+    - {{ include "catalyst-nats.servers" . }}
+  subjects:
+    - catalyst.audit.>
+  storage: file
+  replicas: {{ .Values.catalystStreams.replicas | default 3 }}
+  retention: limits
+  discard: old
+  maxAge: {{ .Values.catalystStreams.audit.maxAge | default "2160h" | quote }}
+  maxBytes: {{ .Values.catalystStreams.audit.maxBytes | default -1 }}
+  duplicates: {{ .Values.catalystStreams.audit.duplicateWindow | default "5m" | quote }}
+{{- with .Values.catalystStreams.audit.placement }}
+  placement:
+    cluster: {{ .cluster | quote }}
+{{- end }}
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: catalyst-events
+  labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
+    catalyst.openova.io/stream: events
+spec:
+  name: catalyst.events
+  servers:
+    - {{ include "catalyst-nats.servers" . }}
+  subjects:
+    - catalyst.events.>
+  storage: file
+  replicas: {{ .Values.catalystStreams.replicas | default 3 }}
+  retention: limits
+  discard: old
+  maxAge: {{ .Values.catalystStreams.events.maxAge | default "24h" | quote }}
+  maxBytes: {{ .Values.catalystStreams.events.maxBytes | default -1 }}
+  duplicates: 2m
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: catalyst-billing
+  labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
+    catalyst.openova.io/stream: billing
+spec:
+  name: catalyst.billing
+  servers:
+    - {{ include "catalyst-nats.servers" . }}
+  subjects:
+    - catalyst.billing.>
+  storage: file
+  replicas: {{ .Values.catalystStreams.replicas | default 3 }}
+  retention: limits
+  discard: old
+  maxAge: {{ .Values.catalystStreams.billing.maxAge | default "8760h" | quote }}
+  maxBytes: {{ .Values.catalystStreams.billing.maxBytes | default -1 }}
+  duplicates: 5m
+{{- end -}}
