@@ -26,6 +26,10 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [state, setState] = useState<State>('idle')
+  // URL-driven error banner copy. Each branch contains the literal token
+  // the routing matrix asserts on (TC-R-033 'flow has changed', TC-R-061
+  // 'code expired', TC-R-060 'wrong attempts'). Keep these phrases
+  // verbatim — they are the user-visible contract.
   const [errorMsg, setErrorMsg] = useState<string>(
     initialError === 'pin-expired'
       ? 'Your sign-in code expired. Request a new one.'
@@ -100,6 +104,20 @@ export function LoginPage() {
             We'll email you a 6-digit code to verify it's you.
           </p>
         </div>
+
+        {/* URL-driven error banner. Surfaces independent of input state
+            so the operator sees context for why they were bounced here
+            (e.g. ?error=pin-expired, ?error=flow_changed). The Input's
+            inline error continues to serve form-submit failures. */}
+        {errorMsg && state !== 'error' && (
+          <div
+            role="alert"
+            data-testid="login-error-banner"
+            className="rounded-md border border-[--color-error]/30 bg-[--color-error]/10 px-4 py-3 text-sm text-[--color-error]"
+          >
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
           <Input
