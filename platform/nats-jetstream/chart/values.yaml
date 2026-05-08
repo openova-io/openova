@@ -50,3 +50,57 @@ nats:
     enabled: false
     podMonitor:
       enabled: false
+
+# ─── Catalyst-curated JetStream Streams + KV buckets ─────────────────────
+#
+# Reconciled by NACK (nats-io/nack) when it's installed in the same
+# cluster. NACK is NOT a current dependency of this chart — install it
+# as a sibling Blueprint, then flip `enabled: true` here.
+#
+# Per docs/EPICS-1-6-unified-design.md §3.9 row 7 + ADR-0001 §6,
+# Catalyst's own events flow on these streams:
+#   catalyst.audit  / catalyst.events / catalyst.billing  → Stream CRs
+#   idempotency / dr-leases / policy-rollup               → KeyValue CRs
+#
+# Per-Org and per-Application streams are created at runtime by
+# organization-controller (slice C1) and application-controller (slice
+# C4), not statically here.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every retention
+# value is a variable and operator-overrideable.
+catalystStreams:
+  enabled: false
+  # JetStream replication factor. R=3 is the bank-tier default for
+  # in-region quorum; the DR Mirror to a second region is a separate
+  # follow-up wired by Continuum (#1101).
+  replicas: 3
+  # Override the upstream nats Service URL — defaults to
+  # nats://<release>-nats.<release-namespace>.svc.cluster.local:4222
+  servers: ""
+  audit:
+    # 90 days. Audit-log retention horizon.
+    maxAge: "2160h"
+    maxBytes: -1
+    duplicateWindow: "5m"
+    placement: {}
+  events:
+    # 24 hours. Cross-replica fan-out + cold-start replay window.
+    maxAge: "24h"
+    maxBytes: -1
+  billing:
+    # 1 year. Billing reconciliation horizon.
+    maxAge: "8760h"
+    maxBytes: -1
+  idempotency:
+    ttl: "24h"
+    # 256 MiB upper bound on the bucket.
+    maxBytes: 268435456
+  drLeases:
+    # 60 seconds — matches Continuum.spec.leaseClient.config.ttlSeconds
+    # default. DR-quorum lease path; Cloudflare-KV path bypasses this.
+    ttl: "60s"
+  policyRollup:
+    # 7 days. Replayable window for the compliance scorer.
+    ttl: "168h"
+    # 1 GiB upper bound.
+    maxBytes: 1073741824
