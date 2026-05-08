@@ -1,0 +1,78 @@
+{{/*
+K1 — pdb-permits-eviction (resilience, permissive default).
+
+A workload Deployment / StatefulSet must have a PodDisruptionBudget
+selecting it that PERMITS eviction (i.e. doesn't fully wedge the
+controller). The permits-eviction check is shaped as: if
+spec.maxUnavailable is set, it must be >= 1 OR a percentage; if
+spec.minAvailable is set, it must NOT equal the workload's full
+replica count (otherwise no Pod can ever be evicted).
+
+The "matching PDB exists" half of the contract is harder to express
+via Kyverno's pattern engine for the workload kind itself (Kyverno's
+context.apiCall would have to enumerate PDBs in the namespace and
+match labels). Instead this policy validates the PDB resource at
+admission time: when a PodDisruptionBudget is created/updated, its
+fields must permit eviction. The "PDB is missing entirely" check is
+deferred to slice S1 (compliance-aggregator) — it joins the workload
+list against the PDB list and emits synthetic PolicyReport rows for
+workloads with no PDB.
+
+Default mode permissive (Audit) per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.pdb.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: pdb-permits-eviction
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: PodDisruptionBudgets must permit eviction
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      A PodDisruptionBudget with maxUnavailable=0 (or minAvailable equal
+      to the workload's full replica count) wedges every voluntary
+      disruption. This policy rejects PDBs whose maxUnavailable is 0.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.pdb.action | default "Audit" }}
+  background: true
+  rules:
+    - name: pdb-maxunavailable-not-zero
+      match:
+        any:
+          - resources:
+              kinds:
+                - PodDisruptionBudget
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.pdb.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          - key: "{{ `{{ request.object.spec.maxUnavailable || ''}}` }}"
+            operator: NotEquals
+            value: ""
+      validate:
+        message: >-
+          PodDisruptionBudget {{ `{{request.object.metadata.name}}` }} has
+          maxUnavailable=0 which blocks every voluntary eviction. Set
+          maxUnavailable to >=1 (or a percentage), or use minAvailable
+          strictly less than the workload's replica count.
+        deny:
+          conditions:
+            any:
+              - key: "{{ `{{ request.object.spec.maxUnavailable }}` }}"
+                operator: Equals
+                value: 0
+              - key: "{{ `{{ request.object.spec.maxUnavailable }}` }}"
+                operator: Equals
+                value: "0%"
+{{- end -}}

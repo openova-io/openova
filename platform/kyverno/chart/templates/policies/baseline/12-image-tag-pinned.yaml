@@ -1,0 +1,70 @@
+{{/*
+K1 — image-tag-pinned (governance, ENFORCING default).
+
+Container images must be tagged with a non-`:latest`, non-empty tag.
+`:latest` (or no tag, which K8s treats as `:latest`) means the running
+bytes can change underneath any pod restart, breaking the
+SHA-pinned audit-trail contract in CLAUDE.md §4a.
+
+This policy uses Kyverno's pattern engine with anchors to assert image
+references end with a non-empty tag that is NOT `latest`. SHA-digest
+references (`@sha256:...`) are also accepted and treated as pinned.
+
+Default mode enforcing per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.imageTagPinned.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: image-tag-pinned
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    policies.kyverno.io/title: Container images must be tag-pinned (no :latest)
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Container images must reference an explicit, non-:latest tag (or
+      a @sha256: digest). Floating tags break SHA-pinned audit trails
+      and reproducibility.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.imageTagPinned.action | default "Audit" }}
+  background: true
+  rules:
+    - name: image-must-have-explicit-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.imageTagPinned.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          One or more containers reference an unpinned image (`:latest`
+          or no tag). Pin to an explicit tag or @sha256 digest.
+        foreach:
+          - list: "request.object.spec.containers || request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: '{{ `{{ element.image }}` }}'
+                    operator: Match
+                    value: "*:latest"
+                  - key: '{{ `{{ element.image }}` }}'
+                    operator: NotMatch
+                    value: "*:*"
+{{- end -}}

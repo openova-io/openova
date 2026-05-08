@@ -1,0 +1,74 @@
+{{/*
+K1 — topology-spread (resilience, permissive default).
+
+Deployments / StatefulSets with replicas >= 2 must declare a
+topologySpreadConstraint across either kubernetes.io/hostname or
+topology.kubernetes.io/zone, so a single host or AZ failure cannot
+remove every replica.
+
+Single-replica workloads are out of scope here (multi-replica policy
+catches those). PodAntiAffinity is an acceptable alternative pattern
+but Kyverno's pattern engine cannot cleanly express OR across two
+unrelated tree shapes (topologySpreadConstraints vs affinity); the
+affinity case is checked by the W2 evaluator as a synthetic compliance
+row. This policy enforces ONLY the topologySpreadConstraints branch
+when triggered.
+
+Default mode permissive per §4.3.
+*/}}
+{{- if .Values.compliancePolicies.topologySpread.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: topology-spread
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Multi-replica workloads must spread across hostname or zone
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Deployments / StatefulSets with replicas >= 2 must declare
+      topologySpreadConstraints with topologyKey of kubernetes.io/hostname
+      or topology.kubernetes.io/zone, so a single host or AZ failure
+      can't take down every replica.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.topologySpread.action | default "Audit" }}
+  background: true
+  rules:
+    - name: workload-must-declare-spread
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.topologySpread.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          - key: '{{ printf "{{ request.object.spec.replicas || `0` }}" }}'
+            operator: GreaterThanOrEquals
+            value: 2
+      validate:
+        message: >-
+          Multi-replica workload
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
+          missing topologySpreadConstraints. Add at least one constraint
+          with topologyKey kubernetes.io/hostname or
+          topology.kubernetes.io/zone.
+        pattern:
+          spec:
+            template:
+              spec:
+                topologySpreadConstraints:
+                  - topologyKey: "kubernetes.io/hostname | topology.kubernetes.io/zone"
+{{- end -}}

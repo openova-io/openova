@@ -1,0 +1,93 @@
+{{/*
+K2 — otel-injected (observability, permissive default).
+
+Workloads should carry OpenTelemetry instrumentation: either a
+sidecar container named `otel-collector`, OR the namespace has an
+Instrumentation CR (opentelemetry.io/v1alpha1) with auto-inject
+annotation set on the Pod template.
+
+Kyverno's pattern engine handles the sidecar branch easily; the
+"namespace has Instrumentation CR + auto-inject annotation" branch
+needs context.apiCall and is half-encoded here as the
+`instrumentation.opentelemetry.io/inject-*` annotation check (which is
+what the OTel operator's MutatingWebhook expects on the Pod template).
+
+Default mode permissive per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.otelInjected.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: otel-injected
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: observability
+  annotations:
+    policies.kyverno.io/title: Workloads should be OTel-instrumented
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Workloads should declare OpenTelemetry instrumentation via either
+      an `otel-collector` sidecar container OR
+      `instrumentation.opentelemetry.io/inject-*: "true"` annotation on
+      the Pod template (auto-injection by the OTel operator).
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.otelInjected.action | default "Audit" }}
+  background: true
+  rules:
+    - name: workload-must-be-otel-instrumented
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.otelInjected.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Workload
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
+          not OTel-instrumented. Add an `otel-collector` sidecar OR
+          annotate the Pod template with one of
+          `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}: "true"`.
+        anyPattern:
+          - spec:
+              template:
+                spec:
+                  containers:
+                    - name: otel-collector
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    instrumentation.opentelemetry.io/inject-java: "true"
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    instrumentation.opentelemetry.io/inject-python: "true"
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    instrumentation.opentelemetry.io/inject-nodejs: "true"
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    instrumentation.opentelemetry.io/inject-go: "true"
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    instrumentation.opentelemetry.io/inject-dotnet: "true"
+{{- end -}}

@@ -1,0 +1,74 @@
+{{/*
+K1 — pvc-volume-expansion (resilience, permissive default; stateful only).
+
+PersistentVolumeClaims must reference a StorageClass whose
+allowVolumeExpansion=true, so capacity can grow without re-provisioning
+storage. Stateless workloads have no PVCs and drop out of the score
+denominator (per design §4.3 footnote).
+
+This policy validates the StorageClass referenced by the PVC at admission
+time. If the PVC's spec.storageClassName is unset (cluster default
+applies), the rule is skipped — the cluster default's expansion ability
+is checked when the StorageClass itself is admitted (via context.apiCall
+in a sibling rule).
+
+Default mode permissive per §4.3.
+*/}}
+{{- if .Values.compliancePolicies.pvcExpansion.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: pvc-volume-expansion
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: PVC StorageClass must allow volume expansion
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      PersistentVolumeClaims should reference a StorageClass with
+      allowVolumeExpansion=true so storage can grow without rebuilding
+      the volume.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.pvcExpansion.action | default "Audit" }}
+  background: true
+  rules:
+    - name: storageclass-must-allow-expansion
+      match:
+        any:
+          - resources:
+              kinds:
+                - PersistentVolumeClaim
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.pvcExpansion.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          - key: "{{ `{{ request.object.spec.storageClassName || ''}}` }}"
+            operator: NotEquals
+            value: ""
+      context:
+        - name: scExpansion
+          apiCall:
+            urlPath: "/apis/storage.k8s.io/v1/storageclasses/{{ `{{request.object.spec.storageClassName}}` }}"
+            jmesPath: "allowVolumeExpansion || `false`"
+      validate:
+        message: >-
+          PVC {{ `{{request.object.metadata.name}}` }} references
+          StorageClass {{ `{{request.object.spec.storageClassName}}` }} which
+          does not allow volume expansion. Choose a StorageClass with
+          allowVolumeExpansion=true, or extend the existing one.
+        deny:
+          conditions:
+            any:
+              - key: "{{ `{{ scExpansion }}` }}"
+                operator: NotEquals
+                value: true
+{{- end -}}

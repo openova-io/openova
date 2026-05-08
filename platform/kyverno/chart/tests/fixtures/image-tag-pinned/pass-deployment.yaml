@@ -1,0 +1,19 @@
+# Passing case: explicit version tag.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pass-image-tag
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pass-image-tag
+  template:
+    metadata:
+      labels:
+        app: pass-image-tag
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.2.3

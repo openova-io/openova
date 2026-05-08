@@ -1,0 +1,19 @@
+# Failing case: 1 replica, drainability NOT satisfied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fail-multi-replica
+  namespace: example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fail-multi-replica
+  template:
+    metadata:
+      labels:
+        app: fail-multi-replica
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

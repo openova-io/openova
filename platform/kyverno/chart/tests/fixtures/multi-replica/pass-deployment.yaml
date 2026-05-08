@@ -1,0 +1,19 @@
+# Passing case: 2 replicas, drainability satisfied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pass-multi-replica
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pass-multi-replica
+  template:
+    metadata:
+      labels:
+        app: pass-multi-replica
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

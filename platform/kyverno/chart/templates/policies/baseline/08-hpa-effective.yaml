@@ -1,0 +1,64 @@
+{{/*
+K1 — hpa-effective (resilience, permissive default).
+
+If a HorizontalPodAutoscaler exists for a Deployment / StatefulSet, the
+target's spec.replicas should NOT be set to a value below
+hpa.spec.minReplicas — otherwise the HPA reverts the operator's intent
+on the next sync. This is also a sentinel for misconfigured CD pipelines
+that hardcode replicas while expecting the HPA to handle scale.
+
+The full HPA effectiveness check (current pod count >= minReplicas after
+scaling stabilizes) is impossible to express as a Kyverno rule because
+it requires runtime inspection of the live Deployment.status — that
+half lives in the W2 evaluator (`evaluators/hpa.go`). This policy only
+catches the static-config violation: replicas < HPA.minReplicas declared
+in spec.
+
+Default mode permissive per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.hpaEffective.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: hpa-effective
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: HPA minReplicas must not exceed workload spec.replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      When a HorizontalPodAutoscaler is admitted, its spec.minReplicas
+      must be >= 1 and the targeted workload's declared replicas should
+      not be below the HPA floor. Runtime effectiveness (current ready
+      Pod count) is checked by the compliance-aggregator's hpa.go
+      evaluator (slice W2).
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.hpaEffective.action | default "Audit" }}
+  background: true
+  rules:
+    - name: hpa-minreplicas-positive
+      match:
+        any:
+          - resources:
+              kinds:
+                - HorizontalPodAutoscaler
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.hpaEffective.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          HPA {{ `{{request.object.metadata.name}}` }} declares
+          spec.minReplicas < 1 — the autoscaler cannot scale to zero
+          and run; set minReplicas >= 1.
+        pattern:
+          spec:
+            minReplicas: ">=1"
+{{- end -}}

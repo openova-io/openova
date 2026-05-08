@@ -1,0 +1,72 @@
+{{/*
+K2 — cosign-verified (security, permissive default).
+
+Container images must carry a verifiable cosign signature. Kyverno's
+`verifyImages` rule type is the canonical seam: it intercepts the
+image at admission, verifies the cosign signature against an
+operator-provided public key (or Sigstore Rekor transparency log), and
+mutates spec.containers[].image with the resolved @sha256 digest on
+success.
+
+Per design §4.3 default mode is permissive — Audit emits a
+PolicyReport row but does NOT block the pull. Operators flip to
+Enforce per Environment via EnvironmentPolicy.spec.compliance.modes.
+
+The cosign public-key bundle is operator-supplied via
+.Values.compliancePolicies.cosignVerified.publicKey (or a Rekor URL).
+Both are runtime-configurable per docs/INVIOLABLE-PRINCIPLES.md #4.
+*/}}
+{{- if .Values.compliancePolicies.cosignVerified.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cosign-verified
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Container images must be cosign-signed
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Container images must carry a valid cosign signature. The
+      verifying public key (or Sigstore Rekor URL) is operator-supplied
+      per Sovereign overlay.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.cosignVerified.action | default "Audit" }}
+  background: false
+  rules:
+    - name: cosign-verify
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.cosignVerified.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      verifyImages:
+        - imageReferences:
+            {{- range $ref := .Values.compliancePolicies.cosignVerified.imageReferences }}
+            - {{ $ref | quote }}
+            {{- end }}
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |
+                      {{- .Values.compliancePolicies.cosignVerified.publicKey | nindent 22 }}
+                    rekor:
+                      url: {{ .Values.compliancePolicies.cosignVerified.rekorURL | default "https://rekor.sigstore.dev" | quote }}
+{{- end -}}
