@@ -1,0 +1,54 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-hcloud-csi
+  labels:
+    catalyst.openova.io/section: pts-3-5-storage-and-data
+spec:
+  version: 1.0.0
+  card:
+    title: Hetzner Cloud CSI
+    summary: |
+      Hetzner Cloud CSI driver providing the hcloud-volumes StorageClass.
+      Required for multi-node stateful workloads (CNPG primary/replica
+      pairs) on Hetzner Sovereigns. Activated by EPIC-6 (#1101).
+    family: storage
+    documentation: ./README.md
+  visibility: unlisted
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Master gate. Default off — installing this Blueprint is a no-op until flipped.
+      defaultStorageClass:
+        type: boolean
+        default: false
+        description: |
+          Flip the cluster's default StorageClass to hcloud-volumes. Default
+          false because it's a destructive change for Pods relying on the
+          previous default; in-place migration plan is its own slice.
+      hetznerTokenSecretRef:
+        type: object
+        description: SealedSecret holding the HCLOUD_TOKEN. Plaintext NEVER on the CR.
+        properties:
+          name:
+            type: string
+            default: hcloud-csi-token
+          key:
+            type: string
+            default: token
+  placementSchema:
+    modes: [single-region, active-active, active-hotstandby]
+    default: single-region
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends: []
+  upgrades:
+    from: ["0.x"]

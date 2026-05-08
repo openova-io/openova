@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-hcloud-csi
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint umbrella chart for the Hetzner Cloud CSI
+  driver. Provides the hcloud-volumes StorageClass for multi-node stateful
+  workloads. Default off — operator opts in deliberately per-Sovereign
+  per docs/INVIOLABLE-PRINCIPLES.md #4.
+
+  Wraps the upstream hetznercloud/csi-driver Helm chart as a subchart so
+  `helm dependency build` bundles it into the OCI artifact. Catalyst
+  overlay templates in templates/ (StorageClass, default-annotation,
+  VolumeSnapshotClass) sit alongside.
+type: application
+keywords: [catalyst, blueprint, csi, storage, hetzner]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a subchart. Pinned conservatively — bumps
+# require manual upgrade testing on a live Sovereign per
+# docs/INVIOLABLE-PRINCIPLES.md #4 + the lessons learned from the bp-cilium
+# provenance drift (slice H1).
+dependencies:
+  - name: hcloud-csi
+    version: "2.13.0"
+    repository: "https://charts.hetzner.cloud"
+    condition: enabled
