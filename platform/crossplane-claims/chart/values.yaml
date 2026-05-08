@@ -33,3 +33,222 @@ catalystBlueprint:
 # stack and does not consume the Catalyst access plane.
 userAccess:
   enabled: true
+
+# 5-tier catalog system (EPIC-3 #1098, slice T1). Renders 5 ClusterRoles
+# `openova:tier-{viewer,developer,operator,admin,owner}` that the
+# `/rbac/assign` find-or-create endpoint (slice A1) targets via roleRef.
+#
+# The action sets (RBAC verbs) are operator-tunable per
+# docs/INVIOLABLE-PRINCIPLES.md #4. The Helm template at
+# templates/tier-clusterroles.yaml computes the inherit chain
+# (developer ⊇ viewer; operator ⊇ developer; admin ⊇ operator;
+# owner ⊇ admin) by walking `inherit` recursively and concatenating the
+# resulting `extras[]` rule slices. enforcedScopes[] surfaces in the
+# rendered ClusterRole's annotations and is the contract the
+# useraccess-controller (slice T3) reads when deciding whether to
+# auto-inject `openova.io/env-type=dev` on developer-tier UserAccess CRs.
+#
+# Why ClusterRoles rather than Roles: per ADR-0001 §2.7 tenancy is
+# K8s-native. UserAccess can target either a single namespace
+# (RoleBinding → tier ClusterRole) or cluster-wide (ClusterRoleBinding
+# → tier ClusterRole). Same ClusterRole works for both bindings.
+#
+# Why the action verbs are spelled out (not `*`): per `clusterroles.yaml`
+# header — the audit trail must be grep-able. `*` is allowed here
+# (lower-blast-radius cases) but kept rare; explicit verb lists are the
+# default.
+tiers:
+  enabled: true
+  # Tier ordering — the access-matrix UI reads the level integer from the
+  # rendered ClusterRole's `catalyst.openova.io/tier-level` label so it
+  # can sort tiers without a hardcoded list. Same integers the Keycloak
+  # realm-role attribute `tier-level` carries (admin_roles.go:88-92).
+  levels:
+    viewer: 10
+    developer: 20
+    operator: 30
+    admin: 40
+    owner: 50
+
+# Per-tier action set. `inherit` references another tier's full action
+# set; `extras[]` is the verb list this tier ADDS on top. Empty `extras`
+# is allowed (a tier that re-exposes its parent's set with no additions).
+# `enforcedScopes[]` is auto-injected onto matching UserAccess CRs by
+# the useraccess-controller — see core/controllers/internal/labels/
+# `EnforcedScopes()`. The map is the public contract; renaming a tier
+# breaks the controller's switch statement, so DO NOT rename — extend.
+tierActions:
+  # ── tier-viewer (level 10): *.read ───────────────────────────────────
+  viewer:
+    extras:
+      - apiGroups: [""]
+        resources:
+          - pods
+          - pods/log
+          - services
+          - configmaps
+          - persistentvolumeclaims
+          - serviceaccounts
+          - events
+          - namespaces
+        verbs: [get, list, watch]
+      - apiGroups: ["apps"]
+        resources: [deployments, statefulsets, daemonsets, replicasets]
+        verbs: [get, list, watch]
+      - apiGroups: ["batch"]
+        resources: [jobs, cronjobs]
+        verbs: [get, list, watch]
+      - apiGroups: ["networking.k8s.io"]
+        resources: [ingresses, networkpolicies]
+        verbs: [get, list, watch]
+      - apiGroups: ["apps.openova.io"]
+        resources: [applications]
+        verbs: [get, list, watch]
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [environments, blueprints]
+        verbs: [get, list, watch]
+
+  # ── tier-developer (level 20): viewer + exec/console/tickets/sessions
+  # Auto-injected scope: openova.io/env-type=dev. Developers can NEVER
+  # operate on prod (slice T3 enforces).
+  developer:
+    inherit: viewer
+    extras:
+      # workloads.exec — pod exec + portforward write-equivalents.
+      - apiGroups: [""]
+        resources: [pods/exec, pods/portforward]
+        verbs: [create, get]
+      # workloads.console — terminal session create (catalyst.openova.io
+      # custom resource representing an open Guacamole console session).
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [consolesessions]
+        verbs: [create, get, list, watch, delete]
+      # tickets.create + tickets.update.
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [tickets]
+        verbs: [create, get, list, watch, update, patch]
+      # sessions.playback — read recorded sessions for review.
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [sessions, sessions/playback]
+        verbs: [get, list, watch]
+    enforcedScopes:
+      - key: openova.io/env-type
+        value: dev
+
+  # ── tier-operator (level 30): developer + connect.admin/sam/patches
+  operator:
+    inherit: developer
+    extras:
+      # console.connect.admin — open admin-level Guacamole consoles.
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [consolesessions/admin]
+        verbs: [create, get]
+      # sam.manage — service-account-management; rotate SA keys etc.
+      - apiGroups: [""]
+        resources: [serviceaccounts/token]
+        verbs: [create, get]
+      - apiGroups: [""]
+        resources: [serviceaccounts]
+        verbs: [create, update, patch, delete]
+      # patches.manage — apply patches to Applications.
+      - apiGroups: ["apps.openova.io"]
+        resources: [applications/patch]
+        verbs: [create, get, update, patch]
+      # tickets.accept — operators are the assignee class.
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [tickets/accept]
+        verbs: [create, get, update, patch]
+
+  # ── tier-admin (level 40): operator + compute/credentials/applications/
+  #   actions/accounts/networks/sessions.* (compute = no delete)
+  admin:
+    inherit: operator
+    extras:
+      # compute.* — Crossplane compose.openova.io claims (no delete; that
+      # stays owner-only). Day-2 CRUD via the Composition family.
+      - apiGroups: ["compose.openova.io"]
+        resources:
+          - clusterclaims
+          - regionclaims
+          - nodepoolclaims
+          - loadbalancerclaims
+          - peeringclaims
+          - nodeactionclaims
+        verbs: [create, get, list, watch, update, patch]
+      # credentials.* — Secrets full CRUD (the line separating editor from
+      # admin in the existing application-* ClusterRoles).
+      - apiGroups: [""]
+        resources: [secrets]
+        verbs: [create, get, list, watch, update, patch, delete]
+      # applications.* — Application CR + HelmRelease/Kustomization.
+      - apiGroups: ["apps.openova.io"]
+        resources: [applications]
+        verbs: [create, update, patch, delete]
+      - apiGroups: ["helm.toolkit.fluxcd.io"]
+        resources: [helmreleases]
+        verbs: [create, get, list, watch, update, patch, delete]
+      - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+        resources: [kustomizations]
+        verbs: [create, get, list, watch, update, patch, delete]
+      # actions.* — operator-triggered actions (Runbook executions).
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [runbooks, runbookexecutions]
+        verbs: [create, get, list, watch, update, patch, delete]
+      # accounts.* — Organization sub-account management.
+      - apiGroups: ["orgs.openova.io"]
+        resources: [organizations, organizations/status]
+        verbs: [get, list, watch, update, patch]
+      # networks.* — Cilium policies + Service mesh.
+      - apiGroups: ["cilium.io"]
+        resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
+        verbs: [create, get, list, watch, update, patch, delete]
+      # sessions.* — full CRUD on recorded sessions.
+      - apiGroups: ["catalyst.openova.io"]
+        resources: [sessions]
+        verbs: [create, update, patch, delete]
+      # workloads.* — full Deployment/StatefulSet write access at admin.
+      - apiGroups: ["apps"]
+        resources: [deployments, statefulsets, daemonsets, replicasets]
+        verbs: [create, update, patch, delete]
+      - apiGroups: ["apps"]
+        resources: [deployments/scale, statefulsets/scale]
+        verbs: [get, patch, update]
+      - apiGroups: ["batch"]
+        resources: [jobs, cronjobs]
+        verbs: [create, update, patch, delete]
+      - apiGroups: ["networking.k8s.io"]
+        resources: [ingresses, networkpolicies]
+        verbs: [create, update, patch, delete]
+      - apiGroups: [""]
+        resources: [pods, services, configmaps, persistentvolumeclaims, serviceaccounts]
+        verbs: [create, update, patch, delete]
+
+  # ── tier-owner (level 50): admin + rbac.* + organization.*
+  # Owners can grant other owners — DO NOT delete this without an
+  # explicit Org-handover migration story.
+  owner:
+    inherit: admin
+    extras:
+      # rbac.* — full RBAC management (UserAccess CR + RoleBindings).
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+        verbs: [create, get, list, watch, update, patch, delete]
+      - apiGroups: ["access.openova.io"]
+        resources: [useraccesses, useraccesses/status]
+        verbs: [create, get, list, watch, update, patch, delete]
+      # organization.* — Org CRD CRUD (delete only at owner tier).
+      - apiGroups: ["orgs.openova.io"]
+        resources: [organizations]
+        verbs: [create, delete]
+      # compute.delete — owners can delete cloud resources too. Listed
+      # here separately so the audit log distinguishes admin (no delete)
+      # from owner (delete).
+      - apiGroups: ["compose.openova.io"]
+        resources:
+          - clusterclaims
+          - regionclaims
+          - nodepoolclaims
+          - loadbalancerclaims
+          - peeringclaims
+          - nodeactionclaims
+        verbs: [delete]
