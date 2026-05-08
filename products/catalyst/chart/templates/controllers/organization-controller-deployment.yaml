@@ -1,0 +1,131 @@
+{{- /*
+organization-controller Deployment.
+
+Reconciles Organization.orgs.openova.io/v1 CRs:
+  - Provisions/updates per-Org Keycloak realm coordinates (via the
+    in-cluster Keycloak Admin API)
+  - Creates/updates the per-Org Gitea Org slug (via Gitea API)
+  - Maintains the per-Org owner UserAccess CR
+  - Surfaces ready/error state via .status.conditions
+
+Configuration (no hardcoded values per docs/INVIOLABLE-PRINCIPLES.md #4):
+  - Keycloak coords come from .Values.controllers.organization.env.* in the
+    chart values, which the operator threads from the per-Sovereign overlay.
+  - Gitea coords come from the same `catalyst-gitea-token` Secret that
+    catalyst-api uses (single source of truth — issue #957/#1052 trail).
+*/ -}}
+{{- if .Values.controllers.organization.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controllers.fullname" "organization" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.organization.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "controllers.selectorLabels" (dict "name" "organization") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "controllers.fullname" "organization" }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "controllers.image" (dict "name" "organization" "cfg" .Values.controllers.organization "root" .) | quote }}
+          imagePullPolicy: {{ .Values.controllers.organization.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.controllers.organization.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CATALYST_HOST_CLUSTER
+              value: {{ .Values.global.sovereignFQDN | default "catalyst-zero" | quote }}
+            - name: CATALYST_KC_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: keycloak-addr
+                  optional: true
+            - name: CATALYST_KC_REALM
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: keycloak-realm
+                  optional: true
+            - name: CATALYST_KC_SA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-organization-controller-keycloak
+                  key: client-id
+                  optional: true
+            - name: CATALYST_KC_SA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-organization-controller-keycloak
+                  key: client-secret
+                  optional: true
+            - name: CATALYST_GITEA_URL
+              value: {{ .Values.controllers.organization.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000/api/v1" | quote }}
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
+            {{- range $k, $v := .Values.controllers.organization.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controllers.organization.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.controllers.organization.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.organization.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.organization.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}

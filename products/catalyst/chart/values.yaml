@@ -135,6 +135,154 @@ images:
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
   smeTag: "a57d05d"
 
+# ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
+# The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
+#
+#   organization  — Organization.orgs.openova.io       → KC realm + Gitea Org + per-Org UserAccess
+#   environment   — Environment.catalyst.openova.io    → per-vCluster Flux GitRepository in Gitea
+#   blueprint     — Blueprint.catalyst.openova.io      → mirror canonical Blueprint into per-Org Gitea repo
+#   application   — Application.apps.openova.io        → per-region Kustomization+HelmRelease into Gitea
+#   useraccess    — UserAccess.access.openova.io       → RoleBinding + ClusterRoleBinding objects
+#
+# Every controller is DEFAULT OFF — operators flip the per-Sovereign overlay's
+# `controllers.<name>.enabled: true` ONLY after the legacy reconciliation
+# path on that surface is ready to retire. Flipping `controllers.useraccess.
+# enabled: true` is what RETIRES the broken Crossplane Composition path
+# (provider-kubernetes is not installed on any production Sovereign — silent
+# P0 bug per docs/EPICS-1-6-unified-design.md §3.5).
+#
+# Image references SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4 + #4a.
+# CI stamps `image.tag` on every push to main; a literal SHA (`abcd123`)
+# appears here once the per-controller build workflow has run at least once
+# against a commit that matches Containerfile bytes. Until then the value
+# is `""` and the chart fail-fasts at render time when `enabled: true`
+# (see templates/controllers/_helpers.tpl `controllers.image`).
+controllers:
+  organization:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/organization-controller"
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    leaderElection:
+      enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # Optional Gitea base URL override. Empty = in-cluster default.
+    giteaURL: ""
+    # Free-form extra env vars threaded into the Pod (advanced; for one-off
+    # operator-side knobs not yet promoted to a top-level value).
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  environment:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/environment-controller"
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    leaderElection:
+      enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    giteaURL: ""
+    giteaSecretRef: "gitea-flux-token"
+    fluxNamespace: "flux-system"
+    fluxIntervalSeconds: 60
+    commitAuthor:
+      name: "environment-controller"
+      email: "environment-controller@openova.io"
+    envRepoSuffix: "-environment"
+    requeueAfterSeconds: 300
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  blueprint:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/blueprint-controller"
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    leaderElection:
+      enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    giteaURL: ""
+    logLevel: "info"
+    resyncPeriod: "5m"
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  application:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/application-controller"
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    leaderElection:
+      enabled: true
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    giteaURL: ""
+    sourceNamespace: "flux-system"
+    catalogSourceRef: "openova-catalog"
+    helmReleaseIntervalSeconds: 600
+    requeueAfterSeconds: 300
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  useraccess:
+    # Flipping this to true RETIRES the broken Crossplane UserAccess Composition
+    # path (per docs/EPICS-1-6-unified-design.md §3.5 — provider-kubernetes not
+    # installed on any production Sovereign). MUST be paired with a delete of
+    # the Crossplane UserAccess Composition on the same Sovereign — see
+    # core/controllers/README.md §"useraccess cutover playbook".
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/useraccess-controller"
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    leaderElection:
+      enabled: true
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    logLevel: "info"
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane

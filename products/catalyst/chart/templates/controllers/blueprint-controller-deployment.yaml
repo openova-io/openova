@@ -1,0 +1,101 @@
+{{- /*
+blueprint-controller Deployment.
+
+Watches Blueprint CRs; validates configSchema + upgrades.from semver
+ranges; mirrors the canonical Blueprint manifest into the per-Org Gitea
+repo via HTTP. Lives entirely on the K8s side as a stateless reconciler
+(state is the CR itself + Gitea's own state).
+*/ -}}
+{{- if .Values.controllers.blueprint.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controllers.fullname" "blueprint" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "blueprint" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.blueprint.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "controllers.selectorLabels" (dict "name" "blueprint") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "controllers.labels" (dict "name" "blueprint" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "controllers.fullname" "blueprint" }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "controllers.image" (dict "name" "blueprint" "cfg" .Values.controllers.blueprint "root" .) | quote }}
+          imagePullPolicy: {{ .Values.controllers.blueprint.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.controllers.blueprint.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CATALYST_GITEA_URL
+              value: {{ .Values.controllers.blueprint.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
+            - name: LOG_LEVEL
+              value: {{ .Values.controllers.blueprint.logLevel | default "info" | quote }}
+            - name: RESYNC_PERIOD
+              value: {{ .Values.controllers.blueprint.resyncPeriod | default "5m" | quote }}
+            {{- range $k, $v := .Values.controllers.blueprint.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controllers.blueprint.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.controllers.blueprint.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.blueprint.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllers.blueprint.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+{{- end }}

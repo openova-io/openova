@@ -1,0 +1,48 @@
+{{- /*
+ClusterRole for organization-controller.
+
+Least-privilege grants per CC3 audit (#1095):
+
+  agent's deploy/rbac/role.yaml grants                         keep?  why
+  ----------------------------------------------------------------------------
+  organizations:get/list/watch                                 yes    primary watch
+  organizations/status:get/update/patch                        yes    status writes
+  organizations/finalizers:update                              yes    finalizer add/remove
+  useraccesses:get/list/watch/create/update/patch              yes    per-owner UA writes
+  leases:get/list/watch/create/update/patch/delete             yes    leader election
+  events:create/patch                                          yes    controller-runtime emits Events
+  configmaps:get/list/watch/create/update/patch/delete         TIGHTEN — controller-runtime LE fallback ONLY needs these in
+                                                                       its own namespace, not cluster-wide. Moved to a
+                                                                       Role (see organization-controller-role.yaml).
+
+Net delta vs the agent's original ClusterRole shape:
+  - REMOVED cluster-wide configmaps {get,list,watch,create,update,patch,delete}
+    (moved to namespace-scoped Role for leader election)
+*/ -}}
+{{- if .Values.controllers.organization.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "controllers.fullname" "organization" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}

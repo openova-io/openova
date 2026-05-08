@@ -1,0 +1,53 @@
+{{- /*
+ClusterRole for application-controller.
+
+Least-privilege grants (CC3 audit, #1095):
+
+  agent's deploy/rbac.yaml grants                              keep?  why
+  ----------------------------------------------------------------------------
+  applications:get/list/watch/update/patch                     yes    primary watch + finalizer mutation
+  applications/status:get/update/patch                         yes    status writes
+  applications/finalizers:update                               yes    finalizer subresource
+  environments:get/list/watch                                  yes    parent ref read
+  organizations:get/list/watch                                 yes    grandparent ref read
+  blueprints:get/list/watch                                    yes    blueprint ref read
+  events:create/patch                                          yes    controller-runtime emits Events
+  Note: HelmRelease/Kustomization writes go to Gitea via HTTP API
+  (CATALYST_GITEA_TOKEN), NOT to the K8s API.
+
+Net delta vs the agent's original ClusterRole:
+  - No changes (the agent already shipped least-privilege).
+*/ -}}
+{{- if .Values.controllers.application.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "controllers.fullname" "application" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "application" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}

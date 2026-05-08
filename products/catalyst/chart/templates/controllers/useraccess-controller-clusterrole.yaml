@@ -1,0 +1,53 @@
+{{- /*
+ClusterRole for useraccess-controller.
+
+Least-privilege grants (CC3 audit, #1095):
+
+  agent's deploy/rbac.yaml grants                              keep?  why
+  ----------------------------------------------------------------------------
+  useraccesses:get/list/watch                                  yes    primary watch
+  useraccesses/status:get/update/patch                         yes    status writes
+  rolebindings,clusterrolebindings:get/list/watch/create/update/patch/delete
+                                                               yes    materialise grants — this is the controller's
+                                                                       core write surface
+  namespaces:get/list/watch                                    yes    namespace existence check before binding
+  clusterroles:get                                             yes    ownerRef sanity (the openova:application-*
+                                                                       ClusterRoles must exist before a binding to
+                                                                       them is emitted) — get-only, never modified
+  leases:get/list/watch/create/update/patch/delete             yes    leader election
+  events:create/patch                                          ADD    controller-runtime emits Events on every error;
+                                                                       missing in agent's original RBAC.
+
+Net delta vs the agent's original ClusterRole:
+  - ADDED events:create/patch (was missing — controller-runtime requires it).
+*/ -}}
+{{- if .Values.controllers.useraccess.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "controllers.fullname" "useraccess" }}
+  labels:
+    {{- include "controllers.labels" (dict "name" "useraccess" "root" .) | nindent 4 }}
+rules:
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["get"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}
