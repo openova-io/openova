@@ -1,0 +1,63 @@
+name: infra/hetzner — OpenTofu validate + test
+
+# Module-local guardrail for the Catalyst Hetzner Phase-0 OpenTofu module
+# at infra/hetzner/. Every PR touching the module re-runs `tofu validate`,
+# `tofu fmt -check`, and the module's own `.tftest.hcl` test suite so the
+# multi-region wiring (slice G1, EPIC-0 #1095) stays green and the legacy
+# singular-region apply path keeps its plan-clean shape.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge + pull-request-on-touch. There is no
+# `schedule:` trigger; ad-hoc reruns go through workflow_dispatch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/hetzner/**'
+      - '.github/workflows/infra-hetzner-tofu.yaml'
+  pull_request:
+    paths:
+      - 'infra/hetzner/**'
+      - '.github/workflows/infra-hetzner-tofu.yaml'
+  workflow_dispatch:
+
+jobs:
+  validate-and-test:
+    name: validate + fmt + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra/hetzner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Pinned to match the version `infra/hetzner/versions.tf` declares
+          # (`required_version = ">= 1.6.0"`) and the version
+          # `tests/e2e/hetzner-provisioning` already uses (1.8.5). Bump in
+          # lockstep with that workflow to keep CI behaviour deterministic.
+          tofu_version: 1.8.5
+
+      - name: tofu init (backend=false — no real state for module-local checks)
+        run: tofu init -backend=false
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive
+
+      - name: tofu validate
+        run: tofu validate
+
+      - name: tofu test (offline — mock_provider + override_resource)
+        # The module's tests/multi_region.tftest.hcl exercises the
+        # multi-region wiring shape WITHOUT touching real Hetzner.
+        # `mock_provider "hcloud"` short-circuits API calls and
+        # `override_resource minio_s3_bucket.main` bypasses the minio
+        # provider's required-attribute schema check. Real-cloud E2E
+        # provisioning lives in `.github/workflows/test-hetzner-e2e.yaml`
+        # (gated on the `test/hetzner-e2e` PR label).
+        run: tofu test

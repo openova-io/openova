@@ -244,7 +244,7 @@ variable "regions" {
     worker_size / worker_count variables (the back-compat path used by
     handler/load_test.go and any pre-rework wizard payload).
   EOT
-  default = []
+  default     = []
   validation {
     condition = alltrue([
       for r in var.regions :
@@ -591,8 +591,8 @@ variable "harbor_robot_token" {
     Public proxy projects). Non-empty is enforced by the provisioner for
     production Sovereign deployments once harbor.openova.io is live.
   EOT
-  sensitive = true
-  default   = ""
+  sensitive   = true
+  default     = ""
 }
 
 variable "pdm_basic_auth_user" {
@@ -619,8 +619,8 @@ variable "pdm_basic_auth_user" {
     this in, a re-provision (or a Secret rotation via cloud-init
     re-render) supplies real credentials.
   EOT
-  sensitive = true
-  default   = ""
+  sensitive   = true
+  default     = ""
 }
 
 variable "pdm_basic_auth_pass" {
@@ -629,8 +629,8 @@ variable "pdm_basic_auth_pass" {
     Password for the Pool Domain Manager (PDM) public ingress.
     See `pdm_basic_auth_user` for the full lifecycle. Sensitive.
   EOT
-  sensitive = true
-  default   = ""
+  sensitive   = true
+  default     = ""
 }
 
 variable "object_storage_bucket_name" {
@@ -686,6 +686,6 @@ variable "handover_jwt_public_key" {
     Supplied by the catalyst-api provisioner from h.handoverSigner.PublicJWK().
     Empty when the provisioner has no signer (CATALYST_HANDOVER_KEY_PATH unset).
   EOT
-  sensitive = true
-  default   = ""
+  sensitive   = true
+  default     = ""
 }
