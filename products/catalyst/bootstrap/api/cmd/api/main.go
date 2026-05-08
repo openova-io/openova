@@ -602,6 +602,13 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
+		// EPIC-1 #1096 slice X — EnvironmentPolicy mode toggle backend
+		// for the slice U PolicyModeToggle widget. Writes
+		// EnvironmentPolicy.spec.compliance.modes; the EnvironmentPolicy
+		// controller (separately reconciled) flips Kyverno's per-namespace
+		// validationFailureAction. Requires tier-admin or higher per
+		// INVIOLABLE-PRINCIPLES #5.
+		rg.Put("/api/v1/sovereigns/{id}/environments/{env}/policy", h.HandleEnvironmentPolicyMode)
 		// Sovereign Infrastructure surface — unified topology read +
 		// Day-2 CRUD via Crossplane XRC writes (issue #227 + Day-2 IaC).
 		// Read endpoints compose from the deployment record + live
