@@ -116,6 +116,8 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		"persistentvolume", "replicaset", "endpointslice",
 		// dashboard color_by=utilization depends on this (#1084)
 		"podmetrics",
+		// EPIC-1 (#1096) compliance — Kyverno PolicyReports.
+		"policyreport", "clusterpolicyreport",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {
@@ -603,3 +605,152 @@ func itoa(n int) string {
 // keep corev1 referenced to prevent the import being elided when this
 // file changes.
 var _ = corev1.NamespaceDefault
+
+// ── EPIC-1 (#1096) — PolicyReport SSE fanout ─────────────────────
+
+// newPolicyReport returns a tiny unstructured wgpolicyk8s.io PolicyReport.
+// Mirrors the schema produced by the Kyverno reports controller — fields
+// kept minimal because the score aggregator (slice S1) reads only
+// `metadata.{name,namespace,labels,ownerReferences}` and `results[]`.
+//
+// Results pass through DeepCopyJSON so the slice element type must be
+// `any` (not `map[string]any`) — DeepCopyJSON refuses unknown concrete
+// slice element types.
+func newPolicyReport(ns, name string, results []any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "wgpolicyk8s.io/v1alpha2",
+		"kind":       "PolicyReport",
+		"metadata": map[string]any{
+			"namespace":       ns,
+			"name":            name,
+			"resourceVersion": "1",
+		},
+		"results": results,
+	}}
+}
+
+func newClusterPolicyReport(name string, results []any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "wgpolicyk8s.io/v1alpha2",
+		"kind":       "ClusterPolicyReport",
+		"metadata": map[string]any{
+			"name":            name,
+			"resourceVersion": "1",
+		},
+		"results": results,
+	}}
+}
+
+// policyReportRegistry — minimal registry with the two PolicyReport
+// kinds. Used by the W1 fanout test below.
+func policyReportRegistry() *Registry {
+	r := NewRegistry()
+	_ = r.Add(Kind{
+		Name:       "policyreport",
+		GVR:        schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"},
+		Namespaced: true,
+	})
+	_ = r.Add(Kind{
+		Name:       "clusterpolicyreport",
+		GVR:        schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"},
+		Namespaced: false,
+	})
+	return r
+}
+
+// fakePolicyReportClients — like fakeClients but seeds the discovery
+// scheme with the wgpolicyk8s.io types so the dynamic informer's LIST +
+// WATCH succeed against the in-memory store.
+func fakePolicyReportClients(objs ...runtime.Object) (*dynamicfake.FakeDynamicClient, clientgokubernetes.Interface) {
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "wgpolicyk8s.io", Version: "v1alpha2", Kind: "PolicyReportList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "wgpolicyk8s.io", Version: "v1alpha2", Kind: "PolicyReport"}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "wgpolicyk8s.io", Version: "v1alpha2", Kind: "ClusterPolicyReportList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "wgpolicyk8s.io", Version: "v1alpha2", Kind: "ClusterPolicyReport"}, &unstructured.Unstructured{})
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}:        "PolicyReportList",
+		{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}: "ClusterPolicyReportList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
+	core := kfake.NewSimpleClientset()
+	return dyn, core
+}
+
+// TestPolicyReport_FlowsThroughSSEFanout asserts W1 — applying a
+// PolicyReport CR fires the same ADD event the architecture-graph kinds
+// fire, with no special-case handling. Coverage:
+//   - PolicyReport (namespace-scoped)
+//   - ClusterPolicyReport (cluster-scoped) on the same factory
+//   - Subscriber filtered to compliance kinds receives both
+func TestPolicyReport_FlowsThroughSSEFanout(t *testing.T) {
+	dyn, core := fakePolicyReportClients()
+	cfg := Config{
+		Logger:   quietLogger(),
+		Registry: policyReportRegistry(),
+		Clusters: []ClusterRef{
+			{ID: "alpha", DynamicClient: dyn, CoreClient: core},
+		},
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+
+	ch, unsub := f.Subscribe("operator", map[string]struct{}{
+		"policyreport":        {},
+		"clusterpolicyreport": {},
+	})
+	defer unsub()
+
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Apply a namespaced PolicyReport.
+	results := []any{
+		map[string]any{
+			"policy":  "multi-replica-drainability",
+			"rule":    "multi-replica-drainability",
+			"result":  "fail",
+			"message": "Deployment has only 1 replica",
+		},
+	}
+	prGVR := schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}
+	if _, err := dyn.Resource(prGVR).Namespace("acme").Create(context.Background(), newPolicyReport("acme", "pod-frontend-7c5f", results), metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create PolicyReport: %v", err)
+	}
+
+	// Apply a cluster-scoped ClusterPolicyReport.
+	cprGVR := schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}
+	if _, err := dyn.Resource(cprGVR).Create(context.Background(), newClusterPolicyReport("ns-acme", results), metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create ClusterPolicyReport: %v", err)
+	}
+
+	gotPR, gotCPR := false, false
+	timeout := time.After(2 * time.Second)
+	for !(gotPR && gotCPR) {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				t.Fatalf("subscriber channel closed")
+			}
+			if ev.Type != EventAdded {
+				continue
+			}
+			if ev.Kind == "policyreport" && ev.Object.GetName() == "pod-frontend-7c5f" {
+				// Sanity check — body survives unmodified (PolicyReport
+				// is non-sensitive so redact is a no-op).
+				if results, _, _ := unstructured.NestedSlice(ev.Object.Object, "results"); len(results) != 1 {
+					t.Fatalf("PolicyReport.results not preserved through fanout")
+				}
+				gotPR = true
+			}
+			if ev.Kind == "clusterpolicyreport" && ev.Object.GetName() == "ns-acme" {
+				gotCPR = true
+			}
+		case <-timeout:
+			t.Fatalf("never received PolicyReport (got=%v) + ClusterPolicyReport (got=%v) ADD events", gotPR, gotCPR)
+		}
+	}
+}

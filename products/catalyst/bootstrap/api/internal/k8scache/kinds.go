@@ -120,6 +120,20 @@ var DefaultKinds = []Kind{
 	// real Sovereign ships bp-metrics-server in the platform bundle,
 	// so the utilization gradient renders out of the box.
 	{Name: "podmetrics", GVR: schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}, Namespaced: true},
+
+	// EPIC-1 (#1096) — Compliance: Kyverno PolicyReports.
+	//
+	// `wgpolicyk8s.io/v1alpha2/PolicyReport` is the namespace-scoped
+	// per-resource compliance report Kyverno emits for every Pod /
+	// Workload it audits. `ClusterPolicyReport` is the cluster-scoped
+	// equivalent for cluster-scoped resources (Namespaces, Nodes,
+	// CRDs, …). The score aggregator (slice S1) consumes both via the
+	// same SSE fanout the architecture graph already uses — no special
+	// path. The reports themselves carry no secret material (Kyverno
+	// omits the offending object's data fields by design) so
+	// Sensitive=false is correct.
+	{Name: "policyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}, Namespaced: true},
+	{Name: "clusterpolicyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}, Namespaced: false},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
