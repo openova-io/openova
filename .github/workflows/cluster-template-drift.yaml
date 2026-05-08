@@ -1,0 +1,114 @@
+name: Cluster bootstrap-kit drift guardrail
+
+# Warns when any clusters/<sovereign>/bootstrap-kit/ tree drifts from
+# clusters/_template/bootstrap-kit/. The _template tree is the canonical
+# bootstrap-kit shape; per-Sovereign drift means a future bootstrap regen
+# will diverge from what's running in production.
+#
+# This workflow runs in WARN-ONLY mode — it always passes but uses the
+# Actions summary + a sticky PR comment to surface the drift. The drift
+# itself is not blocked because (a) every existing Sovereign already
+# carries some legitimate drift (per-Sovereign image SHAs, region-specific
+# values overlay) and (b) the right place to enforce the boundary is
+# Catalyst's organization-controller (slice C1 of #1095), not CI.
+#
+# Per docs/EPICS-1-6-unified-design.md §3.9 row 2 + §11 row 6.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a, this workflow only inspects YAML
+# — it does not build images, deploy anything, or call cloud APIs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clusters/**'
+      - '.github/workflows/cluster-template-drift.yaml'
+  pull_request:
+    paths:
+      - 'clusters/**'
+      - '.github/workflows/cluster-template-drift.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  drift-warn:
+    name: Detect bootstrap-kit drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: List per-Sovereign bootstrap-kits
+        id: list
+        run: |
+          # Every cluster directory other than _template is a per-Sovereign overlay.
+          mapfile -t sovereigns < <(find clusters -maxdepth 1 -mindepth 1 -type d \
+            -not -name '_template' -printf '%f\n')
+          printf 'sovereigns=%s\n' "${sovereigns[*]}" >> "$GITHUB_OUTPUT"
+          echo "Found Sovereigns: ${sovereigns[*]}"
+
+      - name: Diff each Sovereign bootstrap-kit against _template
+        run: |
+          set -u
+          template=clusters/_template/bootstrap-kit
+          if [ ! -d "$template" ]; then
+            echo "_template/bootstrap-kit missing — nothing to compare against."
+            exit 0
+          fi
+
+          echo "## Cluster bootstrap-kit drift report" > /tmp/drift.md
+          echo >> /tmp/drift.md
+          echo "Comparing each \`clusters/<sovereign>/bootstrap-kit/\` against \`clusters/_template/bootstrap-kit/\`." >> /tmp/drift.md
+          echo >> /tmp/drift.md
+
+          any_drift=0
+          while IFS= read -r sovereign_dir; do
+            target="$sovereign_dir/bootstrap-kit"
+            [ -d "$target" ] || continue
+            sovereign=$(basename "$sovereign_dir")
+
+            # diff -rq lists differing + only-in-X files; filter both.
+            differs=$(diff -rq "$template" "$target" 2>/dev/null || true)
+
+            if [ -z "$differs" ]; then
+              echo "### ✅ ${sovereign} — fully aligned with \`_template\`" >> /tmp/drift.md
+              echo >> /tmp/drift.md
+            else
+              any_drift=1
+              changed=$(echo "$differs" | grep -c "^Files " || true)
+              tmpl_only=$(echo "$differs" | grep -c "^Only in $template" || true)
+              sov_only=$(echo "$differs" | grep -c "^Only in $target" || true)
+              echo "### ⚠️ ${sovereign} — drift detected" >> /tmp/drift.md
+              echo >> /tmp/drift.md
+              echo "- ${changed} file(s) differ between \`_template\` and \`${sovereign}\`" >> /tmp/drift.md
+              echo "- ${tmpl_only} file(s) ONLY in \`_template\` (missing on Sovereign — likely needs adding)" >> /tmp/drift.md
+              echo "- ${sov_only} file(s) ONLY on Sovereign (extra — likely a per-Sovereign overlay or stale leftover)" >> /tmp/drift.md
+              echo >> /tmp/drift.md
+              echo "<details><summary>Full diff list</summary>" >> /tmp/drift.md
+              echo >> /tmp/drift.md
+              echo '```' >> /tmp/drift.md
+              echo "$differs" >> /tmp/drift.md
+              echo '```' >> /tmp/drift.md
+              echo "</details>" >> /tmp/drift.md
+              echo >> /tmp/drift.md
+            fi
+          done < <(find clusters -maxdepth 1 -mindepth 1 -type d -not -name '_template' -print)
+
+          if [ "$any_drift" = "1" ]; then
+            echo >> /tmp/drift.md
+            echo "**Action**: drift is informational only — every existing Sovereign carries some legitimate drift (per-Sovereign image SHAs, region-specific values overlay). The right place to enforce the boundary is Catalyst's organization-controller (slice C1 of #1095), not this workflow." >> /tmp/drift.md
+          fi
+
+          # Always print to the run summary.
+          cat /tmp/drift.md >> "$GITHUB_STEP_SUMMARY"
+          # Never fail — warn-only.
+          echo "Drift report written to job summary."
+
+      - name: Sticky comment on PR with drift report
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: cluster-template-drift
+          path: /tmp/drift.md
