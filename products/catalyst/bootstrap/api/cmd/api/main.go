@@ -667,6 +667,16 @@ func main() {
 		rg.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
 		rg.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
 
+		// EPIC-3 (#1098) slice A1+A2 — find-or-create role assignment
+		// + access-matrix endpoints. The /rbac/assign endpoint is the
+		// ergonomic wrapper the multi-grant editor (slice U1) calls
+		// when an operator picks a tier + scope combination; idempotent
+		// re-assigns no-op or update the existing UserAccess. The
+		// access-matrix endpoint feeds the EPIC-3 U7 access-matrix UI
+		// with one pre-computed users × applications × tier grid.
+		rg.Post("/api/v1/sovereigns/{id}/rbac/assign", h.HandleRBACAssign)
+		rg.Get("/api/v1/sovereigns/{id}/rbac/access-matrix", h.HandleRBACAccessMatrix)
+
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
 		// scoping is by X-Tenant-Host header (sent by the SPA from

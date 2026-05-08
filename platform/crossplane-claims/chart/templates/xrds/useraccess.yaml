@@ -50,7 +50,7 @@ spec:
           properties:
             spec:
               type: object
-              required: [user, sovereignRef, applications]
+              required: [user, sovereignRef]
               properties:
                 user:
                   type: object
@@ -87,14 +87,20 @@ spec:
                 applications:
                   type: array
                   description: |
-                    One entry per (Application × role) grant. An entry may
-                    name explicit namespaces, vClusters (rendered as
-                    additional namespaces with the vCluster prefix), or
-                    omit both — in which case the catalyst-api expands the
-                    Claim against Application.k8s_namespaces before
-                    applying. The Composition itself only renders explicit
-                    namespaces; expansion is the api's job.
-                  minItems: 1
+                    Legacy per-Application grant list (admin/editor/viewer
+                    short-enum, slice #322 shape). One entry per
+                    (Application × role) grant. An entry may name explicit
+                    namespaces, vClusters (rendered as additional
+                    namespaces with the vCluster prefix), or omit both —
+                    in which case catalyst-api expands the Claim against
+                    Application.k8s_namespaces before applying. The
+                    Composition itself only renders explicit namespaces;
+                    expansion is the api's job.
+
+                    EPIC-3 (#1098) UserAccess CRs authored via the
+                    /rbac/assign endpoint use the new tierRoleRef + scopes
+                    fields instead and may omit applications entirely.
+                    Both shapes coexist during EPIC-3 rollout.
                   items:
                     type: object
                     required: [app, role]
@@ -141,6 +147,63 @@ spec:
                   properties:
                     name:
                       type: string
+                tierRoleRef:
+                  type: string
+                  description: |
+                    Tier ClusterRole this UserAccess targets — one of
+                    `openova:tier-{viewer,developer,operator,admin,owner}`
+                    (the 5 catalog tiers shipped by EPIC-3 (#1098) slice
+                    T1's tier-clusterroles.yaml).
+
+                    Authored by the find-or-create-role endpoint
+                    (`POST /api/v1/sovereigns/{id}/rbac/assign`, slice A1)
+                    when an operator picks a tier in the multi-grant
+                    editor. The useraccess-controller binds this
+                    ClusterRole on the target via RoleBinding /
+                    ClusterRoleBinding depending on whether scopes
+                    narrow the target to a namespace.
+
+                    When unset, the legacy `applications[*].role` short
+                    enum (admin/editor/viewer → openova:application-*)
+                    is used by the Composition. Both fields can co-exist
+                    during EPIC-3 rollout — tierRoleRef takes precedence
+                    when both are set.
+                  pattern: '^openova:tier-(viewer|developer|operator|admin|owner)$'
+                scopes:
+                  type: array
+                  description: |
+                    Manara DNA label-based scope tags per
+                    docs/EPICS-1-6-unified-design.md §6.3. Each entry is
+                    a `{key, value}` pair from the canonical openova.io
+                    label vocabulary (NAMING-CONVENTION.md §6).
+
+                    Semantics: AND-within (all scopes must match the
+                    target), OR-across UserAccess CRs (any matching CR
+                    grants access). The wildcard scope
+                    `[{key: "*", value: "*"}]` means cluster-wide.
+
+                    Empty list = cluster-wide (same as wildcard scope).
+
+                    Authored by the /rbac/assign endpoint and consumed
+                    by the useraccess-controller's label-matching engine
+                    at `core/controllers/internal/labels/`.
+                  items:
+                    type: object
+                    required: [key, value]
+                    properties:
+                      key:
+                        type: string
+                        description: |
+                          Label key from the canonical openova.io
+                          vocabulary (e.g. `openova.io/application`,
+                          `openova.io/env-type`, `openova.io/org`). The
+                          wildcard `*` matches any key.
+                      value:
+                        type: string
+                        description: |
+                          Label value (e.g. `wordpress`, `dev`,
+                          `acme-corp`). The wildcard `*` matches any
+                          value.
             status:
               type: object
               properties:

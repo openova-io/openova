@@ -1,0 +1,37 @@
+# Kyverno policy unit test for the useraccess-boundary ClusterPolicy
+# (EPIC-3 #1098 slice A3).
+#
+# Run with the Kyverno CLI:
+#   kyverno test platform/crossplane-claims/chart/tests/
+#
+# (CI-wired in a follow-up slice; see the canon §6 test-tier table.
+# This manifest documents the contract so the CI gate is a one-line
+# add when the CLI lands in the toolchain.)
+#
+# Two test cases:
+#   1. PASS — a same-Org developer grant; no policy violation.
+#   2. FAIL — a cross-Org admin grant by a non-management-Org owner;
+#      policy violation (Audit-mode surfaces, Enforce-mode blocks).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: useraccess-boundary-test
+policies:
+  # Render the policy via `helm template` first, then point this list
+  # at the rendered file. The CI step that runs `kyverno test` does
+  # this glue.
+  - ../templates/policies/userAccess-boundary.yaml
+resources:
+  - fixtures/useraccess-boundary-pass-sample-org.yaml
+  - fixtures/useraccess-boundary-fail-sample-cross-org.yaml
+results:
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    resource: sample-acme-developer-wp
+    kind: UserAccess
+    result: pass
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    resource: sample-cross-org-wp-grant
+    kind: UserAccess
+    result: fail

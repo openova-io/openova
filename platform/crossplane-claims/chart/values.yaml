@@ -252,3 +252,24 @@ tierActions:
           - peeringclaims
           - nodeactionclaims
         verbs: [delete]
+
+# A3 — UserAccess boundary validator (EPIC-3 #1098). Kyverno
+# ClusterPolicy at templates/policies/userAccess-boundary.yaml denies
+# cross-Organization UserAccess grants unless the requester is a
+# member of the management Org with tier=owner.
+#
+# Default Audit (permissive) so the rule surfaces violations to the
+# UI's policy report without blocking the apply. Per-Sovereign overlay
+# flips to Enforce when an Org owner is ready to harden the boundary.
+#
+# allowedCrossOrgTiers: realm-role names whose holder may sign a
+# cross-Org grant. The default is `owner` (matches the EPIC-3 T2
+# Keycloak realm role `catalyst-owner`); when corporate Sovereigns
+# delegate cross-Org signing to a partner SI, append the SI's tier
+# realm role here.
+userAccessBoundary:
+  enabled: true
+  action: Audit
+  allowedCrossOrgTiers:
+    - owner
+    - catalyst-owner
