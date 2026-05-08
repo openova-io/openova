@@ -1,0 +1,38 @@
+# Invalid sample — must FAIL schema validation. Each field below carries an
+# error vector the schema MUST catch:
+#
+#   placement: "round-robin"           — not in enum
+#   blueprintRef.name: "wordpress"     — missing bp- prefix
+#   blueprintRef.version: "1.3"        — not strict semver
+#   regions: []                        — minItems=1
+#   environmentRef: "ACME PROD"        — uppercase + space, fails pattern
+#   topology.rto: "1 minute"           — wrong format
+#   owners[0].role: "superuser"        — not in enum
+#   healthCheck.intervalSeconds: 600   — exceeds maximum
+#
+# Run via:
+#   kubectl apply --dry-run=server -f application-sample-invalid.yaml
+# Expect: rejection citing every offending field.
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: bad-app
+  namespace: acme
+spec:
+  environmentRef: "ACME PROD"
+  blueprintRef:
+    name: wordpress
+    version: "1.3"
+  placement: round-robin
+  regions: []
+  healthCheck:
+    path: /health
+    port: http
+    intervalSeconds: 600
+  owners:
+    - email: ops@acme.com
+      role: superuser
+  topology:
+    autoFailover: true
+    rto: "1 minute"
+    rpo: 5s
