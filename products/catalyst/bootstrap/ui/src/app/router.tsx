@@ -83,9 +83,45 @@ import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
+import { canonicalisePath, hasCatalystSession, isPublicPath } from './auth-gate'
+
+/**
+ * rootBeforeLoad — universal auth gate (#1090 cluster A2).
+ *
+ * Runs before EVERY route's beforeLoad in the tree. Two responsibilities:
+ *
+ *   1. Path canonicalisation — redirect malformed paths (//x, /x/, /X)
+ *      to canonical /x so deep-link variants don't slip past the gate.
+ *
+ *   2. Sovereign-mode auth gate — when no session is detected and the
+ *      canonical path is NOT in PUBLIC_PATH_PREFIXES, redirect to
+ *      /login?next=<canonical> with the original deep-link preserved.
+ *
+ * Mothership (catalyst-zero) mode handles its own auth via
+ * provisionAuthGuard / wizardAuthGuard for its routes — the gate is a
+ * no-op in non-sovereign mode (other than canonicalisation).
+ */
+function rootBeforeLoad({ location }: { location: { pathname: string } }) {
+  if (typeof window === 'undefined') return
+  const pathname = location.pathname
+  const canonical = canonicalisePath(pathname)
+  if (canonical !== pathname) {
+    const newURL = canonical + window.location.search + window.location.hash
+    window.location.replace(newURL)
+    throw redirect({ to: canonical as never, replace: true })
+  }
+  if (DETECTED_MODE.mode !== 'sovereign') return
+  if (isPublicPath(canonical)) return
+  if (hasCatalystSession()) return
+  throw redirect({
+    to: '/login',
+    search: { next: pathname + window.location.search },
+    replace: true,
+  })
+}
 
 // Root
-const rootRoute = createRootRoute({ component: RootLayout })
+const rootRoute = createRootRoute({ component: RootLayout, beforeLoad: rootBeforeLoad })
 
 /**
  * Index redirect — mode-aware.
