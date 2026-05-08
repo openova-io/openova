@@ -1,0 +1,59 @@
+# Master gate. Default off — installing this Blueprint is a no-op until
+# flipped. EPIC-5 (#1100) flips it as part of the observability roll-out
+# AFTER bp-opentelemetry (the collector) is reconciled and reachable.
+enabled: false
+
+catalystBlueprint:
+  upstream: { chart: opentelemetry-operator, version: "0.61.0", repo: "https://open-telemetry.github.io/opentelemetry-helm-charts" }
+
+# Default Instrumentation CR rendered when enabled. The CR is created in
+# the namespace .Values.defaultInstrumentation.namespace (default cilium).
+# Per-Application overrides live in per-namespace Instrumentation CRs that
+# application-controller (slice C4 of #1095) renders from
+# Blueprint.spec.observability.traces=otlp.
+defaultInstrumentation:
+  enabled: false
+  namespace: cilium
+  name: default
+  # OTLP gRPC endpoint of the collector. Default targets bp-opentelemetry's
+  # Service (created by the upstream collector chart in the monitoring
+  # namespace).
+  exporterEndpoint: "http://opentelemetry-collector.monitoring.svc:4317"
+  # Sampler — parentbased_traceidratio is the bank-tier default. Operator
+  # tunes per-Sovereign.
+  sampler:
+    type: "parentbased_traceidratio"
+    argument: "0.25"
+  # Per-language toggles. Each populates the corresponding section of
+  # the Instrumentation spec — disabled languages won't auto-inject when
+  # an annotation requests them.
+  java:
+    enabled: true
+  nodejs:
+    enabled: true
+  python:
+    enabled: true
+  dotnet:
+    enabled: false
+
+# ─── Upstream subchart values (subchart key: opentelemetry-operator) ──
+opentelemetry-operator:
+  manager:
+    # The upstream chart REQUIRES manager.collectorImage.repository to
+    # be set (the operator needs to know which collector image to deploy
+    # when an OpenTelemetryCollector CR is created without an explicit
+    # image). Pin to the upstream contrib distribution; operators bump
+    # via overlay per docs/INVIOLABLE-PRINCIPLES.md #4.
+    collectorImage:
+      repository: "otel/opentelemetry-collector-contrib"
+    # cert-manager is the canonical webhook cert provider (bp-cert-manager
+    # is in every Sovereign's bootstrap-kit). Operator uses
+    # cert-manager-issued cert for its admission webhook.
+    serviceAccount:
+      create: true
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 256Mi }
+  admissionWebhooks:
+    certManager:
+      enabled: true

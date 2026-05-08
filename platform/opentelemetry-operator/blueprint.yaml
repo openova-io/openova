@@ -1,0 +1,67 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-opentelemetry-operator
+  labels:
+    catalyst.openova.io/section: pts-3-2-observability-and-tracing
+spec:
+  version: 1.0.0
+  card:
+    title: OpenTelemetry Operator
+    summary: |
+      Auto-injection of OTel SDK sidecars into Pods via Instrumentation
+      CRs. Companion to bp-opentelemetry (the collector). Activated by
+      EPIC-5 (#1100).
+    family: observability
+    documentation: ./README.md
+  visibility: unlisted
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Master gate. Default off — installing this Blueprint is a no-op until flipped.
+      defaultInstrumentation:
+        type: object
+        description: Default Instrumentation CR rendered into every Org namespace.
+        properties:
+          enabled:
+            type: boolean
+            default: false
+          exporterEndpoint:
+            type: string
+            description: OTLP gRPC endpoint of the collector. Default points at bp-opentelemetry's Service.
+          java:
+            type: object
+            properties:
+              enabled: { type: boolean, default: true }
+          nodejs:
+            type: object
+            properties:
+              enabled: { type: boolean, default: true }
+          python:
+            type: object
+            properties:
+              enabled: { type: boolean, default: true }
+          dotnet:
+            type: object
+            properties:
+              enabled: { type: boolean, default: false }
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-opentelemetry
+      version: ^1
+    - blueprint: bp-cert-manager
+      version: ^1
+  upgrades:
+    from: ["0.x"]
