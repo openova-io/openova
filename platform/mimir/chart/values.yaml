@@ -124,3 +124,39 @@ mimir-distributed:
 mimirOverlay:
   networkPolicy:
     enabled: false
+
+# ─── Compliance recording rules + alerts (EPIC-1 #1096 slice S2) ─────────
+#
+# When `enabled: true` AND the cluster has Prometheus Operator's
+# `monitoring.coreos.com/v1` CRD installed (via bp-kube-prometheus-stack),
+# the chart renders a PrometheusRule resource pre-aggregating the
+# catalyst-api's `catalyst_compliance_*` metrics into trend dashboards
+# and pager alerts.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 every threshold is a value so
+# per-Sovereign overlays tighten/loosen without forking the chart.
+complianceRules:
+  # Default ON because the metrics are emitted by every catalyst-api
+  # Pod; rendering the rule on a Sovereign that hasn't reached Phase 2
+  # is gated by the Capabilities check in the template (no failure
+  # mode — the resource is silently skipped).
+  enabled: true
+  # Empty namespace falls back to .Release.Namespace.
+  namespace: ""
+  extraLabels: {}
+  recording:
+    # How often Prometheus evaluates the recording rules. 1m is the
+    # cheapest cadence that still drives a smooth trend dashboard.
+    interval: 1m
+  alerts:
+    severity: warning
+    # Alert when an Application's 1h-avg score drops by this many
+    # absolute points hour-over-hour. Default 10; tighten to 5 for
+    # regulator-grade Sovereigns.
+    regressionThreshold: 10
+    regressionFor: 10m
+    # Alert when an enforcing policy is firing more than N
+    # violations/hour — the U5 toggle let it through but workloads
+    # are still failing. Default 50.
+    enforcingViolationsPerHour: 50
+    enforcingFor: 5m
