@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -138,6 +139,44 @@ func main() {
 			"addr", addr,
 			"realm", realm,
 		)
+	}
+
+	// EPIC-3 slice T2 (#1098) — Keycloak composite catalog-tier
+	// realm-role bootstrap. Gated by KEYCLOAK_BOOTSTRAP_TIER_ROLES
+	// (default false) so existing Sovereigns + the contabo mothership
+	// continue to start unchanged; opt in via the chart's catalyst-api
+	// Deployment env on the Sovereigns where the catalog-tier system
+	// is the source of UX truth.
+	//
+	// Why a goroutine: Keycloak may not be ready when catalyst-api
+	// starts (Flux reconciles bp-keycloak in parallel with
+	// bp-catalyst-platform). Blocking the HTTP listener on a Keycloak
+	// availability probe violates ADR-0001 §2 event-driven principle.
+	// Instead the bootstrap polls for KC readiness with capped backoff
+	// (5 attempts, ~30s total) and gives up — the next catalyst-api
+	// restart picks the bootstrap up again. Re-runs are no-ops once
+	// the realm-role chain is in place (idempotency anchor in
+	// EnsureTierRealmRoles).
+	if envBool("KEYCLOAK_BOOTSTRAP_TIER_ROLES", false) {
+		// Reuse the same SA credentials wired above for /auth/handover
+		// (CATALYST_KC_ADDR + CATALYST_KC_REALM + CATALYST_KC_SA_CLIENT_ID
+		// + CATALYST_KC_SA_CLIENT_SECRET). If any are missing the
+		// goroutine logs and exits — the operator opted into the
+		// bootstrap but didn't wire credentials, that's a config bug
+		// not an infra outage and shouldn't crashloop catalyst-api.
+		kcAddr := os.Getenv("CATALYST_KC_ADDR")
+		kcRealm := env("CATALYST_KC_REALM", "sovereign")
+		kcSAClient := os.Getenv("CATALYST_KC_SA_CLIENT_ID")
+		kcSASecret := os.Getenv("CATALYST_KC_SA_CLIENT_SECRET")
+		if kcAddr == "" || kcSAClient == "" || kcSASecret == "" {
+			log.Warn("kc-bootstrap: KEYCLOAK_BOOTSTRAP_TIER_ROLES=true but CATALYST_KC_ADDR/SA_CLIENT_ID/SA_CLIENT_SECRET incomplete; skipping tier-role bootstrap")
+		} else {
+			bootstrapKC := keycloak.New(kcAddr, kcRealm, kcSAClient, kcSASecret)
+			// Tied to a fresh background context — the goroutine's
+			// lifetime is the catalyst-api process. ctx (line ~213
+			// below) is reserved for the k8scache informer wiring.
+			go runTierRoleBootstrap(context.Background(), log, bootstrapKC, kcRealm)
+		}
 	}
 
 	// Multi-zone PowerDNS client (issue #827, parent epic #825). Wired
@@ -778,6 +817,106 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envBool returns the parsed boolean value of an env var, or fallback
+// when unset / unparseable. Truthy values: 1, t, T, true, TRUE, True.
+func envBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	switch v {
+	case "1", "t", "T", "true", "TRUE", "True":
+		return true
+	case "0", "f", "F", "false", "FALSE", "False":
+		return false
+	default:
+		return fallback
+	}
+}
+
+// runTierRoleBootstrap waits for Keycloak to become reachable, then
+// runs EnsureTierRealmRoles with capped backoff. Errors are logged and
+// the goroutine exits — the next catalyst-api restart will pick the
+// bootstrap up again. Re-runs are idempotent no-ops.
+//
+// Backoff: 5 attempts at 0s, 5s, 10s, 20s, 40s = ~75s total wall-clock
+// at worst. Combined with the 30s Keycloak readiness wait, the bootstrap
+// has up to ~105s to converge before the goroutine gives up. The
+// Keycloak-config-cli Job (chart-install-time) is the orthogonal
+// lifecycle and runs separately.
+func runTierRoleBootstrap(ctx context.Context, log *slog.Logger, kc *keycloak.Client, realm string) {
+	if err := waitForKeycloak(ctx, kc, 30*time.Second); err != nil {
+		log.Error("kc-bootstrap: KC not reachable, skipping tier-role bootstrap",
+			"err", err,
+		)
+		return
+	}
+
+	delays := []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second}
+	var lastErr error
+	for i, d := range delays {
+		if d > 0 {
+			select {
+			case <-ctx.Done():
+				log.Warn("kc-bootstrap: context cancelled during backoff",
+					"attempt", i+1,
+				)
+				return
+			case <-time.After(d):
+			}
+		}
+		err := kc.EnsureTierRealmRoles(ctx, realm)
+		if err == nil {
+			log.Info("kc-bootstrap: tier-role bootstrap converged",
+				"attempt", i+1,
+				"realm", realm,
+			)
+			return
+		}
+		lastErr = err
+		log.Warn("kc-bootstrap: tier-role ensure failed; will retry",
+			"attempt", i+1,
+			"err", err,
+		)
+	}
+	log.Error("kc-bootstrap: tier-role bootstrap gave up after all retries",
+		"realm", realm,
+		"err", lastErr,
+	)
+}
+
+// waitForKeycloak polls the Keycloak service-account token endpoint
+// until it returns a token (KC is up) or the timeout elapses. The
+// catalyst-api may start before Keycloak's HelmRelease finishes
+// reconciling on a fresh Sovereign — this poll keeps the bootstrap
+// goroutine quiet until KC is reachable, avoiding a flood of 5xx logs.
+func waitForKeycloak(ctx context.Context, kc *keycloak.Client, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	tick := 2 * time.Second
+	var lastErr error
+	for time.Now().Before(deadline) {
+		// EnsureTierRealmRoles is idempotent on a populated realm but
+		// expensive on a clean one — for the readiness check we only
+		// need a single GET to confirm KC is up. The simplest path is
+		// to call ListRealmRoles which exercises serviceAccountToken
+		// then a single Admin GET.
+		_, err := kc.ListRealmRoles(ctx)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(tick):
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("keycloak readiness timeout: %w", lastErr)
+	}
+	return fmt.Errorf("keycloak readiness timeout (no error captured)")
 }
 
 // pathOnlyLogFormatter implements chi's middleware.LogFormatter so the
