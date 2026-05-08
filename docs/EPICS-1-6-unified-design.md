@@ -1,6 +1,6 @@
 # EPICs 1–6: Unified Design
 
-**Status**: Authoritative target spec for the Phase 0/1 roll-out tracked under #1094.
+**Status**: Authoritative target spec for the Phase 0/1 roll-out tracked under #1094. Promoted to Authoritative on 2026-05-08 after Phase-0 Group B (CRD schemas) substantially landed.
 **Updated**: 2026-05-08
 **Audience**: Every Architect, Implementer, Reviewer, Test-Plan Author, Test Executor, Fix Author working on any of #1094–#1101.
 
@@ -422,7 +422,7 @@ Bundled into Phase 0 because every later EPIC trips on at least one of these.
 |---|---|---|
 | 1 | Cilium subchart 1.16.5 vs values.yaml claiming 1.19.3 | Pin to one stable, align values, update Chart.lock |
 | 2 | `omantel.omani.works/`, `otech.omani.works/` drifted from `_template/` | Reconcile to template; CI gate on diff |
-| 3 | `provisioningstate.yaml` CRD = 0 bytes | Delete (catalyst-api uses PVC + flat-file event log per ADR-0001 §4.1) |
+| 3 | `provisioningstate.yaml` CRD = 0 bytes | **AMENDED 2026-05-08**: Author the schema (was originally "delete"). The audit was incomplete — `catalyst-api/internal/store/crd_store.go` actively expects this CRD (GVR `catalyst.openova.io/v1alpha1/provisioningstates`) and silently no-ops in `CRDModeDisabled` when it isn't installed. Implemented in slice H3 / PR #1104. |
 | 4 | NATS JetStream chart has no `templates/` | Add Stream + KV CRs |
 | 5 | OTel Operator not deployed | Add HelmRelease |
 | 6 | `local-path` StorageClass blocks multi-node CNPG primary/replica | Add `hcloud-volumes` CSI as default for stateful |
@@ -811,7 +811,7 @@ Per EPIC, embedded across the whole journey (qa-loop is part of the team from da
 | 5 | Two catalogs (bp-* OCI vs SME catalog) | Unify under `catalog-svc` per ADR-0001 §4.3 | Founder via ADR |
 | 6 | omantel/otech bootstrap-kit drifted from `_template` | Reconcile + CI gate on diff | Coordinator |
 | 7 | NATS chart has no `templates/` | Add Stream + KV CRs per §3.9 | Coordinator |
-| 8 | `provisioningstate.yaml` = 0 bytes | Delete | Coordinator |
+| 8 | `provisioningstate.yaml` = 0 bytes | **AMENDED 2026-05-08**: Author (not delete) — `catalyst-api/internal/store/crd_store.go` actively expects this CRD. Audit-correction during EPIC-0 slice H3 (PR #1104). | Coordinator |
 | 9 | Apps run in vCluster-per-Org (already in NAMING §1.5) | Confirmed locked — internal-dept + customer-SME both get vClusters; only billing differs | Founder explicit response |
 | 10 | OTel Operator absent; only collector with all presets off | Add Operator + Instrumentation CRs (Java/.NET/Node/Python first; Go eBPF later) | Coordinator |
 | 11 | Failover-controller is README-only | Replace with Continuum product (`products/continuum/`); CRD `dr.openova.io/v1` | Coordinator |

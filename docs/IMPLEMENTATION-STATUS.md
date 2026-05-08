@@ -96,20 +96,22 @@ These run on **every host cluster** (mgt, rtz, dmz). Status is per-component REA
 
 ## 4. CRDs
 
-[`core/README.md`](../core/README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) reference these CRDs:
+[`core/README.md`](../core/README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) reference these CRDs. EPIC-0 (#1095) of the Phase-0/1 roll-out under #1094 lands the schema layer as committed YAML in `products/catalyst/chart/crds/` and validates them against a real K8s control plane; Go types + reconciliation controllers (Group C of #1095) follow.
 
 | CRD | Status | Notes |
 |---|---|---|
 | `Sovereign` | 📐 | Top-level deployment object. No Go type yet. |
-| `Organization` | 📐 | Multi-tenancy unit. No Go type yet. |
-| `Environment` | 📐 | `{org}-{env_type}` scope. No Go type yet. |
-| `Application` | 📐 | An installed Blueprint. No Go type yet. |
-| `Blueprint` | 📐 | The unified Blueprint CRD spec is in [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §3 — that is the design contract for the Go type. |
-| `EnvironmentPolicy` | 📐 | Promotion gating. No Go type yet. |
-| `SecretPolicy` | 📐 | Rotation policy. No Go type yet. |
-| `Runbook` | 📐 | Auto-remediation. No Go type yet. |
+| `Organization` | 🚧 | Schema landed in `products/catalyst/chart/crds/organization.yaml` (slice B1, PR #1106). organization-controller is slice C1 — not yet built. |
+| `Environment` | 🚧 | Schema landed in `products/catalyst/chart/crds/environment.yaml` (slice B2, PR #1107). environment-controller is slice C2 — not yet built. |
+| `Application` | 🚧 | Schema landed in `products/catalyst/chart/crds/application.yaml` (slice B3, PR #1105). application-controller is slice C4 — not yet built. |
+| `Blueprint` | 🚧 | Schema landed in `products/catalyst/chart/crds/blueprint.yaml` (slice B4, PR #1112). Serves both `v1alpha1` (legacy) and `v1` (canonical). All 59 existing `platform/*/blueprint.yaml` and `products/*/blueprint.yaml` files validate against the schema (5 string-form `depends:` entries fixed in the same PR). blueprint-controller is slice C3 — not yet built. |
+| `EnvironmentPolicy` | 🚧 | Schema landed in `products/catalyst/chart/crds/environmentpolicy.yaml` (slice B5, PR #1108). Promotion gating + per-policy compliance weights and permissive/enforcing modes. Consumer (compliance-aggregator) lives in EPIC-1 #1096. |
+| `SecretPolicy` | 🚧 | Schema landed in `products/catalyst/chart/crds/secretpolicy.yaml` (slices B6+B7, PR #1111). Skeleton — populated by SRE Lead post-Phase-0; rotation engine is a future controller. |
+| `Runbook` | 🚧 | Schema landed in `products/catalyst/chart/crds/runbook.yaml` (slices B6+B7, PR #1111). Skeleton — auto-remediation hooks for prometheus-alert / cr-condition / nats-event / schedule triggers. Executor is a future controller. |
+| `Continuum` | 🚧 | Schema landed in `products/catalyst/chart/crds/continuum.yaml` (slice B8, PR #1110). Group `dr.openova.io/v1`. Switchover orchestration with Cloudflare-KV or DNS-quorum lease witness. continuum-controller is in EPIC-6 #1101. |
+| `ProvisioningState` | 🚧 | Schema landed in `products/catalyst/chart/crds/provisioningstate.yaml` (slice H3, PR #1104). The previous 0-byte placeholder caused every catalyst-api in production to silently no-op the CRD-projection path — closing this gap was an audit-correction during EPIC-0. Writer is `internal/store/crd_store.go` (already deployed); CRD will be live as soon as the chart rolls out. |
 
-`core/pkg/apis/v1alpha1/` is currently a `.gitkeep` directory. The Go types will be added when the control-plane services are scaffolded.
+`core/pkg/apis/v1alpha1/` is currently a `.gitkeep` directory. The Go types will be added when the control-plane services are scaffolded (slice C1..C5 of #1095).
 
 ---
 
