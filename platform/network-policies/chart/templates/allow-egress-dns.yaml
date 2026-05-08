@@ -1,0 +1,32 @@
+{{/*
+Allow egress to CoreDNS from every namespace. Without this, default-deny
+breaks every Pod's first DNS lookup → catastrophic.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 8.
+*/}}
+{{- if and .Values.enabled .Values.allowEgressDNS -}}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: 30-allow-egress-dns
+  labels:
+    app.kubernetes.io/name: bp-network-policies
+    app.kubernetes.io/component: zero-trust-allow
+    catalyst.openova.io/policy-tier: allow-egress-dns
+spec:
+  description: |
+    Allow UDP/TCP/53 egress to CoreDNS from every Pod in every namespace.
+    This rule MUST exist for the cluster to function under default-deny.
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": {{ .Values.dnsNamespace | quote }}
+            "k8s:k8s-app": {{ .Values.dnsServiceName | quote }}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+{{- end -}}

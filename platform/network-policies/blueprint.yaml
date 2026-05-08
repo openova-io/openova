@@ -1,0 +1,65 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-network-policies
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  version: 1.0.0
+  card:
+    title: Network Policies (zero-trust baseline)
+    summary: |
+      Default-deny CiliumClusterwideNetworkPolicy + allow-templates for
+      Catalyst control-plane namespaces, intra-namespace traffic, and DNS.
+      Activated by EPIC-5 #1100.
+    family: networking
+    documentation: ./README.md
+  visibility: unlisted
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Master gate. Default off — installing this Blueprint is a no-op until flipped.
+      allowSystemNamespaces:
+        type: array
+        description: Namespaces the Catalyst control plane needs full ingress/egress on.
+        items:
+          type: string
+        default:
+          - kube-system
+          - flux-system
+          - cilium
+          - cert-manager
+          - catalyst
+          - openova-system
+          - monitoring
+          - ingress
+      allowEgressDNS:
+        type: boolean
+        default: true
+        description: Allow egress to CoreDNS from every namespace. Without this, Pods break.
+      dnsNamespace:
+        type: string
+        default: kube-system
+        description: Namespace where CoreDNS lives.
+      dnsServiceName:
+        type: string
+        default: kube-dns
+        description: Service name CoreDNS publishes under (k3s default is kube-dns).
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium
+      version: ^1
+  upgrades:
+    from: ["0.x"]

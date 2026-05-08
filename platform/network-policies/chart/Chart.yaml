@@ -1,0 +1,13 @@
+apiVersion: v2
+name: bp-network-policies
+version: 1.0.0
+description: |
+  Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
+  allow-templates for control-plane namespaces, intra-namespace traffic,
+  and CoreDNS egress. Default off — operator opts in deliberately
+  per-Sovereign per docs/INVIOLABLE-PRINCIPLES.md #4.
+type: application
+keywords: [catalyst, blueprint, network-policy, cilium, zero-trust]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
