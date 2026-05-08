@@ -1,0 +1,46 @@
+# Valid sample — covers active-hotstandby placement, healthCheck, owners,
+# topology with rto/rpo. Verified via:
+#   kubectl apply --dry-run=server -f application-sample-valid.yaml
+# (server-side dry-run requires the CRD applied to a real cluster first).
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: marketing-site
+  namespace: acme
+  labels:
+    openova.io/organization: acme
+    openova.io/environment: acme-prod
+    openova.io/application: marketing-site
+spec:
+  environmentRef: acme-prod
+  blueprintRef:
+    name: bp-wordpress
+    version: 1.3.0
+  placement: active-hotstandby
+  regions:
+    - hz-fsn-rtz-prod
+    - hz-hel-rtz-prod
+  parameters:
+    domain: marketing.acme-prod.omantel.openova.io
+    adminEmail: ops@acme.com
+    replicas: 2
+    postgres:
+      mode: external
+      ref: shared-postgres
+  healthCheck:
+    path: /health
+    port: http
+    intervalSeconds: 30
+    timeoutSeconds: 5
+  owners:
+    - email: ops@acme.com
+      role: admin
+    - email: dev@acme.com
+      role: developer
+    - email: ceo@acme.com
+      role: owner
+  topology:
+    autoFailover: true
+    rto: 60s
+    rpo: 5s
+    minReplicas: 2

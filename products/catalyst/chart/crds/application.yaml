@@ -1,0 +1,247 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: applications.apps.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: application
+spec:
+  group: apps.openova.io
+  scope: Namespaced
+  names:
+    kind: Application
+    listKind: ApplicationList
+    singular: application
+    plural: applications
+    shortNames:
+      - app
+      - apps
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Blueprint
+          type: string
+          jsonPath: .spec.blueprintRef.name
+        - name: Version
+          type: string
+          jsonPath: .spec.blueprintRef.version
+        - name: Environment
+          type: string
+          jsonPath: .spec.environmentRef
+        - name: Placement
+          type: string
+          jsonPath: .spec.placement
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Primary
+          type: string
+          jsonPath: .status.primaryRegion
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Application is an installed instance of a Blueprint, owned by an
+            Organization, deployed into one or more regions per its Placement,
+            managed by Flux.
+
+            One Application = one Gitea repo at
+            gitea.{location-code}.{sovereign-domain}/{org}/{app}; branches
+            develop/staging/main map to dev/stg/prod Environments.
+
+            See docs/EPICS-1-6-unified-design.md §3.2.3 and
+            docs/BLUEPRINT-AUTHORING.md §3 for the contract.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [environmentRef, blueprintRef, placement, regions]
+              properties:
+                environmentRef:
+                  type: string
+                  description: |
+                    Name of the Environment CR (e.g. acme-prod) this Application
+                    belongs to. Environment determines vCluster targets and
+                    Gitea branch.
+                  pattern: '^[a-z][a-z0-9-]{2,63}$'
+                blueprintRef:
+                  type: object
+                  required: [name, version]
+                  properties:
+                    name:
+                      type: string
+                      description: Blueprint name (e.g. bp-wordpress).
+                      pattern: '^bp-[a-z][a-z0-9-]{1,62}$'
+                    version:
+                      type: string
+                      description: Semver of the Blueprint OCI artifact.
+                      pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$'
+                placement:
+                  type: string
+                  enum:
+                    - single-region
+                    - active-active
+                    - active-hotstandby
+                  description: |
+                    DR posture. single-region = one cluster only. active-active
+                    = manifests fan out to all regions[]. active-hotstandby =
+                    primary in regions[0], standby in regions[1..] with
+                    replica:0; failover managed by the Continuum controller.
+                regions:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  description: |
+                    Host clusters this Application targets, in priority order.
+                    For active-hotstandby, regions[0] is the primary.
+                  items:
+                    type: string
+                    pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                parameters:
+                  type: object
+                  description: |
+                    User-supplied values, validated against the Blueprint's
+                    spec.configSchema (BLUEPRINT-AUTHORING.md §3-§4).
+                    Free-form here; the application-controller and the
+                    blueprint-controller's admission webhook enforce the
+                    schema match at admission.
+                  x-kubernetes-preserve-unknown-fields: true
+                healthCheck:
+                  type: object
+                  required: [path, port]
+                  properties:
+                    path:
+                      type: string
+                      description: HTTP(S) path probed for liveness from outside the cluster.
+                      pattern: '^/.*'
+                    port:
+                      x-kubernetes-int-or-string: true
+                      description: Service port name or numeric port.
+                    intervalSeconds:
+                      type: integer
+                      minimum: 5
+                      maximum: 300
+                      default: 30
+                    timeoutSeconds:
+                      type: integer
+                      minimum: 1
+                      maximum: 60
+                      default: 5
+                owners:
+                  type: array
+                  description: Per-Application owner list. Roles materialize as UserAccess via useraccess-controller.
+                  items:
+                    type: object
+                    required: [email, role]
+                    properties:
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum: [owner, admin, developer, viewer]
+                topology:
+                  type: object
+                  description: DR / scaling knobs read by the Continuum controller (#1101).
+                  properties:
+                    autoFailover:
+                      type: boolean
+                      default: false
+                      description: Only meaningful for placement=active-hotstandby.
+                    rto:
+                      type: string
+                      pattern: '^[0-9]+(s|m|h)$'
+                      description: Recovery Time Objective (e.g. "60s", "5m").
+                    rpo:
+                      type: string
+                      pattern: '^[0-9]+(s|m|h)$'
+                      description: Recovery Point Objective (e.g. "5s", "1m").
+                    minReplicas:
+                      type: integer
+                      minimum: 1
+                      description: Lower bound for any HPA the Blueprint declares.
+                  x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Provisioning
+                    - Ready
+                    - Degraded
+                    - Failed
+                    - Uninstalling
+                primaryRegion:
+                  type: string
+                  description: Currently-primary host cluster. Switched by the Continuum controller on failover.
+                regions:
+                  type: array
+                  description: Per-region rollout state.
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:
+                        type: string
+                      role:
+                        type: string
+                        enum: [primary, standby, active]
+                      replicas:
+                        type: integer
+                        minimum: 0
+                      ready:
+                        type: integer
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                giteaRepo:
+                  type: string
+                  description: Full URL of the per-Application Gitea repo (e.g. gitea.hfmp.omantel.openova.io/acme/marketing-site).
+                installedBlueprint:
+                  type: object
+                  description: Snapshot of the Blueprint actually rendered (post upgrade-resolve).
+                  properties:
+                    name:
+                      type: string
+                    version:
+                      type: string
+                    digest:
+                      type: string
+                      description: OCI artifact digest for reproducibility.
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
