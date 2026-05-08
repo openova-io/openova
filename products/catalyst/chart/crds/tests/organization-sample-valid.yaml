@@ -1,0 +1,47 @@
+# Valid sample — corporate Org with Azure-SSO federation. Verified via:
+#   kubectl apply --dry-run=server -f organization-sample-valid.yaml
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: acme
+  labels:
+    openova.io/sovereign: omantel.omani.works
+spec:
+  slug: acme
+  displayName: ACME Corp
+  kind: customer
+  tier: corporate
+  billingMode: real
+  sovereignRef: omantel.omani.works
+  defaultEnvironmentType: prod
+  owners:
+    - email: ceo@acme.com
+      role: owner
+    - email: ops@acme.com
+      role: admin
+  identity:
+    federationProvider: azure-sso
+    federationConfig:
+      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+      clientId: acme-catalyst
+      clientSecretRef:
+        name: acme-azure-sso-secret
+        key: client-secret
+---
+# A second valid sample — internal-team Org with chargeback
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: bank-engineering
+spec:
+  slug: bank-engineering
+  displayName: Bank Engineering
+  kind: internal
+  tier: corporate
+  billingMode: chargeback
+  sovereignRef: omantel.omani.works
+  parentOrg: bank
+  defaultEnvironmentType: dev
+  owners:
+    - email: cto@bank.example
+      role: owner

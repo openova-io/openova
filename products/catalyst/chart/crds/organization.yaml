@@ -1,0 +1,265 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: organizations.orgs.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: organization
+spec:
+  group: orgs.openova.io
+  scope: Cluster
+  names:
+    kind: Organization
+    listKind: OrganizationList
+    singular: organization
+    plural: organizations
+    shortNames:
+      - org
+      - orgs
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Slug
+          type: string
+          jsonPath: .spec.slug
+        - name: Kind
+          type: string
+          jsonPath: .spec.kind
+        - name: Tier
+          type: string
+          jsonPath: .spec.tier
+        - name: Billing
+          type: string
+          jsonPath: .spec.billingMode
+        - name: Sovereign
+          type: string
+          jsonPath: .spec.sovereignRef
+        - name: vCluster
+          type: string
+          jsonPath: .status.vcluster.phase
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Organization is the multi-tenant unit on a Sovereign. Per
+            ADR-0001 §2.7, an Organization is a namespace + a vCluster +
+            a Keycloak group; this CRD is the K8s-native parent of those
+            three artifacts plus billing/identity attributes.
+
+            Customer Orgs (kind=customer) and internal-team Orgs
+            (kind=internal) share the SAME shape and the SAME code path.
+            Difference is the billingMode dimension only.
+
+            See docs/EPICS-1-6-unified-design.md §3.2.1 and
+            docs/NAMING-CONVENTION.md §1.5, §2.5, §4.6.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [slug, displayName, kind, tier, billingMode, sovereignRef]
+              properties:
+                slug:
+                  type: string
+                  description: |
+                    Lowercase URL-safe identifier — used as the vCluster
+                    name on the host cluster, the Keycloak group path, and
+                    the Gitea Org name. Reserved values rejected: system,
+                    flux, crossplane, catalyst, gitea, kube-*, and any
+                    provider/region/bb/env_type code. Length 3-32.
+                  pattern: '^[a-z][a-z0-9-]{2,31}$'
+                  not:
+                    enum:
+                      - system
+                      - flux
+                      - crossplane
+                      - catalyst
+                      - gitea
+                      - hetzner
+                      - huawei
+                      - oci
+                      - aws
+                      - gcp
+                      - azure
+                      - contabo
+                      - rtz
+                      - dmz
+                      - mgt
+                      - prod
+                      - stg
+                      - uat
+                      - dev
+                      - poc
+                displayName:
+                  type: string
+                  description: Human-readable organization name (e.g. "ACME Corp").
+                  minLength: 1
+                  maxLength: 128
+                kind:
+                  type: string
+                  enum: [customer, internal]
+                  description: |
+                    customer = external-customer Organization (real billing
+                    or showback). internal = internal-team / department
+                    (chargeback or showback only).
+                tier:
+                  type: string
+                  enum: [sme, corporate]
+                  description: |
+                    sme = self-service signup, no DMZ, per-Org Keycloak realm.
+                    corporate = managed onboarding, dedicated DMZ vCluster
+                    auto-provisioned (EPIC-5 #1100), per-Sovereign realm
+                    federation.
+                billingMode:
+                  type: string
+                  enum: [real, chargeback, showback]
+                  description: |
+                    real = invoiced (kind=customer only). chargeback = cost
+                    allocated to internal cost-center. showback = visibility
+                    only, no invoicing.
+                sovereignRef:
+                  type: string
+                  description: |
+                    FQDN of the Sovereign hosting this Organization
+                    (e.g. omantel.omani.works). Authoritative once the
+                    organization-controller (slice C1) reconciles.
+                  pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+                parentOrg:
+                  type: string
+                  description: |
+                    Optional parent Organization slug — used for nested orgs
+                    inside corporate Sovereigns (e.g. acme-pharmacy under
+                    acme). Customer Orgs typically have no parent.
+                  pattern: '^[a-z][a-z0-9-]{2,31}$'
+                defaultEnvironmentType:
+                  type: string
+                  enum: [prod, stg, uat, dev, poc]
+                  default: prod
+                  description: Default env_type for new Environments unless overridden.
+                owners:
+                  type: array
+                  minItems: 1
+                  description: |
+                    Initial owner roster. Materialized as Keycloak group
+                    members + UserAccess CRs by the organization-controller.
+                  items:
+                    type: object
+                    required: [email, role]
+                    properties:
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum: [owner, admin, developer, viewer]
+                identity:
+                  type: object
+                  description: |
+                    Federation config — empty means use the Sovereign's own
+                    Keycloak realm. Set to federate Azure SSO / Okta / generic
+                    OIDC into this Org's vCluster.
+                  properties:
+                    federationProvider:
+                      type: string
+                      enum: ["", azure-sso, okta, generic-oidc]
+                      default: ""
+                    federationConfig:
+                      type: object
+                      properties:
+                        issuer:
+                          type: string
+                        clientId:
+                          type: string
+                        clientSecretRef:
+                          type: object
+                          required: [name, key]
+                          description: |
+                            Reference to a SealedSecret that holds the OIDC
+                            client secret. Plaintext NEVER on the CR.
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                              default: client-secret
+                          x-kubernetes-preserve-unknown-fields: true
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                vcluster:
+                  type: object
+                  description: vCluster reconciliation summary.
+                  properties:
+                    name:
+                      type: string
+                    hostCluster:
+                      type: string
+                      description: Name of the host cluster the vCluster lives on.
+                    phase:
+                      type: string
+                      enum:
+                        - Pending
+                        - Provisioning
+                        - Ready
+                        - Failed
+                  x-kubernetes-preserve-unknown-fields: true
+                keycloakGroup:
+                  type: object
+                  description: Keycloak group reconciliation summary.
+                  properties:
+                    id:
+                      type: string
+                    path:
+                      type: string
+                    realm:
+                      type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                giteaOrg:
+                  type: object
+                  description: |
+                    Gitea Org reconciliation summary. Per Naming §11.2,
+                    every Application gets its own repo at
+                    gitea.<location-code>.<sovereign-domain>/<org>/<app>.
+                  properties:
+                    name:
+                      type: string
+                    repos:
+                      type: array
+                      items:
+                        type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
