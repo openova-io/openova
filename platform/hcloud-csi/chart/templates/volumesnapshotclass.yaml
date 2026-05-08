@@ -1,0 +1,20 @@
+{{/*
+VolumeSnapshotClass for backup workflows (Velero etc.). Default off —
+requires snapshot.storage.k8s.io/v1 CRDs which the upstream hcloud-csi
+subchart provides when its volumeSnapshots feature is enabled.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 6.
+*/}}
+{{- if and .Values.enabled .Values.volumeSnapshotClass.enabled -}}
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: {{ .Values.volumeSnapshotClass.name | quote }}
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: volume-snapshot-class
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+driver: csi.hetzner.cloud
+deletionPolicy: {{ .Values.volumeSnapshotClass.deletionPolicy | default "Delete" | quote }}
+{{- end -}}

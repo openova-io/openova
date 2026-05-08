@@ -1,0 +1,41 @@
+{{/*
+Catalyst-managed StorageClasses. Renders one StorageClass per entry in
+.Values.catalystStorageClasses[]. Default off (gated by .Values.enabled).
+The key was renamed from `storageClasses` to `catalystStorageClasses` to
+avoid collision with the upstream `hcloud-csi.storageClasses` array.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 6 + ADR-0001 §3 (5-store
+rule, SeaweedFS for object storage; CNPG/FerretDB use this CSI for
+their PVCs).
+
+When .Values.defaultStorageClass is true the FIRST entry in storageClasses[]
+is annotated as the cluster default. Operators schedule the migration plan
+for existing PVCs (drain → repvc → copy-data) before flipping this — see
+README.md §"Why default-OFF on defaultStorageClass".
+*/}}
+{{- if .Values.enabled -}}
+{{- range $i, $sc := .Values.catalystStorageClasses }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $sc.name | quote }}
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: storage-class
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+    catalyst.openova.io/blueprint-version: {{ $.Chart.Version | quote }}
+  annotations:
+{{- if and $.Values.defaultStorageClass (eq $i 0) }}
+    storageclass.kubernetes.io/is-default-class: "true"
+{{- end }}
+provisioner: csi.hetzner.cloud
+reclaimPolicy: {{ $sc.reclaimPolicy | default "Delete" | quote }}
+volumeBindingMode: {{ $sc.volumeBindingMode | default "WaitForFirstConsumer" | quote }}
+allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}
+{{- with $sc.parameters }}
+parameters:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}

@@ -1,0 +1,58 @@
+# Master gate. Default off — installing this Blueprint is a no-op until
+# flipped. EPIC-6 (#1101) flips it as part of the multi-region
+# substrate roll-out (CNPG primary/replica needs hcloud-volumes).
+enabled: false
+
+# Flip the cluster's default StorageClass to hcloud-volumes. Default
+# false — destructive change for Pods relying on the previous default's
+# binding semantics. Operator schedules an in-place migration plan
+# (drain, repvc, copy-data) before flipping this on a running Sovereign.
+defaultStorageClass: false
+
+catalystBlueprint:
+  upstream: { chart: hcloud-csi, version: "2.13.0", repo: "https://charts.hetzner.cloud" }
+
+# Reference to the SealedSecret holding the HCLOUD_TOKEN. Plaintext NEVER
+# on the CR per docs/INVIOLABLE-PRINCIPLES.md #10. The upstream subchart
+# expects the secret to be mounted in the controller Deployment via env var.
+hetznerTokenSecretRef:
+  name: hcloud-csi-token
+  key: token
+
+# Catalyst-managed StorageClass list. Each entry renders an independent
+# StorageClass — operators can add fast-ssd / archive variants per
+# Sovereign without editing this chart. Named `catalystStorageClasses`
+# to avoid collision with the upstream `hcloud-csi.storageClasses` key
+# (different shape — upstream has its own list under that name).
+catalystStorageClasses:
+  - name: hcloud-volumes
+    reclaimPolicy: Delete
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: true
+    parameters: {}
+
+# VolumeSnapshotClass for backup workflows (Velero etc.). Default off —
+# requires snapshot.storage.k8s.io/v1 CRDs which are part of the upstream
+# CSI subchart.
+volumeSnapshotClass:
+  enabled: false
+  name: hcloud-volumes-snapshots
+  deletionPolicy: Delete
+
+# ─── Upstream subchart values (subchart key: hcloud-csi) ──────────────
+hcloud-csi:
+  # The upstream chart's secret reference shape — wired to our SealedSecret.
+  controller:
+    hcloudToken:
+      existingSecret:
+        name: hcloud-csi-token
+        key: token
+    replicas: 2
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 256Mi }
+  # Disable the upstream chart's StorageClass install — Catalyst overlay
+  # templates (chart/templates/storageclass.yaml) render them with our
+  # naming + annotations. The upstream schema expects this key as an
+  # array; passing [] suppresses upstream-rendered StorageClasses entirely.
+  storageClasses: []
