@@ -1,0 +1,49 @@
+{{/*
+Hubble UI HTTPRoute — exposes the Cilium-managed Hubble UI Service via
+the Sovereign's Cilium Gateway with the wildcard cert from
+clusters/_template/sovereign-tls/.
+
+Default-OFF: the gate `.Values.catalystOverlay.hubbleUI.enabled` is
+false in the chart values. Operator opts in per Sovereign once:
+  1. cilium.hubble.relay.enabled = true   (in same overlay)
+  2. cilium.hubble.ui.enabled    = true   (in same overlay)
+  3. Keycloak realm has a `hubble-ui` OIDC client (slice D1)
+  4. catalystOverlay.hubbleUI.hostname is set to a hostname under the
+     Sovereign domain.
+
+Per docs/EPICS-1-6-unified-design.md §3.9 row 7 + §8 (EPIC-5).
+
+The OIDC enforcement at the gateway boundary is NOT yet wired here —
+Cilium's L7 OIDC filter is the target (configured via CiliumEnvoyConfig
+or HTTPRoute filter once bp-keycloak ships the realm). For Phase-0 this
+template gives EPIC-5 the seam to extend; today the route forwards
+unauthenticated, so flipping the gate without the OIDC layer leaves
+Hubble UI publicly accessible — DO NOT enable in production until EPIC-5
+delivers the OIDC enforcement.
+*/}}
+{{- if and .Values.catalystOverlay.hubbleUI.enabled .Values.catalystOverlay.hubbleUI.hostname -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble-ui
+  namespace: {{ .Values.catalystOverlay.hubbleUI.serviceRef.namespace | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: hubble-ui-overlay
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  parentRefs:
+    - name: {{ .Values.catalystOverlay.hubbleUI.gatewayRef.name | quote }}
+      namespace: {{ .Values.catalystOverlay.hubbleUI.gatewayRef.namespace | quote }}
+  hostnames:
+    - {{ .Values.catalystOverlay.hubbleUI.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ .Values.catalystOverlay.hubbleUI.serviceRef.name | quote }}
+          port: {{ .Values.catalystOverlay.hubbleUI.serviceRef.port }}
+{{- end -}}
