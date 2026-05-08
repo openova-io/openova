@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cilium
-version: 1.2.0
+version: 1.2.1
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
@@ -32,5 +32,11 @@ maintainers:
 # nodeEncryption — all unchanged.
 dependencies:
   - name: cilium
-    version: "1.19.3"
+    # Pinned to match Chart.lock (truth-on-disk). The previous "1.19.3"
+    # value was provenance drift caught in EPIC-0 #1095 audit — Chart.lock
+    # had been resolving to 1.16.5 the whole time. Aligning the declared
+    # constraint with the locked version eliminates the lie. Bumping to a
+    # newer Cilium minor is a separate slice that needs real upgrade
+    # testing on a live data-plane cluster.
+    version: "1.16.5"
     repository: "https://helm.cilium.io"
