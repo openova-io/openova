@@ -8,10 +8,12 @@
  *      `catalyst_session` cookie minted by the server-side /auth/handover
  *      handler. If 200, the operator is authenticated via the cookie —
  *      render the console without ever touching Keycloak.
- *   2. If 401, fall back to the legacy OIDC flow:
- *      - read tokens from sessionStorage,
- *      - if missing/expired, attempt silentRefresh,
- *      - if that fails, initiateLogin (PKCE redirect to Keycloak).
+ *   2. If 401, fall back to the OpenOva PIN-login page (`/login`) with
+ *      the original deep-link preserved as `?next=<path+search>`. We do
+ *      NOT redirect to Keycloak's hosted login — operators sign in via
+ *      the OpenOva 6-digit PIN flow (issue #688 + #1089). Keycloak
+ *      remains the IdP behind catalyst-api but its hosted UI must never
+ *      surface to the operator.
  *   3. After login, if the id_token contains required actions
  *      (UPDATE_PASSWORD / configure-passkey / CONFIGURE_TOTP), shows the
  *      RequiredActionsModal before rendering the console.
@@ -24,7 +26,7 @@
  * `catalyst_session` HttpOnly Secure SameSite=Lax cookie for, and 302s to
  * /console/dashboard. The browser arrives with a fresh cookie but no
  * sessionStorage tokens — the layout MUST recognise that cookie before
- * bouncing to Keycloak's hosted login (issue: live regression on
+ * sending the operator to /login (issue: live regression on
  * otech49 + otech52 today, operator landed on a username/password
  * screen instead of the dashboard).
  *
@@ -42,7 +44,8 @@
  * runtime state, never inlined.
  *
  * Related: GitHub issue #607 (initial OIDC gate),
- *          Phase-8b followup (session-cookie precedence).
+ *          Phase-8b followup (session-cookie precedence),
+ *          issue #1089 (chroot anon must redirect to /login, never KC).
  */
 
 import { useEffect, useState } from 'react'
@@ -54,11 +57,39 @@ import {
   loadTokens,
   isTokenExpired,
   silentRefresh,
-  initiateLogin,
   getRequiredActions,
 } from '@/shared/lib/oidc'
 import type { TokenSet } from '@/shared/lib/oidc'
 import { RequiredActionsModal } from '@/components/RequiredActionsModal'
+
+/**
+ * Build the basepath-aware URL prefix so the redirect target works both
+ * on chroot Sovereigns (served at domain root) and on the mothership
+ * (served at /sovereign/* with a strip-prefix middleware that the
+ * browser URL still reflects).
+ */
+function uiBase(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
+}
+
+/**
+ * Redirect to the OpenOva PIN-login page, preserving the original
+ * deep-link as `?next=<path+search>` so post-verify the operator lands
+ * back on the page they tried to visit. Hard navigation (location.replace)
+ * is used so any stale OIDC sessionStorage state is naturally discarded
+ * by the next page load.
+ *
+ * Per #1089: NEVER redirect to Keycloak's hosted login UI here. The
+ * IdP-hosted flow is for catalyst-api server-side use only; the
+ * operator-facing surface is the OpenOva PIN page.
+ */
+function redirectToLogin(): void {
+  if (typeof window === 'undefined') return
+  const next = window.location.pathname + window.location.search
+  const target = `${uiBase()}/login?next=${encodeURIComponent(next)}`
+  window.location.replace(target)
+}
 
 /**
  * Shape returned by GET /api/v1/whoami when the catalyst_session cookie
@@ -161,14 +192,17 @@ export function SovereignConsoleLayout() {
         return
       }
 
-      // Legacy OIDC fallback — for operators who arrived via direct
-      // navigation to /console/* without going through the wizard
-      // handover (e.g. a returning user whose cookie expired). The PKCE
-      // flow remains the canonical re-auth path.
+      // No session cookie — try existing OIDC tokens (set by the legacy
+      // PKCE flow on otech<=46 builds before #688), refreshing silently
+      // if expired. If there's no usable token AND silentRefresh fails,
+      // bounce to the PIN-login page with deep-link preservation
+      // (#1089). The previous behaviour here was to call initiateLogin()
+      // which redirected to Keycloak's hosted login — that surface is
+      // forbidden for operator-facing flows.
       const existing = loadTokens()
       if (!existing) {
         setAuthState({ status: 'unauthenticated' })
-        await initiateLogin(sovereignFQDN)
+        redirectToLogin()
         return
       }
 
@@ -176,7 +210,7 @@ export function SovereignConsoleLayout() {
         const refreshed = await silentRefresh(sovereignFQDN)
         if (!refreshed) {
           setAuthState({ status: 'unauthenticated' })
-          await initiateLogin(sovereignFQDN)
+          redirectToLogin()
           return
         }
         const actions = getRequiredActions(refreshed.idToken)
@@ -189,14 +223,15 @@ export function SovereignConsoleLayout() {
     }
 
     void initAuth()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sovereignFQDN])
 
   function handleRequiredActionsComplete(tokens: TokenSet) {
     setAuthState({ status: 'authenticated', tokens, requiredActions: [] })
   }
 
-  // Loading — blank page while we check sessionStorage + maybe redirect to KC
+  // Loading — blank page while we probe /whoami and (if needed)
+  // redirect to /login. The `unauthenticated` branch keeps the same
+  // shell while window.location.replace executes.
   if (authState.status === 'loading' || authState.status === 'unauthenticated') {
     return (
       <div

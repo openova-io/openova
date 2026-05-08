@@ -1,28 +1,34 @@
 /**
- * SovereignConsoleLayout.test.tsx — Phase-8b followup
+ * SovereignConsoleLayout.test.tsx
  *
- * Regression coverage for the auth-guard order-of-operations bug caught
- * live on otech49 + otech52 (2026-05-03):
+ * Regression coverage for two stacked auth-guard bugs:
  *
- *   The wizard's handover button drops the operator at
- *     https://console.<sov>.omani.works/auth/handover?token=<jwt>
- *   and the catalyst-api 302-redirects to /console/dashboard with a
- *   `catalyst_session` HttpOnly Secure SameSite=Lax cookie attached.
+ * 1. Phase-8b followup (otech49 + otech52, 2026-05-03)
+ *    The wizard's handover button drops the operator at
+ *      https://console.<sov>.omani.works/auth/handover?token=<jwt>
+ *    and the catalyst-api 302-redirects to /dashboard with a
+ *    `catalyst_session` HttpOnly Secure SameSite=Lax cookie attached.
+ *    PREVIOUS layout went straight from "no sessionStorage tokens" to
+ *    Keycloak's hosted login. The fix probes /api/v1/whoami first.
  *
- *   The PREVIOUS layout went straight from "no sessionStorage tokens"
- *   to `initiateLogin()` (PKCE redirect to Keycloak), so the operator
- *   landed on a username/password screen. Bug ticket from the field:
- *   "fuck, this is asking username password!!!"
+ * 2. Issue #1089 (chroot anon → KC, 2026-05-08)
+ *    On a chroot Sovereign with no cookie + no OIDC tokens, the
+ *    layout USED TO call initiateLogin() which redirected to the
+ *    Keycloak hosted login UI (`auth.<sov>/realms/sovereign/...`).
+ *    The matrix forbids that surface. Operators must land on the
+ *    OpenOva PIN-login page (`/login`) with the original deep-link
+ *    preserved as `?next=<original-path>`. After PIN verify, the
+ *    VerifyPinPage routes the operator back to `next`.
  *
- *   The fix probes GET /api/v1/whoami (with credentials:'include')
- *   FIRST. If 200, the layout renders the console without ever
- *   redirecting to Keycloak. If 401, the existing OIDC flow runs.
- *
- * The two contracts under test:
- *   1. /whoami 200 → cookie-authenticated, console shell renders, NO
- *      navigation to auth.<sov>.../auth?... happens.
- *   2. /whoami 401 → falls back to OIDC initiateLogin (existing
- *      behaviour preserved — sessionStorage tokens path also works).
+ * Contracts under test:
+ *   A. /whoami 200 → cookie-authenticated, console shell renders, NO
+ *      navigation away.
+ *   B. /whoami 401 + no sessionStorage tokens → window.location.replace
+ *      to '/login?next=<encoded-pathname>', NEVER initiateLogin().
+ *   C. /whoami 5xx + no tokens → falls through safely to the PIN-login
+ *      bounce (NOT to KC).
+ *   D. Deep-link preservation → window.location.pathname is encoded
+ *      verbatim into the `next` query param.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -36,9 +42,8 @@ vi.mock('@/shared/lib/detectMode', () => ({
   detectMode: () => ({ mode: 'sovereign' as const, sovereignFQDN: 'otech49.omani.works' }),
 }))
 
-// Stub the OIDC module — the test only needs to observe that
-// initiateLogin is (or isn't) called. We can't let the real
-// implementation run because it does a window.location.replace.
+// Stub the OIDC module — initiateLogin must NEVER be called from this
+// layout post-#1089. We export it as a spy so we can assert that.
 const initiateLoginSpy = vi.fn<(fqdn: string) => Promise<void>>()
 const initiateLogoutSpy = vi.fn<(fqdn: string) => void>()
 const silentRefreshSpy = vi.fn<(fqdn: string) => Promise<unknown>>()
@@ -85,6 +90,27 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 // Now safe to import the SUT.
 import { SovereignConsoleLayout } from './SovereignConsoleLayout'
 
+/**
+ * Stub `window.location` so we can observe redirect targets without
+ * jsdom navigating away. We replace `replace` with a spy and read the
+ * arg back; pathname is set per-test.
+ */
+function stubLocation(pathname: string, search = '') {
+  const replaceSpy = vi.fn<(url: string) => void>()
+  Object.defineProperty(window, 'location', {
+    value: {
+      ...window.location,
+      pathname,
+      search,
+      replace: replaceSpy,
+      assign: vi.fn(),
+      href: `https://console.otech49.omani.works${pathname}${search}`,
+    },
+    writable: true,
+  })
+  return replaceSpy
+}
+
 beforeEach(() => {
   initiateLoginSpy.mockClear()
   initiateLogoutSpy.mockClear()
@@ -100,6 +126,7 @@ afterEach(() => {
 
 describe('SovereignConsoleLayout — auth-guard order of operations', () => {
   it('renders the console shell when /whoami returns 200 (cookie-authenticated)', async () => {
+    stubLocation('/dashboard')
     // Server-side handover minted a catalyst_session cookie, browser
     // arrived here with it attached.
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
@@ -133,11 +160,11 @@ describe('SovereignConsoleLayout — auth-guard order of operations', () => {
     const init = whoamiCall![1] as RequestInit | undefined
     expect(init?.credentials).toBe('include')
   })
+})
 
-  it('falls back to OIDC initiateLogin when /whoami returns 401 and no sessionStorage tokens', async () => {
-    // No cookie, no OIDC tokens — the only escape hatch is a fresh
-    // PKCE flow against Keycloak. This is the "returning user whose
-    // session expired" branch.
+describe('SovereignConsoleLayout — #1089 anon redirect to OpenOva /login', () => {
+  it('on /whoami 401 + no sessionStorage tokens, redirects to /login?next=<path>, NOT to Keycloak', async () => {
+    const replaceSpy = stubLocation('/dashboard')
     vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as URL).toString()
       if (url.endsWith('/v1/whoami')) {
@@ -149,24 +176,87 @@ describe('SovereignConsoleLayout — auth-guard order of operations', () => {
 
     render(<SovereignConsoleLayout />)
 
-    // The auth-gate loading screen renders while initiateLogin runs.
     await screen.findByTestId('sov-auth-loading')
 
-    // Wait for the OIDC fallback to fire — the spy is async-resolved
-    // inside useEffect → Promise chain.
+    // Wait for the redirect to fire (chained off the /whoami promise).
     await waitFor(() => {
-      expect(initiateLoginSpy).toHaveBeenCalledWith('otech49.omani.works')
+      expect(replaceSpy).toHaveBeenCalled()
     })
 
-    // The console shell never rendered.
-    expect(screen.queryByTestId('sov-console-shell')).toBeNull()
+    const target = replaceSpy.mock.calls[0]![0]
+    expect(target).toContain('/login?next=')
+    expect(target).toContain(encodeURIComponent('/dashboard'))
+
+    // The decisive assertion: Keycloak's hosted login was NEVER touched.
+    expect(initiateLoginSpy).not.toHaveBeenCalled()
   })
 
-  it('does not redirect to Keycloak on a 5xx /whoami — falls through to the OIDC path safely', async () => {
-    // 5xx must NOT be confused with "no session". The fallback to OIDC
-    // is itself idempotent, so falling through is the safe behaviour;
-    // the relevant assertion is that we don't render the console
-    // either (no spurious "authenticated" state).
+  it('preserves a deep-linked path (/jobs/timeline) verbatim in the next param', async () => {
+    const replaceSpy = stubLocation('/jobs/timeline')
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString()
+      if (url.endsWith('/v1/whoami')) {
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    loadTokensSpy.mockReturnValue(null)
+
+    render(<SovereignConsoleLayout />)
+
+    await waitFor(() => {
+      expect(replaceSpy).toHaveBeenCalled()
+    })
+    const target = replaceSpy.mock.calls[0]![0]
+    expect(target).toBe('/login?next=' + encodeURIComponent('/jobs/timeline'))
+    expect(initiateLoginSpy).not.toHaveBeenCalled()
+  })
+
+  it('preserves a deep-linked path including search (/apps?filter=running) verbatim', async () => {
+    const replaceSpy = stubLocation('/apps', '?filter=running')
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString()
+      if (url.endsWith('/v1/whoami')) {
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    loadTokensSpy.mockReturnValue(null)
+
+    render(<SovereignConsoleLayout />)
+
+    await waitFor(() => {
+      expect(replaceSpy).toHaveBeenCalled()
+    })
+    const target = replaceSpy.mock.calls[0]![0]
+    expect(target).toBe('/login?next=' + encodeURIComponent('/apps?filter=running'))
+  })
+
+  it('on /whoami 401 + expired tokens + silentRefresh failure, also redirects to /login (NOT KC)', async () => {
+    const replaceSpy = stubLocation('/cloud')
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString()
+      if (url.endsWith('/v1/whoami')) {
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    // Have tokens, but they're expired AND silentRefresh returns null.
+    loadTokensSpy.mockReturnValue({ idToken: 'expired', accessToken: 'expired', expiresAt: 0 })
+    silentRefreshSpy.mockResolvedValue(null)
+
+    render(<SovereignConsoleLayout />)
+
+    await waitFor(() => {
+      expect(replaceSpy).toHaveBeenCalled()
+    })
+    const target = replaceSpy.mock.calls[0]![0]
+    expect(target).toBe('/login?next=' + encodeURIComponent('/cloud'))
+    expect(initiateLoginSpy).not.toHaveBeenCalled()
+  })
+
+  it('on /whoami 5xx, falls through to the PIN-login bounce (not KC)', async () => {
+    const replaceSpy = stubLocation('/dashboard')
     vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as URL).toString()
       if (url.endsWith('/v1/whoami')) {
@@ -179,8 +269,10 @@ describe('SovereignConsoleLayout — auth-guard order of operations', () => {
     render(<SovereignConsoleLayout />)
 
     await waitFor(() => {
-      expect(initiateLoginSpy).toHaveBeenCalled()
+      expect(replaceSpy).toHaveBeenCalled()
     })
-    expect(screen.queryByTestId('sov-console-shell')).toBeNull()
+    const target = replaceSpy.mock.calls[0]![0]
+    expect(target).toContain('/login?next=')
+    expect(initiateLoginSpy).not.toHaveBeenCalled()
   })
 })
