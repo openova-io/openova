@@ -1,0 +1,78 @@
+# Deployment — slice C3, blueprint-controller (#1095).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a the image MUST be the SHA-pinned
+# tag built by GitHub Actions; `:latest` and floating tags are NEVER
+# permitted in production manifests. The Flux ImagePolicy reconciler
+# (when wired) bumps the SHA via PR.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 every value here is overridable
+# via the per-cluster bootstrap-kit overlay; nothing region-specific
+# lives in this base manifest.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blueprint-controller
+  namespace: catalyst
+  labels:
+    app.kubernetes.io/name: blueprint-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blueprint-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blueprint-controller
+    spec:
+      serviceAccountName: blueprint-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: blueprint-controller
+          # Image SHA bumped by CI on every push to
+          # core/controllers/blueprint/** in main.
+          image: ghcr.io/openova-io/openova/blueprint-controller:placeholder
+          imagePullPolicy: IfNotPresent
+          env:
+            # Sovereign-local Gitea — overridden per cluster.
+            - name: CATALYST_GITEA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: blueprint-controller-config
+                  key: giteaURL
+                  optional: true
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: blueprint-controller-gitea
+                  key: token
+                  optional: true
+            - name: LOG_LEVEL
+              value: info
+            - name: RESYNC_PERIOD
+              value: "5m"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Liveness probe: the controller exits non-zero on permanent
+          # errors (CRD missing, kubeconfig invalid) and the K8s
+          # restart policy handles the rest. A heartbeat HTTP endpoint
+          # is a follow-up slice (when leader-election lands).
+          terminationMessagePolicy: FallbackToLogsOnError
+      terminationGracePeriodSeconds: 30

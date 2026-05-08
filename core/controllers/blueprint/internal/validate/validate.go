@@ -1,0 +1,336 @@
+// Package validate — business-logic checks for Blueprint CRs.
+//
+// The CRD's openAPIV3Schema (products/catalyst/chart/crds/blueprint.yaml)
+// already enforces the structural shape: spec.version regex, card.title
+// non-empty, visibility enum, manifests.source.kind enum, etc.
+//
+// What this package adds is the union of checks the schema cannot
+// express:
+//
+//   1. spec.placementSchema.modes[] is a non-empty subset of the canonical
+//      mode set [single-region, active-active, active-hotstandby].
+//      (CRD enforces the enum on each item but does not enforce
+//      non-emptiness of the array — minItems: 1 is on the schema, but
+//      the schema also marks placementSchema itself as
+//      x-kubernetes-preserve-unknown-fields, so a hand-authored CR can
+//      slip in `placementSchema: {}`.)
+//   2. spec.manifests.source.kind, when present, is one of the three
+//      legal values. (CRD has the enum, but a Blueprint may use the
+//      v1alpha1 short-form `manifests.chart: ./chart` and have NO
+//      `source` block — that path is legal and must NOT trigger an
+//      error.)
+//   3. spec.upgrades.from[] entries are syntactically-valid semver
+//      ranges per docs/BLUEPRINT-AUTHORING.md §3 and §10.
+//   4. spec.depends[].blueprint references either (a) a known Blueprint
+//      in the catalog or (b) a known dependency in this same set of
+//      Blueprint CRs. Resolution of (a) is the controller's
+//      responsibility — this package returns the *list* of blueprint
+//      names that must be checked; the caller does the lookup and
+//      surfaces a Pending condition if none resolve.
+//   5. metadata.name SHOULD match `bp-<name>` form OR the lower-case
+//      kebab-case of card.title. Returns a *warning* (not error) if it
+//      doesn't, since the existing 61-blueprint corpus has divergent
+//      conventions (e.g. `bp-cilium` vs `bp-wordpress-tenant`). The
+//      controller surfaces warnings as a status.conditions[] entry but
+//      does not block publishing.
+//
+// Per slice C3 brief: when a `depends[].blueprint` doesn't resolve,
+// surface a Pending condition rather than rejecting outright. So this
+// package returns a Result struct whose fields are interpreted by the
+// controller — Errors are hard rejections, Pending entries delay
+// publication, Warnings are logged but accepted.
+package validate
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/core/controllers/blueprint/internal/semver"
+)
+
+// canonicalPlacementModes — must mirror the enum in
+// products/catalyst/chart/crds/blueprint.yaml `placementSchema.modes`.
+var canonicalPlacementModes = map[string]struct{}{
+	"single-region":      {},
+	"active-active":      {},
+	"active-hotstandby":  {},
+}
+
+// canonicalManifestKinds — must mirror the enum in
+// products/catalyst/chart/crds/blueprint.yaml `manifests.source.kind`.
+var canonicalManifestKinds = map[string]struct{}{
+	"HelmChart": {},
+	"Kustomize": {},
+	"OAM":       {},
+}
+
+// bpNamePattern — matches `bp-<lowercase-kebab>`.
+var bpNamePattern = regexp.MustCompile(`^bp-[a-z][a-z0-9-]{0,61}$`)
+
+// kebabPattern — matches a lowercase kebab-case identifier.
+var kebabPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}$`)
+
+// titleToKebab returns the lowercase-kebab-case projection of title.
+// Spaces and underscores → "-"; non-alnum characters dropped; multiple
+// consecutive hyphens collapsed; leading/trailing hyphens trimmed.
+//
+// Examples:
+//   "WordPress" → "wordpress"
+//   "WordPress Tenant" → "wordpress-tenant"
+//   "Hetzner CSI" → "hetzner-csi"
+//   "kube-prometheus-stack" → "kube-prometheus-stack"
+func titleToKebab(title string) string {
+	var sb strings.Builder
+	prevHyphen := true // drop leading hyphens
+	for _, r := range title {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			sb.WriteRune(r - 'A' + 'a')
+			prevHyphen = false
+		case r >= 'a' && r <= 'z':
+			sb.WriteRune(r)
+			prevHyphen = false
+		case r >= '0' && r <= '9':
+			sb.WriteRune(r)
+			prevHyphen = false
+		case r == ' ' || r == '_' || r == '-' || r == '/' || r == '.':
+			if !prevHyphen {
+				sb.WriteRune('-')
+				prevHyphen = true
+			}
+		default:
+			// Drop any other rune.
+		}
+	}
+	out := sb.String()
+	out = strings.TrimRight(out, "-")
+	return out
+}
+
+// Result captures the outcome of a Blueprint validation pass.
+type Result struct {
+	// Errors block publication; the controller refuses to mirror the
+	// Blueprint and the CR's Ready condition reports False with reason
+	// "ValidationFailed".
+	Errors []string
+
+	// PendingDeps lists `spec.depends[].blueprint` values that the
+	// controller could not resolve in the catalog at validation time.
+	// Per slice C3 brief: the controller surfaces a Pending condition
+	// (not a hard error) so a Blueprint added in the same Gitea PR can
+	// still resolve once the dependency lands. Empty = no pending deps.
+	PendingDeps []string
+
+	// Warnings are logged + surfaced on status.conditions[] but do not
+	// block publication. Used for the metadata.name vs card.title-kebab
+	// soft check, etc.
+	Warnings []string
+}
+
+// HasErrors returns true if Errors is non-empty.
+func (r Result) HasErrors() bool {
+	return len(r.Errors) > 0
+}
+
+// Validate runs business-logic checks against bp (an unstructured
+// Blueprint CR) and returns a Result. The catalog parameter holds
+// known Blueprint names — pass an empty set in unit tests if dependency
+// resolution is not under test.
+func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result {
+	var res Result
+
+	if bp == nil {
+		res.Errors = append(res.Errors, "blueprint object is nil")
+		return res
+	}
+
+	name := bp.GetName()
+	if name == "" {
+		res.Errors = append(res.Errors, "metadata.name is empty")
+	}
+
+	spec, found, err := unstructured.NestedMap(bp.Object, "spec")
+	if err != nil || !found {
+		res.Errors = append(res.Errors, "spec is missing or not a map")
+		return res
+	}
+
+	// --- card.title (CRD enforces required, but reaffirm here so the
+	// dependent name-vs-title check has a value to use).
+	cardTitle, _, _ := unstructured.NestedString(spec, "card", "title")
+
+	// --- name vs card.title soft check.
+	// Two acceptable forms:
+	//   1. bp-<kebab>
+	//   2. <kebab> matching titleToKebab(card.title)
+	// Anything else is a *warning* per slice C3 brief.
+	if name != "" {
+		titleKebab := titleToKebab(cardTitle)
+		switch {
+		case bpNamePattern.MatchString(name):
+			// Optional tighter check: when bp-<kebab> form, kebab must
+			// match titleKebab. We only warn — the existing corpus has
+			// e.g. `bp-cert-manager-dynadot-webhook` whose card.title
+			// is "cert-manager DNS-01 (Dynadot)" — close but not exact.
+			withoutPrefix := strings.TrimPrefix(name, "bp-")
+			if titleKebab != "" && withoutPrefix != titleKebab {
+				res.Warnings = append(res.Warnings, fmt.Sprintf(
+					"metadata.name %q does not match bp-<card.title-kebab> (got %q, kebab(title) = %q); accepted but consider aligning",
+					name, withoutPrefix, titleKebab,
+				))
+			}
+		case kebabPattern.MatchString(name) && (titleKebab == "" || name == titleKebab):
+			// bare kebab matching the title — accepted without warning.
+		default:
+			res.Warnings = append(res.Warnings, fmt.Sprintf(
+				"metadata.name %q is neither bp-<kebab> nor kebab(card.title) %q; accepted but consider renaming",
+				name, titleKebab,
+			))
+		}
+	}
+
+	// --- placementSchema.modes[] — non-empty subset of canonical set.
+	if pSchema, ok := nestedAsMap(spec, "placementSchema"); ok {
+		modes, _, _ := unstructured.NestedStringSlice(pSchema, "modes")
+		// Empty placementSchema = OK (use system default). Empty
+		// modes[] when placementSchema is present and modes is set =
+		// error.
+		if rawModes, hasModes := pSchema["modes"]; hasModes {
+			if rawModes == nil {
+				res.Errors = append(res.Errors, "spec.placementSchema.modes is null; expected non-empty array")
+			} else if len(modes) == 0 {
+				res.Errors = append(res.Errors, "spec.placementSchema.modes is empty; expected non-empty array")
+			}
+			for _, m := range modes {
+				if _, ok := canonicalPlacementModes[m]; !ok {
+					res.Errors = append(res.Errors, fmt.Sprintf(
+						"spec.placementSchema.modes contains %q; legal values: single-region, active-active, active-hotstandby",
+						m,
+					))
+				}
+			}
+		}
+		// Optional: default mode must be one of modes[] (when both set).
+		if defaultMode, _, _ := unstructured.NestedString(pSchema, "default"); defaultMode != "" {
+			if _, ok := canonicalPlacementModes[defaultMode]; !ok {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.placementSchema.default = %q; legal values: single-region, active-active, active-hotstandby",
+					defaultMode,
+				))
+			}
+			if len(modes) > 0 && !containsString(modes, defaultMode) {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.placementSchema.default = %q is not in modes[]: %v",
+					defaultMode, modes,
+				))
+			}
+		}
+	}
+
+	// --- manifests.source.kind — when present, in canonical set.
+	if mfsts, ok := nestedAsMap(spec, "manifests"); ok {
+		if src, ok := nestedAsMap(mfsts, "source"); ok {
+			kind, _, _ := unstructured.NestedString(src, "kind")
+			if kind != "" {
+				if _, ok := canonicalManifestKinds[kind]; !ok {
+					res.Errors = append(res.Errors, fmt.Sprintf(
+						"spec.manifests.source.kind = %q; legal values: HelmChart, Kustomize, OAM",
+						kind,
+					))
+				}
+			}
+		}
+	}
+
+	// --- upgrades.from[] — each must be a valid semver range.
+	if upgrades, ok := nestedAsMap(spec, "upgrades"); ok {
+		from, _, _ := unstructured.NestedStringSlice(upgrades, "from")
+		for _, fr := range from {
+			if err := semver.IsValidRange(fr); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.upgrades.from contains invalid semver range %q: %v",
+					fr, err,
+				))
+			}
+		}
+		// blocks[] uses the same grammar.
+		blocks, _, _ := unstructured.NestedStringSlice(upgrades, "blocks")
+		for _, b := range blocks {
+			if err := semver.IsValidRange(b); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.upgrades.blocks contains invalid semver range %q: %v",
+					b, err,
+				))
+			}
+		}
+	}
+
+	// --- depends[].blueprint resolution against catalog.
+	// Result.PendingDeps captures unresolved names; the controller
+	// surfaces a Pending condition for them. This is non-blocking
+	// per the brief.
+	if depsRaw, found, err := unstructured.NestedSlice(spec, "depends"); err == nil && found {
+		for _, d := range depsRaw {
+			depMap, ok := d.(map[string]interface{})
+			if !ok {
+				// Schema requires depends[] items be objects with a
+				// `blueprint` key. CRD validation catches this at
+				// admission, but be defensive — bare-string entries
+				// have appeared in 5/61 blueprint files historically
+				// (slice B4 fixed those, but a future regression
+				// shouldn't crash this controller).
+				continue
+			}
+			depName, _, _ := unstructured.NestedString(depMap, "blueprint")
+			if depName == "" {
+				continue
+			}
+			if catalog == nil {
+				continue
+			}
+			if _, ok := catalog[depName]; !ok {
+				// Could be the same Blueprint as `bp-<x>` vs `<x>`.
+				// Try both forms for resolution.
+				alt := strings.TrimPrefix(depName, "bp-")
+				altPrefixed := "bp-" + depName
+				if _, ok := catalog[alt]; ok {
+					continue
+				}
+				if _, ok := catalog[altPrefixed]; ok {
+					continue
+				}
+				res.PendingDeps = append(res.PendingDeps, depName)
+			}
+		}
+	}
+
+	return res
+}
+
+// nestedAsMap returns m[key] as map[string]interface{} when the value
+// is a JSON object, or (nil, false) otherwise. Helper for the multi-step
+// nested-map pattern that unstructured.NestedMap on its own can't
+// express (it returns nil if the path doesn't exist OR returns an error
+// if the path is the wrong type, and the controller treats both as
+// "ignore this path").
+func nestedAsMap(m map[string]interface{}, key string) (map[string]interface{}, bool) {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil, false
+	}
+	mm, ok := v.(map[string]interface{})
+	return mm, ok
+}
+
+// containsString reports whether s is in xs.
+func containsString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}

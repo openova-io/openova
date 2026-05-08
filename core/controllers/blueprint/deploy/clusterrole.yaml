@@ -1,0 +1,56 @@
+# ClusterRole — slice C3, blueprint-controller (#1095).
+#
+# Scope per docs/EPICS-1-6-unified-design.md §3.3:
+#   - Watch Blueprints cluster-wide (the CRD is cluster-scoped per
+#     products/catalyst/chart/crds/blueprint.yaml).
+#   - Update Blueprint.status (subresource).
+#   - No other writes — Gitea mirroring goes through the HTTP API
+#     authenticated by CATALYST_GITEA_TOKEN, never the K8s API.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 (architectural-fidelity rule)
+# this controller does NOT call helm/kubectl/exec — its only K8s-side
+# action is updating its own CR's status. All other state lives in
+# Gitea (read by Flux).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: blueprint-controller
+  labels:
+    app.kubernetes.io/name: blueprint-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: flux
+rules:
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints/status"]
+    verbs: ["update", "patch"]
+  # Leader election lease (when slice F1 / future HA work runs the
+  # controller in N-replica leader-elected mode).
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blueprint-controller
+  namespace: catalyst
+  labels:
+    app.kubernetes.io/name: blueprint-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: blueprint-controller
+  labels:
+    app.kubernetes.io/name: blueprint-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: blueprint-controller
+subjects:
+  - kind: ServiceAccount
+    name: blueprint-controller
+    namespace: catalyst
